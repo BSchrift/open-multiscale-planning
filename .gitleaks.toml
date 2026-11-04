@@ -1,0 +1,6 @@
+# `make scan` reads the working folder, gitignored build output included. CDK's asset hashes there look like keys.
+[extend]
+useDefault = true
+
+[allowlist]
+paths = ['''(^|/)(node_modules|cdk\.out|dist|dist-electron|release|DerivedData)/''']

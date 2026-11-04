@@ -1,0 +1,42 @@
+/* Week, on top of the shared week classes. */
+[data-layout] .wkhead { gap: 12px; }
+[data-layout] .wkpanel { margin-bottom: var(--space-4); }
+/* Each section is a card on the ground. Panels are grey boxes elsewhere, so here they take the card's look. */
+[data-layout] .week .panel { border-color: var(--card-line); background: var(--white); box-shadow: var(--card-shadow); }
+[data-layout='desktop'] .week .panel { border-radius: var(--radius-lg); }
+[data-layout='phone'] .week .panel { padding: var(--space-4); border-radius: 14px; }
+[data-layout] .wkgrid { padding: var(--space-3) var(--space-4) var(--space-4); }
+/* Phone: the sticky header is ground, so the week's figures and the chosen day read as the cards under it. */
+[data-layout='phone'] .week .weektop { border-bottom: 0; background: var(--ground); }
+[data-layout='phone'] :is(.wksum, .wkdaycard) { padding: var(--space-3); }
+/* Keeps each day 44pt wide on 375pt phones. */
+[data-layout='phone'] .wksum .wstrip { margin-inline: -4px; }
+[data-layout='phone'] .wkdaycard > .daywrap { padding-block: 0; }
+[data-layout='phone'] .wkdaycard .dragday { margin-bottom: 0; }
+/* While dragging, the day keeps room below it for the tray. */
+[data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
+[data-layout] .wknote { color: var(--amber-ink-2); }
+[data-layout] .wklegend { margin-top: 8px; }
+[data-layout] .legend i.keyfree { background: var(--fill); }
+[data-layout] .legend i.keyinfo { background: transparent; border: 1px dashed var(--info-line); }
+[data-layout] .legend i.keyclosed { background: var(--closed); border: 1px solid var(--line-soft); }
+[data-layout] .legend i.ev-busy { background: repeating-linear-gradient(135deg, var(--line) 0, var(--line) 3px, var(--stripe-2) 3px, var(--stripe-2) 6px); }
+[data-layout] .legend i.ev-project { background: var(--blue-soft); border: 1px solid var(--blue); border-left-width: 3px; }
+[data-layout] .legend i.ev-practice { background: var(--teal-soft); border: 1px solid var(--teal); border-left: 4px double var(--teal); }
+[data-layout] .legend i.ev-maint { background: var(--purple-soft); border: 1px solid var(--purple); border-left: 4px dotted var(--purple); }
+[data-layout] .wktitle { min-width: 0; text-align: center; }
+[data-layout] .wkcenter { text-align: center; }
+[data-layout] .wkday { margin: 4px 0 8px; color: var(--ink-2); }
+[data-layout='phone'] .wkday { font-size: var(--text-md); }
+[data-layout] .wkhint { margin-bottom: 8px; }
+[data-layout] .wkbusy { display: flex; align-items: center; }
+[data-layout] .wkstats { width: 100%; margin-top: var(--space-3); }
+[data-layout] .wkgrow { flex: 1; min-width: 0; }
+[data-layout] .wkline { display: block; }
+[data-layout] .wkgroup { margin-bottom: 4px; }
+[data-layout] .wkrow { padding: 0; }
+[data-layout] .wkrange { width: 100%; }
+[data-layout] .day.dragday { background: repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) 48px); }
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .dragblock, [data-layout] .evdrag { transition: none; }
+}

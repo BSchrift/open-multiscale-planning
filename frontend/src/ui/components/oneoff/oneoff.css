@@ -1,0 +1,37 @@
+/* The one off form and date editor. Shared tokens and classes come from the app styles. */
+[data-layout] .oneoffform .oospan {
+  grid-column: 1 / -1;
+}
+
+[data-layout] .oomonths {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+[data-layout='phone'] .oomonths {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+[data-layout] .oorule {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+[data-layout] .oorule select.field {
+  width: 100%;
+}
+
+[data-layout] .ooslider {
+  width: 100%;
+  accent-color: var(--blue);
+}
+
+[data-layout='phone'] .ooslider {
+  min-height: var(--tap);
+}
+
+[data-layout='desktop'] .oodatefield {
+  width: auto;
+}

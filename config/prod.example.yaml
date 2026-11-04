@@ -1,0 +1,16 @@
+# Prod. Copy to prod.yaml in your config folder ($MULTISCALE_CONFIG_DIR, or this folder) and fill it in.
+aws:
+  account: "222222222222" # may be the same account as staging or control
+  region: us-west-2
+  profile: multiscale-prod
+alarmEmail: you@example.com # where alarms and budget alerts go
+auth:
+  # Prefix of the sign-in page's address: globally unique, lowercase, without aws, amazon or cognito.
+  cognitoDomainPrefix: multiscale-prod-change-me
+  signInCallbackUrls:
+    - multiscale://auth/callback
+dns:
+  zone: app.example.com # optional; a subdomain of control.yaml's domain
+integration:
+  testUser: integration-test@example.com # its password lives in SSM at /multiscale/prod/test-user-password
+  capabilities: [googleClient]

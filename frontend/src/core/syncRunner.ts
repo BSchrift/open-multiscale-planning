@@ -1,0 +1,214 @@
+// Decides when to sync: at launch, on returning to the foreground, 2 seconds after an edit, and every 5 minutes
+// while open. The result goes in the meta table, so Settings reads it with syncStatus like any other query, and it
+// survives a restart. A failed sync changes nothing but that status: the outbox keeps everything for next time.
+//
+// There's no paused state to manage. Once a sign-in has expired the tokens are gone, so each trigger fails at once
+// without any network traffic, and the next sync after signing in again carries on from the outbox.
+
+import type { AppConfig } from './appConfig';
+import { createAuth, tokenSubject } from './auth';
+import type { Clock } from './clock';
+import { nowInstant } from './dates';
+import { getMeta, META, setMeta } from './db';
+import type { Db } from './db';
+import { rebaseClocks } from './records';
+import { apiPost, createHttpSend, runSync, SyncError } from './sync';
+import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
+import { RECORD_TYPES } from './types';
+import type { Reminder } from './types';
+
+const EDIT_DELAY_MS = 2000;
+const PERIOD_MS = 5 * 60_000;
+
+async function recordFailure(db: Db, code: SyncErrorCode): Promise<void> {
+  await setMeta(db, META.lastSyncError, code);
+  db.notifyChanged({ types: [], source: 'remote' });
+}
+
+/** Binds this device's records to the first account that syncs them and refuses any other, so two accounts never mix. */
+async function checkAccount(db: Db, account: string | null): Promise<void> {
+  if (!account) return;
+  const bound = await getMeta(db, META.account);
+  if (!bound) await setMeta(db, META.account, account);
+  else if (bound !== account) throw new SyncError('other_account');
+}
+
+export function createSyncRunner(deps: {
+  db: Db;
+  clock: Clock;
+  lifecycle: { onForeground(listener: () => void): () => void };
+  send: SyncSend;
+}) {
+  const { db, clock, lifecycle, send } = deps;
+  let running: Promise<void> | null = null;
+  let again = false;
+  let cleanup: (() => void) | null = null;
+
+  async function syncOnce(): Promise<void> {
+    try {
+      await rebaseClocks(db, clock);
+      await runSync(db, send);
+      await db.transaction(async (tx) => {
+        await setMeta(tx, META.lastSyncAt, nowInstant(clock));
+        await tx.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
+      });
+      db.notifyChanged({ types: [], source: 'remote' });
+    } catch (err) {
+      if (!(err instanceof SyncError)) console.error('Sync failed', err);
+      await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
+    }
+  }
+
+  /** Runs a sync, or one more after the current one, so an edit made during a sync isn't left waiting. Never rejects. */
+  function syncNow(): Promise<void> {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = (async () => {
+      do {
+        again = false;
+        await syncOnce();
+      } while (again);
+      running = null;
+    })();
+    return running;
+  }
+
+  return {
+    syncNow,
+    start(): void {
+      void syncNow();
+      let editTimer: ReturnType<typeof setTimeout> | undefined;
+      const period = setInterval(() => void syncNow(), PERIOD_MS);
+      const stopForeground = lifecycle.onForeground(() => void syncNow());
+      const stopChanges = db.subscribe((change) => {
+        if (change.source !== 'local') return;
+        clearTimeout(editTimer);
+        editTimer = setTimeout(() => void syncNow(), EDIT_DELAY_MS);
+      });
+      cleanup = () => {
+        clearTimeout(editTimer);
+        clearInterval(period);
+        stopForeground();
+        stopChanges();
+      };
+    },
+    stop(): void {
+      cleanup?.();
+      cleanup = null;
+    },
+  };
+}
+
+export type AppSync = ReturnType<typeof startAppSync>;
+
+/** Sign-in and sync for the running app, on whatever device it's on. Settings and first-run setup use this. */
+export function startAppSync(
+  platform: {
+    db: Db;
+    tokens: Parameters<typeof createAuth>[0]['tokens'];
+    lifecycle: { onForeground(listener: () => void): () => void };
+    openExternal(url: string): Promise<void>;
+    signInRedirectUri: string;
+    onDeepLink(listener: (url: string) => void): () => void;
+    notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
+    shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
+  },
+  clock: Clock,
+  config: AppConfig,
+  // Wrapped because the browser's fetch fails when called as a method of another object.
+  fetchFn: FetchFn = (url, init) => fetch(url, init),
+) {
+  const auth = createAuth({
+    authUrl: config.authUrl,
+    clientId: config.authClientId,
+    redirectUri: platform.signInRedirectUri,
+    clock,
+    tokens: platform.tokens,
+    openExternal: (url) => platform.openExternal(url),
+    fetch: fetchFn,
+  });
+  const api = { apiUrl: config.apiUrl, auth, fetch: fetchFn };
+  const httpSend = createHttpSend(api);
+  // Before every request, since signing out and in can change the account between syncs.
+  const send: SyncSend = async (request) => {
+    await checkAccount(platform.db, tokenSubject(await auth.accessToken()));
+    return httpSend(request);
+  };
+  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, send });
+  const calendarPost = async (path: string) => {
+    const res = await apiPost(api, path);
+    if (!res.ok) throw new SyncError('error');
+    return res;
+  };
+  const stopLinks = platform.onDeepLink((url) => {
+    auth.handleRedirect(url).then(
+      (handled) => {
+        if (handled) void runner.syncNow();
+      },
+      (err: unknown) => {
+        console.error('Sign-in failed', err);
+        void recordFailure(platform.db, 'sign_in_failed');
+      },
+    );
+  });
+  runner.start();
+  return {
+    signIn: () => auth.signIn(),
+    /** Signs this device out, and shows the sign-in prompt. Local data and the outbox stay, and stay this account's. */
+    async signOut(): Promise<void> {
+      await auth.signOut();
+      await runner.syncNow();
+    },
+    /** The signed-in account's email, for asking before its sign-in erases another account's data here. */
+    email: () => auth.email(),
+    /**
+     * For a sign-in refused as another account's: erases this device's data, which is the other account's, makes the
+     * device the signed-in account's, and syncs to bring its data. Throws, erasing nothing, if no one is signed in.
+     */
+    async eraseAndSignIn(): Promise<void> {
+      const account = tokenSubject(await auth.accessToken());
+      if (!account) throw new SyncError('error');
+      const { db } = platform;
+      // A sync that read the old data before the erase must not send it once the device is this account's. So none
+      // starts, and any under way finishes first, refused like every sync since this sign-in.
+      runner.stop();
+      try {
+        await runner.syncNow();
+        await db.transaction(async (tx) => {
+          await tx.run('DELETE FROM records');
+          await tx.run('DELETE FROM outbox');
+          await tx.run('DELETE FROM meta WHERE key NOT IN (:schema, :device)', { schema: META.schemaVersion, device: META.deviceId });
+          await setMeta(tx, META.account, account);
+        });
+        db.notifyChanged({ types: RECORD_TYPES, source: 'remote' });
+        const share = platform.shareImport;
+        if (share) await share.remove((await share.peek()).map((item) => item.id));
+        // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when
+        // tapped; remove delivered ones too if that matters.
+        await platform.notifications.replaceAll([]);
+      } finally {
+        // Syncs straight away, which brings the signed-in account's data.
+        runner.start();
+      }
+    },
+    syncNow: runner.syncNow,
+    /** Opens Google's consent page in the browser. The connection arrives in the calendar record by sync. */
+    async connectCalendar(): Promise<void> {
+      const body = (await (await calendarPost('/calendar/connect')).json().catch(() => null)) as { url?: unknown } | null;
+      // Only a web page: a link to another app's scheme from a bad response must not be opened.
+      if (typeof body?.url !== 'string' || !/^https?:\/\//.test(body.url)) throw new SyncError('error');
+      await platform.openExternal(body.url);
+    },
+    /** Asks the server to read calendars now, then syncs to bring back what it found. Throws SyncError. */
+    async refreshCalendar(): Promise<void> {
+      await calendarPost('/calendar/refresh');
+      await runner.syncNow();
+    },
+    stop(): void {
+      stopLinks();
+      runner.stop();
+    },
+  };
+}

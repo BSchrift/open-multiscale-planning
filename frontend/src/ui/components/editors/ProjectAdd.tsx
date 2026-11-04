@@ -1,0 +1,75 @@
+// Adds a project under a goal. It needs a name and an end date on or after its start.
+
+import { useState } from 'react';
+import type { FormEvent } from 'react';
+import { addMonths, formatDate, isDay, today } from '../../../core/dates';
+import { useApp, useMutation } from '../../app/store';
+import { useToast } from '../Toast';
+import { SheetOnPhone } from './SheetOnPhone';
+
+
+export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: string; onClose(): void }) {
+  const { clock } = useApp();
+  const toast = useToast();
+  const on = today(clock);
+  const [title, setTitle] = useState('');
+  const [start, setStart] = useState(on);
+  const [end, setEnd] = useState(() => addMonths(on, 3));
+  const [error, setError] = useState('');
+  const add = useMutation((w, name: string) =>
+    w.create('project', { objective_id: props.objectiveId, title: name, state: 'active', start, end }),
+  );
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = title.trim();
+    if (!name) return setError('Give it a name.');
+    if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
+    if (!(await add.run(name))) return;
+    toast.show(`Project added, ${formatDate(start)} to ${formatDate(end)}.`);
+    props.onClose();
+  };
+
+  const change = (set: (v: string) => void) => (event: { target: { value: string } }) => {
+    set(event.target.value);
+    setError('');
+  };
+
+  return (
+    <SheetOnPhone label="Add project" onClose={props.onClose}>
+      <form className="stack8 editor" aria-label="Add project" onSubmit={save}>
+        <div>
+          {props.goalTitle && <div className="small quiet">{props.goalTitle}</div>}
+          <h2>Add project</h2>
+        </div>
+        <label className="popfield">
+          Name
+          <input className="field" autoFocus value={title} onChange={change(setTitle)} />
+        </label>
+        <div className="row nowrap">
+          <label className="popfield grow">
+            Starts
+            <input className="field datefield" type="date" value={start} onChange={change(setStart)} />
+          </label>
+          <label className="popfield grow">
+            Ends
+            <input className="field datefield" type="date" value={end} onChange={change(setEnd)} />
+          </label>
+        </div>
+        {error && (
+          <div className="fielderr" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="row">
+          <button className="btn sm pri grow" type="submit">
+            Add project
+          </button>
+          <button className="btn sm" type="button" onClick={props.onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </SheetOnPhone>
+  );
+}

@@ -1,0 +1,56 @@
+/* Shared editors. Shapes come from the layout styles; these only fill the gaps between them. */
+
+[data-layout] .editor h2 {
+  display: flex;
+  align-items: center;
+  font-size: var(--text-h2);
+}
+
+[data-layout] .plainset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-layout] .plainset legend {
+  padding: 0 0 var(--space-1);
+}
+
+[data-layout] .row.nowrap {
+  flex-wrap: nowrap;
+}
+
+[data-layout] .wideslider {
+  width: 100%;
+  accent-color: var(--blue);
+}
+
+[data-layout='phone'] .wideslider {
+  min-height: var(--tap);
+}
+
+[data-layout='phone'] .popfield {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-md);
+  color: var(--quiet);
+}
+
+[data-layout='phone'] .popfield .field {
+  color: var(--ink);
+}
+
+[data-layout='desktop'] .datefield {
+  width: auto;
+}
+
+[data-layout='desktop'] .inlineform {
+  margin: var(--space-2) 0;
+}
+
+[data-layout='desktop'] .popover {
+  width: 340px;
+  max-width: calc(100vw - 48px);
+  padding: var(--space-3);
+}

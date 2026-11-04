@@ -1,0 +1,225 @@
+// Today: the block in progress or next, what needs attention, one offs due today and the day's timeline. When the
+// week isn't planned it opens on a prompt to plan, and after time away on Welcome back.
+
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { formatDate, formatDayLong, thisWeek } from '../../../core/dates';
+import { planningDue, planStretch } from '../../../core/plan';
+import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
+import { useNav } from '../../app/nav';
+import type { ScreenProps } from '../../app/registry';
+import { useApp, useNow, useQuery, useStickyState } from '../../app/store';
+import { loadToday } from './data';
+import type { TodayData } from './data';
+import { DayTimeline } from './DayTimeline';
+import { NowCard } from './NowCard';
+import { OneOffsToday } from './OneOffsToday';
+import { QueuePanel } from './QueuePanel';
+import { ShiftPanel } from './ShiftPanel';
+import { usePrompts } from './usePrompts';
+import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
+import './today.css';
+
+interface Alert {
+  key: string;
+  title: string;
+  text?: string;
+  warn?: boolean;
+  label: string;
+  act(): void;
+  skip?(): void;
+}
+
+/** Desktop shows one alert at a time, with the rest a click away. */
+function Alerts(props: { alerts: readonly Alert[] }) {
+  const [more, setMore] = useState(false);
+  const [first, ...rest] = props.alerts;
+  if (!first) return null;
+  const row = (a: Alert) => (
+    <div key={a.key} className={`attn${a.warn ? ' warn' : ''}`} role="status">
+      <div>
+        <div className="strong">{a.title}</div>
+        {a.text && <div className="small">{a.text}</div>}
+      </div>
+      <div className="row">
+        <button className="btn sm" type="button" onClick={a.act}>
+          {a.label}
+        </button>
+        {a.skip && (
+          <button className="btn sm" type="button" onClick={a.skip}>
+            Skip for now
+          </button>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div className="stack8">
+      {row(first)}
+      {more && rest.map(row)}
+      {rest.length > 0 && (
+        <div>
+          <button className="link small" type="button" aria-expanded={more} onClick={() => setMore(!more)}>
+            {more ? 'Hide' : 'Show'} {rest.length} more {rest.length === 1 ? 'alert' : 'alerts'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Phone shows each as its own quiet row. */
+function AttnRow(props: { alert: Alert }) {
+  const { alert } = props;
+  return (
+    <button className="attn" type="button" onClick={alert.act}>
+      <span>{alert.title}</span> <span className="quiet">{alert.label}</span>
+    </button>
+  );
+}
+
+function Head(props: { date: string; title: string }) {
+  const { layout } = useApp();
+  return (
+    <div>
+      <div className={layout === 'phone' ? 'small quiet' : 'date'}>{formatDayLong(props.date)}</div>
+      <h1>{props.title}</h1>
+    </div>
+  );
+}
+
+function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null }) {
+  const { data, unplanned } = props;
+  const { clock, layout } = useApp();
+  const nav = useNav();
+  const { prompt, missed } = usePrompts(data);
+  const [panel, setPanel] = useState<'shift' | 'queue' | null>(null);
+  const [skippedStretch, setSkippedStretch] = useStickyState<string | null>('today.skippedStretch', null);
+  const phone = layout === 'phone';
+  const tasks = new Map(data.tasks.map((t) => [t.id, t]));
+
+  const shift = shiftRestOfToday(data.blocks, data.events, data.settings.availability, clock);
+  const clash = shift && `${shift.conflict.block.title} conflicts with ${shift.conflict.event.title}.`;
+  const next = planningDue(data.settings, data.date) ? planStretch(data.settings, data.date, true) : null;
+  // By its end, since a first plan's start is today until planning begins.
+  const stretchDue = next && skippedStretch !== next.end ? next : null;
+  // Never planned, the plan is for the stretch already under way.
+  const planText = !stretchDue
+    ? ''
+    : data.settings.plan_stretch.last_planned
+      ? `Plan the next stretch. It starts ${formatDate(stretchDue.start)}.`
+      : `Plan your first stretch. It ends ${formatDate(stretchDue.end)}.`;
+  const queued = data.queue.length;
+
+  const alerts: Alert[] = [];
+  if (shift && !phone) alerts.push({ key: 'shift', title: 'Scheduling conflict', text: clash!, warn: true, label: 'Shift rest of today', act: () => setPanel('shift') });
+  if (missed) alerts.push({ key: 'missed', title: missed.title, label: 'Review', act: missed.review });
+  if (queued) {
+    alerts.push(
+      phone
+        ? { key: 'queue', title: `${queued} ${queued === 1 ? 'task needs' : 'tasks need'} a new time`, label: 'Review', act: () => setPanel('queue') }
+        : { key: 'queue', title: 'Needs a new time', text: `${queued} ${queued === 1 ? 'task' : 'tasks'} that didn't get done. Choose when it suits you.`, label: 'Review', act: () => setPanel('queue') },
+    );
+  }
+  if (data.inbox && !phone) {
+    alerts.push({ key: 'inbox', title: 'Inbox', text: `${data.inbox} ${data.inbox === 1 ? 'item' : 'items'} to sort.`, label: 'Open Inbox', act: () => nav.go('inbox') });
+  }
+  if (stretchDue && !phone) {
+    alerts.push({ key: 'stretch', title: planText, label: 'Start', act: () => nav.openFlow('plan'), skip: () => setSkippedStretch(stretchDue.end) });
+  }
+
+  return (
+    <div className={phone ? 'stack today' : 'wrap stack24 today'}>
+      <Head date={data.date} title="Today" />
+      {unplanned && <Banner />}
+      {phone && shift && (
+        <div className="warn shiftwarn" role="status">
+          <div className="grow100">
+            <div className="strong">Scheduling conflict</div>
+            <div>{clash}</div>
+          </div>
+          <button className="btn" type="button" aria-expanded={panel === 'shift'} onClick={() => setPanel(panel === 'shift' ? null : 'shift')}>
+            Shift rest of today
+          </button>
+        </div>
+      )}
+      {phone ? alerts.map((a) => <AttnRow key={a.key} alert={a} />) : <Alerts alerts={alerts} />}
+      {phone && stretchDue && (
+        <div className="row nowrap">
+          <button className="attn grow" type="button" onClick={() => nav.openFlow('plan')}>
+            <span>{planText}</span> <span className="quiet">Start</span>
+          </button>
+          <button className="icbtn" type="button" aria-label="Skip for now" onClick={() => setSkippedStretch(stretchDue.end)}>
+            ×
+          </button>
+        </div>
+      )}
+      {panel === 'shift' && shift && <ShiftPanel plan={shift} connected={data.connected} onClose={() => setPanel(null)} />}
+      {panel === 'queue' && <QueuePanel items={data.queue} onClose={() => setPanel(null)} />}
+      {unplanned && data.blocks.length === 0 ? (
+        <NextUp data={data} pick={props.pick} />
+      ) : (
+        <NowCard blocks={data.blocks} tasks={tasks} layout={layout} />
+      )}
+      <OneOffsToday data={data} />
+      {phone && data.inbox > 0 && (
+        <button className="attn" type="button" onClick={() => nav.openOverlay('process')}>
+          <span>{data.inbox} to sort</span> <span className="strong process">Process</span>
+        </button>
+      )}
+      {(data.blocks.length > 0 || !unplanned) && <DayTimeline data={data} events={data.events} />}
+      {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
+      {prompt}
+    </div>
+  );
+}
+
+/** Every block still gets its prompts while Today asks to plan the week. */
+function Prompts(props: { data: TodayData }) {
+  return <>{usePrompts(props.data).prompt}</>;
+}
+
+export default function Screen(_props: ScreenProps) {
+  // Re-reads the time often enough for blocks to start and end on screen; the countdown ticks on its own.
+  useNow(10_000);
+  const { clock, layout } = useApp();
+  const { data } = useQuery((sql, c) => loadToday(sql, c), []);
+  const [picking, setPicking] = useState(false);
+  const [skipped, setSkipped] = useStickyState<string | null>('today.skippedWeek', null);
+  const [pick, setPick] = useStickyState<{ date: string; id: string } | null>('today.pick', null);
+  if (!data) return <div className={layout === 'phone' ? 'stack' : 'wrap stack24'} />;
+
+  const week = thisWeek(clock);
+  const welcome = welcomeBack(data.recent, data.away, clock);
+  const frame = (title: string, body: ReactNode) => (
+    <div className={layout === 'phone' ? 'stack' : 'wrap stack24'}>
+      <Head date={data.date} title={title} />
+      {body}
+    </div>
+  );
+
+  if (picking) {
+    return frame(
+      'Pick one thing for today',
+      <PickOne
+        data={data}
+        onPick={(id) => {
+          setPick({ date: data.date, id });
+          setSkipped(week);
+          setPicking(false);
+        }}
+      />,
+    );
+  }
+  if (welcome) return frame('Welcome back', <Welcome blocks={welcome.blocks} onReturned={() => setPicking(true)} />);
+  if (!data.planned && skipped !== week) {
+    return frame(
+      'Plan your week',
+      <>
+        <Gate data={data} onSkip={() => setSkipped(week)} />
+        <Prompts data={data} />
+      </>,
+    );
+  }
+  return <TodayView data={data} unplanned={!data.planned} pick={pick?.date === data.date ? pick.id : null} />;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "objects and arrays are one value, replaced whole and never merged inside",
+  "current": {
+    "schedule": { "v": { "type": "float", "every": 2, "unit": "week" }, "c": "1800000000000-000000-laptop" },
+    "skipped_aims": { "v": ["one", "two"], "c": "1800000000000-000000-laptop" }
+  },
+  "incoming": [
+    { "schedule": { "v": { "type": "once" }, "c": "1800000000100-000000-phone" } },
+    { "skipped_aims": { "v": [], "c": "1800000000100-000000-phone" } }
+  ],
+  "applied": [1, 1],
+  "expected": {
+    "schedule": { "v": { "type": "once" }, "c": "1800000000100-000000-phone" },
+    "skipped_aims": { "v": [], "c": "1800000000100-000000-phone" }
+  }
+}

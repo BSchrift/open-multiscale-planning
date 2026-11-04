@@ -1,0 +1,567 @@
+import CryptoKit
+import XCTest
+
+private let patience: TimeInterval = 30
+
+/// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
+private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
+private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+
+private extension XCUIApplication {
+    var page: XCUIElement { webViews.firstMatch }
+    func webButton(_ label: String) -> XCUIElement { page.buttons[label] }
+    func webText(_ text: String) -> XCUIElement { page.staticTexts[text] }
+    /// Any kind of element, for controls whose type differs between iOS versions, such as a checkbox or a select.
+    func webElement(_ label: String) -> XCUIElement { page.descendants(matching: .any)[label] }
+    /// For labels that go on with a count or a time.
+    func webButton(startingWith prefix: String) -> XCUIElement {
+        page.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+    }
+    func tapWeb(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        let button = webButton(label)
+        MultiscaleUITests.exists(button, file: file, line: line)
+        button.tap()
+    }
+    func tapWeb(startingWith prefix: String, file: StaticString = #filePath, line: UInt = #line) {
+        let button = webButton(startingWith: prefix)
+        MultiscaleUITests.exists(button, file: file, line: line)
+        button.tap()
+    }
+}
+
+private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
+    if element.waitForExistence(timeout: timeout) { return }
+    // The tree shows what was on screen instead, since labels change between iOS versions.
+    XCTFail("\(element) did not appear. On screen:\n\(owner.debugDescription)", file: file, line: line)
+}
+
+/// The app with its data as a new install has it, then seeded from the test page when a seed is given. `reach` is how
+/// far back the seed's earliest block starts, as capacitor-checks.ts times it.
+private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIApplication {
+    let checks = XCUIApplication()
+    checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
+    checks.launch()
+    exists(checks.webText("ready"))
+    checks.tapWeb("Erase")
+    exists(checks.webText("erased"))
+    if let seed {
+        let at = seedTime(now: Date(), reach: reach)
+        if at > Date() {
+            print("Waiting until \(at) so \(seed) fits in one day")
+            Thread.sleep(until: at)
+        }
+        checks.tapWeb(seed)
+        exists(checks.webText("seeded"))
+    }
+    checks.terminate()
+    let app = XCUIApplication()
+    app.launch()
+    return app
+}
+
+/// When a seed can run. The Simulator's clock can't be moved, and Today shows and says "today" only for blocks that
+/// start today, so a seed whose blocks start `reach` back waits until they fit after midnight, and keeps the last ten
+/// minutes of the day clear for the test that follows it.
+func seedTime(now: Date, reach: TimeInterval, calendar: Calendar = .current) -> Date {
+    let midnight = calendar.startOfDay(for: now)
+    let next = calendar.date(byAdding: .day, value: 1, to: midnight)!
+    if now.addingTimeInterval(10 * 60) > next { return next.addingTimeInterval(reach + 60) }
+    return max(now, midnight.addingTimeInterval(reach + 60))
+}
+
+final class SeedTimeTests: XCTestCase {
+    private let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
+    private func at(_ time: String) -> Date { ISO8601DateFormatter().date(from: time + ":00Z")! }
+
+    func testASeedWaitsUntilItsBlocksStartTodayAndTheTestEndsBeforeMidnight() {
+        XCTAssertEqual(seedTime(now: at("2026-11-02T12:00"), reach: 90 * 60, calendar: calendar), at("2026-11-02T12:00"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T01:00"), reach: 20 * 60, calendar: calendar), at("2026-11-02T01:00"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T00:10"), reach: 90 * 60, calendar: calendar), at("2026-11-02T01:31"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T23:55"), reach: 20 * 60, calendar: calendar), at("2026-11-03T00:21"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T23:55"), reach: 0, calendar: calendar), at("2026-11-03T00:01"))
+    }
+}
+
+/// The app asks once there's a block to remind about. Whichever test gets there first answers.
+private func allowNotificationsIfAsked() {
+    let allow = springboard.alerts.buttons["Allow"]
+    if allow.waitForExistence(timeout: 5) { allow.tap() }
+}
+
+/// The real app, through its web view.
+final class ShellUITests: XCTestCase {
+    override func setUp() { continueAfterFailure = false }
+
+    func testFirstRunSetupThenItRemembersAfterARestart() {
+        let app = launchApp()
+        exists(app.webText("Welcome"))
+        app.tapWeb("Skip")
+        exists(app.webText("Unavailable hours"))
+        app.tapWeb("Next")
+        let first = app.page.textFields["A goal or a thought"]
+        exists(first)
+        first.tap()
+        first.typeText("Learn to bake bread")
+        app.tapWeb("Add goal")
+        for tab in ["Today", "Week", "Goals", "More"] { exists(app.webButton(tab)) }
+        exists(app.webButton("Capture a task"))
+
+        // Setup finished in the plugin's database, so a new process goes straight to the shell, goal and all.
+        app.terminate()
+        app.launch()
+        exists(app.webButton("Goals"))
+        XCTAssertFalse(app.webText("Welcome").exists)
+        app.tapWeb("Goals")
+        exists(app.webButton(startingWith: "Learn to bake bread"))
+    }
+
+    func testCaptureFromThePlusButtonThenProcessToAMilestoneAndAOneOff() {
+        let app = launchApp(seed: "Seed plan")
+        for title in ["Buy a proofing basket", "Return the library books"] {
+            app.tapWeb("Capture a task")
+            let field = app.page.textFields["Capture to Inbox"]
+            // On CI's iOS 26 Simulator the first tap after launch is sometimes lost; a person would tap again.
+            if !field.waitForExistence(timeout: 5) { app.tapWeb("Capture a task") }
+            exists(field)
+            field.tap()
+            field.typeText(title + "\n")
+            XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
+        }
+
+        app.tapWeb(startingWith: "Inbox")
+        app.tapWeb("Process 2 items")
+        exists(app.webText("Buy a proofing basket"))
+        app.tapWeb("Bake a sourdough loaf")
+        exists(app.webText("Sent to Bake a sourdough loaf."))
+        choose("A starter that rises", in: "Milestone for Buy a proofing basket", app: app)
+
+        exists(app.webText("Return the library books"))
+        app.tapWeb("One offs")
+        exists(app.webText("Inbox clear"))
+        app.tapWeb("Done")
+
+        // Each landed where it was sent.
+        app.tapWeb("Goals")
+        app.tapWeb(startingWith: "Learn to bake bread")
+        app.tapWeb(startingWith: "Bake a sourdough loaf")
+        let milestone = app.webElement("Milestone: A starter that rises")
+        exists(milestone)
+        exists(milestone.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Edit task Buy a proofing basket'")).firstMatch)
+        app.tapWeb("More")
+        app.tapWeb(startingWith: "One offs")
+        exists(app.webElement("Return the library books done"))
+    }
+
+    func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
+        let app = launchApp(seed: "Seed today", reach: 90 * 60)
+        allowNotificationsIfAsked()
+
+        // The block that ended half an hour ago asks first. Partly opens the slider at the time left.
+        exists(app.webText("Feed the starter"))
+        app.tapWeb("Partly")
+        let left = app.page.sliders["Time left"]
+        exists(left)
+        XCTAssertEqual(left.value as? String, "1h")
+        // XCUITest can't set a web slider's value, so the thumb is dragged: 1h is step 4 of 19, toward step 3.
+        let thumb = left.coordinate(withNormalizedOffset: CGVector(dx: 4.0 / 19, dy: 0.5))
+        thumb.press(forDuration: 0.2, thenDragTo: left.coordinate(withNormalizedOffset: CGVector(dx: 3.0 / 19, dy: 0.5)))
+        let set = try XCTUnwrap(left.value as? String)
+        XCTAssertTrue(["15m", "30m", "45m"].contains(set), "the slider reads \(set)")
+        app.tapWeb("Save")
+
+        // Then the one that began six minutes ago without a Start. Its sheet hides the toast from the tree.
+        exists(app.webText("Have you started Shape the dough?"))
+        app.tapWeb("Yes, started")
+        exists(app.webText("In progress, time left"))
+
+        app.tapWeb(startingWith: "1 task needs a new time")
+        exists(app.webText("Partly done today, \(set) left"))
+    }
+
+    func testABlocksNotificationActionAnswersItInToday() {
+        let app = launchApp(seed: "Seed soon", reach: 20 * 60)
+        allowNotificationsIfAsked()
+        exists(app.webText("In progress, time left"))
+
+        XCUIDevice.shared.press(.home)
+        let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
+        // The block ends two minutes after it was seeded.
+        exists(banner, timeout: 180)
+        banner.press(forDuration: 1.5)
+        let done = springboard.buttons["Done"]
+        exists(done)
+        XCTAssertTrue(springboard.buttons["Partly"].exists)
+        done.tap()
+
+        app.activate()
+        let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Done.'")).firstMatch
+        exists(answered)
+    }
+
+    /// A select opens as a menu of the app's own options, whatever element type this iOS gives its items.
+    private func choose(_ option: String, in label: String, app: XCUIApplication) {
+        let select = app.webElement(label)
+        exists(select)
+        select.tap()
+        let types = [XCUIElement.ElementType.button, .menuItem, .cell].map(\.rawValue)
+        let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND elementType IN %@", option, types)).firstMatch
+        exists(item)
+        item.tap()
+        XCTAssertEqual(select.value as? String, option)
+    }
+}
+
+/// The adapter and plugins against real iOS, on a test page the script adds to this build only.
+final class NativeUITests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUp() {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
+        app.launch()
+        exists(app.webText("ready"))
+    }
+
+    private func run(_ button: String, expect result: String, timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
+        let before = app.webText(result).exists ? app.page.staticTexts.matching(identifier: result).count : 0
+        app.webButton(button).tap()
+        let arrived = app.page.staticTexts.matching(identifier: result).element(boundBy: before).waitForExistence(timeout: timeout)
+        let page = app.page.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n")
+        XCTAssertTrue(arrived, "\(result) did not appear. The page says:\n\(page)", file: file, line: line)
+    }
+
+    func testNotificationPermissionThenCancelThenActionReachesTheApp() {
+        // The script gives each run a new Simulator, and only this test asks, so the dialog must show.
+        app.webButton("Ask").tap()
+        let allow = springboard.alerts.buttons["Allow"]
+        exists(allow)
+        allow.tap()
+        exists(app.webText("permission:true"))
+
+        run("Remind", expect: "pending:check-block:end")
+        run("Cancel", expect: "pending:0")
+
+        run("Remind", expect: "pending:check-block:end")
+        XCUIDevice.shared.press(.home)
+        let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
+        exists(banner)
+        banner.press(forDuration: 1.5)
+        let done = springboard.buttons["Done"]
+        exists(done)
+        XCTAssertTrue(springboard.buttons["Partly"].exists)
+        done.tap()
+
+        app.activate()
+        exists(app.webText("response:check-block:end:done"))
+    }
+
+    func testTokensRoundTripThroughTheKeychain() {
+        run("Keychain", expect: "keychain:ok")
+    }
+
+    func testDatabaseThroughThePlugin() {
+        run("Database", expect: "database:ok")
+    }
+
+    func testQueryPlansOnThePluginsSQLite() {
+        run("Plans", expect: "queryplans:ok", timeout: 300)
+        let version = app.page.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'sqlite:'")).firstMatch
+        print("Plugin SQLite version: \(version.label)")
+        add(XCTAttachment(string: version.label))
+    }
+
+    func testSignInLinkReturnsThroughTheURLSchemeAndClosesTheBrowser() {
+        let browser = app.webButton("Browser")
+        browser.tap()
+        // Told by our own page being covered and uncovered, since the sheet's buttons are named differently across
+        // iOS versions (Done, then Close).
+        XCTAssertTrue(wait(for: browser, hittable: false), "the browser sheet never came up. On screen:\n\(app.debugDescription)")
+        XCUIDevice.shared.system.open(URL(string: "multiscale://auth/callback?code=abc&state=def")!)
+        openLinkPrompt()
+        exists(app.webText("link:multiscale://auth/callback?code=abc&state=def"))
+        XCTAssertTrue(wait(for: browser, hittable: true), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
+    }
+
+    private func wait(for element: XCUIElement, hittable: Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == %@", NSNumber(value: hittable)), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: patience) == .completed
+    }
+
+    func testCaptureLinkIsNotTreatedAsSignIn() {
+        XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
+        openLinkPrompt()
+        exists(app.webText("capture"))
+    }
+
+    func testBackgroundThenForegroundIsReported() {
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        exists(app.webText("foreground"))
+    }
+
+    func testShareImportIsOffWithoutTheExtensions() throws {
+        try XCTSkipIf(extensionsEnabled)
+        run("Shared", expect: "shared:off")
+    }
+
+    func testShareExtensionQueuesForTheApp() throws {
+        try XCTSkipUnless(extensionsEnabled, "extensions are off")
+        // shortcut: iOS 26 Safari keeps Share behind its More button, which ignores XCUITest taps (plain or by
+        // coordinate) on CI's iOS 26.2 Simulator, so sharing is proven on iOS 18 only; retry when Xcode's UI testing
+        // can open that menu.
+        if #available(iOS 26, *) { throw XCTSkip("Safari's More menu can't be opened by XCUITest on iOS 26") }
+        let url = try XCTUnwrap(ProcessInfo.processInfo.environment["MULTISCALE_SHARE_URL"])
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+
+        XCUIDevice.shared.system.open(URL(string: url)!)
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: patience))
+        // First launch shows a welcome page.
+        for label in ["Continue", "Not Now"] where safari.buttons[label].waitForExistence(timeout: 3) { safari.buttons[label].tap() }
+        exists(safari.staticTexts["Share me"], in: safari)
+        let share = safari.buttons["ShareButton"]
+        exists(share, in: safari)
+        share.tap()
+
+        let target = safari.collectionViews.cells["Multiscale"]
+        exists(target, in: safari)
+        target.tap()
+        // The extension saves and closes with no screen of its own.
+        XCTAssertTrue(target.waitForNonExistence(timeout: patience))
+
+        app.activate()
+        exists(app.webButton("Shared"))
+        run("Shared", expect: "shared:\(url)")
+        run("Shared", expect: "shared:")
+    }
+
+    func testControlCenterWidgetOpensCapture() throws {
+        try XCTSkipUnless(extensionsEnabled, "extensions are off")
+        XCUIDevice.shared.press(.home)
+        openControlCenter()
+        addCaptureControl()
+        springboard.buttons["Capture"].firstMatch.tap()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        exists(app.webText("capture"))
+    }
+
+    private func openControlCenter() {
+        let window = springboard.windows.firstMatch
+        let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.0))
+        from.press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+    }
+
+    private func addCaptureControl() {
+        let window = springboard.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).press(forDuration: 1.5)
+        let add = springboard.buttons["Add a Control"]
+        exists(add)
+        add.tap()
+        let search = springboard.searchFields.firstMatch
+        exists(search)
+        search.tap()
+        search.typeText("Capture")
+        let control = springboard.buttons["Capture"].firstMatch
+        exists(control)
+        control.tap()
+        // Leave editing, and wait for it to end: a control tapped while editing doesn't run.
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+        XCTAssertTrue(add.waitForNonExistence(timeout: patience), "Control Center is still editing")
+    }
+
+    /// iOS asks before another app's link opens this one.
+    private func openLinkPrompt() {
+        let open = springboard.alerts.buttons["Open"]
+        if open.waitForExistence(timeout: 5) { open.tap() }
+    }
+}
+
+/// What scripts/test-ios.sh signs in to: the local stack it started, or a deployment as its test user.
+private struct Target: Decodable {
+    struct User: Decodable { let username, password: String }
+    let env: String
+    let api_url: String
+    let client_id: String
+    let region: String?
+    let test_user: User?
+
+    /// Nil when the script started no backend. One it did start must parse, rather than skip the test.
+    static func fromEnvironment() throws -> Target? {
+        guard let json = ProcessInfo.processInfo.environment["MULTISCALE_TARGET"], !json.isEmpty else { return nil }
+        return try JSONDecoder().decode(Target.self, from: Data(json.utf8))
+    }
+}
+
+/// Another device of the same user, straight through the API, to see what reached the server.
+private struct SecondDevice {
+    let target: Target
+    let token: String
+
+    init(_ target: Target) throws {
+        self.target = target
+        token = try target.test_user.map { try Self.passwordSignIn(target, $0) } ?? Self.localSignIn(target)
+    }
+
+    /// The local sign-in lets anyone in with no page, as the same user the app signed in as.
+    private static func localSignIn(_ target: Target) throws -> String {
+        let verifier = UUID().uuidString + UUID().uuidString
+        let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        let redirect = "multiscale://auth/callback"
+        var authorize = URLComponents(string: "\(target.api_url)/cognito/oauth2/authorize")!
+        authorize.queryItems = [
+            URLQueryItem(name: "response_type", value: "code"), URLQueryItem(name: "client_id", value: target.client_id),
+            URLQueryItem(name: "redirect_uri", value: redirect), URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+        ]
+        let (_, found) = try send(URLRequest(url: authorize.url!))
+        let back = URLComponents(string: found.value(forHTTPHeaderField: "Location") ?? "")
+        let code = try XCTUnwrap(back?.queryItems?.first { $0.name == "code" }?.value, "no code in \(found)")
+        var form = URLComponents()
+        form.queryItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"), URLQueryItem(name: "client_id", value: target.client_id),
+            URLQueryItem(name: "code", value: code), URLQueryItem(name: "code_verifier", value: verifier), URLQueryItem(name: "redirect_uri", value: redirect),
+        ]
+        var request = URLRequest(url: URL(string: "\(target.api_url)/cognito/oauth2/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(form.percentEncodedQuery!.utf8)
+        return try XCTUnwrap(json(send(request).0)["access_token"] as? String)
+    }
+
+    /// A deployment's test client allows password sign-in, which needs no AWS credentials.
+    private static func passwordSignIn(_ target: Target, _ user: Target.User) throws -> String {
+        var request = URLRequest(url: URL(string: "https://cognito-idp.\(target.region ?? "us-west-2").amazonaws.com/")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-amz-json-1.1", forHTTPHeaderField: "Content-Type")
+        request.setValue("AWSCognitoIdentityProviderService.InitiateAuth", forHTTPHeaderField: "X-Amz-Target")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "AuthFlow": "USER_PASSWORD_AUTH", "ClientId": target.client_id,
+            "AuthParameters": ["USERNAME": user.username, "PASSWORD": user.password],
+        ])
+        let result = try json(send(request).0)["AuthenticationResult"] as? [String: Any]
+        return try XCTUnwrap(result?["AccessToken"] as? String, "Cognito refused the test user")
+    }
+
+    /// Every record the server holds for this user, by id, with each field's latest value.
+    func records() throws -> [String: [String: Any]] {
+        var all: [String: [String: Any]] = [:]
+        var cursor = 0
+        var more = true
+        while more {
+            var request = URLRequest(url: URL(string: "\(target.api_url)/sync")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["cursor": cursor, "changes": []])
+            let (data, response) = try Self.send(request)
+            XCTAssertEqual(response.statusCode, 200, String(decoding: data, as: UTF8.self))
+            let page = try Self.json(data)
+            for change in page["changes"] as? [[String: Any]] ?? [] {
+                guard let id = change["id"] as? String, let fields = change["fields"] as? [String: [String: Any]] else { continue }
+                all[id, default: ["type": change["type"] ?? ""]].merge(fields.mapValues { $0["v"] ?? NSNull() }) { $1 }
+            }
+            cursor = page["cursor"] as? Int ?? cursor
+            more = page["more"] as? Bool ?? false
+        }
+        return all
+    }
+
+    /// Waits for the server to hold a record that matches.
+    func eventually(_ what: String, _ matches: @escaping ([String: Any]) -> Bool) {
+        let deadline = Date().addingTimeInterval(patience)
+        var seen = 0
+        repeat {
+            if let all = try? records() {
+                seen = all.count
+                if all.values.contains(where: matches) { return }
+            }
+            Thread.sleep(forTimeInterval: 1)
+        } while Date() < deadline
+        XCTFail("The server never had \(what). It has \(seen) records for this user.")
+    }
+
+    private static let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+
+    private static func send(_ request: URLRequest) throws -> (Data, HTTPURLResponse) {
+        var result: Result<(Data, HTTPURLResponse), Error> = .failure(URLError(.unknown))
+        let finished = DispatchSemaphore(value: 0)
+        session.dataTask(with: request) { data, response, error in
+            if let response = response as? HTTPURLResponse { result = .success((data ?? Data(), response)) } else if let error { result = .failure(error) }
+            finished.signal()
+        }.resume()
+        finished.wait()
+        return try result.get()
+    }
+
+    private static func json(_ data: Data) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], String(decoding: data, as: UTF8.self))
+    }
+}
+
+/// The sign-in answers with a redirect to the app's link, which is read here rather than followed.
+private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
+/// The real app signed in to a backend, with a second device that reads what reached it.
+final class SignedInUITests: XCTestCase {
+    override func setUp() { continueAfterFailure = false }
+
+    func testSignInFromSettingsThenWorkMadeHereReachesTheServer() throws {
+        guard let target = try Target.fromEnvironment() else {
+            throw XCTSkip("needs: localStack. scripts/test-ios.sh starts one where Docker runs.")
+        }
+        // Unique per run, since a deployment's test user keeps what earlier runs deleted.
+        let title = "Pay the water bill \(UUID().uuidString.prefix(8))"
+        let app = launchApp()
+        // Signed in from Settings rather than setup, which a user who finished setup on another device skips.
+        app.tapWeb("Skip")
+        app.tapWeb("Next")
+        app.tapWeb("Skip")
+        app.tapWeb("More")
+        app.tapWeb(startingWith: "Settings")
+        app.tapWeb("Sign in")
+        if let user = target.test_user { signInOnHostedPage(app, user) }
+        // The browser sheet closes itself once the sign-in links back, and the first sync follows.
+        exists(app.webText("Synced"), timeout: 60)
+
+        app.tapWeb("Capture a task")
+        let field = app.page.textFields["Capture to Inbox"]
+        exists(field)
+        field.tap()
+        field.typeText(title + "\n")
+
+        let other = try SecondDevice(target)
+        other.eventually("the capture") { $0["title"] as? String == title && !($0["deleted_at"] is String) }
+
+        // Deleted here, deleted there, so a deployment's test user keeps nothing live.
+        app.tapWeb(startingWith: "Inbox")
+        app.tapWeb("Process 1 item")
+        app.tapWeb("Delete")
+        app.tapWeb("Yes, delete")
+        exists(app.webText("Inbox clear"))
+        app.tapWeb("Done")
+        other.eventually("the capture deleted") { $0["title"] as? String == title && $0["deleted_at"] is String }
+    }
+
+    /// A deployment's hosted sign-in page, in the browser sheet over the app. The local stack's signs in with no page.
+    private func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
+        let password = app.secureTextFields.firstMatch
+        exists(password, timeout: 60)
+        let name = app.webViews.containing(.secureTextField, identifier: nil).textFields.firstMatch
+        // Cognito's page holds a hidden copy of each field at the same spot, so a tap can focus the other copy: type
+        // into whatever has focus.
+        name.tap()
+        app.typeText(user.username)
+        password.tap()
+        app.typeText(user.password + "\n")
+    }
+}

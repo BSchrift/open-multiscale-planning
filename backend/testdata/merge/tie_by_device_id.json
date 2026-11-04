@@ -1,0 +1,10 @@
+{
+  "name": "with the same time and counter, the higher device id wins",
+  "current": {},
+  "incoming": [
+    { "title": { "v": "Paint the fence", "c": "1800000000000-000003-device-a" } },
+    { "title": { "v": "Paint the gate", "c": "1800000000000-000003-device-b" } }
+  ],
+  "applied": [1, 1],
+  "expected": { "title": { "v": "Paint the gate", "c": "1800000000000-000003-device-b" } }
+}

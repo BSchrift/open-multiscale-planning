@@ -1,0 +1,14 @@
+{
+  "name": "deleted_at merges like any field, so a later null restores and an older edit never undoes a delete",
+  "current": { "title": { "v": "Learn to bake bread", "c": "1800000000000-000000-laptop" } },
+  "incoming": [
+    { "deleted_at": { "v": "2027-01-15T10:00:00Z", "c": "1800000001000-000000-phone" } },
+    { "deleted_at": { "v": null, "c": "1800000002000-000000-laptop" } },
+    { "deleted_at": { "v": "2027-01-15T09:00:00Z", "c": "1800000000500-000000-laptop" } }
+  ],
+  "applied": [1, 1, 0],
+  "expected": {
+    "title": { "v": "Learn to bake bread", "c": "1800000000000-000000-laptop" },
+    "deleted_at": { "v": null, "c": "1800000002000-000000-laptop" }
+  }
+}

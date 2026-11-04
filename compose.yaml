@@ -1,0 +1,15 @@
+# Local stand-ins for AWS, used by `make test`. Data lives in memory, so each run starts clean.
+# Ports are overridable so that several Compose projects can run side by side.
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports:
+      - "${DYNAMODB_PORT:-8000}:8000"
+
+  moto:
+    image: motoserver/moto:latest
+    environment:
+      MOTO_PORT: "5000"
+    ports:
+      - "${MOTO_PORT:-5001}:5000"

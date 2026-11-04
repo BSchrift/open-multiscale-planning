@@ -1,0 +1,12 @@
+{
+  "name": "a field this version doesn't know about is kept",
+  "current": { "title": { "v": "Paint the fence", "c": "1800000000000-000000-laptop" } },
+  "incoming": [
+    { "colour_from_a_newer_version": { "v": "green", "c": "1800000000100-000000-phone" } }
+  ],
+  "applied": [1],
+  "expected": {
+    "title": { "v": "Paint the fence", "c": "1800000000000-000000-laptop" },
+    "colour_from_a_newer_version": { "v": "green", "c": "1800000000100-000000-phone" }
+  }
+}

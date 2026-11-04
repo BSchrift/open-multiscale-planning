@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stands in for a Go binary so that the stack synthesizes without Go. scripts/deploy.sh never ships this.
+exit 1

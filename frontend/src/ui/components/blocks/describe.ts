@@ -1,0 +1,56 @@
+// How a block reads anywhere it's shown: its kind (and so its colour), what it belongs to, and its time.
+
+import { formatMinutes, formatTime } from '../../../core/dates';
+import type { BlockRow } from '../../../core/queries';
+import { isRepeating, onceWhen, scheduleLabel } from '../../../core/schedule';
+import type { BlockResult, Instant, Objective, Practice, Project, Task } from '../../../core/types';
+
+/** Blue for projects, purple for one offs, teal for practices. */
+export type BlockKind = 'project' | 'one_off' | 'practice';
+
+/** The kind in words, for labels, so it never rests on colour alone. */
+export const KIND_WORD: Record<BlockKind, string> = { project: 'Project', practice: 'Practice', one_off: 'One off' };
+
+export function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKind {
+  return block.practice_id ? 'practice' : block.task_kind === 'one_off' ? 'one_off' : 'project';
+}
+
+export const OUTCOME_WORD: Record<BlockResult, string> = { done: 'Done', partly: 'Partly', not: 'Not done' };
+
+/** '6pm to 7:30pm' */
+export function formatRange(start: Instant, end: Instant, zone: string): string {
+  return `${formatTime(start, zone)} to ${formatTime(end, zone)}`;
+}
+
+export interface BlockRecords {
+  task?: Task | undefined;
+  project?: Project | undefined;
+  objective?: Objective | undefined;
+  practice?: Practice | undefined;
+}
+
+export interface BlockDescription {
+  kind: BlockKind;
+  /** What the path is: Goal, Project, One off or Practice. */
+  word: string;
+  /** 'Goal > Project', a one off's schedule, or a practice's goal and target. */
+  path: string;
+  first: string | null;
+}
+
+export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>, records: BlockRecords): BlockDescription {
+  const { task, project, objective, practice } = records;
+  const kind = blockKind(block);
+  if (kind === 'practice') {
+    const target = practice ? `${formatMinutes(practice.target_min)} a ${practice.per}` : '';
+    return { kind, word: 'Practice', path: [objective?.title, target].filter(Boolean).join(', '), first: null };
+  }
+  const first = task?.first_step || null;
+  if (kind === 'one_off') {
+    const s = task?.schedule;
+    const when = s && (isRepeating(task!) ? scheduleLabel(s) : s.type === 'once' ? onceWhen(s) : '');
+    return { kind, word: 'One off', path: when || 'No date', first };
+  }
+  if (objective && project) return { kind, word: 'Goal', path: `${objective.title} > ${project.title}`, first };
+  return { kind, word: 'Project', path: project?.title ?? '', first };
+}

@@ -1,0 +1,24 @@
+{
+  "name": "three devices' edits converge whatever order they arrive in",
+  "current": {},
+  "incoming": [
+    {
+      "title": { "v": "From the laptop", "c": "1800000000300-000000-laptop" },
+      "estimate_min": { "v": 30, "c": "1800000000100-000000-laptop" }
+    },
+    {
+      "title": { "v": "From the phone", "c": "1800000000200-000000-phone" },
+      "estimate_min": { "v": 60, "c": "1800000000400-000000-phone" }
+    },
+    {
+      "title": { "v": "From the tablet", "c": "1800000000300-000000-tablet" },
+      "done_at": { "v": "2027-01-15T10:00:00Z", "c": "1800000000500-000000-tablet" }
+    }
+  ],
+  "applied": [2, 1, 2],
+  "expected": {
+    "title": { "v": "From the tablet", "c": "1800000000300-000000-tablet" },
+    "estimate_min": { "v": 60, "c": "1800000000400-000000-phone" },
+    "done_at": { "v": "2027-01-15T10:00:00Z", "c": "1800000000500-000000-tablet" }
+  }
+}

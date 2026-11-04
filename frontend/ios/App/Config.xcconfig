@@ -1,0 +1,16 @@
+// Build settings for every target. Override any of the first group in Config.local.xcconfig, which git ignores:
+// copy Config.example.xcconfig to start one.
+
+MULTISCALE_BUNDLE_ID = io.github.bschrift.multiscale
+MULTISCALE_APP_GROUP = group.$(MULTISCALE_BUNDLE_ID)
+// YES builds in the share sheet and Control Center widget. They need a paid Apple membership to install on a phone.
+MULTISCALE_EXTENSIONS = NO
+
+#include? "Config.local.xcconfig"
+
+// Off, the extensions still compile but are unsigned and left out of the app, so no provisioning or capability
+// reaches a free personal team.
+MULTISCALE_SIGN_EXTENSIONS_YES = YES
+MULTISCALE_SIGN_EXTENSIONS_NO = NO
+MULTISCALE_ENTITLEMENTS_YES = Shared/AppGroup.entitlements
+MULTISCALE_ENTITLEMENTS_NO =

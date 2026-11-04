@@ -1,0 +1,98 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # Native and binary downloads are only needed by the Electron and iOS builds.
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        if: hashFiles('backend/go.mod') != ''
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            backend/go.sum
+            config/go.sum
+      - run: make test-backend
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - if: hashFiles('infrastructure/package-lock.json') != ''
+        run: npm ci
+        working-directory: infrastructure
+      - run: make test-infra
+
+  # The whole local suite with its Docker stand-ins. It needs no secrets, so it also runs on forks.
+  local-suite:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend, infrastructure]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        if: hashFiles('backend/go.mod') != ''
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            backend/go.sum
+            config/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: make test-integration
+
+  # The real app on an iPhone Simulator, with the extensions off and then on.
+  ios:
+    runs-on: macos-15
+    needs: [frontend]
+    # About 30 minutes, plus up to 91 when a run starts just after midnight UTC: a seed waits until its blocks fit in one day.
+    timeout-minutes: 135
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: make test-ios
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan the full history with gitleaks
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 git /repo --redact --no-banner

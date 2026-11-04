@@ -1,0 +1,343 @@
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { META, setMeta } from '../../../core/db';
+import { CALENDAR_ID, getSettings, listRecords, updateSettings } from '../../../core/records';
+import type { Writer } from '../../../core/records';
+import type { AppSync } from '../../../core/syncRunner';
+import { renderScreen } from '../../app/testing';
+import type { Harness } from '../../app/testing';
+import { moreLine } from './moreLine';
+
+afterEach(cleanup);
+
+function fakeSync() {
+  return {
+    signIn: vi.fn(async () => undefined),
+    signOut: vi.fn(async () => undefined),
+    syncNow: vi.fn(async () => undefined),
+    connectCalendar: vi.fn(async () => undefined),
+    refreshCalendar: vi.fn(async () => undefined),
+    stop: vi.fn(),
+    email: vi.fn(async () => null),
+    eraseAndSignIn: vi.fn(async () => undefined),
+  } satisfies AppSync;
+}
+
+async function syncState(t: Harness, at: string | null, error: string | null) {
+  await act(async () => {
+    if (at) await setMeta(t.db, META.lastSyncAt, at);
+    if (error) await setMeta(t.db, META.lastSyncError, error);
+    else await t.db.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
+    t.db.notifyChanged({ types: [], source: 'remote' });
+  });
+}
+
+const section = (name: string) => screen.getByRole('region', { name });
+const stored = (t: Harness) => getSettings(t.db);
+
+describe('Settings', () => {
+  describe.each(['desktop', 'phone'] as const)('on %s', (layout) => {
+    it('shows each section', async () => {
+      await renderScreen('settings', { layout });
+      expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+      for (const name of ['Account', 'Available hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance']) {
+        expect(screen.getByRole('heading', { level: 2, name })).toBeVisible();
+      }
+    });
+
+    it('sets the appearance for this device: System until Light or Dark is chosen', async () => {
+      await renderScreen('settings', { layout });
+      const group = within(await screen.findByRole('region', { name: 'Appearance' })).getByRole('group', { name: 'Appearance' });
+      const option = (name: string) => within(group).getByRole('button', { name });
+      expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['System', 'Light', 'Dark']);
+      expect(option('System')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByText(/kept on this device only/i)).toBeVisible();
+
+      await userEvent.click(option('Dark'));
+      expect(option('Dark')).toHaveAttribute('aria-pressed', 'true');
+      expect(option('System')).toHaveAttribute('aria-pressed', 'false');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+
+      await userEvent.click(option('System'));
+      expect(option('System')).toHaveAttribute('aria-pressed', 'true');
+      expect(document.documentElement).not.toHaveAttribute('data-theme');
+    });
+
+    it('links to the source code, opening outside the app', async () => {
+      await renderScreen('settings', { layout });
+      const link = await screen.findByRole('link', { name: 'Source code' });
+      expect(link).toHaveAttribute('href', 'https://github.com/BSchrift/open-multiscale-planning');
+      expect(link).toHaveAttribute('target', '_blank');
+    });
+  });
+
+  describe('account and sync', () => {
+    it('signed out, offers Sign in', async () => {
+      const sync = fakeSync();
+      const t = await renderScreen('settings', { sync });
+      await syncState(t, null, 'sign_in_expired');
+      const account = section('Account');
+      expect(await within(account).findByText('Signed out')).toBeVisible();
+      expect(within(account).queryByRole('button', { name: 'Sync now' })).toBeNull();
+      await userEvent.click(within(account).getByRole('button', { name: 'Sign in' }));
+      expect(sync.signIn).toHaveBeenCalledOnce();
+    });
+
+    it('signed in, shows the last sync, Sync now and Sign out', async () => {
+      const sync = fakeSync();
+      const t = await renderScreen('settings', { sync });
+      await syncState(t, '2026-11-02T19:30:00Z', null);
+      const account = section('Account');
+      expect(await within(account).findByText('Synced')).toBeVisible();
+      expect(within(account).getByText('Last synced 1:30pm')).toBeVisible();
+      await userEvent.click(within(account).getByRole('button', { name: 'Sync now' }));
+      expect(sync.syncNow).toHaveBeenCalledOnce();
+      await userEvent.click(within(account).getByRole('button', { name: 'Sign out' }));
+      expect(sync.signOut).toHaveBeenCalledOnce();
+    });
+
+    it('a sync on another day shows its date', async () => {
+      const t = await renderScreen('settings', { sync: fakeSync() });
+      await syncState(t, '2026-10-30T15:00:00Z', null);
+      expect(await within(section('Account')).findByText('Last synced Oct 30, 10am')).toBeVisible();
+    });
+
+    it.each([
+      ['offline', 'Offline', /kept/],
+      ['clock_ahead', 'Not synced', /clock is ahead/],
+      ['other_account', 'Not synced', /another account\. Erase it to sign in, or sign out to keep it\./],
+      ['too_large', 'Partly synced', /too long to sync/],
+      ['error', 'Not synced', /try again/i],
+      ['sign_in_failed', 'Signed out', /didn't finish/],
+    ])('explains %s calmly, keeping the last sync time', async (code, pill, line) => {
+      const t = await renderScreen('settings', { sync: fakeSync() });
+      await syncState(t, '2026-11-02T19:30:00Z', code);
+      const account = section('Account');
+      expect(await within(account).findByText(pill)).toBeVisible();
+      expect(within(account).getByText(line)).toBeVisible();
+      expect(within(account).getByText('Last synced 1:30pm')).toBeVisible();
+    });
+  });
+
+  describe('available hours', () => {
+    const rows = () => screen.getAllByRole('group', { name: /^Unavailable, / });
+
+    it('starts with 10pm to 7am every day, and sums the week', async () => {
+      await renderScreen('settings');
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      expect(rows()[0]).toHaveAccessibleName('Unavailable, 10pm to 7am');
+      expect(within(rows()[0]!).getByRole('combobox', { name: 'Days' })).toHaveValue('all');
+      expect(screen.getByText('105h a week for projects and 105h for one offs.')).toBeVisible();
+    });
+
+    it('counts next week’s busy calendar time', async () => {
+      await renderScreen('settings', {
+        seed: async (w) => {
+          await w.create('calendar_source', { google_id: 'cal-a', name: 'Work', mode: 'block' });
+          await w.create('calendar_source', { google_id: 'cal-b', name: 'Family', mode: 'info' });
+          await w.create(
+            'calendar',
+            {
+              connected: true,
+              events: [
+                { id: 'e1', calendar: 'cal-a', title: 'Team meeting', start: '2026-11-10T21:00:00Z', end: '2026-11-10T23:00:00Z' },
+                { id: 'e2', calendar: 'cal-b', title: 'Dinner out', start: '2026-11-11T21:00:00Z', end: '2026-11-11T23:00:00Z' },
+              ],
+            },
+            CALENDAR_ID,
+          );
+        },
+      });
+      expect(await screen.findByText('105h a week for projects and 105h for one offs, before 2h of calendar busy time next week.')).toBeVisible();
+    });
+
+    it('sliders set a block’s hours', async () => {
+      const t = await renderScreen('settings');
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      fireEvent.change(within(rows()[0]!).getByRole('slider', { name: 'From' }), { target: { value: '1380' } });
+      fireEvent.change(within(rows()[0]!).getByRole('slider', { name: 'To' }), { target: { value: '300' } });
+      await waitFor(() => expect(rows()[0]).toHaveAccessibleName('Unavailable, 11pm to 5am'));
+      expect(within(rows()[0]!).getByRole('slider', { name: 'From' })).toHaveAttribute('aria-valuetext', '11pm');
+      expect((await stored(t)).availability).toEqual([{ days: 'all', from: 1380, to: 300, projects: true, one_offs: true }]);
+    });
+
+    it('one track holds both ends, with time labels, and shades a window that passes midnight at both ends of the day', async () => {
+      await renderScreen('settings');
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      const hours = () => within(rows()[0]!).getByRole('group', { name: 'Hours' });
+      expect(within(hours()).getAllByRole('slider').map((s) => s.getAttribute('aria-label'))).toEqual(['From', 'To']);
+      for (const tick of ['12am', '6am', '12pm', '6pm']) expect(within(hours()).getByText(tick)).toBeVisible();
+      // 10pm to 7am runs to the end of the day and on from its start.
+      expect(hours().querySelectorAll('.timewindow')).toHaveLength(2);
+      fireEvent.change(within(hours()).getByRole('slider', { name: 'From' }), { target: { value: '60' } });
+      await waitFor(() => expect(rows()[0]).toHaveAccessibleName('Unavailable, 1am to 7am'));
+      expect(hours().querySelectorAll('.timewindow')).toHaveLength(1);
+    });
+
+    it('each type of work has its own hours', async () => {
+      const t = await renderScreen('settings');
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      await userEvent.click(within(rows()[0]!).getByRole('checkbox', { name: 'One offs' }));
+      expect(await screen.findByText('105h a week for projects and 168h for one offs.')).toBeVisible();
+      expect((await stored(t)).availability[0]).toMatchObject({ projects: true, one_offs: false });
+    });
+
+    it('adds a block, with its own days, and removes it', async () => {
+      const t = await renderScreen('settings');
+      await userEvent.click(await screen.findByRole('button', { name: 'Add unavailable time' }));
+      await waitFor(() => expect(rows()).toHaveLength(2));
+      expect(rows()[1]).toHaveAccessibleName('Unavailable, 12pm to 1pm');
+      await userEvent.selectOptions(within(rows()[1]!).getByRole('combobox', { name: 'Days' }), 'weekends');
+      await waitFor(async () => expect((await stored(t)).availability[1]).toMatchObject({ days: 'weekends', from: 720, to: 780 }));
+      await userEvent.click(within(rows()[1]!).getByRole('button', { name: 'Remove 12pm to 1pm' }));
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      expect((await stored(t)).availability).toHaveLength(1);
+    });
+
+    it('the one offs aim is a slider, all the way left is no aim', async () => {
+      const t = await renderScreen('settings');
+      const aim = await screen.findByRole('slider', { name: 'Weekly one offs aim' });
+      expect(aim).toHaveAttribute('aria-valuetext', 'No aim');
+      fireEvent.change(aim, { target: { value: '13' } });
+      await waitFor(async () => expect((await stored(t)).one_offs_weekly_aim).toBe(300));
+      expect(aim).toHaveAttribute('aria-valuetext', '5h');
+    });
+  });
+
+  describe('planning cadence', () => {
+    it('shows the cadence and opens the Plan page to change it', async () => {
+      const t = await renderScreen('settings', { layout: 'phone' });
+      act(() => t.nav().go('settings'));
+      expect(within(await screen.findByRole('region', { name: 'Planning cadence' })).getByText('Calendar quarters')).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Change planning cadence' }));
+      await waitFor(() => expect(t.nav().route).toMatchObject({ area: 'plan', params: { cadence: 'edit' } }));
+      expect(t.nav().backLabel).toBe('Settings');
+    });
+
+    it('with none, says so', async () => {
+      await renderScreen('settings', { seed: (w) => updateSettings(w, { plan_cadence: null }) });
+      expect(within(await screen.findByRole('region', { name: 'Planning cadence' })).getByText('Not set')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Set your planning cadence' })).toBeVisible();
+    });
+
+    it('has no cadence controls of its own', async () => {
+      await renderScreen('settings');
+      const cadence = await screen.findByRole('region', { name: 'Planning cadence' });
+      expect(within(cadence).queryByRole('combobox')).toBeNull();
+      expect(within(cadence).queryByRole('spinbutton')).toBeNull();
+    });
+  });
+
+  describe('Google Calendar', () => {
+    it('not connected, offers Connect', async () => {
+      const sync = fakeSync();
+      await renderScreen('settings', { sync });
+      const cal = await screen.findByRole('region', { name: 'Google Calendar' });
+      expect(within(cal).getByText('Not connected.')).toBeVisible();
+      await userEvent.click(within(cal).getByRole('button', { name: 'Connect' }));
+      expect(sync.connectCalendar).toHaveBeenCalledOnce();
+    });
+
+    const connected = async (w: Writer) => {
+      await w.create('calendar', { connected: true, synced_at: '2026-11-02T19:58:00Z' }, CALENDAR_ID);
+      await w.create('calendar_source', { google_id: 'cal-b', name: 'Work', mode: 'block' });
+      await w.create('calendar_source', { google_id: 'cal-a', name: 'Family', mode: 'info' });
+    };
+
+    it('connected, lists calendars by name with their modes, and refreshes', async () => {
+      const sync = fakeSync();
+      const t = await renderScreen('settings', { sync, seed: connected });
+      const cal = await screen.findByRole('region', { name: 'Google Calendar' });
+      expect(await within(cal).findByText('Connected. Blocks go to your Time blocks calendar.')).toBeVisible();
+      expect(within(cal).getByText('Last pushed 1:58pm')).toBeVisible();
+      const selects = within(cal).getAllByRole('combobox');
+      expect(selects.map((s) => (s as HTMLSelectElement).labels[0]?.textContent)).toEqual(['Family', 'Work']);
+      expect(within(cal).getByRole('combobox', { name: 'Work' })).toHaveValue('block');
+      await userEvent.selectOptions(within(cal).getByRole('combobox', { name: 'Work' }), 'ignore');
+      await waitFor(async () => expect((await listRecords(t.db, 'calendar_source')).find((s) => s.name === 'Work')?.mode).toBe('ignore'));
+      await userEvent.click(within(cal).getByRole('button', { name: 'Refresh' }));
+      expect(sync.refreshCalendar).toHaveBeenCalledOnce();
+    });
+
+    it('a failed refresh says so without losing anything', async () => {
+      const sync = fakeSync();
+      sync.refreshCalendar.mockRejectedValueOnce(Object.assign(new Error('offline'), { code: 'offline' }));
+      const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await renderScreen('settings', { sync, seed: connected });
+      await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+      expect(await screen.findByText(/Couldn't reach the server/)).toBeVisible();
+      log.mockRestore();
+    });
+
+    it('shows the calendar’s own error', async () => {
+      await renderScreen('settings', {
+        sync: fakeSync(),
+        seed: (w) => w.create('calendar', { connected: false, last_error: 'calendar_revoked' }, CALENDAR_ID),
+      });
+      expect(await screen.findByText('Google access was removed. Connect again.')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Connect' })).toBeVisible();
+    });
+  });
+
+  describe('away dates', () => {
+    it('needs both dates, in order; adds, clears and removes', async () => {
+      const t = await renderScreen('settings');
+      const away = await screen.findByRole('region', { name: 'Away dates' });
+      const from = within(away).getByLabelText('From');
+      const to = within(away).getByLabelText(/^to$/i);
+      await userEvent.click(within(away).getByRole('button', { name: 'Add' }));
+      expect(await screen.findByText('Choose a start and an end date')).toBeVisible();
+      fireEvent.change(from, { target: { value: '2026-12-20' } });
+      fireEvent.change(to, { target: { value: '2026-12-10' } });
+      await userEvent.click(within(away).getByRole('button', { name: 'Add' }));
+      expect(await listRecords(t.db, 'away_period')).toHaveLength(0);
+      fireEvent.change(to, { target: { value: '2026-12-28' } });
+      await userEvent.click(within(away).getByRole('button', { name: 'Add' }));
+      expect(await within(away).findByText('Dec 20 to Dec 28')).toBeVisible();
+      expect(from).toHaveValue('');
+      expect(to).toHaveValue('');
+      expect(await listRecords(t.db, 'away_period')).toMatchObject([{ start: '2026-12-20', end: '2026-12-28' }]);
+      await userEvent.click(within(away).getByRole('button', { name: 'Remove Dec 20 to Dec 28' }));
+      await waitFor(() => expect(within(away).queryByText('Dec 20 to Dec 28')).toBeNull());
+      expect(await listRecords(t.db, 'away_period')).toHaveLength(0);
+    });
+
+    it('leaves out away dates that have passed', async () => {
+      await renderScreen('settings', {
+        seed: async (w) => {
+          await w.create('away_period', { start: '2026-10-01', end: '2026-10-05' });
+          await w.create('away_period', { start: '2026-11-01', end: '2026-11-03' });
+        },
+      });
+      const away = await screen.findByRole('region', { name: 'Away dates' });
+      expect(await within(away).findByText('Nov 1 to Nov 3')).toBeVisible();
+      expect(within(away).queryByText('Oct 1 to Oct 5')).toBeNull();
+    });
+  });
+
+  describe('reminders', () => {
+    it('switch off, and the check-in delay is a slider', async () => {
+      const t = await renderScreen('settings');
+      const rem = await screen.findByRole('region', { name: 'Reminders' });
+      await userEvent.click(within(rem).getByRole('checkbox', { name: 'Notify at block start' }));
+      await userEvent.click(within(rem).getByRole('checkbox', { name: 'Ask at block end' }));
+      const delay = within(rem).getByRole('slider', { name: 'After' });
+      expect(delay).toHaveAttribute('aria-valuetext', '5 minutes');
+      fireEvent.change(delay, { target: { value: '15' } });
+      await waitFor(() => expect(within(rem).getByRole('slider', { name: 'After' })).toHaveAttribute('aria-valuetext', '15 minutes'));
+      await userEvent.click(within(rem).getByRole('checkbox', { name: "Ask if I've started, unless I already tapped Start" }));
+      await waitFor(() => expect(within(rem).queryByRole('slider', { name: 'After' })).toBeNull());
+      expect((await stored(t)).reminders).toEqual({ block_start: false, check_in: false, check_in_delay_min: 15, block_end: false });
+    });
+  });
+
+  describe('More line', () => {
+    it('reads the week’s project hours and the one offs aim', async () => {
+      const t = await renderScreen('settings');
+      expect(await moreLine(t.db, t.clock)).toBe('105h a week for projects, no One offs aim');
+      await t.write((w) => updateSettings(w, { one_offs_weekly_aim: 180 }));
+      expect(await moreLine(t.db, t.clock)).toBe('105h a week for projects, 3h One offs aim');
+    });
+  });
+});

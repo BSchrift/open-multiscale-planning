@@ -1,0 +1,44 @@
+/* Process: what the shared card styles don't cover. */
+
+[data-layout] .pxmin {
+  min-width: 0;
+}
+
+[data-layout='desktop'] .pxotherpick {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+[data-layout='desktop'] .pxotherpick .pxother {
+  flex: 1 1 auto;
+}
+
+/* Phone: the flow sits on the ground, where the usual track would vanish. */
+[data-layout='phone'] .pxbar {
+  background: var(--card-line);
+}
+
+[data-layout] .pxlastrow {
+  min-height: 32px;
+}
+
+[data-layout] .pxms {
+  width: auto;
+  min-height: 36px;
+  padding: 2px 8px;
+}
+
+[data-layout='phone'] .pxms {
+  min-height: 44px;
+}
+
+[data-layout='phone'] .pxpick[aria-pressed='true'] {
+  background: var(--blue-pale);
+  box-shadow: inset 4px 0 0 var(--blue);
+  padding-left: 12px;
+}
+
+[data-layout] .pxlines > span {
+  display: block;
+}

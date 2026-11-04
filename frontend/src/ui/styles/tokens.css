@@ -1,0 +1,305 @@
+/* Design tokens: colour, type and spacing. New CSS uses these names, never raw values.
+   Blocks are coloured by type: blue for projects, teal for practices, purple for one offs.
+   Every colour has a dark value below under the same name. --white is the raised surface, and the text on solid
+   colours, so it turns dark in dark; --ink turns light, so a toast stays the reverse of the page. */
+:root {
+  color-scheme: light;
+
+  /* Ink and surfaces */
+  --ink: #1e2126;
+  /* Shadows and scrims only. */
+  --ink-rgb: 30, 33, 38;
+  --ink-2: #3d424a;
+  --quiet: #5e646e;
+  --white: #fff;
+  --page: #fafaf8;
+  /* Behind the cards that hold each screen's sections. */
+  --ground: #efefea;
+  --panel: #fbfbf9;
+  --track: #f7f7f4;
+  --closed: #f3f3ef;
+  --fill: #ecece7;
+  --hover: #f0f0ec;
+  --hover-2: #f6f6f3;
+  --stretch: #eef0ec;
+  --whole: #ddddd8;
+  --stripe-2: #dcdcd6;
+
+  /* Lines */
+  --line: #e6e6e1;
+  --line-soft: #eeeeea;
+  --line-faint: #f1f1ed;
+  --line-strong: #cfcfc9;
+  --border: #d4d4ce;
+  --border-strong: #bfc0ba;
+  --card-line: #e2e2dc;
+  --card-shadow: 0 1px 2px rgba(30, 33, 38, 0.06), 0 2px 8px rgba(30, 33, 38, 0.05);
+  --tick: #c9ccc8;
+  --info-line: #a9a9a2;
+  --grey: #888d96;
+  --muted: #bdbfc4;
+  --split-c: #c9cbcf;
+  --analytics-3: #aeb1b6;
+  /* The capacity ring's backing, and a ticked checkbox's mark on --blue. */
+  --disc: rgba(255, 255, 255, 0.94);
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+
+  /* Projects, and the primary action */
+  --blue: #1f5f8b;
+  --blue-hover: #174a6d;
+  --blue-ink: #123b58;
+  --blue-mid: #6f9cbc;
+  --blue-mid-2: #7fa9c6;
+  --blue-suggest: #8fb6d1;
+  --blue-bar: #9db7ca;
+  --blue-bar-soft: #c9d8e3;
+  --blue-line: #bcd3e3;
+  --blue-soft: #d5e5f0;
+  --blue-tint: #e8f0f6;
+  --blue-added: #eef5fa;
+  --blue-pale: #f1f6fa;
+  --blue-on-solid: #e3eef5;
+  --blue-on-dark: #bfe0f5;
+  --band: #e3ecf3;
+  --band-line: #9db8cc;
+
+  /* One offs */
+  --purple: #5b4a9e;
+  --purple-ink: #3e3178;
+  --purple-soft: #ece8f6;
+  --purple-hover: #e2dcf2;
+  --purple-pale: #f7f5fc;
+  --purple-line: #d9d3ec;
+  --purple-bar: #b3a9d6;
+  --purple-mid: #9b8fcb;
+
+  /* Practices */
+  --teal: #0f6e6e;
+  --teal-ink: #0b4f4f;
+  --teal-soft: #ddf1f0;
+
+  /* Status */
+  --red: #b3261e;
+  --red-dark: #8f1e18;
+  --red-tint: #fbe9e7;
+  --red-soft: #f6d9d6;
+  --amber: #b26a00;
+  --amber-ink: #7a4a00;
+  --amber-ink-2: #5c3b00;
+  --amber-pale: #fbf3e4;
+  --amber-soft: #fdf0d5;
+  --amber-line: #ebd9b4;
+  --green: #1e6b3e;
+  --green-soft: #e3f3e8;
+  --neutral: #f0f1f3;
+  --neutral-ink: #4b5563;
+
+  /* Type */
+  --font: 'Instrument Sans Variable', 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-base-desktop: 15px;
+  --text-base-phone: 16px;
+  --text-h3: 13px;
+  --text-h2: 17px;
+  --text-h1-desktop: 24px;
+  --text-h1-phone: 28px;
+
+  /* Spacing and shape */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-sheet: 16px;
+  --tap: 44px;
+}
+
+/* Dark: the system's unless Light was chosen in Settings, or Dark when chosen. The two blocks must stay the same
+   (tokens.test.ts checks), since a media query can't share a rule with a selector. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    /* Ink and surfaces */
+    --ink: #e4e5e1;
+    --ink-rgb: 0, 0, 0;
+    --ink-2: #c3c6c9;
+    --quiet: #9a9fa6;
+    --white: #1d1f22;
+    --page: #141517;
+    --ground: #141517;
+    --panel: #18191c;
+    --track: #1a1c1f;
+    --closed: #222427;
+    --fill: #2c2f33;
+    --hover: #2a2d31;
+    --hover-2: #25272b;
+    --stretch: #1f2325;
+    --whole: #3a3d42;
+    --stripe-2: #404349;
+
+    /* Lines */
+    --line: #33363a;
+    --line-soft: #2a2d31;
+    --line-faint: #232528;
+    --line-strong: #44484d;
+    --border: #45494f;
+    --border-strong: #62676e;
+    --card-line: #33363a;
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --tick: #4d5157;
+    --info-line: #6b7077;
+    --grey: #8a8f97;
+    --muted: #50545a;
+    --split-c: #4a4e54;
+    --analytics-3: #686c73;
+    --disc: rgba(29, 31, 34, 0.94);
+    --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231d1f22' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+
+    /* Projects, and the primary action */
+    --blue: #72b3e3;
+    --blue-hover: #98c8ee;
+    --blue-ink: #b5d7f2;
+    --blue-mid: #4f86b0;
+    --blue-mid-2: #4a7ba0;
+    --blue-suggest: #3d6b8f;
+    --blue-bar: #3b6383;
+    --blue-bar-soft: #294156;
+    --blue-line: #2f4f69;
+    --blue-soft: #213a4e;
+    --blue-tint: #1b2d3c;
+    --blue-added: #1a2935;
+    --blue-pale: #182430;
+    --blue-on-solid: #163a55;
+    --blue-on-dark: #1f5f8b;
+    --band: #1c2c3a;
+    --band-line: #3e6584;
+
+    /* One offs */
+    --purple: #b1a3ec;
+    --purple-ink: #d2c9f7;
+    --purple-soft: #2c2645;
+    --purple-hover: #372f56;
+    --purple-pale: #211d2e;
+    --purple-line: #3f3763;
+    --purple-bar: #5e5294;
+    --purple-mid: #7b6eb6;
+
+    /* Practices */
+    --teal: #5cc4be;
+    --teal-ink: #98ddd8;
+    --teal-soft: #163331;
+
+    /* Status */
+    --red: #f08a80;
+    --red-dark: #f6b4ad;
+    --red-tint: #3a1e1c;
+    --red-soft: #4d2724;
+    --amber: #e0a040;
+    --amber-ink: #efc47e;
+    --amber-ink-2: #f4d6a4;
+    --amber-pale: #2a2215;
+    --amber-soft: #35291a;
+    --amber-line: #5a4627;
+    --green: #6fcf97;
+    --green-soft: #173222;
+    --neutral: #2a2d31;
+    --neutral-ink: #c3c8cf;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Ink and surfaces */
+  --ink: #e4e5e1;
+  --ink-rgb: 0, 0, 0;
+  --ink-2: #c3c6c9;
+  --quiet: #9a9fa6;
+  --white: #1d1f22;
+  --page: #141517;
+  --ground: #141517;
+  --panel: #18191c;
+  --track: #1a1c1f;
+  --closed: #222427;
+  --fill: #2c2f33;
+  --hover: #2a2d31;
+  --hover-2: #25272b;
+  --stretch: #1f2325;
+  --whole: #3a3d42;
+  --stripe-2: #404349;
+
+  /* Lines */
+  --line: #33363a;
+  --line-soft: #2a2d31;
+  --line-faint: #232528;
+  --line-strong: #44484d;
+  --border: #45494f;
+  --border-strong: #62676e;
+  --card-line: #33363a;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --tick: #4d5157;
+  --info-line: #6b7077;
+  --grey: #8a8f97;
+  --muted: #50545a;
+  --split-c: #4a4e54;
+  --analytics-3: #686c73;
+  --disc: rgba(29, 31, 34, 0.94);
+  --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231d1f22' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+
+  /* Projects, and the primary action */
+  --blue: #72b3e3;
+  --blue-hover: #98c8ee;
+  --blue-ink: #b5d7f2;
+  --blue-mid: #4f86b0;
+  --blue-mid-2: #4a7ba0;
+  --blue-suggest: #3d6b8f;
+  --blue-bar: #3b6383;
+  --blue-bar-soft: #294156;
+  --blue-line: #2f4f69;
+  --blue-soft: #213a4e;
+  --blue-tint: #1b2d3c;
+  --blue-added: #1a2935;
+  --blue-pale: #182430;
+  --blue-on-solid: #163a55;
+  --blue-on-dark: #1f5f8b;
+  --band: #1c2c3a;
+  --band-line: #3e6584;
+
+  /* One offs */
+  --purple: #b1a3ec;
+  --purple-ink: #d2c9f7;
+  --purple-soft: #2c2645;
+  --purple-hover: #372f56;
+  --purple-pale: #211d2e;
+  --purple-line: #3f3763;
+  --purple-bar: #5e5294;
+  --purple-mid: #7b6eb6;
+
+  /* Practices */
+  --teal: #5cc4be;
+  --teal-ink: #98ddd8;
+  --teal-soft: #163331;
+
+  /* Status */
+  --red: #f08a80;
+  --red-dark: #f6b4ad;
+  --red-tint: #3a1e1c;
+  --red-soft: #4d2724;
+  --amber: #e0a040;
+  --amber-ink: #efc47e;
+  --amber-ink-2: #f4d6a4;
+  --amber-pale: #2a2215;
+  --amber-soft: #35291a;
+  --amber-line: #5a4627;
+  --green: #6fcf97;
+  --green-soft: #173222;
+  --neutral: #2a2d31;
+  --neutral-ink: #c3c8cf;
+}

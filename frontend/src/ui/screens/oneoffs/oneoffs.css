@@ -1,0 +1,68 @@
+/* Each list is a card of rows split by hairlines. */
+[data-layout] .oneoffs .card > .maintrow {
+  padding-inline: var(--space-4);
+}
+
+[data-layout] .oneoffs .card > .maintrow:first-child {
+  border-top: 0;
+}
+
+[data-layout='phone'] .oneoffs > section > .card {
+  margin-top: var(--space-1);
+}
+
+[data-layout='desktop'] .oneoffs > section > .oneoffform {
+  border-color: var(--card-line);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--card-shadow);
+}
+
+[data-layout] .oneoffs .oogroup,
+[data-layout] .oneoffs .oofinished {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+[data-layout='phone'] .oneoffs .oogroup,
+[data-layout='phone'] .oneoffs .oofinished {
+  gap: 2px;
+  margin-top: var(--space-1);
+}
+
+/* Repeating and Finished tasks: small labels on the ground above their cards. */
+[data-layout] .oogroup > h2,
+[data-layout] .oofinished > div > .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 var(--space-1);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-layout='desktop'] .oogroup > h2,
+[data-layout='desktop'] .oofinished > div > .link {
+  min-height: 36px;
+  font-size: var(--text-sm);
+}
+
+/* Finished tasks' caret is drawn, so the button's name stays its text. */
+[data-layout] .oofinished > div > .link::before {
+  content: '';
+  border-left: 4px solid;
+  border-block: 3px solid transparent;
+}
+
+[data-layout] .oofinished > div > .link[aria-expanded='true']::before {
+  transform: rotate(90deg);
+}
+
+[data-layout] .oneoffs .oofinished h3 {
+  margin-top: 8px;
+}

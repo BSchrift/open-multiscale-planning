@@ -1,0 +1,18 @@
+/* Capture: what the shared styles don't cover. */
+
+[data-layout='desktop'] .capfield {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-layout='desktop'] .capfield select {
+  min-height: 36px;
+  max-width: 300px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-layout='desktop'] .capsheet {
+    transition: none;
+  }
+}

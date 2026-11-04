@@ -1,0 +1,140 @@
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { listRecords } from '../../../core/records';
+import type { Writer } from '../../../core/records';
+import { renderApp, renderScreen } from '../../app/testing';
+import type { Layout } from '../../app/registry';
+import { EST_STEPS } from '../../components/EstimateSlider';
+
+afterEach(cleanup);
+
+const running = { state: 'active' as const, start: '2026-10-01', end: '2027-01-31' };
+async function seed(w: Writer) {
+  await w.create('project', { title: 'Paint the fence', ...running }, 'p1');
+  await w.create('project', { title: 'Write the report', ...running, state: 'finished' }, 'p2');
+}
+
+const open = (layout: Layout = 'desktop') => {
+  const close = vi.fn();
+  return renderScreen('capture', { layout, seed, presentation: 'overlay', close }).then(async (t) => {
+    await screen.findByRole('textbox', { name: /Capture to/ });
+    return { ...t, close };
+  });
+};
+const field = () => screen.getByRole('textbox', { name: /Capture to/ });
+const tasks = async (db: Parameters<typeof listRecords>[0]) => listRecords(db, 'task');
+
+describe('Capture on desktop', () => {
+  it('opens on one field, with details folded away', async () => {
+    await open();
+    expect(screen.getByRole('dialog', { name: 'Capture' })).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: 'Capture to Inbox' })).toHaveFocus();
+    expect(screen.getByText('Saves to Inbox')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add details' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('saves to the Inbox on Enter, says so, then closes', async () => {
+    const t = await open();
+    await userEvent.type(field(), '  Call the bank {Enter}');
+    expect(await screen.findByText('Saved to Inbox, 1 waiting')).toBeInTheDocument();
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'inbox', title: 'Call the bank' }]);
+    expect((await tasks(t.db))[0]!.estimate_min ?? null).toBeNull();
+    await waitFor(() => expect(t.close).toHaveBeenCalled(), { timeout: 2000 });
+  });
+
+  it('says what it saved through a live region that was already there, so screen readers announce it', async () => {
+    await open();
+    const status = within(screen.getByRole('dialog', { name: 'Capture' })).getByRole('status');
+    expect(status).toBeEmptyDOMElement();
+    await userEvent.type(field(), 'Call the bank{Enter}');
+    await waitFor(() => expect(status).toHaveTextContent('Saved to Inbox, 1 waiting'));
+    expect(status).toBeInTheDocument();
+  });
+
+  it('keeps a pasted title to a length that syncs', async () => {
+    const t = await open();
+    await userEvent.click(field());
+    await userEvent.paste('x'.repeat(5000));
+    await userEvent.keyboard('{Enter}');
+    await waitFor(async () => expect((await tasks(t.db))[0]?.title).toHaveLength(2000));
+  });
+
+  it('saves nothing when empty, and Esc cancels', async () => {
+    const t = await open();
+    await userEvent.type(field(), '{Enter}');
+    expect(await tasks(t.db)).toEqual([]);
+    expect(t.close).not.toHaveBeenCalled();
+    await userEvent.type(field(), 'Half a thought');
+    await userEvent.keyboard('{Escape}');
+    expect(t.close).toHaveBeenCalled();
+    expect(await tasks(t.db)).toEqual([]);
+  });
+
+  it('keeps a time estimate in the Inbox, and a chosen place skips it', async () => {
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    const where = screen.getByRole('combobox', { name: 'Send to' });
+    expect(within(where).getAllByRole('option').map((o) => o.textContent)).toEqual(['Inbox', 'One offs', 'Paint the fence']);
+    fireEvent.change(screen.getByRole('slider', { name: 'Time' }), { target: { value: String(EST_STEPS.indexOf(120)) } });
+    await userEvent.type(field(), 'Fix the gate{Enter}');
+    await screen.findByText(/Saved to Inbox/);
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'inbox', title: 'Fix the gate', estimate_min: 120 }]);
+  });
+
+  it('sends straight to a project', async () => {
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
+    expect(screen.getByText('Saves to Paint the fence')).toBeInTheDocument();
+    await userEvent.type(field(), 'Buy brushes{Enter}');
+    expect(await screen.findByText('Saved to Paint the fence')).toBeInTheDocument();
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'project', project_id: 'p1', title: 'Buy brushes', milestone_id: null }]);
+  });
+
+  it('sends straight to One offs', async () => {
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'One offs');
+    await userEvent.type(field(), 'Return the books{Enter}');
+    expect(await screen.findByText('Saved to One offs')).toBeInTheDocument();
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'one_off', title: 'Return the books', schedule: { type: 'once' } }]);
+  });
+});
+
+describe('Capture on phone', () => {
+  it('is a sheet with one field and Save, saving to the Inbox and closing at once', async () => {
+    const t = await open('phone');
+    expect(screen.getByRole('dialog', { name: 'Capture' })).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: 'Capture to Inbox' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
+    expect(screen.getByRole('textbox', { name: 'Capture to Paint the fence' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Inbox');
+    await userEvent.type(field(), 'Call the bank');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(t.close).toHaveBeenCalled();
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'inbox', title: 'Call the bank' }]);
+  });
+});
+
+describe('Capture in the app', () => {
+  it('opens from the phone + button and lands in the Inbox count', async () => {
+    await renderApp({ layout: 'phone' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Capture a task' }));
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Capture to Inbox' }), 'Call the bank');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('button', { name: 'Inbox, 1 to sort' })).toBeInTheDocument();
+    expect(await screen.findByText('Saved to Inbox')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+  });
+
+  it('opens from Shift+Cmd+Space on desktop', async () => {
+    await renderApp();
+    await screen.findByRole('navigation', { name: 'Main' });
+    act(() => void fireEvent.keyDown(window, { code: 'Space', key: ' ', shiftKey: true, metaKey: true }));
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
+    expect(await screen.findByText('Saved to Inbox, 1 waiting')).toBeInTheDocument();
+  });
+});

@@ -121,6 +121,13 @@ function NextDates(props: { data: PlanData; st: Stretch; first: boolean; held: P
   );
 }
 
+/** Milestones due so far and how many were met, plus any met before their date came. */
+function metLine({ met, total, early }: LookBack['met']): string {
+  const was = early === 1 ? 'was' : 'were';
+  if (!total) return early ? `No milestones were due in this time, but ${early} ${was} met early.` : 'No milestones were due in this time.';
+  return `${met} of ${total} milestones due in this time were met${early ? `, and ${early} more ${was} met early` : ''}.`;
+}
+
 function LookBackStep(props: {
   data: PlanData;
   cur: Stretch | null;
@@ -148,9 +155,7 @@ function LookBackStep(props: {
       {look && (
         <>
           <div className="card stack8">
-            <div>
-              {look.met.total ? `${look.met.met} of ${look.met.total} milestones due in this time were met.` : 'No milestones were due in this time.'}
-            </div>
+            <div>{metLine(look.met)}</div>
             {look.pace != null && <div className="small quiet">About {formatMinutes(look.pace)} a week went to your goals.</div>}
           </div>
           <section className="stack8" aria-label="Time by goal, and One offs">

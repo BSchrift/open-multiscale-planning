@@ -258,6 +258,15 @@ describe('Planning ahead', () => {
       expect(within(time).getByText('One offs')).toBeVisible();
     });
 
+    // Met Oct 30: Make a starter moved to a date still ahead, or First loaf, due after this stretch.
+    it.each([
+      ['none was due yet', 'm1', '2026-12-20', 'No milestones were due in this time, but 1 was met early.'],
+      ['some were due', 'm2', '2027-01-20', '0 of 1 milestones due in this time were met, and 1 more was met early.'],
+    ])('counts a milestone met before its date when %s', async (_, id, due, line) => {
+      await flow(layout, 0, { seed: async (w) => (await seed(w), w.set('milestone', id, { due, met_at: '2026-10-30T15:00:00.000Z' })) });
+      expect(await screen.findByText(line)).toBeVisible();
+    });
+
     it('keeps a note and sets the next stretch dates', async () => {
       const { t } = await flow(layout);
       expect(await screen.findByText('Next stretch: Jan 1 to Mar 31')).toBeVisible();

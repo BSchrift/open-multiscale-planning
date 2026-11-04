@@ -145,7 +145,8 @@ export type Pattern =
 
 export interface StretchAnalytics extends WeekAnalytics {
   patterns: Pattern[];
-  milestones_met: { met: number; total: number };
+  /** Of those due so far, how many were met by their original date; early counts ones not due yet but already met. */
+  milestones_met: { met: number; total: number; early: number };
   /** Percent actual time ran over estimates (negative is under), or null with nothing to compare. */
   estimate_drift: number | null;
 }
@@ -372,15 +373,21 @@ function milestonesMet(data: AnalyticsData, zone: string, from: LocalDate, to: L
   const projects = new Map(data.projects.map((p) => [p.id, p]));
   let met = 0;
   let total = 0;
+  let early = 0;
   for (const m of data.milestones) {
     const project = projects.get(m.project_id);
     const original = project && originalDate(m, project, stretch);
-    if (!original || original < from || original > to) continue;
-    total++;
+    if (!original || original < from) continue;
     const on = metOn(m, project, data.tasks, zone);
+    if (original > to) {
+      // Not due yet, but met in this time.
+      if (on && on >= from && on <= to) early++;
+      continue;
+    }
+    total++;
     if (on && on <= original) met++;
   }
-  return { met, total };
+  return { met, total, early };
 }
 
 /** When a milestone was met: marked met, or else reached when the last of its tasks was done. */

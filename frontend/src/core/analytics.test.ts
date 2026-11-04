@@ -351,11 +351,14 @@ describe('stretch view', () => {
         ms('m3', { due: '2026-10-15', met_at: localToInstant('2026-10-15', 1400, ZONE) }), // Last minute, local time.
         ms('m4', { due: '2026-10-16', dropped_at: NOW }), // Dropped counts as not met.
         ms('m5', { due: '2026-10-17' }), // Open and past.
-        ms('m6', { due: '2026-11-30', met_at: NOW }), // Its date hasn't come.
+        ms('m6', { due: '2026-11-30', met_at: NOW }), // Its date hasn't come: met early.
         ms('m7', { due: '2026-09-01', met_at: localToInstant('2026-09-01', 600, ZONE) }), // Before the stretch.
         ms('m8', { due: null }), // No date.
+        ms('m9', { due: '2027-02-01', met_at: localToInstant('2026-10-05', 600, ZONE) }), // Due after the stretch, met early in it.
+        ms('m10', { due: '2026-12-01', met_at: localToInstant('2026-09-20', 600, ZONE) }), // Met before the stretch began.
+        ms('m11', { due: '2026-12-10' }), // Not due yet, open.
       ];
-      expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 2, total: 5 });
+      expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 2, total: 5, early: 2 });
     });
 
     it('counts a milestone reached by finishing its tasks, on the day the last one was done', () => {
@@ -370,7 +373,7 @@ describe('stretch view', () => {
         { id: 'e', kind: 'project', project_id: 'p1', milestone_id: 'm3', title: 'Open' }, // Not all done.
         { id: 'f', kind: 'project', project_id: 'p1', milestone_id: 'm3', title: 'Done', done_at: done('2026-10-10') },
       );
-      expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 1, total: 3 });
+      expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 1, total: 3, early: 0 });
     });
 
     for (const state of ['finished', 'dropped'] as const) {
@@ -384,7 +387,7 @@ describe('stretch view', () => {
         });
         await transact(db, clock, (w) => closeProject(w, 'p', state, clock));
         const d = await loadAnalyticsData(db);
-        expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 0, total: 1 });
+        expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 0, total: 1, early: 0 });
         const [plan] = gatherPlans(d.projects, d.milestones, d.tasks);
         expect(msReached(plan!, plan!.milestones[0]!)).toBe(false);
       });
@@ -405,7 +408,7 @@ describe('stretch view', () => {
       d.projects = [plan.project];
       d.milestones = plan.milestones.map((m) => (m.id === 'loaf' ? { ...m, met_at: localToInstant('2026-11-20', 600, ZONE) } : m));
       const end = fixedClock(localToInstant('2026-12-31', 18 * 60, ZONE), ZONE);
-      expect(stretchAnalytics(d, end, stretch).milestones_met).toEqual({ met: 1, total: 1 });
+      expect(stretchAnalytics(d, end, stretch).milestones_met).toEqual({ met: 1, total: 1, early: 0 });
     });
   });
 

@@ -47,7 +47,7 @@ export async function loadPlan(sql: Sql, clock: Clock): Promise<PlanData> {
 export interface LookBack {
   /** Minutes a week of project work lately, or null with none. */
   pace: Minutes | null;
-  met: { met: number; total: number };
+  met: { met: number; total: number; early: number };
   time: TimeRow[];
 }
 

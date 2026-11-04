@@ -1,0 +1,67 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-electron/
+release/
+build/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Go
+backend/bin/
+backend/dist/
+*.test
+*.out
+
+# CDK
+infrastructure/cdk.out/
+infrastructure/cdk.context.json
+
+# Secrets and per-deployment config: only the .example files are committed
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+config.json
+config.*.json
+!*.example.json
+deploy.config.*
+!deploy.config.example.*
+infrastructure/config.*
+!infrastructure/config.example.*
+infrastructure/config/*.json
+!infrastructure/config/*.example.json
+**/integration/config/*.json
+!**/integration/config/*.example.json
+!**/integration/config/local.json
+frontend/app.config.*
+!frontend/app.config.example.*
+
+# Xcode user data and build products
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+DerivedData/
+frontend/ios/App/Pods/
+frontend/ios/App/App/public/
+frontend/ios/App/build/
+frontend/ios/DerivedData/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp

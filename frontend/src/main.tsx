@@ -16,6 +16,8 @@ const root = createRoot(document.getElementById('root')!);
 
 createPlatform(__APP_CONFIG__.env).then(
   (platform) => {
+    // An app doesn't zoom: WebKit would zoom in on a focused field, and a pinch could leave the screen zoomed in.
+    if (platform.kind === 'ios') document.querySelector('meta[name=viewport]')?.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no');
     // Lets Playwright seed records in dev builds; production bundles drop this branch.
     if (import.meta.env.DEV) {
       Object.assign(window, {

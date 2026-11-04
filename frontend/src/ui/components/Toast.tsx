@@ -7,7 +7,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactNode } from 'react';
 
 const PLAIN_MS = 3500;
-const WITH_UNDO_MS = 8000;
+const WITH_UNDO_MS = 5000;
 
 export interface ToastOptions {
   /** Shows an Undo button that runs this and dismisses the toast. */
@@ -35,7 +35,7 @@ interface Current extends ToastOptions {
 
 export function ToastProvider(props: { children: ReactNode }) {
   const [current, setCurrent] = useState<Current | null>(null);
-  // Focus or the pointer on the toast holds it open, so Undo can't vanish while someone is reaching for it.
+  // Focus or the mouse on the toast holds it open, so Undo can't vanish while someone is reaching for it.
   const [held, setHeld] = useState({ focus: false, hover: false });
   const counter = useRef(0);
 
@@ -48,6 +48,16 @@ export function ToastProvider(props: { children: ReactNode }) {
     }),
     [],
   );
+
+  useEffect(() => {
+    if (!current) return;
+    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click.
+    const away = (event: PointerEvent) => {
+      if (!(event.target as Element).closest?.('.toastact')) setCurrent(null);
+    };
+    document.addEventListener('pointerdown', away, true);
+    return () => document.removeEventListener('pointerdown', away, true);
+  }, [current]);
 
   const paused = held.focus || held.hover;
   useEffect(() => {
@@ -69,8 +79,9 @@ export function ToastProvider(props: { children: ReactNode }) {
             onBlur={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget)) setHeld((h) => ({ ...h, focus: false }));
             }}
-            onMouseEnter={() => setHeld((h) => ({ ...h, hover: true }))}
-            onMouseLeave={() => setHeld((h) => ({ ...h, hover: false }))}
+            // WebKit reports a finger as a pointer that never leaves, so only a mouse holds it.
+            onPointerEnter={(e) => e.pointerType === 'mouse' && setHeld((h) => ({ ...h, hover: true }))}
+            onPointerLeave={(e) => e.pointerType === 'mouse' && setHeld((h) => ({ ...h, hover: false }))}
           >
             <span>{current.message}</span>
             {current.undo && (

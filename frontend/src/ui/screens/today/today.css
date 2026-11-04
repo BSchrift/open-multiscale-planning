@@ -21,10 +21,10 @@
 [data-layout] .today .card > :is(.maintrow, .qrow, .rowline):first-child, [data-layout] .tllist > :first-child { border-top: 0; }
 /* The timeline card: a header with the view toggle, over the calendar or the list. */
 [data-layout] .tlhead { padding: 10px var(--space-3) 10px var(--space-4); border-bottom: 1px solid var(--line-soft); }
-[data-layout='phone'] .tlhead { padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); }
+[data-layout='phone'] .tlhead { padding: var(--space-2) var(--space-4); }
 [data-layout] .tlhead h3 { color: var(--ink); font-size: inherit; }
 [data-layout='desktop'] .tlhead + .daywrap { padding: var(--space-4) var(--space-3) 20px 68px; }
-[data-layout='phone'] .tlhead + .daywrap { padding: var(--space-3) var(--space-2) var(--space-4) 56px; }
+[data-layout='phone'] .tlhead + .daywrap { padding: var(--space-3) var(--space-4) var(--space-4) 56px; }
 [data-layout='desktop'] .tllist { padding: 0 var(--space-3) var(--space-1); }
 [data-layout='phone'] .tllist { padding: 0 var(--space-4) var(--space-1); }
 /* An opened block's details sit in an inset panel inside the card, as an open project does in its goal's. */
@@ -40,3 +40,7 @@
 [data-layout='desktop'] .cev:hover > .evh { background: var(--blue); }
 /* The block being dragged rides above the suggested time. */
 [data-layout] .cev.lifted { z-index: 3; box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.3); }
+/* The stretch banner's × matches its card, and Start reads as an action, as Process does. */
+[data-layout='phone'] .stretchdue { align-items: stretch; }
+[data-layout='phone'] .stretchdue > .icbtn { height: auto; border-color: var(--card-line); border-radius: 14px; box-shadow: var(--card-shadow); color: var(--quiet); }
+[data-layout='phone'] .attngo { color: var(--blue); font-weight: 600; }

@@ -4,7 +4,7 @@ import { Component, Suspense, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
-import { PlusIcon } from '../components/icons';
+import { PlusIcon, TabIcon } from '../components/icons';
 import { ToastProvider } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
@@ -170,12 +170,11 @@ function PhoneNav() {
               aria-label={tab === 'inbox' && count > 0 ? `Inbox, ${count} to sort` : undefined}
               onClick={() => nav.selectTab(tab)}
             >
-              {tabLabel(tab)}
-              {tab === 'inbox' && count > 0 && (
-                <span className="tbadge" aria-hidden="true">
-                  {count}
-                </span>
-              )}
+              <span className="ticon" aria-hidden="true">
+                <TabIcon tab={tab} />
+                {tab === 'inbox' && count > 0 && <span className="tbadge">{count}</span>}
+              </span>
+              <span>{tabLabel(tab)}</span>
             </button>
           );
         })}

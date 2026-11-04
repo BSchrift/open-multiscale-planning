@@ -73,7 +73,42 @@
 }
 
 [data-layout='phone'] .mshead {
-  padding: 0 var(--space-3) 0 0;
+  padding: 0 var(--space-4) 0 0;
+}
+
+/* A wrapped milestone name stays beside its diamond, and Edit reads apart from the status. */
+[data-layout='phone'] .mshead .grow.strong {
+  display: flex;
+  align-items: flex-start;
+}
+
+[data-layout='phone'] .mshead .grow.strong > .msdia {
+  flex: none;
+  margin-top: 5px;
+}
+
+[data-layout='phone'] .mshead .editcue {
+  margin-left: var(--space-1);
+}
+
+/* A wrapped timeline label stays beside its diamond, and its status stays right-aligned. */
+[data-layout='phone'] .glabel {
+  align-items: flex-start;
+}
+
+[data-layout='phone'] .glabel > :first-child {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+[data-layout='phone'] .glabel > :first-child > .msdia {
+  flex: none;
+  margin-top: 4px;
+}
+
+[data-layout='phone'] .glabel .gstate {
+  text-align: right;
 }
 
 [data-layout] .mstasks {
@@ -85,7 +120,7 @@
 }
 
 [data-layout='phone'] .mstasks {
-  padding: 0 var(--space-3) var(--space-1);
+  padding: 0 var(--space-4) var(--space-1) var(--space-3);
 }
 
 [data-layout] .addrow {
@@ -186,6 +221,10 @@
   text-align: left;
 }
 
+[data-layout='phone'] .seclabel {
+  padding: 0;
+}
+
 [data-layout='desktop'] .seclabel {
   min-height: 36px;
   font-size: var(--text-sm);
@@ -240,7 +279,11 @@
 }
 
 [data-layout='phone'] .goalname {
-  padding: var(--space-2) 0 var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-4);
+}
+
+[data-layout='phone'] .goalhead > .penbtn {
+  margin-right: var(--space-2);
 }
 
 [data-layout='phone'] .goalspage .projbtn {

@@ -7,6 +7,9 @@
   color: var(--ink-2);
   font-size: var(--text-md);
 }
+[data-layout='phone'] .settings h2 {
+  padding: 0;
+}
 [data-layout='desktop'] .settings h2 {
   font-size: var(--text-sm);
 }

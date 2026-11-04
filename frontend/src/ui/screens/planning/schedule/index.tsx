@@ -6,7 +6,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { keepPracticeChange, moveBlock, placeBlock, placeWeekPractices, removeBlock } from '../../../../core/blocks';
-import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, weekRange } from '../../../../core/dates';
+import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, today, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
@@ -73,7 +73,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const [flash, setFlash] = useState<{ text: string; undo?: () => Promise<unknown> } | null>(null);
   useEffect(() => {
     if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), flash.undo ? 8000 : 3500);
+    const timer = setTimeout(() => setFlash(null), flash.undo ? 5000 : 3500);
     return () => clearTimeout(timer);
   }, [flash]);
   const notify = (text: string, undo?: () => Promise<unknown>) => (phone ? setFlash({ text, ...(undo ? { undo } : {}) }) : toast.show(text, undo ? { undo } : {}));
@@ -461,8 +461,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
                     <button
                       key={date}
                       type="button"
-                      className={`wday sched${on ? ' on' : ''}${packed(date) ? ' tight' : ''}${noFit ? ' nofit' : ''}`}
+                      className={`wday sched${on ? ' on' : ''}${date === today(clock) ? ' today' : ''}${packed(date) ? ' tight' : ''}${noFit ? ' nofit' : ''}`}
                       aria-pressed={on}
+                      aria-current={date === today(clock) ? 'date' : undefined}
                       aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${say}`}
                       onClick={() => setLook({ key: curKey, date })}
                     >

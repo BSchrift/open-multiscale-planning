@@ -174,14 +174,20 @@ export function PhoneWeek(props: WeekProps) {
           </div>
         )}
         <div className="card stack8 wksum">
-          <div className="small">
-            <span className="skey" />
-            <span className="strong">{formatMinutes(weekFree)} free</span>
-            <span className="quiet"> of {formatMinutes(model.open)} available</span>
-            <span className="skey planned" />
-            <span>{formatMinutes(model.planned.total)} planned</span>
-            <span className="skey busy" />
-            <span>busy</span>
+          <div className="small wkkeys">
+            <span className="keyitem">
+              <span className="skey" />
+              <span className="strong">{formatMinutes(weekFree)} free</span>
+              <span className="quiet"> of {formatMinutes(model.open)} available</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey planned" />
+              <span>{formatMinutes(model.planned.total)} planned</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey busy" />
+              <span>busy</span>
+            </span>
           </div>
           <div className="small quiet">{capLine}</div>
           <div className="wstrip" role="group" aria-label="Choose a day">
@@ -194,8 +200,9 @@ export function PhoneWeek(props: WeekProps) {
                 <button
                   key={date}
                   type="button"
-                  className={`wday${on ? ' on' : ''}${packed(date) ? ' tight' : ''}${nofit ? ' nofit' : ''}`}
+                  className={`wday${on ? ' on' : ''}${date === day0 ? ' today' : ''}${packed(date) ? ' tight' : ''}${nofit ? ' nofit' : ''}`}
                   aria-pressed={on}
+                  aria-current={date === day0 ? 'date' : undefined}
                   aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${nofit ? ', no slot for this task' : ''}`}
                   onClick={() => pickDay(date)}
                 >

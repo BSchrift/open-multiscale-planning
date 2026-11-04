@@ -36,7 +36,7 @@
 [data-layout='phone'] .pxpick[aria-pressed='true'] {
   background: var(--blue-pale);
   box-shadow: inset 4px 0 0 var(--blue);
-  padding-left: 12px;
+  padding-inline: 12px;
 }
 
 [data-layout] .pxlines > span {

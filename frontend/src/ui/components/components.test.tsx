@@ -87,7 +87,7 @@ describe('Toast', () => {
     }
   });
 
-  it('waits while Undo has focus or the pointer is on it', async () => {
+  it('waits while Undo has focus or the mouse is on it, but not for a finger', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       await inApp(<Host undo={vi.fn()} />);
@@ -97,15 +97,33 @@ describe('Toast', () => {
       act(() => vi.advanceTimersByTime(20_000));
       expect(screen.getByText('Moved')).toBeInTheDocument();
       act(() => undo.blur());
-      fireEvent.mouseEnter(undo);
+      fireEvent.pointerEnter(undo, { pointerType: 'mouse' });
       act(() => vi.advanceTimersByTime(20_000));
       expect(screen.getByText('Moved')).toBeInTheDocument();
-      fireEvent.mouseLeave(undo);
-      act(() => vi.advanceTimersByTime(9000));
+      fireEvent.pointerLeave(undo, { pointerType: 'mouse' });
+      act(() => vi.advanceTimersByTime(6000));
+      await waitFor(() => expect(screen.queryByText('Moved')).toBeNull());
+
+      // WebKit sends a finger's touch as pointer events too; resting on it mustn't keep it up.
+      fireEvent.click(screen.getByText('go'));
+      fireEvent.pointerEnter(screen.getByRole('button', { name: 'Undo' }), { pointerType: 'touch' });
+      act(() => vi.advanceTimersByTime(6000));
       await waitFor(() => expect(screen.queryByText('Moved')).toBeNull());
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('goes away when tapped, or on a tap anywhere else, but not on Undo', async () => {
+    await inApp(<Host undo={vi.fn()} />);
+    fireEvent.click(screen.getByText('go'));
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByText('Moved'));
+    expect(screen.queryByText('Moved')).toBeNull();
+    fireEvent.click(screen.getByText('go'));
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByText('Moved')).toBeNull();
   });
 });
 

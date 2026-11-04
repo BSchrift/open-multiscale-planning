@@ -145,9 +145,9 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       )}
       {phone ? alerts.map((a) => <AttnRow key={a.key} alert={a} />) : <Alerts alerts={alerts} />}
       {phone && stretchDue && (
-        <div className="row nowrap">
+        <div className="row nowrap stretchdue">
           <button className="attn grow" type="button" onClick={() => nav.openFlow('plan')}>
-            <span>{planText}</span> <span className="quiet">Start</span>
+            <span>{planText}</span> <span className="attngo">Start</span>
           </button>
           <button className="icbtn" type="button" aria-label="Skip for now" onClick={() => setSkippedStretch(stretchDue.end)}>
             ×

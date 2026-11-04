@@ -165,7 +165,12 @@ p {
 }
 
 [data-layout='phone'] .fab {
-  bottom: calc(68px + max(8px, env(safe-area-inset-bottom)) + 12px);
+  bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 12px);
+}
+
+/* The docked tray clears the tab bar and the home indicator, centred on the + button beside it. */
+[data-layout='phone'] .tray {
+  bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 16px);
 }
 
 [data-layout='phone'] .tabs {
@@ -174,7 +179,32 @@ p {
 }
 
 [data-layout='phone'] .toast {
-  bottom: calc(68px + max(8px, env(safe-area-inset-bottom)) + 84px);
+  bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 84px);
+}
+
+/* Over a sheet or Process there's no tab bar, and the bottom is busy, so the toast drops from the top. */
+[data-layout='phone']:has(.sheet, .pxflow) .toast {
+  top: calc(env(safe-area-inset-top) + var(--space-2));
+  bottom: auto;
+}
+
+/* A container or heading focused from code shows no ring; a field shows its own border instead of a ring outside it. */
+[data-layout='phone'] [tabindex='-1']:focus {
+  outline: none;
+}
+
+/* In an edit sheet, Pause, Finish, Drop or Delete sit apart from Save and Cancel. */
+[data-layout='phone'] .sheet .editor > .row:has(> .btn.pri) ~ *,
+[data-layout='phone'] .sheet > form.editor ~ div {
+  margin-top: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout='phone'] .field:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
 }
 
 [data-layout='phone'] .sheet {
@@ -243,7 +273,7 @@ p {
 [data-layout='phone'] .estslider {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 [data-layout='phone'] .estslider input {
@@ -256,6 +286,7 @@ p {
   flex: none;
   min-width: 76px;
   font-weight: 600;
+  text-align: right;
 }
 
 [data-layout='phone'] .maintrow {

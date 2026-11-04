@@ -307,6 +307,10 @@ describe('Week on phone', () => {
     expect(await screen.findByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Draft the summary, 6pm to 7pm, Project. Conflicts with Quiz night.' })).toBeVisible();
     expect(screen.getByText('Busy, 6:30pm to 7:30pm')).toBeVisible();
+    // Today stays marked with another day chosen.
+    expect(days[0]).toHaveAttribute('aria-current', 'date');
+    expect(days[0]).toHaveClass('today');
+    expect(days[1]).not.toHaveAttribute('aria-current');
   });
 
   it('mid-week, counts only time still ahead: a past day shows what happened, never free or packed', async () => {

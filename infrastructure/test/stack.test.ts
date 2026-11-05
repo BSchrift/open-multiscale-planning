@@ -85,13 +85,13 @@ describe('API', () => {
     return hit[1].Properties;
   };
 
-  it('has exactly the five routes', () => {
+  it('has exactly the six routes', () => {
     const keys = ofType('AWS::ApiGatewayV2::Route').map(([, r]) => r.Properties.RouteKey).sort();
-    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /sync']);
+    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /sync', 'POST /v1/logs']);
   });
 
   it('protects every route with the JWT authorizer except the Google callback', () => {
-    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect']) {
+    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect', 'POST /v1/logs']) {
       assert.equal(route(key).AuthorizationType, 'JWT', key);
       assert.ok(route(key).AuthorizerId, key);
     }

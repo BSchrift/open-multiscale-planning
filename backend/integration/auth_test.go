@@ -13,7 +13,7 @@ import (
 	"crypto"
 )
 
-var protectedRoutes = []string{"/sync", "/calendar/connect", "/calendar/refresh", "/calendar/disconnect"}
+var protectedRoutes = []string{"/sync", "/calendar/connect", "/calendar/refresh", "/calendar/disconnect", "/v1/logs"}
 
 func TestSmokeNoTokenIsRefused(t *testing.T) {
 	needs(t)

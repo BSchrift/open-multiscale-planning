@@ -182,6 +182,8 @@ export class MultiscaleStack extends Stack {
     httpApi.addRoutes({ path: '/calendar/connect', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/refresh', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/disconnect', methods: [HttpMethod.POST], integration });
+    // OpenTelemetry events from the app, in OTLP/HTTP JSON at OTLP's own path.
+    httpApi.addRoutes({ path: '/v1/logs', methods: [HttpMethod.POST], integration });
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
 

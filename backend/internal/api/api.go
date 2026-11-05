@@ -100,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /calendar/callback", false, s.calendarCallback)
 	route("POST /calendar/refresh", true, s.calendarRefresh)
 	route("POST /calendar/disconnect", true, s.calendarDisconnect)
+	route("POST /v1/logs", true, s.telemetry)
 	return mux
 }
 

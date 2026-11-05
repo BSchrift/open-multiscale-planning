@@ -394,6 +394,17 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
 
+### What the apps report
+
+Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat each minute, memory warnings and uncaught errors, with memory figures on iPhone. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
+
+```sh
+aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time $(($(date +%s) - 86400)) --end-time $(date +%s) \
+  --query-string 'filter msg = "client_event" | fields @timestamp, event, `app.screen.name`, `process.memory.usage`, `app.last_session.state` | sort @timestamp desc'
+```
+
+Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
+
 Costs should stay under $1 a month per environment. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 
 ## Restoring the table from a backup

@@ -5,11 +5,13 @@ import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { registerPlugin } from '@capacitor/core';
+import type { PluginListenerHandle } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { ActionPerformed, ActionType } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
 import { openDb } from '../core/db';
 import type { SqlDriver } from '../core/db';
+import type { DiagnosticsSnapshot } from '../core/telemetry';
 import type { Reminder, ReminderAction } from '../core/types';
 import type { Appearance, Notifications, Platform, ReminderResponse, SecureTokens } from './types';
 
@@ -24,6 +26,10 @@ const ShareQueue = registerPlugin<{
 
 /** Implemented in the app target. Sets the window's light or dark, which the status bar and keyboard follow. */
 const NativeAppearance = registerPlugin<{ set(options: { appearance: Appearance }): Promise<void> }>('MultiscaleAppearance');
+const NativeDiagnostics = registerPlugin<{
+  snapshot(): Promise<DiagnosticsSnapshot>;
+  addListener(event: 'memoryWarning', listener: () => void): Promise<PluginListenerHandle>;
+}>('MultiscaleDiagnostics');
 
 /** Events can arrive before React mounts, on a cold launch from a link or a notification. They wait for a listener. */
 function channel<T>() {
@@ -155,6 +161,13 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
     signInRedirectUri: 'multiscale://auth/callback',
     onDeepLink: links.on,
     setAppearance: (appearance) => NativeAppearance.set({ appearance }),
+    diagnostics: {
+      snapshot: () => NativeDiagnostics.snapshot(),
+      onMemoryWarning: (listener) => {
+        const handle = NativeDiagnostics.addListener('memoryWarning', listener);
+        return () => void handle.then((h) => h.remove());
+      },
+    },
     // The Control Center widget is this phone's capture shortcut: it opens the capture link.
     hotkey: { onCapture: captures.on },
     ...(shareEnabled

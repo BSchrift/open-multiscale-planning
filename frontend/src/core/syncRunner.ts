@@ -12,6 +12,7 @@ import { nowInstant } from './dates';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
 import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
+import type { Diagnostics } from './telemetry';
 import { apiPost, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
 import { RECORD_TYPES } from './types';
@@ -116,6 +117,8 @@ export function startAppSync(
     onDeepLink(listener: (url: string) => void): () => void;
     notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
     shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
+    kind?: string;
+    diagnostics?: Diagnostics;
   },
   clock: Clock,
   config: AppConfig,
@@ -167,6 +170,32 @@ export function startAppSync(
     }, CONNECT_POLL_MS);
   };
   runner.start();
+  // How the app runs, for finding problems on real devices: loaded after startup, so the OTel SDK never delays it. Only
+  // in a page: tests of this file run without one.
+  let telemetry: { stop(): void } | undefined;
+  let stopped = false;
+  if (typeof window !== 'undefined') {
+    void Promise.all([getMeta(platform.db, META.deviceId), import('./telemetry')]).then(async ([device, { startTelemetry }]) => {
+      if (stopped) return;
+      const started = await startTelemetry({
+        url: `${config.apiUrl}/v1/logs`,
+        headers: async () => ({ authorization: `Bearer ${await auth.accessToken()}` }),
+        now: () => clock.now(),
+        resource: {
+          'service.name': 'multiscale-app',
+          'os.name': platform.kind ?? 'web',
+          'deployment.environment.name': config.env,
+          'session.id': crypto.randomUUID(),
+          ...(device ? { 'device.id': device } : {}),
+        },
+        ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
+        screen: () => document.documentElement.dataset.screen,
+        target: window,
+      });
+      if (stopped) started.stop();
+      else telemetry = started;
+    });
+  }
   return {
     signIn: () => auth.signIn(),
     /** Signs this device out, and shows the sign-in prompt. Local data and the outbox stay, and stay this account's. */
@@ -227,6 +256,8 @@ export function startAppSync(
       await runner.syncNow();
     },
     stop(): void {
+      stopped = true;
+      telemetry?.stop();
       clearInterval(connectPoll);
       stopLinks();
       runner.stop();

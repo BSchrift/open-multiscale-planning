@@ -194,6 +194,12 @@ function Frame() {
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 
+  // Telemetry reports the screen on show, which is the only place it learns it.
+  const screen = nav.overlay?.area ?? nav.flow?.area ?? nav.route.area;
+  useEffect(() => {
+    document.documentElement.dataset.screen = screen;
+  }, [screen]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code === 'Space' && event.shiftKey && event.metaKey) {

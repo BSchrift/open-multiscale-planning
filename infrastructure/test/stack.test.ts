@@ -319,6 +319,14 @@ describe('observability', () => {
     }
   });
 
+  it('shows what the apps report, from Logs Insights on the API log group', () => {
+    const body = JSON.stringify(ofType('AWS::CloudWatch::Dashboard')[0]![1].Properties.DashboardBody);
+    for (const title of ['App memory', 'How app runs ended', 'App errors', 'App events by screen']) assert.ok(body.includes(title), title);
+    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 4);
+    assert.equal(body.match(/client_event/g)?.length, 4);
+    assert.ok(body.includes('ApiLogs'));
+  });
+
   it('uses only the five allowed custom metrics', () => {
     const text = JSON.stringify(t.toJSON());
     const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events)\w+)\b/g)].map((m) => m[1]));

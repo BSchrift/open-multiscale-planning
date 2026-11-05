@@ -11,7 +11,7 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
-import { Alarm, ComparisonOperator, Dashboard, GraphWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
+import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -280,6 +280,9 @@ export class MultiscaleStack extends Stack {
     // Dashboard
 
     const width = 12;
+    // What the apps report through POST /v1/logs, read with Logs Insights from the API's client_event lines.
+    const appEvents = (title: string, view: LogQueryVisualizationType, ...queryLines: string[]) =>
+      new LogQueryWidget({ title, width, height: 6, view, logGroupNames: [apiLogs.logGroupName], queryLines: ['filter msg = "client_event"', ...queryLines] });
     new Dashboard(this, 'Dashboard', {
       dashboardName: id,
       widgets: [
@@ -293,6 +296,26 @@ export class MultiscaleStack extends Stack {
         ],
         [
           new GraphWidget({ title: 'Worker health', width, left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount')], right: [calendarFunction.metricDuration({ period: fiveMinutes })] }),
+        ],
+        [
+          appEvents('App memory (MB)', LogQueryVisualizationType.LINE,
+            'filter ispresent(`process.memory.usage`)',
+            'stats max(`process.memory.usage`) / 1048576 as app_mb by bin(5m)'),
+          appEvents('How app runs ended', LogQueryVisualizationType.TABLE,
+            'filter event = "app.last_session"',
+            'fields @timestamp, `app.last_session.state` as ended, `process.memory.peak` / 1048576 as peak_mb, `app.memory_warnings` as warnings, `app.uptime` as uptime_s, `device.model.identifier` as device, `os.version` as os',
+            'sort @timestamp desc',
+            'limit 20'),
+        ],
+        [
+          appEvents('App errors', LogQueryVisualizationType.TABLE,
+            'filter event = "exception"',
+            'stats count(*) as times by `exception.type`, `code.file.path`, `code.line.number`',
+            'sort times desc',
+            'limit 20'),
+          appEvents('App events by screen', LogQueryVisualizationType.TABLE,
+            'stats count(*) as events, max(`process.memory.usage`) / 1048576 as max_mb, avg(`browser.dom.nodes`) as dom_nodes by `app.screen.name`, event',
+            'sort events desc'),
         ],
       ],
     });

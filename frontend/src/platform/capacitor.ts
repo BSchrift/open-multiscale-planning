@@ -30,6 +30,20 @@ const NativeDiagnostics = registerPlugin<{
   snapshot(): Promise<DiagnosticsSnapshot>;
   addListener(event: 'memoryWarning', listener: () => void): Promise<PluginListenerHandle>;
 }>('MultiscaleDiagnostics');
+/** Implemented in the app target. Checks and installs a downloaded web bundle, and picks when to switch to it. */
+const NativeUpdates = registerPlugin<{
+  install(options: { manifest: string; signature: string; files: Record<string, string> }): Promise<void>;
+  staged(): Promise<{ build: number | null }>;
+  apply(): Promise<void>;
+  ready(): Promise<void>;
+}>('MultiscaleUpdates');
+
+/** The bridge carries JSON, so bytes cross it as base64. In slices, since one call can only take so many arguments. */
+function base64(bytes: Uint8Array): string {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
 
 /** Events can arrive before React mounts, on a cold launch from a link or a notification. They wait for a listener. */
 function channel<T>() {
@@ -167,6 +181,13 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
         const handle = NativeDiagnostics.addListener('memoryWarning', listener);
         return () => void handle.then((h) => h.remove());
       },
+    },
+    updates: {
+      install: ({ manifest, signature, files }) =>
+        NativeUpdates.install({ manifest, signature, files: Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, base64(bytes)])) }),
+      staged: async () => (await NativeUpdates.staged()).build,
+      apply: () => NativeUpdates.apply(),
+      ready: () => void NativeUpdates.ready(),
     },
     // The Control Center widget is this phone's capture shortcut: it opens the capture link.
     hotkey: { onCapture: captures.on },

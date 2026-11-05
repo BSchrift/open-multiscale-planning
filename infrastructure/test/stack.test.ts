@@ -450,5 +450,39 @@ describe('DNS', () => {
       z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
       z.hasOutput('CognitoDomain', { Value: `https://${host}` });
     });
+
+    it(`${envName} serves releases on downloads.${zone} and release.${zone}, from one private bucket`, () => {
+      const z = zoned(envName, zone);
+      z.resourceCountIs('AWS::S3::Bucket', 1);
+      z.hasResourceProperties('AWS::S3::Bucket', {
+        PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+      });
+      // CloudFront only takes us-east-1 certificates; one covers both names.
+      const [cert] = Object.values(
+        z.findResources('AWS::CloudFormation::CustomResource', { Properties: { DomainName: `downloads.${zone}`, SubjectAlternativeNames: [`release.${zone}`], Region: 'us-east-1' } }),
+      );
+      const [delegation] = Object.keys(z.findResources('Custom::CrossAccountZoneDelegation'));
+      assert.ok(([] as string[]).concat(cert.DependsOn ?? []).includes(delegation));
+      const distributions = Object.values(z.findResources('AWS::CloudFront::Distribution')).map((d) => d.Properties.DistributionConfig);
+      const byHost = (host: string) => distributions.find((d) => d.Aliases.includes(host));
+      // Each host serves its own folder of the bucket.
+      assert.equal(byHost(`downloads.${zone}`).Origins[0].OriginPath, '/downloads');
+      assert.equal(byHost(`release.${zone}`).Origins[0].OriginPath, '/release');
+      // The apps fetch the feed from their own origins.
+      assert.ok(byHost(`release.${zone}`).DefaultCacheBehavior.ResponseHeadersPolicyId);
+      assert.equal(byHost(`downloads.${zone}`).DefaultCacheBehavior.ResponseHeadersPolicyId, undefined);
+      for (const host of [`downloads.${zone}`, `release.${zone}`]) {
+        assert.equal(byHost(host).DefaultCacheBehavior.ViewerProtocolPolicy, 'redirect-to-https');
+        z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
+      }
+      z.hasOutput('ReleaseUrl', { Value: `https://release.${zone}` });
+      z.hasOutput('DownloadsUrl', { Value: `https://downloads.${zone}` });
+      z.hasOutput('ReleaseBucket', { Value: Match.anyValue() });
+    });
   }
+
+  it('has no release hosting without a zone', () => {
+    t.resourceCountIs('AWS::S3::Bucket', 0);
+    t.resourceCountIs('AWS::CloudFront::Distribution', 0);
+  });
 });

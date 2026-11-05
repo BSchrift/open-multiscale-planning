@@ -5,6 +5,7 @@ import { META, setMeta } from '../../../core/db';
 import { CALENDAR_ID, getSettings, listRecords, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
+import type { UpdateStatus, Updater } from '../../../core/updates';
 import { renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
@@ -365,5 +366,69 @@ describe('Settings', () => {
       await t.write((w) => updateSettings(w, { one_offs_weekly_aim: 180 }));
       expect(await moreLine(t.db, t.clock)).toBe('105h a week for projects, 3h One offs aim');
     });
+  });
+});
+
+describe('Settings updates', () => {
+  function fakeUpdater(initial: UpdateStatus, more: { download?: string } = {}) {
+    let status = initial;
+    const listeners = new Set<() => void>();
+    const updater = {
+      version: '0.1.0-aaaaaaa',
+      ...more,
+      status: () => status,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+      check: vi.fn(async () => {
+        status = { state: 'current' };
+        listeners.forEach((l) => l());
+        return status;
+      }),
+      apply: vi.fn(async () => undefined),
+      stop: vi.fn(),
+    } satisfies Updater;
+    return updater;
+  }
+
+  it("isn't there where nothing publishes updates", async () => {
+    await renderScreen('settings');
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    expect(screen.queryByRole('region', { name: 'Updates' })).toBeNull();
+  });
+
+  it('shows the version, and checks on request', async () => {
+    const updates = fakeUpdater({ state: 'idle' });
+    await renderScreen('settings', { updates });
+    expect(await within(section('Updates')).findByText('Version 0.1.0-aaaaaaa')).toBeVisible();
+    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Check for updates' }));
+    expect(updates.check).toHaveBeenCalled();
+    expect(await within(section('Updates')).findByText('Up to date.')).toBeVisible();
+  });
+
+  it('offers to restart into a downloaded update', async () => {
+    const updates = fakeUpdater({ state: 'ready', version: '0.2.0-bbbbbbb' });
+    await renderScreen('settings', { updates });
+    expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb is ready. It starts the next time the app opens.')).toBeVisible();
+    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Restart now' }));
+    expect(updates.apply).toHaveBeenCalled();
+  });
+
+  it('links to the new app when an update needs it', async () => {
+    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb' }, { download: 'https://downloads.example.test/Multiscale.dmg' });
+    const t = await renderScreen('settings', { updates });
+    expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.')).toBeVisible();
+    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Download the app' }));
+    expect(t.platform.opened).toEqual(['https://downloads.example.test/Multiscale.dmg']);
+  });
+
+  it('says when checking failed, with no download offered on iPhone', async () => {
+    await renderScreen('settings', { updates: fakeUpdater({ state: 'failed' }) });
+    expect(await within(section('Updates')).findByText("Couldn't check for updates. It tries again later.")).toBeVisible();
+    cleanup();
+    await renderScreen('settings', { updates: fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb' }) });
+    await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.');
+    expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
   });
 });

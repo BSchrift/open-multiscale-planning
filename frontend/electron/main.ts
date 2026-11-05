@@ -8,11 +8,13 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme,
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import Database from 'better-sqlite3';
 import type { Reminder } from '../src/core/types';
+import type { DownloadedRelease } from '../src/core/updates';
 import type { ReminderResponse } from '../src/platform/types';
 import { createReminderTimers } from './reminder-timers';
 import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isSqlValues, isWebUrl } from './security';
 import { betterSqliteDriver } from './sqlite-driver';
 import { fileTokens } from './tokens';
+import { webBundles } from './updates';
 
 declare const __BUILD__: { name: string; scheme: string; backendOrigins: string[]; devUrl: string | null };
 
@@ -22,6 +24,8 @@ const CAPTURE_EVENT = 'capture-shortcut';
 const APP_SCHEME = 'multiscale-app';
 const SAVE_TIMEOUT_MS = 15_000;
 const WEB_ROOT = join(__dirname, '../dist');
+/** How long a newly downloaded web bundle has to start and draw the app before it's rolled back. */
+const TRIAL_MS = 20_000;
 
 // Before anything reads the data folder, which is named after the app, so each environment gets its own.
 app.setName(__BUILD__.name);
@@ -30,6 +34,11 @@ let mainWindow: BrowserWindow;
 let captureWindow: BrowserWindow | undefined;
 let tray: Tray; // Module scope: a collected tray disappears from the menu bar.
 let quitting = false;
+
+// The web bundle the scheme serves: the one inside the app, or a newer one downloaded over the air.
+let bundles: ReturnType<typeof webBundles> | undefined;
+let web = { root: WEB_ROOT, build: 0 };
+let trial: NodeJS.Timeout | undefined;
 
 // The page must be up before it can take a capture or a deep link: it loads hidden at login, and reloads after a crash.
 let pageReady = false;
@@ -67,13 +76,30 @@ function checkedSql(sql: unknown, values: unknown = []): asserts sql is string {
 function registerAppScheme() {
   const csp = contentSecurityPolicy(__BUILD__.backendOrigins);
   protocol.handle(APP_SCHEME, async (request) => {
-    const path = appFilePath(WEB_ROOT, new URL(request.url).pathname);
+    const path = appFilePath(web.root, new URL(request.url).pathname);
     if (!path) return new Response('Not found', { status: 404 });
     const file = await net.fetch(pathToFileURL(path).href);
     const headers = new Headers(file.headers);
     headers.set('Content-Security-Policy', csp);
     return new Response(file.body, { status: file.status, headers });
   });
+}
+
+/** Loads the newest web bundle this app can run. A downloaded one on trial goes back unless it reports ready in time. */
+function loadPage() {
+  clearTimeout(trial);
+  trial = undefined;
+  if (bundles) {
+    web = bundles.newest();
+    if (web.root !== WEB_ROOT && web.build > bundles.confirmed()) trial = setTimeout(rollBack, TRIAL_MS);
+  }
+  void mainWindow.loadURL(__BUILD__.devUrl ?? `${APP_SCHEME}://app/`);
+}
+
+function rollBack() {
+  console.error(`Web bundle ${web.build} didn't start, so it's rolled back`);
+  bundles?.reject(web.build);
+  loadPage();
 }
 
 /** No navigating away and no new windows: web links go to the browser, and nothing else goes anywhere. */
@@ -116,6 +142,10 @@ function createMainWindow(rollbackOpenTransaction: () => void, startHidden: bool
     event.preventDefault();
     mainWindow.hide();
   });
+  // Out of sight is the moment to switch to a downloaded update.
+  mainWindow.on('hide', () => {
+    if (bundles && bundles.newest().build > web.build) loadPage();
+  });
   mainWindow.webContents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     pageReady = false;
@@ -124,9 +154,11 @@ function createMainWindow(rollbackOpenTransaction: () => void, startHidden: bool
   mainWindow.webContents.on('render-process-gone', () => {
     pageReady = false;
     rollbackOpenTransaction();
-    if (!quitting) mainWindow.reload();
+    if (quitting) return;
+    if (trial) rollBack();
+    else mainWindow.reload();
   });
-  void mainWindow.loadURL(__BUILD__.devUrl ?? `${APP_SCHEME}://app/`);
+  loadPage();
 }
 
 function openCapture() {
@@ -280,6 +312,26 @@ function start() {
   handleFrom(main, 'open-external', async (url: unknown) => {
     if (!isWebUrl(url)) throw new Error('Only web links can open in the browser');
     await shell.openExternal(url);
+  });
+
+  // Over-the-air updates: the page downloads a release, and this checks and installs it. See updates.ts.
+  if (!__BUILD__.devUrl && existsSync(join(WEB_ROOT, 'version.json'))) bundles = webBundles(join(app.getPath('userData'), 'web'), WEB_ROOT);
+  handleFrom(main, 'updates:install', (release: unknown) => {
+    if (!bundles) throw new Error('This build takes no updates');
+    bundles.install(release as DownloadedRelease, web.root);
+  });
+  handleFrom(main, 'updates:staged', () => {
+    const next = bundles?.newest();
+    return next && next.build > web.build ? next.build : null;
+  });
+  handleFrom(main, 'updates:apply', () => {
+    if (bundles && bundles.newest().build > web.build) loadPage();
+  });
+  ipcMain.on('updates:ready', (event) => {
+    if (event.sender !== mainWindow.webContents) return;
+    clearTimeout(trial);
+    trial = undefined;
+    if (bundles && web.root !== WEB_ROOT) bundles.confirm(web.build);
   });
 
   ipcMain.on('app:signin-uri', (event) => {

@@ -23,6 +23,7 @@ import type { AreaId, Layout, Presentation, RouteParams } from './registry';
 import { Shell } from './Shell';
 import { AppProvider } from './store';
 import type { AppSync } from '../../core/syncRunner';
+import type { NativeUpdates, Updater } from '../../core/updates';
 
 export interface HarnessOptions {
   layout?: Layout;
@@ -35,6 +36,10 @@ export interface HarnessOptions {
   firstRun?: boolean;
   /** Sign-in and sync, usually a stub with vi.fn() methods. Absent by default, as on a device with no backend. */
   sync?: AppSync;
+  /** Over-the-air updates as the page sees them. Absent by default, as in a browser. */
+  updates?: Updater;
+  /** The native side of updates, on the platform. */
+  nativeUpdates?: NativeUpdates;
 }
 
 export interface Harness extends RenderResult {
@@ -48,7 +53,7 @@ export interface Harness extends RenderResult {
 
 async function prepare(options: HarnessOptions) {
   const clock = fixedClock(options.now ?? '2026-11-02T20:00:00Z', options.zone ?? 'America/Chicago');
-  const platform = await createTestPlatform();
+  const platform: TestPlatform = Object.assign(await createTestPlatform(), options.nativeUpdates ? { updates: options.nativeUpdates } : {});
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));
   if (options.seed) await write(options.seed);
@@ -63,7 +68,7 @@ function harness(
 ): Harness {
   const { platform, clock, write } = prepared;
   const result = render(
-    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})}>
+    <AppProvider platform={platform} clock={clock} layout={options.layout ?? 'desktop'} {...(options.sync ? { sync: options.sync } : {})} {...(options.updates ? { updates: options.updates } : {})}>
       {ui}
     </AppProvider>,
   );

@@ -35,6 +35,12 @@ const bridge: ElectronBridge = {
   captureDone: (id, error) => ipcRenderer.send('capture:done', id, error),
   ready: () => ipcRenderer.send('app:ready'),
   setAppearance: (appearance) => ipcRenderer.invoke('appearance:set', appearance),
+  updates: {
+    install: (release) => ipcRenderer.invoke('updates:install', release),
+    staged: () => ipcRenderer.invoke('updates:staged'),
+    apply: () => ipcRenderer.invoke('updates:apply'),
+    ready: () => ipcRenderer.send('updates:ready'),
+  },
 };
 
 contextBridge.exposeInMainWorld('multiscaleElectron', bridge);

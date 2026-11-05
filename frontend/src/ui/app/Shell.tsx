@@ -227,9 +227,14 @@ function Frame() {
 
 /** Setup until first run has finished, then the app. The settings record carries this between devices. */
 export function Shell(props: { initial?: Route }) {
-  const { layout } = useApp();
+  const { layout, platform } = useApp();
   const settings = useQuery((sql) => getSettings(sql), []);
   useNativeAppearance();
+  // The data opened and the app drew, so a newly downloaded bundle is kept rather than rolled back.
+  const started = settings.data !== undefined;
+  useEffect(() => {
+    if (started) platform.updates?.ready();
+  }, [started, platform]);
   if (!settings.data) {
     return settings.error ? <div className="boot">Couldn't open your data. Restart the app to try again.</div> : null;
   }

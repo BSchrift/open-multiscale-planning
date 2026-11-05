@@ -1,5 +1,5 @@
 # One entry point per job. Areas that don't exist yet say so and succeed, except deploy and smoke.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-ios smoke deploy scan dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-ios smoke deploy release scan dev up down
 
 COMPOSE_PROJECT ?= multiscale-test-$(shell date +%s)
 
@@ -36,6 +36,10 @@ smoke:
 # read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile.
 deploy:
 	@if [ -x scripts/deploy.sh ]; then scripts/deploy.sh; else echo "deploy: not built yet"; exit 1; fi
+
+# Builds the Mac app and the web bundle on this Mac, signs the bundle and uploads both: ENV=staging (default) or prod.
+release:
+	@scripts/release.sh
 
 scan:
 	@if command -v gitleaks >/dev/null 2>&1; then gitleaks dir . --redact; \

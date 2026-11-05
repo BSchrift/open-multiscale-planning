@@ -11,6 +11,8 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
+import { Distribution, PriceClass, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
@@ -20,7 +22,8 @@ import { Architecture, Code, FilterCriteria, Function as LambdaFunction, Runtime
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
-import { ApiGatewayv2DomainProperties, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
+import { ApiGatewayv2DomainProperties, CloudFrontTarget, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
@@ -137,6 +140,8 @@ export class MultiscaleStack extends Stack {
     const apiHost = config.dns?.zone ? `api.${config.dns.zone}` : undefined;
     const apiUrl = apiHost ? `https://${apiHost}` : httpApi.apiEndpoint;
     const authHost = config.dns?.zone ? `auth.${config.dns.zone}` : undefined;
+    const downloadsHost = config.dns?.zone ? `downloads.${config.dns.zone}` : undefined;
+    const releaseHost = config.dns?.zone ? `release.${config.dns.zone}` : undefined;
     const stage = new HttpStage(this, 'Stage', {
       httpApi,
       stageName: '$default',
@@ -335,6 +340,8 @@ export class MultiscaleStack extends Stack {
       }],
     });
 
+    let releaseBucket: Bucket | undefined;
+
     // DNS: this environment's own zone, delegated from the domain in the control account, serving the API on api.<zone>
     // and sign-in on auth.<zone>.
 
@@ -372,6 +379,31 @@ export class MultiscaleStack extends Stack {
       const authDomain = userPool.addDomain('AuthDomain', { customDomain: { domainName: authHost!, certificate: authCertificate } });
       authDomain.node.addDependency(apex);
       new ARecord(this, 'AuthRecord', { zone, recordName: authHost, target: RecordTarget.fromAlias(new UserPoolDomainTarget(authDomain)) });
+
+      // Releases, built and signed on a Mac by scripts/release.sh: the Mac app's disk image on downloads.<zone>, and the
+      // feed the apps update from on release.<zone>. One private bucket, a folder per host. Same certificate reasoning as auth.
+      releaseBucket = new Bucket(this, 'Releases', { blockPublicAccess: BlockPublicAccess.BLOCK_ALL, encryption: BucketEncryption.S3_MANAGED, enforceSSL: true });
+      const releaseCertificate = new DnsValidatedCertificate(this, 'ReleaseCertificate', {
+        domainName: downloadsHost!,
+        subjectAlternativeNames: [releaseHost!],
+        hostedZone: zone,
+        region: 'us-east-1',
+      });
+      releaseCertificate.node.addDependency(delegation);
+      for (const [id, host, folder] of [['Downloads', downloadsHost!, 'downloads'], ['Release', releaseHost!, 'release']] as const) {
+        const distribution = new Distribution(this, `${id}Distribution`, {
+          defaultBehavior: {
+            origin: S3BucketOrigin.withOriginAccessControl(releaseBucket, { originPath: `/${folder}` }),
+            viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            // The apps fetch the feed from their own origins: app:// on the Mac, capacitor:// on iPhone.
+            ...(folder === 'release' ? { responseHeadersPolicy: ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS } : {}),
+          },
+          domainNames: [host],
+          certificate: releaseCertificate,
+          priceClass: PriceClass.PRICE_CLASS_100,
+        });
+        new ARecord(this, `${id}Record`, { zone, recordName: host, target: RecordTarget.fromAlias(new CloudFrontTarget(distribution)) });
+      }
     }
 
     // Read by scripts/deploy.sh, scripts/smoke.sh and the setup guide.
@@ -389,6 +421,7 @@ export class MultiscaleStack extends Stack {
       GoogleRedirectUri: `${apiUrl}/calendar/callback`,
       AlarmTopicArn: topic.topicArn,
       TableName: table.tableName,
+      ...(releaseBucket ? { ReleaseBucket: releaseBucket.bucketName, ReleaseUrl: `https://${releaseHost}`, DownloadsUrl: `https://${downloadsHost}` } : {}),
     };
     for (const [name, value] of Object.entries(outputs)) new CfnOutput(this, name, { value });
   }

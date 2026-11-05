@@ -3,6 +3,7 @@
 
 import type { Row, SqlValue } from '../src/core/db';
 import type { Reminder } from '../src/core/types';
+import type { NativeUpdates } from '../src/core/updates';
 import type { Appearance, ReminderResponse } from '../src/platform/types';
 
 export interface ElectronBridge {
@@ -32,4 +33,5 @@ export interface ElectronBridge {
   /** The page can now take captures and deep links. */
   ready(): void;
   setAppearance(appearance: Appearance): Promise<void>;
+  updates: NativeUpdates;
 }

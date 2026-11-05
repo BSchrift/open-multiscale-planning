@@ -14,6 +14,14 @@ export interface AppConfig {
   authClientId: string;
   /** The build: the package's version and the commit it was built from, such as 0.1.0-85e85c2. Telemetry reports it. */
   version?: string;
+  /** Orders builds: the commit's time in seconds. A downloaded bundle only replaces an older one. */
+  build?: number;
+  /** Each app's native code this bundle was built against, from scripts/shell-hash.mjs. */
+  shell?: { electron: string; ios: string };
+  /** Where updates come from: release.json and the files it lists. Only an environment with its own domain has one. */
+  releaseUrl?: string;
+  /** Where the Mac app's disk image is, for an update that needs the app itself replaced. */
+  downloadsUrl?: string;
 }
 
 /** Reads a file by its full path, or gives null when there is none. */
@@ -87,6 +95,8 @@ export function loadAppConfig(envName: string | undefined, readFile: ReadFile, c
     apiUrl: checkedUrl('ApiUrl', outputs.ApiUrl, env, file),
     authUrl: checkedUrl('CognitoDomain', outputs.CognitoDomain, env, file),
     authClientId: outputs.AppClientId,
+    ...(outputs.ReleaseUrl ? { releaseUrl: checkedUrl('ReleaseUrl', outputs.ReleaseUrl, env, file) } : {}),
+    ...(outputs.DownloadsUrl ? { downloadsUrl: checkedUrl('DownloadsUrl', outputs.DownloadsUrl, env, file) } : {}),
   };
 }
 

@@ -17,6 +17,7 @@ import { transact } from '../../core/records';
 import type { Writer } from '../../core/records';
 import type { AppSync } from '../../core/syncRunner';
 import type { LocalDate } from '../../core/types';
+import type { Updater } from '../../core/updates';
 import type { Platform } from '../../platform/types';
 import { useToast } from '../components/Toast';
 import type { Layout } from './registry';
@@ -28,6 +29,8 @@ export interface App {
   layout: Layout;
   /** Sign-in and sync; absent in tests that don't provide it. Read status with useQuery(syncStatus, []). */
   sync?: AppSync;
+  /** Over-the-air updates; only in the apps, for an environment that publishes them. */
+  updates?: Updater;
 }
 
 const AppContext = createContext<App | null>(null);
@@ -56,10 +59,10 @@ export function useLayout(platform: Platform, forced?: Layout): Layout {
   return narrow ? 'phone' : 'desktop';
 }
 
-export function AppProvider(props: { platform: Platform; clock: Clock; layout?: Layout; sync?: AppSync; children: ReactNode }) {
-  const { platform, clock, sync, children } = props;
+export function AppProvider(props: { platform: Platform; clock: Clock; layout?: Layout; sync?: AppSync; updates?: Updater; children: ReactNode }) {
+  const { platform, clock, sync, updates, children } = props;
   const layout = useLayout(platform, props.layout);
-  const app = useMemo(() => ({ platform, db: platform.db, clock, layout, sync }), [platform, clock, layout, sync]);
+  const app = useMemo(() => ({ platform, db: platform.db, clock, layout, sync, updates }), [platform, clock, layout, sync, updates]);
   return <AppContext.Provider value={app}>{children}</AppContext.Provider>;
 }
 

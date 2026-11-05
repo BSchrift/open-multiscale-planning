@@ -18,6 +18,14 @@ describe('loadAppConfig', () => {
     });
   });
 
+  it('reads where updates and the Mac app download come from, when the environment has its own domain', () => {
+    const read = files({ '/config-dir/staging.outputs.json': { ...outputs, ReleaseUrl: 'https://release.example.test/', DownloadsUrl: 'https://downloads.example.test' } });
+    expect(loadAppConfig('staging', read, dir)).toMatchObject({ releaseUrl: 'https://release.example.test', downloadsUrl: 'https://downloads.example.test' });
+    expect(() => loadAppConfig('staging', files({ '/config-dir/staging.outputs.json': { ...outputs, ReleaseUrl: 'http://release.example.test' } }), dir)).toThrow(
+      'ReleaseUrl must use https',
+    );
+  });
+
   it('keeps staging and prod apart', () => {
     const read = files({ '/config-dir/staging.outputs.json': outputs, '/config-dir/prod.outputs.json': { ...outputs, AppClientId: 'client-2' } });
     expect(loadAppConfig('prod', read, dir).authClientId).toBe('client-2');

@@ -1,21 +1,234 @@
 import UIKit
 import Capacitor
+import CryptoKit
 
 class BridgeViewController: CAPBridgeViewController {
+    /// The web bundle loaded: the one inside the app, or a newer one downloaded over the air.
+    private(set) var web = WebBundles.newest()
+    private var trial: Timer?
+    private var backgroundAt: Date?
+
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
+        bridge?.registerPluginInstance(UpdatesPlugin())
+        startTrial()
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.backgroundAt = Date() }
+        // Back after half an hour away, nobody is mid-task: the moment to switch to a downloaded update.
+        center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            if let away = self?.backgroundAt, Date().timeIntervalSince(away) >= 30 * 60 { self?.applyNewest() }
+        }
     }
 
-    #if DEBUG
-    /// XCUITest starts on its test page this way. Release builds always start on the app.
     override func instanceDescriptor() -> InstanceDescriptor {
         let descriptor = super.instanceDescriptor()
-        if let page = ProcessInfo.processInfo.environment["MULTISCALE_START_PAGE"] { descriptor.appStartPath = page }
+        #if DEBUG
+        // XCUITest starts on its test page this way, which only the bundle inside the app has. Release builds always
+        // start on the app.
+        if let page = ProcessInfo.processInfo.environment["MULTISCALE_START_PAGE"] {
+            descriptor.appStartPath = page
+            web = (WebBundles.embeddedRoot, WebBundles.embedded?.build ?? 0)
+            return descriptor
+        }
+        #endif
+        descriptor.appLocation = web.root
         return descriptor
     }
-    #endif
+
+    /// Reloads into the newest bundle this app can run, when that's newer than the one loaded.
+    func applyNewest() {
+        let next = WebBundles.newest()
+        if next.build > web.build { load(next) }
+    }
+
+    /// The loaded bundle started and drew the app, so it's kept.
+    func confirm() {
+        trial?.invalidate()
+        trial = nil
+        if web.root != WebBundles.embeddedRoot { WebBundles.confirm(web.build) }
+    }
+
+    private func load(_ next: (root: URL, build: Int)) {
+        web = next
+        setServerBasePath(path: next.root.path)
+        startTrial()
+    }
+
+    /// A download that hasn't started before goes back unless it reports ready in time.
+    private func startTrial() {
+        trial?.invalidate()
+        guard web.root != WebBundles.embeddedRoot, web.build > WebBundles.confirmed else { return }
+        trial = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            CAPLog.print("Web bundle \(self.web.build) didn't start, so it's rolled back")
+            WebBundles.reject(self.web.build)
+            self.load(WebBundles.newest())
+        }
+    }
+}
+
+struct UpdateError: LocalizedError {
+    let errorDescription: String?
+    init(_ message: String) { errorDescription = message }
+}
+
+/// Web bundles downloaded over the air, kept beside the bundle inside the app. One is installed only when the key inside
+/// the app signed it, it was built for this app's native code, and every file matches. electron/updates.ts does the same
+/// on the Mac. Used on the main thread only.
+enum WebBundles {
+    static let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("web", isDirectory: true)
+    static let embeddedRoot = Bundle.main.url(forResource: "public", withExtension: nil)!
+    static let embedded = info(embeddedRoot)
+    private static let badKey = "multiscale.web.bad"
+    private static let goodKey = "multiscale.web.good"
+
+    struct Info {
+        let build: Int
+        let shell: String?
+        let releaseKey: String?
+    }
+
+    /// version.json, which every build carries.
+    static func info(_ root: URL) -> Info? {
+        guard let data = try? Data(contentsOf: root.appendingPathComponent("version.json")),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let build = json["build"] as? Int else { return nil }
+        return Info(build: build, shell: (json["shell"] as? [String: Any])?["ios"] as? String, releaseKey: json["releaseKey"] as? String)
+    }
+
+    private static var bad: [Int] { UserDefaults.standard.array(forKey: badKey) as? [Int] ?? [] }
+    /// The newest bundle that has started and drawn the app. A newer one runs on trial until it does.
+    static var confirmed: Int { UserDefaults.standard.integer(forKey: goodKey) }
+    static func confirm(_ build: Int) { UserDefaults.standard.set(build, forKey: goodKey) }
+    /// A bundle that failed its trial never runs again.
+    static func reject(_ build: Int) {
+        UserDefaults.standard.set(bad + [build], forKey: badKey)
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(String(build)))
+    }
+
+    private static func runsHere(build: Int, shell: String?) -> Bool {
+        guard let embedded, let shell else { return false }
+        return shell == embedded.shell && build > embedded.build && !bad.contains(build)
+    }
+
+    /// The newest installed bundle this app can run, else the one inside the app.
+    static func newest() -> (root: URL, build: Int) {
+        var best = (root: embeddedRoot, build: embedded?.build ?? 0)
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] {
+            let root = dir.appendingPathComponent(name, isDirectory: true)
+            guard let build = Int(name), let found = info(root), found.build == build, runsHere(build: build, shell: found.shell), build > best.build else { continue }
+            best = (root, build)
+        }
+        return best
+    }
+
+    /// Each segment starts with a letter, digit or _, so no path climbs out or hides.
+    private static func safe(_ path: String) -> Bool {
+        path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { $0.range(of: "^[A-Za-z0-9_][A-Za-z0-9._-]*$", options: .regularExpression) != nil }
+    }
+
+    /// Throws, leaving what's installed as it was, unless every check passes. running is kept; older downloads go.
+    static func install(manifest: String, signature: String, files: [String: Data], running: URL) throws {
+        guard let keyText = embedded?.releaseKey, let keyData = Data(base64Encoded: keyText),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyData) else {
+            throw UpdateError("This app was built without a release key, so it takes no updates")
+        }
+        guard let sig = Data(base64Encoded: signature), key.isValidSignature(sig, for: Data(manifest.utf8)) else {
+            throw UpdateError("The release signature does not match")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: Data(manifest.utf8)) as? [String: Any],
+              let build = json["build"] as? Int, let list = json["files"] as? [[String: Any]],
+              runsHere(build: build, shell: (json["shell"] as? [String: Any])?["ios"] as? String) else {
+            throw UpdateError("The release is not newer, or not for this app's native code")
+        }
+        let manager = FileManager.default
+        let target = dir.appendingPathComponent(String(build), isDirectory: true)
+        let partial = dir.appendingPathComponent("\(build).partial", isDirectory: true)
+        try? manager.removeItem(at: partial)
+        do {
+            for file in list {
+                guard let path = file["path"] as? String, safe(path), let data = files[path],
+                      SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == file["sha256"] as? String else {
+                    throw UpdateError("\(file["path"] ?? "A file") does not match the release")
+                }
+                let url = partial.appendingPathComponent(path)
+                try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: url)
+            }
+            guard info(partial)?.build == build, manager.fileExists(atPath: partial.appendingPathComponent("index.html").path) else {
+                throw UpdateError("The release has no index.html, or a version.json for another build")
+            }
+        } catch {
+            try? manager.removeItem(at: partial)
+            throw error
+        }
+        try? manager.removeItem(at: target)
+        try manager.moveItem(at: partial, to: target)
+        for name in (try? manager.contentsOfDirectory(atPath: dir.path)) ?? [] {
+            let url = dir.appendingPathComponent(name, isDirectory: true)
+            if url.standardizedFileURL.path != target.standardizedFileURL.path && url.standardizedFileURL.path != running.standardizedFileURL.path {
+                try? manager.removeItem(at: url)
+            }
+        }
+    }
+}
+
+/// The page's side of over-the-air updates: it downloads a release, and this checks, installs and switches to it.
+@objc(MultiscaleUpdatesPlugin)
+class UpdatesPlugin: CAPPlugin, CAPBridgedPlugin {
+    let identifier = "MultiscaleUpdatesPlugin"
+    let jsName = "MultiscaleUpdates"
+    let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "install", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "staged", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "ready", returnType: CAPPluginReturnPromise),
+    ]
+
+    private var controller: BridgeViewController? { bridge?.viewController as? BridgeViewController }
+
+    /// files maps each path to its contents in base64.
+    @objc func install(_ call: CAPPluginCall) {
+        guard let manifest = call.getString("manifest"), let signature = call.getString("signature"), let encoded = call.getObject("files") else {
+            return call.reject("Bad release")
+        }
+        var files: [String: Data] = [:]
+        for (path, value) in encoded {
+            if let text = value as? String, let data = Data(base64Encoded: text) { files[path] = data }
+        }
+        DispatchQueue.main.async {
+            guard let running = self.controller?.web.root else { return call.reject("No app to update") }
+            do {
+                try WebBundles.install(manifest: manifest, signature: signature, files: files, running: running)
+                call.resolve()
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func staged(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let next = WebBundles.newest()
+            call.resolve(["build": next.build > (self.controller?.web.build ?? .max) ? next.build : NSNull()])
+        }
+    }
+
+    @objc func apply(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.controller?.applyNewest()
+            call.resolve()
+        }
+    }
+
+    @objc func ready(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.controller?.confirm()
+            call.resolve()
+        }
+    }
 }
 
 /// How the app runs, for telemetry: its memory footprint, iOS's memory warnings, and how the last run ended. Each sample

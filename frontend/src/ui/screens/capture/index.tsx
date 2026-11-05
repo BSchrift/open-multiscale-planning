@@ -9,7 +9,8 @@ import type { Fields, LocalDate, Minutes } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useMutation, useQuery, useToday } from '../../app/store';
 import { EstimateSlider } from '../../components/EstimateSlider';
-import { emptyDraft, oneOffFields } from '../../components/oneoff';
+// From draft rather than the folder's index, so the app's first chunk doesn't carry the one off form and row.
+import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { useDialogFocus } from '../../components/useDialogFocus';

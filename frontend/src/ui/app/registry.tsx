@@ -2,7 +2,8 @@
 // ScreenProps. An area's folder belongs to it alone: navigate with useNav and share only through components/.
 
 import { lazy } from 'react';
-import type { ComponentType, LazyExoticComponent } from 'react';
+import type { ComponentType } from 'react';
+import CaptureScreen from '../screens/capture';
 
 export type Layout = 'desktop' | 'phone';
 
@@ -37,12 +38,14 @@ export interface ScreenProps {
   close(): void;
 }
 
-export const AREAS: Record<AreaId, { label: string; Screen: LazyExoticComponent<ComponentType<ScreenProps>> }> = {
+export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<ScreenProps> }> = {
   today: { label: 'Today', Screen: lazy(() => import('../screens/today')) },
   week: { label: 'Week', Screen: lazy(() => import('../screens/week')) },
   inbox: { label: 'Inbox', Screen: lazy(() => import('../screens/inbox')) },
   process: { label: 'Process', Screen: lazy(() => import('../screens/process')) },
-  capture: { label: 'Capture', Screen: lazy(() => import('../screens/capture')) },
+  // Loaded with the app, unlike the rest: a screen that suspends shows its fallback, and React then holds the screen
+  // back for 300ms, so the first capture after launch would open that much late.
+  capture: { label: 'Capture', Screen: CaptureScreen },
   planning: { label: 'Plan your week', Screen: lazy(() => import('../screens/planning')) },
   plan: { label: 'Plan', Screen: lazy(() => import('../screens/plan')) },
   goals: { label: 'Goals', Screen: lazy(() => import('../screens/goals')) },

@@ -133,15 +133,26 @@ class TxWriter implements Writer {
     private readonly clock: Clock,
   ) {}
 
+  /** The device id and the last clock, in one read: on the desktop and the phone each statement is a round trip. */
+  private async readMeta(): Promise<void> {
+    const rows = await this.sql.all<{ key: string; value: string }>('SELECT key, value FROM meta WHERE key IN (:device, :clock)', {
+      device: META.deviceId,
+      clock: META.clock,
+    });
+    const value = (key: string) => rows.find((row) => row.key === key)?.value ?? null;
+    this.device = value(META.deviceId);
+    this.lastClock ??= value(META.clock);
+  }
+
   private async deviceId(): Promise<string> {
-    this.device ??= await getMeta(this.sql, META.deviceId);
+    if (!this.device) await this.readMeta();
     if (!this.device) throw new Error('This database has no device id. Open it with openDb.');
     return this.device;
   }
 
   private async tick(): Promise<string> {
-    if (this.lastClock === undefined) this.lastClock = await getMeta(this.sql, META.clock);
-    this.lastClock = nextClock(this.lastClock, this.clock.now(), await this.deviceId());
+    if (this.lastClock === undefined) await this.readMeta();
+    this.lastClock = nextClock(this.lastClock ?? null, this.clock.now(), await this.deviceId());
     return this.lastClock;
   }
 
@@ -177,10 +188,13 @@ class TxWriter implements Writer {
       previous[field] = data[field] ?? null;
       data[field] = fields[field];
       clocks[field] = clock;
+    }
+    // Every changed field in one statement, rather than one each.
+    if (changed.length > 0) {
       await this.sql.run(
-        `INSERT INTO outbox (record_id, type, field, clock) VALUES (:id, :type, :field, :clock)
+        `INSERT INTO outbox (record_id, type, field, clock) VALUES ${changed.map((_, i) => `(:id, :type, :field${i}, :clock)`).join(', ')}
          ON CONFLICT (record_id, field) DO UPDATE SET clock = excluded.clock`,
-        { id, type, field, clock },
+        { id, type, clock, ...Object.fromEntries(changed.map((field, i) => [`field${i}`, field])) },
       );
     }
     await writeRow(this.sql, id, type, data, clocks);
@@ -191,7 +205,8 @@ class TxWriter implements Writer {
   async create<T extends RecordType>(type: T, fields: Fields<T>, id?: string, automatic = false): Promise<string> {
     const recordId = id ?? newId(this.clock);
     if (!ID_PATTERN.test(recordId)) throw new Error(`Invalid record id: ${recordId}`);
-    const row = await readRow(this.sql, recordId);
+    // A new id can't be here yet, so only a given one is looked up.
+    const row = id === undefined ? undefined : await readRow(this.sql, recordId);
     if (row && row.type !== type) throw new Error(`Record ${recordId} is a ${row.type}, not a ${type}`);
     await this.write(type, recordId, row, fields, automatic);
     return recordId;

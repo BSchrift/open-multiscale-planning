@@ -1,5 +1,5 @@
 // Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away: choosing a
-// project or One offs skips the Inbox, and a time estimate travels with the task.
+// project, and then one of its milestones, or One offs skips the Inbox, and a time estimate travels with the task.
 
 import { useEffect, useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
@@ -23,9 +23,9 @@ const MAX_TITLE = 2000;
 const SAVED_MS = 700;
 const FADE_MS = 120;
 
-function fieldsFor(title: string, where: string, est: Minutes, today: LocalDate): Fields<'task'> {
+function fieldsFor(title: string, where: string, milestone: string, est: Minutes, today: LocalDate): Fields<'task'> {
   if (where === ONE_OFFS) return oneOffFields({ ...emptyDraft(today), title, estimate: est }, today);
-  if (where) return { kind: 'project', project_id: where, milestone_id: null, title, estimate_min: est || null };
+  if (where) return { kind: 'project', project_id: where, milestone_id: milestone || null, title, estimate_min: est || null };
   return { kind: 'inbox', title, estimate_min: est || null };
 }
 
@@ -37,16 +37,30 @@ export default function Screen(props: ScreenProps) {
   const [text, setText] = useState('');
   const [details, setDetails] = useState(false);
   const [where, setWhere] = useState('');
+  const [milestone, setMilestone] = useState('');
+  // The chosen project's open milestones, soonest due first.
+  const milestones =
+    useQuery(
+      async (sql) =>
+        where && where !== ONE_OFFS
+          ? (await listRecords(sql, 'milestone'))
+              .filter((m) => m.project_id === where && !m.met_at && !m.dropped_at && !m.deleted_at)
+              .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.title.localeCompare(b.title))
+          : [],
+      [where],
+    ).data ?? [];
   const [est, setEst] = useState<Minutes>(0);
   const [saved, setSaved] = useState<string | null>(null);
   const [fade, setFade] = useState(false);
-  const ids = { field: useId(), where: useId() };
+  const ids = { field: useId(), where: useId(), milestone: useId() };
   const save = useMutation(async (w, fields: Fields<'task'>) => {
     await w.create('task', fields);
     return inboxCount(w.sql);
   });
 
-  const place = where === ONE_OFFS ? 'One offs' : (projects.find((p) => p.id === where)?.title ?? 'Inbox');
+  const project = projects.find((p) => p.id === where)?.title;
+  const ms = milestones.find((m) => m.id === milestone)?.title;
+  const place = where === ONE_OFFS ? 'One offs' : project ? (ms ? `${project}, ${ms}` : project) : 'Inbox';
   const phone = layout === 'phone';
 
   useEffect(() => {
@@ -59,7 +73,7 @@ export default function Screen(props: ScreenProps) {
     event.preventDefault();
     const title = text.trim();
     if (!title || saved || save.pending) return;
-    const waiting = await save.run(fieldsFor(title, where, est, today));
+    const waiting = await save.run(fieldsFor(title, where, milestone, est, today));
     if (waiting === undefined) return;
     const message = where ? `Saved to ${place}` : phone ? 'Saved to Inbox' : `Saved to Inbox, ${waiting} waiting`;
     if (phone) {
@@ -72,7 +86,15 @@ export default function Screen(props: ScreenProps) {
   };
 
   const whereSelect = (
-    <select id={ids.where} className="field" value={where} onChange={(e) => setWhere(e.target.value)}>
+    <select
+      id={ids.where}
+      className="field"
+      value={where}
+      onChange={(e) => {
+        setWhere(e.target.value);
+        setMilestone('');
+      }}
+    >
       <option value="">Inbox</option>
       <option value={ONE_OFFS}>One offs</option>
       {projects.length > 0 && (
@@ -84,6 +106,16 @@ export default function Screen(props: ScreenProps) {
           ))}
         </optgroup>
       )}
+    </select>
+  );
+  const milestoneSelect = milestones.length > 0 && (
+    <select id={ids.milestone} className="field" value={milestone} onChange={(e) => setMilestone(e.target.value)}>
+      <option value="">No milestone</option>
+      {milestones.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.title}
+        </option>
+      ))}
     </select>
   );
   const slider = <EstimateSlider label="Time" value={est} onChange={setEst} />;
@@ -118,6 +150,14 @@ export default function Screen(props: ScreenProps) {
                 </label>
                 {whereSelect}
               </div>
+              {milestoneSelect && (
+                <div className="stack8">
+                  <label className="small quiet" htmlFor={ids.milestone}>
+                    Milestone
+                  </label>
+                  {milestoneSelect}
+                </div>
+              )}
               {slider}
             </>
           )}
@@ -149,6 +189,12 @@ export default function Screen(props: ScreenProps) {
                 <label htmlFor={ids.where}>Send to</label>
                 {whereSelect}
               </div>
+              {milestoneSelect && (
+                <div className="capfield">
+                  <label htmlFor={ids.milestone}>Milestone</label>
+                  {milestoneSelect}
+                </div>
+              )}
               {slider}
             </div>
           )}

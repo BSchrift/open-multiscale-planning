@@ -183,7 +183,9 @@ export function startAppSync(
         now: () => clock.now(),
         resource: {
           'service.name': 'multiscale-app',
+          ...(config.version ? { 'service.version': config.version } : {}),
           'os.name': platform.kind ?? 'web',
+          'app.platform': platform.kind === 'ios' ? 'mobile' : platform.kind === 'electron' ? 'desktop' : 'web',
           'deployment.environment.name': config.env,
           'session.id': crypto.randomUUID(),
           ...(device ? { 'device.id': device } : {}),

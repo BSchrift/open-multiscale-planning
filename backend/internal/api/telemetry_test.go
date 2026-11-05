@@ -27,6 +27,8 @@ const export = `{"resourceLogs":[{
   "resource":{"attributes":[
     {"key":"service.name","value":{"stringValue":"multiscale-app"}},
     {"key":"os.name","value":{"stringValue":"ios"}},
+    {"key":"app.platform","value":{"stringValue":"mobile"}},
+    {"key":"service.version","value":{"stringValue":"0.1.0-cb510fd"}},
     {"key":"device.model.identifier","value":{"stringValue":"iPhone14,2"}},
     {"key":"session.id","value":{"stringValue":"s-1"}},
     {"key":"user.email","value":{"stringValue":"someone@example.test"}}]},
@@ -60,7 +62,8 @@ func TestTelemetryLogsOnlyAllowedEventsAndAttributes(t *testing.T) {
 	}
 	beat := events[0]
 	want := map[string]any{
-		"event": "app.heartbeat", "os.name": "ios", "device.model.identifier": "iPhone14,2", "session.id": "s-1",
+		"event": "app.heartbeat", "os.name": "ios", "app.platform": "mobile", "service.version": "0.1.0-cb510fd",
+		"device.model.identifier": "iPhone14,2", "session.id": "s-1",
 		"app.screen.name": "week", "process.memory.usage": float64(220200960), "process.memory.peak": float64(230000000),
 	}
 	for key, value := range want {

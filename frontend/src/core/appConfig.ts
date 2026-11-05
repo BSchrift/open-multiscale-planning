@@ -12,6 +12,8 @@ export interface AppConfig {
   /** The identity provider's base URL, with /oauth2/authorize and /oauth2/token below it. */
   authUrl: string;
   authClientId: string;
+  /** The build: the package's version and the commit it was built from, such as 0.1.0-85e85c2. Telemetry reports it. */
+  version?: string;
 }
 
 /** Reads a file by its full path, or gives null when there is none. */

@@ -1,0 +1,17 @@
+# Staging. Copy to staging.yaml in your config folder ($MULTISCALE_CONFIG_DIR, or this folder) and fill it in.
+aws:
+  account: "111111111111" # may be the same account as prod or control
+  region: us-west-2
+  profile: multiscale-staging
+alarmEmail: you@example.com # where alarms and budget alerts go
+auth:
+  # Prefix of the sign-in page's address: globally unique, lowercase, without aws, amazon or cognito.
+  cognitoDomainPrefix: multiscale-staging-change-me
+  signInCallbackUrls:
+    - multiscale-staging://auth/callback
+    - multiscale://auth/callback
+dns:
+  zone: staging.example.com # optional; a subdomain of control.yaml's domain
+integration:
+  testUser: integration-test@example.com # its password lives in SSM at /multiscale/staging/test-user-password
+  capabilities: [googleClient]

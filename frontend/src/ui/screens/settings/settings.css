@@ -1,0 +1,152 @@
+[data-layout] .settings {
+  gap: 24px;
+}
+/* Each section is a card, its heading a small label on the ground above it. Setup's unavailable list is a card too. */
+[data-layout] .settings h2 {
+  padding: 0 var(--space-1);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+}
+[data-layout='phone'] .settings h2 {
+  padding: 0;
+}
+[data-layout='desktop'] .settings h2 {
+  font-size: var(--text-sm);
+}
+[data-layout] :is(.settings, .setup) .card {
+  padding: var(--space-4);
+}
+/* The card's gap spaces its rows, so a row keeps only the padding below its hairline. */
+[data-layout] :is(.settings, .setup) .card > :is(.setrow, .rowline) {
+  padding-bottom: 0;
+}
+[data-layout] :is(.settings, .setup) .card > :first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+[data-layout] .settings h3 {
+  margin-top: 8px;
+}
+
+/* A time slider: its label above on phone, beside it on desktop. */
+/* Unavailable hours: two native range inputs stacked on one track, so each handle keeps its keyboard and screen
+   reader behaviour. Only the handles take the pointer, so either can be dragged where they overlap the other input. */
+.hourslider {
+  --thumb: 44px;
+  width: 100%;
+}
+[data-layout='desktop'] .hourslider {
+  max-width: 440px;
+}
+.hourtrack {
+  position: relative;
+  height: var(--thumb);
+}
+.hourtrack::before,
+.timewindow {
+  position: absolute;
+  top: calc(50% - 3px);
+  height: 6px;
+  border-radius: 3px;
+}
+.hourtrack::before {
+  content: '';
+  left: calc(var(--thumb) / 2);
+  right: calc(var(--thumb) / 2);
+  background: var(--line-strong);
+}
+.timewindow {
+  background: var(--blue);
+}
+.hourtrack input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: var(--thumb);
+  margin: 0;
+  background: none;
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: none;
+}
+.hourtrack input[type='range']::-webkit-slider-runnable-track {
+  height: var(--thumb);
+  background: none;
+}
+.hourtrack input[type='range']::-moz-range-track {
+  background: none;
+}
+/* A 44px target, the least for touch, with a 24px handle drawn in it. */
+.hourtrack input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, transparent 12.5px);
+  pointer-events: auto;
+  cursor: grab;
+}
+.hourtrack input[type='range']::-moz-range-thumb {
+  width: var(--thumb);
+  height: var(--thumb);
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, transparent 12.5px);
+  pointer-events: auto;
+  cursor: grab;
+}
+.hourtrack input[type='range']:focus-visible {
+  outline: none;
+}
+.hourtrack input[type='range']:focus-visible::-webkit-slider-thumb {
+  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, var(--blue-soft) 12.5px 16px, transparent 16.5px);
+}
+.hourtrack input[type='range']:focus-visible::-moz-range-thumb {
+  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, var(--blue-soft) 12.5px 16px, transparent 16.5px);
+}
+.hourticks {
+  position: relative;
+  height: 1.4em;
+  font-size: 12px;
+  color: var(--quiet);
+}
+.hourticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+[data-layout='phone'] .settings .delay input[type='range'] {
+  display: block;
+  color: var(--quiet);
+}
+[data-layout='phone'] .settings .delay input[type='range'] {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+}
+[data-layout='desktop'] .settings .delay {
+  flex-direction: row;
+  align-items: center;
+}
+[data-layout='desktop'] .settings .delay .between {
+  flex-wrap: nowrap;
+}
+[data-layout='phone'] .settings .rowline select.field {
+  width: 100%;
+}
+[data-layout='desktop'] .settings form.row .field {
+  width: auto;
+}
+[data-layout] .settings .source {
+  align-self: flex-start;
+}
+[data-layout='phone'] .settings .source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+[data-layout] .settings .mhead.setrow,
+[data-layout] .settings .mhead.rowline {
+  padding-left: 12px;
+}

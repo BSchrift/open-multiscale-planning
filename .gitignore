@@ -37,13 +37,17 @@ deploy.config.*
 !deploy.config.example.*
 infrastructure/config.*
 !infrastructure/config.example.*
-infrastructure/config/*.json
-!infrastructure/config/*.example.json
+# Replaced by the config folder, but an old checkout may still hold real values here.
+infrastructure/config/
 **/integration/config/*.json
 !**/integration/config/*.example.json
 !**/integration/config/local.json
+# The default config dir: per-environment YAML, deploy records and stack outputs stay local
+/config/*.yaml
+!/config/*.example.yaml
+/config/*.deployed
+/config/*.outputs.json
 frontend/app.config.*
-!frontend/app.config.example.*
 
 # Xcode user data and build products
 xcuserdata/
@@ -54,6 +58,7 @@ frontend/ios/App/Pods/
 frontend/ios/App/App/public/
 frontend/ios/App/build/
 frontend/ios/DerivedData/
+frontend/.build.lock
 
 # Local databases
 *.sqlite

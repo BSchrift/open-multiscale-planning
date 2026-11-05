@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.bschrift.multiscale",
+  "appName": "Multiscale",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorSQLite": { "iosIsEncryption": false },
+    "LocalNotifications": { "presentationOptions": ["banner", "list", "sound"] }
+  }
+}

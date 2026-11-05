@@ -1,0 +1,16 @@
+{
+  "name": "two offline devices editing different fields keep both changes",
+  "current": {
+    "title": { "v": "Write the report", "c": "1800000000000-000000-laptop" },
+    "done_at": { "v": null, "c": "1800000000000-000000-laptop" }
+  },
+  "incoming": [
+    { "title": { "v": "Write the long report", "c": "1800000001000-000000-phone" } },
+    { "done_at": { "v": "2027-01-15T10:00:00Z", "c": "1800000000500-000000-laptop" } }
+  ],
+  "applied": [1, 1],
+  "expected": {
+    "title": { "v": "Write the long report", "c": "1800000001000-000000-phone" },
+    "done_at": { "v": "2027-01-15T10:00:00Z", "c": "1800000000500-000000-laptop" }
+  }
+}

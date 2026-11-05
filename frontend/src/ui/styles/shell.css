@@ -1,0 +1,327 @@
+/* Reset, and the frame the two layouts sit in. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--page);
+}
+
+a {
+  color: var(--blue);
+}
+a:hover {
+  color: var(--blue-hover);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.pane:focus,
+.flowpane:focus {
+  outline: none;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.boot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-4);
+  font-family: var(--font);
+  color: var(--quiet);
+  text-align: center;
+}
+
+[data-layout] {
+  height: 100%;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Desktop: side navigation beside a main area. */
+[data-layout='desktop'] {
+  display: flex;
+  background: var(--page);
+  font-size: var(--text-base-desktop);
+  line-height: 1.45;
+}
+
+[data-layout='desktop'] .side {
+  flex: 0 0 216px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-4);
+  overflow-y: auto;
+}
+
+[data-layout='desktop'] .mainarea {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--ground);
+  border-left: 1px solid var(--line);
+}
+
+[data-layout='desktop'] .pane,
+[data-layout='desktop'] .flowpane {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8) 96px;
+}
+
+[data-layout='desktop'] .flowpane {
+  z-index: 1;
+  background: var(--ground);
+}
+
+[data-layout='desktop'] .ptrack .gdia {
+  top: 3px;
+}
+
+/* Phone: one scrolling page above five tabs. */
+[data-layout='phone'] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  font-size: var(--text-base-phone);
+  line-height: 1.4;
+}
+
+[data-layout='phone'] .mainarea {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top);
+}
+
+[data-layout='phone'] .pane {
+  position: absolute;
+  inset: env(safe-area-inset-top) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  padding: 20px 16px 92px;
+}
+
+/* A flow covers everything, tab bar included, and brings its own bottom bar. */
+[data-layout='phone'] .flowpane {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  background: var(--ground);
+}
+
+[data-layout='phone'] .fab {
+  bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 12px);
+}
+
+/* The docked tray clears the tab bar and the home indicator, centred on the + button beside it. */
+[data-layout='phone'] .tray {
+  bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 16px);
+}
+
+[data-layout='phone'] .tabs {
+  position: relative;
+  z-index: 4;
+}
+
+[data-layout='phone'] .toast {
+  bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 84px);
+}
+
+/* Over a sheet or Process there's no tab bar, and the bottom is busy, so the toast drops from the top. */
+[data-layout='phone']:has(.sheet, .pxflow) .toast {
+  top: calc(env(safe-area-inset-top) + var(--space-2));
+  bottom: auto;
+}
+
+/* A container or heading focused from code shows no ring; a field shows its own border instead of a ring outside it. */
+[data-layout='phone'] [tabindex='-1']:focus {
+  outline: none;
+}
+
+/* In an edit sheet, Pause, Finish, Drop or Delete sit apart from Save and Cancel. */
+[data-layout='phone'] .sheet .editor > .row:has(> .btn.pri) ~ *,
+[data-layout='phone'] .sheet > form.editor ~ div {
+  margin-top: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout='phone'] .field:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+
+[data-layout='phone'] .sheet {
+  max-height: 86dvh;
+  overflow-y: auto;
+  padding-bottom: max(32px, env(safe-area-inset-bottom));
+}
+
+/* WebKit ignores min-height on a native select, which would leave it under 44pt on iPhone. */
+[data-layout='phone'] select.field {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 36px;
+  background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23777' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center / 12px 8px;
+}
+
+/* Toast with an action. */
+.toast.withaction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-right: var(--space-1);
+}
+
+.toastact {
+  flex: none;
+  min-height: var(--tap);
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--blue-on-dark);
+  font-weight: 600;
+}
+
+/* The ring sits on the toast, where the usual blue is too faint. */
+.toastact:focus-visible,
+.pktoast button:focus-visible {
+  outline-color: var(--blue-on-dark);
+}
+
+/* A popover anchors to whichever positioned parent holds it. */
+.popover {
+  z-index: 8;
+}
+
+/* Shared widgets that need the same frame on both layouts. */
+.pillbtn {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+[data-layout='phone'] .pillbtn {
+  min-height: var(--tap);
+}
+
+.estslider input[type='range'] {
+  accent-color: var(--blue);
+}
+
+[data-layout='phone'] .estslider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+[data-layout='phone'] .estslider input {
+  flex: 1 1 auto;
+  min-width: 120px;
+  min-height: var(--tap);
+}
+
+[data-layout='phone'] .estval {
+  flex: none;
+  min-width: 76px;
+  font-weight: 600;
+  text-align: right;
+}
+
+[data-layout='phone'] .maintrow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.checktarget {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  cursor: pointer;
+}
+
+.checktarget .checkcircle {
+  margin: 0;
+}
+
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

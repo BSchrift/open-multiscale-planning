@@ -1,0 +1,10 @@
+{
+  "name": "resending the same write changes nothing",
+  "current": { "title": { "v": "Write the report", "c": "1800000000000-000000-laptop" } },
+  "incoming": [
+    { "title": { "v": "Write the report", "c": "1800000000000-000000-laptop" } },
+    { "title": { "v": "Write the report", "c": "1800000000000-000000-laptop" } }
+  ],
+  "applied": [0, 0],
+  "expected": { "title": { "v": "Write the report", "c": "1800000000000-000000-laptop" } }
+}

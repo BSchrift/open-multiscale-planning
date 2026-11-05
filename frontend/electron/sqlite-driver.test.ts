@@ -1,0 +1,46 @@
+import Database from 'better-sqlite3';
+import { describe, expect, it } from 'vitest';
+import { openDb } from '../src/core/db';
+import { fixedClock } from '../src/core/clock';
+import { transact } from '../src/core/records';
+import { betterSqliteDriver } from './sqlite-driver';
+
+const open = () => betterSqliteDriver(new Database(':memory:'));
+
+describe('better-sqlite3 driver', () => {
+  it('runs migrations, which send DDL through run and transaction control through exec', async () => {
+    const db = await openDb(open());
+    const views = await db.all("SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'task'");
+    expect(views).toHaveLength(1);
+  });
+
+  it('all tolerates a statement that returns no rows, such as PRAGMA optimize', async () => {
+    const driver = open();
+    expect(await driver.all('CREATE TABLE t (a)', [])).toEqual([]);
+    expect(await driver.all('PRAGMA optimize=0x10002', [])).toEqual([]);
+  });
+
+  it('run tolerates a statement that returns rows, such as a pragma that echoes', async () => {
+    await expect(open().run('PRAGMA journal_mode', [])).resolves.toBeUndefined();
+  });
+
+  it('exec takes several statements', async () => {
+    const driver = open();
+    await driver.exec('CREATE TABLE t (a); INSERT INTO t VALUES (1)');
+    expect(await driver.all('SELECT a FROM t WHERE a = ?', [1])).toEqual([{ a: 1 }]);
+  });
+
+  it('commits and rolls back through the Db', async () => {
+    const db = await openDb(open());
+    const clock = fixedClock('2026-11-02T09:00:00Z');
+    await transact(db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.run("INSERT INTO meta (key, value) VALUES ('k', 'v')");
+        throw new Error('stop');
+      }),
+    ).rejects.toThrow('stop');
+    expect(await db.all("SELECT 1 FROM meta WHERE key = 'k'")).toEqual([]);
+    expect(await db.all("SELECT title FROM task WHERE kind = 'inbox'")).toEqual([{ title: 'Paint the fence' }]);
+  });
+});

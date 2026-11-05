@@ -1,0 +1,11 @@
+{
+  "name": "device ids compare byte by byte, so lowercase sorts above uppercase and a longer id above its prefix",
+  "current": {},
+  "incoming": [
+    { "title": { "v": "Paint the fence", "c": "1800000000000-000000-A" } },
+    { "title": { "v": "Paint the gate", "c": "1800000000000-000000-a" } },
+    { "title": { "v": "Paint the shed", "c": "1800000000000-000000-a1" } }
+  ],
+  "applied": [1, 1, 1],
+  "expected": { "title": { "v": "Paint the shed", "c": "1800000000000-000000-a1" } }
+}

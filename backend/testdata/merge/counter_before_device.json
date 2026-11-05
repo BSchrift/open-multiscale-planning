@@ -1,0 +1,11 @@
+{
+  "name": "time beats counter and counter beats device id",
+  "current": {},
+  "incoming": [
+    { "title": { "v": "Later counter", "c": "1800000000000-000002-a" } },
+    { "title": { "v": "Higher device", "c": "1800000000000-000001-z" } },
+    { "title": { "v": "Later time", "c": "1800000000001-000000-a" } }
+  ],
+  "applied": [1, 0, 1],
+  "expected": { "title": { "v": "Later time", "c": "1800000000001-000000-a" } }
+}

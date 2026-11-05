@@ -1,0 +1,397 @@
+/* Goals and project pages. Most shapes come from the layout styles; these fill the gaps. */
+
+[data-layout] .lineblock {
+  display: block;
+}
+
+[data-layout] .projectbody .pillrow {
+  margin-top: 0;
+}
+
+[data-layout] .badgeline {
+  margin-top: var(--space-1);
+}
+
+[data-layout] .changeline:empty {
+  display: none;
+}
+
+/* Each milestone group, Done included, is a small card. */
+[data-layout] .msgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--card-line);
+  background: var(--white);
+}
+
+[data-layout='phone'] .msgroup {
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+}
+
+[data-layout='desktop'] .msgroup {
+  border-radius: var(--radius);
+}
+
+[data-layout='phone'] .groups {
+  gap: var(--space-3);
+}
+
+[data-layout] .mshead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+}
+
+[data-layout] .mshead .rowbtn {
+  flex: 1 1 auto;
+}
+
+[data-layout] .msfold {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--quiet);
+}
+
+[data-layout] .msfold:hover {
+  background: var(--hover);
+}
+
+[data-layout='phone'] .msfold {
+  width: var(--tap);
+  height: var(--tap);
+}
+
+[data-layout='phone'] .mshead {
+  padding: 0 var(--space-4) 0 0;
+}
+
+/* A wrapped milestone name stays beside its diamond, and Edit reads apart from the status. */
+[data-layout='phone'] .mshead .grow.strong {
+  display: flex;
+  align-items: flex-start;
+}
+
+[data-layout='phone'] .mshead .grow.strong > .msdia {
+  flex: none;
+  margin-top: 5px;
+}
+
+[data-layout='phone'] .mshead .editcue {
+  margin-left: var(--space-1);
+}
+
+/* A wrapped timeline label stays beside its diamond, and its status stays right-aligned. */
+[data-layout='phone'] .glabel {
+  align-items: flex-start;
+}
+
+[data-layout='phone'] .glabel > :first-child {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+[data-layout='phone'] .glabel > :first-child > .msdia {
+  flex: none;
+  margin-top: 4px;
+}
+
+[data-layout='phone'] .glabel .gstate {
+  text-align: right;
+}
+
+[data-layout] .mstasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2) 10px 20px;
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout='phone'] .mstasks {
+  padding: 0 var(--space-4) var(--space-1) var(--space-3);
+}
+
+[data-layout] .addrow {
+  align-self: flex-start;
+}
+
+[data-layout] .rowstatic.taskstatic {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Desktop's timeline keeps each row to its name; the state is in the drawing's description. */
+[data-layout='desktop'] .glabel .gstate {
+  display: none;
+}
+
+[data-layout='desktop'] .glabel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-layout='desktop'] .gtrack .gdia {
+  top: 7px;
+}
+
+[data-layout='phone'] .ctkey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+[data-layout] .ctkey .msdia {
+  margin-left: 0;
+}
+
+/* Desktop: Project settings ends the row of add buttons. */
+[data-layout='desktop'] .projectbody {
+  flex-flow: row wrap;
+}
+
+[data-layout='desktop'] .projectbody > * {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+[data-layout='desktop'] .projectbody > .row:has(> .addrow) {
+  flex: 1 1 auto;
+}
+
+[data-layout='desktop'] .projectbody > .settingsbtn {
+  flex: none;
+  align-self: center;
+}
+
+/* An open project sits in its goal card's inset panel, so its timeline lies flat there, on white tracks. */
+[data-layout='desktop'] .detail .card {
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+[data-layout='desktop'] .detail .gtrack:not(.ghead) {
+  background: var(--white);
+}
+
+/* Phone: Project settings is a card of its own, like a row of More. */
+[data-layout='phone'] .card.morerow {
+  padding: 6px var(--space-4);
+  border-top-color: var(--card-line);
+  background: var(--white);
+}
+
+[data-layout] .archrow {
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+}
+
+[data-layout] .archrow + .archrow {
+  border-top: 1px solid var(--line-soft);
+}
+
+/* Practices with no goal and Archived: small labels on the ground above their cards. */
+[data-layout] .seclabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-align: left;
+}
+
+[data-layout='phone'] .seclabel {
+  padding: 0;
+}
+
+[data-layout='desktop'] .seclabel {
+  min-height: 36px;
+  font-size: var(--text-sm);
+}
+
+/* Side by side as flex items, not inline, so a screen reader still hears a space between the two. */
+[data-layout='desktop'] .seclabel .grow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+[data-layout='desktop'] .seclabel .lineblock {
+  font-weight: 400;
+}
+
+/* Archived's caret is drawn, so the button's name stays its text. */
+[data-layout] .archived .seclabel::before {
+  content: '';
+  border-left: 4px solid;
+  border-block: 3px solid transparent;
+}
+
+[data-layout] .archived .seclabel[aria-expanded='true']::before {
+  transform: rotate(90deg);
+}
+
+[data-layout='phone'] .nogoal,
+[data-layout='phone'] .archived {
+  gap: 2px;
+}
+
+/* Its rows sit edge to edge like a goal card's, not inside a stacked card's padding. */
+[data-layout='phone'] .nogoal > .card {
+  padding: 0;
+}
+
+[data-layout='desktop'] .nogoal > .card {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+/* Each goal is a card. Open, it holds its practices and projects as indented rows split by hairlines. */
+[data-layout='phone'] .goalhead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-2);
+}
+
+[data-layout='phone'] .goalbtn .strong {
+  font-size: var(--text-h2);
+}
+
+[data-layout='phone'] .goalname {
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-4);
+}
+
+[data-layout='phone'] .goalhead > .penbtn {
+  margin-right: var(--space-2);
+}
+
+[data-layout='phone'] .goalspage .projbtn {
+  align-items: center;
+  min-height: 60px;
+  padding: 10px var(--space-4) 10px 36px;
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout='phone'] .goalspage .nested > .row {
+  padding: 0 var(--space-4) var(--space-1) 36px;
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout='phone'] .nogoal .projbtn,
+[data-layout='phone'] .nogoal .nested > .row {
+  padding-left: var(--space-4);
+}
+
+[data-layout='phone'] .nogoal .nested > :first-child,
+[data-layout='phone'] .nogoal .nested > :first-child > .projbtn {
+  border-top: 0;
+}
+
+[data-layout='desktop'] .goalhead .strong {
+  font-size: 16px;
+}
+
+[data-layout='desktop'] .goalspage .nested > .prow:first-child {
+  border-top: 0;
+}
+
+[data-layout='desktop'] .goalspage .nested > .row {
+  padding: var(--space-1) 0 0 44px;
+}
+
+[data-layout='desktop'] .goalspage .nested > .row:first-child {
+  padding-top: var(--space-4);
+}
+
+[data-layout='desktop'] .goalspage .nested > .row + .row {
+  padding-top: var(--space-2);
+}
+
+[data-layout='desktop'] .goalspage .nested > .inlineform {
+  margin-left: 44px;
+}
+
+[data-layout='desktop'] .nogoal .prowhead {
+  padding-left: 0;
+}
+
+[data-layout] .penbtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+
+[data-layout] .penbtn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-layout='desktop'] .goalname .field {
+  flex: 1 1 220px;
+}
+
+[data-layout='desktop'] .goalspage .newgoal .field {
+  flex: 1 1 220px;
+}
+
+[data-layout='desktop'] .goalspage .detail .projectbody {
+  gap: var(--space-3);
+}
+
+/* Phone: holding a task lifts it to drop on another group. */
+[data-layout='phone'] .taskline .rowbtn {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-layout] .taskline.lifted {
+  opacity: 0.4;
+}
+
+[data-layout] .msgroup.dropon {
+  background: var(--blue-pale);
+  outline: 2px solid var(--blue);
+}
+
+[data-layout] .taskghost {
+  position: fixed;
+  left: var(--space-4);
+  right: var(--space-4);
+  z-index: 50;
+  transform: translateY(-50%);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+}

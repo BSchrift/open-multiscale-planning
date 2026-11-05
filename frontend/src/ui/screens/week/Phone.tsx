@@ -1,0 +1,883 @@
+// Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
+// shared time axis above one day's timeline. Tapping a block opens its sheet; Move, or Choose another time for a
+// task, makes the block draggable on the day, and the strip carries it to another day.
+
+import { useEffect, useId, useRef, useState } from 'react';
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
+import { addDays, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
+import { closestFit, dayBaseAhead, dayFree, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes, TIGHT_SHARE } from '../../../core/slots';
+import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
+import type { LocalDate, Minutes } from '../../../core/types';
+import { useNav } from '../../app/nav';
+import { useApp } from '../../app/store';
+import { Sheet } from '../../components/Sheet';
+import type { GridGhost } from '../../components/weekgrid';
+import { dayName, KIND_WORD, range } from './data';
+import type { AddRow, WeekBlock, WeekModel } from './data';
+import type { WeekProps } from './index';
+import { PracticeAsk } from './parts';
+import { useWeekActions } from './useWeekActions';
+
+const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
+const HOUR_PX = 48;
+const CELL_PX = 46;
+const MAX_LEN = 120;
+const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint' } as const;
+const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
+const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
+
+/** A block being moved, or a task being placed, before Move here or Place here. */
+type Placing =
+  | { mode: 'move'; block: WeekBlock; length: Minutes }
+  | { mode: 'place'; row: AddRow; length: Minutes; fromDrawer: boolean };
+
+type Open = { kind: 'block'; id: string } | { kind: 'add' } | null;
+
+export function PhoneWeek(props: WeekProps) {
+  const { data, model, offset, editing } = props;
+  const { clock } = useApp();
+  const nav = useNav();
+  const act = useWeekActions();
+  const isThis = offset === 0;
+  const now = clock.now();
+  const day0 = today(clock);
+  const nowMin = localMinutes(now, clock.zone());
+  const [selDay, setSelDay] = useState<LocalDate>(isThis ? day0 : data.week);
+  const [open, setOpen] = useState<Open>(null);
+  const [placing, setPlacing] = useState<Placing | null>(null);
+  const [at, setAt] = useState<Slot | null>(null);
+  const [edSel, setEdSel] = useState<string | null>(null);
+  const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+
+  const kindOf = (p: Placing): Work['kind'] => (p.mode === 'move' ? (p.block.kind === 'one_off' ? 'one_off' : 'project') : p.row.work.kind);
+  const workOf = (p: Placing): Work => (p.mode === 'move' ? { kind: kindOf(p) } : p.row.work);
+  // While moving, the block's own time is free.
+  const ctx: SlotContext = placing?.mode === 'move' ? { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== placing.block.id) } : model.ctx;
+  /** Time already gone is locked: all of a past day, and up to now today. */
+  const floorOf = (date: LocalDate) => (!isThis || date > day0 ? DAY_FROM : date < day0 ? DAY_TO : Math.max(DAY_FROM, Math.ceil(nowMin / GRID) * GRID));
+
+  const startPlacing = (p: Placing, slot: Slot | null) => {
+    const first = slot ?? defaultSlot(p.length, workOf(p), ctx) ?? { date: selDay, start: 17 * 60, end: 17 * 60 + p.length };
+    setOpen(null);
+    setPlacing(p);
+    setAt(first);
+    setSelDay(first.date);
+  };
+
+  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag.
+  useEffect(() => {
+    if (!props.place) return;
+    const row = model.addGroups.flatMap((g) => g.rows).find((r) => r.task.id === props.place);
+    if (row) startPlacing({ mode: 'place', row, length: Math.min(row.left, MAX_LEN), fromDrawer: false }, null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.place]);
+
+  const pickDay = (date: LocalDate) => {
+    setSelDay(date);
+    if (!placing || !at) return;
+    // The block keeps its time on a new day when it fits there, and otherwise lands on the closest time that does.
+    const len = at.end - at.start;
+    const keep = fits(date, at.start, len, kindOf(placing), ctx);
+    const start = keep ? at.start : closestFit(date, at.start, len, kindOf(placing), ctx) ?? Math.max(at.start, floorOf(date));
+    setAt({ date, start, end: start + len });
+  };
+
+  const changeBlock = (b: WeekBlock, slot: Slot) => {
+    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return;
+    void act.move(b.id, slot);
+    setEdSel(b.id);
+    setAsk(b.practice_id ? { blockId: b.id, wasMin: ask?.blockId === b.id ? ask.wasMin : b.end - b.start } : null);
+  };
+
+  const cancelPlacing = () => {
+    const was = placing;
+    setPlacing(null);
+    setAt(null);
+    if (props.place) {
+      props.donePlacing();
+      props.close();
+    } else if (was?.mode === 'place' && was.fromDrawer) setOpen({ kind: 'add' });
+  };
+
+  const locked = !!at && isThis && (at.date < day0 || (at.date === day0 && at.start < floorOf(day0)));
+  const finishPlacing = async () => {
+    if (!placing || !at || locked) return;
+    if (placing.mode === 'move') {
+      const b = placing.block;
+      if (at.date !== b.date || at.start !== b.start || at.end !== b.end) {
+        await act.moveWithUndo(b.id, b.title, at);
+        if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
+      }
+    } else if (!(await act.place(placing.row.task, at))) return;
+    setPlacing(null);
+    setAt(null);
+    props.donePlacing();
+  };
+
+  const blocksOn = (date: LocalDate) => model.blocks.filter((b) => b.date === date);
+  const opened = open?.kind === 'block' ? model.blocks.find((b) => b.id === open.id) : undefined;
+  // Counted from now on: a day gone by shows what happened, never free time.
+  const free = (date: LocalDate) => dayFree(date, 'project', ctx);
+  const freeText = (date: LocalDate) => (date < day0 ? '' : formatMinutes(free(date)));
+  const packed = (date: LocalDate) => free(date) < dayBaseAhead(date, 'project', ctx) * TIGHT_SHARE;
+  const weekFree = [0, 1, 2, 3, 4, 5, 6].reduce((a, i) => a + free(addDays(data.week, i)), 0);
+  const dayIndex = diffDays(data.week, selDay);
+  const dayTitle = dayName(selDay);
+  const showDrag = !!placing || editing;
+
+  const onTouchStart = (e: TouchEvent) => {
+    swipe.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY };
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    const from = swipe.current;
+    if (!from) return;
+    const dx = e.changedTouches[0]!.clientX - from.x;
+    const dy = e.changedTouches[0]!.clientY - from.y;
+    if (Math.abs(dx) >= 48 && Math.abs(dx) > 2 * Math.abs(dy)) {
+      setSelDay(addDays(data.week, Math.max(0, Math.min(6, dayIndex + (dx < 0 ? 1 : -1)))));
+    }
+  };
+
+  const capLine = `${formatMinutes(model.planned.project)} projects, ${formatMinutes(model.planned.practice)} practices, ${formatMinutes(model.planned.one_off)} one offs`;
+  const placingText = placing && at
+    ? `${placing.mode === 'move' ? 'Moving' : 'Placing'} ${placing.mode === 'move' ? placing.block.title : placing.row.task.title}, ${formatMinutes(at.end - at.start)}${
+        placing.mode === 'move' ? `, from ${formatWeekday(placing.block.date)} ${formatTimeOfDay(placing.block.start)}` : ''
+      }`
+    : '';
+  const placingNote = !placing || !at ? '' : locked ? 'That time has passed.' : slotNotes({ ...at, id: placing.mode === 'move' ? placing.block.id : 'draft' }, workOf(placing), ctx).join(' ');
+  const noFit = (date: LocalDate) => !!placing && !!at && closestFit(date, at.start, at.end - at.start, kindOf(placing), ctx) === null;
+  const nextFit = noFit(selDay) ? [1, 2, 3, 4, 5, 6].map((n) => addDays(data.week, (dayIndex + n) % 7)).find((d) => !noFit(d)) : undefined;
+  const edBlock = edSel ? model.blocks.find((b) => b.id === edSel) : undefined;
+
+  return (
+    <div className="stack8 week">
+      <div className="weektop stack8">
+        <div className="between">
+          <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing} onClick={() => props.goWeek(addDays(data.week, -7))}>
+            ‹
+          </button>
+          <div className="wktitle">
+            <div className="small quiet">{props.label}</div>
+            <h2>{props.title}</h2>
+          </div>
+          <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing} onClick={() => props.goWeek(addDays(data.week, 7))}>
+            ›
+          </button>
+        </div>
+        {!isThis && !placing && (
+          <div className="wkcenter">
+            <button className="btn" type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>
+              This week
+            </button>
+          </div>
+        )}
+        <div className="card stack8 wksum">
+          <div className="small wkkeys">
+            <span className="keyitem">
+              <span className="skey" />
+              <span className="strong">{formatMinutes(weekFree)} free</span>
+              <span className="quiet"> of {formatMinutes(model.open)} available</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey planned" />
+              <span>{formatMinutes(model.planned.total)} planned</span>
+            </span>
+            <span className="keyitem">
+              <span className="skey busy" />
+              <span>busy</span>
+            </span>
+          </div>
+          <div className="small quiet">{capLine}</div>
+          <div className="wstrip" role="group" aria-label="Choose a day">
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => {
+              const date = addDays(data.week, i);
+              const on = date === selDay;
+              const nofit = noFit(date);
+              const cur = placing && at && at.date === date ? at : null;
+              return (
+                <button
+                  key={date}
+                  type="button"
+                  className={`wday${on ? ' on' : ''}${date === day0 ? ' today' : ''}${packed(date) ? ' tight' : ''}${nofit ? ' nofit' : ''}`}
+                  aria-pressed={on}
+                  aria-current={date === day0 ? 'date' : undefined}
+                  aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${nofit ? ', no slot for this task' : ''}`}
+                  onClick={() => pickDay(date)}
+                >
+                  <span>
+                    <span>{LETTERS[i]} </span>
+                    <span className="strong">{Number(date.slice(8))}</span>
+                  </span>
+                  <DayShape ctx={ctx} placed={ctx.placed} date={date} draft={cur} />
+                  <span className="wfree">{nofit ? 'No slot' : freeText(date)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {offset < 0 && (
+        <>
+          <p className="small quiet">Past weeks can be viewed but not changed.</p>
+          <button className="btn" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
+            See that week's analytics
+          </button>
+        </>
+      )}
+      {packed(selDay) && (
+        <div className="warn">
+          <div>
+            <div className="strong">{dayTitle} is packed</div>
+            <div>
+              {formatMinutes(free(selDay))} free of {formatMinutes(dayBaseAhead(selDay, 'project', ctx))} available that day.
+            </div>
+          </div>
+        </div>
+      )}
+      {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
+
+      {showDrag ? (
+        <div>
+          <h3 className="wkday">{dayTitle}</h3>
+          {placing && at && noFit(selDay) && (
+            <button className="tlnoslot" type="button" onClick={() => nextFit && pickDay(nextFit)}>
+              No {formatMinutes(at.end - at.start)} slot on {formatWeekday(selDay)}
+              {nextFit ? `. Next: ${formatWeekday(nextFit)}` : ' or any other day.'}
+            </button>
+          )}
+          <p className="small quiet wkhint">
+            {placing
+              ? 'Drag the block to any time, or pick another day above. Drag its bottom edge to change its length.'
+              : 'Drag or resize anything from now on, or tap it to change it. Changes save as you go.'}
+          </p>
+          <div className="card wkdaycard">
+            <DragDay
+              date={selDay}
+              ctx={ctx}
+              info={model.info}
+              floor={floorOf(selDay)}
+              blocks={blocksOn(selDay).filter((b) => !(placing?.mode === 'move' && placing.block.id === b.id))}
+              moving={
+                placing && at && at.date === selDay && !locked
+                  ? { title: placing.mode === 'move' ? placing.block.title : placing.row.task.title, kind: placing.mode === 'move' ? placing.block.kind : placing.row.work.kind === 'one_off' ? 'one_off' : 'project', slot: at }
+                  : null
+              }
+              editing={editing && !placing}
+              onMoving={setAt}
+              onDone={() => void finishPlacing()}
+              onChange={changeBlock}
+              onOpen={(id) => {
+                setEdSel(id);
+                setOpen({ kind: 'block', id });
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+          <h3 className="wkday">{dayTitle}</h3>
+          <div className="card wkdaycard">
+            <DayLane model={model} date={selDay} isThis={isThis} onFind={(row) => startPlacing({ mode: 'place', row, length: Math.min(row.left, MAX_LEN), fromDrawer: false }, null)} />
+            <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={(id) => setOpen({ kind: 'block', id })} />
+          </div>
+          {isThis && (
+            <button className="btn wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
+              See this week's analytics
+            </button>
+          )}
+        </div>
+      )}
+
+      {placing && at ? (
+        <div className="tray dragbar">
+          <div role="status">
+            <div className="strong">
+              {dayName(at.date)}, {range(at)}
+            </div>
+            <div className="small">{placingText}</div>
+            {placingNote && <div className="small">{placingNote}</div>}
+          </div>
+          <div className="row">
+            <button className="btn pri sm grow" type="button" disabled={locked} onClick={() => void finishPlacing()}>
+              {placing.mode === 'move' ? 'Move here' : 'Place here'}
+            </button>
+            <button className="btn sm" type="button" onClick={cancelPlacing}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : editing ? (
+        <div className="tray dragbar">
+          <div role="status">
+            {edBlock && (
+              <div className="small strong">
+                {edBlock.title}, {dayName(edBlock.date)}, {range(edBlock)}
+              </div>
+            )}
+            {edBlock && <div className="small">{slotNotes(edBlock, { kind: edBlock.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ')}</div>}
+          </div>
+          <div className="row">
+            <button
+              className="btn pri sm grow"
+              type="button"
+              onClick={() => {
+                setEdSel(null);
+                props.donePlacing();
+                props.setEditing(false);
+              }}
+            >
+              Done editing
+            </button>
+            <button className="btn sm" type="button" onClick={() => setOpen({ kind: 'add' })}>
+              Add a task
+            </button>
+          </div>
+        </div>
+      ) : isThis ? (
+        <button
+          className="tray go"
+          type="button"
+          onClick={() => {
+            if (selDay < day0) setSelDay(day0);
+            props.setEditing(true);
+          }}
+        >
+          Edit this week's plan
+        </button>
+      ) : offset === 1 ? (
+        <button className="tray go" type="button" onClick={() => nav.openFlow('planning')}>
+          {model.thisPlanned ? 'Plan next week' : 'Start planning'}
+        </button>
+      ) : null}
+
+      {opened && (
+        <BlockSheet
+          block={opened}
+          model={model}
+          canEdit={offset >= 0 && !opened.past}
+          onClose={() => setOpen(null)}
+          onLength={(end) => changeBlock(opened, { date: opened.date, start: opened.start, end })}
+          onMove={() => startPlacing({ mode: 'move', block: opened, length: opened.end - opened.start }, opened)}
+          onRemove={() => {
+            setOpen(null);
+            setEdSel(null);
+            void act.remove(opened.id, opened.title);
+          }}
+        />
+      )}
+      {open?.kind === 'add' && (
+        <AddDrawer
+          model={model}
+          onClose={() => setOpen(null)}
+          onPlace={async (row, slot) => {
+            if (await act.place(row.task, slot)) {
+              setOpen(null);
+              setSelDay(slot.date);
+            }
+          }}
+          onChoose={(row, length) => startPlacing({ mode: 'place', row, length, fromDrawer: true }, null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. */
+function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; onOpen(id: string): void }) {
+  const { date, model } = props;
+  const { availability, busy } = model.ctx;
+  const blocks = model.blocks.filter((b) => b.date === date);
+  const info = model.info.filter((x) => x.date === date);
+  const shown = new Set<unknown>();
+  const startsIn = (m: number) => blocks.filter((b) => b.start < m + 30 && !shown.has(b)).sort((a, b) => a.start - b.start)[0];
+  const busyAt = (m: number) => busy.find((b) => b.date === date && b.start <= m && m < b.end);
+  const infoIn = (m: number) => info.find((x) => x.start < m + 30 && !shown.has(x));
+  // Open time that has gone by shows what happened, so it's never free.
+  const kindAt = (m: number) => (!isOpen(availability, date, m, 'project') ? 'closed' : isPast(date, m, model.ctx) ? 'gone' : 'free');
+  const rows: ReactElement[] = [];
+  const row = (key: string, time: number, body: ReactElement) =>
+    rows.push(
+      <div key={key} className="tlrow">
+        <span className="tltime">{formatTimeOfDay(time)}</span>
+        {body}
+      </div>,
+    );
+
+  let m = DAY_FROM;
+  while (m < DAY_TO) {
+    const block = startsIn(m);
+    const event = busyAt(m);
+    const inf = infoIn(m);
+    if (block) {
+      shown.add(block);
+      const cells = Math.max(1, Math.ceil((block.end - m) / 30));
+      const word = KIND_WORD[block.kind];
+      const shut = props.readOnly || block.ended;
+      const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.note ? `. ${block.note}` : ''}`;
+      const cls = `tlblock ${KIND_CLASS[block.kind]}${shut ? ' c-ended' : ''}`;
+      const inner = (
+        <>
+          <span className="tlname">{block.title}</span>
+          <span className="tlkind">{kindLine}</span>
+        </>
+      );
+      row(
+        block.id,
+        block.start,
+        shut ? (
+          <div className={cls} style={{ height: cells * CELL_PX - 2 }}>
+            {inner}
+          </div>
+        ) : (
+          <button
+            className={cls}
+            type="button"
+            style={{ height: cells * CELL_PX - 2 }}
+            aria-label={`${block.title}, ${range(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}`}
+            onClick={() => props.onOpen(block.id)}
+          >
+            {inner}
+          </button>
+        ),
+      );
+      m += cells * 30;
+      continue;
+    }
+    // It doesn't take up time, so a block already over it leaves the clock where it is.
+    if (inf) {
+      shown.add(inf);
+      row(
+        `i${inf.id}${inf.start}`,
+        inf.start,
+        <div className="tlblock c-info" style={{ height: CELL_PX - 2 }}>
+          <span className="tlname">{inf.title}</span>
+          <span className="tlkind">Information, {range(inf)}</span>
+        </div>,
+      );
+      m = Math.max(m, m + Math.ceil((inf.end - m) / 30) * 30);
+      continue;
+    }
+    if (event) {
+      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {range(event)}</div>);
+      m = event.end;
+      continue;
+    }
+    const kind = kindAt(m);
+    let n = m + 30;
+    while (n < DAY_TO && kindAt(n) === kind && !busyAt(n) && !startsIn(n) && !infoIn(n)) n += 30;
+    const text = `${formatTimeOfDay(m)} to ${formatTimeOfDay(n)}`;
+    row(
+      `f${m}`,
+      m,
+      kind !== 'free' ? (
+        <div className="tlclosed">
+          {kind === 'closed' ? 'Not available' : 'Gone by'}, {text}
+        </div>
+      ) : (
+        <div className="tlfree" style={{ height: ((n - m) / 30) * CELL_PX - 2 }}>
+          Free, {text}
+        </div>
+      ),
+    );
+    m = n;
+  }
+  return <>{rows}</>;
+}
+
+/** One offs dated on this day with no time yet, listed at the top of each of their days. */
+function DayLane(props: { model: WeekModel; date: LocalDate; isThis: boolean; onFind(row: AddRow): void }) {
+  const act = useWeekActions();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const rows = props.model.addGroups.flatMap((g) => g.rows);
+  return (
+    <>
+      {props.model.lane
+        .filter((t) => {
+          const s = t.schedule as { from: string; to?: string | null };
+          return s.from <= props.date && props.date <= (s.to ?? s.from);
+        })
+        .map((t) => {
+          const s = t.schedule as { from: string; to?: string | null };
+          const when = s.to && s.to !== s.from ? `${dayName(s.from).slice(4)} to ${dayName(s.to).slice(4)}` : dayName(s.from).slice(4);
+          const row = rows.find((r) => r.task.id === t.id);
+          const on = openId === t.id;
+          return (
+            <section key={t.id} className="oorow" aria-label={`One off: ${t.title}, ${when}`}>
+              <button className="qbtn" type="button" aria-expanded={on} onClick={() => setOpenId(on ? null : t.id)}>
+                <span className="wkgrow">
+                  <span className="wkline">{t.title}</span>
+                  <span className="small quiet wkline">One off, {when}</span>
+                </span>
+              </button>
+              {on && (
+                <div className="row">
+                  {props.isThis && row && (
+                    <button className="btn pri grow" type="button" onClick={() => props.onFind(row)}>
+                      Find a time
+                    </button>
+                  )}
+                  <button className="btn" type="button" onClick={() => void act.markDone(t)}>
+                    Mark done
+                  </button>
+                </div>
+              )}
+            </section>
+          );
+        })}
+    </>
+  );
+}
+
+/**
+ * The drawn day behind a drag: hours, closed time, calendar events, and the blocks that move. The planning Schedule
+ * step also passes suggested times, which the moving and selected blocks snap to.
+ */
+/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy or closed. Open time gone by is drawn as closed. */
+export function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: LocalDate; draft?: Slot | null; suggested?: Slot | null }) {
+  const { ctx, date } = props;
+  const hit = (x: Slot | null | undefined, m: number) => !!x && x.date === date && x.start < m + 30 && m < x.end;
+  return (
+    <span className="wshape" aria-hidden="true">
+      {Array.from({ length: (DAY_TO - DAY_FROM) / 30 }, (_, k) => {
+        const m = DAY_FROM + k * 30;
+        const busy = overlaps(ctx.busy, date, m, m + 30);
+        const placed = props.placed.find((x) => hit(x, m));
+        const cls = hit(props.draft, m)
+          ? 'draft'
+          : hit(props.suggested, m)
+            ? 'sug'
+            : !isOpen(ctx.availability, date, m, 'project') && !busy
+              ? 'closed'
+              : placed
+                ? `planned${placed.kind === 'practice' ? ' practice' : placed.kind === 'one_off' ? ' maint' : ''}`
+                : busy
+                  ? 'busy'
+                  : isPast(date, m, ctx)
+                    ? 'closed'
+                    : '';
+        return <span key={m} className={`sl ${cls}`} />;
+      })}
+    </span>
+  );
+}
+
+export function DragDay(props: {
+  date: LocalDate;
+  ctx: SlotContext;
+  info: WeekModel['info'];
+  floor: number;
+  blocks: WeekBlock[];
+  moving: { title: string; kind: WeekBlock['kind']; slot: Slot } | null;
+  editing: boolean;
+  ghosts?: readonly GridGhost[];
+  /** Drawn in full rather than calm. */
+  selected?: string | null;
+  onMoving(slot: Slot): void;
+  onDone(): void;
+  onChange(b: WeekBlock, slot: Slot): void;
+  onOpen(id: string): void;
+}) {
+  const { date, ctx, floor, moving, ghosts = [] } = props;
+  const targets = ghosts.map((g) => ({ date: g.date, start: g.start }));
+  const [preview, setPreview] = useState<{ id: string; slot: Slot } | null>(null);
+  // A dropped block stays where it landed until the saved position comes back.
+  const placed = props.blocks.map((b) => `${b.id}${b.start}${b.end}`).join();
+  useEffect(() => setPreview(null), [placed]);
+  const bounds = { from: floor, to: DAY_TO };
+  const zones: { top: number; h: number; lock?: boolean }[] = [];
+  for (let m = DAY_FROM; m < DAY_TO; m += 30) {
+    if (isOpen(ctx.availability, date, m, 'project')) continue;
+    const last = zones[zones.length - 1];
+    if (last && !last.lock && last.top + last.h === y(m)) last.h += HOUR_PX / 2;
+    else zones.push({ top: y(m), h: HOUR_PX / 2 });
+  }
+  if (floor > DAY_FROM) zones.push({ top: 0, h: y(Math.min(floor, DAY_TO)), lock: true });
+
+  // Measured from the drawn track each move, so zoom and scrolling during the drag can't shift the block.
+  const track = (event: ReactPointerEvent, apply: (minutes: number) => void, done?: () => void, tap?: () => void) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const day = (event.currentTarget as HTMLElement).closest('.day');
+    const perPx = (DAY_TO - DAY_FROM) / (day?.getBoundingClientRect().height || y(DAY_TO));
+    const y0 = event.clientY;
+    let moved = false;
+    const move = (e: PointerEvent) => {
+      if (!moved && Math.abs(e.clientY - y0) < 8) return;
+      moved = true;
+      apply((e.clientY - y0) * perPx);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', stop);
+    };
+    const up = () => {
+      stop();
+      if (moved) done?.();
+      else tap?.();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', stop);
+  };
+
+  const handle = (key: string, title: string, kind: WeekBlock['kind'], slot: Slot, calm: boolean, on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void }) => {
+    const len = slot.end - slot.start;
+    const step = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        on.enter();
+        return;
+      }
+      const delta = ({ ArrowUp: -GRID, ArrowDown: GRID } as Record<string, number>)[e.key];
+      if (!delta) return;
+      e.preventDefault();
+      const next = dragResult(slot, e.shiftKey ? 'resize' : 'move', 0, delta, [], bounds);
+      if (next.start !== slot.start || next.end !== slot.end) on.change(next);
+    };
+    let latest = slot;
+    const snaps = key === 'moving' || key === props.selected;
+    const drag = (mode: 'move' | 'resize') => (e: ReactPointerEvent) =>
+      track(
+        e,
+        (minutes) => {
+          latest = dragResult(slot, mode, 0, minutes, mode === 'move' && snaps ? targets : [], bounds);
+          if (on.commit) setPreview({ id: key, slot: latest });
+          else on.change(latest);
+        },
+        () => {
+          if (on.commit && (latest.start !== slot.start || latest.end !== slot.end)) on.change(latest);
+          else setPreview(null);
+        },
+        mode === 'move' ? on.open : undefined,
+      );
+    const shown = preview?.id === key ? preview.slot : slot;
+    const help = on.commit ? ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter opens its options.' : ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter saves.';
+    return (
+      <div
+        key={key}
+        className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}`}
+        role="slider"
+        tabIndex={0}
+        aria-label={(on.commit ? title : `Time for ${title}`) + '.' + help}
+        // The day runs down the screen, so the value is the time left in the day after its start: Up, and VoiceOver's
+        // swipe up, raise it and move the block up. aria-valuetext says the actual time.
+        aria-orientation="vertical"
+        aria-valuemin={len}
+        aria-valuemax={DAY_TO - floor}
+        aria-valuenow={DAY_TO - shown.start}
+        aria-valuetext={`${dayName(date)}, ${range(shown)}`}
+        style={{ top: y(shown.start), height: Math.max(24, y(shown.end) - y(shown.start)) }}
+        onPointerDown={drag('move')}
+        onKeyDown={step}
+      >
+        <span className="cevt">{title}</span>
+        <span className="rz" aria-hidden="true" onPointerDown={drag('resize')}>
+          <i />
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="daywrap">
+      <div className="day dragday" style={{ height: y(DAY_TO) }}>
+        {zones.map((z, i) => (
+          <div key={i} className={`dzone${z.lock ? ' lockz' : ''}`} style={{ top: z.top, height: z.h }} aria-hidden="true">
+            {z.lock ? 'Time has passed' : ''}
+          </div>
+        ))}
+        {Array.from({ length: (DAY_TO - DAY_FROM) / 60 }, (_, i) => DAY_FROM + i * 60).map((m) => (
+          <span key={m} className="dayhr" style={{ top: y(m) }} aria-hidden="true">
+            {formatTimeOfDay(m)}
+          </span>
+        ))}
+        {ctx.busy
+          .filter((e) => e.date === date)
+          .map((e, i) => (
+            <div key={`b${i}`} className="cev c-busy" style={{ top: y(e.start), height: Math.max(13, y(e.end) - y(e.start)) }}>
+              {e.title || 'Busy'}
+            </div>
+          ))}
+        {props.info
+          .filter((e) => e.date === date)
+          .map((e, i) => (
+            <div key={`i${i}`} className="cev c-info" style={{ top: y(e.start), height: y(e.end) - y(e.start) }}>
+              {e.title}
+            </div>
+          ))}
+        {props.blocks.map((b) => {
+          const live = props.editing && b.start >= floor && !b.past;
+          if (live) return handle(b.id, b.title, b.kind, b, b.id !== props.selected, { change: (s) => props.onChange(b, s), commit: true, open: () => props.onOpen(b.id), enter: () => props.onOpen(b.id) });
+          const h = Math.max(13, y(b.end) - y(b.start));
+          return (
+            <div key={b.id} className={`cev ${KIND_CLASS[b.kind]}${props.editing ? ' c-ended' : ''}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h }}>
+              {b.title}
+            </div>
+          );
+        })}
+        {ghosts
+          .filter((g) => g.date === date)
+          .map((g) => (
+            <button
+              key={`g${g.start}`}
+              type="button"
+              className="cev ghost"
+              aria-label={`Use suggested time, ${g.label}`}
+              style={{ top: y(g.start), height: Math.max(28, y(g.end) - y(g.start)) }}
+              onClick={g.onAccept}
+            >
+              <span className="cevt">Suggested {formatTimeOfDay(g.start)}</span>
+            </button>
+          ))}
+        {moving && handle('moving', moving.title, moving.kind, moving.slot, false, { change: props.onMoving, enter: props.onDone })}
+      </div>
+    </div>
+  );
+}
+
+/** A tapped block: its length on a slider, Move and Remove. */
+function BlockSheet(props: {
+  block: WeekBlock;
+  model: WeekModel;
+  canEdit: boolean;
+  onClose(): void;
+  onLength(end: number): void;
+  onMove(): void;
+  onRemove(): void;
+}) {
+  const { block, model } = props;
+  const id = useId();
+  const len = block.end - block.start;
+  const max = Math.max(len, Math.min(480, DAY_TO - block.start));
+  const note = slotNotes(block, { kind: block.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ');
+  return (
+    <Sheet label={block.title} onClose={props.onClose}>
+      <div>
+        <div className="small quiet">
+          {dayName(block.date)}, {range(block)}
+        </div>
+        <h2>{block.title}</h2>
+      </div>
+      {props.canEdit && (
+        <div className="stack8">
+          <div className="between">
+            <label className="small quiet" htmlFor={id}>
+              Length
+            </label>
+            <span className="strong">{formatMinutes(len)}</span>
+          </div>
+          <input
+            id={id}
+            className="wkrange"
+            type="range"
+            min={GRID}
+            max={max}
+            step={GRID}
+            value={len}
+            aria-valuetext={formatMinutes(len)}
+            onChange={(e) => props.onLength(block.start + Number(e.target.value))}
+          />
+        </div>
+      )}
+      {note && (
+        <p className="small" role="status">
+          {note}
+        </p>
+      )}
+      {props.canEdit && (
+        <>
+          <button className="btn pri" type="button" onClick={props.onMove}>
+            Move
+          </button>
+          <button className="btn" type="button" onClick={props.onRemove}>
+            Remove
+          </button>
+        </>
+      )}
+      <button className="btn" type="button" onClick={props.onClose}>
+        Close
+      </button>
+    </Sheet>
+  );
+}
+
+/** Tasks to add, by group, each with suggested times and Choose another time. */
+function AddDrawer(props: { model: WeekModel; onClose(): void; onPlace(row: AddRow, slot: Slot): void; onChoose(row: AddRow, length: Minutes): void }) {
+  const { model } = props;
+  const [selected, setSelected] = useState<string | null>(null);
+  const [lengths, setLengths] = useState<Record<string, Minutes>>({});
+  return (
+    <Sheet label="Add to this week" tall onClose={props.onClose}>
+      <div className="between">
+        <h2>Add to this week</h2>
+        <button className="btn" type="button" onClick={props.onClose}>
+          Close
+        </button>
+      </div>
+      {model.addGroups.length === 0 && <p className="quiet">Nothing is waiting to be added.</p>}
+      {model.addGroups.map((g) => (
+        <div key={g.name}>
+          <h3 className={g.oneOffs ? 'mhead wkgroup' : 'wkgroup'}>{g.name}</h3>
+          {g.rows.map((r) => {
+            const on = selected === r.task.id;
+            const len = lengths[r.task.id] ?? Math.min(r.left, MAX_LEN);
+            return (
+              <div key={r.task.id} className="rowline wkrow">
+                <button className="candbtn" type="button" aria-expanded={on} onClick={() => setSelected(on ? null : r.task.id)}>
+                  <span>{r.task.title}</span>
+                  <span className="small quiet">{formatMinutes(r.left)}</span>
+                </button>
+                {on && (
+                  <AddChoice row={r} len={len} model={model} onLength={(v) => setLengths({ ...lengths, [r.task.id]: v })} onPlace={(slot) => props.onPlace(r, slot)} onChoose={() => props.onChoose(r, len)} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </Sheet>
+  );
+}
+
+function AddChoice(props: { row: AddRow; len: Minutes; model: WeekModel; onLength(v: Minutes): void; onPlace(slot: Slot): void; onChoose(): void }) {
+  const { row, len, model } = props;
+  const id = useId();
+  const found = offers(len, row.work, model.ctx).slice(0, 3);
+  const most = Math.max(GRID, Math.min(row.left, 4 * 60));
+  return (
+    <div className="candsel stack8">
+      {most > GRID && (
+        <div className="stack8">
+          <div className="between">
+            <label className="small quiet" htmlFor={id}>
+              Length
+            </label>
+            <span className="strong">{formatMinutes(len)}</span>
+          </div>
+          <input id={id} className="wkrange" type="range" min={GRID} max={most} step={GRID} value={len} aria-valuetext={formatMinutes(len)} onChange={(e) => props.onLength(Number(e.target.value))} />
+        </div>
+      )}
+      {found.map((o, i) => (
+        <button key={o.date} className={`offer${i === 0 ? ' first' : ''}`} type="button" onClick={() => props.onPlace({ date: o.date, start: o.start, end: o.end })}>
+          <span>
+            {dayName(o.date)}, {formatTimeOfDay(o.start)}
+          </span>
+          <span className="small">{o.note}</span>
+        </button>
+      ))}
+      {found.length === 0 && <p className="small">No open slot fits this length.</p>}
+      <button className="btn" type="button" onClick={props.onChoose}>
+        Choose another time
+      </button>
+      {row.left > len && (
+        <p className="small quiet">
+          {formatMinutes(row.left - len)} of {formatMinutes(row.left)} stays unslotted after this block.
+        </p>
+      )}
+    </div>
+  );
+}

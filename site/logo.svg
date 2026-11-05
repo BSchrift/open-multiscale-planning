@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Multiscale">
+  <rect width="512" height="512" rx="112" fill="#1f5f8b"/>
+  <!-- Three scales, the stretch, the week and the day, resting on one point. -->
+  <circle cx="256" cy="246" r="150" fill="none" stroke="#bfe0f5" stroke-opacity=".55" stroke-width="28"/>
+  <circle cx="256" cy="301" r="95" fill="none" stroke="#bfe0f5" stroke-width="28"/>
+  <circle cx="256" cy="351" r="45" fill="#ffffff"/>
+</svg>

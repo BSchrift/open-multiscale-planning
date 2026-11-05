@@ -1,0 +1,149 @@
+/* The Plan page and planning ahead. Shapes come from the layout styles; these fill the gaps between them. */
+
+[data-layout] .planflow .grow,
+[data-layout] .planpage .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-layout] .planflow .overtext {
+  color: var(--amber-ink);
+}
+
+/* Each step's groups are cards on the ground; its heading, the steps and Continue stay on the ground. */
+[data-layout] .planflow .card {
+  padding: var(--space-3) var(--space-4);
+}
+
+/* A first row's line would double the card's edge. */
+[data-layout] .planflow .card > :first-child,
+[data-layout] .planflow .card > :first-child > :first-child {
+  border-top: 0;
+}
+
+[data-layout] .planflow h3 {
+  color: var(--ink-2);
+}
+
+[data-layout='phone'] .planflow h3 {
+  font-size: var(--text-md);
+}
+
+/* The step's meter stays on the ground, where its usual track would vanish. */
+[data-layout] .planstep .mmeter {
+  background: var(--white);
+  box-shadow: inset 0 0 0 1px var(--card-line);
+}
+
+[data-layout] .planpage .card.due {
+  border-color: var(--amber-line);
+  background: var(--amber-pale);
+  color: var(--amber-ink-2);
+}
+
+[data-layout] .planflow .cadfield,
+[data-layout] .planpage .cadfield {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+[data-layout] .planflow .aimfield {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-layout='desktop'] .planflow .cadfields,
+[data-layout='desktop'] .planpage .cadfields {
+  max-width: 420px;
+}
+
+[data-layout='desktop'] .planflow .datelabel {
+  gap: var(--space-1);
+}
+
+[data-layout='desktop'] .planflow .aimfield .estslider {
+  min-width: 260px;
+}
+
+[data-layout='desktop'] .planflow .undated {
+  padding: var(--space-1) 0;
+}
+
+[data-layout='desktop'] .planflow .plankey {
+  margin-top: var(--space-2);
+}
+
+/* Phone: the flow fills its pane, with the steps on top, the step scrolling, and docks above the bottom bar. */
+[data-layout='phone'] .planflow {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+[data-layout='phone'] .planflow .scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+[data-layout='phone'] .planflow .wide100 {
+  width: 100%;
+}
+
+[data-layout='phone'] .planflow .wrapwarn {
+  flex-wrap: wrap;
+}
+
+[data-layout='phone'] .planflow .wrapwarn .grow {
+  flex: 1 1 100%;
+}
+
+[data-layout='phone'] .planflow .aimfield .estslider {
+  flex: 1 1 auto;
+}
+
+[data-layout='phone'] .planflow .prow .qbtn {
+  min-height: var(--tap);
+  width: 100%;
+}
+
+[data-layout='phone'] .planflow .plankey {
+  margin-top: var(--space-2);
+}
+
+[data-layout='phone'] .planflow .plankey i {
+  width: 1px;
+  height: 14px;
+  vertical-align: -2px;
+  border-radius: 0;
+  background: var(--quiet);
+}
+
+[data-layout='phone'] .planflow .undated {
+  min-height: var(--tap);
+  align-items: center;
+}
+
+[data-layout='phone'] .planflow .nextdates,
+[data-layout='phone'] .planflow .nextdates .popfield {
+  flex: 1 1 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .planflow * {
+    transition: none !important;
+  }
+}
+
+/* Room for the Done ring between a diamond and its name. */
+[data-layout='desktop'] .planflow .planname .pkey {
+  margin-right: 10px;
+}

@@ -1,0 +1,686 @@
+// Schedule: the week's picked work, one task at a time, most pressing first. Each task waits as a block at its best
+// time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here puts
+// it on the week, and a shorter block leaves the rest to place. Practices are placed for you. Desktop places on the
+// week grid beside the list; phone compares days in a strip over one day, with the current task in a dock.
+
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { keepPracticeChange, moveBlock, placeBlock, placeWeekPractices, removeBlock } from '../../../../core/blocks';
+import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, today, weekRange } from '../../../../core/dates';
+import { applyPlanChange } from '../../../../core/plan';
+import type { PlanChange, RecordWrite } from '../../../../core/plan';
+import { weekPractices } from '../../../../core/queries';
+import { getRecord, weekPlanId } from '../../../../core/records';
+import type { Writer } from '../../../../core/records';
+import { closestFit, dayBaseAhead, dayFree, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, slotInstants, slotNotes, TIGHT_SHARE } from '../../../../core/slots';
+import type { Offer, Slot, SlotContext, Work } from '../../../../core/slots';
+import type { LocalDate, Minutes } from '../../../../core/types';
+import type { Layout } from '../../../app/registry';
+import { useApp, useMutation, useQuery } from '../../../app/store';
+import { Sheet } from '../../../components/Sheet';
+import { useToast } from '../../../components/Toast';
+import { useFocusLanding } from '../../../components/useFocusLanding';
+import { WeekGrid } from '../../../components/weekgrid';
+import type { GridBlock, GridGhost } from '../../../components/weekgrid';
+import { DayShape, DragDay } from '../../week/Phone';
+import { loadPlanning, weekModel } from '../model';
+import { dayName, range, scheduleModel } from './model';
+import type { SchedBlock, SchedRow } from './model';
+import './schedule.css';
+
+export interface ScheduleStepProps {
+  /** The Monday being planned. */
+  week: LocalDate;
+  layout: Layout;
+  /** Moves on to Review. */
+  onContinue(): void;
+}
+
+/** Longest block a task starts with; the rest stays to place. */
+const MAX_DRAFT_MIN = 120;
+const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
+const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
+
+export function ScheduleStep(props: ScheduleStepProps) {
+  const { week, layout } = props;
+  const phone = layout === 'phone';
+  const { clock } = useApp();
+  const toast = useToast();
+  const zone = clock.zone();
+  const data = useQuery((sql) => loadPlanning(sql, clock, week), [week]).data;
+  const sessions = useQuery((sql) => weekPractices(sql, weekRange(week, zone)), [week]).data;
+  const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
+
+  /** The task chosen from the list, else the first with time to place. */
+  const [selected, setSelected] = useState<string | null>(null);
+  /** A placed block being changed. */
+  const [editId, setEditId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ key: string; slot: Slot } | null>(null);
+  // Forgotten on leaving the step, so the guided list starts fresh.
+  const [skipped, setSkipped] = useState<readonly string[]>([]);
+  const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  /** Phone: the day looked at, while it differs from the current block's. */
+  const [look, setLook] = useState<{ key: string; date: LocalDate } | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const [practicesOpen, setPracticesOpen] = useState(false);
+  const lenFrom = useRef<SchedBlock | null>(null);
+  const lenId = useId();
+  const land = useFocusLanding();
+  const listRef = useRef<HTMLOListElement>(null);
+  const noneRef = useRef<HTMLHeadingElement>(null);
+  // The app's toast sits under a phone flow, so phone says it above the dock, as Pick tasks does.
+  const [flash, setFlash] = useState<{ text: string; undo?: () => Promise<unknown> } | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), flash.undo ? 5000 : 3500);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const notify = (text: string, undo?: () => Promise<unknown>) => (phone ? setFlash({ text, ...(undo ? { undo } : {}) }) : toast.show(text, undo ? { undo } : {}));
+
+  if (!data || !sessions) return null;
+  const model = weekModel(data, clock);
+  const s = scheduleModel(data, model, sessions, clock);
+  const ctx = model.slot;
+  const blockOf = (id: string | null) => (id ? s.blocks.find((b) => b.id === id) : undefined);
+
+  // On phone, a block outside the list, such as a practice session, can be selected too.
+  const edited = blockOf(editId);
+  const other = phone && edited && !s.rows.some((r) => r.task.id === edited.task_id) ? edited : undefined;
+  const cur = other ? undefined : (s.rows.find((r) => r.task.id === selected) ?? s.rows.find((r) => r.toPlace > 0 && !skipped.includes(r.task.id)));
+  const editB = other ?? (cur && (edited?.task_id === cur.task.id ? edited : cur.toPlace <= 0 ? cur.blocks[cur.blocks.length - 1] : undefined));
+  const work: Work = cur?.work ?? { kind: editB?.kind === 'one_off' ? 'one_off' : 'project' };
+  // While a block changes, its own time is free.
+  const ctxOut: SlotContext = editB ? { ...ctx, placed: ctx.placed.filter((p) => p.id !== editB.id) } : ctx;
+  const draftKey = cur && !editB ? `${cur.task.id}:${cur.toPlace}` : '';
+  const draftSlot = !cur || editB ? null : draft?.key === draftKey ? draft.slot : defaultSlot(Math.min(cur.toPlace, MAX_DRAFT_MIN), cur.work, ctx);
+  const b: Slot | null = editB ?? draftSlot;
+  const len = b ? b.end - b.start : 0;
+  const found = b ? offers(len, work, ctxOut) : [];
+  const others = b ? otherOffers(b, work, ctxOut) : [];
+  const curKey = editB ? `b${editB.id}` : cur ? `c${cur.task.id}` : 'none';
+  const firstDay = ctx.earliest.date > week ? ctx.earliest.date : week;
+  const day = look?.key === curKey ? look.date : (b?.date ?? look?.date ?? (firstDay > addDays(week, 6) ? week : firstDay));
+  const rest = s.rows.filter((r) => r.toPlace > 0 && !skipped.includes(r.task.id));
+  const placedCount = s.rows.filter((r) => r.toPlace <= 0).length;
+  const progress = `${placedCount} of ${s.rows.length} placed`;
+
+  const reset = () => {
+    setDraft(null);
+    setAsk(null);
+    setLook(null);
+  };
+  const pick = (r: SchedRow) => {
+    reset();
+    setListOpen(false);
+    setSelected(r.task.id);
+    setEditId(r.toPlace <= 0 ? (r.blocks[r.blocks.length - 1]?.id ?? null) : null);
+    setSkipped(skipped.filter((id) => id !== r.task.id));
+  };
+  const selectBlock = (x: SchedBlock) => {
+    if (!phone && !s.rows.some((r) => r.task.id === x.task_id)) return;
+    setSelected(x.task_id);
+    setEditId(x.id);
+    setDraft(null);
+    setLook(null);
+  };
+  // Desktop: placing, skipping or finishing with a task closes its row, so focus moves on to the next one.
+  const landOnCurrent = () => !phone && land(() => listRef.current?.querySelector<HTMLElement>('[aria-current="step"]') ?? noneRef.current);
+  const skip = () => {
+    landOnCurrent();
+    if (cur) setSkipped([...skipped, cur.task.id]);
+    setSelected(null);
+    setEditId(null);
+    reset();
+  };
+  const done = () => {
+    landOnCurrent();
+    setEditId(null);
+    setSelected(cur && cur.toPlace > 0 ? cur.task.id : null);
+    reset();
+  };
+
+  const place = async () => {
+    if (!cur || !draftSlot) return;
+    landOnCurrent();
+    if (!(await run((w) => placeBlock(w, cur.task.id, slotInstants(draftSlot, zone), clock)))) return;
+    reset();
+    setEditId(null);
+    setSelected(cur.toPlace - len > 0 ? cur.task.id : null);
+  };
+  const remove = async (x: SchedBlock) => {
+    const reverse = await run((w) => removeBlock(w, x.id));
+    if (!reverse) return;
+    notify(`Removed ${x.title}`, () => run((w) => applyPlanChange(w, reverse)));
+    setEditId(null);
+    if (x.task_id) setSelected(x.task_id);
+    reset();
+  };
+  /** Saves a placed block's new time, and after a practice moves, asks whether that's for every week. */
+  const changeBlock = (x: SchedBlock, slot: Slot) => {
+    if (same(x, slot)) return;
+    const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
+    selectBlock(x);
+    setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
+    return saved;
+  };
+  const moveTo = (o: { date: LocalDate; start: number }) => {
+    const slot = { date: o.date, start: o.start, end: o.start + len };
+    if (editB) changeBlock(editB, slot);
+    else setDraft({ key: draftKey, slot });
+    setLook({ key: curKey, date: o.date });
+  };
+  const keepPractice = async () => {
+    const a = ask;
+    const x = blockOf(a?.blockId ?? null);
+    setAsk(null);
+    if (!a || !x?.practice_id) return;
+    const reverse = await run(async (w) => {
+      const kept = await keepPracticeChange(w, a.blockId, a.wasMin, clock);
+      const placed = await placeWeekPractices(w, week, clock, x.practice_id!);
+      return { writes: [...placed.writes, ...kept.writes] };
+    });
+    if (reverse) notify(`${x.title} changed for every week. Edit it any time in Goals.`);
+  };
+  const togglePractice = (id: string, off: boolean) =>
+    void run(async (w) => {
+      const was = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.skipped_practices ?? [];
+      await w.create('week_plan', { week_start: week, skipped_practices: off ? [...was, id] : was.filter((p) => p !== id) }, weekPlanId(week));
+      return placeWeekPractices(w, week, clock, off ? undefined : id);
+    });
+  const placeTheRest = async () => {
+    const { placed } = placeRest(
+      rest.map((r) => ({ id: r.task.id, title: r.task.title, minutes: r.toPlace, ...r.work })),
+      ctx,
+    );
+    if (!placed.length) return notify('No open time is left for the rest.');
+    landOnCurrent();
+    const reverse = await run(async (w) => {
+      const writes: RecordWrite[] = [];
+      for (const p of placed) writes.unshift(...(await placeBlock(w, p.id, slotInstants(p, zone), clock)).writes);
+      return { writes };
+    });
+    if (!reverse) return;
+    setSelected(null);
+    setEditId(null);
+    reset();
+    notify(`Placed ${placed.length} ${placed.length === 1 ? 'block' : 'blocks'}`, () => run((w) => applyPlanChange(w, reverse)));
+  };
+
+  // What the current task or block says about itself.
+  const title = cur?.task.title ?? editB?.title ?? '';
+  const when = b ? `${dayName(b.date)}, ${range(b)} (${formatMinutes(len)})` : '';
+  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice, placed for you' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
+  const amount =
+    !cur || editB || !draftSlot
+      ? ''
+      : cur.estimateLeft != null && len > cur.estimateLeft
+        ? `${formatMinutes(len - cur.estimateLeft)} over your estimate`
+        : len < cur.toPlace
+          ? `${formatMinutes(cur.toPlace - len)} more of this task stays to place`
+          : '';
+  const notes = b ? slotNotes({ ...b, id: editB?.id ?? 'draft' }, work, ctx) : [];
+  const skipLabel = cur?.blocks.length ? 'Leave the rest for later' : 'Skip for now';
+  const none = !b && !(cur && !draftSlot);
+  const noneTitle = s.rows.length ? 'All tasks are placed' : 'Nothing is picked yet';
+  const noneText = s.rows.length ? `${phone ? 'Tap' : 'Click'} any task or block to change it.` : "Go back to Pick to add tasks, or carry on with what's placed.";
+  const askBlock = blockOf(ask?.blockId ?? null);
+  const askText = askBlock ? `${askBlock.title} is now ${dayName(askBlock.date)}, ${range(askBlock)}.` : '';
+  const oneOffCls = (cur?.oneOff ?? editB?.kind === 'one_off') ? 'mhead' : '';
+
+  const rowParts = (r: SchedRow, i: number) => {
+    const on = r === cur;
+    const last = r.blocks[r.blocks.length - 1];
+    const isSkipped = skipped.includes(r.task.id);
+    const sub = isSkipped ? 'Skipped' : last ? `${formatWeekday(last.date)} ${formatTimeOfDay(last.start)}${r.blocks.length > 1 ? `, and ${r.blocks.length - 1} more` : ''}` : '';
+    return { on, sub: on ? '' : sub, mark: on ? '▸' : r.toPlace <= 0 ? '✓' : isSkipped ? '–' : String(i + 1) };
+  };
+
+  const buttons = (cls: string) =>
+    editB ? (
+      <div className="row">
+        <button className={`btn pri ${cls}`} type="button" onClick={done}>
+          Done
+        </button>
+        {editB.task_id && (
+          <button className={`btn ${cls}`} type="button" onClick={() => void remove(editB)}>
+            Remove from calendar
+          </button>
+        )}
+      </div>
+    ) : (
+      <div className="row">
+        {draftSlot && (
+          <button className={`btn pri ${cls}`} type="button" onClick={() => void place()}>
+            Place here
+          </button>
+        )}
+        <button className={`btn ${cls}`} type="button" onClick={skip}>
+          {skipLabel}
+        </button>
+      </div>
+    );
+  const said = (
+    <>
+      {amount && <div className="small">{amount}</div>}
+      {notes.map((n) => (
+        <div key={n} className="small schnote">
+          {n}
+        </div>
+      ))}
+      {cur && !draftSlot && !editB && <div className="small schnote">There's no free time left this week.</div>}
+    </>
+  );
+
+  if (!phone) {
+    const gridBlocks: GridBlock[] = s.blocks.map((x) => (x.id === editB?.id ? { ...x, draft: true } : { ...x, fixed: x.past }));
+    if (cur && draftSlot) gridBlocks.push({ ...draftSlot, id: 'draft', title: cur.task.title, kind: cur.oneOff ? 'one_off' : 'project', draft: true });
+    const ghosts: GridGhost[] = others.map((o) => ({ ...o, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => moveTo(o) }));
+    return (
+      <div className="planlay">
+        <div className="planleft stack">
+          {askBlock && (
+            <div className="card stack8" role="status" aria-label="Make this change permanent?">
+              <div>{askText}</div>
+              <div className="strong small">Make this change permanent?</div>
+              <div className="row">
+                <button className="btn sm pri" type="button" onClick={() => setAsk(null)}>
+                  No, this week only
+                </button>
+                <button className="btn sm" type="button" onClick={() => void keepPractice()}>
+                  Yes, every week
+                </button>
+              </div>
+            </div>
+          )}
+          {none && (
+            <div className="stack8">
+              <h2 ref={noneRef} tabIndex={-1}>
+                {noneTitle}
+              </h2>
+              <p className="small quiet">{noneText}</p>
+              <div>
+                <button className="btn pri" type="button" onClick={props.onContinue}>
+                  Continue to review
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="stack8">
+            <div className="small quiet">{progress}</div>
+            <ol ref={listRef} className="schedlist card">
+              {s.rows.map((r, i) => {
+                const { on, sub, mark } = rowParts(r, i);
+                return (
+                  <li key={r.task.id} className={`schedrow${on ? ' cur' : ''}${r.oneOff ? ' is-maint' : ''}`}>
+                    <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
+                      <span className="schedmark" aria-hidden="true">
+                        {mark}
+                      </span>
+                      <span>
+                        <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
+                        {sub && <span className="subline small">{sub}</span>}
+                      </span>
+                    </button>
+                    {on && (
+                      <div className="scheddetail stack8">
+                        <div className="small quiet">{context}</div>
+                        {b && <div className="strong">{when}</div>}
+                        {said}
+                        {buttons('sm')}
+                        <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+            {rest.length > 0 && (
+              <div>
+                <button className="btn sm" type="button" onClick={() => void placeTheRest()}>
+                  Place the rest at suggested times
+                </button>
+              </div>
+            )}
+          </div>
+          {s.practices.length > 0 && (
+            <div className="stack8">
+              <button className="link small schlinkbtn" type="button" aria-expanded={practicesOpen} onClick={() => setPracticesOpen(!practicesOpen)}>
+                Practices are placed for you
+              </button>
+              {practicesOpen && (
+                <div className="card stack8">
+                  {s.practices.map((p) => (
+                    <div key={p.id} className="small">
+                      <div className="between">
+                        <span>{p.title}</span>
+                        <span className="quiet">{p.meta}</span>
+                      </div>
+                      {p.notes.map((n) => (
+                        <div key={n} className="schnote">
+                          {n}
+                        </div>
+                      ))}
+                      <button className="link small" type="button" aria-label={`${p.skipped ? 'Include this week' : 'Skip this week'}, ${p.title}`} onClick={() => togglePractice(p.id, !p.skipped)}>
+                        {p.skipped ? 'Include this week' : 'Skip this week'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="planright card">
+          <WeekGrid
+            ctx={ctx}
+            blocks={gridBlocks}
+            ghosts={ghosts}
+            editing
+            lockPast
+            onChange={(id, slot) => {
+              const x = blockOf(id);
+              if (id === 'draft') setDraft({ key: draftKey, slot });
+              else if (x) return changeBlock(x, slot);
+            }}
+            onRemove={(id) => {
+              const x = blockOf(id);
+              if (x) void remove(x);
+            }}
+            onOpen={(id) => {
+              const x = blockOf(id);
+              if (id === 'draft') void place();
+              else if (x) selectBlock(x);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Phone
+  const kind = work.kind;
+  const free = (date: LocalDate) => dayFree(date, 'project', ctx);
+  // A day gone by shows no free figure, as on Week.
+  const freeText = (date: LocalDate) => (date < ctx.earliest.date ? '' : formatMinutes(free(date)));
+  const packed = (date: LocalDate) => free(date) < dayBaseAhead(date, 'project', ctx) * TIGHT_SHARE;
+  const weekFree = [0, 1, 2, 3, 4, 5, 6].reduce((sum, i) => sum + free(addDays(week, i)), 0);
+  const planned = ctx.placed.reduce((sum, p) => sum + p.end - p.start, 0);
+  const floorOf = (date: LocalDate) =>
+    date > ctx.earliest.date ? DAY_FROM : date < ctx.earliest.date ? DAY_TO : Math.max(DAY_FROM, Math.ceil(ctx.earliest.minutes / GRID) * GRID);
+  const away = !!b && b.date !== day;
+  const here: Offer | undefined = found.find((o) => o.date === day);
+  const lenMax = b ? Math.max(len, Math.min(480, DAY_TO - b.start)) : 0;
+  const setLength = (minutes: number) => {
+    if (!b) return;
+    const slot = { ...b, end: b.start + minutes };
+    if (!editB) return setDraft({ key: draftKey, slot });
+    lenFrom.current ??= editB;
+    void run((w) => moveBlock(w, editB.id, slotInstants(slot, zone)));
+  };
+  // A practice asks once the slider is let go.
+  const lengthDone = () => {
+    const was = lenFrom.current;
+    lenFrom.current = null;
+    if (was?.practice_id) setAsk({ blockId: was.id, wasMin: was.end - was.start });
+  };
+
+  return (
+    <>
+      <div className="scroll">
+        <div className="stack8">
+          <div className="weektop">
+            <div className="card stack8">
+              <div className="small">
+                <span className="strong">{formatMinutes(weekFree)} free</span>
+                <span className="quiet"> of {formatMinutes(model.open)} available, </span>
+                {formatMinutes(planned)} planned
+              </div>
+              <div className="small" aria-hidden="true">
+                <span className="skey" />
+                free
+                <span className="skey planned" />
+                planned
+                <span className="skey busy" />
+                busy
+                <span className="skey draft" />
+                this task
+                <span className="skey sug" />
+                suggested
+              </div>
+              <div className="wstrip" role="group" aria-label="Compare days">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => {
+                  const date = addDays(week, i);
+                  const on = date === day;
+                  const o = found.find((x) => x.date === date);
+                  const mine = b?.date === date;
+                  const noFit = !!cur && !o && !mine && !!b && closestFit(date, b.start, len, kind, ctxOut) === null;
+                  const sug = !cur ? '' : o ? formatTimeOfDay(o.start) : noFit ? 'No slot' : '';
+                  const say = !cur ? '' : o ? `, suggested ${formatTimeOfDay(o.start)}` : noFit ? ', no slot for this task' : '';
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      className={`wday sched${on ? ' on' : ''}${date === today(clock) ? ' today' : ''}${packed(date) ? ' tight' : ''}${noFit ? ' nofit' : ''}`}
+                      aria-pressed={on}
+                      aria-current={date === today(clock) ? 'date' : undefined}
+                      aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${say}`}
+                      onClick={() => setLook({ key: curKey, date })}
+                    >
+                      <span>
+                        <span>{LETTERS[i]} </span>
+                        <span className="strong">{Number(date.slice(8))}</span>
+                      </span>
+                      <DayShape ctx={ctx} placed={ctxOut.placed} date={date} draft={b} suggested={o && !(mine && o.start === b?.start) ? o : null} />
+                      <span className="wfree">{freeText(date)}</span>
+                      <span className="wsug">{sug}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          {packed(day) && (
+            <div className="warn">
+              <div>
+                <div className="strong">{dayName(day)} is packed</div>
+                <div>
+                  {formatMinutes(free(day))} free of {formatMinutes(dayBaseAhead(day, 'project', ctx))} available that day.
+                </div>
+              </div>
+            </div>
+          )}
+          <h3 className="schday">{dayName(day)}</h3>
+          <p className="small quiet">Drag the block anywhere, or tap a suggested time. Drag its bottom edge to change the time.</p>
+          <BringIntoView watch={`${curKey}|${day}`}>
+            <DragDay
+              date={day}
+              ctx={ctx}
+              info={[]}
+              floor={floorOf(day)}
+              blocks={s.blocks.filter((x) => x.date === day)}
+              moving={cur && draftSlot && draftSlot.date === day ? { title: cur.task.title, kind: cur.oneOff ? 'one_off' : 'project', slot: draftSlot } : null}
+              editing
+              ghosts={others
+                .filter((o) => o.date === day)
+                .map((o) => ({ ...o, end: o.start + len, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => moveTo(o) }))}
+              selected={editB?.id ?? null}
+              onMoving={(slot) => setDraft({ key: draftKey, slot })}
+              onDone={() => void place()}
+              onChange={(x, slot) => changeBlock(x as SchedBlock, slot)}
+              onOpen={(id) => {
+                const x = blockOf(id);
+                if (x) selectBlock(x);
+              }}
+            />
+          </BringIntoView>
+        </div>
+      </div>
+      <div className="pksum">
+        {flash && (
+          <div className="pktoast" role="status">
+            <span>{flash.text}</span>
+            {flash.undo && (
+              <button
+                type="button"
+                onClick={() => {
+                  void flash.undo?.();
+                  setFlash(null);
+                }}
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        )}
+        <div className="flowdock stack8">
+          <button className="flowsum" type="button" aria-label={`All picked tasks, ${progress}`} onClick={() => setListOpen(true)}>
+            <span className="small quiet">{progress}</span>
+            <span className="small strong schlink">All tasks ›</span>
+          </button>
+          {none ? (
+            <div>
+              <div className="strong">{noneTitle}</div>
+              <p className="small quiet">{noneText}</p>
+            </div>
+          ) : (
+            <>
+              <div className={oneOffCls}>
+                <div className="strong">{title}</div>
+                <div className="small quiet">{context}</div>
+                {b && (
+                  <div className="small strong" role="status">
+                    {when}
+                  </div>
+                )}
+                {said}
+              </div>
+              {b && (
+                <div className="row schlen">
+                  <label className="small quiet" htmlFor={lenId}>
+                    Length
+                  </label>
+                  <input
+                    id={lenId}
+                    type="range"
+                    min={GRID}
+                    max={lenMax}
+                    step={GRID}
+                    value={len}
+                    aria-valuetext={formatMinutes(len)}
+                    onChange={(e) => setLength(Number(e.target.value))}
+                    onPointerUp={lengthDone}
+                    onKeyUp={lengthDone}
+                  />
+                  <span className="small strong">{formatMinutes(len)}</span>
+                </div>
+              )}
+              {away && b ? (
+                <div className="row">
+                  <button className="btn pri grow" type="button" onClick={() => moveTo({ date: day, start: here?.start ?? closestFit(day, b.start, len, kind, ctxOut) ?? b.start })}>
+                    Move to {dayName(day)}
+                  </button>
+                  <button className="btn grow" type="button" onClick={() => setLook({ key: curKey, date: b.date })}>
+                    Back to {dayName(b.date)}
+                  </button>
+                </div>
+              ) : (
+                buttons('grow')
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      {listOpen && (
+        <Sheet label="All picked tasks" tall onClose={() => setListOpen(false)}>
+          <div className="between">
+            <div>
+              <h2>All tasks</h2>
+              <div className="small quiet">{progress}</div>
+            </div>
+            <button className="btn" type="button" onClick={() => setListOpen(false)}>
+              Close
+            </button>
+          </div>
+          {s.rows.length === 0 && <p className="small quiet">Nothing is picked yet.</p>}
+          <div>
+            {s.rows.map((r, i) => {
+              const { on, sub, mark } = rowParts(r, i);
+              return (
+                <button key={r.task.id} className="projbtn morerow" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
+                  <span className="small schmark" aria-hidden="true">
+                    {mark}
+                  </span>
+                  <span className={`schname${r.oneOff ? ' mhead' : ''}`}>
+                    <span className={`block${on ? ' strong' : ''}`}>{r.task.title}</span>
+                    {sub && <span className="small quiet block">{sub}</span>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {rest.length > 0 && (
+            <button className="btn" type="button" onClick={() => void placeTheRest().then(() => setListOpen(false))}>
+              Place the rest at suggested times
+            </button>
+          )}
+          {s.practices.length > 0 && (
+            <div className="stack8">
+              <h3>Practices are placed for you</h3>
+              {s.practices.map((p) => (
+                <div key={p.id} className="rowline">
+                  <div className="between">
+                    <span>{p.title}</span>
+                    <span className="small quiet">{p.meta}</span>
+                  </div>
+                  {p.notes.map((n) => (
+                    <div key={n} className="small schnote">
+                      {n}
+                    </div>
+                  ))}
+                  <div>
+                    <button className="btn" type="button" aria-label={`${p.skipped ? 'Include this week' : 'Skip this week'}, ${p.title}`} onClick={() => togglePractice(p.id, !p.skipped)}>
+                      {p.skipped ? 'Include this week' : 'Skip this week'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Sheet>
+      )}
+      {askBlock && (
+        <Sheet label="Make this change permanent?" onClose={() => setAsk(null)}>
+          <div>{askText}</div>
+          <h2>Make this change permanent?</h2>
+          <button className="btn pri" type="button" onClick={() => setAsk(null)}>
+            No, this week only
+          </button>
+          <button className="btn" type="button" onClick={() => void keepPractice()}>
+            Yes, every week
+          </button>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/**
+ * A new task or day brings its block, or else a suggested time, into view once, just below the sticky day strip.
+ * Scrolling after that stays with the person.
+ */
+function BringIntoView(props: { watch: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const target = ref.current?.querySelector('.dragblock:not(.calm), .ghost');
+    const scroller = ref.current?.closest('.scroll');
+    if (!target || !scroller) return;
+    const below = scroller.querySelector('.weektop')?.getBoundingClientRect().bottom ?? scroller.getBoundingClientRect().top;
+    scroller.scrollTop += target.getBoundingClientRect().top - below - 24;
+  }, [props.watch]);
+  return (
+    <div ref={ref} className="card">
+      {props.children}
+    </div>
+  );
+}

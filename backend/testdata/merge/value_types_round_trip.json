@@ -1,0 +1,21 @@
+{
+  "name": "every JSON value type survives, and a later false, zero or empty string still wins",
+  "current": {
+    "cancelled": { "v": true, "c": "1800000000000-000000-laptop" },
+    "estimate_min": { "v": 45, "c": "1800000000000-000000-laptop" },
+    "first_step": { "v": "Open the file", "c": "1800000000000-000000-laptop" }
+  },
+  "incoming": [
+    {
+      "cancelled": { "v": false, "c": "1800000000100-000000-phone" },
+      "estimate_min": { "v": 0, "c": "1800000000100-000000-phone" },
+      "first_step": { "v": "", "c": "1800000000100-000000-phone" }
+    }
+  ],
+  "applied": [3],
+  "expected": {
+    "cancelled": { "v": false, "c": "1800000000100-000000-phone" },
+    "estimate_min": { "v": 0, "c": "1800000000100-000000-phone" },
+    "first_step": { "v": "", "c": "1800000000100-000000-phone" }
+  }
+}

@@ -1,0 +1,17 @@
+/* The Schedule step, on top of the shared week and planning classes. */
+[data-layout] .schnote { color: var(--amber-ink-2); }
+[data-layout] .schlinkbtn { text-align: left; }
+[data-layout] .schlink { color: var(--blue); }
+[data-layout] .schday { margin-top: 4px; }
+[data-layout='phone'] .schlen { flex-wrap: nowrap; }
+[data-layout='phone'] .schlen > label, [data-layout='phone'] .schlen > span { flex: none; }
+[data-layout='phone'] .schlen > input { flex: 1; min-width: 0; min-height: 44px; }
+[data-layout='phone'] .schmark { flex: none; width: 20px; text-align: center; }
+[data-layout='phone'] .schname { min-width: 0; }
+/* The task list, the week and the day each sit in a card. On phone the sticky header is ground, as on Week, holding the days as a card. */
+[data-layout='desktop'] .planning .schedlist.card { padding: 6px; }
+[data-layout='desktop'] .planning .planright.card { padding: var(--space-3) var(--space-4) var(--space-4) var(--space-2); }
+[data-layout='phone'] .planning .weektop { border-bottom: 0; background: var(--ground); }
+[data-layout='phone'] .planning .weektop > .card { padding: var(--space-3) 10px; }
+[data-layout='phone'] .planning .card > .daywrap { padding: var(--space-3) var(--space-3) var(--space-3) 60px; }
+[data-layout='phone'] .planning .card .dragday { margin-bottom: 0; }

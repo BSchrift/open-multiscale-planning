@@ -1,0 +1,13 @@
+# The control account: owns the domain and delegates a subzone to each environment.
+# Copy to control.yaml in your config folder ($MULTISCALE_CONFIG_DIR, or this folder) and fill it in.
+# Without a domain, delete the dns section here and in staging.yaml and prod.yaml: nothing is deployed here then, and
+# staging and prod skip DNS.
+aws:
+  account: "333333333333"
+  region: us-west-2
+  profile: multiscale-control
+dns:
+  domain: example.com
+  # The zone Route 53 made when you registered the domain: Route 53 > Hosted zones, or
+  # aws route53 list-hosted-zones-by-name --dns-name <domain> --profile <profile>
+  hostedZoneId: Z0123456789EXAMPLE

@@ -56,6 +56,7 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /o/oauth2/auth", g.authorize)
 	mux.HandleFunc("POST /token", g.token)
+	mux.HandleFunc("POST /revoke", g.revoke)
 
 	api := func(pattern string, write bool, h func(http.ResponseWriter, *http.Request)) {
 		mux.HandleFunc(pattern, g.authorized(write, h))
@@ -63,6 +64,7 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 	api("GET /calendar/v3/users/me/calendarList", false, g.listCalendars)
 	api("POST /calendar/v3/calendars", true, g.createCalendar)
 	api("GET /calendar/v3/calendars/{cal}", false, g.getCalendar)
+	api("DELETE /calendar/v3/calendars/{cal}", true, g.deleteCalendar)
 	api("GET /calendar/v3/calendars/{cal}/events", false, g.listEvents)
 	api("POST /calendar/v3/calendars/{cal}/events", true, g.insertEvent)
 	api("PUT /calendar/v3/calendars/{cal}/events/{id}", true, g.updateEvent)
@@ -341,6 +343,26 @@ func (g *Google) getCalendar(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		writeGoogleJSON(w, http.StatusOK, calendar.Calendar{Id: c.id, Summary: c.summary})
 	}
+}
+
+func (g *Google) deleteCalendar(w http.ResponseWriter, r *http.Request) {
+	if c, ok := g.writable(w, r); ok {
+		delete(g.calendars, c.id)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// revoke takes a refresh token, as Google's revoke endpoint does, and answers 400 for one it doesn't know.
+func (g *Google) revoke(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	token := r.PostFormValue("token")
+	if !g.refresh[token] {
+		writeGoogleJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_token"})
+		return
+	}
+	delete(g.refresh, token)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (g *Google) calendarOf(w http.ResponseWriter, r *http.Request) (*googleCalendar, bool) {

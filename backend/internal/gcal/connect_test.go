@@ -209,4 +209,74 @@ func TestRefreshOnlyRunsForTheConnectedUser(t *testing.T) {
 	}
 }
 
+// refreshWorks reports whether Google still honours the stored refresh token.
+func (w *world) refreshWorks(stored string) bool {
+	w.t.Helper()
+	var conn connection
+	if err := json.Unmarshal([]byte(stored), &conn); err != nil {
+		w.t.Fatal(err)
+	}
+	res, err := http.PostForm(w.srv.URL+"/token", url.Values{
+		"grant_type": {"refresh_token"}, "refresh_token": {conn.RefreshToken}, "client_id": {"cid"}, "client_secret": {"secret"},
+	})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	res.Body.Close()
+	return res.StatusCode == http.StatusOK
+}
+
+func TestDisconnectRevokesAccessRemovesTimeBlocksAndShowsItUnconnected(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.block("b1", "Write the report", at(1), at(2))
+	w.run()
+	stored := w.secrets.values[SecretRefreshToken]
+	if err := w.g.Disconnect(context.Background(), testSub); err != nil {
+		t.Fatal(err)
+	}
+	if w.timeBlocks() != "" {
+		t.Fatal("Time blocks is still in Google")
+	}
+	if w.refreshWorks(stored) {
+		t.Fatal("Google still honours the token")
+	}
+	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
+		t.Fatal("token kept")
+	}
+	rec := w.calendarRecord(testSub)
+	if rec["connected"].V != false || rec["calendar_id"].V != nil || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
+		t.Fatalf("%+v", rec)
+	}
+	// Connecting again starts afresh.
+	w.connect(testSub)
+	if w.timeBlocks() == "" || w.calendarRecord(testSub)["connected"].V != true {
+		t.Fatalf("%+v", w.calendarRecord(testSub))
+	}
+}
+
+func TestDisconnectLeavesAnotherUsersConnectionAlone(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	stored := w.secrets.values[SecretRefreshToken]
+	if err := w.g.Disconnect(context.Background(), "someone-else"); err != nil {
+		t.Fatal(err)
+	}
+	if w.secrets.values[SecretRefreshToken] != stored || w.timeBlocks() == "" || !w.refreshWorks(stored) {
+		t.Fatal("another user's disconnect reached the connection")
+	}
+}
+
+func TestDisconnectStillDisconnectsWhenGoogleAccessIsAlreadyGone(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.fake.Revoke()
+	if err := w.g.Disconnect(context.Background(), testSub); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.secrets.values[SecretRefreshToken]; ok || w.calendarRecord(testSub)["connected"].V != false {
+		t.Fatalf("%+v", w.calendarRecord(testSub))
+	}
+}
+
 var _ api.Calendar = (*Google)(nil)

@@ -71,8 +71,8 @@ type Google struct {
 	Env     string
 	Now     func() time.Time
 	// APIURL is empty for the real Calendar API.
-	AuthURL, TokenURL, APIURL string
-	RedirectURL               string
+	AuthURL, TokenURL, RevokeURL, APIURL string
+	RedirectURL                          string
 	// Trigger starts a worker run, from the API's side.
 	Trigger func(context.Context) error
 }
@@ -98,7 +98,10 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 
 	conn, err := g.connection(ctx)
 	if errors.Is(err, ErrNoSecret) {
-		finish("outcome", "not_connected")
+		// A success: not connected is the person's choice, so the alarm on the worker going quiet mustn't fire.
+		finish(append([]any{"outcome", "not_connected"}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarEventsChanged": 0, "CalendarRunFailures": 0,
+		})...)...)
 		return nil
 	}
 	if err != nil {

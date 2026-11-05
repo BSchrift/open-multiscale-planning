@@ -22,6 +22,7 @@ function fakeSync(email: string | null = 'reader@example.com') {
     syncNow: vi.fn(async () => undefined),
     connectCalendar: vi.fn(async () => undefined),
     refreshCalendar: vi.fn(async () => undefined),
+    disconnectCalendar: vi.fn(async () => undefined),
     stop: vi.fn(),
     email: vi.fn(async () => email),
     eraseAndSignIn: vi.fn(async () => undefined),

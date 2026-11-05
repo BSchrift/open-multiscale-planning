@@ -10,12 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 )
 
 const (
@@ -28,8 +31,9 @@ const (
 	// StateTTL is how long a consent link works.
 	StateTTL = 10 * time.Minute
 
-	GoogleAuthURL  = "https://accounts.google.com/o/oauth2/auth"
-	GoogleTokenURL = "https://oauth2.googleapis.com/token"
+	GoogleAuthURL   = "https://accounts.google.com/o/oauth2/auth"
+	GoogleTokenURL  = "https://oauth2.googleapis.com/token"
+	GoogleRevokeURL = "https://oauth2.googleapis.com/revoke"
 )
 
 // Scopes are the narrowest that do the job: making and managing Time blocks, reading other calendars' events, and listing calendars.
@@ -46,6 +50,8 @@ var ErrNoSecret = errors.New("gcal: secret not set")
 type Secrets interface {
 	Get(ctx context.Context, name string) (string, error)
 	Put(ctx context.Context, name, value string) error
+	// Delete removes a secret, and succeeds when it isn't set.
+	Delete(ctx context.Context, name string) error
 }
 
 // States remembers the one consent a user may finish, which is what makes a state single-use.
@@ -217,4 +223,56 @@ func (g *Google) Refresh(ctx context.Context, sub string) error {
 		return err
 	}
 	return g.Trigger(ctx)
+}
+
+// Disconnect ends the connection: Google's access is revoked, Time blocks is removed from Google, and the app shows it
+// unconnected. Like Refresh, it leaves the connection alone for anyone but the connected user.
+func (g *Google) Disconnect(ctx context.Context, sub string) error {
+	conn, err := g.connection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return err
+	}
+	stored, err := g.calendarRecord(ctx, sub)
+	if err != nil {
+		return err
+	}
+	if conn.Sub != "" && conn.Sub == sub {
+		// Best effort with Google: access already removed there, or Time blocks already deleted, still disconnects here.
+		failed := []string{}
+		if id := fieldString(stored, "calendar_id"); id != "" {
+			svc, err := g.service(ctx, conn.RefreshToken)
+			if err == nil {
+				err = svc.Calendars.Delete(id).Context(ctx).Do()
+			}
+			if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) && errorCode(err) != ErrorRevoked {
+				failed = append(failed, "delete_calendar")
+			}
+		}
+		if err := g.revoke(ctx, conn.RefreshToken); err != nil {
+			failed = append(failed, "revoke")
+		}
+		g.Log.Info("calendar_disconnect", "user", obs.HashSub(sub), "google_failed", failed)
+		if err := g.Secrets.Delete(ctx, SecretRefreshToken); err != nil {
+			return err
+		}
+	}
+	return g.writeCalendar(ctx, sub, stored, map[string]any{"connected": false, "calendar_id": nil, "events": []any{}, "last_error": nil})
+}
+
+// revoke asks Google to stop honouring a refresh token. Google answers 400 for one it already doesn't.
+func (g *Google) revoke(ctx context.Context, token string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.RevokeURL, strings.NewReader(url.Values{"token": {token}}.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusBadRequest {
+		return fmt.Errorf("gcal: revoke answered %d", res.StatusCode)
+	}
+	return nil
 }

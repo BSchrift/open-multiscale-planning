@@ -522,6 +522,29 @@ func TestRevokedTokenIsReportedAndReconnectingKeepsTheCalendar(t *testing.T) {
 	}
 }
 
+func TestDisconnectRemovesTimeBlocksAndReconnectingStartsAfresh(t *testing.T) {
+	needs(t, fakeGoogle)
+	a := connectedUser(t)
+	before := timeBlocks(t, a)
+	if res := request(t, "POST", "/calendar/disconnect", a.tokens.access, nil); res.status != 204 {
+		t.Fatalf("disconnect: %d %s", res.status, res.body)
+	}
+	if values := calendarFields(t, a); values["connected"] != false || values["calendar_id"] != nil {
+		t.Fatalf("%+v", values)
+	}
+	for _, c := range googleCalendars(t) {
+		if c.ID == before.ID {
+			t.Fatal("Time blocks is still in Google")
+		}
+	}
+	// Nothing is connected, so the worker has nothing to do.
+	runWorker(t, a)
+	connectCalendar(t, a)
+	if values := calendarFields(t, a); values["connected"] != true || timeBlocks(t, a).ID == before.ID {
+		t.Fatalf("%+v", values)
+	}
+}
+
 func TestDeletedTimeBlocksCalendarIsMadeAgain(t *testing.T) {
 	needs(t, fakeGoogle)
 	a := connectedUser(t)

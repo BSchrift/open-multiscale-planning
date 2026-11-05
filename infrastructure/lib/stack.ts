@@ -181,6 +181,7 @@ export class MultiscaleStack extends Stack {
     httpApi.addRoutes({ path: '/sync', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/connect', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/refresh', methods: [HttpMethod.POST], integration });
+    httpApi.addRoutes({ path: '/calendar/disconnect', methods: [HttpMethod.POST], integration });
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
 
@@ -200,7 +201,7 @@ export class MultiscaleStack extends Stack {
       fn.addToRolePolicy(readSecrets);
     }
     apiFunction.addToRolePolicy(new PolicyStatement({
-      actions: ['ssm:PutParameter'],
+      actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
     }));
     calendarFunction.grantInvoke(apiFunction);

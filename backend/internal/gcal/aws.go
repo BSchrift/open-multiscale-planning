@@ -44,6 +44,15 @@ func (s *SSMSecrets) Put(ctx context.Context, name, value string) error {
 	return err
 }
 
+func (s *SSMSecrets) Delete(ctx context.Context, name string) error {
+	_, err := s.Client.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(s.Prefix + "/" + name)})
+	var missing *ssmtypes.ParameterNotFound
+	if errors.As(err, &missing) {
+		return nil
+	}
+	return err
+}
+
 // DynamoStates keeps the pending consent's nonce beside the user's records. It has no seq, so it's never pulled, and a
 // new consent replaces it, so only one item per user ever exists.
 type DynamoStates struct {
@@ -93,6 +102,7 @@ func FromEnvironment(cfg aws.Config, trigger func(context.Context) error) *Googl
 		Now:         time.Now,
 		AuthURL:     GoogleAuthURL,
 		TokenURL:    GoogleTokenURL,
+		RevokeURL:   GoogleRevokeURL,
 		RedirectURL: os.Getenv("API_URL") + "/calendar/callback",
 		Trigger:     trigger,
 	}

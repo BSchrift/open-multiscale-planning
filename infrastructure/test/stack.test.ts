@@ -85,13 +85,13 @@ describe('API', () => {
     return hit[1].Properties;
   };
 
-  it('has exactly the four routes', () => {
+  it('has exactly the five routes', () => {
     const keys = ofType('AWS::ApiGatewayV2::Route').map(([, r]) => r.Properties.RouteKey).sort();
-    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /sync']);
+    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /sync']);
   });
 
   it('protects every route with the JWT authorizer except the Google callback', () => {
-    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh']) {
+    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect']) {
       assert.equal(route(key).AuthorizationType, 'JWT', key);
       assert.ok(route(key).AuthorizerId, key);
     }
@@ -224,10 +224,12 @@ describe('least privilege', () => {
     });
   }
 
-  it('API may read this environment\'s secrets and write only the refresh token', () => {
-    const put = policyFor('Api').filter((s) => s.Action.includes('ssm:PutParameter'));
-    assert.equal(put.length, 1);
-    assert.match(JSON.stringify(put[0].Resource), /parameter\/multiscale\/staging\/google\/refresh-token/);
+  it('API may read this environment\'s secrets and write or delete only the refresh token', () => {
+    for (const action of ['ssm:PutParameter', 'ssm:DeleteParameter']) {
+      const write = policyFor('Api').filter((s) => s.Action.includes(action));
+      assert.equal(write.length, 1, action);
+      assert.match(JSON.stringify(write[0].Resource), /parameter\/multiscale\/staging\/google\/refresh-token"/, action);
+    }
   });
 
   it("lets both functions read only this environment's Google secrets, never the test users' passwords beside them", () => {
@@ -241,6 +243,7 @@ describe('least privilege', () => {
   it('worker reads secrets but cannot write them, and only it reads the stream', () => {
     assert.ok(actions('Calendar').includes('ssm:GetParameter'));
     assert.ok(!actions('Calendar').includes('ssm:PutParameter'));
+    assert.ok(!actions('Calendar').includes('ssm:DeleteParameter'));
     assert.ok(actions('Calendar').includes('dynamodb:GetRecords'));
     assert.ok(!actions('Api').includes('dynamodb:GetRecords'));
   });

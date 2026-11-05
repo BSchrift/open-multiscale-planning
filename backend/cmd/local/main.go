@@ -104,6 +104,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	mux.Handle("POST /sync", gateway.Require(server))
 	mux.Handle("POST /calendar/connect", gateway.Require(server))
 	mux.Handle("POST /calendar/refresh", gateway.Require(server))
+	mux.Handle("POST /calendar/disconnect", gateway.Require(server))
 	mux.Handle("GET /calendar/callback", server)
 	mux.Handle("/cognito/", http.StripPrefix("/cognito", cognito))
 	mux.HandleFunc("POST /_local/clock", setClock(clock))

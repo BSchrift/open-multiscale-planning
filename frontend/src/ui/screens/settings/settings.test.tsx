@@ -18,6 +18,7 @@ function fakeSync() {
     syncNow: vi.fn(async () => undefined),
     connectCalendar: vi.fn(async () => undefined),
     refreshCalendar: vi.fn(async () => undefined),
+    disconnectCalendar: vi.fn(async () => undefined),
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
@@ -268,6 +269,31 @@ describe('Settings', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
       expect(await screen.findByText(/Couldn't reach the server/)).toBeVisible();
       log.mockRestore();
+    });
+
+    it('Disconnect asks first, and Cancel keeps the connection', async () => {
+      const sync = fakeSync();
+      await renderScreen('settings', { sync, seed: connected });
+      const cal = await screen.findByRole('region', { name: 'Google Calendar' });
+      await userEvent.click(await within(cal).findByRole('button', { name: 'Disconnect' }));
+      expect(within(cal).getByText(/Time blocks calendar is removed from Google/)).toBeVisible();
+      await userEvent.click(within(cal).getByRole('button', { name: 'Cancel' }));
+      expect(sync.disconnectCalendar).not.toHaveBeenCalled();
+      await userEvent.click(within(cal).getByRole('button', { name: 'Disconnect' }));
+      await userEvent.click(within(cal).getByRole('button', { name: 'Disconnect Google Calendar' }));
+      expect(sync.disconnectCalendar).toHaveBeenCalledOnce();
+    });
+
+    it('hides the calendars list once disconnected', async () => {
+      await renderScreen('settings', {
+        sync: fakeSync(),
+        seed: async (w) => {
+          await connected(w);
+          await w.set('calendar', CALENDAR_ID, { connected: false });
+        },
+      });
+      expect(await screen.findByText('Not connected.')).toBeVisible();
+      expect(screen.queryByRole('combobox', { name: 'Work' })).toBeNull();
     });
 
     it('shows the calendar’s own error', async () => {

@@ -242,7 +242,7 @@ describe('startAppSync', () => {
       const authorized = (init.headers as Record<string, string>).authorization === `Bearer ${accessToken}`;
       if (!authorized) return new Response('{}', { status: 401 });
       if (url === `${API}/calendar/connect`) return new Response(JSON.stringify({ url: 'https://consent.example.test/?state=s' }));
-      if (url === `${API}/calendar/refresh`) return new Response(null, { status: 204 });
+      if (url === `${API}/calendar/refresh` || url === `${API}/calendar/disconnect`) return new Response(null, { status: 204 });
       try {
         return new Response(JSON.stringify(await server.send(JSON.parse(init.body as string))));
       } catch (err) {
@@ -390,6 +390,20 @@ describe('startAppSync', () => {
     await vi.advanceTimersByTimeAsync(MINUTE);
     // Only the sync for that edit.
     expect(t.server.requests.length).toBe(before + 1);
+    t.sync.stop();
+  });
+
+  it('disconnecting asks the server, then syncs to bring the unconnected calendar back', async () => {
+    const t = await app();
+    await t.finishSignIn();
+    await t.sync.connectCalendar();
+    const before = t.apiRequests();
+    await t.sync.disconnectCalendar();
+    expect(t.fetchFn).toHaveBeenCalledWith(`${API}/calendar/disconnect`, expect.objectContaining({ method: 'POST' }));
+    expect(t.apiRequests()).toBe(before + 2);
+    // And stops looking for a connection.
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(t.apiRequests()).toBe(before + 2);
     t.sync.stop();
   });
 

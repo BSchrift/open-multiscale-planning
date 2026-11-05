@@ -159,7 +159,7 @@ Then:
   out() { node -p "require('$MULTISCALE_CONFIG_DIR/$1.outputs.json').$2"; }
   ```
 
-The worker-silent alarm fires about two hours after this deploy, because an unconnected worker has nothing to succeed at. It clears after step 10.
+The worker-silent alarm only watches a connected calendar: while none is connected, each run counts as a success.
 
 ## 8. Create the Cognito users
 

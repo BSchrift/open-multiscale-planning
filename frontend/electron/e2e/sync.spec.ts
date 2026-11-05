@@ -86,6 +86,8 @@ async function firstRun(d: Device, user: string, thought?: string) {
   await signIn(d, user, page.getByRole('button', { name: 'Sign in' }));
   await expect(page.getByText('Signed in', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('heading', { name: 'Google Calendar' })).toBeVisible();
+  await page.getByRole('button', { name: 'Skip' }).click();
   await expect(page.getByRole('heading', { name: 'Unavailable hours' })).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
   if (thought) {

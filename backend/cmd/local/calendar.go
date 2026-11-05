@@ -68,7 +68,7 @@ func buildCalendar(ctx context.Context, cfg config, client *dynamodb.Client, sto
 	google := &gcal.Google{
 		Records: store, Secrets: secrets, States: &gcal.DynamoStates{DB: client, Table: cfg.Table},
 		Log: obs.NewLogger(logs), Env: cfg.Env, Now: clock.Now,
-		AuthURL: base + "/google/o/oauth2/auth", TokenURL: base + "/google/token", APIURL: base + "/google/calendar/v3/",
+		AuthURL: base + "/google/o/oauth2/auth", TokenURL: base + "/google/token", RevokeURL: base + "/google/revoke", APIURL: base + "/google/calendar/v3/",
 		RedirectURL: base + "/calendar/callback",
 		Trigger:     func(ctx context.Context) error { return loop.run(ctx, "refresh") },
 	}

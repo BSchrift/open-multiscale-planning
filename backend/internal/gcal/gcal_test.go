@@ -94,6 +94,13 @@ func (m *memSecrets) Put(_ context.Context, name, value string) error {
 	return nil
 }
 
+func (m *memSecrets) Delete(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.values, name)
+	return nil
+}
+
 type memStates map[string]string
 
 func (m memStates) Put(_ context.Context, sub, nonce string) error {
@@ -134,7 +141,7 @@ func newWorld(t *testing.T) *world {
 	w.g = &Google{
 		Records: w.records, Secrets: w.secrets, States: memStates{},
 		Log: obs.NewLogger(w.logs), Env: "staging", Now: now,
-		AuthURL: w.srv.URL + "/o/oauth2/auth", TokenURL: w.srv.URL + "/token", APIURL: w.srv.URL + "/calendar/v3/",
+		AuthURL: w.srv.URL + "/o/oauth2/auth", TokenURL: w.srv.URL + "/token", RevokeURL: w.srv.URL + "/revoke", APIURL: w.srv.URL + "/calendar/v3/",
 		RedirectURL: "https://app.example.test/calendar/callback",
 		Trigger: func(context.Context) error {
 			w.triggers++
@@ -743,7 +750,8 @@ func TestDeletedTimeBlocksCalendarIsCreatedAgain(t *testing.T) {
 	}
 }
 
-func TestNotConnectedDoesNothingAndCountsNeitherWay(t *testing.T) {
+// Not connected is a state the person chose, by disconnecting or never connecting, so the worker-silent alarm stays quiet.
+func TestNotConnectedDoesNothingAndCountsAsASuccess(t *testing.T) {
 	w := newWorld(t)
 	w.write(testSub, "time_block", "b1", map[string]any{"start": instant(at(1)), "end": instant(at(2))})
 	w.run()
@@ -754,10 +762,8 @@ func TestNotConnectedDoesNothingAndCountsNeitherWay(t *testing.T) {
 	if len(lines) != 1 || lines[0]["outcome"] != "not_connected" {
 		t.Fatalf("%+v", lines)
 	}
-	for _, metric := range []string{"CalendarEventsChanged", "CalendarRunFailures"} {
-		if _, ok := lines[0][metric]; ok {
-			t.Fatalf("%s emitted", metric)
-		}
+	if lines[0]["CalendarEventsChanged"] != float64(0) || lines[0]["CalendarRunFailures"] != float64(0) {
+		t.Fatalf("%+v", lines[0])
 	}
 }
 

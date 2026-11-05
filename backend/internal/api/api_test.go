@@ -35,6 +35,7 @@ func (f *fakeSyncer) Sync(_ context.Context, sub string, cursor int64, changes [
 type fakeCalendar struct {
 	sub, state, code string
 	url              string
+	disconnected     bool
 	err              error
 }
 
@@ -50,6 +51,11 @@ func (f *fakeCalendar) Callback(_ context.Context, state, code string) error {
 
 func (f *fakeCalendar) Refresh(_ context.Context, sub string) error {
 	f.sub = sub
+	return f.err
+}
+
+func (f *fakeCalendar) Disconnect(_ context.Context, sub string) error {
+	f.sub, f.disconnected = sub, true
 	return f.err
 }
 
@@ -103,7 +109,7 @@ func TestSyncPassesTheTokenSubAndReturnsTheResponse(t *testing.T) {
 
 func TestProtectedRoutesRefuseWithoutASub(t *testing.T) {
 	s, _ := newServer(&fakeSyncer{}, &fakeCalendar{})
-	for _, target := range []string{"/sync", "/calendar/connect", "/calendar/refresh"} {
+	for _, target := range []string{"/sync", "/calendar/connect", "/calendar/refresh", "/calendar/disconnect"} {
 		if rec := do(s, "POST", target, "{}", ""); rec.Code != 401 {
 			t.Errorf("%s: %d", target, rec.Code)
 		}
@@ -244,6 +250,14 @@ func TestCalendarRefresh(t *testing.T) {
 	}
 }
 
+func TestCalendarDisconnect(t *testing.T) {
+	calendar := &fakeCalendar{}
+	s, _ := newServer(&fakeSyncer{}, calendar)
+	if rec := do(s, "POST", "/calendar/disconnect", "", testSub); rec.Code != 204 || calendar.sub != testSub || !calendar.disconnected {
+		t.Fatalf("%d %+v", rec.Code, calendar)
+	}
+}
+
 func TestCalendarCallbackNeedsNoTokenAndChecksItsInput(t *testing.T) {
 	calendar := &fakeCalendar{}
 	s, logs := newServer(&fakeSyncer{}, calendar)
@@ -281,7 +295,7 @@ func TestCalendarCallbackErrors(t *testing.T) {
 
 func TestCalendarFailuresAndAbsence(t *testing.T) {
 	s, logs := newServer(&fakeSyncer{}, &fakeCalendar{err: errors.New("secret detail")})
-	for _, target := range []string{"/calendar/connect", "/calendar/refresh"} {
+	for _, target := range []string{"/calendar/connect", "/calendar/refresh", "/calendar/disconnect"} {
 		if rec := do(s, "POST", target, "", testSub); rec.Code != 502 || strings.Contains(rec.Body.String(), "secret") {
 			t.Errorf("%s: %d %s", target, rec.Code, rec.Body)
 		}

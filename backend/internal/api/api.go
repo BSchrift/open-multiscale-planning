@@ -29,6 +29,8 @@ type Calendar interface {
 	Callback(ctx context.Context, state, code string) error
 	// Refresh runs the calendar worker for this user.
 	Refresh(ctx context.Context, sub string) error
+	// Disconnect ends this user's connection to Google.
+	Disconnect(ctx context.Context, sub string) error
 }
 
 // ErrInvalidState is what Calendar.Callback returns for a state it won't honour.
@@ -97,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /calendar/connect", true, s.calendarConnect)
 	route("GET /calendar/callback", false, s.calendarCallback)
 	route("POST /calendar/refresh", true, s.calendarRefresh)
+	route("POST /calendar/disconnect", true, s.calendarDisconnect)
 	return mux
 }
 
@@ -200,6 +203,17 @@ func (s *Server) calendarRefresh(w http.ResponseWriter, r *http.Request, sub str
 		return notImplemented(w)
 	}
 	if err := s.Calendar.Refresh(r.Context(), sub); err != nil {
+		return calendarFailed(w)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return outcome{status: http.StatusNoContent}
+}
+
+func (s *Server) calendarDisconnect(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Calendar == nil {
+		return notImplemented(w)
+	}
+	if err := s.Calendar.Disconnect(r.Context(), sub); err != nil {
 		return calendarFailed(w)
 	}
 	w.WriteHeader(http.StatusNoContent)

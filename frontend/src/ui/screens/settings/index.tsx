@@ -179,6 +179,7 @@ function Calendar(props: { layout: Layout }) {
     [],
   );
   const setMode = useMutation((w, id: string, mode: CalendarMode) => w.set('calendar_source', id, { mode }));
+  const [confirming, setConfirming] = useState(false);
   if (!data) return null;
   const { calendar, sources } = data;
   const phone = props.layout === 'phone';
@@ -198,9 +199,14 @@ function Calendar(props: { layout: Layout }) {
         {sync && (
           <div className="row">
             {calendar?.connected ? (
-              <button className={btn} type="button" disabled={busy} onClick={() => void call(sync.refreshCalendar)}>
-                Refresh
-              </button>
+              <>
+                <button className={btn} type="button" disabled={busy} onClick={() => void call(sync.refreshCalendar)}>
+                  Refresh
+                </button>
+                <button className={`${btn} danger`} type="button" disabled={busy} aria-expanded={confirming} onClick={() => setConfirming(!confirming)}>
+                  Disconnect
+                </button>
+              </>
             ) : (
               <button className={`${btn} pri`} type="button" disabled={busy} onClick={() => void call(sync.connectCalendar)}>
                 Connect
@@ -209,12 +215,30 @@ function Calendar(props: { layout: Layout }) {
           </div>
         )}
       </div>
+      {sync && calendar?.connected && confirming && (
+        <div className="stack8">
+          <p>Your blocks stay here, and the Time blocks calendar is removed from Google. You can connect again any time.</p>
+          <div className="row">
+            <button
+              className={`${btn} pri danger`}
+              type="button"
+              disabled={busy}
+              onClick={() => void call(sync.disconnectCalendar).then(() => setConfirming(false))}
+            >
+              Disconnect Google Calendar
+            </button>
+            <button className={btn} type="button" onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="attn warn" role="status">
           {error}
         </div>
       )}
-      {sources.length > 0 && (
+      {calendar?.connected && sources.length > 0 && (
         <>
           <h3>Your calendars</h3>
           {sources.map((s) => (

@@ -215,6 +215,12 @@ export function startAppSync(
       await platform.openExternal(body.url);
       pollForConnection();
     },
+    /** Ends the Google connection, then syncs to bring back the calendar record that says so. Throws SyncError. */
+    async disconnectCalendar(): Promise<void> {
+      clearInterval(connectPoll);
+      await calendarPost('/calendar/disconnect');
+      await runner.syncNow();
+    },
     /** Asks the server to read calendars now, then syncs to bring back what it found. Throws SyncError. */
     async refreshCalendar(): Promise<void> {
       await calendarPost('/calendar/refresh');

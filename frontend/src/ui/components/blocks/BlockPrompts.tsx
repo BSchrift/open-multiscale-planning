@@ -9,6 +9,7 @@ import { partlyLeft } from '../../../core/blocks';
 import { blockMinutes, formatMinutes, instantMs } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
+import { useOverlay } from '../../app/nav';
 import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
 import { Sheet } from '../Sheet';
@@ -33,6 +34,8 @@ const busy = () =>
 export function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
   const { layout } = useApp();
   const [ready, setReady] = useState(false);
+  // Read only to render again when Capture or Process closes, which renders nothing else here.
+  useOverlay();
   // After commit, so a prompt this one replaces has already gone.
   useEffect(() => {
     if (!ready && !busy()) setReady(true);

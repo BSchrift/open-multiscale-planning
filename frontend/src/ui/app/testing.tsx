@@ -16,8 +16,8 @@ import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
 import { ToastProvider } from '../components/Toast';
-import { NavProvider, useNav } from './nav';
-import type { Nav, Route } from './nav';
+import { NavProvider, useNav, useOverlay } from './nav';
+import type { Nav, Overlay, Route } from './nav';
 import { AREAS } from './registry';
 import type { AreaId, Layout, Presentation, RouteParams } from './registry';
 import { Shell } from './Shell';
@@ -42,8 +42,8 @@ export interface Harness extends RenderResult {
   db: TestPlatform['db'];
   clock: ReturnType<typeof fixedClock>;
   write<R>(fn: (w: Writer) => Promise<R>): Promise<R>;
-  /** The navigation the rendered tree is using. */
-  nav(): Nav;
+  /** The navigation the rendered tree is using, with the overlay that's open. */
+  nav(): Nav & { overlay: Overlay | null };
 }
 
 async function prepare(options: HarnessOptions) {
@@ -59,7 +59,7 @@ function harness(
   ui: ReactElement,
   options: HarnessOptions,
   prepared: Awaited<ReturnType<typeof prepare>>,
-  getNav: () => Nav,
+  getNav: Harness['nav'],
 ): Harness {
   const { platform, clock, write } = prepared;
   const result = render(
@@ -78,9 +78,9 @@ export async function renderScreen(
   const prepared = await prepare(options);
   const layout = options.layout ?? 'desktop';
   const { Screen } = AREAS[area];
-  let nav: Nav | undefined;
+  let nav: (Nav & { overlay: Overlay | null }) | undefined;
   const Grab = () => {
-    nav = useNav();
+    nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
   return harness(

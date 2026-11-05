@@ -10,7 +10,7 @@ import { ApiMapping, CorsHttpMethod, DomainName, HttpApi, HttpMethod, HttpNoneAu
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
-import { Certificate, CertificateValidation } from 'aws-cdk-lib/aws-certificatemanager';
+import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
@@ -20,7 +20,7 @@ import { Architecture, Code, FilterCriteria, Function as LambdaFunction, Runtime
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
-import { ApiGatewayv2DomainProperties } from 'aws-cdk-lib/aws-route53-targets';
+import { ApiGatewayv2DomainProperties, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
@@ -136,6 +136,7 @@ export class MultiscaleStack extends Stack {
     // On the environment's own zone when it has one, so Google's redirect and the apps' address outlive the API's id.
     const apiHost = config.dns?.zone ? `api.${config.dns.zone}` : undefined;
     const apiUrl = apiHost ? `https://${apiHost}` : httpApi.apiEndpoint;
+    const authHost = config.dns?.zone ? `auth.${config.dns.zone}` : undefined;
     const stage = new HttpStage(this, 'Stage', {
       httpApi,
       stageName: '$default',
@@ -302,7 +303,8 @@ export class MultiscaleStack extends Stack {
       }],
     });
 
-    // DNS: this environment's own zone, delegated from the domain in the control account, serving the API on api.<zone>.
+    // DNS: this environment's own zone, delegated from the domain in the control account, serving the API on api.<zone>
+    // and sign-in on auth.<zone>.
 
     if (config.dns?.zone) {
       const zone = new PublicHostedZone(this, 'Zone', { zoneName: config.dns.zone });
@@ -325,6 +327,19 @@ export class MultiscaleStack extends Stack {
         recordName: apiHost,
         target: RecordTarget.fromAlias(new ApiGatewayv2DomainProperties(apiDomain.regionalDomainName, apiDomain.regionalHostedZoneId)),
       });
+
+      // Cognito refuses a custom domain whose parent doesn't resolve; what it resolves to doesn't matter to it.
+      // shortcut: the zone's own name points at a documentation address (RFC 5737) that serves nothing; point it at a real
+      // page if anyone should visit it.
+      const apex = new ARecord(this, 'ZoneApexRecord', { zone, target: RecordTarget.fromIpAddresses('192.0.2.1') });
+      // Cognito serves sign-in through CloudFront, which only takes us-east-1 certificates. Deprecated, but the
+      // replacement needs a second stack, which would need this one's zone while this one needs its certificate.
+      const authCertificate = new DnsValidatedCertificate(this, 'AuthCertificate', { domainName: authHost!, hostedZone: zone, region: 'us-east-1' });
+      authCertificate.node.addDependency(delegation);
+      // Beside the prefix domain, which builds made before it keep signing in through.
+      const authDomain = userPool.addDomain('AuthDomain', { customDomain: { domainName: authHost!, certificate: authCertificate } });
+      authDomain.node.addDependency(apex);
+      new ARecord(this, 'AuthRecord', { zone, recordName: authHost, target: RecordTarget.fromAlias(new UserPoolDomainTarget(authDomain)) });
     }
 
     // Read by scripts/deploy.sh, scripts/smoke.sh and the setup guide.
@@ -335,7 +350,7 @@ export class MultiscaleStack extends Stack {
       UserPoolId: userPool.userPoolId,
       AppClientId: appClient.userPoolClientId,
       TestClientId: testClient.userPoolClientId,
-      CognitoDomain: domain.baseUrl(),
+      CognitoDomain: authHost ? `https://${authHost}` : domain.baseUrl(),
       ApiLogGroup: apiLogs.logGroupName,
       CalendarLogGroup: calendarLogs.logGroupName,
       MetricNamespace: namespace,

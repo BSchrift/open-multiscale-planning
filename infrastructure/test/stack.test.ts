@@ -417,5 +417,22 @@ describe('DNS', () => {
       const [fn] = Object.values(z.findResources('AWS::Lambda::Function', { Properties: { Environment: { Variables: { API_URL: Match.anyValue() } } } }));
       assert.equal(fn.Properties.Environment.Variables.API_URL, `https://${host}`);
     });
+
+    it(`${envName} signs in on auth.${zone}, keeping the Cognito prefix domain for builds that use it`, () => {
+      const z = zoned(envName, zone);
+      const host = `auth.${zone}`;
+      // Cognito serves it through CloudFront, which only takes us-east-1 certificates.
+      const [cert] = Object.values(z.findResources('AWS::CloudFormation::CustomResource', { Properties: { DomainName: host, Region: 'us-east-1' } }));
+      const [delegation] = Object.keys(z.findResources('Custom::CrossAccountZoneDelegation'));
+      assert.ok(([] as string[]).concat(cert.DependsOn ?? []).includes(delegation));
+      z.resourceCountIs('AWS::Cognito::UserPoolDomain', 2);
+      const [domain] = Object.values(z.findResources('AWS::Cognito::UserPoolDomain', { Properties: { Domain: host } }));
+      assert.ok(domain.Properties.CustomDomainConfig.CertificateArn);
+      // Cognito refuses a custom domain whose parent doesn't resolve.
+      const [apex] = Object.keys(z.findResources('AWS::Route53::RecordSet', { Properties: { Name: `${zone}.`, Type: 'A' } }));
+      assert.ok(([] as string[]).concat(domain.DependsOn ?? []).includes(apex));
+      z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
+      z.hasOutput('CognitoDomain', { Value: `https://${host}` });
+    });
   }
 });

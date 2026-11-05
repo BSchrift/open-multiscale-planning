@@ -134,4 +134,20 @@ describe('useStickyState', () => {
     render(<Step />);
     expect(screen.getByText('step 2')).toBeInTheDocument();
   });
+
+  it('is one value for every screen using its key, since screens stay mounted', async () => {
+    function Shown(props: { name: string }) {
+      const [value, setValue] = useStickyState('test.shared', 'none');
+      return <button onClick={() => setValue(props.name)}>{`${props.name} sees ${value}`}</button>;
+    }
+    render(
+      <>
+        <Shown name="today" />
+        <Shown name="week" />
+      </>,
+    );
+    await userEvent.click(screen.getByText('week sees none'));
+    expect(screen.getByText('today sees week')).toBeInTheDocument();
+    localStorage.clear();
+  });
 });

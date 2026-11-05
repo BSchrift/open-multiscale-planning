@@ -259,6 +259,8 @@ test('dragging and resizing a block on the Week grid moves it on the other devic
   const [wednesday, thursday] = [addDays(monday, 2), addDays(monday, 3)];
   const [taskId, blockId] = [`e2e-${run}-task`, `e2e-${run}-block`];
   await push(a, [
+    // Planned, so Week offers Edit rather than asking to plan.
+    { type: 'week_plan', id: `week:${monday}`, fields: { week_start: monday, finished_at: localToInstant(monday, 60, zone) } },
     { type: 'task', id: taskId, fields: { kind: 'one_off', title, schedule: { type: 'once' }, estimate_min: 60 } },
     { type: 'time_block', id: blockId, fields: { task_id: taskId, start: localToInstant(wednesday, 10 * 60, zone), end: localToInstant(wednesday, 11 * 60, zone), tz: zone } },
   ]);

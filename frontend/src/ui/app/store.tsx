@@ -177,6 +177,9 @@ export function useToday(): LocalDate {
   return todayOf(clock);
 }
 
+// Every screen using a key hears a change at once: screens stay mounted, so two can show one value.
+const stickyListeners = new Map<string, Set<(value: unknown) => void>>();
+
 /** useState kept on this device across restarts, for things like the current planning step. Never synced. */
 export function useStickyState<T>(key: string, initial: T): [T, (next: T) => void] {
   const storageKey = `multiscale.${key}`;
@@ -188,9 +191,18 @@ export function useStickyState<T>(key: string, initial: T): [T, (next: T) => voi
       return initial;
     }
   });
+  useEffect(() => {
+    const listeners = stickyListeners.get(storageKey) ?? new Set();
+    stickyListeners.set(storageKey, listeners);
+    const listener = (next: unknown) => setValue(next as T);
+    listeners.add(listener);
+    return () => void listeners.delete(listener);
+  }, [storageKey]);
   const update = useCallback(
     (next: T) => {
+      // Its own state first: a child's mount effect can set it before this screen's listener is registered.
       setValue(next);
+      for (const listener of stickyListeners.get(storageKey) ?? []) listener(next);
       try {
         localStorage.setItem(storageKey, JSON.stringify(next));
       } catch {

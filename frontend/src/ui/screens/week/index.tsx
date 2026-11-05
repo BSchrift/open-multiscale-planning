@@ -1,6 +1,6 @@
 // Week: one week's plan, any week, with arrows that have no limit. Desktop draws a grid of days and hours with
 // blocks that drag and resize; phone shows a strip of seven days over one day's timeline. Edit this week's plan
-// works from now on and saves as you go. Params: place, a task to put on the calendar this week; edit: 'this', to open
+// works from now on and saves as you go; until this week is planned or skipped, it asks to plan instead. Params: place, a task to put on the calendar this week; edit: 'this', to open
 // this week ready to edit.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -9,6 +9,7 @@ import type { LocalDate } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useQuery, useToday } from '../../app/store';
+import { useSkippedWeek } from '../../components/PlanPrompt';
 import { loadWeek, weekModel } from './data';
 import type { WeekData, WeekModel } from './data';
 import { DesktopWeek } from './Desktop';
@@ -25,6 +26,8 @@ export interface WeekProps {
   label: string;
   editing: boolean;
   setEditing(on: boolean): void;
+  /** This week, before it's planned and unless skipped: it asks to plan instead of offering to edit, as Today does. */
+  gated: boolean;
   goWeek(week: LocalDate): void;
   /** A task to place, from Find a time or Place on calendar. */
   place: string | null;
@@ -52,6 +55,7 @@ export default function WeekScreen(props: ScreenProps) {
   }
   const [place, setPlace] = useState<string | null>(props.params.place ?? null);
   const [editing, setEditing] = useState(!!props.params.place || props.params.edit === 'this');
+  const [skipped] = useSkippedWeek();
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
 
@@ -75,6 +79,7 @@ export default function WeekScreen(props: ScreenProps) {
     label: `${formatDate(data.week)} to ${formatDate(addDays(data.week, 6))}`,
     editing: editing && offset === 0,
     setEditing,
+    gated: offset === 0 && !editing && !model.thisPlanned && skipped !== data.week,
     goWeek: (to) => {
       setWeek(weekStart(to));
       setEditing(false);

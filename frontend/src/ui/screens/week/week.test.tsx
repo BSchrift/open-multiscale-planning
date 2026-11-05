@@ -2,7 +2,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
-import { CALENDAR_ID, getRecord, listRecords, outcomeId, updateSettings } from '../../../core/records';
+import { CALENDAR_ID, getRecord, listRecords, outcomeId, updateSettings, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
 import type { HarnessOptions } from '../../app/testing';
@@ -50,6 +50,8 @@ async function week(w: Writer) {
 const open = (options: HarnessOptions & { params?: Record<string, string>; close?(): void } = {}) =>
   renderScreen('week', { zone: ZONE, ...options, seed: async (w) => { await week(w); await options.seed?.(w); } });
 
+const planned = (w: Writer) => w.create('week_plan', { week_start: '2026-11-02', finished_at: at('08:00', '2026-11-02') }, weekPlanId('2026-11-02'));
+
 const block = (id: string) => (t: { db: Parameters<typeof getRecord>[0] }) => getRecord(t.db, 'time_block', id);
 
 // Wednesday at noon, after Monday's open evening went to a one off, with 5pm to 9:30pm today planned.
@@ -63,6 +65,34 @@ const midweek = (options: Parameters<typeof open>[0] = {}) =>
       await w.create('time_block', { task_id: 't1', start: at('17:00', WED), end: at('21:30', WED), tz: ZONE }, 'b5');
     },
   });
+
+describe.each(['desktop', 'phone'] as const)('this week before it is planned, on %s', (layout) => {
+  afterEach(() => localStorage.clear());
+
+  it('asks to plan instead of offering to edit, as Today does, and Start planning opens planning', async () => {
+    const t = await open({ layout });
+    expect(await screen.findByText("This week isn't planned yet.")).toBeVisible();
+    expect(screen.queryByRole('button', { name: "Edit this week's plan" })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
+    expect(t.nav().flow).toMatchObject({ area: 'planning' });
+  });
+
+  it('Skip for now puts it away for the week and offers Edit again', async () => {
+    await open({ layout });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+    expect(await screen.findByRole('button', { name: "Edit this week's plan" })).toBeVisible();
+    expect(screen.queryByText("This week isn't planned yet.")).toBeNull();
+    cleanup();
+    await open({ layout });
+    expect(await screen.findByRole('button', { name: "Edit this week's plan" })).toBeVisible();
+  });
+
+  it('once planned, offers Edit and no prompt', async () => {
+    await open({ layout, seed: planned });
+    expect(await screen.findByRole('button', { name: "Edit this week's plan" })).toBeVisible();
+    expect(screen.queryByText("This week isn't planned yet.")).toBeNull();
+  });
+});
 
 describe('Week on desktop', () => {
   it('shows this week: blocks in their colours, calendar events behind, a conflict named, and the time left', async () => {
@@ -185,7 +215,7 @@ describe('Week on desktop', () => {
   });
 
   it("Edit this week's plan: keys move a block and save, the past stays put, and × removes with Undo", async () => {
-    const t = await open();
+    const t = await open({ seed: planned });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     expect(await screen.findByRole('heading', { name: 'Editing this week' })).toBeVisible();
     // The button pressed has gone, so focus moves to the one that ends editing, and back again after.
@@ -216,7 +246,7 @@ describe('Week on desktop', () => {
   });
 
   it('a practice moved asks whether to keep it, and Yes changes the practice', async () => {
-    const t = await open();
+    const t = await open({ seed: planned });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     (await screen.findByRole('group', { name: /^Piano practice/ })).focus();
     await userEvent.keyboard('{ArrowDown}');
@@ -229,7 +259,7 @@ describe('Week on desktop', () => {
   });
 
   it('adds a task: its block waits at the best time, with other suggestions, until Place here', async () => {
-    const t = await open();
+    const t = await open({ seed: planned });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     expect(await screen.findByText('Add a task to this week')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: /^Paint the fence/ }));
@@ -246,6 +276,7 @@ describe('Week on desktop', () => {
   it('lists work that needs a new time under its own heading, not as placed by its past block', async () => {
     await open({
       seed: async (w) => {
+        await planned(w);
         await w.create('task', { kind: 'project', project_id: 'p', title: 'Rake the leaves', estimate_min: 60, remaining_min: 30 }, 't3');
         await w.create('time_block', { task_id: 't3', start: at('10:00'), end: at('11:00'), tz: ZONE }, 'b4');
         await w.create('block_outcome', { result: 'partly', answered_at: at('11:00') }, outcomeId('b4'));
@@ -412,7 +443,7 @@ describe('Week on phone', () => {
   });
 
   it('editing on the day: a press opens the block, a drag saves on drop, passed time is locked, the bottom edge resizes', async () => {
-    const t = await phone({ seed: (w) => w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4') });
+    const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     const handle = () => screen.getByRole('slider', { name: /^Paint the fence\. Drag/ });
     // jsdom has no layout: the day from 6am to 11pm is drawn 816px tall, 48px an hour.
@@ -440,7 +471,7 @@ describe('Week on phone', () => {
   });
 
   it('draws a block as early as the desktop grid allows inside the day, where it still drags', async () => {
-    await phone({ seed: (w) => w.create('time_block', { task_id: 't2', start: at('06:15', WED), end: at('06:45', WED), tz: ZONE }, 'b4') });
+    await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('06:15', WED), end: at('06:45', WED), tz: ZONE }, 'b4'); } });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[2]!);
     const early = await screen.findByRole('slider', { name: /^Paint the fence\. Drag/ });
@@ -448,7 +479,7 @@ describe('Week on phone', () => {
   });
 
   it("Edit this week's plan, then Add a task places one at a suggested time", async () => {
-    const t = await phone();
+    const t = await phone({ seed: planned });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     expect(await screen.findByRole('heading', { name: 'Editing this week' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Done editing' })).toBeVisible();

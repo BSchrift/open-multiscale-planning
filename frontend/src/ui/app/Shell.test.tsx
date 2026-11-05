@@ -1,4 +1,4 @@
-import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { answerBlock } from '../../core/blocks';
@@ -94,6 +94,14 @@ describe('shell on desktop', () => {
 });
 
 describe('shell on both layouts', () => {
+  it.each(['desktop', 'phone'] as const)('on %s, the first press opens Capture with its field focused before it returns', async (layout) => {
+    await renderApp({ layout });
+    await showsPane('Today');
+    // Nothing awaited: a Capture that had to load first would open 300ms late.
+    fireEvent.click(screen.getByRole('button', { name: layout === 'phone' ? 'Capture a task' : /^Capture/ }));
+    expect(screen.getByRole('textbox', { name: 'Capture to Inbox' })).toHaveFocus();
+  });
+
   it.each(['desktop', 'phone'] as const)('keeps toasts inside the %s layout, so they get its styles', async (layout) => {
     const t = await renderApp({ layout });
     await showsPane('Today');

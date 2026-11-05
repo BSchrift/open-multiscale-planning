@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { AccessLogFormat } from 'aws-cdk-lib/aws-apigateway';
-import { CorsHttpMethod, HttpApi, HttpMethod, HttpNoneAuthorizer, HttpStage, LogGroupLogDestination } from 'aws-cdk-lib/aws-apigatewayv2';
+import { ApiMapping, CorsHttpMethod, DomainName, HttpApi, HttpMethod, HttpNoneAuthorizer, HttpStage, LogGroupLogDestination } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
+import { Certificate, CertificateValidation } from 'aws-cdk-lib/aws-certificatemanager';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
@@ -18,7 +19,8 @@ import { PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Code, FilterCriteria, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { CrossAccountZoneDelegationRecord, PublicHostedZone } from 'aws-cdk-lib/aws-route53';
+import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
+import { ApiGatewayv2DomainProperties } from 'aws-cdk-lib/aws-route53-targets';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
@@ -131,7 +133,10 @@ export class MultiscaleStack extends Stack {
         maxAge: Duration.days(1),
       },
     });
-    new HttpStage(this, 'Stage', {
+    // On the environment's own zone when it has one, so Google's redirect and the apps' address outlive the API's id.
+    const apiHost = config.dns?.zone ? `api.${config.dns.zone}` : undefined;
+    const apiUrl = apiHost ? `https://${apiHost}` : httpApi.apiEndpoint;
+    const stage = new HttpStage(this, 'Stage', {
       httpApi,
       stageName: '$default',
       autoDeploy: true,
@@ -167,7 +172,7 @@ export class MultiscaleStack extends Stack {
 
     const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, Duration.minutes(5), {});
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
-      API_URL: httpApi.apiEndpoint,
+      API_URL: apiUrl,
       CALENDAR_FUNCTION_NAME: calendarFunction.functionName,
     });
 
@@ -297,24 +302,35 @@ export class MultiscaleStack extends Stack {
       }],
     });
 
-    // DNS: this environment's own zone, delegated from the domain in the control account. Nothing is served on it yet.
+    // DNS: this environment's own zone, delegated from the domain in the control account, serving the API on api.<zone>.
 
     if (config.dns?.zone) {
+      const zone = new PublicHostedZone(this, 'Zone', { zoneName: config.dns.zone });
       // shortcut: the delegation handler's log group keeps CloudWatch's default retention, since CDK offers no setting and it
       // logs a few lines per deploy; give it 30 days if it ever logs more.
-      new CrossAccountZoneDelegationRecord(this, 'ZoneDelegation', {
-        delegatedZone: new PublicHostedZone(this, 'Zone', { zoneName: config.dns.zone }),
+      const delegation = new CrossAccountZoneDelegationRecord(this, 'ZoneDelegation', {
+        delegatedZone: zone,
         // loadConfig only allows a zone together with control.yaml's dns section. By id, so no other zone with the
         // domain's name can be picked.
         parentHostedZoneId: control!.dns!.hostedZoneId,
         delegationRole: Role.fromRoleArn(this, 'DelegationRole', `arn:${this.partition}:iam::${control!.aws.account}:role/${DELEGATION_ROLE_NAME}`),
+      });
+      // ACM checks its record over public DNS, which only reaches the zone once it's delegated.
+      const certificate = new Certificate(this, 'ApiCertificate', { domainName: apiHost!, validation: CertificateValidation.fromDns(zone) });
+      certificate.node.addDependency(delegation);
+      const apiDomain = new DomainName(this, 'ApiDomain', { domainName: apiHost!, certificate });
+      new ApiMapping(this, 'ApiMapping', { api: httpApi, domainName: apiDomain, stage });
+      new ARecord(this, 'ApiRecord', {
+        zone,
+        recordName: apiHost,
+        target: RecordTarget.fromAlias(new ApiGatewayv2DomainProperties(apiDomain.regionalDomainName, apiDomain.regionalHostedZoneId)),
       });
     }
 
     // Read by scripts/deploy.sh, scripts/smoke.sh and the setup guide.
 
     const outputs: Record<string, string> = {
-      ApiUrl: httpApi.apiEndpoint,
+      ApiUrl: apiUrl,
       Region: this.region,
       UserPoolId: userPool.userPoolId,
       AppClientId: appClient.userPoolClientId,
@@ -323,7 +339,7 @@ export class MultiscaleStack extends Stack {
       ApiLogGroup: apiLogs.logGroupName,
       CalendarLogGroup: calendarLogs.logGroupName,
       MetricNamespace: namespace,
-      GoogleRedirectUri: `${httpApi.apiEndpoint}/calendar/callback`,
+      GoogleRedirectUri: `${apiUrl}/calendar/callback`,
       AlarmTopicArn: topic.topicArn,
       TableName: table.tableName,
     };

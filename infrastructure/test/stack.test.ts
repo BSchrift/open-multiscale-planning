@@ -386,6 +386,7 @@ describe('DNS', () => {
   it('is skipped until the environment sets dns.zone', () => {
     t.resourceCountIs('AWS::Route53::HostedZone', 0);
     t.resourceCountIs('Custom::CrossAccountZoneDelegation', 0);
+    t.resourceCountIs('AWS::ApiGatewayV2::DomainName', 0);
   });
 
   for (const [envName, zone] of [['staging', 'staging.example.net'], ['prod', 'app.example.net']] as const) {
@@ -399,6 +400,22 @@ describe('DNS', () => {
         DelegatedZoneName: zone,
         AssumeRoleArn: { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::333333333333:role/multiscale-dns-delegation']] },
       });
+    });
+
+    it(`${envName} serves the API on api.${zone}, and Google redirects there`, () => {
+      const z = zoned(envName, zone);
+      const host = `api.${zone}`;
+      z.hasResourceProperties('AWS::ApiGatewayV2::DomainName', { DomainName: host });
+      z.resourceCountIs('AWS::ApiGatewayV2::ApiMapping', 1);
+      z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A' });
+      // Validated over public DNS, so it must wait for the delegation.
+      const [cert] = Object.values(z.findResources('AWS::CertificateManager::Certificate', { Properties: { DomainName: host } }));
+      const [delegation] = Object.keys(z.findResources('Custom::CrossAccountZoneDelegation'));
+      assert.ok(([] as string[]).concat(cert.DependsOn ?? []).includes(delegation));
+      z.hasOutput('ApiUrl', { Value: `https://${host}` });
+      z.hasOutput('GoogleRedirectUri', { Value: `https://${host}/calendar/callback` });
+      const [fn] = Object.values(z.findResources('AWS::Lambda::Function', { Properties: { Environment: { Variables: { API_URL: Match.anyValue() } } } }));
+      assert.equal(fn.Properties.Environment.Variables.API_URL, `https://${host}`);
     });
   }
 });

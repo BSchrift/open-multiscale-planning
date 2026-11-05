@@ -52,7 +52,7 @@ One account also works. Skip the Organizations parts, 2 and 3 above, assign the 
 
 ## 3. The domain (optional)
 
-A domain is optional. Nothing is served on it yet; each environment gets a zone under it, ready for later. Without one, skip this step and step 6, and leave out the `dns` sections in step 4.
+A domain is optional. Each environment gets a zone under it and serves its API at `api.<zone>`, so the apps and Google's redirect use your name rather than AWS's. Without one, the API keeps its AWS address: skip this step and step 6, and leave out the `dns` sections in step 4.
 
 1. Open the AWS access portal, sign in to `multiscale-control`, and open **Route 53 > Registered domains > Register domains**.
 2. Register the domain and confirm the contact email Route 53 sends. Registration can take from minutes to a day.

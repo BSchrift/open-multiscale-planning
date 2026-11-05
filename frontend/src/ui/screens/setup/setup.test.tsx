@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { META, setMeta } from '../../../core/db';
-import { getSettings, listRecords } from '../../../core/records';
+import { CALENDAR_ID, getSettings, listRecords } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { renderApp, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
@@ -48,6 +48,10 @@ describe('first-run setup', () => {
       expect(await screen.findByText('Signed in')).toBeVisible();
       await click('Next');
 
+      expect(await heading('Google Calendar')).toBeVisible();
+      expect(screen.getByText('Step 2 of 4')).toBeVisible();
+      await click('Skip');
+
       expect(await heading('Unavailable hours')).toBeVisible();
       const night = await screen.findByRole('group', { name: 'Unavailable, 10pm to 7am' });
       fireEvent.change(within(night).getByRole('slider', { name: 'To' }), { target: { value: '360' } });
@@ -68,9 +72,32 @@ describe('first-run setup', () => {
   it('can skip sign-in, and go back a step', async () => {
     await renderScreen('setup', { firstRun: true, sync: fakeSync() });
     await click('Skip');
+    // Connecting needs a sign-in, so there's no calendar step.
     expect(await heading('Unavailable hours')).toHaveFocus();
+    expect(screen.getByText('Step 2 of 3')).toBeVisible();
     await click('Back');
     expect(await heading('Welcome')).toBeVisible();
+  });
+
+  it('connects Google Calendar, and moves on once the connection arrives', async () => {
+    const sync = fakeSync();
+    const t = await renderScreen('setup', { firstRun: true, sync });
+    await syncState(t, '2026-11-02T20:00:00Z', null);
+    await click('Next');
+    expect(await heading('Google Calendar')).toHaveFocus();
+    await click('Connect');
+    expect(sync.connectCalendar).toHaveBeenCalledOnce();
+
+    await act(() => t.write((w) => w.create('calendar', { connected: true }, CALENDAR_ID)));
+    expect(await heading('Unavailable hours')).toBeVisible();
+    expect(screen.getByText('Step 2 of 3')).toBeVisible();
+  });
+
+  it('skips the calendar step when it is already connected', async () => {
+    const t = await renderScreen('setup', { firstRun: true, sync: fakeSync(), seed: (w) => w.create('calendar', { connected: true }, CALENDAR_ID) });
+    await syncState(t, '2026-11-02T20:00:00Z', null);
+    await click('Next');
+    expect(await heading('Unavailable hours')).toBeVisible();
   });
 
   it('a capture goes to the Inbox', async () => {

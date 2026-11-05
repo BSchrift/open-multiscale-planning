@@ -9,6 +9,7 @@ import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useNow, useQuery, useStickyState } from '../../app/store';
+import { useCalendarCall } from '../settings/useCalendarCall';
 import { loadToday } from './data';
 import type { TodayData } from './data';
 import { DayTimeline } from './DayTimeline';
@@ -68,13 +69,22 @@ function Alerts(props: { alerts: readonly Alert[] }) {
   );
 }
 
-/** Phone shows each as its own quiet row. */
+/** Phone shows each as its own quiet row, with × beside one that can wait. */
 function AttnRow(props: { alert: Alert }) {
   const { alert } = props;
-  return (
-    <button className="attn" type="button" onClick={alert.act}>
+  const row = (
+    <button className={alert.skip ? 'attn grow' : 'attn'} type="button" onClick={alert.act}>
       <span>{alert.title}</span> <span className="quiet">{alert.label}</span>
     </button>
+  );
+  if (!alert.skip) return row;
+  return (
+    <div className="row nowrap stretchdue">
+      {row}
+      <button className="icbtn" type="button" aria-label={`Skip ${alert.title} for now`} onClick={alert.skip}>
+        ×
+      </button>
+    </div>
   );
 }
 
@@ -90,11 +100,13 @@ function Head(props: { date: string; title: string }) {
 
 function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null }) {
   const { data, unplanned } = props;
-  const { clock, layout } = useApp();
+  const { clock, layout, sync } = useApp();
   const nav = useNav();
   const { prompt, missed } = usePrompts(data);
+  const { call } = useCalendarCall();
   const [panel, setPanel] = useState<'shift' | 'queue' | null>(null);
   const [skippedStretch, setSkippedStretch] = useStickyState<string | null>('today.skippedStretch', null);
+  const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
   const phone = layout === 'phone';
   const tasks = new Map(data.tasks.map((t) => [t.id, t]));
 
@@ -126,6 +138,18 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   }
   if (stretchDue && !phone) {
     alerts.push({ key: 'stretch', title: planText, label: 'Start', act: () => nav.openFlow('plan'), skip: () => setSkippedStretch(stretchDue.end) });
+  }
+  // Connecting needs a sign-in. Skipped, it asks again the next week.
+  const week = thisWeek(clock);
+  if (sync && data.signedIn && !data.connected && skippedCalendar !== week) {
+    alerts.push({
+      key: 'calendar',
+      title: 'Connect Google Calendar',
+      text: 'Plan around your events and see your blocks in Google.',
+      label: 'Connect',
+      act: () => void call(sync.connectCalendar),
+      skip: () => setSkippedCalendar(week),
+    });
   }
 
   return (

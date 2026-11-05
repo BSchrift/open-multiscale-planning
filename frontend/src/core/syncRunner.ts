@@ -1,5 +1,5 @@
-// Decides when to sync: at launch, on returning to the foreground, 2 seconds after an edit, and every 5 minutes
-// while open. The result goes in the meta table, so Settings reads it with syncStatus like any other query, and it
+// Decides when to sync: at launch, on returning to the foreground, 2 seconds after an edit, every 5 minutes while
+// open, and every 5 seconds for 2 minutes after Google's consent page opens. The result goes in the meta table, so Settings reads it with syncStatus like any other query, and it
 // survives a restart. A failed sync changes nothing but that status: the outbox keeps everything for next time.
 //
 // There's no paused state to manage. Once a sign-in has expired the tokens are gone, so each trigger fails at once
@@ -11,7 +11,7 @@ import type { Clock } from './clock';
 import { nowInstant } from './dates';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
-import { rebaseClocks } from './records';
+import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
 import { apiPost, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
 import { RECORD_TYPES } from './types';
@@ -19,6 +19,8 @@ import type { Reminder } from './types';
 
 const EDIT_DELAY_MS = 2000;
 const PERIOD_MS = 5 * 60_000;
+const CONNECT_POLL_MS = 5000;
+const CONNECT_POLLS = 24;
 
 async function recordFailure(db: Db, code: SyncErrorCode): Promise<void> {
   await setMeta(db, META.lastSyncError, code);
@@ -153,6 +155,17 @@ export function startAppSync(
       },
     );
   });
+  // The connection, then the calendars Google has, arrive by sync, so look often while the person is on Google's page.
+  let connectPoll: ReturnType<typeof setInterval> | undefined;
+  const pollForConnection = () => {
+    clearInterval(connectPoll);
+    let left = CONNECT_POLLS;
+    connectPoll = setInterval(async () => {
+      const connected = (await getRecord(platform.db, 'calendar', CALENDAR_ID))?.connected;
+      if (left-- <= 0 || (connected && (await listRecords(platform.db, 'calendar_source')).length)) clearInterval(connectPoll);
+      else void runner.syncNow();
+    }, CONNECT_POLL_MS);
+  };
   runner.start();
   return {
     signIn: () => auth.signIn(),
@@ -200,6 +213,7 @@ export function startAppSync(
       // Only a web page: a link to another app's scheme from a bad response must not be opened.
       if (typeof body?.url !== 'string' || !/^https?:\/\//.test(body.url)) throw new SyncError('error');
       await platform.openExternal(body.url);
+      pollForConnection();
     },
     /** Asks the server to read calendars now, then syncs to bring back what it found. Throws SyncError. */
     async refreshCalendar(): Promise<void> {
@@ -207,6 +221,7 @@ export function startAppSync(
       await runner.syncNow();
     },
     stop(): void {
+      clearInterval(connectPoll);
       stopLinks();
       runner.stop();
     },

@@ -1,23 +1,32 @@
-// First run: sign in, unavailable hours, then a first goal or capture. Finishing sets setup_done_at, which syncs,
-// so a second device that signs in here skips the rest.
+// First run: sign in, connect Google Calendar, unavailable hours, then a first goal or capture. Finishing sets
+// setup_done_at, which syncs, so a second device that signs in here skips the rest.
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { nowInstant } from '../../../core/dates';
-import { updateSettings } from '../../../core/records';
-import { syncStatus } from '../../../core/sync';
+import { CALENDAR_ID, getRecord, updateSettings } from '../../../core/records';
+import { isSignedIn, syncStatus } from '../../../core/sync';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useStickyState } from '../../app/store';
 import { Pill } from '../../components/Pill';
 import { UnavailableList } from '../settings/Availability';
+import { useCalendarCall } from '../settings/useCalendarCall';
 
-const STEPS = 3;
+type Step = 'welcome' | 'calendar' | 'hours' | 'start';
 
 export default function Screen(props: ScreenProps) {
   const { layout } = props;
   const { clock, sync } = useApp();
-  // Kept on this device, since signing in leaves for the browser and the OS may close the app meanwhile.
-  const [step, setStep] = useStickyState('setup.step', 0);
+  // Kept on this device, since signing in and connecting leave for the browser and the OS may close the app meanwhile.
+  const [saved, setStep] = useStickyState<Step>('setup.at', 'welcome');
+  const { busy, call } = useCalendarCall();
+  const { data } = useQuery(async (sql) => ({ status: await syncStatus(sql), calendar: await getRecord(sql, 'calendar', CALENDAR_ID) }), []);
+  const signedIn = !!data && isSignedIn(data.status);
+  // Connecting needs a sign-in. Once it's connected, here or on another device, the step goes.
+  const steps: Step[] = ['welcome', ...(sync && signedIn && !data?.calendar?.connected ? (['calendar'] as const) : []), 'hours', 'start'];
+  // A step that went gives way to the one after it.
+  const step = !data || steps.includes(saved) ? saved : 'hours';
+  const index = steps.indexOf(step);
   const [title, setTitle] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
@@ -26,7 +35,6 @@ export default function Screen(props: ScreenProps) {
     if (moved.current) heading.current?.focus();
     moved.current = true;
   }, [step]);
-  const { data: status } = useQuery((sql) => syncStatus(sql), []);
   const finish = useMutation(async (w, kind: 'goal' | 'capture' | null) => {
     const text = title.trim();
     if (kind === 'goal' && text) await w.create('objective', { title: text, state: 'active' });
@@ -34,29 +42,28 @@ export default function Screen(props: ScreenProps) {
     await updateSettings(w, { setup_done_at: nowInstant(clock) });
   });
   const done = (kind: 'goal' | 'capture' | null) => {
-    setStep(0);
+    setStep('welcome');
     void finish.run(kind);
   };
+  if (!data) return null;
   const btn = layout === 'phone' ? 'btn grow' : 'btn';
   const back = (
-    <button className={btn} type="button" onClick={() => setStep(step - 1)}>
+    <button className={btn} type="button" onClick={() => setStep(steps[index - 1]!)}>
       Back
     </button>
   );
   const next = (primary: boolean, label = 'Next') => (
-    <button className={primary ? `${btn} pri` : btn} type="button" onClick={() => setStep(step + 1)}>
+    <button className={primary ? `${btn} pri` : btn} type="button" onClick={() => setStep(steps[index + 1]!)}>
       {label}
     </button>
   );
-  const signedOut = status?.lastError === 'sign_in_expired' || status?.lastError === 'sign_in_failed';
-  const signedIn = !!status && !signedOut && !!(status.lastSyncAt || status.lastError);
 
   return (
     <div className={layout === 'phone' ? 'stack setup' : 'wrap stack setup'}>
       <p className="small quiet">
-        Step {step + 1} of {STEPS}
+        Step {index + 1} of {steps.length}
       </p>
-      {step === 0 && (
+      {step === 'welcome' && (
         <>
           <h1 ref={heading} tabIndex={-1}>
             Welcome
@@ -81,7 +88,22 @@ export default function Screen(props: ScreenProps) {
           </div>
         </>
       )}
-      {step === 1 && (
+      {step === 'calendar' && sync && (
+        <>
+          <h1 ref={heading} tabIndex={-1}>
+            Google Calendar
+          </h1>
+          <p>Connect it to plan around your events and see your blocks in Google.</p>
+          <div className="row">
+            {back}
+            <button className={`${btn} pri`} type="button" disabled={busy} onClick={() => void call(sync.connectCalendar)}>
+              Connect
+            </button>
+            {next(false, 'Skip')}
+          </div>
+        </>
+      )}
+      {step === 'hours' && (
         <>
           <h1 ref={heading} tabIndex={-1}>
             Unavailable hours
@@ -96,7 +118,7 @@ export default function Screen(props: ScreenProps) {
           </div>
         </>
       )}
-      {step === 2 && (
+      {step === 'start' && (
         <form
           className="stack"
           onSubmit={(event: FormEvent) => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock, parseClock } from './clock';
 import { getMeta, META } from './db';
 import type { Db } from './db';
-import { getRecord, transact } from './records';
+import { CALENDAR_ID, getRecord, transact } from './records';
 import { SyncError, syncStatus, unsyncedChanges } from './sync';
 import type { SyncSend } from './sync';
 import { fakeSyncServer } from './sync-testing';
@@ -359,6 +359,37 @@ describe('startAppSync', () => {
     await t.finishSignIn();
     await t.sync.connectCalendar();
     expect(t.platform.opened.at(-1)).toBe('https://consent.example.test/?state=s');
+    t.sync.stop();
+  });
+
+  it('after opening the consent page, syncs every 5 seconds for 2 minutes', async () => {
+    const t = await app();
+    await t.finishSignIn();
+    await t.sync.connectCalendar();
+    const before = t.server.requests.length;
+    await vi.advanceTimersByTimeAsync(15 * SECOND);
+    expect(t.server.requests.length).toBe(before + 3);
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    expect(t.server.requests.length).toBe(before + 24);
+    // Short of the 5-minute sync.
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    expect(t.server.requests.length).toBe(before + 24);
+    t.sync.stop();
+  });
+
+  it('stops syncing that often once the connection and its calendars are here', async () => {
+    const t = await app();
+    await t.finishSignIn();
+    await t.sync.connectCalendar();
+    await vi.advanceTimersByTimeAsync(5 * SECOND);
+    await transact(t.platform.db, t.clock, async (w) => {
+      await w.create('calendar', { connected: true }, CALENDAR_ID);
+      await w.create('calendar_source', { google_id: 'cal-a', name: 'Work', mode: 'block' });
+    });
+    const before = t.server.requests.length;
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    // Only the sync for that edit.
+    expect(t.server.requests.length).toBe(before + 1);
     t.sync.stop();
   });
 

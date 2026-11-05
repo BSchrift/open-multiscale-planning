@@ -221,6 +221,12 @@ export interface SyncStatus {
   lastError: SyncErrorCode | null;
 }
 
+/** Signed in once it has synced, or tried to, and the last try wasn't refused for sign-in. */
+export function isSignedIn(status: SyncStatus): boolean {
+  const signedOut = status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed';
+  return !signedOut && !!(status.lastSyncAt || status.lastError);
+}
+
 /** How many records have changes this device hasn't sent yet. */
 export async function unsyncedChanges(sql: Sql): Promise<number> {
   return (await sql.get<{ n: number }>('SELECT COUNT(DISTINCT record_id) AS n FROM outbox'))?.n ?? 0;

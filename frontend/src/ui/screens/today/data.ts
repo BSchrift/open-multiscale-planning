@@ -6,6 +6,7 @@ import type { Sql } from '../../../core/db';
 import { blocksInRange, completionsSince, inboxCount, needsNewTime } from '../../../core/queries';
 import { busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
+import { isSignedIn, syncStatus } from '../../../core/sync';
 
 const DAY_MS = 86_400_000;
 /** Welcome back looks this far back for missed blocks. */
@@ -39,6 +40,7 @@ export async function loadToday(sql: Sql, clock: Clock) {
     calendar: calendar ?? null,
     sources,
     connected: !!calendar?.connected,
+    signedIn: isSignedIn(await syncStatus(sql)),
     queue: queueItems(await needsNewTime(sql), plans, picks, clock),
     inbox: await inboxCount(sql),
   };

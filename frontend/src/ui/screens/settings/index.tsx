@@ -19,6 +19,7 @@ import { Pill } from '../../components/Pill';
 import type { PillTone } from '../../components/Pill';
 import { useToast } from '../../components/Toast';
 import { UnavailableList } from './Availability';
+import { useCalendarCall } from './useCalendarCall';
 import './settings.css';
 
 function Section(props: { title: string; children: ReactNode }) {
@@ -47,14 +48,6 @@ const SYNC_STATE: Record<SyncErrorCode, { pill: string; tone: PillTone; line: st
   too_large: { pill: 'Partly synced', tone: 'amber', line: 'One item is too long to sync. Everything else syncs, and it will too once shortened.' },
   error: { pill: 'Not synced', tone: 'red', line: "Sync didn't work. It will try again." },
 };
-
-/** Calendar and sign-in requests fail with a SyncError code. */
-function failure(error: unknown): string {
-  const code = (error as { code?: unknown } | null)?.code;
-  if (code === 'offline') return "Couldn't reach the server. Try again when you're online.";
-  if (code === 'sign_in_expired') return 'Sign in first.';
-  return "That didn't work. Try again.";
-}
 
 function Account(props: { layout: Layout }) {
   const { sync, clock } = useApp();
@@ -177,7 +170,7 @@ const CALENDAR_ERRORS: Record<string, string> = {
 
 function Calendar(props: { layout: Layout }) {
   const { sync, clock } = useApp();
-  const toast = useToast();
+  const { busy, call } = useCalendarCall();
   const { data } = useQuery(
     async (sql) => ({
       calendar: await getRecord(sql, 'calendar', CALENDAR_ID),
@@ -186,22 +179,10 @@ function Calendar(props: { layout: Layout }) {
     [],
   );
   const setMode = useMutation((w, id: string, mode: CalendarMode) => w.set('calendar_source', id, { mode }));
-  const [busy, setBusy] = useState(false);
   if (!data) return null;
   const { calendar, sources } = data;
   const phone = props.layout === 'phone';
   const btn = phone ? 'btn' : 'btn sm';
-  const call = async (action: () => Promise<void>) => {
-    setBusy(true);
-    try {
-      await action();
-    } catch (error) {
-      // A SyncError is an expected state, such as being offline; anything else is a bug worth logging.
-      if (!(error as { code?: unknown } | null)?.code) console.error('Calendar request failed', error);
-      toast.show(failure(error));
-    }
-    setBusy(false);
-  };
   const error = calendar?.last_error ? (CALENDAR_ERRORS[calendar.last_error] ?? "Couldn't read your calendars. It will try again.") : null;
   return (
     <Section title="Google Calendar">

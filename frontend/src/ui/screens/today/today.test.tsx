@@ -1,9 +1,11 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
-import { getRecord, listRecords, outcomeId, weekPlanId } from '../../../core/records';
+import { META, setMeta } from '../../../core/db';
+import { CALENDAR_ID, getRecord, listRecords, outcomeId, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
+import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
 import { renderScreen } from '../../app/testing';
@@ -470,6 +472,68 @@ describe('when the week is not planned', () => {
     expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
     await waitFor(() => expect(screen.queryByText('Plan the next stretch. It starts Nov 8.')).toBeNull());
+  });
+});
+
+describe('Google Calendar', () => {
+  const fakeSync = () =>
+    ({
+      signIn: vi.fn(async () => undefined),
+      signOut: vi.fn(async () => undefined),
+      syncNow: vi.fn(async () => undefined),
+      connectCalendar: vi.fn(async () => undefined),
+      refreshCalendar: vi.fn(async () => undefined),
+      stop: vi.fn(),
+      email: vi.fn(async () => null),
+      eraseAndSignIn: vi.fn(async () => undefined),
+    }) satisfies AppSync;
+  const signIn = (t: Harness) =>
+    act(async () => {
+      await setMeta(t.db, META.lastSyncAt, NOW);
+      t.db.notifyChanged({ types: [], source: 'remote' });
+    });
+  afterEach(() => localStorage.clear());
+
+  it('on desktop, asks to connect it once signed in, and Connect opens Google', async () => {
+    const sync = fakeSync();
+    const t = await open(async () => undefined, { sync });
+    await signIn(t);
+    // After the first plan's alert.
+    await userEvent.click(await screen.findByRole('button', { name: 'Show 1 more alert' }));
+    expect(screen.getByText('Connect Google Calendar')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(sync.connectCalendar).toHaveBeenCalledOnce();
+  });
+
+  it('on phone, Connect opens Google, and × puts it away for the week', async () => {
+    const sync = fakeSync();
+    const t = await open(async () => undefined, { layout: 'phone', sync });
+    await signIn(t);
+    await userEvent.click(await screen.findByRole('button', { name: 'Connect Google Calendar Connect' }));
+    expect(sync.connectCalendar).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole('button', { name: 'Skip Connect Google Calendar for now' }));
+    await waitFor(() => expect(screen.queryByText('Connect Google Calendar')).toBeNull());
+    cleanup();
+    await signIn(await open(async () => undefined, { layout: 'phone', sync, now: at('14:00', '2026-11-04') }));
+    await screen.findByRole('heading', { level: 1, name: 'Today' });
+    expect(screen.queryByText('Connect Google Calendar')).toBeNull();
+    cleanup();
+    const next = '2026-11-09';
+    const plannedNext = (w: Writer) => w.create('week_plan', { week_start: next, finished_at: at('08:00', next) }, weekPlanId(next));
+    await signIn(await open(plannedNext, { layout: 'phone', sync, now: at('14:00', next) }));
+    expect(await screen.findByText('Connect Google Calendar')).toBeVisible();
+  });
+
+  it('is not asked once connected, or before signing in', async () => {
+    const sync = fakeSync();
+    const t = await open((w) => w.create('calendar', { connected: true }, CALENDAR_ID), { layout: 'phone', sync });
+    await signIn(t);
+    await screen.findByRole('heading', { level: 1, name: 'Today' });
+    expect(screen.queryByText('Connect Google Calendar')).toBeNull();
+    cleanup();
+    await open(async () => undefined, { layout: 'phone', sync });
+    await screen.findByRole('heading', { level: 1, name: 'Today' });
+    expect(screen.queryByText('Connect Google Calendar')).toBeNull();
   });
 });
 

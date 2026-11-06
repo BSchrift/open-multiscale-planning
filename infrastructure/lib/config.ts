@@ -13,8 +13,8 @@ export interface Aws {
 
 export interface ControlConfig {
   aws: Aws;
-  /** hostedZoneId is the zone Route 53 made when the domain was registered. */
-  dns?: { domain: string; hostedZoneId: string };
+  /** hostedZoneId is the zone Route 53 made when the domain was registered. txt is the domain's own TXT values, such as a site verification. */
+  dns?: { domain: string; hostedZoneId: string; txt?: string[] };
 }
 
 export interface Config {
@@ -69,6 +69,9 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
   const problems = awsProblems(c.aws);
   if (c.dns != null && !matches(domainName, c.dns.domain)) problems.push('dns.domain must be a lowercase domain name like example.net');
   if (c.dns != null && !matches(/^Z[0-9A-Z]{1,32}$/, c.dns.hostedZoneId)) problems.push('dns.hostedZoneId must be a Route 53 zone id like Z0123456789ABCDEFGHIJ');
+  if (c.dns?.txt != null && !(Array.isArray(c.dns.txt) && c.dns.txt.every((v: unknown) => typeof v === 'string' && v !== ''))) {
+    problems.push('dns.txt must be a list of TXT values');
+  }
   if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain))) {
     problems.push('still has example values');
   }

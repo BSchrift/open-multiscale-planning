@@ -88,6 +88,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `aws.profile` | `multiscale-control`. |
    | `dns.domain` | Your domain from step 3, such as `example.com`. Without one, delete the `dns` section. |
    | `dns.hostedZoneId` | The id of the zone Route 53 made for the domain in step 3, such as `Z0123456789ABCDEFGHIJ`. |
+   | `dns.txt` | Optional. TXT values on the domain itself, such as `google-site-verification=…` from Google Search Console. |
 
    `staging.yaml` and `prod.yaml`:
 

@@ -31,6 +31,7 @@ function native(staged: number | null = null) {
     staged: vi.fn(async () => staged),
     apply: vi.fn(async () => undefined),
     ready: vi.fn(),
+    rolledBack: vi.fn(async () => null),
   };
   return updates;
 }
@@ -50,7 +51,7 @@ describe('createUpdater', () => {
   it('downloads a newer release and hands it to native code as signed', async () => {
     const n = native();
     const status = await start(server(manifest()), n).check();
-    expect(status).toEqual({ state: 'ready', version: '0.2.0-bbbbbbb' });
+    expect(status).toEqual({ state: 'ready', version: '0.2.0-bbbbbbb', build: 200 });
     expect(n.installed).toHaveLength(1);
     expect(n.installed[0]!.manifest).toBe(JSON.stringify(manifest()));
     expect(n.installed[0]!.signature).toBe('sig');
@@ -66,7 +67,7 @@ describe('createUpdater', () => {
 
   it("asks for the new app when the release needs native code this app doesn't have", async () => {
     const n = native();
-    expect(await start(server(manifest({ shell: { electron: 'newer', ios: 'shell-i' } })), n).check()).toEqual({ state: 'needs-app', version: '0.2.0-bbbbbbb' });
+    expect(await start(server(manifest({ shell: { electron: 'newer', ios: 'shell-i' } })), n).check()).toEqual({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 });
     expect(n.install).not.toHaveBeenCalled();
   });
 
@@ -84,21 +85,36 @@ describe('createUpdater', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('fails without installing when the feed or a file is missing, or native code refuses it', async () => {
-    expect(await start(server(null), native()).check()).toEqual({ state: 'failed' });
+  it('fails without installing when the feed or a file is missing, saying which', async () => {
+    expect(await start(server(null), native()).check()).toEqual({ state: 'failed', failure: 'fetch' });
     updater!.stop();
 
     const n = native();
     const fetch = server(manifest({ files: [{ path: 'index.html', sha256: 'gone', size: 1 }] }));
-    expect(await start(fetch, n).check()).toEqual({ state: 'failed' });
+    expect(await start(fetch, n).check()).toEqual({ state: 'failed', failure: 'download', build: 200 });
     expect(n.install).not.toHaveBeenCalled();
-    updater!.stop();
+  });
 
-    const refusing = native();
-    refusing.install = vi.fn(async () => {
-      throw new Error('Bad signature');
-    });
-    expect(await start(server(manifest()), refusing).check()).toEqual({ state: 'failed' });
+  it("fails with native code's reason when it refuses the release", async () => {
+    for (const [message, failure] of [
+      ['[signature] The release signature does not match', 'signature'],
+      // Electron's IPC wraps the main process's message.
+      ["Error invoking remote method 'updates:install': Error: [rolled-back] Build 200 was rolled back on this device", 'rolled-back'],
+      ['ENOSPC: no space left on device', 'install'],
+    ]) {
+      const refusing = native();
+      refusing.install = vi.fn(async () => {
+        throw new Error(message);
+      });
+      expect(await start(server(manifest()), refusing).check()).toEqual({ state: 'failed', failure, build: 200 });
+      updater!.stop();
+    }
+  });
+
+  it('passes on the build native code rolled back', async () => {
+    const n = native();
+    n.rolledBack = vi.fn(async () => 150);
+    expect(await start(server(null), n).rolledBack()).toBe(150);
   });
 
   it('reports each change of status, and runs one check at a time', async () => {

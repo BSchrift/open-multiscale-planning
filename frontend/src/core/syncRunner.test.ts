@@ -249,7 +249,7 @@ describe('startAppSync', () => {
         return new Response(JSON.stringify({ error: (err as SyncError).code }), { status: 400 });
       }
     });
-    const sync = startAppSync(platform, clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, fetchFn);
+    const sync = startAppSync(platform, clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, { fetch: fetchFn });
     const finishSignIn = async () => {
       await sync.signIn();
       const state = new URL(platform.opened.at(-1)!).searchParams.get('state');
@@ -463,7 +463,7 @@ describe('startAppSync', () => {
         if (!who) return new Response('{}', { status: 401 });
         return new Response(JSON.stringify(await servers[who].send(JSON.parse(init.body as string))));
       });
-      const sync = startAppSync(platform, clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, fetchFn);
+      const sync = startAppSync(platform, clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, { fetch: fetchFn });
       const signInAs = async (who: 'a' | 'b') => {
         next = who;
         await sync.signIn();

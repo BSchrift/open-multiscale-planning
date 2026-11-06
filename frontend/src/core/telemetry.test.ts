@@ -2,6 +2,7 @@ import { InMemoryLogRecordExporter } from '@opentelemetry/sdk-logs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTelemetry } from './telemetry';
 import type { Diagnostics, DiagnosticsSnapshot } from './telemetry';
+import type { UpdateStatus, Updater } from './updates';
 
 const T0 = Date.parse('2026-11-05T06:00:00Z');
 const MB = 1024 * 1024;
@@ -9,7 +10,7 @@ const MB = 1024 * 1024;
 beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'], now: T0 }));
 afterEach(() => vi.useRealTimers());
 
-async function setup(snapshot?: Partial<DiagnosticsSnapshot>) {
+async function setup(snapshot?: Partial<DiagnosticsSnapshot>, updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack'>) {
   const exporter = new InMemoryLogRecordExporter();
   let warn: (() => void) | undefined;
   const diagnostics: Diagnostics | undefined = snapshot && {
@@ -28,6 +29,7 @@ async function setup(snapshot?: Partial<DiagnosticsSnapshot>) {
     now: () => Date.now(),
     resource: { 'os.name': 'ios', 'session.id': 's-1' },
     ...(diagnostics ? { diagnostics } : {}),
+    ...(updates ? { updates } : {}),
     screen: () => 'week',
     target: target as never,
   });
@@ -77,5 +79,35 @@ describe('startTelemetry', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect((await t.events()).map((e) => e.eventName)).toEqual(['app.start', 'device.memory_warning', 'app.hidden']);
     t.telemetry.stop();
+  });
+
+  it("reports each update check's result, and a bundle rolled back before this page loaded", async () => {
+    // A check that finished before telemetry started is reported too.
+    let status: UpdateStatus = { state: 'current' };
+    const listeners = new Set<() => void>();
+    const t = await setup(undefined, {
+      status: () => status,
+      subscribe: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+      rolledBack: async () => 300,
+    });
+    const set = (next: UpdateStatus) => {
+      status = next;
+      for (const listener of listeners) listener();
+    };
+    set({ state: 'checking' });
+    set({ state: 'failed', failure: 'signature', build: 400 });
+    set({ state: 'checking' });
+    set({ state: 'failed', failure: 'fetch' });
+    set({ state: 'ready', version: '0.2.0-bbbbbbb', build: 400 });
+    const updates = (await t.events()).filter((e) => e.eventName?.startsWith('app.update'));
+    expect(updates.map((e) => [e.eventName, e.attributes])).toEqual([
+      ['app.update.rollback', { 'app.screen.name': 'week', 'app.update.build': 300 }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'current' }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'failed', 'app.update.failure': 'signature', 'app.update.build': 400 }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'failed', 'app.update.failure': 'fetch' }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'ready', 'app.update.build': 400 }],
+    ]);
+    t.telemetry.stop();
+    expect(listeners.size).toBe(0);
   });
 });

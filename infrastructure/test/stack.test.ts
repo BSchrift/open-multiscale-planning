@@ -321,14 +321,15 @@ describe('observability', () => {
 
   it('shows what the apps report, from Logs Insights on the API log group', () => {
     const body = JSON.stringify(ofType('AWS::CloudWatch::Dashboard')[0]![1].Properties.DashboardBody);
-    for (const title of ['App memory (MB), by platform and version', 'App memory, by platform and version', 'How app runs ended', 'App errors', 'App events by screen']) {
+    for (const title of ['App memory (MB), by platform and version', 'App memory, by platform and version', 'How app runs ended', 'App errors', 'App events by screen', 'Update checks', 'Updates rolled back']) {
       assert.ok(body.includes(title), title);
     }
-    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 5);
-    assert.equal(body.match(/client_event/g)?.length, 5);
+    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 7);
+    assert.equal(body.match(/client_event/g)?.length, 7);
     // Every panel tells desktop from mobile and one build from another.
-    assert.equal(body.match(/app\.platform/g)?.length, 5);
-    assert.equal(body.match(/service\.version/g)?.length, 6);
+    assert.equal(body.match(/app\.platform/g)?.length, 7);
+    assert.equal(body.match(/service\.version/g)?.length, 8);
+    for (const field of ['app.update.check', 'app.update.outcome', 'app.update.failure', 'app.update.rollback', 'app.update.build']) assert.ok(body.includes(field), field);
     assert.ok(body.includes('ApiLogs'));
   });
 

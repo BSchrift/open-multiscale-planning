@@ -9,6 +9,7 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
 import type { LogRecordExporter } from '@opentelemetry/sdk-logs';
+import type { Updater } from './updates';
 
 export type Attributes = Record<string, string | number>;
 
@@ -48,8 +49,9 @@ function errorPlace(event: ErrorEvent): Attributes {
 }
 
 /**
- * Reports app.start and the last run's end at once, an app.heartbeat each minute, memory warnings and uncaught errors.
- * The SDK sends a batch each minute and when the page is hidden; a batch that fails to send is dropped.
+ * Reports app.start and the last run's end at once, an app.heartbeat each minute, memory warnings and uncaught errors,
+ * each update check's result and an update rolled back. The SDK sends a batch each minute and when the page is hidden; a
+ * batch that fails to send is dropped.
  */
 export async function startTelemetry(deps: {
   /** The OTLP endpoint, and the headers for each send, such as a fresh sign-in token. */
@@ -60,6 +62,8 @@ export async function startTelemetry(deps: {
   now(): number;
   resource: Attributes;
   diagnostics?: Diagnostics;
+  /** Over-the-air updates, in apps that take them. */
+  updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack'>;
   /** The screen on show, such as week. */
   screen(): string | undefined;
   /** Where errors and visibility changes arrive: the window. */
@@ -111,6 +115,23 @@ export async function startTelemetry(deps: {
     });
   }
 
+  // A bundle that never reported ready can't report itself, so the one loaded after it does.
+  const { updates } = deps;
+  const rolledBack = await updates?.rolledBack().catch(() => null);
+  if (rolledBack) record('app.update.rollback', { 'app.update.build': rolledBack });
+  const updateChecked = () => {
+    const status = updates!.status();
+    if (status.state === 'idle' || status.state === 'checking') return;
+    record('app.update.check', {
+      'app.update.outcome': status.state,
+      ...(status.state === 'failed' ? { 'app.update.failure': status.failure } : {}),
+      ...('build' in status && status.build ? { 'app.update.build': status.build } : {}),
+    });
+  };
+  // A check that finished before this started is reported too.
+  if (updates) updateChecked();
+  const stopUpdates = updates?.subscribe(updateChecked);
+
   const onError = (event: Event) => record('exception', errorPlace(event as ErrorEvent));
   const onRejection = (event: Event) => {
     const reason = (event as PromiseRejectionEvent).reason as { name?: unknown } | undefined;
@@ -130,6 +151,7 @@ export async function startTelemetry(deps: {
     stop(): void {
       clearInterval(timer);
       stopWarnings?.();
+      stopUpdates?.();
       target.removeEventListener('error', onError);
       target.removeEventListener('unhandledrejection', onRejection);
       target.removeEventListener('visibilitychange', onVisibility);

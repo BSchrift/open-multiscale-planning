@@ -328,6 +328,21 @@ export class MultiscaleStack extends Stack {
             'stats count(*) as events, max(`process.memory.usage`) / 1048576 as max_mb, avg(`browser.dom.nodes`) as dom_nodes by `app.platform`, `service.version`, `app.screen.name`, event',
             'sort events desc'),
         ],
+        [
+          // Each over-the-air update check: current, ready, needs-app, or failed with where it stopped or why native
+          // code refused the release.
+          appEvents('Update checks', LogQueryVisualizationType.TABLE,
+            'filter event = "app.update.check"',
+            'stats count(*) as checks, count_distinct(`device.id`) as devices by `app.platform`, `service.version`, `app.update.outcome`, `app.update.failure`, `app.update.build`',
+            'sort checks desc',
+            'limit 20'),
+          // A downloaded bundle that never drew the app, reported by the bundle the app went back to.
+          appEvents('Updates rolled back', LogQueryVisualizationType.TABLE,
+            'filter event = "app.update.rollback"',
+            'stats count(*) as times, count_distinct(`device.id`) as devices by `app.platform`, `app.update.build`, `service.version`',
+            'sort times desc',
+            'limit 20'),
+        ],
       ],
     });
 

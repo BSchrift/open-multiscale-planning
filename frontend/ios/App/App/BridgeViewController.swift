@@ -7,6 +7,8 @@ class BridgeViewController: CAPBridgeViewController {
     private(set) var web = WebBundles.newest()
     private var trial: Timer?
     private var backgroundAt: Date?
+    /// Kept until the page loaded after the rollback asks, so telemetry can report it.
+    var rolledBack: Int?
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
@@ -63,15 +65,17 @@ class BridgeViewController: CAPBridgeViewController {
         trial = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { [weak self] _ in
             guard let self else { return }
             CAPLog.print("Web bundle \(self.web.build) didn't start, so it's rolled back")
+            self.rolledBack = self.web.build
             WebBundles.reject(self.web.build)
             self.load(WebBundles.newest())
         }
     }
 }
 
+/// Refused, with why as a code in brackets, which the page reports: see failure in src/core/updates.ts.
 struct UpdateError: LocalizedError {
     let errorDescription: String?
-    init(_ message: String) { errorDescription = message }
+    init(_ code: String, _ message: String) { errorDescription = "[\(code)] \(message)" }
 }
 
 /// Web bundles downloaded over the air, kept beside the bundle inside the app. One is installed only when the key inside
@@ -108,9 +112,11 @@ enum WebBundles {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(String(build)))
     }
 
-    private static func runsHere(build: Int, shell: String?) -> Bool {
-        guard let embedded, let shell else { return false }
-        return shell == embedded.shell && build > embedded.build && !bad.contains(build)
+    /// Why this app can't run a bundle, or nil when it can.
+    private static func cannotRun(build: Int, shell: String?) -> String? {
+        if bad.contains(build) { return "rolled-back" }
+        guard let embedded, let shell, shell == embedded.shell, build > embedded.build else { return "not-for-this-app" }
+        return nil
     }
 
     /// The newest installed bundle this app can run, else the one inside the app.
@@ -118,7 +124,7 @@ enum WebBundles {
         var best = (root: embeddedRoot, build: embedded?.build ?? 0)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] {
             let root = dir.appendingPathComponent(name, isDirectory: true)
-            guard let build = Int(name), let found = info(root), found.build == build, runsHere(build: build, shell: found.shell), build > best.build else { continue }
+            guard let build = Int(name), let found = info(root), found.build == build, cannotRun(build: build, shell: found.shell) == nil, build > best.build else { continue }
             best = (root, build)
         }
         return best
@@ -133,15 +139,19 @@ enum WebBundles {
     static func install(manifest: String, signature: String, files: [String: Data], running: URL) throws {
         guard let keyText = embedded?.releaseKey, let keyData = Data(base64Encoded: keyText),
               let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyData) else {
-            throw UpdateError("This app was built without a release key, so it takes no updates")
+            throw UpdateError("key", "This app was built without a release key, so it takes no updates")
         }
         guard let sig = Data(base64Encoded: signature), key.isValidSignature(sig, for: Data(manifest.utf8)) else {
-            throw UpdateError("The release signature does not match")
+            throw UpdateError("signature", "The release signature does not match")
         }
-        guard let json = try JSONSerialization.jsonObject(with: Data(manifest.utf8)) as? [String: Any],
-              let build = json["build"] as? Int, let list = json["files"] as? [[String: Any]],
-              runsHere(build: build, shell: (json["shell"] as? [String: Any])?["ios"] as? String) else {
-            throw UpdateError("The release is not newer, or not for this app's native code")
+        guard let json = try? JSONSerialization.jsonObject(with: Data(manifest.utf8)) as? [String: Any],
+              let build = json["build"] as? Int, let list = json["files"] as? [[String: Any]] else {
+            throw UpdateError("release", "Bad release")
+        }
+        switch cannotRun(build: build, shell: (json["shell"] as? [String: Any])?["ios"] as? String) {
+        case "rolled-back"?: throw UpdateError("rolled-back", "Build \(build) was rolled back on this device")
+        case let reason?: throw UpdateError(reason, "Build \(build) is not newer, or not for this app's native code")
+        case nil: break
         }
         let manager = FileManager.default
         let target = dir.appendingPathComponent(String(build), isDirectory: true)
@@ -151,14 +161,14 @@ enum WebBundles {
             for file in list {
                 guard let path = file["path"] as? String, safe(path), let data = files[path],
                       SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == file["sha256"] as? String else {
-                    throw UpdateError("\(file["path"] ?? "A file") does not match the release")
+                    throw UpdateError("file", "\(file["path"] ?? "A file") does not match the release")
                 }
                 let url = partial.appendingPathComponent(path)
                 try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try data.write(to: url)
             }
             guard info(partial)?.build == build, manager.fileExists(atPath: partial.appendingPathComponent("index.html").path) else {
-                throw UpdateError("The release has no index.html, or a version.json for another build")
+                throw UpdateError("incomplete", "The release has no index.html, or a version.json for another build")
             }
         } catch {
             try? manager.removeItem(at: partial)
@@ -185,6 +195,7 @@ class UpdatesPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "staged", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "ready", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "rolledBack", returnType: CAPPluginReturnPromise),
     ]
 
     private var controller: BridgeViewController? { bridge?.viewController as? BridgeViewController }
@@ -192,7 +203,7 @@ class UpdatesPlugin: CAPPlugin, CAPBridgedPlugin {
     /// files maps each path to its contents in base64.
     @objc func install(_ call: CAPPluginCall) {
         guard let manifest = call.getString("manifest"), let signature = call.getString("signature"), let encoded = call.getObject("files") else {
-            return call.reject("Bad release")
+            return call.reject("[release] Bad release")
         }
         var files: [String: Data] = [:]
         for (path, value) in encoded {
@@ -227,6 +238,15 @@ class UpdatesPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async {
             self.controller?.confirm()
             call.resolve()
+        }
+    }
+
+    /// The build this run rolled back, if any, once.
+    @objc func rolledBack(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let build = self.controller?.rolledBack
+            self.controller?.rolledBack = nil
+            call.resolve(["build": build ?? NSNull()])
         }
     }
 }

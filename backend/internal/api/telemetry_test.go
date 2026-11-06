@@ -82,6 +82,32 @@ func TestTelemetryLogsOnlyAllowedEventsAndAttributes(t *testing.T) {
 	}
 }
 
+func TestTelemetryKeepsUpdateChecksAndRollbacks(t *testing.T) {
+	s, logs := newServer(&fakeSyncer{}, nil)
+	body := `{"resourceLogs":[{"resource":{"attributes":[{"key":"service.version","value":{"stringValue":"0.1.0-c2091ac"}}]},
+  "scopeLogs":[{"logRecords":[
+    {"eventName":"app.update.check","attributes":[
+      {"key":"app.update.outcome","value":{"stringValue":"failed"}},
+      {"key":"app.update.failure","value":{"stringValue":"rolled-back"}},
+      {"key":"app.update.build","value":{"intValue":"1793979385"}}]},
+    {"eventName":"app.update.rollback","attributes":[
+      {"key":"app.update.build","value":{"intValue":1793979385}}]}]}]}]}`
+	if rec := do(s, "POST", "/v1/logs", body, testSub); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{}` {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	events := clientEvents(t, logs)
+	if len(events) != 2 {
+		t.Fatalf("%d events: %s", len(events), logs)
+	}
+	check, rollback := events[0], events[1]
+	if check["event"] != "app.update.check" || check["app.update.outcome"] != "failed" || check["app.update.failure"] != "rolled-back" || check["app.update.build"] != float64(1793979385) {
+		t.Errorf("%+v", check)
+	}
+	if rollback["event"] != "app.update.rollback" || rollback["app.update.build"] != float64(1793979385) || rollback["service.version"] != "0.1.0-c2091ac" {
+		t.Errorf("%+v", rollback)
+	}
+}
+
 func TestTelemetryRefusesWhatIsNotAnExport(t *testing.T) {
 	s, _ := newServer(&fakeSyncer{}, nil)
 	if rec := do(s, "POST", "/v1/logs", `not json`, testSub); rec.Code != 400 {

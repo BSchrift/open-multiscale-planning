@@ -36,6 +36,7 @@ const NativeUpdates = registerPlugin<{
   staged(): Promise<{ build: number | null }>;
   apply(): Promise<void>;
   ready(): Promise<void>;
+  rolledBack(): Promise<{ build: number | null }>;
 }>('MultiscaleUpdates');
 
 /** The bridge carries JSON, so bytes cross it as base64. In slices, since one call can only take so many arguments. */
@@ -188,6 +189,7 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
       staged: async () => (await NativeUpdates.staged()).build,
       apply: () => NativeUpdates.apply(),
       ready: () => void NativeUpdates.ready(),
+      rolledBack: async () => (await NativeUpdates.rolledBack()).build,
     },
     // The Control Center widget is this phone's capture shortcut: it opens the capture link.
     hotkey: { onCapture: captures.on },

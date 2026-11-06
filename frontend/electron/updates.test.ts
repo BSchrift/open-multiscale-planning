@@ -54,21 +54,21 @@ describe('webBundles', () => {
     const { embedded, bundles } = setup();
     const other = pair();
     const forged = download(build('forged', { version: 'x', build: 200, shell, releaseKey: publicOf(other) }), other);
-    expect(() => bundles.install(forged, embedded)).toThrow('signature');
+    expect(() => bundles.install(forged, embedded)).toThrow('[signature]');
 
     const tampered = release(200);
-    expect(() => bundles.install({ ...tampered, manifest: tampered.manifest.replace('"build":200', '"build":201') }, embedded)).toThrow('signature');
-    expect(() => bundles.install({ ...tampered, files: { ...tampered.files, 'assets/app.js': new TextEncoder().encode('evil') } }, embedded)).toThrow('does not match');
+    expect(() => bundles.install({ ...tampered, manifest: tampered.manifest.replace('"build":200', '"build":201') }, embedded)).toThrow('[signature]');
+    expect(() => bundles.install({ ...tampered, files: { ...tampered.files, 'assets/app.js': new TextEncoder().encode('evil') } }, embedded)).toThrow('[file]');
     expect(bundles.newest().build).toBe(100);
     expect(existsSync(join(tmp, 'web', '200.partial'))).toBe(false);
   });
 
   it('refuses a release for other native code, an older or equal build, or one that was rolled back', () => {
     const { embedded, bundles } = setup();
-    expect(() => bundles.install(release(200, { shell: { electron: 'e2', ios: 'i1' } }), embedded)).toThrow('native code');
-    expect(() => bundles.install(release(100), embedded)).toThrow('not newer');
+    expect(() => bundles.install(release(200, { shell: { electron: 'e2', ios: 'i1' } }), embedded)).toThrow('[not-for-this-app]');
+    expect(() => bundles.install(release(100), embedded)).toThrow('[not-for-this-app]');
     bundles.reject(300);
-    expect(() => bundles.install(release(300), embedded)).toThrow('not newer');
+    expect(() => bundles.install(release(300), embedded)).toThrow('[rolled-back]');
   });
 
   it('refuses paths that climb out of the bundle', () => {
@@ -77,13 +77,13 @@ describe('webBundles', () => {
     const manifest = r.manifest.replace('"evil.js"', '"../evil.js"');
     // Signed as written, so only the path check can stop it.
     const signed = { ...r, manifest, signature: signWith(key, manifest), files: { ...r.files, '../evil.js': r.files['evil.js']! } };
-    expect(() => bundles.install(signed, embedded)).toThrow('Unsafe path');
+    expect(() => bundles.install(signed, embedded)).toThrow('[file]');
     expect(existsSync(join(tmp, 'web', 'evil.js'))).toBe(false);
   });
 
   it("refuses everything when the app was built without a release key", () => {
     const embedded = build('embedded', { version: '0.1.0-a', build: 100, shell });
-    expect(() => webBundles(join(tmp, 'web'), embedded).install(release(200), embedded)).toThrow('without a release key');
+    expect(() => webBundles(join(tmp, 'web'), embedded).install(release(200), embedded)).toThrow('[key]');
   });
 
   it('keeps the running bundle and the new one, and clears older downloads', () => {

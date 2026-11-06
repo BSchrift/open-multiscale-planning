@@ -46,7 +46,7 @@ createPlatform(__APP_CONFIG__.env).then(
         : undefined;
     root.render(
       <StrictMode>
-        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__)} updates={updates}>
+        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, updates ? { updates } : {})} updates={updates}>
           <Shell />
         </AppProvider>
       </StrictMode>,

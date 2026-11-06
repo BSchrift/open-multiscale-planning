@@ -17,6 +17,7 @@ import { apiPost, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
 import { RECORD_TYPES } from './types';
 import type { Reminder } from './types';
+import type { Updater } from './updates';
 
 const EDIT_DELAY_MS = 2000;
 const PERIOD_MS = 5 * 60_000;
@@ -122,9 +123,11 @@ export function startAppSync(
   },
   clock: Clock,
   config: AppConfig,
-  // Wrapped because the browser's fetch fails when called as a method of another object.
-  fetchFn: FetchFn = (url, init) => fetch(url, init),
+  /** updates is the app's updater, whose checks telemetry reports. */
+  options: { fetch?: FetchFn; updates?: Updater } = {},
 ) {
+  // Wrapped because the browser's fetch fails when called as a method of another object.
+  const fetchFn: FetchFn = options.fetch ?? ((url, init) => fetch(url, init));
   const auth = createAuth({
     authUrl: config.authUrl,
     clientId: config.authClientId,
@@ -191,6 +194,7 @@ export function startAppSync(
           ...(device ? { 'device.id': device } : {}),
         },
         ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
+        ...(options.updates ? { updates: options.updates } : {}),
         screen: () => document.documentElement.dataset.screen,
         target: window,
       });

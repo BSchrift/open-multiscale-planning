@@ -28,14 +28,22 @@ export interface NativeUpdates {
   apply(): Promise<void>;
   /** This bundle started and drew the app. A new bundle that never says so is rolled back. */
   ready(): void;
+  /** The build this run of the app rolled back, if any. It answers once, so the bundle loaded next can report it. */
+  rolledBack(): Promise<number | null>;
 }
 
 export type UpdateStatus =
-  | { state: 'idle' | 'checking' | 'current' | 'failed' }
+  | { state: 'idle' | 'checking' | 'current' }
   /** Downloaded: it runs from the next launch, or now on apply. */
-  | { state: 'ready'; version: string }
+  | { state: 'ready'; version: string; build: number }
   /** The release needs newer native code than this app has, so the app itself must be replaced. */
-  | { state: 'needs-app'; version: string };
+  | { state: 'needs-app'; version: string; build: number }
+  /**
+   * failure is fetch when release.json couldn't be read, download when one of its files couldn't, and otherwise why
+   * native code refused the release, such as signature or rolled-back. Native code puts that code in brackets in its
+   * error.
+   */
+  | { state: 'failed'; failure: string; build?: number };
 
 export interface Updater {
   /** The running bundle's version. */
@@ -46,6 +54,8 @@ export interface Updater {
   subscribe(listener: () => void): () => void;
   check(): Promise<UpdateStatus>;
   apply(): Promise<void>;
+  /** The build native code rolled back before this page loaded, if any. It answers once. */
+  rolledBack(): Promise<number | null>;
   stop(): void;
 }
 
@@ -84,21 +94,29 @@ export function createUpdater(deps: {
 
   async function run(): Promise<UpdateStatus> {
     set({ state: 'checking' });
+    // How far the check got, for saying why it failed.
+    let failure = 'fetch';
+    let build: number | undefined;
     try {
       const release = (await (await fetchOk(`${deps.url}/release.json`, { cache: 'no-store' })).json()) as { manifest: string; signature: string };
       const manifest = JSON.parse(release.manifest) as Manifest;
       if (manifest.build <= deps.build) return set({ state: 'current' });
-      if (manifest.shell[deps.platform] !== deps.shell) return set({ state: 'needs-app', version: manifest.version });
-      if ((await deps.native.staged()) !== manifest.build) {
+      build = manifest.build;
+      if (manifest.shell[deps.platform] !== deps.shell) return set({ state: 'needs-app', version: manifest.version, build });
+      failure = 'install';
+      if ((await deps.native.staged()) !== build) {
+        failure = 'download';
         const files = await Promise.all(
           manifest.files.map(async (f) => [f.path, new Uint8Array(await (await fetchOk(`${deps.url}/files/${f.sha256}`)).arrayBuffer())] as const),
         );
+        failure = 'install';
         await deps.native.install({ manifest: release.manifest, signature: release.signature, files: Object.fromEntries(files) });
       }
-      return set({ state: 'ready', version: manifest.version });
+      return set({ state: 'ready', version: manifest.version, build });
     } catch (error) {
       console.warn('Update check failed', error);
-      return set({ state: 'failed' });
+      if (failure === 'install') failure = /\[([a-z-]+)\]/.exec(String(error))?.[1] ?? 'install';
+      return set({ state: 'failed', failure, ...(build ? { build } : {}) });
     }
   }
 
@@ -124,6 +142,7 @@ export function createUpdater(deps: {
     },
     check,
     apply: () => deps.native.apply(),
+    rolledBack: () => deps.native.rolledBack(),
     stop() {
       clearTimeout(first);
       clearInterval(period);

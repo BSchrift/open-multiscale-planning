@@ -387,6 +387,7 @@ describe('Settings updates', () => {
         return status;
       }),
       apply: vi.fn(async () => undefined),
+      rolledBack: vi.fn(async () => null),
       stop: vi.fn(),
     } satisfies Updater;
     return updater;
@@ -408,7 +409,7 @@ describe('Settings updates', () => {
   });
 
   it('offers to restart into a downloaded update', async () => {
-    const updates = fakeUpdater({ state: 'ready', version: '0.2.0-bbbbbbb' });
+    const updates = fakeUpdater({ state: 'ready', version: '0.2.0-bbbbbbb', build: 200 });
     await renderScreen('settings', { updates });
     expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb is ready. It starts the next time the app opens.')).toBeVisible();
     await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Restart now' }));
@@ -416,7 +417,7 @@ describe('Settings updates', () => {
   });
 
   it('links to the new app when an update needs it', async () => {
-    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb' }, { download: 'https://downloads.example.test/Multiscale.dmg' });
+    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }, { download: 'https://downloads.example.test/Multiscale.dmg' });
     const t = await renderScreen('settings', { updates });
     expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.')).toBeVisible();
     await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Download the app' }));
@@ -424,10 +425,10 @@ describe('Settings updates', () => {
   });
 
   it('says when checking failed, with no download offered on iPhone', async () => {
-    await renderScreen('settings', { updates: fakeUpdater({ state: 'failed' }) });
+    await renderScreen('settings', { updates: fakeUpdater({ state: 'failed', failure: 'fetch' }) });
     expect(await within(section('Updates')).findByText("Couldn't check for updates. It tries again later.")).toBeVisible();
     cleanup();
-    await renderScreen('settings', { updates: fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb' }) });
+    await renderScreen('settings', { updates: fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }) });
     await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.');
     expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
   });

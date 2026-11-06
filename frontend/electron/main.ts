@@ -39,6 +39,8 @@ let quitting = false;
 let bundles: ReturnType<typeof webBundles> | undefined;
 let web = { root: WEB_ROOT, build: 0 };
 let trial: NodeJS.Timeout | undefined;
+// Kept until the page loaded after the rollback asks, so telemetry can report it.
+let rolledBack: number | null = null;
 
 // The page must be up before it can take a capture or a deep link: it loads hidden at login, and reloads after a crash.
 let pageReady = false;
@@ -98,6 +100,7 @@ function loadPage() {
 
 function rollBack() {
   console.error(`Web bundle ${web.build} didn't start, so it's rolled back`);
+  rolledBack = web.build;
   bundles?.reject(web.build);
   loadPage();
 }
@@ -323,6 +326,11 @@ function start() {
   handleFrom(main, 'updates:staged', () => {
     const next = bundles?.newest();
     return next && next.build > web.build ? next.build : null;
+  });
+  handleFrom(main, 'updates:rolledBack', () => {
+    const build = rolledBack;
+    rolledBack = null;
+    return build;
   });
   handleFrom(main, 'updates:apply', () => {
     if (bundles && bundles.newest().build > web.build) loadPage();

@@ -413,7 +413,7 @@ Releases are only as safe as the key: the apps check every bundle's signature an
 
 ### What the apps report
 
-Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat each minute, memory warnings and uncaught errors, with memory figures on iPhone. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
+Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat each minute, memory warnings and uncaught errors, with memory figures on iPhone. They also report each update check's result, with why a failed one failed, and any update the app rolled back; the dashboard's **Update checks** and **Updates rolled back** panels show them. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
 
 ```sh
 aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time $(($(date +%s) - 86400)) --end-time $(date +%s) \

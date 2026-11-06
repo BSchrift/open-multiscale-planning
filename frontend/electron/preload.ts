@@ -40,6 +40,7 @@ const bridge: ElectronBridge = {
     staged: () => ipcRenderer.invoke('updates:staged'),
     apply: () => ipcRenderer.invoke('updates:apply'),
     ready: () => ipcRenderer.send('updates:ready'),
+    rolledBack: () => ipcRenderer.invoke('updates:rolledBack'),
   },
 };
 

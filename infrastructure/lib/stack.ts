@@ -11,7 +11,9 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
-import { Alarm, ComparisonOperator, Dashboard, GraphWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
+import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -20,7 +22,8 @@ import { Architecture, Code, FilterCriteria, Function as LambdaFunction, Runtime
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
-import { ApiGatewayv2DomainProperties, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
+import { ApiGatewayv2DomainProperties, CloudFrontTarget, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
+import { BlockPublicAccess, Bucket, BucketEncryption, HttpMethods } from 'aws-cdk-lib/aws-s3';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
@@ -137,6 +140,8 @@ export class MultiscaleStack extends Stack {
     const apiHost = config.dns?.zone ? `api.${config.dns.zone}` : undefined;
     const apiUrl = apiHost ? `https://${apiHost}` : httpApi.apiEndpoint;
     const authHost = config.dns?.zone ? `auth.${config.dns.zone}` : undefined;
+    const downloadsHost = config.dns?.zone ? `downloads.${config.dns.zone}` : undefined;
+    const releaseHost = config.dns?.zone ? `release.${config.dns.zone}` : undefined;
     const stage = new HttpStage(this, 'Stage', {
       httpApi,
       stageName: '$default',
@@ -182,6 +187,8 @@ export class MultiscaleStack extends Stack {
     httpApi.addRoutes({ path: '/calendar/connect', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/refresh', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/disconnect', methods: [HttpMethod.POST], integration });
+    // OpenTelemetry events from the app, in OTLP/HTTP JSON at OTLP's own path.
+    httpApi.addRoutes({ path: '/v1/logs', methods: [HttpMethod.POST], integration });
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
 
@@ -278,6 +285,9 @@ export class MultiscaleStack extends Stack {
     // Dashboard
 
     const width = 12;
+    // What the apps report through POST /v1/logs, read with Logs Insights from the API's client_event lines.
+    const appEvents = (title: string, view: LogQueryVisualizationType, ...queryLines: string[]) =>
+      new LogQueryWidget({ title, width, height: 6, view, logGroupNames: [apiLogs.logGroupName], queryLines: ['filter msg = "client_event"', ...queryLines] });
     new Dashboard(this, 'Dashboard', {
       dashboardName: id,
       widgets: [
@@ -292,6 +302,47 @@ export class MultiscaleStack extends Stack {
         [
           new GraphWidget({ title: 'Worker health', width, left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount')], right: [calendarFunction.metricDuration({ period: fiveMinutes })] }),
         ],
+        [
+          appEvents('App memory (MB), by platform and version', LogQueryVisualizationType.LINE,
+            'filter ispresent(`process.memory.usage`)',
+            'stats max(`process.memory.usage`) / 1048576 as app_mb by bin(5m), `app.platform`, `service.version`'),
+          appEvents('App memory, by platform and version', LogQueryVisualizationType.TABLE,
+            'filter ispresent(`process.memory.usage`)',
+            'stats count_distinct(`session.id`) as runs, avg(`process.memory.usage`) / 1048576 as avg_mb, pct(`process.memory.usage`, 95) / 1048576 as p95_mb, max(`process.memory.usage`) / 1048576 as max_mb by `app.platform`, `service.version`',
+            'sort `service.version` desc'),
+        ],
+        [
+          appEvents('How app runs ended', LogQueryVisualizationType.TABLE,
+            'filter event = "app.last_session"',
+            'fields @timestamp, `app.platform` as platform, `service.version` as version, `app.last_session.state` as ended, `process.memory.peak` / 1048576 as peak_mb, `app.memory_warnings` as warnings, `app.uptime` as uptime_s, `device.model.identifier` as device, `os.version` as os',
+            'sort @timestamp desc',
+            'limit 20'),
+          appEvents('App errors', LogQueryVisualizationType.TABLE,
+            'filter event = "exception"',
+            'stats count(*) as times by `app.platform`, `service.version`, `exception.type`, `code.file.path`, `code.line.number`',
+            'sort times desc',
+            'limit 20'),
+        ],
+        [
+          appEvents('App events by screen', LogQueryVisualizationType.TABLE,
+            'stats count(*) as events, max(`process.memory.usage`) / 1048576 as max_mb, avg(`browser.dom.nodes`) as dom_nodes by `app.platform`, `service.version`, `app.screen.name`, event',
+            'sort events desc'),
+        ],
+        [
+          // Each over-the-air update check: current, ready, needs-app, or failed with where it stopped or why native
+          // code refused the release.
+          appEvents('Update checks', LogQueryVisualizationType.TABLE,
+            'filter event = "app.update.check"',
+            'stats count(*) as checks, count_distinct(`device.id`) as devices by `app.platform`, `service.version`, `app.update.outcome`, `app.update.failure`, `app.update.build`',
+            'sort checks desc',
+            'limit 20'),
+          // A downloaded bundle that never drew the app, reported by the bundle the app went back to.
+          appEvents('Updates rolled back', LogQueryVisualizationType.TABLE,
+            'filter event = "app.update.rollback"',
+            'stats count(*) as times, count_distinct(`device.id`) as devices by `app.platform`, `app.update.build`, `service.version`',
+            'sort times desc',
+            'limit 20'),
+        ],
       ],
     });
 
@@ -303,6 +354,8 @@ export class MultiscaleStack extends Stack {
         subscribers: [{ subscriptionType: 'EMAIL', address: config.alarmEmail }],
       }],
     });
+
+    let releaseBucket: Bucket | undefined;
 
     // DNS: this environment's own zone, delegated from the domain in the control account, serving the API on api.<zone>
     // and sign-in on auth.<zone>.
@@ -341,6 +394,43 @@ export class MultiscaleStack extends Stack {
       const authDomain = userPool.addDomain('AuthDomain', { customDomain: { domainName: authHost!, certificate: authCertificate } });
       authDomain.node.addDependency(apex);
       new ARecord(this, 'AuthRecord', { zone, recordName: authHost, target: RecordTarget.fromAlias(new UserPoolDomainTarget(authDomain)) });
+
+      // Releases, built and signed on a Mac by scripts/release.sh: the Mac app's disk image on downloads.<zone>, and the
+      // feed the apps update from on release.<zone>. One private bucket, a folder per host. Same certificate reasoning as auth.
+      // The apps fetch the feed from their own origins: app:// on the Mac, capacitor:// on iPhone. S3 answers CORS and
+      // Origin is in the release host's cache key, so every cached copy suits the request it's served to. CloudFront's
+      // own CORS headers turned out to be missing from some cached copies.
+      releaseBucket = new Bucket(this, 'Releases', {
+        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+        encryption: BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        cors: [{ allowedMethods: [HttpMethods.GET, HttpMethods.HEAD], allowedOrigins: ['*'] }],
+      });
+      const byOrigin = new CachePolicy(this, 'ReleaseCachePolicy', {
+        headerBehavior: CacheHeaderBehavior.allowList('Origin'),
+        enableAcceptEncodingGzip: true,
+        enableAcceptEncodingBrotli: true,
+      });
+      const releaseCertificate = new DnsValidatedCertificate(this, 'ReleaseCertificate', {
+        domainName: downloadsHost!,
+        subjectAlternativeNames: [releaseHost!],
+        hostedZone: zone,
+        region: 'us-east-1',
+      });
+      releaseCertificate.node.addDependency(delegation);
+      for (const [id, host, folder] of [['Downloads', downloadsHost!, 'downloads'], ['Release', releaseHost!, 'release']] as const) {
+        const distribution = new Distribution(this, `${id}Distribution`, {
+          defaultBehavior: {
+            origin: S3BucketOrigin.withOriginAccessControl(releaseBucket, { originPath: `/${folder}` }),
+            viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            ...(folder === 'release' ? { cachePolicy: byOrigin } : {}),
+          },
+          domainNames: [host],
+          certificate: releaseCertificate,
+          priceClass: PriceClass.PRICE_CLASS_100,
+        });
+        new ARecord(this, `${id}Record`, { zone, recordName: host, target: RecordTarget.fromAlias(new CloudFrontTarget(distribution)) });
+      }
     }
 
     // Read by scripts/deploy.sh, scripts/smoke.sh and the setup guide.
@@ -358,6 +448,7 @@ export class MultiscaleStack extends Stack {
       GoogleRedirectUri: `${apiUrl}/calendar/callback`,
       AlarmTopicArn: topic.topicArn,
       TableName: table.tableName,
+      ...(releaseBucket ? { ReleaseBucket: releaseBucket.bucketName, ReleaseUrl: `https://${releaseHost}`, DownloadsUrl: `https://${downloadsHost}` } : {}),
     };
     for (const [name, value] of Object.entries(outputs)) new CfnOutput(this, name, { value });
   }

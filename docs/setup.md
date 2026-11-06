@@ -52,7 +52,7 @@ One account also works. Skip the Organizations parts, 2 and 3 above, assign the 
 
 ## 3. The domain (optional)
 
-A domain is optional. Each environment gets a zone under it and serves its API at `api.<zone>` and its sign-in page at `auth.<zone>`, so the apps, the sign-in page and Google's redirect use your name rather than AWS's. Without one, both keep their AWS addresses: skip this step and step 6, and leave out the `dns` sections in step 4.
+A domain is optional. Each environment gets a zone under it and serves its API at `api.<zone>`, its sign-in page at `auth.<zone>`, and releases at `downloads.<zone>` and `release.<zone>`, so the apps, the sign-in page and Google's redirect use your name rather than AWS's. Without one, the API and sign-in keep their AWS addresses and there's nowhere to release updates to: skip this step and step 6, and leave out the `dns` sections in step 4.
 
 1. Open the AWS access portal, sign in to `multiscale-control`, and open **Route 53 > Registered domains > Register domains**.
 2. Register the domain and confirm the contact email Route 53 sends. Registration can take from minutes to a day.
@@ -308,6 +308,8 @@ cd ..
 
 Open the disk image in `frontend/release/prod/` and drag **Multiscale** to Applications. It isn't notarized, so if macOS refuses to open it, choose **Open Anyway** under **System Settings > Privacy & Security**. Sign in with the prod user from step 12.
 
+With a domain, release instead, and the installed apps keep themselves up to date. See [Releasing updates](#releasing-updates).
+
 ## 14. Install on your phone with a free personal team
 
 This needs only an Apple ID, no membership.
@@ -391,8 +393,34 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | Full suite against a deployment | `make test-integration ENV=staging` |
 | Unit and integration suites, no AWS | `make test` |
 | App and iPhone tests, no AWS | `make test-e2e`, `make test-ios` |
+| Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
+
+### Releasing updates
+
+`make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg` and the update feed to `https://release.<zone>`. Link people to the disk image to install.
+
+The first release makes the signing key, `<env>.release-key.pem`, in your config folder. Apps built after that carry its public half and install only bundles it signed, so keep it backed up. A lost key means building and installing the apps again with a new one.
+
+How the apps update:
+
+- **Most releases change only the web bundle**, which both apps download by themselves: soon after starting, every six hours, and on coming back after an hour away. The Mac app switches to it when its window closes or at its next launch. The phone switches at its next launch, or on returning after half an hour in the background. **Settings > Updates** shows the version, checks on request, and has **Restart now** for a downloaded update.
+- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again.
+- **A bundle that doesn't start** within 20 seconds is rolled back to the one before it and never tried again.
+
+Releases are only as safe as the key: the apps check every bundle's signature and every file's hash before installing it, so someone who got into the bucket still couldn't change what runs.
+
+### What the apps report
+
+Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat each minute, memory warnings and uncaught errors, with memory figures on iPhone. They also report each update check's result, with why a failed one failed, and any update the app rolled back; the dashboard's **Update checks** and **Updates rolled back** panels show them. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
+
+```sh
+aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time $(($(date +%s) - 86400)) --end-time $(date +%s) \
+  --query-string 'filter msg = "client_event" | fields @timestamp, event, `app.screen.name`, `process.memory.usage`, `app.last_session.state` | sort @timestamp desc'
+```
+
+Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
 
 Costs should stay under $1 a month per environment. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 

@@ -32,7 +32,8 @@ export async function compile(env, devUrl) {
       __BUILD__: JSON.stringify({
         name: identity.name,
         scheme: identity.scheme,
-        backendOrigins: [...new Set([config.apiUrl, config.authUrl].map((url) => new URL(url).origin))],
+        // The page reaches these: the API, sign-in, and where updates come from.
+        backendOrigins: [...new Set([config.apiUrl, config.authUrl, config.releaseUrl].filter(Boolean).map((url) => new URL(url).origin))],
         devUrl: devUrl ?? null,
       }),
     },

@@ -36,6 +36,7 @@ function fakeBridge(): Fake {
     captureDone: (id, error) => void done.push([id, error]),
     ready,
     setAppearance: vi.fn(async () => undefined),
+    updates: { install: vi.fn(async () => undefined), staged: vi.fn(async () => null), apply: vi.fn(async () => undefined), ready: vi.fn(), rolledBack: vi.fn(async () => null) },
   };
   return { bridge, capture: (id, title) => capture(id, title), deepLink: (url) => deepLink(url), done, ready };
 }

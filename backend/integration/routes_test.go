@@ -17,7 +17,7 @@ func TestUnknownRoutesAndMethodsAreNotFound(t *testing.T) {
 	for _, route := range [][2]string{
 		{"GET", "/"}, {"POST", "/"}, {"GET", "/nothing"}, {"POST", "/sync/extra"}, {"POST", "/calendar"},
 		{"GET", "/sync"}, {"PUT", "/sync"}, {"DELETE", "/sync"},
-		{"GET", "/calendar/connect"}, {"GET", "/calendar/refresh"}, {"GET", "/calendar/disconnect"}, {"POST", "/calendar/callback"},
+		{"GET", "/calendar/connect"}, {"GET", "/calendar/refresh"}, {"GET", "/calendar/disconnect"}, {"POST", "/calendar/callback"}, {"GET", "/v1/logs"},
 	} {
 		for _, token := range []string{"", a.tokens.access} {
 			if res := request(t, route[0], route[1], token, nil); res.status != 404 {
@@ -135,6 +135,16 @@ func TestSyncRefusesBadRequests(t *testing.T) {
 	})
 	if after := a.startCursor(); after != before {
 		t.Fatalf("a refused request moved the counter from %d to %d", before, after)
+	}
+}
+
+func TestSmokeTelemetryTakesAnOTLPExport(t *testing.T) {
+	needs(t)
+	a := signIn(t)
+	export := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"app.heartbeat"},{"eventName":"not.ours"}]}]}]}`
+	res := request(t, "POST", "/v1/logs", a.tokens.access, []byte(export))
+	if res.status != 200 || strings.TrimSpace(string(res.body)) != `{"partialSuccess":{"rejectedLogRecords":1}}` {
+		t.Fatalf("%d %s", res.status, truncated(res.body))
 	}
 }
 

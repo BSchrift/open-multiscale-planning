@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, useSyncExternalStore } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { availableHours } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
@@ -9,6 +9,7 @@ import { CALENDAR_ID, getRecord, getSettings, listRecords, updateSettings } from
 import { slotContext } from '../../../core/slots';
 import { syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
+import type { UpdateStatus, Updater } from '../../../core/updates';
 import type { CalendarMode, Instant, ReminderSettings } from '../../../core/types';
 import { setAppearance, useAppearance } from '../../app/appearance';
 import type { Layout, ScreenProps } from '../../app/registry';
@@ -394,8 +395,52 @@ function Appearance(props: { layout: Layout }) {
   );
 }
 
+const UPDATE_LINE: Record<UpdateStatus['state'], string | null> = {
+  idle: null,
+  checking: 'Checking…',
+  current: 'Up to date.',
+  failed: "Couldn't check for updates. It tries again later.",
+  ready: 'Version {v} is ready. It starts the next time the app opens.',
+  'needs-app': 'Version {v} needs a new version of the app.',
+};
+
+/** Updates download by themselves; this shows where they're at and lets someone check or switch now. */
+function Updates(props: { layout: Layout; updates: Updater }) {
+  const { updates } = props;
+  const { platform } = useApp();
+  const status = useSyncExternalStore(updates.subscribe, updates.status);
+  const line = UPDATE_LINE[status.state]?.replace('{v}', 'version' in status ? status.version : '');
+  const btn = props.layout === 'phone' ? 'btn' : 'btn sm';
+  return (
+    <Section title="Updates">
+      <div className={props.layout === 'phone' ? 'stack8' : 'setrow'}>
+        <div className="stack8">
+          <span>Version {updates.version}</span>
+          {line && <span className="small quiet">{line}</span>}
+        </div>
+        <div className="row">
+          {status.state === 'ready' && (
+            <button className={`${btn} pri`} type="button" onClick={() => void updates.apply()}>
+              Restart now
+            </button>
+          )}
+          {status.state === 'needs-app' && updates.download && (
+            <button className={`${btn} pri`} type="button" onClick={() => void platform.openExternal(updates.download!)}>
+              Download the app
+            </button>
+          )}
+          <button className={btn} type="button" disabled={status.state === 'checking'} onClick={() => void updates.check()}>
+            Check for updates
+          </button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 export default function Screen(props: ScreenProps) {
   const { layout } = props;
+  const { updates } = useApp();
   return (
     <div className={layout === 'phone' ? 'stack settings' : 'wrap stack32 settings'}>
       <h1>Settings</h1>
@@ -406,6 +451,7 @@ export default function Screen(props: ScreenProps) {
       <Away layout={layout} />
       <Reminders layout={layout} />
       <Appearance layout={layout} />
+      {updates && <Updates layout={layout} updates={updates} />}
       {/* AGPL-3.0: the app shows where its source is. A target="_blank" link opens in the system browser on Electron and iOS too. */}
       <a className="small source" href="https://github.com/BSchrift/open-multiscale-planning" target="_blank" rel="noreferrer">
         Source code

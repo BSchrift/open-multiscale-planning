@@ -468,9 +468,13 @@ describe('DNS', () => {
       // Each host serves its own folder of the bucket.
       assert.equal(byHost(`downloads.${zone}`).Origins[0].OriginPath, '/downloads');
       assert.equal(byHost(`release.${zone}`).Origins[0].OriginPath, '/release');
-      // The apps fetch the feed from their own origins.
-      assert.ok(byHost(`release.${zone}`).DefaultCacheBehavior.ResponseHeadersPolicyId);
-      assert.equal(byHost(`downloads.${zone}`).DefaultCacheBehavior.ResponseHeadersPolicyId, undefined);
+      // The apps fetch the feed from their own origins. S3 answers CORS, and Origin is in the cache key, so a copy cached
+      // for a request without one never reaches the apps.
+      z.hasResourceProperties('AWS::S3::Bucket', { CorsConfiguration: { CorsRules: [{ AllowedMethods: ['GET', 'HEAD'], AllowedOrigins: ['*'] }] } });
+      const policies = z.findResources('AWS::CloudFront::CachePolicy');
+      const releasePolicy = policies[byHost(`release.${zone}`).DefaultCacheBehavior.CachePolicyId.Ref];
+      assert.deepEqual(releasePolicy.Properties.CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig, { HeaderBehavior: 'whitelist', Headers: ['Origin'] });
+      for (const host of [`downloads.${zone}`, `release.${zone}`]) assert.equal(byHost(host).DefaultCacheBehavior.ResponseHeadersPolicyId, undefined);
       for (const host of [`downloads.${zone}`, `release.${zone}`]) {
         assert.equal(byHost(host).DefaultCacheBehavior.ViewerProtocolPolicy, 'redirect-to-https');
         z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A', AliasTarget: Match.objectLike({}) });

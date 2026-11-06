@@ -11,7 +11,7 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
-import { Distribution, PriceClass, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
@@ -23,7 +23,7 @@ import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { ApiGatewayv2DomainProperties, CloudFrontTarget, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
-import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { BlockPublicAccess, Bucket, BucketEncryption, HttpMethods } from 'aws-cdk-lib/aws-s3';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
@@ -382,7 +382,20 @@ export class MultiscaleStack extends Stack {
 
       // Releases, built and signed on a Mac by scripts/release.sh: the Mac app's disk image on downloads.<zone>, and the
       // feed the apps update from on release.<zone>. One private bucket, a folder per host. Same certificate reasoning as auth.
-      releaseBucket = new Bucket(this, 'Releases', { blockPublicAccess: BlockPublicAccess.BLOCK_ALL, encryption: BucketEncryption.S3_MANAGED, enforceSSL: true });
+      // The apps fetch the feed from their own origins: app:// on the Mac, capacitor:// on iPhone. S3 answers CORS and
+      // Origin is in the release host's cache key, so every cached copy suits the request it's served to. CloudFront's
+      // own CORS headers turned out to be missing from some cached copies.
+      releaseBucket = new Bucket(this, 'Releases', {
+        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+        encryption: BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        cors: [{ allowedMethods: [HttpMethods.GET, HttpMethods.HEAD], allowedOrigins: ['*'] }],
+      });
+      const byOrigin = new CachePolicy(this, 'ReleaseCachePolicy', {
+        headerBehavior: CacheHeaderBehavior.allowList('Origin'),
+        enableAcceptEncodingGzip: true,
+        enableAcceptEncodingBrotli: true,
+      });
       const releaseCertificate = new DnsValidatedCertificate(this, 'ReleaseCertificate', {
         domainName: downloadsHost!,
         subjectAlternativeNames: [releaseHost!],
@@ -395,8 +408,7 @@ export class MultiscaleStack extends Stack {
           defaultBehavior: {
             origin: S3BucketOrigin.withOriginAccessControl(releaseBucket, { originPath: `/${folder}` }),
             viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-            // The apps fetch the feed from their own origins: app:// on the Mac, capacitor:// on iPhone.
-            ...(folder === 'release' ? { responseHeadersPolicy: ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS } : {}),
+            ...(folder === 'release' ? { cachePolicy: byOrigin } : {}),
           },
           domainNames: [host],
           certificate: releaseCertificate,

@@ -133,7 +133,7 @@ describe('createUpdater', () => {
     vi.useFakeTimers();
     const fetch = server(manifest({ build: 50 }));
     let foreground: () => void = () => undefined;
-    let time = 0;
+    let time = 1_800_000_000_000;
     start(fetch, native(), {
       now: () => time,
       onForeground: (listener) => {
@@ -141,14 +141,16 @@ describe('createUpdater', () => {
         return () => undefined;
       },
     });
+    // Coming to the front before the first check, such as after a keychain prompt, waits for it.
+    foreground();
     expect(fetch).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(fetch).toHaveBeenCalledTimes(1);
 
-    time = 30 * 60_000;
+    time += 30 * 60_000;
     foreground();
     expect(fetch).toHaveBeenCalledTimes(1);
-    time = 61 * 60_000;
+    time += 31 * 60_000;
     foreground();
     expect(fetch).toHaveBeenCalledTimes(2);
 

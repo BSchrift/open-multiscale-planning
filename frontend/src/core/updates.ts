@@ -120,7 +120,8 @@ export function createUpdater(deps: {
     }
   }
 
-  let lastCheck = 0;
+  // Counted from launch, so coming to the front before the first check doesn't add one.
+  let lastCheck = now();
   const check = () => {
     lastCheck = now();
     running ??= run().finally(() => (running = null));

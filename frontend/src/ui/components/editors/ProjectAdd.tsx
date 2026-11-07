@@ -10,7 +10,7 @@ import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
 
 
-export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: string; onClose(): void }) {
+export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: string; onClose(): void; onAdded?(id: string): void }) {
   const { clock } = useApp();
   const toast = useToast();
   const on = today(clock);
@@ -30,8 +30,10 @@ export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: stri
     const name = title.trim();
     if (!name) return setError('Give it a name.');
     if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-    if (!(await add.run(name))) return;
+    const id = await add.run(name);
+    if (!id) return;
     toast.show(`Project added, ${formatDate(start)} to ${formatDate(end)}.`);
+    props.onAdded?.(id);
     props.onClose();
   };
 

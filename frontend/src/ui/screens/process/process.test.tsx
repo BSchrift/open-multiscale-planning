@@ -43,7 +43,7 @@ describe('Process on desktop', () => {
     expect(await screen.findByRole('heading', { name: 'Call the bank', level: 1 })).toHaveFocus();
     expect(within(card()).getByText('1 of 5')).toBeInTheDocument();
     const dests = within(card()).getAllByRole('button').filter((b) => b.classList.contains('pxdest'));
-    expect(dests.map((b) => b.textContent)).toEqual(['1Paint the fence', '2Learn to bake bread', 'OOne offs']);
+    expect(dests.map((b) => b.textContent)).toEqual(['1Paint the fence', '2Learn to bake bread', '+ New project', 'OOne offs']);
     const other = within(card()).getByRole('combobox', { name: 'Send to another project' });
     expect(within(other).getAllByRole('option').map((o) => o.textContent)).toEqual(['Other project', 'Write the report (Paused)', 'Plant the garden (Not started)']);
     expect(btn('‹ Undo and go back')).toBeDisabled();
@@ -62,6 +62,19 @@ describe('Process on desktop', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
     expect(btn('‹ Undo and go back')).toBeDisabled();
+  });
+
+  it.each(['desktop', 'phone'] as const)('on %s, makes a new project from the card and sends the item to it', async (layout) => {
+    const t = await open({ layout });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('+ New project'));
+    const form = screen.getByRole('form', { name: 'Add project' });
+    await userEvent.type(within(form).getByLabelText('Name'), 'Fix up the shed');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add project' }));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(last()).toHaveTextContent('Sent to Fix up the shed.');
+    const [shed] = await t.db.all<{ id: string }>("SELECT id FROM project WHERE title = 'Fix up the shed'");
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: shed!.id });
   });
 
   it('swipes a copy of the card away after a choice, out of reach of keys and screen readers, then removes it', async () => {
@@ -274,7 +287,7 @@ describe('Process on phone', () => {
     const order = Array.from(card().querySelectorAll('h1, [role=status], button, input')).map((e) =>
       e.tagName === 'INPUT' ? 'Time' : e.tagName === 'H1' ? 'title' : e.getAttribute('role') === 'status' ? 'last' : (e.getAttribute('aria-label') ?? e.textContent),
     );
-    expect(order).toEqual(['Exit', 'title', 'last', 'Time', '+Add to this week', 'Paint the fence', 'Learn to bake bread', 'One offs', 'Other project', '‹ Undo', 'Skip', 'Delete/done']);
+    expect(order).toEqual(['Exit', 'title', 'last', 'Time', '+Add to this week', 'Paint the fence', 'Learn to bake bread', 'One offs', 'Other project', '+ New project', '‹ Undo', 'Skip', 'Delete/done']);
   });
 
   it('picks another project from a searchable sheet, then confirms', async () => {

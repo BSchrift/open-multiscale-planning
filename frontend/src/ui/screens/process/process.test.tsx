@@ -77,6 +77,50 @@ describe('Process on desktop', () => {
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: shed!.id });
   });
 
+  it('swipes a copy of the card away after a choice, out of reach of keys and screen readers, then removes it', async () => {
+    const animated: { el: Element; keyframes: Keyframe[] }[] = [];
+    let land!: () => void;
+    const landed = new Promise<void>((resolve) => (land = resolve));
+    const animate = vi.fn(function (this: Element, keyframes: Keyframe[]) {
+      animated.push({ el: this, keyframes });
+      return { finished: landed } as unknown as Animation;
+    });
+    Object.assign(HTMLElement.prototype, { animate });
+    try {
+      await open();
+      await screen.findByRole('heading', { name: 'Call the bank' });
+      await userEvent.click(btn('One offs'));
+      await screen.findByRole('heading', { name: 'Fix the gate' });
+      const copy = document.querySelector('.pxghost')!;
+      expect(copy).toHaveTextContent('Call the bank');
+      expect(copy).toHaveAttribute('aria-hidden', 'true');
+      expect((copy as HTMLElement).inert).toBe(true);
+      expect(copy.querySelector('[id]')).toBeNull();
+      expect(animated.map((a) => a.el)).toEqual([copy, card()]);
+      expect(animated[0]!.keyframes.at(-1)).toMatchObject({ transform: 'translateX(70%) rotate(7deg)', opacity: 0 });
+      land();
+      await waitFor(() => expect(document.querySelector('.pxghost')).toBeNull());
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    }
+  });
+
+  it("doesn't swipe for someone who asks for less motion", async () => {
+    const animate = vi.fn();
+    Object.assign(HTMLElement.prototype, { animate });
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+    try {
+      await open();
+      await userEvent.click(await screen.findByRole('button', { name: 'One offs' }));
+      await screen.findByRole('heading', { name: 'Fix the gate' });
+      expect(animate).not.toHaveBeenCalled();
+      expect(document.querySelector('.pxghost')).toBeNull();
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('starts the slider from the captured estimate, keeps the card when it moves, and sends it with the task', async () => {
     const t = await open();
     await userEvent.click(await screen.findByRole('button', { name: 'One offs' }));
@@ -153,11 +197,11 @@ describe('Process on desktop', () => {
     await screen.findByRole('heading', { name: 'Return the books' });
     expect(last()).toHaveTextContent('Skipped. It stays in your Inbox.');
 
-    await userEvent.click(btn('Delete'));
+    await userEvent.click(btn('Delete/done'));
     expect(within(card()).getByRole('alert')).toHaveTextContent('Delete this item?');
     await userEvent.click(btn('Cancel'));
     expect(title()).toHaveTextContent('Return the books');
-    await userEvent.click(btn('Delete'));
+    await userEvent.click(btn('Delete/done'));
     await userEvent.click(btn('Yes, delete'));
     expect(await screen.findByRole('heading', { name: "That's everything for now" })).toBeInTheDocument();
     expect(within(card()).getByText('3 sorted, 1 deleted, 1 skipped, still in your Inbox.')).toBeInTheDocument();
@@ -243,7 +287,7 @@ describe('Process on phone', () => {
     const order = Array.from(card().querySelectorAll('h1, [role=status], button, input')).map((e) =>
       e.tagName === 'INPUT' ? 'Time' : e.tagName === 'H1' ? 'title' : e.getAttribute('role') === 'status' ? 'last' : (e.getAttribute('aria-label') ?? e.textContent),
     );
-    expect(order).toEqual(['Exit', 'title', 'last', 'Time', '+Add to this week', 'Paint the fence', 'Learn to bake bread', 'One offs', 'Other project', '+ New project', '‹ Undo', 'Skip', 'Delete']);
+    expect(order).toEqual(['Exit', 'title', 'last', 'Time', '+Add to this week', 'Paint the fence', 'Learn to bake bread', 'One offs', 'Other project', '+ New project', '‹ Undo', 'Skip', 'Delete/done']);
   });
 
   it('picks another project from a searchable sheet, then confirms', async () => {

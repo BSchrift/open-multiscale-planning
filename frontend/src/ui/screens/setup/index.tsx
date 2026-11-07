@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { nowInstant } from '../../../core/dates';
+import { getMeta, META } from '../../../core/db';
 import { CALENDAR_ID, getRecord, updateSettings } from '../../../core/records';
 import { isSignedIn, syncStatus } from '../../../core/sync';
 import type { ScreenProps } from '../../app/registry';
@@ -23,7 +24,14 @@ export default function Screen(props: ScreenProps) {
   // Kept on this device, since signing in and connecting leave for the browser and the OS may close the app meanwhile.
   const [saved, setStep] = useStickyState<Step>('setup.at', 'welcome');
   const { busy, call } = useCalendarCall();
-  const { data } = useQuery(async (sql) => ({ status: await syncStatus(sql), calendar: await getRecord(sql, 'calendar', CALENDAR_ID) }), []);
+  const { data } = useQuery(
+    async (sql) => ({
+      status: await syncStatus(sql),
+      calendar: await getRecord(sql, 'calendar', CALENDAR_ID),
+      signingIn: !!(await getMeta(sql, META.signingIn)),
+    }),
+    [],
+  );
   const signedIn = !!data && isSignedIn(data.status);
   // Connecting needs a sign-in. Once it's connected, here or on another device, the step goes.
   const steps: Step[] = ['welcome', ...(sync && signedIn && !data?.calendar?.connected ? (['calendar'] as const) : []), 'hours', 'start'];
@@ -61,6 +69,17 @@ export default function Screen(props: ScreenProps) {
     </button>
   );
 
+  // Back from the browser, the sign-in and its first sync take a moment; the account's data may skip the rest of setup.
+  if (step === 'welcome' && data.signingIn) {
+    return (
+      <div className={`${layout === 'phone' ? 'stack setup' : 'wrap stack setup'} welcome`}>
+        <p className="signing" role="status">
+          <span className="spinner" aria-hidden="true" />
+          Signing in…
+        </p>
+      </div>
+    );
+  }
   return (
     <div className={`${layout === 'phone' ? 'stack setup' : 'wrap stack setup'}${step === 'welcome' ? ' welcome' : ''}`}>
       <p className="small quiet">

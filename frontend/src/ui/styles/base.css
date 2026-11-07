@@ -34,6 +34,13 @@ h3{font-size:13px;font-weight:600;color:var(--quiet)}
 .now h2{font-size:22px;line-height:1.25}
 .clock{font-size:44px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums}
 .done{color:var(--quiet);text-decoration:line-through}
+/* A processed Inbox card on its way out: above the Process overlay, and never in the way. */
+.pxghost{position:fixed;z-index:60;margin:0;pointer-events:none;transform-origin:center bottom}
+/* Something under way that the person waits on, such as a sign-in finishing. */
+.signing{display:flex;align-items:center;gap:12px;color:var(--ink-2)}
+.spinner{flex:none;width:20px;height:20px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:2.4s}}
 .paxis span{position:absolute;top:0;white-space:nowrap}
 .ptick{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
 .pweekband{position:absolute;top:0;bottom:0;background:var(--blue-soft)}

@@ -256,6 +256,8 @@ export const META = {
   schemaVersion: 'schema_version',
   lastSyncAt: 'last_sync_at',
   lastSyncError: 'last_sync_error',
+  /** Set while a sign-in back from the browser waits for its first sync, so screens show it's under way. */
+  signingIn: 'signing_in',
 } as const;
 
 export async function getMeta(sql: Sql, key: string): Promise<string | null> {

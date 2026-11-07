@@ -32,6 +32,7 @@ app.setName(__BUILD__.name);
 
 let mainWindow: BrowserWindow;
 let captureWindow: BrowserWindow | undefined;
+let captureDrawn: Promise<void>;
 let tray: Tray; // Module scope: a collected tray disappears from the menu bar.
 let quitting = false;
 
@@ -164,12 +165,11 @@ function createMainWindow(rollbackOpenTransaction: () => void, startHidden: bool
   loadPage();
 }
 
-function openCapture() {
-  if (captureWindow) {
-    captureWindow.show();
-    captureWindow.focus();
-    return;
-  }
+/**
+ * Made hidden once the page is up, so the shortcut only has to show it: making it on the first press took about 80ms
+ * before anything appeared.
+ */
+function createCaptureWindow() {
   captureWindow = new BrowserWindow({
     width: 520,
     height: 64,
@@ -187,10 +187,8 @@ function openCapture() {
     webPreferences: { preload: join(__dirname, 'capture-preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   lockDown(captureWindow);
-  captureWindow.once('ready-to-show', () => {
-    captureWindow?.show();
-    captureWindow?.focus();
-  });
+  // A press while it's still loading shows it once it has drawn, rather than blank.
+  captureDrawn = new Promise((resolve) => captureWindow!.once('ready-to-show', resolve));
   // Stays loaded with its text, so clicking elsewhere doesn't lose what was typed.
   captureWindow.on('blur', () => captureWindow?.hide());
   captureWindow.on('close', (event) => {
@@ -199,6 +197,14 @@ function openCapture() {
     captureWindow?.hide();
   });
   void captureWindow.loadFile(join(__dirname, 'capture.html'));
+}
+
+function openCapture() {
+  if (!captureWindow) createCaptureWindow();
+  void captureDrawn.then(() => {
+    captureWindow?.show();
+    captureWindow?.focus();
+  });
 }
 
 function savesThroughPage() {
@@ -351,6 +357,8 @@ function start() {
     for (const send of waitingForPage) send();
     waitingForPage = [];
     for (const url of heldLinks.splice(0)) mainWindow.webContents.send('deep-link', url);
+    // After the page, so it doesn't slow the app's own start.
+    if (!captureWindow) createCaptureWindow();
   });
 
   const saveThroughPage = savesThroughPage();

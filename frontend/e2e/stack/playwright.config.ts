@@ -10,7 +10,8 @@ export default defineConfig({
   testDir: '.',
   outputDir: '../../test-results/stack',
   workers: 1,
-  reporter: 'line',
+  // CI also writes an HTML report, which it keeps when a run fails.
+  reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
   timeout: 90_000,
   use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 1000 }, trace: 'retain-on-failure' },
   webServer: {

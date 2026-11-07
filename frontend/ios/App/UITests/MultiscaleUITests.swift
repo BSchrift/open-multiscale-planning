@@ -205,7 +205,16 @@ final class ShellUITests: XCTestCase {
         let late = Calendar.current.date(bySettingHour: 22, minute: 15, second: 0, of: Date())!
         try XCTSkipIf(Date() > late, "after 10:15pm today has no room left for the half hour")
         let app = launchApp(seed: "Seed to schedule")
-        let card = app.webButton(startingWith: "Mix the dough, ")
+        // Its own label, since the block it becomes is a button too once it's under way.
+        let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
+        // shortcut: on CI's iOS 26.2 Simulator Today's content often reaches the screen but not the accessibility tree,
+        // which shows Today empty until the page changes, so the test goes to Week and back; drop the detour once
+        // WebKit's tree keeps up on its own there.
+        if !card.waitForExistence(timeout: 10) {
+            app.tapWeb("Week")
+            exists(app.page.otherElements["Week"])
+            app.tapWeb("Today")
+        }
         exists(card)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)

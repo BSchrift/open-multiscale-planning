@@ -233,7 +233,7 @@ export function PracticeAdd(props: { goals: readonly Objective[]; objectiveId: s
     const id = await add.run(name);
     if (!id) return;
     props.onAdded?.(id);
-    toast.show('Practice added. Planning will place it from your next plan.');
+    toast.show('Practice added. It waits in To schedule on Week until you give it a time.');
     props.onClose();
   };
 

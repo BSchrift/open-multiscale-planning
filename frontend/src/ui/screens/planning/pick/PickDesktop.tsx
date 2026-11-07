@@ -207,7 +207,7 @@ export function Legend(props: { stretch: boolean; className?: string }) {
 }
 
 export function PickDesktop(props: PickProps) {
-  const { view, model, data, week, ring } = props;
+  const { view, model, week, ring } = props;
   const [open, setOpen] = useState<Record<string, boolean>>(() => ({ oneOffs: view.oneOffs.count > 0 }));
   const [fixFor, setFixFor] = useState<string | null>(null);
   const [aimsOpen, setAimsOpen] = useState(false);
@@ -351,7 +351,7 @@ export function PickDesktop(props: PickProps) {
         </div>
         <div className="between small">
           <span>Practices and repeating work</span>
-          <span>{formatMinutes(data.placed)}</span>
+          <span>{formatMinutes(model.repeating)}</span>
         </div>
         <div className="between small">
           <span>Tasks you added</span>

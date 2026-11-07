@@ -13,7 +13,7 @@ import { blocksInRange, needsNewTime, placedMinutes } from '../../../core/querie
 import type { BlockRow, QueueRow } from '../../../core/queries';
 import { queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
-import { slotContext } from '../../../core/slots';
+import { practicesLeft, slotContext } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
 import type { CalendarSource, CalendarState, LocalDate, Minutes, Settings, TimeBlock, WeekPick, WeekPlan } from '../../../core/types';
 
@@ -72,7 +72,10 @@ export function weekModel(d: PlanningData, clock: Clock) {
   const open = openTime(slot);
   // shortcut: picks count in full in a week under way, work already done on them too; take off their past blocks if replanning mid-week reads too full.
   const picked = picks.reduce((sum, p) => sum + p.minutes, 0);
-  const use = weekUse({ open, placed: d.placed, picked });
+  // Practices still to place take their time too, so Pick tasks counts them before Schedule.
+  const practices = practicesLeft(records.practices, slot, weekPlan?.skipped_practices ?? []).reduce((sum, p) => sum + p.minutes, 0);
+  const repeating = d.placed + practices;
+  const use = weekUse({ open, placed: repeating, picked });
   const input: WeekInput = {
     weekStart: week,
     picks,
@@ -105,7 +108,7 @@ export function weekModel(d: PlanningData, clock: Clock) {
 
   const pushback = pushbackLately(d.weekPlans, records, clock);
 
-  return { ctx, plans, ranked, weekPlan, queue, picks, slot, open, use, input, oneOffs, hints, pushback, planned, placedBy, aimRows };
+  return { ctx, plans, ranked, weekPlan, queue, picks, slot, open, repeating, use, input, oneOffs, hints, pushback, planned, placedBy, aimRows };
 }
 
 export type WeekModel = ReturnType<typeof weekModel>;

@@ -6,13 +6,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { formatTimeOfDay, formatWeekday, formatWeekRange, nowInstant } from '../../../core/dates';
+import { formatWeekRange, nowInstant, thisWeek } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange, ProjectPlan } from '../../../core/plan';
 import type { InboxRow } from '../../../core/queries';
 import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { offers, slotInstants } from '../../../core/slots';
 import { closeTask } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
@@ -23,7 +22,7 @@ import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { emptyDraft, OneOffDates, oneOffFields } from '../../components/oneoff';
 import { Sheet } from '../../components/Sheet';
 import { useDialogFocus } from '../../components/useDialogFocus';
-import { loadProcess, thisWeekSlots } from './data';
+import { loadProcess } from './data';
 import type { Destination, ProcessData } from './data';
 import './process.css';
 
@@ -108,7 +107,7 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
   const send = (dest: Destination | null) => {
     if (!item) return;
     const name = dest ? dest.title : 'One offs';
-    // shortcut: no estimate places 30m for a one off and 1h for a project, ask later if these prove wrong.
+    // shortcut: no estimate picks 30m for a one off and 1h for a project, ask later if these prove wrong.
     const minutes = est || (dest ? 60 : 30);
     let note = '.';
     const run = async (w: Writer): Promise<PlanChange> => {
@@ -117,21 +116,11 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
         : oneOffFields({ ...emptyDraft(today), title: item.title, estimate: est }, today);
       const reverse = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
       if (!s.planOn) return reverse;
-      const gone = { deleted_at: nowInstant(clock) };
-      if (planning) {
-        await setWeekPick(w, planning, item.id, minutes);
-        note = ' and added to the plan.';
-        return { writes: [{ type: 'week_pick', id: weekPickId(planning, item.id), fields: gone }, ...reverse.writes] };
-      }
-      const offer = offers(Math.min(minutes, 120), { kind: dest ? 'project' : 'one_off' }, await thisWeekSlots(w.sql, clock))[0];
-      if (!offer) {
-        note = '. No open time left this week, so it waits for planning.';
-        return reverse;
-      }
-      const zone = clock.zone();
-      const block = await w.create('time_block', { task_id: item.id, ...slotInstants(offer, zone), tz: zone });
-      note = `, ${formatWeekday(offer.date)} ${formatTimeOfDay(offer.start)}.`;
-      return { writes: [{ type: 'time_block', id: block, fields: gone }, ...reverse.writes] };
+      // Added to a week, it waits there for a time you choose.
+      const week = planning ?? thisWeek(clock);
+      await setWeekPick(w, week, item.id, minutes);
+      note = planning ? ' and added to the plan.' : ' and added to this week, not on the calendar yet.';
+      return { writes: [{ type: 'week_pick', id: weekPickId(week, item.id), fields: { deleted_at: nowInstant(clock) } }, ...reverse.writes] };
     };
     void commit(run, () => ({ sorted: s.sorted + 1, last: `Sent to ${name}${note}`, sent: { id: item.id, title: item.title, project: dest?.plan ?? null } }));
   };

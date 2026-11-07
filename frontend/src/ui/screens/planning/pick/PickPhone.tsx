@@ -46,7 +46,7 @@ function AddButton(props: PickProps & { row: PickTask }) {
 }
 
 export function PickPhone(props: PickProps) {
-  const { view, model, data, week, ring } = props;
+  const { view, model, week, ring } = props;
   const seq = [...view.projects.map((p) => p.plan.project.id), ONE_OFFS_BUCKET];
   // Opens on the first project; after that it's whatever was tapped, or closed.
   const [chosen, setChosen] = useState<string | null | undefined>(undefined);
@@ -359,7 +359,7 @@ export function PickPhone(props: PickProps) {
             </div>
             <div className="between small">
               <span>Practices and repeating work</span>
-              <span>{formatMinutes(data.placed)}</span>
+              <span>{formatMinutes(model.repeating)}</span>
             </div>
             <div className="between small">
               <span>Tasks you added</span>

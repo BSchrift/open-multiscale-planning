@@ -575,7 +575,7 @@ export function scheduleOrder(plans: readonly ProjectPlan[], oneOffs: readonly T
 
 /** One record's new field values. */
 export interface RecordWrite {
-  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'task_completion' | 'block_outcome' | 'practice';
+  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice';
   id: string;
   fields: Record<string, unknown>;
 }

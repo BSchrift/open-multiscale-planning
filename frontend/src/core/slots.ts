@@ -34,6 +34,7 @@ export interface Span extends Slot {
   id?: string;
   title?: string | null;
   kind?: TaskKind | 'practice' | null;
+  practice_id?: string | null;
 }
 
 export interface SlotContext {
@@ -260,6 +261,20 @@ export function dragResult(
   return { date: toDate, start: toStart, end: toStart + length };
 }
 
+/**
+ * Where work dropped at a minute of a day lands: the 15-minute grid within the drawn day, snapping to a suggested time
+ * within 20 minutes. Null on a day gone by, or when no time is left in it.
+ */
+export function dropSlot(date: LocalDate, minute: number, length: Minutes, ctx: SlotContext, targets: readonly { date: LocalDate; start: TimeOfDay }[] = []): Slot | null {
+  if (date < ctx.earliest.date) return null;
+  const floor = Math.max(DRAWN_DAY.from, date === ctx.earliest.date ? Math.ceil(ctx.earliest.minutes / GRID) * GRID : 0);
+  if (floor + length > DRAWN_DAY.to) return null;
+  const at = Math.max(floor, Math.min(DRAWN_DAY.to - length, Math.round(minute / GRID) * GRID));
+  const hit = targets.find((t) => t.date === date && t.start >= floor && Math.abs(t.start - at) <= SNAP);
+  const start = hit ? hit.start : at;
+  return { date, start, end: start + length };
+}
+
 /** The nearest time to `want` on that day where the work fits, or null. */
 export function closestFit(date: LocalDate, want: TimeOfDay, minutes: Minutes, kind: WorkKind, ctx: SlotContext): TimeOfDay | null {
   let best: TimeOfDay | null = null;
@@ -328,6 +343,40 @@ export interface PracticeSession extends Slot {
 }
 
 const EVERY_DAY: Weekday[] = [0, 1, 2, 3, 4, 5, 6];
+/** A daily practice's session is its target; a weekly one's is up to an hour. */
+const sessionLength = (p: Practice): Minutes => (p.per === 'day' ? p.target_min : Math.min(p.target_min, 60));
+
+export interface PracticeLeft {
+  practice: Practice;
+  /** The next session's length. */
+  length: Minutes;
+  /** Sessions still to place. */
+  sessions: number;
+  minutes: Minutes;
+}
+
+/**
+ * What each practice still needs this week: a daily one, a session on each of its days still to come that has none; a
+ * weekly one, its target less the time placed. Skipped, paused and ended practices need nothing, nor does a week gone by.
+ */
+export function practicesLeft(practices: readonly Practice[], ctx: SlotContext, skipped: readonly string[] = []): PracticeLeft[] {
+  if (addDays(ctx.week, 6) < ctx.earliest.date) return [];
+  const out: PracticeLeft[] = [];
+  for (const p of practices) {
+    if (p.state !== 'active' || p.deleted_at || p.target_min <= 0 || skipped.includes(p.id)) continue;
+    const own = ctx.placed.filter((s) => s.practice_id === p.id);
+    const length = sessionLength(p);
+    const minutes =
+      p.per === 'day'
+        ? (p.days ?? EVERY_DAY).filter((d) => {
+            const date = addDays(ctx.week, d);
+            return date >= ctx.earliest.date && !own.some((s) => s.date === date);
+          }).length * length
+        : Math.max(0, p.target_min - own.reduce((sum, s) => sum + s.end - s.start, 0));
+    if (minutes > 0) out.push({ practice: p, length: Math.min(length, minutes), sessions: Math.ceil(minutes / length), minutes });
+  }
+  return out;
+}
 
 /**
  * A week's practice sessions: the first preferred time that's open, otherwise the first open slot that day. A daily
@@ -343,7 +392,7 @@ export function placePractices(
   const sessions: PracticeSession[] = [];
   for (const p of practices) {
     if (p.state !== 'active' || p.deleted_at || p.target_min <= 0 || skipped.includes(p.id)) continue;
-    const length = p.per === 'day' ? p.target_min : Math.min(p.target_min, 60);
+    const length = sessionLength(p);
     const kept = edited.filter((e) => e.practice_id === p.id);
     let wanted = p.per === 'day' ? Infinity : Math.ceil(p.target_min / length) - kept.length;
     for (const day of p.days ?? EVERY_DAY) {
@@ -360,6 +409,12 @@ export function placePractices(
     }
   }
   return sessions;
+}
+
+/** Where a practice's next sessions would go, as Place the rest puts them: on its days still without one. */
+export function practiceSlots(p: Practice, ctx: SlotContext): PracticeSession[] {
+  const edited = ctx.placed.filter((s) => s.practice_id === p.id).map((s) => ({ practice_id: p.id, date: s.date }));
+  return placePractices([p], ctx, { edited });
 }
 
 /** Cuts a time range at each local midnight, keeping only what falls in the week. */
@@ -413,6 +468,7 @@ export function slotContext(input: {
           id: b.id,
           title: b.title,
           kind: b.practice_id ? ('practice' as const) : b.task_kind,
+          practice_id: b.practice_id ?? null,
         })),
       ),
     earliest: { date: today(clock), minutes: localMinutes(clock.now(), zone) },

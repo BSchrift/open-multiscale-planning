@@ -1,7 +1,6 @@
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { moveBlock, placeWeekPractices } from '../../../core/blocks';
 import { fixedClock } from '../../../core/clock';
 import { getRecord, listRecords, removeWeekPick, setWeekPick, transact, weekPickId, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
@@ -83,45 +82,39 @@ describe('the planning frame', () => {
     expect(await getRecord(t.db, 'week_pick', weekPickId('2026-11-02', 'o2'))).toBeUndefined();
   });
 
-  it('places the week’s practices on opening, so Pick tasks counts them without visiting Schedule', async () => {
+  it('leaves the week’s practices to place on opening, and Pick tasks counts their time', async () => {
     const t = await openPlanning({
       step: 1,
       seed: (w) => w.create('practice', { title: 'Morning stretch', target_min: 15, per: 'day', days: [2, 3], preferred_times: [7 * 60], state: 'active' }, 'pr'),
     });
-    await waitFor(async () => expect((await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at)).toHaveLength(2));
     const line = (await screen.findByText('Practices and repeating work')).parentElement!;
     await waitFor(() => expect(line).toHaveTextContent('30m'));
+    expect(await listRecords(t.db, 'time_block')).toEqual([]);
   });
 
-  it('on a device that has not pulled yet, what opening fills in never overwrites another device’s moved session or removed pick', async () => {
+  it('opens on Schedule when asked to, for the week it is given', async () => {
+    await openPlanning({ params: { week: '2026-11-02', step: 'schedule' } });
+    expect(await screen.findByRole('button', { name: '3. Schedule' })).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('on a device that has not pulled yet, what opening fills in never overwrites another device’s removed pick', async () => {
     const WEEK = '2026-11-02';
     const server = fakeSyncServer({ now: () => Date.parse('2026-11-03T00:00:00Z') });
-    const seed = async (w: Writer) => {
-      await w.create('practice', { title: 'Learn to bake bread', target_min: 30, per: 'day', days: [2], preferred_times: [7 * 60], state: 'active' }, 'pr');
-      await w.create('task', { kind: 'one_off', title: 'Paint the fence', estimate_min: 90, schedule: { type: 'once', from: '2026-11-04' } }, 'o1');
-    };
-    // The other device planned the week earlier today: it moved the session to the evening and took the one off out.
+    const seed = (w: Writer) => w.create('task', { kind: 'one_off', title: 'Paint the fence', estimate_min: 90, schedule: { type: 'once', from: '2026-11-04' } }, 'o1');
+    // The other device planned the week earlier today and took the one off out.
     const other = await openTestDb();
     const earlier = fixedClock('2026-11-02T15:00:00Z', 'America/Chicago');
     await transact(other, earlier, async (w) => {
       await seed(w);
-      await placeWeekPractices(w, WEEK, earlier);
       await setWeekPick(w, WEEK, 'o1', 90);
     });
-    const session = (await listRecords(other, 'time_block')).find((b) => b.practice_id === 'pr')!;
-    const evening = { start: '2026-11-04T00:00:00Z', end: '2026-11-04T00:30:00Z' };
-    await transact(other, earlier, async (w) => {
-      await moveBlock(w, session.id, evening);
-      await removeWeekPick(w, WEEK, 'o1');
-    });
+    await transact(other, earlier, (w) => removeWeekPick(w, WEEK, 'o1'));
     await runSync(other, server.send);
 
     const t = await openPlanning({ seed });
-    await waitFor(async () => expect(await getRecord(t.db, 'time_block', session.id)).toBeDefined());
     await waitFor(async () => expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 'o1'))).toBeDefined());
     for (const db of [t.db, other, t.db]) await runSync(db, server.send);
     for (const db of [t.db, other]) {
-      expect(await getRecord(db, 'time_block', session.id)).toMatchObject({ ...evening, edited: true });
       expect((await getRecord(db, 'week_pick', weekPickId(WEEK, 'o1')))?.deleted_at).toEqual(expect.any(String));
     }
   });

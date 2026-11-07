@@ -1,15 +1,12 @@
 // What Process reads: the Inbox, and every project it can send to with its status.
 
 import type { Clock } from '../../../core/clock';
-import { thisWeek, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { gatherPlans } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
-import { blocksInRange, inboxTasks, projectTasks } from '../../../core/queries';
+import { inboxTasks, projectTasks } from '../../../core/queries';
 import type { InboxRow } from '../../../core/queries';
-import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
-import { slotContext } from '../../../core/slots';
-import type { SlotContext } from '../../../core/slots';
+import { getSettings, listRecords } from '../../../core/records';
 import { status } from '../../../core/status';
 
 export interface Destination {
@@ -50,19 +47,4 @@ export async function loadProcess(sql: Sql, clock: Clock): Promise<ProcessData> 
     });
   const shown = all.filter((d) => d.live).slice(0, SHOWN).map((d) => d.dest);
   return { inbox, shown, others: all.map((d) => d.dest).filter((d) => !shown.includes(d)) };
-}
-
-/** This week as slots see it, read inside the transaction that places the block. */
-export async function thisWeekSlots(sql: Sql, clock: Clock): Promise<SlotContext> {
-  const week = thisWeek(clock);
-  const settings = await getSettings(sql);
-  return slotContext({
-    week,
-    availability: settings.availability,
-    avoided: settings.avoided_slots,
-    sources: await listRecords(sql, 'calendar_source'),
-    calendar: (await getRecord(sql, 'calendar', CALENDAR_ID)) ?? null,
-    blocks: await blocksInRange(sql, weekRange(week, clock.zone())),
-    clock,
-  });
 }

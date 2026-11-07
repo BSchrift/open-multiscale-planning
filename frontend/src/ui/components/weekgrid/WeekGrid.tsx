@@ -1,6 +1,7 @@
 // The desktop week: seven day columns from 6am to 11pm, with closed hours and calendar events behind the blocks.
 // While editing, blocks drag on a 15-minute grid and snap to a suggested time within 20 minutes; the bottom edge
-// changes the length. A move or resize is reported once, on drop. Week and the planning Schedule step share it.
+// changes the length. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
+// calendar through onUnschedule. Week and the planning Schedule step share it.
 //
 //   <WeekGrid ctx={slotContext(...)} blocks={blocks} editing onChange={(id, slot) => save(id, slot)} />
 //
@@ -15,6 +16,7 @@ import type { Slot, SlotContext, Span } from '../../../core/slots';
 import type { LocalDate } from '../../../core/types';
 import { KIND_WORD } from '../blocks/describe';
 import type { BlockKind } from '../blocks/describe';
+import { clearLane, overLane } from './drop';
 import './weekgrid.css';
 
 export interface GridBlock extends Slot {
@@ -86,6 +88,8 @@ export interface GridLaneItem {
   alt: string;
   open: boolean;
   onToggle(): void;
+  /** Dragging it onto a day places it there. */
+  onPointerDown?(event: ReactPointerEvent<HTMLElement>): void;
 }
 
 export interface WeekGridProps {
@@ -104,6 +108,8 @@ export interface WeekGridProps {
   /** A save that resolves to undefined has failed, and the dropped block goes back to where it was saved. */
   onChange?(id: string, slot: Slot): unknown;
   onRemove?(id: string): void;
+  /** A block let go over To schedule, which takes it off the calendar. */
+  onUnschedule?(id: string): void;
   /** A click on a block, or Enter on it. */
   onOpen?(id: string): void;
   /** The block whose details are open, when not editing. */
@@ -158,7 +164,9 @@ export function WeekGrid(props: WeekGridProps) {
     const [x0, y0] = [event.clientX, event.clientY];
     let last: Slot = b;
     let moved = false;
+    const leaving = (e: PointerEvent) => mode === 'move' && !!live.current.onUnschedule && overLane(e.clientX, e.clientY);
     const move = (e: PointerEvent) => {
+      if (leaving(e)) return;
       const next = dragResult(b, mode, Math.round((e.clientX - x0) / wide), ((e.clientY - y0) * 60) / hr, mode === 'move' ? targets : []);
       if (same(next, b) && !moved) return;
       moved = true;
@@ -170,14 +178,19 @@ export function WeekGrid(props: WeekGridProps) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      clearLane();
     };
     const cancel = () => {
       stop();
       setDrag(null);
     };
-    const up = () => {
+    const up = (e: PointerEvent) => {
+      const off = leaving(e);
       stop();
-      if (!moved) live.current.onOpen?.(b.id);
+      if (off) {
+        setDrag(null);
+        live.current.onUnschedule?.(b.id);
+      } else if (!moved) live.current.onOpen?.(b.id);
       else if (!same(last, b)) {
         const saved = live.current.onChange?.(b.id, last);
         if (saved instanceof Promise) {
@@ -235,7 +248,7 @@ export function WeekGrid(props: WeekGridProps) {
                 <span className="strong">{dayName(date)}</span>
                 <span className="free">{editing || past ? '' : `${formatMinutes(free)} free`}</span>
               </div>
-              <div className="collane" style={{ height: laneH }}>
+              <div className="collane" style={{ height: laneH }} data-unscheduled>
                 {lane.map((a, i) => {
                   const first = a.from < days[0]! ? days[0]! : a.from;
                   if (first !== date) return null;
@@ -249,6 +262,7 @@ export function WeekGrid(props: WeekGridProps) {
                       title={a.alt}
                       aria-label={a.alt}
                       aria-expanded={a.open}
+                      onPointerDown={a.onPointerDown}
                       onClick={a.onToggle}
                     >
                       {a.title}
@@ -256,7 +270,7 @@ export function WeekGrid(props: WeekGridProps) {
                   );
                 })}
               </div>
-              <div className={`colbody${editing ? ' tall' : ''}`} style={{ height: gridH }}>
+              <div className={`colbody${editing ? ' tall' : ''}`} style={{ height: gridH }} data-drop-date={date}>
                 {closed.map((z, i) => (
                   <div key={`c${i}`} className="ev ev-closed" style={{ top: z.top, height: z.h }} aria-hidden="true" />
                 ))}

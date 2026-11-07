@@ -1,19 +1,22 @@
-// Week on desktop: the header with week arrows, how the week's time is used, and the grid. Editing adds a list
-// of tasks to place on the left, and the grid's blocks drag, resize and come off with ×.
+// Week on desktop: the header with week arrows, how the week's time is used, and the grid with To schedule above
+// it. Its cards drag onto a day, or open with suggested times. Editing adds a list of tasks to place on the left, and
+// the grid's blocks drag, resize, come off with ×, or drag back to To schedule.
 
 import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
 import { defaultSlot, otherOffers, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
-import { onceWhen, rowLine } from '../../../core/schedule';
+import { onceWhen } from '../../../core/schedule';
 import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
 import { PlanPrompt } from '../../components/PlanPrompt';
-import { WeekGrid } from '../../components/weekgrid';
+import { dragCard, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
-import { dayName, range } from './data';
-import type { AddRow } from './data';
+import { dayName, range, rowItem } from './data';
+import type { AddRow, LaneItem } from './data';
+import { LaneActions, LaneCard, laneCount } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
@@ -26,7 +29,9 @@ export function DesktopWeek(props: WeekProps) {
   const nav = useNav();
   const act = useWeekActions();
   const [openBlock, setOpenBlock] = useState<string | null>(null);
-  const [openLane, setOpenLane] = useState<string | null>(null);
+  const [openItem, setOpenItem] = useState<string | null>(null);
+  /** A card being dragged over a day, and where it would land. */
+  const [dropAt, setDropAt] = useState<{ item: LaneItem; slot: Slot } | null>(null);
   const [selected, setSelected] = useState<string | null>(props.place);
   const [draft, setDraft] = useState<Slot | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
@@ -53,6 +58,7 @@ export function DesktopWeek(props: WeekProps) {
   }, [cur?.task.id]);
 
   const choose = (id: string | null) => {
+    setOpenItem(null);
     setSelected(id);
     setDraft(null);
     setAsk(null);
@@ -75,14 +81,28 @@ export function DesktopWeek(props: WeekProps) {
     return saved;
   };
   const place = async (row: AddRow, slot: Slot) => {
-    if (await act.place(row.task, slot)) {
+    if (await act.place(rowItem(row), slot)) {
       choose(null);
       props.donePlacing();
     }
   };
+  const placeItem = (item: LaneItem, slot: Slot) => {
+    setOpenItem(null);
+    void act.place(item, slot);
+  };
+  const toggleItem = (id: string) => {
+    choose(null);
+    setOpenItem(openItem === id ? null : id);
+  };
+  const dragItem = (item: LaneItem) => ({ preview: (slot: Slot | null) => setDropAt(slot && { item, slot }), drop: (slot: Slot) => placeItem(item, slot) });
 
   const gridBlocks: GridBlock[] = [...model.blocks];
   let ghosts: GridGhost[] = [];
+  const item = model.unscheduled.find((x) => x.id === openItem);
+  if (item && isThis) {
+    ghosts = item.offers.map((o) => ({ ...o, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => placeItem(item, o) }));
+  }
+  if (dropAt) gridBlocks.push({ ...dropAt.slot, id: 'drop', title: dropAt.item.title, kind: dropAt.item.kind, draft: true, fixed: true });
   if (cur && draft) {
     gridBlocks.push({ ...draft, id: 'draft', title: cur.task.title, kind: cur.work.kind === 'one_off' ? 'one_off' : 'project', draft: true });
     ghosts = otherOffers(draft, cur.work, model.ctx).map((o) => ({
@@ -96,7 +116,7 @@ export function DesktopWeek(props: WeekProps) {
 
   const opened = openBlock ? data.blocks.find((b) => b.id === openBlock) : undefined;
   const lastMoved = moved ? model.blocks.find((b) => b.id === moved) : undefined;
-  const laneTask = model.lane.find((t) => t.id === openLane);
+  const anyDay = model.unscheduled.filter((x) => !x.dates);
   const segs = [
     { label: 'Projects', cls: 'seg-project', min: model.planned.project },
     { label: 'Practices', cls: 'seg-practice', min: model.planned.practice },
@@ -243,40 +263,30 @@ export function DesktopWeek(props: WeekProps) {
           </div>
         )}
         <div className="planright" ref={right}>
-          {laneTask && (
-            <div className="panel stack8 wkpanel" role="group" aria-label={laneTask.title}>
-              <div>
-                <div className="strong mhead">{laneTask.title}</div>
-                <div className="small quiet">{rowLine({ task: laneTask, checked: false })}</div>
-              </div>
-              <div className="row">
-                {isThis && (
-                  <button
-                    className="btn sm pri"
-                    type="button"
-                    onClick={() => {
-                      setOpenLane(null);
-                      props.setEditing(true);
-                      choose(laneTask.id);
-                    }}
-                  >
-                    Find a time
-                  </button>
-                )}
-                <button
-                  className="btn sm"
-                  type="button"
-                  onClick={() => {
-                    setOpenLane(null);
-                    void act.markDone(laneTask);
-                  }}
-                >
-                  Mark done
-                </button>
-                <button className="btn sm" type="button" onClick={() => setOpenLane(null)}>
-                  Close
-                </button>
-              </div>
+          {item && (
+            <div className="panel stack8 wkpanel" role="group" aria-label={item.title}>
+              <LaneActions
+                item={item}
+                canPlace={isThis}
+                onPlace={(slot) => placeItem(item, slot)}
+                onChoose={
+                  item.task && rows.some((r) => r.task.id === item.id)
+                    ? () => {
+                        props.setEditing(true);
+                        choose(item.id);
+                      }
+                    : undefined
+                }
+                onTakeOut={() => {
+                  setOpenItem(null);
+                  void act.takeOut(item, data.week);
+                }}
+                onDone={() => {
+                  setOpenItem(null);
+                  void act.markDone(item.task!);
+                }}
+                onClose={() => setOpenItem(null)}
+              />
             </div>
           )}
           {opened && !editing && (
@@ -291,6 +301,33 @@ export function DesktopWeek(props: WeekProps) {
             </div>
           )}
           <div className="card wkgrid">
+            {offset >= 0 && (
+              <section className="tosched stack8" aria-label="To schedule" data-unscheduled>
+                <div className="between">
+                  <div className="small">
+                    <span className="strong">To schedule</span>{' '}
+                    <span className="quiet">{model.unscheduled.length ? laneCount(model.unscheduled) : 'Everything this week is on the calendar.'}</span>
+                  </div>
+                  {model.unscheduled.length > 0 && (
+                    <button className="btn sm" type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
+                      Schedule one at a time
+                    </button>
+                  )}
+                </div>
+                {anyDay.length > 0 && (
+                  <div className="lanerow">
+                    {anyDay.map((x) => (
+                      <LaneCard key={x.id} item={x} ctx={model.ctx} open={openItem === x.id} draggable={isThis} onToggle={() => toggleItem(x.id)} onPreview={(slot) => setDropAt(slot && { item: x, slot })} onDrop={(slot) => placeItem(x, slot)} />
+                    ))}
+                  </div>
+                )}
+                {isThis && (
+                  <p className="small quiet">
+                    {editing ? 'Drag work onto a day to place it, or a block back here to take it off the calendar.' : 'Drag work onto a day to place it, or click it for suggested times.'}
+                  </p>
+                )}
+              </section>
+            )}
             <WeekGrid
               ctx={model.ctx}
               blocks={gridBlocks}
@@ -298,19 +335,27 @@ export function DesktopWeek(props: WeekProps) {
               ghosts={ghosts}
               editing={editing}
               lockPast={editing}
-              lane={model.lane.map((t) => {
-                const s = t.schedule as { type: 'once'; from: string; to?: string | null };
-                return {
-                  id: t.id,
-                  title: t.title,
-                  from: s.from,
-                  to: s.to ?? s.from,
-                  alt: `One off: ${t.title}, ${onceWhen(s)}`,
-                  open: openLane === t.id,
-                  onToggle: () => setOpenLane(openLane === t.id ? null : t.id),
-                };
-              })}
+              lane={model.unscheduled.flatMap((x) =>
+                x.dates
+                  ? [
+                      {
+                        id: x.id,
+                        title: x.title,
+                        from: x.dates.from,
+                        to: x.dates.to,
+                        alt: `One off: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
+                        open: openItem === x.id,
+                        onToggle: () => toggleItem(x.id),
+                        ...(isThis ? { onPointerDown: (e: ReactPointerEvent<HTMLElement>) => dragCard(e, x, model.ctx, dragItem(x)) } : {}),
+                      },
+                    ]
+                  : [],
+              )}
               onChange={onChange}
+              onUnschedule={(id) => {
+                const b = model.blocks.find((x) => x.id === id);
+                if (b) void act.unschedule(id, b.title, data.week);
+              }}
               openId={openBlock}
               onRemove={(id) => {
                 const b = model.blocks.find((x) => x.id === id);

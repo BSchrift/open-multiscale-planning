@@ -41,7 +41,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await add.getByRole('slider', { name: 'Target' }).fill('15');
   await add.getByLabel('Preferred time').fill('07:30');
   await add.getByRole('button', { name: 'Add practice' }).click();
-  await expect(page.getByText('Practice added. Planning will place it from your next plan.')).toBeVisible();
+  await expect(page.getByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
 
   // Do the starter's one task now, from Today's Next up, and answer the block.
   await tab(page, phone, 'Today');
@@ -126,7 +126,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await goals(page, phone);
   await expect(page.getByRole('button', { name: /^Read about bread/ })).toBeVisible();
 
-  // The new stretch begins: the Plan page follows it, and the first week's schedule places the practice as edited.
+  // The new stretch begins: the Plan page follows it, and the first week's schedule offers the practice as edited.
   await jumpTo(page, chicago('2027-01-04', '09:00'));
   await tab(page, phone, 'Plan');
   await expect(plan.getByText(/^This stretch: Jan 1 to Mar 31\./)).toBeVisible();
@@ -140,7 +140,10 @@ test('plans the next stretch from what the last one held', async ({ page }, info
     await page.getByRole('button', { name: /^All picked tasks/ }).click();
     await expect(page.getByRole('dialog', { name: 'All picked tasks' })).toContainText('Read about bread');
   } else {
-    await expect(page.getByRole('group', { name: /^Read about bread, Tue Jan 5, 7:30am to 7:50am, Practice\./ })).toBeVisible();
+    // Monday's 7:30am has gone by, so today's session starts now, and Tuesday's is at the edited time.
+    await page.getByRole('button', { name: /^Read about bread/ }).click();
+    await expect(page.getByRole('group', { name: /^Read about bread, Mon Jan 4, 9am to 9:20am, Practice\./ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use suggested time, Tue Jan 5, 7:30am' })).toBeVisible();
   }
   expect(errors).toEqual([]);
 });

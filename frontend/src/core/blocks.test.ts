@@ -9,19 +9,22 @@ import {
   nextBlock,
   partlyLeft,
   placeBlock,
+  placeSession,
   placeWeekPractices,
   removeBlock,
+  skipPractice,
   startBlock,
   startEarly,
   startTaskNow,
   swapBlocks,
+  unscheduleBlock,
 } from './blocks';
 import { fixedClock } from './clock';
 import { openDb } from './db';
 import { applyPlanChange } from './plan';
 import type { BlockRow } from './queries';
 import { blocksInRange } from './queries';
-import { getRecord, listRecords, outcomeId, transact, weekPlanId } from './records';
+import { getRecord, listRecords, outcomeId, setWeekPick, transact, weekPickId, weekPlanId } from './records';
 import type { Writer } from './records';
 import { runSync } from './sync';
 import { fakeSyncServer } from './sync-testing';
@@ -315,36 +318,41 @@ describe("placing the week's practices", () => {
     w.create('practice', { title: 'Sketch', target_min: 60, per: 'day', days: [1, 2], preferred_times: [7 * 60], state: 'active', ...fields }, 'sk');
   const sessions = async (db: Parameters<typeof listRecords>[0], id = 'sk') =>
     (await listRecords(db, 'time_block'))
-      .filter((b) => b.practice_id === id && !b.deleted_at)
+      .filter((b) => b.practice_id === id && !b.deleted_at && !b.cancelled)
       .map((b) => [b.start, b.end])
       .sort();
+  // Piano paused, so only Sketch is placed.
+  const alone = (fields = {}) => async (w: Writer) => {
+    await sketch(fields)(w);
+    await w.set('practice', 'pr', { state: 'paused' });
+  };
 
-  it('places each practice once a week, around what is there, and Undo takes them away', async () => {
+  it('places the sessions each practice is missing, around what is there, and Undo takes them away', async () => {
     const t = await setup(sketch());
     const undo = await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
-    expect(await sessions(t.db)).toEqual([
-      ['2026-11-03T07:00:00Z', '2026-11-03T08:00:00Z'],
-      ['2026-11-04T07:00:00Z', '2026-11-04T08:00:00Z'],
-    ]);
-    // Piano already has a session this week, so it is left as it is.
-    expect(await sessions(t.db, 'pr')).toEqual([[at('17:00'), at('17:30')]]);
+    expect(await sessions(t.db)).toHaveLength(2);
+    // Piano has Monday's session, so it gets Tuesday to Sunday.
+    expect(await sessions(t.db, 'pr')).toHaveLength(7);
     expect((await t.run((w) => placeWeekPractices(w, WEEK, t.clock))).writes).toEqual([]);
     await t.run((w) => applyPlanChange(w, undo));
     expect(await sessions(t.db)).toEqual([]);
+    expect(await sessions(t.db, 'pr')).toEqual([[at('17:00'), at('17:30')]]);
   });
 
-  it('a practice skipped this week gives up its sessions still to come, and comes back when included', async () => {
+  it('a practice skipped this week gives up its sessions still to come, and included again it waits to be placed', async () => {
     const t = await setup(sketch());
     await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
-    await t.run((w) => w.create('week_plan', { week_start: WEEK, skipped_practices: ['sk'] }, weekPlanId(WEEK)));
-    const undo = await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
+    const undo = await t.run((w) => skipPractice(w, WEEK, 'sk', true, t.clock));
     expect(await sessions(t.db)).toEqual([]);
+    expect((await getRecord(t.db, 'week_plan', weekPlanId(WEEK)))?.skipped_practices).toEqual(['sk']);
     await t.run((w) => applyPlanChange(w, undo));
     expect(await sessions(t.db)).toHaveLength(2);
+    expect((await getRecord(t.db, 'week_plan', weekPlanId(WEEK)))?.deleted_at).toBeTruthy();
 
+    await t.run((w) => skipPractice(w, WEEK, 'sk', true, t.clock));
+    await t.run((w) => skipPractice(w, WEEK, 'sk', false, t.clock));
+    expect(await sessions(t.db)).toEqual([]);
     await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
-    await t.run((w) => w.set('week_plan', weekPlanId(WEEK), { skipped_practices: [] }));
-    await t.run((w) => placeWeekPractices(w, WEEK, t.clock, 'sk'));
     expect(await sessions(t.db)).toHaveLength(2);
   });
 
@@ -364,14 +372,13 @@ describe("placing the week's practices", () => {
     ]);
   });
 
-  it('skipping a practice and taking it back undoes exactly, though its sessions come back on the same records', async () => {
+  it('skipping a practice and placing it again undoes exactly, though its sessions come back on the same records', async () => {
     const t = await setup(sketch());
     await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
-    await t.run((w) => w.create('week_plan', { week_start: WEEK, skipped_practices: ['sk'] }, weekPlanId(WEEK)));
-    await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
-    await t.run((w) => w.set('week_plan', weekPlanId(WEEK), { skipped_practices: [] }));
+    await t.run((w) => skipPractice(w, WEEK, 'sk', true, t.clock));
+    await t.run((w) => skipPractice(w, WEEK, 'sk', false, t.clock));
     await t.run((w) => w.set('practice', 'sk', { preferred_times: [9 * 60] }));
-    const undo = await t.run((w) => placeWeekPractices(w, WEEK, t.clock, 'sk'));
+    const undo = await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
     expect(await sessions(t.db)).toEqual([
       ['2026-11-03T09:00:00Z', '2026-11-03T10:00:00Z'],
       ['2026-11-04T09:00:00Z', '2026-11-04T10:00:00Z'],
@@ -380,40 +387,64 @@ describe("placing the week's practices", () => {
     expect(await sessions(t.db)).toEqual([]);
   });
 
-  it('re-placing one practice after its usual time changes keeps a session moved by hand', async () => {
-    const t = await setup(sketch());
+  it('a session taken off the calendar is placed again, and one moved by hand stays where it is', async () => {
+    const t = await setup(alone());
     await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
-    const tue = (await listRecords(t.db, 'time_block')).find((b) => b.practice_id === 'sk' && b.start.startsWith('2026-11-03'))!;
-    await t.run((w) => moveBlock(w, tue.id, { start: '2026-11-03T06:00:00Z', end: '2026-11-03T07:00:00Z' }));
-    await t.run((w) => w.set('practice', 'sk', { preferred_times: [9 * 60] }));
-    await t.run((w) => placeWeekPractices(w, WEEK, t.clock, 'sk'));
+    const [tue, wed] = (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'sk').sort((a, b) => (a.start < b.start ? -1 : 1));
+    await t.run((w) => removeBlock(w, tue!.id));
+    await t.run((w) => moveBlock(w, wed!.id, { start: '2026-11-04T06:00:00Z', end: '2026-11-04T07:00:00Z' }));
+    await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
     expect(await sessions(t.db)).toEqual([
-      ['2026-11-03T06:00:00Z', '2026-11-03T07:00:00Z'],
-      ['2026-11-04T09:00:00Z', '2026-11-04T10:00:00Z'],
+      ['2026-11-03T07:00:00Z', '2026-11-03T08:00:00Z'],
+      ['2026-11-04T06:00:00Z', '2026-11-04T07:00:00Z'],
     ]);
   });
 
-  it('"every week" after moving a session to another day keeps it there and the week whole', async () => {
+  it('"every week" changes the usual time and leaves the other sessions where they are', async () => {
     // Monday 6am, before any session: two 60-minute sessions a week, Tuesday to Thursday.
-    const t = await setup(sketch({ target_min: 120, per: 'week', days: [1, 2, 3] }));
+    const t = await setup(alone({ target_min: 120, per: 'week', days: [1, 2, 3] }));
     t.clock.set('2026-11-02T06:00:00Z');
     await t.run((w) => placeWeekPractices(w, WEEK, t.clock));
     const tue = (await listRecords(t.db, 'time_block')).find((b) => b.practice_id === 'sk' && b.start.startsWith('2026-11-03'))!;
     await t.run((w) => moveBlock(w, tue.id, { start: '2026-11-05T09:00:00Z', end: '2026-11-05T10:00:00Z' }));
-    const undo = await t.run(async (w) => {
-      const kept = await keepPracticeChange(w, tue.id, 60, t.clock);
-      const placed = await placeWeekPractices(w, WEEK, t.clock, 'sk');
-      return { writes: [...placed.writes, ...kept.writes] };
-    });
-    expect(await t.block(tue.id)).toMatchObject({ start: '2026-11-05T09:00:00Z', edited: true });
-    expect(await sessions(t.db)).toEqual([
-      ['2026-11-03T09:00:00Z', '2026-11-03T10:00:00Z'],
-      ['2026-11-05T09:00:00Z', '2026-11-05T10:00:00Z'],
-    ]);
-    await t.run((w) => applyPlanChange(w, undo));
+    await t.run((w) => keepPracticeChange(w, tue.id, 60, t.clock));
+    expect((await getRecord(t.db, 'practice', 'sk'))?.preferred_times).toEqual([9 * 60]);
     expect(await sessions(t.db)).toEqual([
       ['2026-11-04T07:00:00Z', '2026-11-04T08:00:00Z'],
       ['2026-11-05T09:00:00Z', '2026-11-05T10:00:00Z'],
     ]);
+  });
+});
+
+describe('placing and unscheduling by hand', () => {
+  const WEEK = '2026-11-02';
+  const live = async (db: Parameters<typeof listRecords>[0]) => (await listRecords(db, 'time_block')).filter((b) => !b.cancelled).map((b) => b.id);
+
+  it('places one practice session, and Undo takes it away', async () => {
+    const t = await setup();
+    const undo = await t.run((w) => placeSession(w, 'pr', { start: '2026-11-03T07:00:00Z', end: '2026-11-03T07:30:00Z' }, t.clock));
+    expect(await t.block(undo.writes[0]!.id)).toMatchObject({ practice_id: 'pr', start: '2026-11-03T07:00:00Z', tz: 'UTC' });
+    await t.run((w) => applyPlanChange(w, undo));
+    expect((await t.block(undo.writes[0]!.id))?.deleted_at).toBeTruthy();
+  });
+
+  it("a task not picked is picked for the time placed, so taking its block off keeps it in the week, and Undo puts it back", async () => {
+    const t = await setup();
+    const undo = await t.run((w) => unscheduleBlock(w, 'later', WEEK, t.clock));
+    expect(await live(t.db)).not.toContain('later');
+    // 1h at 6pm stays on the calendar and 1h at 9pm comes off, so 1h is left to place.
+    expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't'))).toMatchObject({ minutes: 120, skipped: false });
+    await t.run((w) => applyPlanChange(w, undo));
+    expect(await live(t.db)).toContain('later');
+    expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't')))?.deleted_at).toBeTruthy();
+  });
+
+  it('a picked task keeps its pick, and a practice session just comes off', async () => {
+    const t = await setup((w) => setWeekPick(w, WEEK, 't', 180));
+    await t.run((w) => unscheduleBlock(w, 'later', WEEK, t.clock));
+    expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't')))?.minutes).toBe(180);
+    const undo = await t.run((w) => unscheduleBlock(w, 'piano', WEEK, t.clock));
+    expect(undo.writes).toHaveLength(1);
+    expect(await live(t.db)).not.toContain('piano');
   });
 });

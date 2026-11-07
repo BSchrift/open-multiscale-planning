@@ -1,19 +1,18 @@
-// Schedule: the week's picked work, one task at a time, most pressing first. Each task waits as a block at its best
-// time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here puts
-// it on the week, and a shorter block leaves the rest to place. Practices are placed for you. Desktop places on the
-// week grid beside the list; phone compares days in a strip over one day, with the current task in a dock.
+// Schedule: the week's picked work and practices, one at a time, most pressing first. Each waits as a block at its
+// best time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here
+// puts it on the week, and a shorter block leaves the rest to place. Desktop places on the week grid beside the list;
+// phone compares days in a strip over one day, with the current task in a dock.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { keepPracticeChange, moveBlock, placeBlock, placeWeekPractices, removeBlock } from '../../../../core/blocks';
+import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice } from '../../../../core/blocks';
 import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, today, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
-import { getRecord, weekPlanId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
-import { closestFit, dayBaseAhead, dayFree, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, slotInstants, slotNotes, TIGHT_SHARE } from '../../../../core/slots';
-import type { Offer, Slot, SlotContext, Work } from '../../../../core/slots';
+import { closestFit, dayBaseAhead, dayFree, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes, TIGHT_SHARE } from '../../../../core/slots';
+import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
@@ -36,8 +35,6 @@ export interface ScheduleStepProps {
   onContinue(): void;
 }
 
-/** Longest block a task starts with; the rest stays to place. */
-const MAX_DRAFT_MIN = 120;
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
@@ -83,25 +80,30 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const s = scheduleModel(data, model, sessions, clock);
   const ctx = model.slot;
   const blockOf = (id: string | null) => (id ? s.blocks.find((b) => b.id === id) : undefined);
+  /** The row a block belongs to: its task's or its practice's. */
+  const rowId = (x: SchedBlock) => x.task_id ?? x.practice_id;
 
   // On phone, a block outside the list, such as a practice session, can be selected too.
   const edited = blockOf(editId);
-  const other = phone && edited && !s.rows.some((r) => r.task.id === edited.task_id) ? edited : undefined;
-  const cur = other ? undefined : (s.rows.find((r) => r.task.id === selected) ?? s.rows.find((r) => r.toPlace > 0 && !skipped.includes(r.task.id)));
-  const editB = other ?? (cur && (edited?.task_id === cur.task.id ? edited : cur.toPlace <= 0 ? cur.blocks[cur.blocks.length - 1] : undefined));
+  const other = phone && edited && !s.rows.some((r) => r.id === rowId(edited)) ? edited : undefined;
+  const cur = other ? undefined : (s.rows.find((r) => r.id === selected) ?? s.rows.find((r) => r.toPlace > 0 && !skipped.includes(r.id)));
+  const editB = other ?? (cur && (edited && rowId(edited) === cur.id ? edited : cur.toPlace <= 0 ? cur.blocks[cur.blocks.length - 1] : undefined));
   const work: Work = cur?.work ?? { kind: editB?.kind === 'one_off' ? 'one_off' : 'project' };
   // While a block changes, its own time is free.
   const ctxOut: SlotContext = editB ? { ...ctx, placed: ctx.placed.filter((p) => p.id !== editB.id) } : ctx;
-  const draftKey = cur && !editB ? `${cur.task.id}:${cur.toPlace}` : '';
-  const draftSlot = !cur || editB ? null : draft?.key === draftKey ? draft.slot : defaultSlot(Math.min(cur.toPlace, MAX_DRAFT_MIN), cur.work, ctx);
+  const draftKey = cur && !editB ? `${cur.id}:${cur.toPlace}` : '';
+  // A practice is suggested on its own days at its usual time, as Place the rest would put it.
+  const usual = cur?.practice && !editB ? practiceSlots(cur.practice, ctx) : null;
+  const draftSlot =
+    !cur || editB ? null : draft?.key === draftKey ? draft.slot : (usual?.[0] ?? defaultSlot(Math.min(cur.toPlace, cur.length), cur.work, ctx));
   const b: Slot | null = editB ?? draftSlot;
   const len = b ? b.end - b.start : 0;
-  const found = b ? offers(len, work, ctxOut) : [];
-  const others = b ? otherOffers(b, work, ctxOut) : [];
-  const curKey = editB ? `b${editB.id}` : cur ? `c${cur.task.id}` : 'none';
+  const found = !b ? [] : usual ? usual.map((x) => ({ ...x, end: x.start + len })) : offers(len, work, ctxOut);
+  const others = !b ? [] : usual ? found.filter((x) => !same(x, b)).slice(0, 4) : otherOffers(b, work, ctxOut);
+  const curKey = editB ? `b${editB.id}` : cur ? `c${cur.id}` : 'none';
   const firstDay = ctx.earliest.date > week ? ctx.earliest.date : week;
   const day = look?.key === curKey ? look.date : (b?.date ?? look?.date ?? (firstDay > addDays(week, 6) ? week : firstDay));
-  const rest = s.rows.filter((r) => r.toPlace > 0 && !skipped.includes(r.task.id));
+  const rest = s.rows.filter((r) => r.toPlace > 0 && !skipped.includes(r.id));
   const placedCount = s.rows.filter((r) => r.toPlace <= 0).length;
   const progress = `${placedCount} of ${s.rows.length} placed`;
 
@@ -113,13 +115,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const pick = (r: SchedRow) => {
     reset();
     setListOpen(false);
-    setSelected(r.task.id);
+    setSelected(r.id);
     setEditId(r.toPlace <= 0 ? (r.blocks[r.blocks.length - 1]?.id ?? null) : null);
-    setSkipped(skipped.filter((id) => id !== r.task.id));
+    setSkipped(skipped.filter((id) => id !== r.id));
   };
   const selectBlock = (x: SchedBlock) => {
-    if (!phone && !s.rows.some((r) => r.task.id === x.task_id)) return;
-    setSelected(x.task_id);
+    if (!phone && !s.rows.some((r) => r.id === rowId(x))) return;
+    setSelected(rowId(x));
     setEditId(x.id);
     setDraft(null);
     setLook(null);
@@ -128,7 +130,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const landOnCurrent = () => !phone && land(() => listRef.current?.querySelector<HTMLElement>('[aria-current="step"]') ?? noneRef.current);
   const skip = () => {
     landOnCurrent();
-    if (cur) setSkipped([...skipped, cur.task.id]);
+    if (cur) setSkipped([...skipped, cur.id]);
     setSelected(null);
     setEditId(null);
     reset();
@@ -136,24 +138,25 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const done = () => {
     landOnCurrent();
     setEditId(null);
-    setSelected(cur && cur.toPlace > 0 ? cur.task.id : null);
+    setSelected(cur && cur.toPlace > 0 ? cur.id : null);
     reset();
   };
 
   const place = async () => {
     if (!cur || !draftSlot) return;
     landOnCurrent();
-    if (!(await run((w) => placeBlock(w, cur.task.id, slotInstants(draftSlot, zone), clock)))) return;
+    const times = slotInstants(draftSlot, zone);
+    if (!(await run((w) => (cur.practice ? placeSession(w, cur.id, times, clock) : placeBlock(w, cur.id, times, clock))))) return;
     reset();
     setEditId(null);
-    setSelected(cur.toPlace - len > 0 ? cur.task.id : null);
+    setSelected(cur.toPlace - len > 0 ? cur.id : null);
   };
   const remove = async (x: SchedBlock) => {
     const reverse = await run((w) => removeBlock(w, x.id));
     if (!reverse) return;
     notify(`Removed ${x.title}`, () => run((w) => applyPlanChange(w, reverse)));
     setEditId(null);
-    if (x.task_id) setSelected(x.task_id);
+    if (rowId(x)) setSelected(rowId(x));
     reset();
   };
   /** Saves a placed block's new time, and after a practice moves, asks whether that's for every week. */
@@ -175,49 +178,47 @@ export function ScheduleStep(props: ScheduleStepProps) {
     const x = blockOf(a?.blockId ?? null);
     setAsk(null);
     if (!a || !x?.practice_id) return;
-    const reverse = await run(async (w) => {
-      const kept = await keepPracticeChange(w, a.blockId, a.wasMin, clock);
-      const placed = await placeWeekPractices(w, week, clock, x.practice_id!);
-      return { writes: [...placed.writes, ...kept.writes] };
-    });
+    const reverse = await run((w) => keepPracticeChange(w, a.blockId, a.wasMin, clock));
     if (reverse) notify(`${x.title} changed for every week. Edit it any time in Goals.`);
   };
-  const togglePractice = (id: string, off: boolean) =>
-    void run(async (w) => {
-      const was = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.skipped_practices ?? [];
-      await w.create('week_plan', { week_start: week, skipped_practices: off ? [...was, id] : was.filter((p) => p !== id) }, weekPlanId(week));
-      return placeWeekPractices(w, week, clock, off ? undefined : id);
-    });
+  const togglePractice = (id: string, off: boolean) => void run((w) => skipPractice(w, week, id, off, clock));
+  /** Tasks at their suggested times, then the practices around them. */
   const placeTheRest = async () => {
     const { placed } = placeRest(
-      rest.map((r) => ({ id: r.task.id, title: r.task.title, minutes: r.toPlace, ...r.work })),
+      rest.filter((r) => r.task).map((r) => ({ id: r.id, title: r.title, minutes: r.toPlace, ...r.work })),
       ctx,
     );
-    if (!placed.length) return notify('No open time is left for the rest.');
-    landOnCurrent();
+    let count = placed.length;
     const reverse = await run(async (w) => {
       const writes: RecordWrite[] = [];
       for (const p of placed) writes.unshift(...(await placeBlock(w, p.id, slotInstants(p, zone), clock)).writes);
+      if (rest.some((r) => r.practice)) {
+        const sessions = await placeWeekPractices(w, week, clock);
+        count += sessions.writes.filter((x) => x.type === 'time_block').length;
+        writes.unshift(...sessions.writes);
+      }
       return { writes };
     });
     if (!reverse) return;
+    if (!count) return notify('No open time is left for the rest.');
+    landOnCurrent();
     setSelected(null);
     setEditId(null);
     reset();
-    notify(`Placed ${placed.length} ${placed.length === 1 ? 'block' : 'blocks'}`, () => run((w) => applyPlanChange(w, reverse)));
+    notify(`Placed ${count} ${count === 1 ? 'block' : 'blocks'}`, () => run((w) => applyPlanChange(w, reverse)));
   };
 
   // What the current task or block says about itself.
-  const title = cur?.task.title ?? editB?.title ?? '';
+  const title = cur?.title ?? editB?.title ?? '';
   const when = b ? `${dayName(b.date)}, ${range(b)} (${formatMinutes(len)})` : '';
-  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice, placed for you' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
+  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
   const amount =
     !cur || editB || !draftSlot
       ? ''
       : cur.estimateLeft != null && len > cur.estimateLeft
         ? `${formatMinutes(len - cur.estimateLeft)} over your estimate`
         : len < cur.toPlace
-          ? `${formatMinutes(cur.toPlace - len)} more of this task stays to place`
+          ? `${formatMinutes(cur.toPlace - len)} more of this ${cur.practice ? 'practice' : 'task'} stays to place`
           : '';
   const notes = b ? slotNotes({ ...b, id: editB?.id ?? 'draft' }, work, ctx) : [];
   const skipLabel = cur?.blocks.length ? 'Leave the rest for later' : 'Skip for now';
@@ -227,11 +228,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const askBlock = blockOf(ask?.blockId ?? null);
   const askText = askBlock ? `${askBlock.title} is now ${dayName(askBlock.date)}, ${range(askBlock)}.` : '';
   const oneOffCls = (cur?.oneOff ?? editB?.kind === 'one_off') ? 'mhead' : '';
+  const curKind = cur?.practice ? 'practice' : cur?.oneOff ? 'one_off' : 'project';
 
   const rowParts = (r: SchedRow, i: number) => {
     const on = r === cur;
     const last = r.blocks[r.blocks.length - 1];
-    const isSkipped = skipped.includes(r.task.id);
+    const isSkipped = skipped.includes(r.id);
     const sub = isSkipped ? 'Skipped' : last ? `${formatWeekday(last.date)} ${formatTimeOfDay(last.start)}${r.blocks.length > 1 ? `, and ${r.blocks.length - 1} more` : ''}` : '';
     return { on, sub: on ? '' : sub, mark: on ? '▸' : r.toPlace <= 0 ? '✓' : isSkipped ? '–' : String(i + 1) };
   };
@@ -242,11 +244,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
         <button className={`btn pri ${cls}`} type="button" onClick={done}>
           Done
         </button>
-        {editB.task_id && (
-          <button className={`btn ${cls}`} type="button" onClick={() => void remove(editB)}>
-            Remove from calendar
-          </button>
-        )}
+        <button className={`btn ${cls}`} type="button" onClick={() => void remove(editB)}>
+          Remove from calendar
+        </button>
       </div>
     ) : (
       <div className="row">
@@ -274,7 +274,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   if (!phone) {
     const gridBlocks: GridBlock[] = s.blocks.map((x) => (x.id === editB?.id ? { ...x, draft: true } : { ...x, fixed: x.past }));
-    if (cur && draftSlot) gridBlocks.push({ ...draftSlot, id: 'draft', title: cur.task.title, kind: cur.oneOff ? 'one_off' : 'project', draft: true });
+    if (cur && draftSlot) gridBlocks.push({ ...draftSlot, id: 'draft', title: cur.title, kind: curKind, draft: true });
     const ghosts: GridGhost[] = others.map((o) => ({ ...o, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => moveTo(o) }));
     return (
       <div className="planlay">
@@ -312,13 +312,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
               {s.rows.map((r, i) => {
                 const { on, sub, mark } = rowParts(r, i);
                 return (
-                  <li key={r.task.id} className={`schedrow${on ? ' cur' : ''}${r.oneOff ? ' is-maint' : ''}`}>
+                  <li key={r.id} className={`schedrow${on ? ' cur' : ''}${r.oneOff ? ' is-maint' : ''}`}>
                     <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
                       <span className="schedmark" aria-hidden="true">
                         {mark}
                       </span>
                       <span>
-                        <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
+                        <span className={`subline${on ? ' strong' : ''}`}>{r.title}</span>
                         {sub && <span className="subline small">{sub}</span>}
                       </span>
                     </button>
@@ -346,7 +346,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           {s.practices.length > 0 && (
             <div className="stack8">
               <button className="link small schlinkbtn" type="button" aria-expanded={practicesOpen} onClick={() => setPracticesOpen(!practicesOpen)}>
-                Practices are placed for you
+                Skip a practice this week
               </button>
               {practicesOpen && (
                 <div className="card stack8">
@@ -356,11 +356,6 @@ export function ScheduleStep(props: ScheduleStepProps) {
                         <span>{p.title}</span>
                         <span className="quiet">{p.meta}</span>
                       </div>
-                      {p.notes.map((n) => (
-                        <div key={n} className="schnote">
-                          {n}
-                        </div>
-                      ))}
                       <button className="link small" type="button" aria-label={`${p.skipped ? 'Include this week' : 'Skip this week'}, ${p.title}`} onClick={() => togglePractice(p.id, !p.skipped)}>
                         {p.skipped ? 'Include this week' : 'Skip this week'}
                       </button>
@@ -409,7 +404,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const floorOf = (date: LocalDate) =>
     date > ctx.earliest.date ? DAY_FROM : date < ctx.earliest.date ? DAY_TO : Math.max(DAY_FROM, Math.ceil(ctx.earliest.minutes / GRID) * GRID);
   const away = !!b && b.date !== day;
-  const here: Offer | undefined = found.find((o) => o.date === day);
+  const here = found.find((o) => o.date === day);
   const lenMax = b ? Math.max(len, Math.min(480, DAY_TO - b.start)) : 0;
   const setLength = (minutes: number) => {
     if (!b) return;
@@ -499,7 +494,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
               info={[]}
               floor={floorOf(day)}
               blocks={s.blocks.filter((x) => x.date === day)}
-              moving={cur && draftSlot && draftSlot.date === day ? { title: cur.task.title, kind: cur.oneOff ? 'one_off' : 'project', slot: draftSlot } : null}
+              moving={cur && draftSlot && draftSlot.date === day ? { title: cur.title, kind: curKind, slot: draftSlot } : null}
               editing
               ghosts={others
                 .filter((o) => o.date === day)
@@ -607,12 +602,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
             {s.rows.map((r, i) => {
               const { on, sub, mark } = rowParts(r, i);
               return (
-                <button key={r.task.id} className="projbtn morerow" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
+                <button key={r.id} className="projbtn morerow" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
                   <span className="small schmark" aria-hidden="true">
                     {mark}
                   </span>
                   <span className={`schname${r.oneOff ? ' mhead' : ''}`}>
-                    <span className={`block${on ? ' strong' : ''}`}>{r.task.title}</span>
+                    <span className={`block${on ? ' strong' : ''}`}>{r.title}</span>
                     {sub && <span className="small quiet block">{sub}</span>}
                   </span>
                 </button>
@@ -626,18 +621,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
           )}
           {s.practices.length > 0 && (
             <div className="stack8">
-              <h3>Practices are placed for you</h3>
+              <h3>Skip a practice this week</h3>
               {s.practices.map((p) => (
                 <div key={p.id} className="rowline">
                   <div className="between">
                     <span>{p.title}</span>
                     <span className="small quiet">{p.meta}</span>
                   </div>
-                  {p.notes.map((n) => (
-                    <div key={n} className="small schnote">
-                      {n}
-                    </div>
-                  ))}
                   <div>
                     <button className="btn" type="button" aria-label={`${p.skipped ? 'Include this week' : 'Skip this week'}, ${p.title}`} onClick={() => togglePractice(p.id, !p.skipped)}>
                       {p.skipped ? 'Include this week' : 'Skip this week'}

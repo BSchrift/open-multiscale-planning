@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Releases the apps for one environment from this Mac. Builds the Mac app and its web bundle, signs the bundle with the
-# environment's release key, and uploads both to the hosts its stack serves: the disk image to downloads.<zone>, and the
-# feed the apps update from to release.<zone>.
+# environment's release key, and uploads both to the hosts its stack serves: the disk image to downloads.<zone>, the
+# feed the apps update from to release.<zone>, and the web app to the zone itself.
 #   ENV=staging (default) or ENV=prod. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 # The first release makes the key, <env>.release-key.pem, beside the config. Keep it backed up: apps built with it take
 # updates signed by it and nothing else.
@@ -58,5 +58,10 @@ node scripts/release-files.ts pack dist "$key" "$out"
 aws s3 sync "$out/files" "s3://$bucket/release/files" --size-only --cache-control 'public, max-age=31536000, immutable' --content-type application/octet-stream
 aws s3 cp "$dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
 aws s3 cp "$out/release.json" "s3://$bucket/release/release.json" --cache-control 'public, max-age=60' --content-type application/json
+
+# The web app is the same build. Its named-by-content assets go first and cache for good, then the page that loads them.
+# shortcut: old assets stay, so a tab still on the last page can load what it needs; prune them if the folder grows.
+aws s3 sync dist/assets "s3://$bucket/web/assets" --size-only --cache-control 'public, max-age=31536000, immutable'
+aws s3 sync dist "s3://$bucket/web" --exclude 'assets/*' --cache-control 'no-cache'
 
 echo "Released $(node -e 'console.log(JSON.parse(require("fs").readFileSync("dist/version.json", "utf8")).version)') to $env_name"

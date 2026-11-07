@@ -11,7 +11,7 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
-import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
@@ -75,14 +75,17 @@ export class MultiscaleStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
     const domain = userPool.addDomain('Domain', { cognitoDomain: { domainPrefix: config.auth.cognitoDomainPrefix } });
+    // The web app, on the environment's own zone when it has one, signs in like the apps.
+    const webUrl = config.dns?.zone ? `https://${config.dns.zone}` : undefined;
+    const signInCallbackUrls = [...config.auth.signInCallbackUrls, ...(webUrl ? [`${webUrl}/auth/callback`] : [])];
     const appClient = userPool.addClient('AppClient', {
       userPoolClientName: 'app',
       generateSecret: false,
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [OAuthScope.OPENID, OAuthScope.EMAIL],
-        callbackUrls: config.auth.signInCallbackUrls,
-        logoutUrls: config.auth.signInCallbackUrls,
+        callbackUrls: signInCallbackUrls,
+        logoutUrls: signInCallbackUrls,
       },
       supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
       refreshTokenValidity: Duration.days(365),
@@ -382,21 +385,8 @@ export class MultiscaleStack extends Stack {
         target: RecordTarget.fromAlias(new ApiGatewayv2DomainProperties(apiDomain.regionalDomainName, apiDomain.regionalHostedZoneId)),
       });
 
-      // Cognito refuses a custom domain whose parent doesn't resolve; what it resolves to doesn't matter to it.
-      // shortcut: the zone's own name points at a documentation address (RFC 5737) that serves nothing; point it at a real
-      // page if anyone should visit it.
-      const apex = new ARecord(this, 'ZoneApexRecord', { zone, target: RecordTarget.fromIpAddresses('192.0.2.1') });
-      // Cognito serves sign-in through CloudFront, which only takes us-east-1 certificates. Deprecated, but the
-      // replacement needs a second stack, which would need this one's zone while this one needs its certificate.
-      const authCertificate = new DnsValidatedCertificate(this, 'AuthCertificate', { domainName: authHost!, hostedZone: zone, region: 'us-east-1' });
-      authCertificate.node.addDependency(delegation);
-      // Beside the prefix domain, which builds made before it keep signing in through.
-      const authDomain = userPool.addDomain('AuthDomain', { customDomain: { domainName: authHost!, certificate: authCertificate } });
-      authDomain.node.addDependency(apex);
-      new ARecord(this, 'AuthRecord', { zone, recordName: authHost, target: RecordTarget.fromAlias(new UserPoolDomainTarget(authDomain)) });
-
-      // Releases, built and signed on a Mac by scripts/release.sh: the Mac app's disk image on downloads.<zone>, and the
-      // feed the apps update from on release.<zone>. One private bucket, a folder per host. Same certificate reasoning as auth.
+      // Releases, built and signed on a Mac by scripts/release.sh: the Mac app's disk image on downloads.<zone>, the feed
+      // the apps update from on release.<zone>, and the web app on the zone itself. One private bucket, a folder per host.
       // The apps fetch the feed from their own origins: app:// on the Mac, capacitor:// on iPhone. S3 answers CORS and
       // Origin is in the release host's cache key, so every cached copy suits the request it's served to. CloudFront's
       // own CORS headers turned out to be missing from some cached copies.
@@ -406,6 +396,53 @@ export class MultiscaleStack extends Stack {
         enforceSSL: true,
         cors: [{ allowedMethods: [HttpMethods.GET, HttpMethods.HEAD], allowedOrigins: ['*'] }],
       });
+
+      // The web app: the build the apps run, on the zone's own name. Sign-in comes back to /auth/callback, which only the
+      // app's page answers. Sign-in sits in the browser's storage, so the page runs only its own scripts: the Mac app's
+      // policy (electron/security.ts), plus WebAssembly for sql.js and no framing.
+      const webCertificate = new DnsValidatedCertificate(this, 'WebCertificate', { domainName: config.dns.zone, hostedZone: zone, region: 'us-east-1' });
+      webCertificate.node.addDependency(delegation);
+      const webDistribution = new Distribution(this, 'WebDistribution', {
+        defaultBehavior: {
+          origin: S3BucketOrigin.withOriginAccessControl(releaseBucket, { originPath: '/web' }),
+          viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          responseHeadersPolicy: new ResponseHeadersPolicy(this, 'WebHeaders', {
+            securityHeadersBehavior: {
+              contentSecurityPolicy: {
+                contentSecurityPolicy: [
+                  "default-src 'none'",
+                  "script-src 'self' 'wasm-unsafe-eval'",
+                  "style-src 'self' 'unsafe-inline'",
+                  "img-src 'self' data:",
+                  "font-src 'self'",
+                  `connect-src 'self' https://${apiHost} https://${authHost}`,
+                  "base-uri 'none'",
+                  "form-action 'none'",
+                  "frame-ancestors 'none'",
+                ].join('; '),
+                override: true,
+              },
+            },
+          }),
+        },
+        defaultRootObject: 'index.html',
+        errorResponses: [403, 404].map((httpStatus) => ({ httpStatus, responseHttpStatus: 200, responsePagePath: '/index.html' })),
+        domainNames: [config.dns.zone],
+        certificate: webCertificate,
+        priceClass: PriceClass.PRICE_CLASS_100,
+      });
+      // Cognito also refuses a custom domain whose parent doesn't resolve.
+      const apex = new ARecord(this, 'ZoneApexRecord', { zone, target: RecordTarget.fromAlias(new CloudFrontTarget(webDistribution)) });
+      // Cognito serves sign-in through CloudFront, which only takes us-east-1 certificates. Deprecated, but the
+      // replacement needs a second stack, which would need this one's zone while this one needs its certificate.
+      const authCertificate = new DnsValidatedCertificate(this, 'AuthCertificate', { domainName: authHost!, hostedZone: zone, region: 'us-east-1' });
+      authCertificate.node.addDependency(delegation);
+      // Beside the prefix domain, which builds made before it keep signing in through.
+      const authDomain = userPool.addDomain('AuthDomain', { customDomain: { domainName: authHost!, certificate: authCertificate } });
+      authDomain.node.addDependency(apex);
+      new ARecord(this, 'AuthRecord', { zone, recordName: authHost, target: RecordTarget.fromAlias(new UserPoolDomainTarget(authDomain)) });
+
+      // Same certificate reasoning as auth.
       const byOrigin = new CachePolicy(this, 'ReleaseCachePolicy', {
         headerBehavior: CacheHeaderBehavior.allowList('Origin'),
         enableAcceptEncodingGzip: true,
@@ -448,7 +485,7 @@ export class MultiscaleStack extends Stack {
       GoogleRedirectUri: `${apiUrl}/calendar/callback`,
       AlarmTopicArn: topic.topicArn,
       TableName: table.tableName,
-      ...(releaseBucket ? { ReleaseBucket: releaseBucket.bucketName, ReleaseUrl: `https://${releaseHost}`, DownloadsUrl: `https://${downloadsHost}` } : {}),
+      ...(releaseBucket ? { ReleaseBucket: releaseBucket.bucketName, ReleaseUrl: `https://${releaseHost}`, DownloadsUrl: `https://${downloadsHost}`, WebUrl: webUrl! } : {}),
     };
     for (const [name, value] of Object.entries(outputs)) new CfnOutput(this, name, { value });
   }

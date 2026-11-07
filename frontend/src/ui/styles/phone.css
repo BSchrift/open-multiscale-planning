@@ -4,6 +4,8 @@
 :where([data-layout='phone']) h2{font-size:18px;font-weight:600}
 :where([data-layout='phone']) .small{font-size:14px}
 :where([data-layout='phone']) .stack{display:flex;flex-direction:column;gap:12px}
+/* First-run setup sits in the middle of the screen. */
+:where([data-layout='phone']) .setup{flex:1 0 auto;justify-content:center}
 :where([data-layout='phone']) .between{display:flex;justify-content:space-between;align-items:center;gap:12px}
 :where([data-layout='phone']) .btn{min-height:44px;padding:8px 14px;border:1px solid var(--border);border-radius:10px;background:var(--white)}
 :where([data-layout='phone']) .btn.grow{flex:1}

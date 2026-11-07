@@ -52,7 +52,7 @@ One account also works. Skip the Organizations parts, 2 and 3 above, assign the 
 
 ## 3. The domain (optional)
 
-A domain is optional. Each environment gets a zone under it and serves its API at `api.<zone>`, its sign-in page at `auth.<zone>`, and releases at `downloads.<zone>` and `release.<zone>`, so the apps, the sign-in page and Google's redirect use your name rather than AWS's. Without one, the API and sign-in keep their AWS addresses and there's nowhere to release updates to: skip this step and step 6, and leave out the `dns` sections in step 4.
+A domain is optional. Each environment gets a zone under it and serves its API at `api.<zone>`, its sign-in page at `auth.<zone>`, releases at `downloads.<zone>` and `release.<zone>`, and the web app at the zone itself, so the apps, the sign-in page and Google's redirect use your name rather than AWS's. Without one, the API and sign-in keep their AWS addresses and there's nowhere to release updates to: skip this step and step 6, and leave out the `dns` sections in step 4.
 
 1. Open the AWS access portal, sign in to `multiscale-control`, and open **Route 53 > Registered domains > Register domains**.
 2. Register the domain and confirm the contact email Route 53 sends. Registration can take from minutes to a day.
@@ -400,7 +400,9 @@ Each signs in with the profile in its environment's file. After a deploy, commit
 
 ### Releasing updates
 
-`make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg` and the update feed to `https://release.<zone>`. Link people to the disk image to install.
+`make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
+
+The web app keeps its data in the browser and syncs like the apps. It opens in one tab at a time, and it doesn't send reminders.
 
 The first release makes the signing key, `<env>.release-key.pem`, in your config folder. Apps built after that carry its public half and install only bundles it signed, so keep it backed up. A lost key means building and installing the apps again with a new one.
 

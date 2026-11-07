@@ -112,6 +112,10 @@ test('two devices sign in, sync, merge edits made offline, and sync deletes', as
 
   const b = await device(browser, `e2e-${run}`);
   await signIn(b.page);
+  // A browser keeps its sign-in, like the apps do.
+  await b.page.reload();
+  await go(b.page, 'Settings');
+  await expect(account(b.page).getByRole('button', { name: 'Sign out' })).toBeVisible();
   await go(b.page, 'One offs');
   await expect(pane(b.page, 'One offs').getByRole('checkbox', { name: `${paint} done` })).toBeVisible();
   await expect(pane(b.page, 'One offs').getByRole('checkbox', { name: `${oil} done` })).toBeVisible();

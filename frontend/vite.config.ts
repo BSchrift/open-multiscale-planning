@@ -37,8 +37,9 @@ export default defineConfig({
   ],
   // ENV picks the backend this build talks to: local (the default), staging or prod. LOCAL_API_URL picks a local stack.
   define: { __APP_CONFIG__: JSON.stringify(config) },
-  // Relative paths so that the build loads from its own scheme in Electron and capacitor:// on iPhone.
-  base: './',
+  // From the root, so the web app's /auth/callback page loads the same files as its home page. Electron's app scheme and
+  // capacitor:// on iPhone serve the bundle at their root too.
+  base: '/',
   build: { outDir: 'dist', sourcemap: true },
   server: { port: 5173, strictPort: false },
 });

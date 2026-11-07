@@ -484,6 +484,35 @@ describe('DNS', () => {
       z.hasOutput('DownloadsUrl', { Value: `https://downloads.${zone}` });
       z.hasOutput('ReleaseBucket', { Value: Match.anyValue() });
     });
+
+    it(`${envName} serves the web app on ${zone} itself, from the same bucket, and lets it sign in`, () => {
+      const z = zoned(envName, zone);
+      const web = Object.values(z.findResources('AWS::CloudFront::Distribution'))
+        .map((d) => d.Properties.DistributionConfig)
+        .find((d) => d.Aliases.includes(zone));
+      assert.equal(web.Origins[0].OriginPath, '/web');
+      assert.equal(web.DefaultRootObject, 'index.html');
+      assert.equal(web.DefaultCacheBehavior.ViewerProtocolPolicy, 'redirect-to-https');
+      // Sign-in comes back to /auth/callback, which only the app's page can answer.
+      assert.deepEqual(
+        web.CustomErrorResponses.map((r: { ErrorCode: number; ResponseCode: number; ResponsePagePath: string }) => [r.ErrorCode, r.ResponseCode, r.ResponsePagePath]),
+        [[403, 200, '/index.html'], [404, 200, '/index.html']],
+      );
+      // Only the app's own scripts run, with sql.js's WebAssembly, and it talks only to its API and sign-in.
+      const policies = z.findResources('AWS::CloudFront::ResponseHeadersPolicy');
+      const csp = policies[web.DefaultCacheBehavior.ResponseHeadersPolicyId.Ref].Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy;
+      assert.ok(csp.Override);
+      assert.match(csp.ContentSecurityPolicy, /script-src 'self' 'wasm-unsafe-eval';/);
+      assert.ok(csp.ContentSecurityPolicy.includes(`connect-src 'self' https://api.${zone} https://auth.${zone};`));
+      assert.match(csp.ContentSecurityPolicy, /frame-ancestors 'none'/);
+      const [cert] = Object.values(z.findResources('AWS::CloudFormation::CustomResource', { Properties: { DomainName: zone, Region: 'us-east-1' } }));
+      const [delegation] = Object.keys(z.findResources('Custom::CrossAccountZoneDelegation'));
+      assert.ok(([] as string[]).concat(cert.DependsOn ?? []).includes(delegation));
+      // The zone's own name, which Cognito needs to resolve, is the app.
+      z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${zone}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
+      z.hasResourceProperties('AWS::Cognito::UserPoolClient', { ClientName: 'app', CallbackURLs: Match.arrayWith([`https://${zone}/auth/callback`]) });
+      z.hasOutput('WebUrl', { Value: `https://${zone}` });
+    });
   }
 
   it('has no release hosting without a zone', () => {

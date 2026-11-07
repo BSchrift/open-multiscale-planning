@@ -51,6 +51,13 @@ test('captures to the Inbox from the button and the keyboard', async ({ page }, 
   await page.screenshot({ path: info.outputPath('capture.png') });
 });
 
+test("shows the Inbox's count in a circle", async ({ page }, info) => {
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, records);
+  const badge = await nav(page).locator(info.project.name === 'phone' ? '.tbadge' : '.navcount').boundingBox();
+  expect(badge && badge.width).toBe(badge?.height);
+});
+
 test('processes the Inbox one card at a time, with Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);

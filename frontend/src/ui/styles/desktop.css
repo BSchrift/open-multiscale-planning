@@ -2,7 +2,8 @@
 
 :where([data-layout='desktop']) .brand{min-height:32px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:inherit;font-weight:600;text-align:left;cursor:pointer}
 :where([data-layout='desktop']) .brand:hover{background:var(--hover)}
-:where([data-layout='desktop']) .navcount{min-width:20px;padding:0 6px;border-radius:999px;background:var(--blue);color:var(--white);font-size:12px;font-weight:600;line-height:20px;text-align:center}
+/* Trimmed to the digits' cap height, so they sit in the middle of the circle whatever the font's line spacing. */
+:where([data-layout='desktop']) .navcount{align-self:center;min-width:20px;height:20px;padding:calc((20px - 1cap) / 2) 6px;border-radius:999px;background:var(--blue);color:var(--white);font-size:12px;font-weight:600;line-height:1;text-align:center;text-box:trim-both cap alphabetic}
 :where([data-layout='desktop']) .nav{display:flex;flex-direction:column;gap:2px}
 :where([data-layout='desktop']) .nav button{display:flex;justify-content:space-between;width:100%;min-height:40px;padding:8px;border:0;border-radius:6px;background:transparent;text-align:left;color:var(--ink-2)}
 :where([data-layout='desktop']) .nav button:hover{background:var(--hover)}

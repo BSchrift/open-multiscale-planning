@@ -315,7 +315,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "rm -rf \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ]; then\n  mkdir -p \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\n  cp -R \"$BUILT_PRODUCTS_DIR/MultiscaleShare.appex\" \"$BUILT_PRODUCTS_DIR/MultiscaleCapture.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\n";
+			shellScript = "rm -rf \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\nmkdir -p \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ]; then\n  cp -R \"$BUILT_PRODUCTS_DIR/MultiscaleShare.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ] || [ \"$MULTISCALE_CONTROL\" = YES ]; then\n  cp -R \"$BUILT_PRODUCTS_DIR/MultiscaleCapture.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -607,7 +607,7 @@
 			baseConfigurationReference = A1B2C3D4E5F6000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CODE_SIGNING_ALLOWED = "$(MULTISCALE_SIGN_EXTENSIONS_$(MULTISCALE_EXTENSIONS))";
+				CODE_SIGNING_ALLOWED = "$(MULTISCALE_SIGN_EXTENSIONS_$(MULTISCALE_CONTROL))";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CaptureWidget/Info.plist;
@@ -631,7 +631,7 @@
 			baseConfigurationReference = A1B2C3D4E5F6000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CODE_SIGNING_ALLOWED = "$(MULTISCALE_SIGN_EXTENSIONS_$(MULTISCALE_EXTENSIONS))";
+				CODE_SIGNING_ALLOWED = "$(MULTISCALE_SIGN_EXTENSIONS_$(MULTISCALE_CONTROL))";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CaptureWidget/Info.plist;

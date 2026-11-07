@@ -612,6 +612,9 @@ type NewEntry = Omit<SlipEntry, 'at' | 'undo' | 'text'> & { text: string };
 const slipLog = ({ project }: ProjectPlan) => project.slip_log ?? [];
 
 /** Only this change's fields are reversed by its Undo, so tasks ticked since then stay ticked. */
+// shortcut: the whole slip_log is one field, so two devices replanning the same project offline keep only the later
+// device's log, losing the other's entries and what Restore would put back; and it only grows, toward the 100 KB a
+// record can hold. Make each entry its own record once every installed app reads them.
 function logged(plan: ProjectPlan, ctx: PlanContext, edits: readonly Edit[], entry: NewEntry | null): PlanChange {
   const writes: RecordWrite[] = edits.map(({ type, record, fields }) => ({ type, id: record.id, fields }));
   if (!entry) return { writes };

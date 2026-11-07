@@ -1,9 +1,9 @@
 // What a person can do to a block, as one transaction each with the message that follows. Today and Week share it.
 
 import { useCallback } from 'react';
-import { answerBlock, extendBlock, markDoneNow, startBlock, startEarly, swapBlocks } from '../../../core/blocks';
+import { answerBlock, extendBlock, markDoneNow, startBlock, startEarly, swapBlocks, unscheduleBlock } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
-import { formatMinutes, formatTime } from '../../../core/dates';
+import { formatMinutes, formatTime, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
@@ -52,6 +52,13 @@ export function useBlockActions() {
         (w) => markDoneNow(w, block.id, clock),
         next ? `Marked done. You're free until ${formatTime(next.start, clock.zone())}.` : 'Marked done. Nothing else planned today.',
         // The Mark done now button unmounts with its block, so focus would otherwise fall to the page.
+        true,
+      ),
+    /** Skip, choose a new time later: off the calendar and into To schedule, still in its week. */
+    skip: (block: BlockRow) =>
+      withUndo(
+        (w) => unscheduleBlock(w, block.id, weekStart(localDate(block.start, clock.zone())), clock),
+        `Took ${block.title ?? 'it'} off the calendar. It's in To schedule on Week.`,
         true,
       ),
     start: (block: BlockRow) => run((w) => startBlock(w, block.id, clock)),

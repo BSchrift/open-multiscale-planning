@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
 import { META, setMeta } from '../../../core/db';
-import { CALENDAR_ID, getRecord, listRecords, outcomeId, weekPlanId } from '../../../core/records';
+import { CALENDAR_ID, getRecord, listRecords, outcomeId, weekPickId, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
@@ -220,14 +220,19 @@ describe('the start check-in', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW);
   });
 
-  it('Ask again in 10 minutes waits, and Skip sends it to Needs a new time', async () => {
+  it('Ask again in 10 minutes waits, and Skip takes it off the calendar into To schedule, with Undo', async () => {
     const t = await open(late);
     await userEvent.click(within(await dialog('Have you started?')).getByRole('button', { name: 'Ask again in 10 minutes' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     t.clock.set(at('14:10'));
     await act(() => t.write((w) => w.create('task', { kind: 'inbox', title: 'Rake the leaves' })));
     await userEvent.click(within(await dialog('Have you started?')).getByRole('button', { name: 'Skip, choose a new time later' }));
-    await waitFor(async () => expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not'));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
+    // Not answered, so it isn't crossed off or sent to Needs a new time: it waits in To schedule.
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
+    expect(await getRecord(t.db, 'week_pick', weekPickId(DAY, 't1'))).toMatchObject({ minutes: 70, skipped: false });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy());
   });
 
   it('stays quiet on away dates', async () => {

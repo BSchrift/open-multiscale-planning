@@ -19,7 +19,7 @@ test('starts at setup on an empty database, then shows the shell', async ({ page
     await nav.getByRole('button', { name: 'More' }).click();
     await page.getByRole('button', { name: 'Settings' }).click();
     await expect(pane(page, 'Settings')).toBeVisible();
-    await expect(page.getByRole('button', { name: '‹ More' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Back to More' })).toBeVisible();
   } else {
     await expect(nav.locator('.nav button')).toHaveText(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Settings']);
     await nav.getByRole('button', { name: 'Goals' }).click();

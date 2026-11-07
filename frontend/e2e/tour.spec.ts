@@ -267,7 +267,7 @@ test('the links between areas reach their page and come back', async ({ page }, 
   await page.getByRole('button', { name: "See this week's analytics" }).click();
   await expect(shown('Analytics')).toBeVisible();
   await expect(shown('Analytics').getByText('Nov 2 to Nov 8', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '‹ Week' }).click();
+  await page.getByRole('button', { name: 'Back to Week' }).click();
   await expect(shown('Week')).toBeVisible();
 
   // Inbox: one item straight into Process.

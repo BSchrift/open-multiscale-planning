@@ -45,7 +45,7 @@ export async function tab(page: Page, phone: boolean, name: string) {
   if (phone && !['Today', 'Week', 'Inbox', 'Goals'].includes(name)) {
     // More keeps the page it was left on, so the row may be one step back.
     await nav.getByRole('button', { name: 'More' }).click();
-    const back = page.getByRole('button', { name: '‹ More' });
+    const back = page.getByRole('button', { name: 'Back to More' });
     if (!(await pane(page, name).isVisible()) && (await back.isVisible())) await back.click();
     if (!(await pane(page, name).isVisible())) await pane(page, 'More').getByRole('button', { name: new RegExp(`^${name}`) }).click();
   } else {
@@ -84,7 +84,7 @@ export async function addProject(page: Page, phone: boolean, goal: string, name:
 /** The Goals page itself, whichever project page the phone's Goals tab was left on. */
 export async function goals(page: Page, phone: boolean) {
   await tab(page, phone, 'Goals');
-  const back = page.getByRole('button', { name: '‹ Goals' });
+  const back = page.getByRole('button', { name: 'Back to Goals' });
   if (phone && (await back.isVisible())) await back.click();
   await expect(pane(page, 'Goals').getByRole('heading', { level: 1, name: 'Goals' })).toBeVisible();
 }

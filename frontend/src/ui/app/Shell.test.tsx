@@ -45,6 +45,17 @@ describe('shell on desktop', () => {
     expect(paneOf('Today')!.childElementCount).toBeGreaterThan(0);
   });
 
+  it('names the page showing, and a flow over it, as regions, which the hidden pages are not', async () => {
+    await renderApp();
+    expect(await screen.findByRole('region', { name: 'Today' })).toBe(paneOf('Today'));
+    await userEvent.click(tab('Goals'));
+    expect(await screen.findByRole('region', { name: 'Goals' })).toBe(paneOf('Goals'));
+    expect(screen.queryByRole('region', { name: 'Today' })).toBeNull();
+    await userEvent.click(tab('Today'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start planning' }));
+    expect(await screen.findByRole('region', { name: 'Plan your week' })).toBe(document.querySelector('.flowpane'));
+  });
+
   it('counts the inbox live', async () => {
     const t = await renderApp({ seed: (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }) });
     await screen.findByText('1');
@@ -194,9 +205,12 @@ describe('shell on phone', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Settings/ }));
     await showsPane('Settings');
     expect(tab('More')).toHaveAttribute('aria-current', 'page');
-    await userEvent.click(screen.getByRole('button', { name: '‹ More' }));
+    // The arrow is drawn, not read out.
+    const back = screen.getByRole('button', { name: 'Back to More' });
+    expect(back).toHaveTextContent('‹ More');
+    await userEvent.click(back);
     await screen.findByRole('heading', { name: 'More' });
-    expect(screen.queryByRole('button', { name: '‹ More' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Back to More' })).toBeNull();
   });
 
   it('tapping the current tab returns to its root, and other tabs keep their page', async () => {

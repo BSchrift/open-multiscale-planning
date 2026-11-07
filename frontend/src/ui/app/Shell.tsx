@@ -55,7 +55,7 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
   const nav = useNav();
   const { route, visible, isTop } = props;
   const ref = useRef<HTMLDivElement>(null);
-  const label = route.area === 'more' ? 'More' : AREAS[route.area].label;
+  const label = tabLabel(route.area);
 
   // Move focus with the page, so keyboards and screen readers land on what just changed.
   const wasVisible = useRef(visible);
@@ -74,6 +74,7 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
     <div
       ref={ref}
       className="pane"
+      role="region"
       tabIndex={-1}
       aria-label={label}
       aria-hidden={!visible}
@@ -81,8 +82,8 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
       style={visible ? undefined : { visibility: 'hidden' }}
     >
       {nav.backLabel && visible && isTop && (
-        <button className="backbtn" type="button" onClick={nav.back}>
-          ‹ {nav.backLabel}
+        <button className="backbtn" type="button" aria-label={`Back to ${nav.backLabel}`} onClick={nav.back}>
+          <span aria-hidden="true">‹</span> {nav.backLabel}
         </button>
       )}
       {route.area === 'more' ? (
@@ -112,7 +113,7 @@ function Panes() {
         ));
       })}
       {nav.flow && (
-        <div className="flowpane" tabIndex={-1} aria-label={AREAS[nav.flow.area].label}>
+        <div className="flowpane" role="region" tabIndex={-1} aria-label={AREAS[nav.flow.area].label}>
           <AreaScreen area={nav.flow.area} params={nav.flow.params} presentation="flow" close={nav.closeFlow} />
         </div>
       )}

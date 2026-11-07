@@ -80,6 +80,22 @@ describe('first-run setup', () => {
     expect(await heading('Welcome')).toBeVisible();
   });
 
+  it('shows sign-in finishing, not the sign-in button, once it comes back from the browser', async () => {
+    const t = await renderScreen('setup', { firstRun: true, sync: fakeSync() });
+    await syncState(t, null, 'sign_in_expired');
+    await act(async () => {
+      await setMeta(t.db, META.signingIn, '1');
+      t.db.notifyChanged({ types: [], source: 'remote' });
+    });
+    expect((await screen.findByText('Signing in…')).closest('[role=status]')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    await act(async () => {
+      await t.db.run('DELETE FROM meta WHERE key = :key', { key: META.signingIn });
+      t.db.notifyChanged({ types: [], source: 'remote' });
+    });
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeVisible();
+  });
+
   it("can't skip sign-in in the web app, whose data would stay in one browser", async () => {
     vi.stubEnv('DEV', false);
     try {

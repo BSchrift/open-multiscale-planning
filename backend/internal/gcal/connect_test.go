@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/api/calendar/v3"
+
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 )
 
@@ -76,6 +78,39 @@ func TestReconnectingKeepsTheCalendar(t *testing.T) {
 	w.connect(testSub)
 	if w.fake.Writes() != writes || w.timeBlocks() != cal {
 		t.Fatalf("a second calendar: %d writes", w.fake.Writes()-writes)
+	}
+}
+
+// A deployment holds one connection, so another user's consent takes it over. The first user's app is told, as a
+// disconnect would tell it, and their Google access is left alone: the account is theirs, not this user's, to revoke.
+func TestAnotherUsersConsentDisconnectsTheFirst(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.fake.AddCalendar("home@example.test", "Home")
+	w.fake.AddEvent("home@example.test", &calendar.Event{
+		Summary: "Team lunch",
+		Start:   &calendar.EventDateTime{DateTime: at(1).Format(time.RFC3339)},
+		End:     &calendar.EventDateTime{DateTime: at(2).Format(time.RFC3339)},
+	})
+	w.run()
+	first := w.secrets.values[SecretRefreshToken]
+
+	w.connect("someone-else")
+	rec := w.calendarRecord(testSub)
+	if rec["connected"].V != false || rec["calendar_id"].V != nil || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
+		t.Fatalf("%+v", rec)
+	}
+	if !w.refreshWorks(first) {
+		t.Fatal("the first user's access was revoked")
+	}
+	if theirs := w.calendarRecord("someone-else"); theirs["connected"].V != true {
+		t.Fatalf("%+v", theirs)
+	}
+
+	// Connecting again as the user already connected leaves them connected.
+	w.connect("someone-else")
+	if theirs := w.calendarRecord("someone-else"); theirs["connected"].V != true {
+		t.Fatalf("%+v", theirs)
 	}
 }
 

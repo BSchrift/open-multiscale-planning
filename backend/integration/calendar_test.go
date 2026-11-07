@@ -875,4 +875,23 @@ func TestOnlyTheConnectedUsersRefreshRunsTheWorker(t *testing.T) {
 	if got := calendarFields(t, a)["synced_at"]; got != instantOf(clock.now) {
 		t.Fatalf("%v", got)
 	}
+
+	// Finishing it hands the one connection over. The first user's app shows it unconnected, and from then on only the
+	// new user's refresh runs the worker.
+	if theirs, ok := calendarID(a); ok {
+		t.Cleanup(func() { request(t, "POST", "/google/_test/calendars/"+url.PathEscape(theirs)+"/delete", "", nil) })
+	}
+	connectCalendar(t, other)
+	values := calendarFields(t, a)
+	if events, _ := values["events"].([]any); values["connected"] != false || values["calendar_id"] != nil || len(events) != 0 || values["last_error"] != nil {
+		t.Fatalf("the first user's app still shows a connection: %+v", values)
+	}
+	start := clock.now.Add(time.Hour)
+	other.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
+	runWorker(t, a)
+	if events := timeBlocks(t, other).Events; len(events) != 0 {
+		t.Fatalf("the first user's refresh still ran the worker: %+v", events)
+	}
+	runWorker(t, other)
+	oneEvent(t, other)
 }

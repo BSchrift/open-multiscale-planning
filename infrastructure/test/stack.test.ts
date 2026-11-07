@@ -206,7 +206,7 @@ describe('calendar triggers', () => {
 });
 
 describe('least privilege', () => {
-  const data = ['dynamodb:BatchGetItem', 'dynamodb:ConditionCheckItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'];
+  const data = ['dynamodb:BatchGetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'];
 
   for (const fn of ['Api', 'Calendar']) {
     it(`${fn} has only the data actions a sync transaction uses, on this table`, () => {
@@ -236,8 +236,15 @@ describe('least privilege', () => {
     for (const fn of ['Api', 'Calendar']) {
       const get = policyFor(fn).filter((s) => s.Action.includes('ssm:GetParameter'));
       assert.equal(get.length, 1, fn);
-      assert.match(JSON.stringify(get[0].Resource), /parameter\/multiscale\/staging\/google\/\*"/, fn);
+      for (const resource of [get[0].Resource].flat()) assert.match(JSON.stringify(resource), /parameter\/multiscale\/staging\/google\//, fn);
     }
+    assert.match(JSON.stringify(policyFor('Api').find((s) => s.Action.includes('ssm:GetParameter'))!.Resource), /google\/\*"/);
+  });
+
+  it('lets the worker read only the client and the connection, not the key that signs consents', () => {
+    const get = policyFor('Calendar').filter((s) => s.Action.includes('ssm:GetParameter'));
+    const names = [get[0].Resource].flat().map((r: unknown) => JSON.stringify(r).match(/google\/([a-z-]+)"/)?.[1]);
+    assert.deepEqual(names.sort(), ['client-id', 'client-secret', 'refresh-token']);
   });
 
   it('worker reads secrets but cannot write them, and only it reads the stream', () => {

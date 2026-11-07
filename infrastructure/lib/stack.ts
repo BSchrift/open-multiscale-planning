@@ -195,21 +195,22 @@ export class MultiscaleStack extends Stack {
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
 
-    // Permissions. A sync transaction needs Put, Update and ConditionCheck: TransactWriteItems is not an IAM action.
+    // Permissions. TransactWriteItems is not an IAM action: a sync transaction needs Put and Update, the actions inside it.
+    // The consent state is a PutItem and a conditional UpdateItem.
 
     const dataAccess = new PolicyStatement({
-      actions: ['dynamodb:BatchGetItem', 'dynamodb:ConditionCheckItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+      actions: ['dynamodb:BatchGetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
       resources: [table.tableArn, `${table.tableArn}/index/by_seq`],
     });
-    // Only the Google secrets: the test users' passwords sit beside them, for the integration suite alone.
-    const readSecrets = new PolicyStatement({
+    // Only the Google secrets: the test users' passwords sit beside them, for the integration suite alone. The worker
+    // never starts a consent, so it doesn't get the key that signs them.
+    const readSecrets = (names: string[]) => new PolicyStatement({
       actions: ['ssm:GetParameter'],
-      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/*` })],
+      resources: names.map((name) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/${name}` })),
     });
-    for (const fn of [apiFunction, calendarFunction]) {
-      fn.addToRolePolicy(dataAccess);
-      fn.addToRolePolicy(readSecrets);
-    }
+    apiFunction.addToRolePolicy(readSecrets(['*']));
+    calendarFunction.addToRolePolicy(readSecrets(['client-id', 'client-secret', 'refresh-token']));
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(dataAccess);
     apiFunction.addToRolePolicy(new PolicyStatement({
       actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],

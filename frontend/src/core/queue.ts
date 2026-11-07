@@ -134,10 +134,11 @@ export interface ShiftPlan {
   runs_past: TimeOfDay | null;
 }
 
-function closedToday(block: AvailabilityBlock, date: LocalDate): boolean {
-  if (!block.projects && !block.one_offs) return false;
+/** Whether these hours are closed today to a block's kind of work. Practices count as projects, as placing them does. */
+function closedToday(a: AvailabilityBlock, date: LocalDate, block: BlockRow): boolean {
+  if (a.from === a.to || !(block.task_kind === 'one_off' ? a.one_offs : a.projects)) return false;
   const weekend = weekday(date) >= 5;
-  return block.days === 'all' || (block.days === 'weekends') === weekend;
+  return a.days === 'all' || (a.days === 'weekends') === weekend;
 }
 
 /**
@@ -171,11 +172,10 @@ export function shiftRestOfToday(
   const date = today(clock);
   const zone = clock.zone();
   const closed = availability
-    .filter((a) => closedToday(a, date))
     .filter((a) => {
       const from = localToMs(date, a.from, zone);
-      const to = a.to <= a.from ? localToMs(addDays(date, 1), a.to, zone) : localToMs(date, a.to, zone);
-      return moves.some((m) => instantMs(m.end) > from && instantMs(m.start) < to);
+      const to = a.to < a.from ? localToMs(addDays(date, 1), a.to, zone) : localToMs(date, a.to, zone);
+      return moves.some((m) => closedToday(a, date, m.block) && instantMs(m.end) > from && instantMs(m.start) < to);
     })
     .map((a) => a.from);
   return { conflict, moves, runs_past: closed.length ? Math.min(...closed) : null };

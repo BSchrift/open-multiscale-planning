@@ -365,6 +365,21 @@ describe('Shift rest of today', () => {
     expect(result!.runs_past).toBe(22 * 60);
   });
 
+  it('ignores hours that start and end at the same time, which close nothing', () => {
+    const none = [{ days: 'all' as const, from: 21 * 60, to: 21 * 60, projects: true, one_offs: true }];
+    const result = shiftRestOfToday([block('a', day('21:00'), day('21:45'))], [event('call', '21:00', '21:30')], none, at('20:00'));
+    expect(result!.runs_past).toBeNull();
+  });
+
+  it('counts closed hours only for the kind of work that moves, practices as projects', () => {
+    const oneOffsOnly = [{ days: 'all' as const, from: 22 * 60, to: 7 * 60, projects: false, one_offs: true }];
+    const late = (over: Partial<BlockRow>) =>
+      shiftRestOfToday([block('a', day('21:00'), day('21:45'), over)], [event('call', '21:00', '21:30')], oneOffsOnly, at('20:00'))!.runs_past;
+    expect(late({})).toBeNull();
+    expect(late({ task_id: null, task_kind: null, practice_id: 'pr' })).toBeNull();
+    expect(late({ task_kind: 'one_off' })).toBe(22 * 60);
+  });
+
   it('ignores closed hours for other days of the week', () => {
     const weekends = [{ days: 'weekends' as const, from: 18 * 60, to: 23 * 60, projects: true, one_offs: true }];
     const result = shiftRestOfToday([block('a', day('19:00'), day('20:00'))], [event('call', '19:00', '19:30')], weekends, at('18:00'));

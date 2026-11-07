@@ -10,6 +10,18 @@ import type { Slot, SlotContext } from '../../../core/slots';
 /** On touch, a card lifts once held this long without moving, so a swipe still scrolls. As holding a block on Today. */
 export const HOLD_MS = 400;
 const SLOP_PX = 8;
+/** Near the top or bottom of the screen, where the strip and tab bar sit, a dragged card scrolls the page. */
+const EDGE_PX = 120;
+const SCROLL_PX = 12;
+
+/** What scrolls under an element: its nearest scrolling ancestor, else the page. */
+function scrollerOf(el: Element): Element {
+  for (let e = el.parentElement; e; e = e.parentElement) {
+    const o = getComputedStyle(e).overflowY;
+    if ((o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight) return e;
+  }
+  return document.scrollingElement ?? document.documentElement;
+}
 
 /** The drop target under a point: a day to place on, or To schedule. */
 function under(x: number, y: number) {
@@ -50,6 +62,20 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
   let ghost: HTMLElement | null = null;
   let when: HTMLElement | null = null;
   let last: Slot | null = null;
+  let at = { x: x0, y: y0 };
+  let raf = 0;
+  const scroller = scrollerOf(card);
+  // Keeps scrolling while the card is held near an edge, and the time under it follows. Only once it has left the edge
+  // it started at, so a card near the top doesn't scroll the page away as it lifts.
+  let armed = false;
+  const edge = () => (!armed ? 0 : at.y > innerHeight - EDGE_PX ? SCROLL_PX : at.y < EDGE_PX ? -SCROLL_PX : 0);
+  const scroll = () => {
+    raf = 0;
+    if (!ghost || !edge()) return;
+    const was = scroller.scrollTop;
+    scroller.scrollTop += edge();
+    if (scroller.scrollTop !== was) follow(at.x, at.y);
+  };
   const lift = (x: number, y: number) => {
     ghost = card.cloneNode(true) as HTMLElement;
     ghost.classList.add('cardghost');
@@ -63,6 +89,9 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
     follow(x, y);
   };
   const follow = (x: number, y: number) => {
+    at = { x, y };
+    armed ||= y > EDGE_PX && y < innerHeight - EDGE_PX;
+    if (edge() && !raf) raf = requestAnimationFrame(scroll);
     ghost!.style.left = `${x - 16}px`;
     ghost!.style.top = `${y - (touch ? 48 : 12)}px`;
     const slot = slotAt(x, y, item.length, ctx, item.offers);
@@ -70,8 +99,18 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
     last = slot;
     when!.textContent = slot ? formatTimeOfDay(slot.start) : '';
   };
+  const pressed = performance.now();
+  // Only the pointer that pressed: a mouse resting elsewhere sends moves of its own as the page changes under it.
+  const own = (e: PointerEvent) => e.pointerId === event.pointerId;
   const move = (e: PointerEvent) => {
+    if (!own(e)) return;
     if (ghost) return follow(e.clientX, e.clientY);
+    // Held long enough, though a busy page ran the timer late: it lifts rather than reading as a swipe.
+    if (touch && performance.now() - pressed >= HOLD_MS) {
+      clearTimeout(timer);
+      lift(x0, y0);
+      return follow(e.clientX, e.clientY);
+    }
     const far = Math.hypot(e.clientX - x0, e.clientY - y0) >= (touch ? SLOP_PX : 6);
     if (far && touch) return end(false)();
     if (far) lift(e.clientX, e.clientY);
@@ -82,6 +121,7 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
   };
   const end = (drop: boolean) => () => {
     clearTimeout(timer);
+    cancelAnimationFrame(raf);
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
@@ -97,8 +137,8 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
     setTimeout(() => card.removeEventListener('click', swallow, { capture: true }));
     if (drop && last) on.drop(last);
   };
-  const up = end(true);
-  const cancel = end(false);
+  const up = (e: PointerEvent) => own(e) && end(true)();
+  const cancel = (e: PointerEvent) => own(e) && end(false)();
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', cancel);

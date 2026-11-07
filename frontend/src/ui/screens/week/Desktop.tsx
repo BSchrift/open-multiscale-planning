@@ -9,6 +9,7 @@ import { onceWhen, rowLine } from '../../../core/schedule';
 import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
+import { PlanPrompt } from '../../components/PlanPrompt';
 import { WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { dayName, range } from './data';
@@ -120,7 +121,7 @@ export function DesktopWeek(props: WeekProps) {
               See this week's analytics
             </button>
           )}
-          {isThis && !editing && (
+          {isThis && !editing && !props.gated && (
             <button
               ref={editBtn}
               className="btn pri"
@@ -133,13 +134,14 @@ export function DesktopWeek(props: WeekProps) {
               Edit this week's plan
             </button>
           )}
-          {(offset === 0 || offset === 1) && !editing && (
+          {(offset === 0 || offset === 1) && !editing && !props.gated && (
             <button className="btn" type="button" onClick={() => nav.openFlow('planning')}>
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
             </button>
           )}
         </div>
       </div>
+      {props.gated && <PlanPrompt week={data.week} />}
       {offset < 0 && <p className="small quiet">Past weeks can be viewed but not changed.</p>}
 
       {!editing && (

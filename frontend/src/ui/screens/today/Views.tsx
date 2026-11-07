@@ -10,6 +10,7 @@ import { returnMissedBlocks, welcomeOptions } from '../../../core/queue';
 import type { Task } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation } from '../../app/store';
+import { PlanPrompt } from '../../components/PlanPrompt';
 import type { TodayData } from './data';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -82,24 +83,9 @@ function gateLine(data: TodayData, clock: ReturnType<typeof useApp>['clock']): s
   );
 }
 
-export function Gate(props: { data: TodayData; onSkip(): void }) {
-  const { clock, layout } = useApp();
-  const nav = useNav();
-  const line = gateLine(props.data, clock);
-  return (
-    <Card>
-      <p>This week isn't planned yet.</p>
-      {line && <p className={layout === 'phone' ? 'small quiet' : 'quiet'}>{line}</p>}
-      <div className={layout === 'phone' ? 'stack8' : 'row'}>
-        <button className="btn pri" type="button" onClick={() => nav.openFlow('planning')}>
-          Start planning
-        </button>
-        <button className="btn" type="button" onClick={props.onSkip}>
-          Skip for now
-        </button>
-      </div>
-    </Card>
-  );
+export function Gate(props: { data: TodayData }) {
+  const { clock } = useApp();
+  return <PlanPrompt week={thisWeek(clock)} line={gateLine(props.data, clock)} />;
 }
 
 export function Banner() {

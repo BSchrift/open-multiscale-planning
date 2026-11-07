@@ -10,6 +10,7 @@ import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
+import { PlanPrompt } from '../../components/PlanPrompt';
 import { Sheet } from '../../components/Sheet';
 import type { GridGhost } from '../../components/weekgrid';
 import { dayName, KIND_WORD, range } from './data';
@@ -166,6 +167,7 @@ export function PhoneWeek(props: WeekProps) {
             ›
           </button>
         </div>
+        {props.gated && <PlanPrompt week={data.week} />}
         {!isThis && !placing && (
           <div className="wkcenter">
             <button className="btn" type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>
@@ -336,7 +338,7 @@ export function PhoneWeek(props: WeekProps) {
             </button>
           </div>
         </div>
-      ) : isThis ? (
+      ) : isThis && !props.gated ? (
         <button
           className="tray go"
           type="button"

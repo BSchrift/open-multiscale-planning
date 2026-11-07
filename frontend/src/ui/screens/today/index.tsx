@@ -9,6 +9,7 @@ import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useNow, useQuery, useStickyState } from '../../app/store';
+import { useSkippedWeek } from '../../components/PlanPrompt';
 import { useCalendarCall } from '../settings/useCalendarCall';
 import { loadToday } from './data';
 import type { TodayData } from './data';
@@ -209,7 +210,7 @@ export default function Screen(_props: ScreenProps) {
   const { clock, layout } = useApp();
   const { data } = useQuery((sql, c) => loadToday(sql, c), []);
   const [picking, setPicking] = useState(false);
-  const [skipped, setSkipped] = useStickyState<string | null>('today.skippedWeek', null);
+  const [skipped, setSkipped] = useSkippedWeek();
   const [pick, setPick] = useStickyState<{ date: string; id: string } | null>('today.pick', null);
   if (!data) return <div className={layout === 'phone' ? 'stack' : 'wrap stack24'} />;
 
@@ -240,7 +241,7 @@ export default function Screen(_props: ScreenProps) {
     return frame(
       'Plan your week',
       <>
-        <Gate data={data} onSkip={() => setSkipped(week)} />
+        <Gate data={data} />
         <Prompts data={data} />
       </>,
     );

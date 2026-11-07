@@ -36,7 +36,6 @@ export interface Sql {
 }
 
 export interface DbChange {
-  types: readonly string[];
   /** Local edits start a sync soon after; remote ones came from a sync. */
   source: 'local' | 'remote';
 }

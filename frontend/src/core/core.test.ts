@@ -510,8 +510,8 @@ describe('records', () => {
     expect(picks).toHaveLength(1);
     expect(picks[0]).toMatchObject({ id: weekPickId('2026-11-02', 't1'), minutes: 45, deleted_at: null });
     expect(picks[0]).not.toHaveProperty('skipped');
-    expect(occurrenceId('time_block', 't1', '2026-11-02')).toBe(occurrenceId('time_block', 't1', '2026-11-02'));
-    expect(occurrenceId('time_block', 't1', '2026-11-02')).not.toBe(occurrenceId('task_completion', 't1', '2026-11-02'));
+    // The id older versions gave the same finish, so theirs and this one's merge.
+    expect(occurrenceId('t1', '2026-11-02')).toBe('occ-done:t1:2026-11-02');
   });
 
   it('exposes outcomes by block id through the view', async () => {
@@ -543,7 +543,7 @@ describe('records', () => {
       await w.create('objective', { title: 'y', state: 'active' });
       expect(events).toEqual([]);
     });
-    expect(events).toEqual([{ types: ['task', 'objective'], source: 'local' }]);
+    expect(events).toEqual([{ source: 'local' }]);
   });
 });
 
@@ -647,7 +647,7 @@ describe('applyRemote', () => {
     const change = { type: 'task', id: 't', fields: { title: { v: 'x', c: c(1) } } };
     await applyRemote(db, [change]);
     await applyRemote(db, [change]);
-    expect(events).toEqual([{ types: ['task'], source: 'remote' }]);
+    expect(events).toEqual([{ source: 'remote' }]);
   });
 });
 

@@ -31,7 +31,7 @@ async function syncState(t: Harness, at: string | null, error: string | null) {
     if (at) await setMeta(t.db, META.lastSyncAt, at);
     if (error) await setMeta(t.db, META.lastSyncError, error);
     else await t.db.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
-    t.db.notifyChanged({ types: [], source: 'remote' });
+    t.db.notifyChanged({ source: 'remote' });
   });
 }
 

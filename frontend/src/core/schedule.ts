@@ -170,7 +170,7 @@ export function tick(task: Task, clock: Clock, done_at: Instant = nowInstant(clo
   return {
     task: isRepeating(task) ? { next_due: nextDue(task.schedule!, previous, doneOn) } : { done_at },
     completion: {
-      id: occurrenceId('task_completion', task.id, previous ?? doneOn),
+      id: occurrenceId(task.id, previous ?? doneOn),
       fields: { task_id: task.id, done_at, previous_next: previous, deleted_at: null },
     },
   };

@@ -15,7 +15,6 @@ import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
 import type { Diagnostics } from './telemetry';
 import { apiPost, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
-import { RECORD_TYPES } from './types';
 import type { Reminder } from './types';
 import type { Updater } from './updates';
 
@@ -26,7 +25,7 @@ const CONNECT_POLLS = 24;
 
 async function recordFailure(db: Db, code: SyncErrorCode): Promise<void> {
   await setMeta(db, META.lastSyncError, code);
-  db.notifyChanged({ types: [], source: 'remote' });
+  db.notifyChanged({ source: 'remote' });
 }
 
 /** Binds this device's records to the first account that syncs them and refuses any other, so two accounts never mix. */
@@ -56,7 +55,7 @@ export function createSyncRunner(deps: {
         await setMeta(tx, META.lastSyncAt, nowInstant(clock));
         await tx.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
       });
-      db.notifyChanged({ types: [], source: 'remote' });
+      db.notifyChanged({ source: 'remote' });
     } catch (err) {
       if (!(err instanceof SyncError)) console.error('Sync failed', err);
       await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
@@ -153,7 +152,7 @@ export function startAppSync(
   const signingIn = async (on: boolean) => {
     if (on) await setMeta(platform.db, META.signingIn, '1');
     else await platform.db.run('DELETE FROM meta WHERE key = :key', { key: META.signingIn });
-    platform.db.notifyChanged({ types: [], source: 'remote' });
+    platform.db.notifyChanged({ source: 'remote' });
   };
   // One an app closed during would otherwise show as under way for good.
   void signingIn(false);
@@ -245,7 +244,7 @@ export function startAppSync(
           });
           await setMeta(tx, META.account, account);
         });
-        db.notifyChanged({ types: RECORD_TYPES, source: 'remote' });
+        db.notifyChanged({ source: 'remote' });
         const share = platform.shareImport;
         if (share) await share.remove((await share.peek()).map((item) => item.id));
         // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when

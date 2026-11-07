@@ -77,7 +77,7 @@ describe('when it syncs', () => {
     t.runner.start();
     await flush();
     t.send.mockClear();
-    t.db.notifyChanged({ types: ['task'], source: 'remote' });
+    t.db.notifyChanged({ source: 'remote' });
     await vi.advanceTimersByTimeAsync(10 * SECOND);
     expect(t.send).not.toHaveBeenCalled();
     t.runner.stop();

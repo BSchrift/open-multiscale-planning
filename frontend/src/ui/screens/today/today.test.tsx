@@ -496,7 +496,7 @@ describe('Google Calendar', () => {
   const signIn = (t: Harness) =>
     act(async () => {
       await setMeta(t.db, META.lastSyncAt, NOW);
-      t.db.notifyChanged({ types: [], source: 'remote' });
+      t.db.notifyChanged({ source: 'remote' });
     });
   afterEach(() => localStorage.clear());
 

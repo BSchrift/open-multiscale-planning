@@ -62,7 +62,8 @@ describe('which reminders a block gets', () => {
     expect(check).toMatchObject({ title: 'Have you started?', body: 'Paint the fence' });
     expect(titles(check)).toEqual(['Yes, started', 'Ask again in 10 minutes', 'Do next block instead', 'Skip, choose a new time later']);
     expect(end).toMatchObject({ title: 'Block ended', body: 'Did you finish Paint the fence?' });
-    expect(titles(end)).toEqual(['Done', 'Partly', 'Not done', 'Still going']);
+    // Never Done: a task finishes only when someone says so in the app.
+    expect(titles(end)).toEqual(['Still going', 'Partly', 'Not done']);
   });
 
   it('only Partly needs the app in front, to ask for the time left', () => {

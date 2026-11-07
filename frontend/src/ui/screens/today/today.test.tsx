@@ -126,11 +126,12 @@ describe('the end-of-block prompt', () => {
     await block(w, 'b1', 't1', '12:00', '13:00');
   };
 
-  it('asks Done, Partly or Not done, and Done finishes the task when its block ended', async () => {
+  it('asks Task finished, Partly or Not done, and only Task finished finishes the task, as of when its block ended', async () => {
     const t = await open(ended);
     const prompt = await dialog('Block finished');
     expect(within(prompt).getByText('Write the report')).toBeVisible();
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Done' }));
+    expect(within(prompt).queryByRole('button', { name: 'Done' })).toBeNull();
+    await userEvent.click(within(prompt).getByRole('button', { name: 'Task finished' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(at('13:00'));
   });

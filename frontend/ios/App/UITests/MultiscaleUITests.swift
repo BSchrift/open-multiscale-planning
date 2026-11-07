@@ -214,7 +214,8 @@ final class ShellUITests: XCTestCase {
         let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let to = day.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0)).withOffset(CGVector(dx: 0, dy: 140))
         from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
-        exists(app.page.sliders.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)
+        // Any kind of element: a block is a slider until it's under way, which one placed at now soon is.
+        exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)
         XCTAssertTrue(card.waitForNonExistence(timeout: patience), "Mix the dough is still waiting in To schedule")
         allowNotificationsIfAsked()
     }

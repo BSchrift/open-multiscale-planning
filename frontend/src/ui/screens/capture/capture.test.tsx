@@ -13,6 +13,11 @@ const running = { state: 'active' as const, start: '2026-10-01', end: '2027-01-3
 async function seed(w: Writer) {
   await w.create('project', { title: 'Paint the fence', ...running }, 'p1');
   await w.create('project', { title: 'Write the report', ...running, state: 'finished' }, 'p2');
+  await w.create('milestone', { project_id: 'p1', title: 'Primer on', due: '2026-11-20' }, 'm1');
+  await w.create('milestone', { project_id: 'p1', title: 'Second coat', due: '2026-11-10' }, 'm2');
+  await w.create('milestone', { project_id: 'p1', title: 'Sanded', due: '2026-11-01', met_at: '2026-10-30T12:00:00Z' }, 'm3');
+  await w.create('milestone', { project_id: 'p1', title: 'Old plan', dropped_at: '2026-10-20T12:00:00Z' }, 'm4');
+  await w.create('milestone', { project_id: 'p2', title: 'First draft', due: '2026-11-15' }, 'm5');
 }
 
 const open = (layout: Layout = 'desktop') => {
@@ -93,6 +98,34 @@ describe('Capture on desktop', () => {
     expect(await tasks(t.db)).toMatchObject([{ kind: 'project', project_id: 'p1', title: 'Buy brushes', milestone_id: null }]);
   });
 
+  it("offers the chosen project's open milestones, soonest first, and saves to the one picked", async () => {
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    expect(screen.queryByRole('combobox', { name: 'Milestone' })).toBeNull();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
+    const milestone = await screen.findByRole('combobox', { name: 'Milestone' });
+    expect(within(milestone).getAllByRole('option').map((o) => o.textContent)).toEqual(['No milestone', 'Second coat', 'Primer on']);
+    await userEvent.selectOptions(milestone, 'Primer on');
+    expect(screen.getByText('Saves to Paint the fence, Primer on')).toBeInTheDocument();
+    await userEvent.type(field(), 'Buy brushes{Enter}');
+    expect(await screen.findByText('Saved to Paint the fence, Primer on')).toBeInTheDocument();
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'project', project_id: 'p1', milestone_id: 'm1', title: 'Buy brushes' }]);
+  });
+
+  it('forgets the milestone when the place changes', async () => {
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Milestone' }), 'Second coat');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'One offs');
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Milestone' })).toBeNull());
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
+    expect(await screen.findByRole('combobox', { name: 'Milestone' })).toHaveValue('');
+    await userEvent.type(field(), 'Buy brushes{Enter}');
+    await screen.findByText('Saved to Paint the fence');
+    expect(await tasks(t.db)).toMatchObject([{ project_id: 'p1', milestone_id: null }]);
+  });
+
   it('sends straight to One offs', async () => {
     const t = await open();
     await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
@@ -111,6 +144,8 @@ describe('Capture on phone', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
     expect(screen.getByRole('textbox', { name: 'Capture to Paint the fence' })).toBeInTheDocument();
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Milestone' }), 'Second coat');
+    expect(screen.getByRole('textbox', { name: 'Capture to Paint the fence, Second coat' })).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Inbox');
     await userEvent.type(field(), 'Call the bank');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));

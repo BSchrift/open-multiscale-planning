@@ -4,8 +4,8 @@
 // clears the prompt here at this device's next sync.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { answerBlock, extendBlock, nextBlock, startBlock, swapBlocks } from '../../core/blocks';
-import { blockMinutes, dayRange, instantMs, today } from '../../core/dates';
+import { answerBlock, extendBlock, nextBlock, startBlock, swapBlocks, unscheduleBlock } from '../../core/blocks';
+import { blockMinutes, dayRange, instantMs, localDate, today, weekStart } from '../../core/dates';
 import { blocksInRange } from '../../core/queries';
 import { getRecord, getSettings, listRecords, outcomeId } from '../../core/records';
 import { REMINDER_ACTION, reminderRange, remindersToSchedule, snoozeUntil } from '../../core/reminders';
@@ -126,6 +126,8 @@ export function useReminders(): void {
       case A.notDone:
         return answerBlock(w, id, { result: 'not' }, clock);
       case A.skip:
+        // Before it's over, Skip takes it off the calendar into To schedule; a practice's Skip at its end logs nothing.
+        if (instantMs(block.end) > clock.now()) return unscheduleBlock(w, id, weekStart(localDate(block.start, clock.zone())), clock);
         return answerBlock(w, id, block.practice_id ? { result: 'not', logged_min: 0 } : { result: 'not' }, clock);
       case A.logAll:
         return answerBlock(w, id, { result: 'done', logged_min: blockMinutes(block) }, clock);

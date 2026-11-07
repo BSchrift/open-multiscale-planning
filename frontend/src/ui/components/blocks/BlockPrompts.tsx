@@ -207,7 +207,7 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
               Do next block instead
             </button>
           )}
-          <button className="link small" type="button" onClick={() => void actions.answer(block, { result: 'not' }).then(props.onClose)}>
+          <button className="link small" type="button" onClick={() => void actions.skip(block).then(props.onClose)}>
             Skip, choose a new time later
           </button>
         </div>

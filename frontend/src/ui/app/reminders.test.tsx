@@ -80,6 +80,13 @@ describe('reminders', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16));
   });
 
+  it('Skip from the check-in takes the block off the calendar to schedule again, not crossed off', async () => {
+    const t = await open();
+    await respond(t, REMINDER_ACTION.skip);
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
+  });
+
   it('Ask again moves the check-in ten minutes on', async () => {
     const t = await open();
     t.clock.set(at(15, 5));

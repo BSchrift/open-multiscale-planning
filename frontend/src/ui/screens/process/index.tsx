@@ -17,6 +17,7 @@ import { closeTask } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
+import { ProjectAdd } from '../../components/editors';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { emptyDraft, OneOffDates, oneOffFields } from '../../components/oneoff';
@@ -72,6 +73,9 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
   const [otherQ, setOtherQ] = useState('');
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const busy = useRef(false);
+  const [newOpen, setNewOpen] = useState(false);
+  // A project made from the card, which takes the item once it shows up as a destination.
+  const [madeId, setMadeId] = useState<string | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
 
   const item = queue[s.idx];
@@ -79,7 +83,8 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
   const focusTitle = () => titleRef.current?.focus();
 
   const ref = useDialogFocus<HTMLDivElement>(() => {
-    if (delAsk) setDelAsk(false);
+    if (newOpen) setNewOpen(false);
+    else if (delAsk) setDelAsk(false);
     else if (isField(document.activeElement)) focusTitle();
     else close();
   });
@@ -131,6 +136,13 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
   };
 
   const skip = () => item && void commit(null, () => ({ last: 'Skipped. It stays in your Inbox.' }));
+  useEffect(() => {
+    const made = madeId && [...data.shown, ...data.others].find((d) => d.plan.project.id === madeId);
+    if (!made) return;
+    setMadeId(null);
+    send(made);
+  }, [madeId, data]);
+  const newProject = newOpen && <ProjectAdd objectiveId={null} onAdded={setMadeId} onClose={() => setNewOpen(false)} />;
   const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ deleted: s.deleted + 1, last: 'Deleted.' }));
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
   const back = history[history.length - 1];
@@ -149,7 +161,7 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
   };
 
   const onKeyDown = (event: ReactKeyboardEvent) => {
-    if (otherOpen) return;
+    if (otherOpen || newOpen) return;
     const target = event.target as HTMLElement;
     const k = event.key.toLowerCase();
     const run = (fn: () => unknown) => {
@@ -267,7 +279,11 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
                   <span className="pxname">Other project</span>
                 </button>
               )}
+              <button className="pxdest other" type="button" onClick={() => setNewOpen(true)}>
+                <span className="pxname">+ New project</span>
+              </button>
             </div>
+            {newProject}
             {delAsk ? (
               deleteAsk
             ) : (
@@ -391,7 +407,11 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
                   )}
                 </div>
               )}
+              <button className="pxdest" type="button" onClick={() => setNewOpen(true)}>
+                <span>+ New project</span>
+              </button>
             </div>
+            {newProject}
             <button className="pxdest maint" type="button" aria-label={alt('One offs')} onClick={() => send(null)}>
               <span className="pxkey" aria-hidden="true">
                 O

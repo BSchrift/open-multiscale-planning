@@ -835,11 +835,12 @@ describe('moving a block on the timeline', () => {
   });
 });
 
-describe('on phone', () => {
-  it('shows what is left to sort, with Process', async () => {
-    const t = await open((w) => w.create('task', { kind: 'inbox', title: 'Rake the leaves' }), { layout: 'phone' });
-    await userEvent.click(await screen.findByRole('button', { name: '1 to sort Process' }));
-    expect(t.nav().overlay?.area).toBe('process');
+describe.each(['desktop', 'phone'] as const)('the Inbox, on %s', (layout) => {
+  it("isn't asked about on Today: the tab shows its count, and planning asks", async () => {
+    await open((w) => w.create('task', { kind: 'inbox', title: 'Rake the leaves' }), { layout });
+    await screen.findByRole('heading', { name: 'Today' });
+    expect(screen.queryByText(/to sort/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Inbox' })).toBeNull();
   });
 });
 

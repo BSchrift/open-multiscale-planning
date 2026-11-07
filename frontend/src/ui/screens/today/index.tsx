@@ -17,6 +17,7 @@ import { DayTimeline } from './DayTimeline';
 import { NowCard } from './NowCard';
 import { OneOffsToday } from './OneOffsToday';
 import { QueuePanel } from './QueuePanel';
+import { ToSchedule } from './ToSchedule';
 import { ShiftPanel } from './ShiftPanel';
 import { usePrompts } from './usePrompts';
 import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
@@ -192,6 +193,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
           <span>{data.inbox} to sort</span> <span className="strong process">Process</span>
         </button>
       )}
+      <ToSchedule date={data.date} />
       {(data.blocks.length > 0 || !unplanned) && <DayTimeline data={data} events={data.events} />}
       {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
       {prompt}

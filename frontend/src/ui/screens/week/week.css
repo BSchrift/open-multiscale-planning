@@ -53,5 +53,14 @@
 [data-layout] .lanecard.on { outline: 2px solid var(--blue); outline-offset: 1px; }
 [data-layout] .lanet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-layout] .collane .oochip { touch-action: none; user-select: none; -webkit-user-select: none; }
-/* The card following the pointer while it's dragged. */
-.cardghost { position: fixed; z-index: 60; margin: 0; pointer-events: none; opacity: .9; box-shadow: var(--card-shadow); cursor: grabbing; }
+[data-layout] .lanecard { -webkit-touch-callout: none; transition: transform .15s; }
+/* Held long enough on phone: the card lifts out of the row. */
+[data-layout] .lanecard.lifted { opacity: .4; }
+/* The card following the pointer while it's dragged, with the time it would land at. */
+.cardghost { position: fixed; z-index: 60; margin: 0; pointer-events: none; opacity: .95; box-shadow: var(--card-shadow); cursor: grabbing; transform: scale(1.04); }
+.cardghost .ghostwhen { color: var(--blue); }
+.cardghost .ghostwhen:empty { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .lanecard { transition: none; }
+  .cardghost { transform: none; }
+}

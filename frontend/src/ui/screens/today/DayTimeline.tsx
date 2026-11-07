@@ -245,7 +245,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       <span id={`${helpId}-end`} hidden>
         {phone ? 'Hold its handle and drag to change its length.' : 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.'}
       </span>
-      <div className="day" style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}>
+      <div
+        className="day"
+        style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}
+        data-drop-date={data.date}
+        data-drop-from={from}
+        data-drop-to={to}
+      >
         <div className="zoomwrap">
           <div className="zoomgroup" role="group" aria-label="Calendar zoom">
             <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>

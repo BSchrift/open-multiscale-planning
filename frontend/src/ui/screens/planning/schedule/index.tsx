@@ -1,11 +1,12 @@
 // Schedule: the week's picked work and practices, one at a time, most pressing first. Each waits as a block at its
 // best time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here
-// puts it on the week, and a shorter block leaves the rest to place. Desktop places on the week grid beside the list;
-// phone compares days in a strip over one day, with the current task in a dock.
+// puts it on the week, taking any block it lands on off to place again, and a shorter block leaves the rest to place.
+// Desktop places on the week grid beside the list; phone compares days in a strip over one day, with the current task
+// in a dock.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice } from '../../../../core/blocks';
+import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
 import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, today, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
@@ -38,6 +39,8 @@ export interface ScheduleStepProps {
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
+/** 'A', 'A and B', 'A, B and C' */
+const listed = (names: readonly string[]) => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
 export function ScheduleStep(props: ScheduleStepProps) {
   const { week, layout } = props;
@@ -97,6 +100,10 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const draftSlot =
     !cur || editB ? null : draft?.key === draftKey ? draft.slot : (usual?.[0] ?? defaultSlot(Math.min(cur.toPlace, cur.length), cur.work, ctx));
   const b: Slot | null = editB ?? draftSlot;
+  // Placing takes what the draft overlaps off the calendar, to place again. Until then it only floats over them, and
+  // what's under way or done with stays.
+  const bumped = !draftSlot ? [] : s.blocks.filter((x) => !x.past && x.date === draftSlot.date && x.start < draftSlot.end && draftSlot.start < x.end);
+  const bumpedNames = listed([...new Set(bumped.map((x) => x.title))]);
   const len = b ? b.end - b.start : 0;
   const found = !b ? [] : usual ? usual.map((x) => ({ ...x, end: x.start + len })) : offers(len, work, ctxOut);
   const others = !b ? [] : usual ? found.filter((x) => !same(x, b)).slice(0, 4) : otherOffers(b, work, ctxOut);
@@ -146,7 +153,14 @@ export function ScheduleStep(props: ScheduleStepProps) {
     if (!cur || !draftSlot) return;
     landOnCurrent();
     const times = slotInstants(draftSlot, zone);
-    if (!(await run((w) => (cur.practice ? placeSession(w, cur.id, times, clock) : placeBlock(w, cur.id, times, clock))))) return;
+    const reverse = await run(async (w) => {
+      const writes: RecordWrite[] = [];
+      for (const x of bumped) writes.unshift(...(await unscheduleBlock(w, x.id, week, clock)).writes);
+      writes.unshift(...(await (cur.practice ? placeSession(w, cur.id, times, clock) : placeBlock(w, cur.id, times, clock))).writes);
+      return { writes };
+    });
+    if (!reverse) return;
+    if (bumped.length) notify(`Took ${bumpedNames} off the calendar to place again`, () => run((w) => applyPlanChange(w, reverse)));
     reset();
     setEditId(null);
     setSelected(cur.toPlace - len > 0 ? cur.id : null);
@@ -159,11 +173,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
     if (rowId(x)) setSelected(rowId(x));
     reset();
   };
-  /** Saves a placed block's new time, and after a practice moves, asks whether that's for every week. */
+  /**
+   * Saves a placed block's new time, and after a practice moves, asks whether that's for every week. The task being
+   * placed stays current: only a tap or click selects a block.
+   */
   const changeBlock = (x: SchedBlock, slot: Slot) => {
     if (same(x, slot)) return;
     const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
-    selectBlock(x);
     setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
     return saved;
   };
@@ -220,7 +236,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
         : len < cur.toPlace
           ? `${formatMinutes(cur.toPlace - len)} more of this ${cur.practice ? 'practice' : 'task'} stays to place`
           : '';
-  const notes = b ? slotNotes({ ...b, id: editB?.id ?? 'draft' }, work, ctx) : [];
+  const notes = b ? slotNotes({ ...b, id: editB?.id ?? 'draft' }, work, { ...ctx, placed: ctx.placed.filter((p) => !bumped.some((x) => x.id === p.id)) }) : [];
+  if (bumped.length) notes.push(`Placing here takes ${bumpedNames} off the calendar to place again.`);
   const skipLabel = cur?.blocks.length ? 'Leave the rest for later' : 'Skip for now';
   const none = !b && !(cur && !draftSlot);
   const noneTitle = s.rows.length ? 'All tasks are placed' : 'Nothing is picked yet';

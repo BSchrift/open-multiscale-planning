@@ -217,11 +217,106 @@ describe('Schedule on desktop', () => {
     fireEvent.keyDown(session, { key: 'ArrowDown' });
     const ask = await screen.findByRole('status', { name: 'Make this change permanent?' });
     expect(await within(ask).findByText('Morning stretch is now Tue Nov 3, 7:15am to 7:45am.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Morning stretch/ })).toHaveAttribute('aria-current', 'step');
+    // Moving a block leaves the task being placed as it was.
+    expect(screen.getByRole('button', { name: /^Collect the sources/ })).toHaveAttribute('aria-current', 'step');
     await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every week' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
     expect((await getRecord(t.db, 'time_block', 's2'))?.start).toBe(at('2026-11-04', 7));
     expect(screen.queryByRole('status', { name: 'Make this change permanent?' })).toBeNull();
+  });
+
+  it('Place here over a placed block takes it off to place again, says so first, and Undo puts it all back', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 15), end: at('2026-11-03', 16, 30), tz: ZONE }, 'b1');
+      },
+    });
+    expect(await screen.findByText('1 of 3 placed')).toBeInTheDocument();
+    const under = () => screen.getByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm, One off\./ });
+    const was = under().getAttribute('style');
+    fireEvent.keyDown(screen.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ }), { key: 'ArrowRight' });
+    const cur = row('Collect the sources');
+    expect(within(cur).getByText('Tue Nov 3, 2pm to 4pm (2h)')).toBeInTheDocument();
+    expect(within(cur).getByText('Placing here takes Paint the fence off the calendar to place again.')).toBeInTheDocument();
+    expect(within(cur).queryByText('That overlaps Paint the fence.')).toBeNull();
+    // The draft sits beside the block, which keeps its place and size.
+    expect(screen.getByRole('group', { name: /^Collect the sources, Tue Nov 3, 2pm to 4pm, Project\. Being placed\./ })).toHaveClass('evdraft', 'beside');
+    expect(under().getAttribute('style')).toBe(was);
+
+    await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at('2026-11-03', 14), at('2026-11-03', 16)]]));
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
+    expect(await screen.findByText('Took Paint the fence off the calendar to place again')).toBeInTheDocument();
+    expect(row('Paint the fence').querySelector('.schedmark')).toHaveTextContent('3');
+    expect(screen.getByText('1 of 3 placed')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy());
+    expect(await blocks(t, 't1')).toEqual([]);
+    expect(await within(row('Paint the fence')).findByText('Tue 3pm')).toBeInTheDocument();
+  });
+
+  it('a block under way stays where it is under the draft, and Place here leaves it', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 't2', start: at(WEEK, 13, 30), end: at(WEEK, 14, 30), tz: ZONE }, 'b2');
+      },
+    });
+    fireEvent.keyDown(await screen.findByRole('group', { name: /^Collect the sources, Mon Nov 2, 2:30pm to 4:30pm/ }), { key: 'ArrowUp' });
+    const cur = row('Collect the sources');
+    expect(within(cur).getByText('Mon Nov 2, 2:15pm to 4:15pm (2h)')).toBeInTheDocument();
+    expect(within(cur).getByText('That overlaps Write chapter one.')).toBeInTheDocument();
+    expect(within(cur).queryByText(/^Placing here takes/)).toBeNull();
+    await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at(WEEK, 14, 15), at(WEEK, 16, 15)]]));
+    expect(await blocks(t, 't2')).toEqual([[at(WEEK, 13, 30), at(WEEK, 14, 30)]]);
+  });
+
+  it('dragging a placed block only moves it; a click selects it', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 15), end: at('2026-11-03', 16, 30), tz: ZONE }, 'b1');
+      },
+    });
+    const placed = await screen.findByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm/ });
+    // 40px is an hour.
+    fireEvent.pointerDown(placed, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 100, clientY: 140 });
+    fireEvent.pointerUp(window, { clientX: 100, clientY: 140 });
+    await waitFor(async () => expect(await blocks(t, 'o1')).toEqual([[at('2026-11-03', 16), at('2026-11-03', 17, 30)]]));
+    expect(screen.getByRole('button', { name: /^Collect the sources/ })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, .*Enter places it\.$/ })).toHaveClass('evdraft');
+    expect(screen.queryByRole('button', { name: 'Remove from calendar' })).toBeNull();
+
+    const moved = screen.getByRole('group', { name: /^Paint the fence, Tue Nov 3, 4pm to 5:30pm/ });
+    fireEvent.pointerDown(moved, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerUp(window, { clientX: 100, clientY: 100 });
+    expect(await within(row('Paint the fence')).findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Paint the fence/ })).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('switching to another task or block never places the one waiting', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 15), end: at('2026-11-03', 16, 30), tz: ZONE }, 'b1');
+      },
+    });
+    fireEvent.keyDown(await screen.findByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ }), { key: 'ArrowDown' });
+    expect(within(row('Collect the sources')).getByText('Mon Nov 2, 2:15pm to 4:15pm (2h)')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Write chapter one/ }));
+    expect(screen.getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
+    const placed = screen.getByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm/ });
+    fireEvent.pointerDown(placed, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerUp(window, { clientX: 100, clientY: 100 });
+    expect(await within(row('Paint the fence')).findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    expect(await blocks(t, 't1')).toEqual([]);
+    expect(await blocks(t, 't2')).toEqual([]);
+    expect(screen.getByText('1 of 3 placed')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Collect the sources/ }));
+    expect(within(row('Collect the sources')).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
   });
 
   it('with nothing picked, says so and moves on to Review', async () => {
@@ -336,5 +431,80 @@ describe('Schedule on phone', () => {
     expect(await within(ask).findByText('Morning stretch is now Tue Nov 3, 8am to 8:30am.')).toBeInTheDocument();
     await userEvent.click(within(ask).getByRole('button', { name: 'No, this week only' }));
     expect(screen.queryByRole('dialog', { name: 'Make this change permanent?' })).toBeNull();
+  });
+
+  // Paint the fence sits on Tuesday from 8am, so the task's best time there is 9:30am.
+  const fenceTue = async (w: Writer) => {
+    await picked(w);
+    await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 8), end: at('2026-11-03', 9, 30), tz: ZONE }, 'b1');
+  };
+
+  it('Place here over a placed block takes it off to place again, says so first, and Undo puts it all back', async () => {
+    const t = await phone({ seed: fenceTue });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Move to Tue Nov 3' }));
+    const handle = screen.getByRole('slider', { name: /^Time for Collect the sources, being placed\./ });
+    expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 9:30am to 11:30am');
+    const under = () => screen.getByRole('slider', { name: /^Paint the fence\./ });
+    const was = under().getAttribute('style');
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+    expect(screen.getByText('Tue Nov 3, 9am to 11am (2h)')).toBeInTheDocument();
+    expect(screen.getByText('Placing here takes Paint the fence off the calendar to place again.')).toBeInTheDocument();
+    // The draft sits beside the block, which keeps its place and size.
+    expect(handle).toHaveClass('draft', 'beside');
+    expect(under().getAttribute('style')).toBe(was);
+    expect(under()).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 8am to 9:30am');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at('2026-11-03', 9), at('2026-11-03', 11)]]));
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
+    expect(screen.queryByRole('slider', { name: /^Paint the fence\./ })).toBeNull();
+    const said = await screen.findByText('Took Paint the fence off the calendar to place again');
+    await userEvent.click(within(said.closest('.pktoast')!).getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy());
+    expect(await blocks(t, 't1')).toEqual([]);
+  });
+
+  it('dragging a placed block only moves it; a tap selects it', async () => {
+    const t = await phone({ seed: fenceTue });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
+    const placed = () => screen.getByRole('slider', { name: /^Paint the fence\./ });
+    // The drawn day is 17 hours over 816px, so 48px is an hour.
+    fireEvent.pointerDown(placed(), { clientY: 300, button: 0 });
+    fireEvent.pointerMove(window, { clientY: 348 });
+    fireEvent.pointerUp(window, { clientY: 348 });
+    await waitFor(async () => expect(await blocks(t, 'o1')).toEqual([[at('2026-11-03', 9), at('2026-11-03', 10, 30)]]));
+    expect(screen.getByText('Collect the sources', { selector: '.strong' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove from calendar' })).toBeNull();
+    expect(placed()).toHaveClass('calm');
+
+    fireEvent.pointerDown(placed(), { clientY: 300, button: 0 });
+    fireEvent.pointerUp(window, { clientY: 300 });
+    expect(await screen.findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    expect(screen.getByText('Paint the fence', { selector: '.strong' })).toBeInTheDocument();
+    expect(placed()).not.toHaveClass('calm');
+  });
+
+  it('switching to another task or block never places the one waiting', async () => {
+    const t = await phone({ seed: fenceTue });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Move to Tue Nov 3' }));
+    const handle = screen.getByRole('slider', { name: /^Time for Collect the sources/ });
+    fireEvent.pointerDown(handle, { clientY: 300, button: 0 });
+    fireEvent.pointerMove(window, { clientY: 348 });
+    fireEvent.pointerUp(window, { clientY: 348 });
+    expect(screen.getByText('Tue Nov 3, 10:30am to 12:30pm (2h)')).toBeInTheDocument();
+
+    const placed = screen.getByRole('slider', { name: /^Paint the fence\./ });
+    fireEvent.pointerDown(placed, { clientY: 300, button: 0 });
+    fireEvent.pointerUp(window, { clientY: 300 });
+    expect(await screen.findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'All picked tasks' })).getByRole('button', { name: /Write chapter one/ }));
+    expect(screen.getByText('Write chapter one', { selector: '.strong' })).toBeInTheDocument();
+    expect(await blocks(t, 't1')).toEqual([]);
+    expect(await blocks(t, 't2')).toEqual([]);
+    expect(screen.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeInTheDocument();
   });
 });

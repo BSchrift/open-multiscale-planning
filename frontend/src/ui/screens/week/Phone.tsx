@@ -685,12 +685,13 @@ export function DragDay(props: {
       if (next.start !== slot.start || next.end !== slot.end) on.change(next);
     };
     let latest = slot;
-    const snaps = key === 'moving' || key === props.selected;
+    // The block being placed, or the one selected: drawn apart, and it snaps to the suggested times.
+    const chosen = key === 'moving' || key === props.selected;
     const drag = (mode: 'move' | 'resize') => (e: ReactPointerEvent) =>
       track(
         e,
         (minutes) => {
-          latest = dragResult(slot, mode, 0, minutes, mode === 'move' && snaps ? targets : [], bounds);
+          latest = dragResult(slot, mode, 0, minutes, mode === 'move' && chosen ? targets : [], bounds);
           if (on.commit) setPreview({ id: key, slot: latest });
           else on.change(latest);
         },
@@ -702,14 +703,16 @@ export function DragDay(props: {
         mode === 'move' ? on.unschedule : undefined,
       );
     const shown = preview?.id === key ? preview.slot : slot;
+    // It floats beside what it overlaps, so nothing under it moves or hides.
+    const beside = chosen && overlaps([...props.blocks.filter((b) => b.id !== key), ...ctx.busy], date, shown.start, shown.end);
     const help = on.commit ? ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter opens its options.' : ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter saves.';
     return (
       <div
         key={key}
-        className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}`}
+        className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}`}
         role="slider"
         tabIndex={0}
-        aria-label={(on.commit ? title : `Time for ${title}`) + '.' + help}
+        aria-label={(on.commit ? title : `Time for ${title}, being placed`) + '.' + help}
         // The day runs down the screen, so the value is the time left in the day after its start: Up, and VoiceOver's
         // swipe up, raise it and move the block up. aria-valuetext says the actual time.
         aria-orientation="vertical"

@@ -58,6 +58,7 @@ const PAIRS: [string, string, number][] = [
   ['blue-ink', 'blue-soft', BODY],
   ['blue-ink', 'blue-tint', BODY],
   ['purple', 'white', BODY],
+  ['white', 'orange', BODY],
   ['purple-ink', 'purple-soft', BODY],
   ['purple-ink', 'purple-pale', BODY],
   ['teal-ink', 'teal-soft', BODY],
@@ -75,7 +76,9 @@ const PAIRS: [string, string, number][] = [
   ['amber-ink-2', 'ground', BODY], // Week's note on a moved block, under the list while editing.
   ['green', 'green-soft', BODY],
   ['neutral-ink', 'neutral', BODY],
-  // Focus rings, checkbox rings, bars and meters.
+  // Focus rings, checkbox rings, bars and meters. The block being placed on the grid, and in the chosen day's strip.
+  ['orange', 'white', PART],
+  ['orange', 'blue-tint', PART],
   ['blue', 'blue-tint', PART],
   ['grey', 'white', PART],
   ['grey', 'track', PART], // A met milestone's diamond in an open project's inset panel.

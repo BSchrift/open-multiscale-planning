@@ -84,6 +84,67 @@ test('desktop: moving a practice session asks whether to keep it every week', as
   expect(errors).toEqual([]);
 });
 
+test('desktop: the draft floats over a placed block, which stays put, and Place here takes it off to place again', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
+  const errors = await openSchedule(page, false);
+  const session = page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ });
+  const was = await session.boundingBox();
+  const draft = page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, Project\. Being placed\./ });
+
+  // One column right and 280px up: a day later and seven hours earlier, at 40px an hour.
+  const box = (await draft.boundingBox())!;
+  const column = (await page.locator('.colbody').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y - 140, { steps: 4 });
+  await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y - 272, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByRole('group', { name: /^Collect the sources, Tue Nov 3, 7am to 9am, Project\. Being placed\./ })).toBeVisible();
+  await expect(page.getByText('Placing here takes Morning stretch off the calendar to place again.')).toBeVisible();
+  expect(await session.boundingBox()).toEqual(was);
+  await page.screenshot({ path: info.outputPath('schedule-overlap-desktop.png') });
+
+  await page.getByRole('button', { name: 'Place here' }).click();
+  await expect(session).toHaveCount(0);
+  await expect(page.getByText('Took Morning stretch off the calendar to place again')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Morning stretch/ }).locator('.schedmark')).not.toHaveText('✓');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(session).toBeVisible();
+  await expect(page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('phone: the draft floats beside a placed block, which stays put, and Place here takes it off to place again', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The strip and dock are the phone layout');
+  const errors = await openSchedule(page, true);
+  await page.getByRole('group', { name: 'Compare days' }).getByRole('button', { name: /^Tue Nov 3,/ }).click();
+  await page.getByRole('button', { name: 'Move to Tue Nov 3' }).click();
+  const session = page.getByRole('slider', { name: /^Morning stretch\./ });
+  const was = await session.boundingBox();
+  const handle = page.getByRole('slider', { name: /^Time for Collect the sources, being placed\./ });
+  await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7:30am to 9:30am');
+
+  // Half an hour up, at 48px an hour.
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y, { steps: 3 });
+  await page.mouse.move(box.x + box.width / 2, box.y - 12, { steps: 3 });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7am to 9am');
+  await expect(page.getByText('Placing here takes Morning stretch off the calendar to place again.')).toBeVisible();
+  expect(await session.boundingBox()).toEqual(was);
+  await page.screenshot({ path: info.outputPath('schedule-overlap-phone.png') });
+
+  await page.getByRole('button', { name: 'Place here' }).click();
+  await expect(session).toHaveCount(0);
+  const said = page.locator('.pktoast', { hasText: 'Took Morning stretch off the calendar to place again' });
+  await said.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('group', { name: 'Compare days' }).getByRole('button', { name: /^Tue Nov 3,/ }).click();
+  await expect(session).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('phone: compare days, move the task to another day, place it, and place the rest from All tasks', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip and dock are the phone layout');
   const errors = await openSchedule(page, true);

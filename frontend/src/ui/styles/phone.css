@@ -146,6 +146,8 @@
 :where([data-layout='phone']) button.cev{overflow:visible}
 :where([data-layout='phone']) button.cev::before{content:'';position:absolute;left:0;right:0;top:min(0px,calc((100% - var(--tap)) / 2));bottom:min(0px,calc((100% - var(--tap)) / 2))}
 :where([data-layout='phone']) .cev.dragblock.calm{font-weight:400;box-shadow:none}
+:where([data-layout='phone']) .cev.dragblock.draft{background:var(--orange);color:var(--white);border:2px solid var(--orange);box-shadow:inset 0 0 0 1px var(--white),0 2px 8px rgba(var(--ink-rgb),.3)}
+:where([data-layout='phone']) .cev.dragblock.beside{left:50%}
 :where([data-layout='phone']) .rz{position:absolute;right:0;bottom:-22px;z-index:1;display:flex;align-items:center;justify-content:center;width:44px;height:44px;touch-action:none;cursor:ns-resize}
 :where([data-layout='phone']) .rz i{display:block;width:24px;height:6px;border-radius:3px;background:currentColor;border:1px solid var(--white)}
 :where([data-layout='phone']) .tlbtn{width:100%;border:0;border-top:1px solid var(--line-soft);background:transparent;text-align:left}
@@ -253,9 +255,9 @@
 :where([data-layout='phone']) .wday.sched .wfree{font-size:10px}
 :where([data-layout='phone']) .wsug{min-height:15px;font-size:11px;line-height:15px;font-weight:600;color:var(--blue);white-space:nowrap}
 :where([data-layout='phone']) .wday.nofit .wsug{color:var(--quiet);font-weight:400}
-:where([data-layout='phone']) .sl.draft{margin:0 -4px;background:var(--blue-ink)}
+:where([data-layout='phone']) .sl.draft{margin:0 -4px;background:var(--orange)}
 :where([data-layout='phone']) .sl.sug{margin:0 -4px;background:var(--blue-suggest)}
-:where([data-layout='phone']) .skey.draft{background:var(--blue-ink)}
+:where([data-layout='phone']) .skey.draft{background:var(--orange)}
 :where([data-layout='phone']) .skey.sug{background:var(--blue-suggest)}
 :where([data-layout='phone']) .cev.ghost{z-index:1;overflow:visible;background:var(--blue-pale);border:1.5px dashed var(--blue);color:var(--blue-ink);font-weight:600}
 :where([data-layout='phone']) .cev.ghost::before{content:'';position:absolute;left:0;right:0;top:-8px;bottom:-8px}

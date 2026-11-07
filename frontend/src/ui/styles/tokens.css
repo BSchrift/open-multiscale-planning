@@ -1,5 +1,6 @@
 /* Design tokens: colour, type and spacing. New CSS uses these names, never raw values.
-   Blocks are coloured by type: blue for projects, teal for practices, purple for one offs.
+   Blocks are coloured by type: blue for projects, teal for practices, purple for one offs. The block being placed is
+   orange, whatever its type.
    Every colour has a dark value below under the same name. --white is the raised surface, and the text on solid
    colours, so it turns dark in dark; --ink turns light, so a toast stays the reverse of the page. */
 :root {
@@ -77,6 +78,9 @@
   --teal: #0f6e6e;
   --teal-ink: #0b4f4f;
   --teal-soft: #ddf1f0;
+
+  /* The block being placed */
+  --orange: #c2410c;
 
   /* Status */
   --red: #b3261e;
@@ -196,6 +200,9 @@
     --teal-ink: #98ddd8;
     --teal-soft: #163331;
 
+    /* The block being placed */
+    --orange: #f5944d;
+
     /* Status */
     --red: #f08a80;
     --red-dark: #f6b4ad;
@@ -286,6 +293,9 @@
   --teal: #5cc4be;
   --teal-ink: #98ddd8;
   --teal-soft: #163331;
+
+  /* The block being placed */
+  --orange: #f5944d;
 
   /* Status */
   --red: #f08a80;

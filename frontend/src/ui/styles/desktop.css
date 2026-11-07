@@ -236,7 +236,7 @@
 :where([data-layout='desktop']) .evdrag:hover .evh{background:var(--blue)}
 :where([data-layout='desktop']) .evx{position:absolute;top:0;right:0;width:18px;height:18px;padding:0;border:0;border-radius:3px;background:transparent;color:inherit;font-size:13px;line-height:1;opacity:0}
 :where([data-layout='desktop']) .evdrag:hover .evx,:where([data-layout='desktop']) .evdrag:focus-within .evx{opacity:1}
-:where([data-layout='desktop']) .evdraft{z-index:3;background:var(--blue);color:var(--white);font-weight:600;box-shadow:0 2px 8px rgba(var(--ink-rgb),.3)}
+:where([data-layout='desktop']) .evdraft{z-index:3;background:var(--orange);color:var(--white);font-weight:600;border:2px solid var(--orange);box-shadow:inset 0 0 0 1px var(--white),0 2px 8px rgba(var(--ink-rgb),.3)}
 :where([data-layout='desktop']) .evdraft .evh{background:var(--white)}
 :where([data-layout='desktop']) .stepsnav{display:flex;align-items:center;gap:8px}
 :where([data-layout='desktop']) .steptab{min-height:36px;padding:4px 10px;border:0;border-radius:6px;background:transparent;color:var(--quiet);font-size:14px}

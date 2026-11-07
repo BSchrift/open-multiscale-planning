@@ -319,6 +319,18 @@ describe('Schedule on desktop', () => {
     expect(within(row('Collect the sources')).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
   });
 
+  it("counts what's left to place as Week's To schedule does: a block running into next week counts only its hour in this one", async () => {
+    await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 't2', start: at('2026-11-08', 23), end: at('2026-11-09', 1), tz: ZONE });
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Write chapter one/ }));
+    // 4h picked, less the hour this week: 3h, so a 2h block leaves 1h to place, as Week shows "3h of 4h left".
+    expect(within(row('Write chapter one')).getByText('1h more of this task stays to place')).toBeInTheDocument();
+  });
+
   it('with nothing picked, says so and moves on to Review', async () => {
     await open({ seed: async () => undefined });
     expect(await screen.findByRole('heading', { name: 'Nothing is picked yet' })).toBeInTheDocument();

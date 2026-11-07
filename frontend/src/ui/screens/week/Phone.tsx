@@ -6,6 +6,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
 import { addDays, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
+import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { closestFit, dayBaseAhead, dayFree, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes, TIGHT_SHARE } from '../../../core/slots';
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
@@ -25,7 +26,6 @@ import { useWeekActions } from './useWeekActions';
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
 const CELL_PX = 46;
-const MAX_LEN = 120;
 const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint' } as const;
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
@@ -74,7 +74,7 @@ export function PhoneWeek(props: WeekProps) {
   useEffect(() => {
     if (!props.place) return;
     const row = model.addGroups.flatMap((g) => g.rows).find((r) => r.task.id === props.place);
-    if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, MAX_LEN), fromDrawer: false }, null);
+    if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, FIRST_BLOCK_MIN), fromDrawer: false }, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.place]);
 
@@ -877,7 +877,7 @@ function AddDrawer(props: { model: WeekModel; onClose(): void; onPlace(row: AddR
           <h3 className={g.oneOffs ? 'mhead wkgroup' : 'wkgroup'}>{g.name}</h3>
           {g.rows.map((r) => {
             const on = selected === r.task.id;
-            const len = lengths[r.task.id] ?? Math.min(r.left, MAX_LEN);
+            const len = lengths[r.task.id] ?? Math.min(r.left, FIRST_BLOCK_MIN);
             return (
               <div key={r.task.id} className="rowline wkrow">
                 <button className="candbtn" type="button" aria-expanded={on} onClick={() => setSelected(on ? null : r.task.id)}>

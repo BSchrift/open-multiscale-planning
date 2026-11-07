@@ -3,17 +3,13 @@
 
 import type { Clock } from '../../../../core/clock';
 import { blockMinutes, formatMinutes } from '../../../../core/dates';
-import { scheduleOrder, taskDue, taskWork } from '../../../../core/plan';
+import { FIRST_BLOCK_MIN, pickToPlace, scheduleOrder, taskDue, taskWork } from '../../../../core/plan';
 import { practicesLeft } from '../../../../core/slots';
 import type { Work } from '../../../../core/slots';
 import type { Minutes, Practice, Task, TimeBlock } from '../../../../core/types';
 import { dayName, placedBlocks, slotRange } from '../../../components/weekgrid';
 import type { PlacedBlock } from '../../../components/weekgrid';
 import type { PlanningData, WeekModel } from '../model';
-
-const NO_ESTIMATE_MIN = 30;
-/** Longest block a task starts with; the rest stays to place. */
-const MAX_DRAFT_MIN = 120;
 
 export type SchedBlock = PlacedBlock;
 
@@ -59,7 +55,6 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
     const plan = oneOff ? null : (m.plans.find((p) => p.project.id === c.task.project_id) ?? null);
     const due = taskDue(c.task, plan, d.week, m.ctx);
     const where = plan ? plan.project.title : 'One off';
-    const placed = d.blocks.filter((b) => b.task_id === c.task.id).reduce((sum, b) => sum + blockMinutes(b), 0);
     return {
       id: c.task.id,
       title: c.task.title,
@@ -67,9 +62,9 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
       work: taskWork(c.task, due, d.week),
       context: due.label ? `${where}, ${due.label}` : where,
       oneOff,
-      toPlace: Math.max(0, (c.week || NO_ESTIMATE_MIN) - placed),
+      toPlace: pickToPlace(c, blocks).left,
       estimateLeft: c.task.estimate_min != null || c.task.remaining_min != null ? c.left : null,
-      length: MAX_DRAFT_MIN,
+      length: FIRST_BLOCK_MIN,
       blocks: blocks.filter((b) => b.task_id === c.task.id),
     };
   });

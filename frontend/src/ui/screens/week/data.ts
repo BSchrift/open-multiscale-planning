@@ -5,7 +5,7 @@ import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from 
 import type { Clock } from '../../../core/clock';
 import { addDays, formatMinutes, instantMs, thisWeek, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherPlans, minutesLeft, oneOffCandidates, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
+import { FIRST_BLOCK_MIN, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
 import { blocksInRange, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
@@ -89,9 +89,6 @@ export type Placeable = Pick<LaneItem, 'id' | 'title' | 'kind' | 'work' | 'task'
 
 export const rowItem = (r: AddRow): Placeable => ({ id: r.task.id, title: r.task.title, kind: r.work.kind === 'one_off' ? 'one_off' : 'project', work: r.work, task: r.task });
 
-const NO_ESTIMATE_MIN = 30;
-const MAX_LEN = 120;
-
 /** The due and open dates slots.ts ranks by, from a task's milestone or its own dates. */
 function workOf(t: Task, plan: ProjectPlan | null, week: LocalDate, ctx: PlanContext): { work: Work; label: string } {
   const due = taskDue(t, plan, week, ctx);
@@ -163,7 +160,6 @@ export function weekModel(d: WeekData, clock: Clock) {
   // To schedule: picks less what's placed, one offs dated in the week with nothing placed, and practices short of
   // their target. Dated ones wait above their days, the rest above the whole week.
   const weekPlan = d.weekPlans.find((p) => p.week_start === week) ?? null;
-  const placedMin = (id: string) => blocks.filter((b) => b.task_id === id).reduce((sum, b) => sum + b.end - b.start, 0);
   const datesOf = (t: Task) => {
     const s = t.schedule;
     return t.kind === 'one_off' && s?.type === 'once' && s.from && onceOverlaps(t, week, addDays(week, 6)) ? { from: s.from, to: s.to ?? s.from } : undefined;
@@ -171,7 +167,7 @@ export function weekModel(d: WeekData, clock: Clock) {
   const taskItem = (t: Task, left: Minutes, picked: Minutes | null): LaneItem => {
     const plan = ranked.find((p) => p.project.id === t.project_id) ?? null;
     const { work } = workOf(t, plan, week, planCtx);
-    const length = Math.min(left, MAX_LEN);
+    const length = Math.min(left, FIRST_BLOCK_MIN);
     return {
       id: t.id,
       title: t.title,
@@ -189,8 +185,8 @@ export function weekModel(d: WeekData, clock: Clock) {
   const picks = scheduleOrder(plans, oneOffs, input, planCtx);
   const unscheduled: LaneItem[] = [
     ...picks.flatMap((c) => {
-      const left = Math.max(0, (c.week || NO_ESTIMATE_MIN) - placedMin(c.task.id));
-      return left > 0 ? [taskItem(c.task, left, c.week || NO_ESTIMATE_MIN)] : [];
+      const { picked, left } = pickToPlace(c, blocks);
+      return left > 0 ? [taskItem(c.task, left, picked)] : [];
     }),
     ...oneOffs
       .filter((t) => !t.cancelled_at && !t.deleted_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))

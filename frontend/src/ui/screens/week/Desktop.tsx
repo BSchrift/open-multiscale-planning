@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, otherOffers, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import { onceWhen } from '../../../core/schedule';
@@ -21,8 +22,6 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
-
-const MAX_DRAFT_MIN = 120;
 
 export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
@@ -53,7 +52,7 @@ export function DesktopWeek(props: WeekProps) {
   // A new pick starts at its best time, which never overlaps an event or another block.
   useEffect(() => {
     if (!cur) setDraft(null);
-    else setDraft((d) => d ?? defaultSlot(Math.min(cur.left, MAX_DRAFT_MIN), cur.work, model.ctx));
+    else setDraft((d) => d ?? defaultSlot(Math.min(cur.left, FIRST_BLOCK_MIN), cur.work, model.ctx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur?.task.id]);
 

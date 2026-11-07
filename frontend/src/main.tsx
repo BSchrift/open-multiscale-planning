@@ -54,6 +54,7 @@ createPlatform(__APP_CONFIG__.env).then(
   },
   (error: unknown) => {
     console.error('Startup failed', error);
-    root.render(<div className="boot">Couldn't open your data. Restart the app to try again.</div>);
+    const elsewhere = error instanceof Error && error.name === 'InAnotherTab';
+    root.render(<div className="boot">{elsewhere ? error.message : "Couldn't open your data. Restart the app to try again."}</div>);
   },
 );

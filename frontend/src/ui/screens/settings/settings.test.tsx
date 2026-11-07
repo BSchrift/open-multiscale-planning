@@ -6,7 +6,7 @@ import { CALENDAR_ID, getSettings, listRecords, updateSettings } from '../../../
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import type { UpdateStatus, Updater } from '../../../core/updates';
-import { renderScreen } from '../../app/testing';
+import { renderApp, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
 
@@ -431,5 +431,61 @@ describe('Settings updates', () => {
     await renderScreen('settings', { updates: fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }) });
     await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.');
     expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
+  });
+});
+
+describe('Capture shortcut', () => {
+  const native = (taken: string[] = []) => {
+    let accelerator = 'Shift+Command+Space';
+    return {
+      get: vi.fn(async () => ({ accelerator, registered: true })),
+      set: vi.fn(async (a: string) => !taken.includes(a) && ((accelerator = a), true)),
+    };
+  };
+
+  it("isn't there without a global shortcut, as in a browser", async () => {
+    await renderScreen('settings');
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    expect(screen.queryByRole('region', { name: 'Capture shortcut' })).toBeNull();
+  });
+
+  it('Change listens for new keys, saves them, and the Capture button shows them', async () => {
+    const shortcut = native();
+    await renderScreen('settings', { captureShortcut: shortcut });
+    const keys = await screen.findByRole('region', { name: 'Capture shortcut' });
+    expect(within(keys).getByText('⇧⌘Space')).toBeVisible();
+    await userEvent.click(within(keys).getByRole('button', { name: 'Change' }));
+    const listening = within(keys).getByRole('button', { name: 'Press the new keys, or Escape' });
+    expect(listening).toHaveFocus();
+    // Modifiers alone are still being held.
+    fireEvent.keyDown(listening, { key: 'Alt', code: 'AltLeft', ctrlKey: true, altKey: true });
+    expect(shortcut.set).not.toHaveBeenCalled();
+    fireEvent.keyDown(listening, { key: 'k', code: 'KeyK', ctrlKey: true, altKey: true });
+    expect(shortcut.set).toHaveBeenCalledWith('Control+Alt+K');
+    expect(await within(keys).findByText('Capture opens with ⌃⌥K now.')).toBeVisible();
+
+    await userEvent.click(within(keys).getByRole('button', { name: 'Use ⇧⌘Space' }));
+    expect(await within(keys).findByText('Capture opens with ⇧⌘Space now.')).toBeVisible();
+    expect(within(keys).queryByRole('button', { name: 'Use ⇧⌘Space' })).toBeNull();
+  });
+
+  it('the Capture button shows the shortcut saved', async () => {
+    const shortcut = native();
+    await shortcut.set('Control+Alt+K');
+    await renderApp({ captureShortcut: shortcut });
+    expect(await screen.findByRole('button', { name: /^Capture/ })).toHaveTextContent('⌃⌥K');
+  });
+
+  it('keys another app holds are refused and the old ones stay; Escape stops listening', async () => {
+    const shortcut = native(['Shift+Command+Return']);
+    await renderScreen('settings', { captureShortcut: shortcut });
+    const keys = await screen.findByRole('region', { name: 'Capture shortcut' });
+    await userEvent.click(within(keys).getByRole('button', { name: 'Change' }));
+    fireEvent.keyDown(within(keys).getByRole('button', { name: 'Press the new keys, or Escape' }), { key: 'Enter', code: 'Enter', shiftKey: true, metaKey: true });
+    expect(await within(keys).findByText('⇧⌘Return is taken by another app. Try other keys.')).toBeVisible();
+    expect(within(keys).getByText('⇧⌘Space')).toBeVisible();
+    await userEvent.click(within(keys).getByRole('button', { name: 'Change' }));
+    await userEvent.keyboard('{Escape}');
+    expect(within(keys).getByRole('button', { name: 'Change' })).toBeVisible();
   });
 });

@@ -42,6 +42,10 @@ const bridge: ElectronBridge = {
     ready: () => ipcRenderer.send('updates:ready'),
     rolledBack: () => ipcRenderer.invoke('updates:rolledBack'),
   },
+  captureShortcut: {
+    get: () => ipcRenderer.invoke('shortcut:get'),
+    set: (accelerator) => ipcRenderer.invoke('shortcut:set', accelerator),
+  },
 };
 
 contextBridge.exposeInMainWorld('multiscaleElectron', bridge);

@@ -479,10 +479,15 @@ private struct Target: Decodable {
 private struct SecondDevice {
     let target: Target
     let token: String
+    let start: Int
 
+    /// Reads only what reaches the server from now on, as the Go suite does. A deployment's test user keeps what
+    /// earlier runs wrote, and some of it, such as 0e999 from the number tests, is more than Foundation's JSON reads.
     init(_ target: Target) throws {
         self.target = target
         token = try target.test_user.map { try Self.passwordSignIn(target, $0) } ?? Self.localSignIn(target)
+        // A cursor above the server's counter writes nothing and is answered with the counter.
+        start = try Self.page(target, token, from: Int(Int64.max))["cursor"] as? Int ?? 0
     }
 
     /// The local sign-in lets anyone in with no page, as the same user the app signed in as.
@@ -526,20 +531,13 @@ private struct SecondDevice {
         return try XCTUnwrap(result?["AccessToken"] as? String, "Cognito refused the test user")
     }
 
-    /// Every record the server holds for this user, by id, with each field's latest value.
+    /// Every record written since this device started, by id, with each field's latest value.
     func records() throws -> [String: [String: Any]] {
         var all: [String: [String: Any]] = [:]
-        var cursor = 0
+        var cursor = start
         var more = true
         while more {
-            var request = URLRequest(url: URL(string: "\(target.api_url)/sync")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["cursor": cursor, "changes": []])
-            let (data, response) = try Self.send(request)
-            XCTAssertEqual(response.statusCode, 200, String(decoding: data, as: UTF8.self))
-            let page = try Self.json(data)
+            let page = try Self.page(target, token, from: cursor)
             for change in page["changes"] as? [[String: Any]] ?? [] {
                 guard let id = change["id"] as? String, let fields = change["fields"] as? [String: [String: Any]] else { continue }
                 all[id, default: ["type": change["type"] ?? ""]].merge(fields.mapValues { $0["v"] ?? NSNull() }) { $1 }
@@ -548,6 +546,17 @@ private struct SecondDevice {
             more = page["more"] as? Bool ?? false
         }
         return all
+    }
+
+    private static func page(_ target: Target, _ token: String, from cursor: Int) throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: "\(target.api_url)/sync")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["cursor": cursor, "changes": []])
+        let (data, response) = try send(request)
+        XCTAssertEqual(response.statusCode, 200, String(decoding: data, as: UTF8.self))
+        return try json(data)
     }
 
     /// Waits for the server to hold a record that matches.
@@ -611,6 +620,7 @@ final class SignedInUITests: XCTestCase {
         if let user = target.test_user { signInOnHostedPage(app, user) }
         // The browser sheet closes itself once the sign-in links back, and the first sync follows.
         exists(app.webText("Synced"), timeout: 60)
+        let other = try SecondDevice(target)
 
         app.tapWeb("Capture a task")
         let field = app.page.textFields["Capture to Inbox"]
@@ -618,15 +628,15 @@ final class SignedInUITests: XCTestCase {
         field.tap()
         field.typeText(title + "\n")
 
-        let other = try SecondDevice(target)
         other.eventually("the capture") { $0["title"] as? String == title && !($0["deleted_at"] is String) }
 
         // Deleted here, deleted there, so a deployment's test user keeps nothing live.
+        // Only this run's item: a deployment's Inbox can hold what other suites left.
         app.tapWeb(startingWith: "Inbox")
-        app.tapWeb("Process 1 item")
+        app.tapWeb(title)
         app.tapWeb("Delete/done")
         app.tapWeb("Yes, delete")
-        exists(app.webText("Inbox clear"))
+        exists(app.webText("0 sorted, 1 deleted."))
         app.tapWeb("Done")
         other.eventually("the capture deleted") { $0["title"] as? String == title && $0["deleted_at"] is String }
     }
@@ -640,7 +650,10 @@ final class SignedInUITests: XCTestCase {
         // into whatever has focus.
         name.tap()
         app.typeText(user.username)
-        password.tap()
+        // With the software keyboard up, a tap on the password field can leave focus on the email field, so the
+        // keyboard's own Next moves it. A connected Mac keyboard shows no toolbar, and there the tap works.
+        let next = app.toolbars.buttons["Next"]
+        if next.exists && next.isEnabled { next.tap() } else { password.tap() }
         app.typeText(user.password + "\n")
     }
 }

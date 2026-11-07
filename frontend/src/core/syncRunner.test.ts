@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock, parseClock } from './clock';
-import { getMeta, META } from './db';
+import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
 import { CALENDAR_ID, getRecord, transact } from './records';
 import { SyncError, syncStatus, unsyncedChanges } from './sync';
@@ -224,8 +224,9 @@ describe('startAppSync', () => {
   const API = 'https://api.example.test';
   const AUTH = 'https://auth.example.test';
 
-  async function app() {
+  async function app(before?: (platform: Awaited<ReturnType<typeof createTestPlatform>>) => Promise<void>) {
     const platform = await createTestPlatform();
+    await before?.(platform);
     const clock = fixedClock(NOW);
     const server = fakeSyncServer({ now: () => clock.now() });
     let accessToken = 'access-1';
@@ -298,6 +299,40 @@ describe('startAppSync', () => {
     await flush();
     expect((await syncStatus(t.platform.db)).lastError).toBe('sign_in_failed');
     expect(log).toHaveBeenCalled();
+    log.mockRestore();
+    t.sync.stop();
+  });
+
+  it('marks a sign-in under way from its callback until its first sync lands, for screens to show', async () => {
+    const t = await app();
+    await flush();
+    await t.sync.signIn();
+    const state = new URL(t.platform.opened.at(-1)!).searchParams.get('state');
+    let answer!: () => void;
+    const tokenAnswered = new Promise<void>((resolve) => (answer = resolve));
+    const original = t.fetchFn.getMockImplementation()!;
+    t.fetchFn.mockImplementationOnce(async (url, init) => {
+      await tokenAnswered;
+      return original(url, init);
+    });
+    t.platform.openDeepLink(`${t.platform.signInRedirectUri}?code=c&state=${state}`);
+    await flush();
+    expect(await getMeta(t.platform.db, META.signingIn)).not.toBeNull();
+    answer();
+    await flush();
+    expect(await getMeta(t.platform.db, META.signingIn)).toBeNull();
+    expect(await syncStatus(t.platform.db)).toEqual({ lastSyncAt: NOW, lastError: null });
+    t.sync.stop();
+  });
+
+  it('ends a sign-in under way when it fails, and one an app closed during', async () => {
+    const t = await app((platform) => setMeta(platform.db, META.signingIn, '1'));
+    await flush();
+    expect(await getMeta(t.platform.db, META.signingIn)).toBeNull();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    t.platform.openDeepLink(`${t.platform.signInRedirectUri}?code=c&state=forged`);
+    await flush();
+    expect(await getMeta(t.platform.db, META.signingIn)).toBeNull();
     log.mockRestore();
     t.sync.stop();
   });

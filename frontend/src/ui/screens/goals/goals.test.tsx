@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getRecord } from '../../../core/records';
+import { getRecord, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
@@ -404,6 +404,8 @@ describe('Goals', () => {
 
       await userEvent.click(screen.getByRole('button', { name: layout === 'phone' ? '+ Project' : 'Add project' }));
       const form = screen.getByRole('form', { name: 'Add project' });
+      // Ends with the current stretch: the default cadence's quarter.
+      expect(within(form).getByLabelText('Ends')).toHaveValue('2026-12-31');
       await userEvent.click(within(form).getByRole('button', { name: 'Add project' }));
       expect(within(form).getByRole('alert')).toHaveTextContent('Give it a name.');
       await userEvent.type(within(form).getByLabelText('Name'), 'Draft chapters');
@@ -418,6 +420,13 @@ describe('Goals', () => {
       expect(await screen.findByText('Draft chapters')).toBeVisible();
       const rows = await t.db.all<{ title: string; end: string }>("SELECT title, end FROM project WHERE title = 'Draft chapters'");
       expect(rows).toEqual([{ title: 'Draft chapters', end: '2027-02-01' }]);
+    });
+
+    it('ends a new project in 3 months when planning has no cadence', async () => {
+      await renderScreen('goals', { layout, seed: async (w) => (await bread(w), updateSettings(w, { plan_cadence: null })) });
+      await userEvent.click(await screen.findByRole('button', { name: /Learn to bake bread/ }));
+      await userEvent.click(screen.getByRole('button', { name: layout === 'phone' ? '+ Project' : 'Add project' }));
+      expect(within(screen.getByRole('form', { name: 'Add project' })).getByLabelText('Ends')).toHaveValue('2027-02-02');
     });
 
     it('asks the overdue question: Move date previews the status, logs the change with Undo and a badge', async () => {

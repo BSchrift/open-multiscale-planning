@@ -280,7 +280,7 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
                   Skip
                 </button>
                 <button className="btn" type="button" onClick={() => setDelAsk(true)}>
-                  Delete
+                  Delete/done
                 </button>
               </div>
             )}
@@ -411,7 +411,7 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
                   deleteAsk
                 ) : (
                   <button className="btn sm" type="button" onClick={() => setDelAsk(true)}>
-                    Delete
+                    Delete/done
                   </button>
                 )}
               </div>

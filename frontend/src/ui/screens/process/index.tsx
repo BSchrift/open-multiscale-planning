@@ -92,6 +92,7 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
     const reverse = run ? await write.run(run) : null;
     busy.current = false;
     if (reverse === undefined) return;
+    swipeAway(ref.current);
     setHistory((h) => [...h, { step: s, reverse }]);
     setS({ ...s, idx: s.idx + 1, est: null, planOn: false, sent: null, ...next() });
     setDelAsk(false);
@@ -465,4 +466,33 @@ function FollowUp(props: { sent: Sent }) {
       </select>
     </span>
   );
+}
+
+/**
+ * Sends a copy of the card off to the right, tilting, while the card itself, already showing the next item, settles up
+ * from beneath. Called before React draws the next item, so the copy shows the one just processed.
+ */
+function swipeAway(card: HTMLElement | null) {
+  if (!card || typeof card.animate !== 'function' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const box = card.getBoundingClientRect();
+  const copy = card.cloneNode(true) as HTMLElement;
+  copy.classList.add('pxghost');
+  copy.removeAttribute('role');
+  copy.removeAttribute('aria-label');
+  copy.setAttribute('aria-hidden', 'true');
+  copy.inert = true;
+  for (const el of copy.querySelectorAll('[id]')) el.removeAttribute('id');
+  Object.assign(copy.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+  // Inside the layout, whose styles the copy needs.
+  (card.closest('[data-layout]') ?? document.body).append(copy);
+  copy
+    .animate([{ transform: 'none', opacity: 1 }, { transform: 'translateX(70%) rotate(7deg)', opacity: 0 }], {
+      duration: 320,
+      easing: 'cubic-bezier(.4,0,1,1)',
+      fill: 'forwards',
+    })
+    .finished.finally(() => copy.remove());
+  // On a phone the card is the whole screen, and shrinking it would show the Inbox behind.
+  const settle = card.closest("[data-layout='phone']") ? [{ opacity: 0.6 }, { opacity: 1 }] : [{ transform: 'scale(.94)', opacity: 0.6 }, { transform: 'none', opacity: 1 }];
+  card.animate(settle, { duration: 300, easing: 'ease-out' });
 }

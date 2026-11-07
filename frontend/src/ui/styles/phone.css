@@ -113,7 +113,7 @@
 :where([data-layout='phone']) .taskline.lifted{opacity:.35}
 :where([data-layout='phone']) .dropon{outline:2px solid var(--blue);outline-offset:2px;border-radius:8px;background:var(--blue-pale)}
 :where([data-layout='phone']) .taskghost{position:absolute;left:16px;right:16px;z-index:8;padding:10px 12px;border:1px solid var(--blue);border-radius:10px;background:var(--white);box-shadow:0 4px 14px rgba(var(--ink-rgb),.25);font-size:14px;font-weight:600;pointer-events:none;transform:translateY(-50%)}
-:where([data-layout='phone']) .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--white);border-radius:16px 16px 0 0;padding:16px 16px 32px;box-shadow:0 -8px 28px rgba(var(--ink-rgb),.18);z-index:10}
+:where([data-layout='phone']) .sheet{position:fixed;left:0;right:0;bottom:var(--keyboard,0px);background:var(--white);border-radius:16px 16px 0 0;padding:16px 16px 32px;box-shadow:0 -8px 28px rgba(var(--ink-rgb),.18);z-index:10}
 :where([data-layout='phone']) .scrim{position:fixed;inset:0;background:rgba(var(--ink-rgb),.3);z-index:9;border:0}
 :where([data-layout='phone']) .field{width:100%;min-height:48px;padding:8px 12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--white)}
 :where([data-layout='phone']) .pill{display:inline-block;flex:none;padding:2px 8px;border-radius:999px;font-size:12px;line-height:16px;font-weight:500;white-space:nowrap}

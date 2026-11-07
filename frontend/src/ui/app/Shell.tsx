@@ -11,6 +11,7 @@ import { MorePage } from './MorePage';
 import { NavProvider, useNav, useOverlay } from './nav';
 import type { Route } from './nav';
 import { AREAS, FLOW_TABS, tabLabel } from './registry';
+import { useKeyboardInset } from './keyboard';
 import { useReminders } from './reminders';
 import { useShareImport } from './shareImport';
 import { SwitchAccount } from './SwitchAccount';
@@ -194,6 +195,7 @@ function Frame() {
   const nav = useNav();
   useReminders();
   useShareImport();
+  useKeyboardInset();
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 

@@ -119,6 +119,10 @@
 :where([data-layout='desktop']) h1{font-size:24px;font-weight:600;line-height:1.25}
 :where([data-layout='desktop']) h2{font-size:17px;font-weight:600}
 :where([data-layout='desktop']) .stack{display:flex;flex-direction:column;gap:16px}
+/* First-run setup sits in the middle of the window, in a column narrow enough to read as one. */
+:where([data-layout='desktop']) .setup{max-width:560px;min-height:100%;margin-inline:auto;justify-content:center}
+/* Welcome is a line and two buttons, so its column shrinks to them to sit in the middle too. */
+:where([data-layout='desktop']) .setup.welcome{width:fit-content}
 :where([data-layout='desktop']) .stack24{display:flex;flex-direction:column;gap:24px}
 :where([data-layout='desktop']) .stack32{display:flex;flex-direction:column;gap:32px}
 :where([data-layout='desktop']) .between{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}

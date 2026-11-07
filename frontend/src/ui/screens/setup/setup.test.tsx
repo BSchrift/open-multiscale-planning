@@ -80,6 +80,18 @@ describe('first-run setup', () => {
     expect(await heading('Welcome')).toBeVisible();
   });
 
+  it("can't skip sign-in in the web app, whose data would stay in one browser", async () => {
+    vi.stubEnv('DEV', false);
+    try {
+      const t = await renderScreen('setup', { kind: 'web', firstRun: true, sync: fakeSync() });
+      await syncState(t, null, 'sign_in_expired');
+      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('connects Google Calendar, and moves on once the connection arrives', async () => {
     const sync = fakeSync();
     const t = await renderScreen('setup', { firstRun: true, sync });

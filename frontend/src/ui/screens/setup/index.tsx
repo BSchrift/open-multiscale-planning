@@ -16,7 +16,10 @@ type Step = 'welcome' | 'calendar' | 'hours' | 'start';
 
 export default function Screen(props: ScreenProps) {
   const { layout } = props;
-  const { clock, sync } = useApp();
+  const { clock, sync, platform } = useApp();
+  // The web app keeps its data in one browser, so it signs in first. Dev builds keep Skip: the browser tests stand in for
+  // the apps there.
+  const canSkip = platform.kind !== 'web' || import.meta.env.DEV;
   // Kept on this device, since signing in and connecting leave for the browser and the OS may close the app meanwhile.
   const [saved, setStep] = useStickyState<Step>('setup.at', 'welcome');
   const { busy, call } = useCalendarCall();
@@ -59,7 +62,7 @@ export default function Screen(props: ScreenProps) {
   );
 
   return (
-    <div className={layout === 'phone' ? 'stack setup' : 'wrap stack setup'}>
+    <div className={`${layout === 'phone' ? 'stack setup' : 'wrap stack setup'}${step === 'welcome' ? ' welcome' : ''}`}>
       <p className="small quiet">
         Step {index + 1} of {steps.length}
       </p>
@@ -80,7 +83,7 @@ export default function Screen(props: ScreenProps) {
                 <button className={`${btn} pri`} type="button" onClick={() => void sync.signIn()}>
                   Sign in
                 </button>
-                {next(false, 'Skip')}
+                {canSkip && next(false, 'Skip')}
               </>
             ) : (
               next(true)

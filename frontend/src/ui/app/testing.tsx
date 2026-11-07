@@ -15,6 +15,7 @@ import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
+import type { PlatformKind } from '../../platform/types';
 import { ToastProvider } from '../components/Toast';
 import { NavProvider, useNav, useOverlay } from './nav';
 import type { Nav, Overlay, Route } from './nav';
@@ -40,6 +41,8 @@ export interface HarnessOptions {
   updates?: Updater;
   /** The native side of updates, on the platform. */
   nativeUpdates?: NativeUpdates;
+  /** The platform the screens think they're on. */
+  kind?: PlatformKind;
 }
 
 export interface Harness extends RenderResult {
@@ -53,7 +56,11 @@ export interface Harness extends RenderResult {
 
 async function prepare(options: HarnessOptions) {
   const clock = fixedClock(options.now ?? '2026-11-02T20:00:00Z', options.zone ?? 'America/Chicago');
-  const platform: TestPlatform = Object.assign(await createTestPlatform(), options.nativeUpdates ? { updates: options.nativeUpdates } : {});
+  const platform: TestPlatform = Object.assign(
+    await createTestPlatform(),
+    options.nativeUpdates ? { updates: options.nativeUpdates } : {},
+    options.kind ? { kind: options.kind } : {},
+  );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));
   if (options.seed) await write(options.seed);

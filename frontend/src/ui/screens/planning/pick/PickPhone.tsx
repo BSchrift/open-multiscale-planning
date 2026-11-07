@@ -5,10 +5,13 @@
 
 import { useEffect, useState } from 'react';
 import { formatMinutes, formatWeekRange } from '../../../../core/dates';
+import { minutesLeft } from '../../../../core/plan';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Minutes } from '../../../../core/types';
+import { EstimateSlider } from '../../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
 import { Pill } from '../../../components/Pill';
+import { Popover } from '../../../components/Popover';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { Sheet } from '../../../components/Sheet';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
@@ -19,13 +22,15 @@ import { aimWords } from './model';
 import type { PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
 import { PastEnd, pastEndLine } from './PastEnd';
-import { Legend } from './PickDesktop';
+import { estWords, Legend } from './PickDesktop';
 import type { PickProps } from './PickStep';
 
 const TOAST_MS = 5000;
 
 function estText(r: PickTask): string {
   const left = r.c.left;
+  if (r.done) return 'Done';
+  if (!left && r.c.placed && estWords(r) === 'On the calendar') return 'On the calendar';
   const of = (m: Minutes) => (m < left ? `${formatMinutes(m)} of ${formatMinutes(left)}` : left ? formatMinutes(left) : 'No estimate');
   if (r.c.picked) return of(r.c.week);
   return r.hint ? `★ ${of(r.hint.minutes)}` : of(left);
@@ -78,22 +83,37 @@ export function PickPhone(props: PickProps) {
   const fixProject = view.projects.find((p) => p.plan.project.id === fixFor);
   const pastNow = view.pastEnd.find((p) => sheet === `past:${p.plan.project.id}`);
   const editRow = allRows.find((r) => r.c.task.id === editFor);
+  const [estFor, setEstFor] = useState<string | null>(null);
+  const estRow = allRows.find((r) => r.c.task.id === estFor);
 
-  const taskRow = (r: PickTask) => (
-    <div key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}`}>
-      <button
-        className="tmain"
-        type="button"
-        aria-haspopup="dialog"
-        aria-label={`Edit task ${r.title}, ${estText(r).replace('★', 'Suggested')}`}
-        onClick={() => setEditFor(r.c.task.id)}
-      >
-        {r.title}
-        <small>{estText(r)}</small>
-      </button>
-      <AddButton {...props} row={r} />
-    </div>
-  );
+  const taskRow = (r: PickTask) => {
+    const done = props.isDone(r);
+    const full = !r.c.picked && estText(r) === 'On the calendar';
+    return (
+      <div key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}${done ? ' isdone' : ''}`}>
+        <button className="tmain" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => setEditFor(r.c.task.id)}>
+          {r.title}
+        </button>
+        {done ? (
+          <span className="testb">Done</span>
+        ) : (
+          <button
+            className="testb"
+            type="button"
+            aria-haspopup="dialog"
+            aria-label={`Estimate for ${r.title}: ${estText(r).replace('★', 'Suggested')}`}
+            onClick={() => setEstFor(r.c.task.id)}
+          >
+            {estText(r)}
+          </button>
+        )}
+        <button className="tdone" type="button" aria-label={done ? `Undo finishing ${r.title}` : `Mark ${r.title} done`} onClick={() => (done ? props.undoDone(r) : props.markDone(r))}>
+          {done ? 'Undo' : 'Mark done'}
+        </button>
+        {done || full ? <span className="tadd" aria-hidden="true" /> : <AddButton {...props} row={r} />}
+      </div>
+    );
+  };
 
   const addAll = async () => {
     const text = `Added ${formatMinutes(view.hintMin)}`;
@@ -469,6 +489,15 @@ export function PickPhone(props: PickProps) {
       )}
 
       {editRow && <EditTask row={editRow} view={view} ctx={model.ctx} onClose={() => setEditFor(null)} />}
+      {estRow && (
+        <Popover label={`Estimate for ${estRow.title}`} onClose={() => setEstFor(null)}>
+          <h2>{estRow.title}</h2>
+          <EstimateSlider label={estRow.c.task.remaining_min != null ? 'Time left' : 'Estimate'} value={minutesLeft(estRow.c.task)} onChange={(m) => props.setEstimate(estRow, m)} />
+          <button className="btn pri" type="button" onClick={() => setEstFor(null)}>
+            Done
+          </button>
+        </Popover>
+      )}
     </>
   );
 }

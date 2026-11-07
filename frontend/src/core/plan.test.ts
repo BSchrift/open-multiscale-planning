@@ -426,6 +426,13 @@ describe('the candidates for a week', () => {
     expect(ids).toEqual(['t2', 't3', 't4', 'none']);
   });
 
+  it('withPicked also keeps a task already on the calendar this week, so Pick shows it rather than dropping it', () => {
+    const p = reportPlan();
+    const placed = block('t5', '2026-11-03T10:00:00Z', '2026-11-03T11:00:00Z');
+    expect(projectCandidates(p, week({ blocks: [placed] }), ctx).map((c) => c.task.id)).not.toContain('t5');
+    expect(projectCandidates(p, week({ blocks: [placed] }), ctx, true).find((c) => c.task.id === 't5')).toMatchObject({ left: 0, placed: true });
+  });
+
   it('counts only what is still ahead as placed, since a past block already changed what remains', () => {
     const p = reportPlan();
     const past = block('t3', '2026-10-29T10:00:00Z', '2026-10-29T11:00:00Z');

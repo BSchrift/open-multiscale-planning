@@ -409,6 +409,8 @@ export interface Candidate {
   week: Minutes;
   carried: boolean;
   stale: boolean;
+  /** Has time on this week's calendar. */
+  placed: boolean;
 }
 
 const liveBlocks = (week: WeekInput) => week.blocks.filter((b) => !b.cancelled && !b.deleted_at);
@@ -427,6 +429,7 @@ function candidate(t: Task, week: WeekInput, ctx: PlanContext): Candidate {
     week: pick?.minutes ?? 0,
     carried: !!week.carried?.has(t.id),
     stale: !!week.stale?.has(t.id),
+    placed: liveBlocks(week).some((b) => b.task_id === t.id),
   };
 }
 
@@ -437,7 +440,7 @@ const toPlace = (c: Candidate) => c.left > 0 || unestimated(c.task);
 
 /**
  * A project's open tasks: work needing a new time, then planned milestones by date, then Done, then the rest.
- * withPicked keeps picked tasks whose time is all placed.
+ * withPicked also keeps picked tasks, and ones on this week's calendar, whose time is all placed.
  */
 export function projectCandidates(plan: ProjectPlan, week: WeekInput, ctx: PlanContext, withPicked = false): Candidate[] {
   const st = planStretch(ctx.settings, today(ctx.clock), ctx.planning);
@@ -453,19 +456,19 @@ export function projectCandidates(plan: ProjectPlan, week: WeekInput, ctx: PlanC
   return plan.tasks
     .filter(isOpen)
     .map((t) => candidate(t, week, ctx))
-    .filter((c) => toPlace(c) || (withPicked && c.picked))
+    .filter((c) => toPlace(c) || (withPicked && (c.picked || c.placed)))
     .map((c) => ({ c, k: key(c) }))
     .sort((a, b) => a.k - b.k)
     .map(({ c }) => c);
 }
 
-/** The week's open one offs, those due this week first. withPicked keeps picked ones whose time is all placed. */
+/** The week's open one offs, those due this week first. withPicked also keeps picked or placed ones whose time is all placed. */
 export function oneOffCandidates(tasks: readonly Task[], week: WeekInput, ctx: PlanContext, withPicked = false): Candidate[] {
   const due = (c: Candidate) => (taskDue(c.task, null, week.weekStart, ctx).dueDay != null ? 0 : 1);
   return tasks
     .filter((t) => t.kind === 'one_off' && isOpen(t) && !t.deleted_at)
     .map((t) => candidate(t, week, ctx))
-    .filter((c) => toPlace(c) || (withPicked && c.picked))
+    .filter((c) => toPlace(c) || (withPicked && (c.picked || c.placed)))
     .sort((a, b) => due(a) - due(b));
 }
 

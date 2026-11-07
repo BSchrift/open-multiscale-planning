@@ -30,3 +30,11 @@
 :where([data-layout='phone']) .planning .card>.brow:last-child{border-bottom:0}
 /* The card clips its sides and the axis covers its top, so a row's ring goes inside it. */
 :where([data-layout='phone']) .planning .card>.brow:focus-visible{outline-offset:-2px}
+/* The estimate opens a slider; a row finished here is struck through in green, with Undo. */
+:where([data-layout='desktop']) .planning .pickestbtn{padding:2px 4px;border:0;border-radius:4px;background:transparent;text-decoration:underline dotted;text-underline-offset:3px}
+:where([data-layout='desktop']) .planning .pickestbtn:hover{background:var(--fill)}
+:where([data-layout]) .planning .isdone :is(.picktitle,.tmain){text-decoration:line-through;color:var(--green)}
+:where([data-layout]) .planning .isdone{background:var(--green-soft)}
+:where([data-layout='phone']) .planning .testb{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 6px;border:0;background:transparent;color:var(--quiet);font-size:13px;text-decoration:underline dotted;text-underline-offset:3px}
+:where([data-layout='phone']) .planning span.testb{display:flex;align-items:center;text-decoration:none}
+:where([data-layout='phone']) .planning .tdone{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 6px;border:0;background:transparent;color:var(--green);font-size:13px;font-weight:600}

@@ -72,11 +72,11 @@ export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap
           <div className="row">
             {!started && (
               <>
-                <button className={`btn pri${phone ? ' grow' : ''}`} type="button" onClick={() => thenFocus(actions.start(cur))}>
+                <button className={`btn pri${phone ? ' grow' : ''}`} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.start(cur))}>
                   Start
                 </button>
                 {next && (
-                  <button className="btn" type="button" onClick={() => thenFocus(actions.swap(cur, next))}>
+                  <button className="btn" type="button" disabled={actions.pending} onClick={() => thenFocus(actions.swap(cur, next))}>
                     Do next block instead
                   </button>
                 )}
@@ -99,7 +99,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap
         </h2>
         <FirstStep task={tasks.get(next.task_id ?? '')} layout={layout} />
         <div className="row">
-          <button className={phone ? 'btn pri' : 'btn'} type="button" onClick={() => thenFocus(actions.startEarly(next))}>
+          <button className={phone ? 'btn pri' : 'btn'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>
             Start early
           </button>
         </div>

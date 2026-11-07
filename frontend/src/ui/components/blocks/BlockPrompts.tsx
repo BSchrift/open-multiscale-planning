@@ -157,7 +157,7 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
           </button>
         </div>
         <div className="row">
-          <button className="link small" type="button" onClick={() => void actions.stillGoing(block).then(props.onClose)}>
+          <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.stillGoing(block).then(props.onClose)}>
             Still going, add {formatMinutes(STILL_GOING_MIN)}
           </button>
           <button className="link small" type="button" onClick={props.onClose}>
@@ -187,7 +187,7 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
       )}
       <div className="stack8">
         <div className="row">
-          <button className="btn pri" type="button" onClick={() => void actions.start(block).then(props.onClose)}>
+          <button className="btn pri" type="button" disabled={actions.pending} onClick={() => void actions.start(block).then(props.onClose)}>
             Yes, started
           </button>
           <button
@@ -203,11 +203,11 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
         </div>
         <div className="row">
           {next && (
-            <button className="link small" type="button" onClick={() => void actions.swap(block, next).then(props.onClose)}>
+            <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.swap(block, next).then(props.onClose)}>
               Do next block instead
             </button>
           )}
-          <button className="link small" type="button" onClick={() => void actions.skip(block).then(props.onClose)}>
+          <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.skip(block).then(props.onClose)}>
             Skip, choose a new time later
           </button>
         </div>

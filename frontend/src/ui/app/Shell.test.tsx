@@ -91,6 +91,17 @@ describe('shell on desktop', () => {
     await userEvent.keyboard('{Shift>}{Meta>} {/Meta}{/Shift}');
     expect(await screen.findByRole('dialog', { name: 'Capture' })).toBeInTheDocument();
   });
+
+  it('names the screen on show for telemetry, Capture while it is open', async () => {
+    await renderApp();
+    await showsPane('Today');
+    expect(document.documentElement.dataset.screen).toBe('today');
+    await userEvent.click(screen.getByRole('button', { name: /Capture/ }));
+    await screen.findByRole('dialog', { name: 'Capture' });
+    expect(document.documentElement.dataset.screen).toBe('capture');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(document.documentElement.dataset.screen).toBe('today'));
+  });
 });
 
 describe('shell on both layouts', () => {

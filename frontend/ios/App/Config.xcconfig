@@ -3,8 +3,10 @@
 
 MULTISCALE_BUNDLE_ID = io.github.bschrift.multiscale
 MULTISCALE_APP_GROUP = group.$(MULTISCALE_BUNDLE_ID)
-// YES builds in the share sheet and Control Center widget. They need a paid Apple membership to install on a phone.
+// YES builds in the share sheet, whose App Group needs a paid Apple membership to install on a phone.
 MULTISCALE_EXTENSIONS = NO
+// The Control Center capture button only opens the app, so it needs no App Group and a free personal team signs it.
+MULTISCALE_CONTROL = YES
 
 #include? "Config.local.xcconfig"
 

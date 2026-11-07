@@ -38,11 +38,22 @@ describe('the iOS project', () => {
     expect(project).not.toMatch(/SystemCapabilities|com\.apple\.(Push|InAppPurchase|Keychain)/);
   });
 
-  it('never signs the extensions, or commits a team, while they are off', () => {
+  it('never signs the share extension, or commits a team, while it is off', () => {
     expect(setting(config, 'MULTISCALE_SIGN_EXTENSIONS_NO')).toBe('NO');
-    expect(project.match(/CODE_SIGNING_ALLOWED = "\$\(MULTISCALE_SIGN_EXTENSIONS_\$\(MULTISCALE_EXTENSIONS\)\)"/g)).toHaveLength(4);
+    expect(project.match(/CODE_SIGNING_ALLOWED = "\$\(MULTISCALE_SIGN_EXTENSIONS_\$\(MULTISCALE_EXTENSIONS\)\)"/g)).toHaveLength(2);
     expect(project).not.toContain('DEVELOPMENT_TEAM');
     expect(project).not.toContain('Embed App Extensions');
+  });
+
+  // It only opens the app, in the app's own process, so it needs no App Group and a free personal team can sign it.
+  it('builds in the Control Center capture button by default, signed and embedded with no entitlements', () => {
+    expect(setting(config, 'MULTISCALE_CONTROL')).toBe('YES');
+    expect(project.match(/CODE_SIGNING_ALLOWED = "\$\(MULTISCALE_SIGN_EXTENSIONS_\$\(MULTISCALE_CONTROL\)\)"/g)).toHaveLength(2);
+    const widget = [...project.matchAll(/buildSettings = \{([^}]*)\};/g)].map((m) => m[1]!).filter((b) => b.includes('CaptureWidget/Info.plist'));
+    expect(widget).toHaveLength(2);
+    for (const b of widget) expect(b).not.toContain('CODE_SIGN_ENTITLEMENTS');
+    expect(project).toContain('MultiscaleCapture.appex');
+    expect(project).toMatch(/MULTISCALE_CONTROL\\" = YES \]; then\\n  cp -R \\"\$BUILT_PRODUCTS_DIR\/MultiscaleCapture\.appex/);
   });
 
   // A fixed white launch image or web view background would flash white before a dark page, and the status bar

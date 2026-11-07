@@ -60,7 +60,7 @@ test('capture, process each item to its place, then one offs across the week', a
 
   // And the bin, after asking.
   await expect(card.getByRole('heading', { name: 'An old idea to let go' })).toBeVisible();
-  await card.getByRole('button', { name: 'Delete' }).click();
+  await card.getByRole('button', { name: 'Delete/done' }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card.getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
   await expect(card).toContainText('3 sorted, 1 deleted.');

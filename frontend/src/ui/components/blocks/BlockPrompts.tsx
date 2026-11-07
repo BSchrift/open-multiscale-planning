@@ -10,12 +10,13 @@ import { blockMinutes, formatMinutes, instantMs } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import { useOverlay } from '../../app/nav';
+import { STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
 import { Sheet } from '../Sheet';
 import { useDialogFocus } from '../useDialogFocus';
 import { formatRange } from './describe';
-import { STILL_GOING_MIN, useBlockActions } from './useBlockActions';
+import { useBlockActions } from './useBlockActions';
 
 function DesktopPrompt(props: { label: string; onClose(): void; children: ReactNode }) {
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);

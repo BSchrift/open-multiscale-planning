@@ -14,7 +14,8 @@ import type { ReminderResponse } from '../../platform/types';
 import { useNav } from './nav';
 import { useApp, useMutation, useQuery } from './store';
 
-const STILL_GOING_MIN = 30;
+/** What Still going adds, from a notification or the end-of-block prompt. */
+export const STILL_GOING_MIN = 30;
 
 // "Ask again in 10 minutes", by block id. Kept on this device only: at worst one snoozed question isn't asked again.
 const SNOOZE_KEY = 'multiscale.snoozes';

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -268,7 +269,8 @@ func (s *Store) write(ctx context.Context, sub string, state storedState, record
 			if err == nil {
 				break
 			}
-			// A throttled transaction wrote nothing, so the same one, with the same counter condition, can go again.
+			// A throttled transaction wrote nothing, so the same one, with the same counter condition, can go again. One the
+			// SDK found still in progress may yet land, but it has that condition too, so at most one of them commits.
 			if !isThrottled(err) || try == maxThrottleWaits {
 				return written, counter, err
 			}
@@ -326,6 +328,16 @@ func counterUpdate(table, sub string, old, next int64, exists bool) types.Transa
 	return types.TransactWriteItem{Update: update}
 }
 
+// throttleCodes are the throttles that come back as an exception rather than as a cancelled transaction. The SDK retries
+// each of these itself first, and hands the last one back wrapped in its retry error.
+var throttleCodes = map[string]bool{
+	"ProvisionedThroughputExceededException": true,
+	"ThrottlingException":                    true,
+	"RequestLimitExceeded":                   true,
+	// The SDK resent the request with the same token while its first try was still landing.
+	"TransactionInProgressException": true,
+}
+
 func isThrottled(err error) bool {
 	var canceled *types.TransactionCanceledException
 	if errors.As(err, &canceled) {
@@ -334,8 +346,31 @@ func isThrottled(err error) bool {
 			return code == "ThrottlingError" || code == "ProvisionedThroughputExceeded"
 		})
 	}
-	var throughput *types.ProvisionedThroughputExceededException
-	return errors.As(err, &throughput)
+	var coded interface{ ErrorCode() string }
+	return errors.As(err, &coded) && throttleCodes[coded.ErrorCode()]
+}
+
+// ErrorAttrs names an AWS error for a log line: its code, a cancelled transaction's reason codes in item order, and how
+// many tries the SDK made before giving up. Only codes and counts, since a message can quote the request.
+func ErrorAttrs(err error) []any {
+	var attrs []any
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		attrs = append(attrs, "aws_error", coded.ErrorCode())
+	}
+	var canceled *types.TransactionCanceledException
+	if errors.As(err, &canceled) {
+		reasons := make([]string, len(canceled.CancellationReasons))
+		for i, reason := range canceled.CancellationReasons {
+			reasons[i] = aws.ToString(reason.Code)
+		}
+		attrs = append(attrs, "cancellation_reasons", reasons)
+	}
+	var attempts *retry.MaxAttemptsError
+	if errors.As(err, &attempts) {
+		attrs = append(attrs, "aws_attempts", attempts.Attempt)
+	}
+	return attrs
 }
 
 func isConflict(err error) bool {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -505,15 +506,20 @@ func TestARealCounterMoveIsCaughtAndRemerged(t *testing.T) {
 	}
 }
 
-// throttledDB cancels the next Remaining transactions as DynamoDB does when one partition passes its write rate.
+// throttledDB cancels the next Remaining transactions as DynamoDB does when one partition passes its write rate, or
+// fails them with Err when it's set.
 type throttledDB struct {
 	msync.DB
 	Remaining atomic.Int64
+	Err       error
 }
 
 func (d *throttledDB) TransactWriteItems(ctx context.Context, in *dynamodb.TransactWriteItemsInput, opts ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
 	if d.Remaining.Add(-1) < 0 {
 		return d.DB.TransactWriteItems(ctx, in, opts...)
+	}
+	if d.Err != nil {
+		return nil, d.Err
 	}
 	reasons := make([]types.CancellationReason, len(in.TransactItems))
 	for i := range reasons {
@@ -531,6 +537,70 @@ func TestThrottledTransactionsWaitAndLand(t *testing.T) {
 	if err != nil || stats.Merged != 2 || stats.Retries != 0 {
 		t.Fatalf("err %v, stats %+v", err, stats)
 	}
+}
+
+// sdkGaveUp is how the SDK hands back an error it retried itself until its tries ran out.
+func sdkGaveUp(err error) error {
+	return fmt.Errorf("operation error DynamoDB: TransactWriteItems, %w", &retry.MaxAttemptsError{Attempt: 3, Err: err})
+}
+
+// A throttle doesn't always come back as a cancelled transaction. It can be an exception of its own, which the SDK
+// retries first and then returns wrapped, and an SDK resend of a transaction still landing comes back as in progress.
+// Each waits and lands like any other throttle, rather than failing the sync as an internal error.
+func TestEveryFormOfThrottleWaitsAndLands(t *testing.T) {
+	defer msync.SetThrottleWait(time.Millisecond)()
+	for name, throttle := range map[string]error{
+		"throttling exception":   sdkGaveUp(&types.ThrottlingException{Message: aws.String("Throughput exceeds the current capacity")}),
+		"provisioned throughput": sdkGaveUp(&types.ProvisionedThroughputExceededException{}),
+		"request limit":          sdkGaveUp(&types.RequestLimitExceeded{}),
+		"in progress":            sdkGaveUp(&types.TransactionInProgressException{}),
+		"one item of several": &types.TransactionCanceledException{CancellationReasons: []types.CancellationReason{
+			{Code: aws.String("None")}, {Code: aws.String("ThrottlingError")}, {Code: aws.String("None")},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, client := newStore(t)
+			db := &throttledDB{DB: client, Err: throttle}
+			db.Remaining.Store(2)
+			s.DB = db
+			stats, err := s.Push(context.Background(), "abc", 0, []msync.Change{task("r1", title("x", clock(1, "a"))), task("r2", title("y", clock(1, "a")))})
+			if err != nil || stats.Merged != 2 || stats.Retries != 0 {
+				t.Fatalf("err %v, stats %+v", err, stats)
+			}
+		})
+	}
+}
+
+// An SDK resend that found its first try still landing may be followed by that try committing. The store's own resend is
+// conditional on the same counter, so it then fails as a conflict, and the re-read finds the records already there.
+func TestATransactionThatLandsAfterAnInProgressAnswerIsNotWrittenTwice(t *testing.T) {
+	defer msync.SetThrottleWait(time.Millisecond)()
+	s, client := newStore(t)
+	landed := false
+	s.DB = &landsLateDB{DB: client, landed: &landed}
+	stats, err := s.Push(context.Background(), "abc", 0, []msync.Change{task("r1", title("x", clock(1, "a")))})
+	if err != nil || !landed || stats.Retries != 1 {
+		t.Fatalf("err %v, landed %v, stats %+v", err, landed, stats)
+	}
+	if res := mustSync(t, s, "abc", 0); res.Cursor != 1 || len(res.Changes) != 1 {
+		t.Fatalf("written twice: %+v", res)
+	}
+}
+
+// landsLateDB commits the first transaction but answers that it's still in progress, as the SDK does after resending it
+// with the same token while the first try was landing.
+type landsLateDB struct {
+	msync.DB
+	landed *bool
+}
+
+func (d *landsLateDB) TransactWriteItems(ctx context.Context, in *dynamodb.TransactWriteItemsInput, opts ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+	out, err := d.DB.TransactWriteItems(ctx, in, opts...)
+	if err != nil || *d.landed {
+		return out, err
+	}
+	*d.landed = true
+	return nil, sdkGaveUp(&types.TransactionInProgressException{})
 }
 
 // Past the wait it's a resend like a counter conflict, a 409 that stays out of the 5xx alarm, and what landed stays.

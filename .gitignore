@@ -70,3 +70,7 @@ frontend/.build.lock
 .idea/
 .vscode/
 *.swp
+
+# Claude Code: the skills are shared; worktrees and personal settings are not.
+.claude/worktrees/
+.claude/settings.local.json

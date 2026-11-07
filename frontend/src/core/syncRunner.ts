@@ -238,7 +238,11 @@ export function startAppSync(
         await db.transaction(async (tx) => {
           await tx.run('DELETE FROM records');
           await tx.run('DELETE FROM outbox');
-          await tx.run('DELETE FROM meta WHERE key NOT IN (:schema, :device)', { schema: META.schemaVersion, device: META.deviceId });
+          await tx.run('DELETE FROM meta WHERE key NOT IN (:schema, :minApp, :device)', {
+            schema: META.schemaVersion,
+            minApp: META.minAppSchema,
+            device: META.deviceId,
+          });
           await setMeta(tx, META.account, account);
         });
         db.notifyChanged({ types: RECORD_TYPES, source: 'remote' });

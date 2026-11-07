@@ -150,16 +150,27 @@ export function startAppSync(
     if (!res.ok) throw new SyncError('error');
     return res;
   };
+  const signingIn = async (on: boolean) => {
+    if (on) await setMeta(platform.db, META.signingIn, '1');
+    else await platform.db.run('DELETE FROM meta WHERE key = :key', { key: META.signingIn });
+    platform.db.notifyChanged({ types: [], source: 'remote' });
+  };
+  // One an app closed during would otherwise show as under way for good.
+  void signingIn(false);
   const stopLinks = platform.onDeepLink((url) => {
-    auth.handleRedirect(url).then(
-      (handled) => {
-        if (handled) void runner.syncNow();
-      },
-      (err: unknown) => {
+    // A callback with a code is under way until its first sync lands, which brings the account's data.
+    const callback = url.startsWith(`${platform.signInRedirectUri}?`);
+    void (async () => {
+      if (callback) await signingIn(true);
+      try {
+        if (await auth.handleRedirect(url)) await runner.syncNow();
+      } catch (err) {
         console.error('Sign-in failed', err);
-        void recordFailure(platform.db, 'sign_in_failed');
-      },
-    );
+        await recordFailure(platform.db, 'sign_in_failed');
+      } finally {
+        if (callback) await signingIn(false);
+      }
+    })();
   });
   // The connection, then the calendars Google has, arrive by sync, so look often while the person is on Google's page.
   let connectPoll: ReturnType<typeof setInterval> | undefined;

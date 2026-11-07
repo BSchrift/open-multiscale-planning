@@ -32,7 +32,7 @@ const busy = () =>
   !!document.querySelector('[aria-modal="true"]') || !!document.activeElement?.closest('input, textarea, select, [role="dialog"]');
 
 /** The corner panel on desktop, a sheet on phone. It waits while you're busy, looking again each time it re-renders. */
-export function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
+function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
   const { layout } = useApp();
   const [ready, setReady] = useState(false);
   // Read only to render again when Capture or Process closes, which renders nothing else here.

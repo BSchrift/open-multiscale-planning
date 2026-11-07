@@ -11,7 +11,7 @@ import { describeBlock, formatRange, OUTCOME_WORD } from './describe';
 import type { BlockRecords } from './describe';
 
 /** The records describeBlock needs for one block. */
-export async function loadBlockRecords(sql: Sql, block: Pick<BlockRow, 'task_id' | 'practice_id'>): Promise<BlockRecords> {
+async function loadBlockRecords(sql: Sql, block: Pick<BlockRow, 'task_id' | 'practice_id'>): Promise<BlockRecords> {
   const task = block.task_id ? await getRecord(sql, 'task', block.task_id) : undefined;
   const practice = block.practice_id ? await getRecord(sql, 'practice', block.practice_id) : undefined;
   const project = task?.project_id ? await getRecord(sql, 'project', task.project_id) : undefined;

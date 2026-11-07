@@ -75,12 +75,11 @@ export const slotRange = (s: { start: number; end: number }) => `${formatTimeOfD
 export interface GridGhost extends Slot {
   /** 'Tue Nov 3, 5pm' */
   label: string;
-  first?: boolean;
   onAccept(): void;
 }
 
 /** A one off with dates in the week but no time yet. */
-export interface GridLaneItem {
+interface GridLaneItem {
   id: string;
   title: string;
   from: LocalDate;
@@ -359,7 +358,7 @@ export function WeekGrid(props: WeekGridProps) {
                     <button
                       key={`g${g.start}`}
                       type="button"
-                      className={`ev ev-ghost${g.first ? ' first' : ''}`}
+                      className="ev ev-ghost"
                       style={{ top: y(g.start), height: y(g.end) - y(g.start) }}
                       aria-label={`Use suggested time, ${g.label}`}
                       onClick={g.onAccept}

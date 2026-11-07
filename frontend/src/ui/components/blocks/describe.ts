@@ -11,7 +11,7 @@ export type BlockKind = 'project' | 'one_off' | 'practice';
 /** The kind in words, for labels, so it never rests on colour alone. */
 export const KIND_WORD: Record<BlockKind, string> = { project: 'Project', practice: 'Practice', one_off: 'One off' };
 
-export function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKind {
+function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKind {
   return block.practice_id ? 'practice' : block.task_kind === 'one_off' ? 'one_off' : 'project';
 }
 
@@ -29,7 +29,7 @@ export interface BlockRecords {
   practice?: Practice | undefined;
 }
 
-export interface BlockDescription {
+interface BlockDescription {
   kind: BlockKind;
   /** What the path is: Goal, Project, One off or Practice. */
   word: string;

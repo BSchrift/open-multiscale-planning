@@ -44,7 +44,7 @@ export function useApp(): App {
 const PHONE_QUERY = '(max-width: 640px)';
 
 /** The phone layout on iPhone, and the desktop layout in Electron however narrow the window is. */
-export function useLayout(platform: Platform, forced?: Layout): Layout {
+function useLayout(platform: Platform, forced?: Layout): Layout {
   const narrow = useSyncExternalStore(
     (notify) => {
       const media = window.matchMedia?.(PHONE_QUERY);
@@ -66,15 +66,14 @@ export function AppProvider(props: { platform: Platform; clock: Clock; layout?: 
   return <AppContext.Provider value={app}>{children}</AppContext.Provider>;
 }
 
-export interface QueryResult<T> {
+interface QueryResult<T> {
   /** The latest rows. While deps change, this stays on the previous rows until the new ones arrive. */
   data: T | undefined;
   error: unknown;
-  loading: boolean;
 }
 
 function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
-  let snapshot: QueryResult<T> = { data: seed, error: undefined, loading: true };
+  let snapshot: QueryResult<T> = { data: seed, error: undefined };
   let generation = 0;
   let subscribers = 0;
   let stale = true;
@@ -88,11 +87,11 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
     stale = false;
     run().then(
       (data) => {
-        if (mine === generation) publish({ data, error: undefined, loading: false });
+        if (mine === generation) publish({ data, error: undefined });
       },
       (error: unknown) => {
         console.error('Query failed', error);
-        if (mine === generation) publish({ data: snapshot.data, error, loading: false });
+        if (mine === generation) publish({ data: snapshot.data, error });
       },
     );
   };
@@ -128,11 +127,10 @@ export function useQuery<T>(query: (sql: Sql, clock: Clock) => Promise<T>, deps:
   return result;
 }
 
-export interface Mutation<A extends unknown[], R> {
+interface Mutation<A extends unknown[], R> {
   /** Resolves to the result, or undefined after telling the user it failed. It never rejects. */
   run(...args: A): Promise<R | undefined>;
   pending: boolean;
-  error: unknown;
 }
 
 /** One user action as one transaction. A failure shows a toast, so nothing is lost silently. */
@@ -141,24 +139,24 @@ export function useMutation<A extends unknown[], R>(action: (w: Writer, ...args:
   const toast = useToast();
   const latest = useRef(action);
   latest.current = action;
-  const [state, setState] = useState<{ pending: boolean; error: unknown }>({ pending: false, error: undefined });
+  const [pending, setPending] = useState(false);
   const run = useCallback(
     async (...args: A) => {
-      setState({ pending: true, error: undefined });
+      setPending(true);
       try {
         const result = await transact(db, clock, (w) => latest.current(w, ...args));
-        setState({ pending: false, error: undefined });
+        setPending(false);
         return result;
       } catch (error) {
         console.error('Save failed', error);
-        setState({ pending: false, error });
+        setPending(false);
         toast.show("Couldn't save that. Try again.");
         return undefined;
       }
     },
     [db, clock, toast],
   );
-  return { run, ...state };
+  return { run, pending };
 }
 
 /** The clock's time in epoch ms, updating on an interval. */

@@ -76,7 +76,6 @@ function TargetSlider(props: { per: Practice['per']; value: number; onChange(min
 export function PracticeFields(props: { practice: Practice; goals: readonly Objective[]; onEnded?(): void }) {
   const p = props.practice;
   const toast = useToast();
-  const timeId = useId();
   const [name, setName] = useState(p.title);
   const [time, setTime] = useState('');
   const save = useMutation((w, fields: Fields<'practice'>) => w.set('practice', p.id, fields));
@@ -159,7 +158,6 @@ export function PracticeFields(props: { practice: Practice; goals: readonly Obje
         )}
         <div className="row nowrap">
           <input
-            id={timeId}
             className="field grow"
             type="time"
             aria-label="New preferred time"

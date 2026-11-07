@@ -14,7 +14,7 @@ import { usePlanChange } from './usePlanChange';
 
 
 /** A new end date, with 2 weeks, 1 month and 3 months as shortcuts from the end, or from today once it has passed. */
-export function ChangeEndDate(props: { plan: ProjectPlan; ctx: PlanContext; onDone?(): void }) {
+function ChangeEndDate(props: { plan: ProjectPlan; ctx: PlanContext; onDone?(): void }) {
   const { plan, ctx } = props;
   const id = useId();
   const apply = usePlanChange();

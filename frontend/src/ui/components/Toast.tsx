@@ -9,14 +9,14 @@ import type { ReactNode } from 'react';
 const PLAIN_MS = 3500;
 const WITH_UNDO_MS = 5000;
 
-export interface ToastOptions {
+interface ToastOptions {
   /** Shows an Undo button that runs this and dismisses the toast. */
   undo?: () => void | Promise<unknown>;
   /** Moves focus to Undo, for when the control that made the change has gone. */
   focusUndo?: boolean;
 }
 
-export interface ToastApi {
+interface ToastApi {
   show(message: string, options?: ToastOptions): void;
 }
 

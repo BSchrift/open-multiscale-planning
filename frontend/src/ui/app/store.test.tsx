@@ -23,18 +23,18 @@ async function setup(ui: React.ReactElement) {
 }
 
 function Titles(props: { kind: string }) {
-  const { data, loading } = useQuery(
+  const { data } = useQuery(
     async (sql) => (await listRecords(sql, 'task')).filter((t) => t.kind === props.kind).map((t) => t.title),
     [props.kind],
   );
-  return <div data-testid="titles" data-loading={loading}>{data?.join(',') ?? 'none yet'}</div>;
+  return <div data-testid="titles">{data?.join(',') ?? 'none yet'}</div>;
 }
 
 describe('useQuery', () => {
   it('loads, then re-runs on any change to the database', async () => {
     const platform = await setup(<Titles kind="inbox" />);
-    await waitFor(() => expect(screen.getByTestId('titles').dataset.loading).toBe('false'));
-    expect(screen.getByTestId('titles').textContent).toBe('');
+    expect(screen.getByTestId('titles').textContent).toBe('none yet');
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe(''));
     await act(() => transact(platform.db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' })));
     await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe('Paint the fence'));
   });

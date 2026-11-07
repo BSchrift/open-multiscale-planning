@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	gosync "sync"
 	"testing"
@@ -465,25 +466,52 @@ func TestInProgressAcrossMidnightStays(t *testing.T) {
 	}
 }
 
-func TestARunWithNothingToDoWritesNothingToGoogle(t *testing.T) {
+// Every device downloads the calendar record again whenever it changes, so a run that finds nothing to do leaves it
+// alone, synced_at included.
+func TestARunWithNothingToDoWritesNothing(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)
 	w.block("b1", "Paint the fence", at(1), at(2))
 	w.fake.AddCalendar("home@example.test", "Home")
 	w.run()
 	writes := w.fake.Writes()
-	eventsClock := w.calendarRecord(testSub)["events"].C
+	before := w.calendarRecord(testSub)
 	nameClock := w.sources()["home@example.test"]["name"].C
 	w.now = w.now.Add(time.Minute)
 	w.run()
 	if w.fake.Writes() != writes {
 		t.Fatalf("%d writes", w.fake.Writes()-writes)
 	}
-	if w.calendarRecord(testSub)["events"].C != eventsClock || w.sources()["home@example.test"]["name"].C != nameClock {
-		t.Fatal("unchanged fields rewritten")
+	if !reflect.DeepEqual(w.calendarRecord(testSub), before) || w.sources()["home@example.test"]["name"].C != nameClock {
+		t.Fatalf("unchanged fields rewritten: %+v", w.calendarRecord(testSub))
 	}
-	if w.calendarRecord(testSub)["synced_at"].V != instant(w.now) {
-		t.Fatal("synced_at not moved")
+}
+
+// synced_at says when a run last changed something, in Google or in the record.
+func TestSyncedAtMovesWhenARunChangesEventsOrTheMirror(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.block("b1", "Paint the fence", at(1), at(2))
+	w.fake.AddCalendar("home@example.test", "Home")
+	w.run()
+	syncedAt := func() any { return w.calendarRecord(testSub)["synced_at"].V }
+
+	w.now = w.now.Add(time.Minute)
+	w.write(testSub, "task", "task-b1", map[string]any{"title": "Paint the gate"})
+	w.run()
+	if w.eventFor("b1").Summary != "Paint the gate" || syncedAt() != instant(w.now) {
+		t.Fatalf("an event changed: synced_at %v", syncedAt())
+	}
+
+	w.now = w.now.Add(time.Minute)
+	w.fake.AddEvent("home@example.test", &calendar.Event{
+		Summary: "Team lunch",
+		Start:   &calendar.EventDateTime{DateTime: at(3).Format(time.RFC3339)},
+		End:     &calendar.EventDateTime{DateTime: at(4).Format(time.RFC3339)},
+	})
+	w.run()
+	if len(w.storedEvents()) != 1 || syncedAt() != instant(w.now) {
+		t.Fatalf("the mirror changed: synced_at %v", syncedAt())
 	}
 }
 

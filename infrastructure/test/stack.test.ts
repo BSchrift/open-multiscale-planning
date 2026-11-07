@@ -195,12 +195,15 @@ describe('calendar triggers', () => {
     });
   });
 
-  it('runs from the stream with a 60 second window, and only for what the worker does not write itself', () => {
+  it('runs from the stream with a 60 second window, for its inputs only and not the record it writes itself', () => {
     const [[, mapping]] = ofType('AWS::Lambda::EventSourceMapping');
     assert.equal(mapping.Properties.MaximumBatchingWindowInSeconds, 60);
     assert.deepEqual(mapping.Properties.FunctionName, { Ref: logicalId('Calendar') });
     const pattern = JSON.parse(mapping.Properties.FilterCriteria.Filters[0].Pattern);
-    assert.deepEqual(pattern.dynamodb.Keys.sk.S, [{ prefix: 'rec#time_block#' }, { prefix: 'rec#calendar_source#' }]);
+    // Events take their titles from tasks and practices, so renaming one is an input too.
+    assert.deepEqual(pattern.dynamodb.Keys.sk.S, [
+      { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
+    ]);
     assert.ok(mapping.Properties.MaximumRetryAttempts <= 3, 'the next run fixes anything a failed one missed');
   });
 });

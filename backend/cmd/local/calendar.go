@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	stdsync "sync"
 	"time"
@@ -151,12 +152,15 @@ type streamReader struct {
 	closed    map[string]bool
 }
 
+// wakePrefixes are the deployed filter's: the worker's inputs, never the calendar record it writes.
+var wakePrefixes = []string{"rec#time_block#", "rec#task#", "rec#practice#", "rec#calendar_source#"}
+
 func wakesWorker(record streamtypes.Record) bool {
 	if record.Dynamodb == nil {
 		return false
 	}
 	sk, ok := record.Dynamodb.Keys["sk"].(*streamtypes.AttributeValueMemberS)
-	return ok && (strings.HasPrefix(sk.Value, "rec#time_block#") || strings.HasPrefix(sk.Value, "rec#calendar_source#"))
+	return ok && slices.ContainsFunc(wakePrefixes, func(prefix string) bool { return strings.HasPrefix(sk.Value, prefix) })
 }
 
 // poll reads all new stream records and reports whether any should wake the worker.

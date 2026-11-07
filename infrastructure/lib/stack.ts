@@ -220,8 +220,11 @@ export class MultiscaleStack extends Stack {
       batchSize: 100,
       maxBatchingWindow: Duration.seconds(60),
       retryAttempts: 2,
-      // Only its inputs. Waking on the calendar record it writes itself would loop forever.
-      filters: [FilterCriteria.filter({ dynamodb: { Keys: { sk: { S: [{ prefix: 'rec#time_block#' }, { prefix: 'rec#calendar_source#' }] } } } })],
+      // Only its inputs: blocks, the tasks and practices their events take titles from, and calendar modes. Waking on the
+      // calendar record it writes itself would loop forever. cmd/local's wakesWorker keeps the same list.
+      filters: [FilterCriteria.filter({ dynamodb: { Keys: { sk: { S: [
+        { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
+      ] } } } })],
     }));
     new Schedule(this, 'CalendarSchedule', {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),

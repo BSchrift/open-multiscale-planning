@@ -171,9 +171,12 @@ func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
 		}
 	}
 	kept, lastError := fitEvents(events)
-	return counts, g.writeCalendar(ctx, conn.Sub, stored, map[string]any{
-		"connected": true, "events": kept, "synced_at": instant(now), "last_error": lastError,
-	})
+	values := map[string]any{"connected": true, "events": kept, "last_error": lastError}
+	// Every device downloads the whole record again when any field moves, so a run that changed nothing leaves it alone.
+	if counts.changed() > 0 || len(changedFields(stored, values)) > 0 {
+		values["synced_at"] = instant(now)
+	}
+	return counts, g.writeCalendar(ctx, conn.Sub, stored, values)
 }
 
 // EventID derives an event's id from its block's, so inserting twice can't make a duplicate. Lowercase hex is inside
@@ -526,17 +529,22 @@ func (g *Google) calendarRecord(ctx context.Context, sub string) (sync.Fields, e
 
 // writeCalendar writes the fields that differ from what's stored, plus anything never written yet.
 func (g *Google) writeCalendar(ctx context.Context, sub string, stored sync.Fields, values map[string]any) error {
+	changed := changedFields(stored, values)
+	if len(changed) == 0 {
+		return nil
+	}
+	_, err := g.Records.Push(ctx, sub, 0, []sync.Change{g.change("calendar", CalendarRecordID, stored, changed)})
+	return err
+}
+
+func changedFields(stored sync.Fields, values map[string]any) map[string]any {
 	changed := map[string]any{}
 	for name, value := range values {
 		if field, ok := stored[name]; !ok || !reflect.DeepEqual(field.V, value) {
 			changed[name] = value
 		}
 	}
-	if len(changed) == 0 {
-		return nil
-	}
-	_, err := g.Records.Push(ctx, sub, 0, []sync.Change{g.change("calendar", CalendarRecordID, stored, changed)})
-	return err
+	return changed
 }
 
 var clockWall = regexp.MustCompile(`^\d{13}`)

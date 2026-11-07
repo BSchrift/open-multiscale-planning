@@ -17,13 +17,16 @@ interface Editing {
 
 export function OneOffDates(props: {
   task: Task;
-  /** Saves new dates; null clears them. Defaults to writing them to the task. */
+  /**
+   * Saves new dates; null clears them. Resolving to false keeps the dates open, such as when the save failed. Defaults
+   * to writing them to the task.
+   */
   commit?(from: LocalDate | null, to: LocalDate | null): unknown;
 }) {
   const { task } = props;
   const { layout } = useApp();
   const save = useMutation((w, from: LocalDate | null, to: LocalDate | null) => w.set('task', task.id, setOnceDates(from, to)));
-  const commit = props.commit ?? save.run;
+  const commit = props.commit ?? (async (from: LocalDate | null, to: LocalDate | null) => (await save.run(from, to)) !== undefined);
   const [ed, setEd] = useState<Editing | null>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   if (isRepeating(task) || task.done_at) return null;
@@ -37,7 +40,7 @@ export function OneOffDates(props: {
     toggleRef.current?.focus();
   };
   const apply = async (from: LocalDate | null, to: LocalDate | null) => {
-    await commit(from, to);
+    if ((await commit(from, to)) === false) return;
     close();
   };
   const submit = async (event: FormEvent) => {

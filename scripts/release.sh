@@ -3,6 +3,7 @@
 # environment's release key, and uploads both to the hosts its stack serves: the disk image to downloads.<zone>, the
 # feed the apps update from to release.<zone>, and the web app to the zone itself.
 #   ENV=staging (default) or ENV=prod. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
+# Then it runs every suite that can run against that deployment (scripts/test-deployed.sh), and fails if one does.
 # The first release makes the key, <env>.release-key.pem, beside the config. Keep it backed up: apps built with it take
 # updates signed by it and nothing else.
 set -euo pipefail
@@ -64,4 +65,16 @@ aws s3 cp "$out/release.json" "s3://$bucket/release/release.json" --cache-contro
 aws s3 sync dist/assets "s3://$bucket/web/assets" --size-only --cache-control 'public, max-age=31536000, immutable'
 aws s3 sync dist "s3://$bucket/web" --exclude 'assets/*' --cache-control 'no-cache'
 
-echo "Released $(node -e 'console.log(JSON.parse(require("fs").readFileSync("dist/version.json", "utf8")).version)') to $env_name"
+version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("dist/version.json", "utf8")).version)')"
+echo "Released $version to $env_name"
+
+# Then every suite that can run against what was just released. Releasing to prod has already said yes to prod.
+# SKIP_TESTS=1 leaves them out, for a fix that can't wait for them; run make test-deployed after.
+if [ "${SKIP_TESTS:-}" = 1 ]; then
+  echo "Left out the deployed tests. Run make test-deployed ENV=$env_name when you can."
+  exit 0
+fi
+if ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" "$root/scripts/test-deployed.sh"; then
+  echo "$version is live on $env_name, but its tests failed. To go back, release the last good commit." >&2
+  exit 1
+fi

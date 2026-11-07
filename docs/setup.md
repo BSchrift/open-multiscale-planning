@@ -391,7 +391,7 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | Deploy prod | `make deploy ENV=prod` |
 | Let staging and prod delegate from the domain | `make deploy ENV=control` |
 | Check a deployment's wiring | `make smoke` |
-| Full suite against a deployment | `make test-integration ENV=staging` |
+| Every suite against a deployment | `make test-deployed`, `make test-deployed ENV=prod CONFIRM_PROD=yes` |
 | Unit and integration suites, no AWS | `make test` |
 | App and iPhone tests, no AWS | `make test-e2e`, `make test-ios` |
 | Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
@@ -401,6 +401,8 @@ Each signs in with the profile in its environment's file. After a deploy, commit
 ### Releasing updates
 
 `make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
+
+Then it runs `make test-deployed` against what it just released, checking the web app serves that version, and fails if any suite does. The release is live by then, so to go back, release the last good commit. `SKIP_TESTS=1` leaves the tests out, for a fix that can't wait; run `make test-deployed` after.
 
 The web app keeps its data in the browser and syncs like the apps. It opens in one tab at a time, and it doesn't send reminders.
 

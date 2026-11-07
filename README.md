@@ -52,13 +52,15 @@ Before the first `make test-e2e`, run `npx playwright install chromium webkit` i
 Against a deployment, the same suites sign in as a dedicated test user, use unique ids and clean up after themselves. Tests that need the local stack's clock or injected failures are listed as skipped. Prod also needs `CONFIRM_PROD=yes`.
 
 ```sh
+make test-deployed                                  # every suite below, plus the deployed web app, against staging
+make test-deployed ENV=prod CONFIRM_PROD=yes
 make test-integration ENV=staging
 make smoke                                          # fast wiring check, plus CloudWatch logs and metrics
 make test-e2e ENV=staging
 make test-ios ENV=staging
-make test-integration ENV=prod CONFIRM_PROD=yes
-make smoke ENV=prod CONFIRM_PROD=yes
 ```
+
+`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check and the iPhone test. It names any that failed. `SKIP_IOS=1` leaves out the iPhone test, much the slowest. `make release` runs it after every release.
 
 These read your config folder, `$MULTISCALE_CONFIG_DIR` or else `config/`: `<env>.yaml`, and the `<env>.outputs.json` that `make deploy` writes. Test-user passwords come from SSM in that environment's account. [docs/setup.md](docs/setup.md) covers creating them.
 

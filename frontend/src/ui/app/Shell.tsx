@@ -16,6 +16,8 @@ import { useShareImport } from './shareImport';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
 import { useApp, useQuery } from './store';
+import { useCaptureShortcut } from './captureShortcut';
+import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
 
 class ScreenBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -124,6 +126,7 @@ function useInboxCount(): number {
 function DesktopNav() {
   const nav = useNav();
   const count = useInboxCount();
+  const { shortcut } = useCaptureShortcut();
   const lit = nav.flow ? FLOW_TABS[nav.flow.area] : nav.tab;
   return (
     <nav className="side" aria-label="Main">
@@ -134,7 +137,7 @@ function DesktopNav() {
         <button className="capture" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={() => nav.openOverlay('capture')}>
           <PlusIcon />
           <span>Capture</span>
-          <span className="key">⇧⌘Space</span>
+          <span className="key">{shortcutLabel(shortcut?.accelerator ?? DEFAULT_SHORTCUT)}</span>
         </button>
       </div>
       <div className="nav">

@@ -15,7 +15,7 @@ import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
-import type { PlatformKind } from '../../platform/types';
+import type { CaptureShortcut, PlatformKind } from '../../platform/types';
 import { ToastProvider } from '../components/Toast';
 import { NavProvider, useNav, useOverlay } from './nav';
 import type { Nav, Overlay, Route } from './nav';
@@ -43,6 +43,8 @@ export interface HarnessOptions {
   nativeUpdates?: NativeUpdates;
   /** The platform the screens think they're on. */
   kind?: PlatformKind;
+  /** The desktop's global capture shortcut. Absent by default, as in a browser. */
+  captureShortcut?: CaptureShortcut;
 }
 
 export interface Harness extends RenderResult {
@@ -60,6 +62,7 @@ async function prepare(options: HarnessOptions) {
     await createTestPlatform(),
     options.nativeUpdates ? { updates: options.nativeUpdates } : {},
     options.kind ? { kind: options.kind } : {},
+    options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));

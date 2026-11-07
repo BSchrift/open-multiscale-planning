@@ -4,7 +4,7 @@
 import type { Row, SqlValue } from '../src/core/db';
 import type { Reminder } from '../src/core/types';
 import type { NativeUpdates } from '../src/core/updates';
-import type { Appearance, ReminderResponse } from '../src/platform/types';
+import type { Appearance, CaptureShortcut, ReminderResponse } from '../src/platform/types';
 
 export interface ElectronBridge {
   signInRedirectUri: string;
@@ -34,4 +34,5 @@ export interface ElectronBridge {
   ready(): void;
   setAppearance(appearance: Appearance): Promise<void>;
   updates: NativeUpdates;
+  captureShortcut: CaptureShortcut;
 }

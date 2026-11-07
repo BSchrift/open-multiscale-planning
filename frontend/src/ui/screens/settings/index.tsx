@@ -1,5 +1,5 @@
 import { useId, useState, useSyncExternalStore } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { availableHours } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
 import { addWeeks, formatDate, formatMinutes, formatTime, localDate, thisWeek, today } from '../../../core/dates';
@@ -11,7 +11,9 @@ import { syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
 import type { UpdateStatus, Updater } from '../../../core/updates';
 import type { CalendarMode, Instant, ReminderSettings } from '../../../core/types';
+import { DEFAULT_SHORTCUT, shortcutFromKeys, shortcutLabel } from '../../../platform/shortcut';
 import { setAppearance, useAppearance } from '../../app/appearance';
+import { useCaptureShortcut } from '../../app/captureShortcut';
 import type { Layout, ScreenProps } from '../../app/registry';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
@@ -404,6 +406,65 @@ const UPDATE_LINE: Record<UpdateStatus['state'], string | null> = {
   'needs-app': 'Version {v} needs a new version of the app.',
 };
 
+/** Desktop: the keys that open capture from anywhere. Change listens for the next keys pressed. */
+function CaptureKeys() {
+  const { shortcut, change } = useCaptureShortcut();
+  const [listening, setListening] = useState(false);
+  const [said, setSaid] = useState('');
+  if (!shortcut) return null;
+  const choose = async (accelerator: string) => {
+    setListening(false);
+    const label = shortcutLabel(accelerator);
+    setSaid((await change(accelerator)) ? `Capture opens with ${label} now.` : `${label} is taken by another app. Try other keys.`);
+  };
+  const onKeyDown = (event: ReactKeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') return setListening(false);
+    const accelerator = shortcutFromKeys(event);
+    if (accelerator) void choose(accelerator);
+  };
+  return (
+    <Section title="Capture shortcut">
+      <div className="setrow">
+        <div className="stack8">
+          <span>
+            Opens capture from anywhere: <span className="strong">{shortcutLabel(shortcut.accelerator)}</span>
+          </span>
+          {!shortcut.registered && <span className="small">Another app is using these keys, so they don't open capture. Choose others.</span>}
+          <span className="small quiet" role="status">
+            {said}
+          </span>
+        </div>
+        <div className="row">
+          {listening ? (
+            // Focus has to be on it to hear the keys.
+            <button className="btn sm pri" type="button" autoFocus onKeyDown={onKeyDown} onBlur={() => setListening(false)}>
+              Press the new keys, or Escape
+            </button>
+          ) : (
+            <button
+              className="btn sm"
+              type="button"
+              onClick={() => {
+                setSaid('');
+                setListening(true);
+              }}
+            >
+              Change
+            </button>
+          )}
+          {shortcut.accelerator !== DEFAULT_SHORTCUT && (
+            <button className="btn sm" type="button" onClick={() => void choose(DEFAULT_SHORTCUT)}>
+              Use {shortcutLabel(DEFAULT_SHORTCUT)}
+            </button>
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 /** Updates download by themselves; this shows where they're at and lets someone check or switch now. */
 function Updates(props: { layout: Layout; updates: Updater }) {
   const { updates } = props;
@@ -451,6 +512,7 @@ export default function Screen(props: ScreenProps) {
       <Away layout={layout} />
       <Reminders layout={layout} />
       <Appearance layout={layout} />
+      <CaptureKeys />
       {updates && <Updates layout={layout} updates={updates} />}
       {/* AGPL-3.0: the app shows where its source is. A target="_blank" link opens in the system browser on Electron and iOS too. */}
       <a className="small source" href="https://github.com/BSchrift/open-multiscale-planning" target="_blank" rel="noreferrer">

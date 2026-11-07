@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import type { Reminder } from '../src/core/types';
 import type { DownloadedRelease } from '../src/core/updates';
 import type { ReminderResponse } from '../src/platform/types';
+import { captureHotkey } from './hotkey';
 import { createReminderTimers } from './reminder-timers';
 import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isSqlValues, isWebUrl } from './security';
 import { betterSqliteDriver } from './sqlite-driver';
@@ -18,7 +19,6 @@ import { webBundles } from './updates';
 
 declare const __BUILD__: { name: string; scheme: string; backendOrigins: string[]; devUrl: string | null };
 
-const HOTKEY = 'Shift+Command+Space';
 /** A custom event, so that the tray and tests take the same path as the key press. */
 const CAPTURE_EVENT = 'capture-shortcut';
 const APP_SCHEME = 'multiscale-app';
@@ -234,13 +234,18 @@ function savesThroughPage() {
     });
 }
 
-function createTray() {
+function createTray(hotkey: string) {
   tray = new Tray(join(__dirname, 'assets/trayTemplate.png'));
   tray.setToolTip(__BUILD__.name);
+  trayMenu(hotkey);
+}
+
+/** Again whenever the capture shortcut changes, so the menu shows the one that works. */
+function trayMenu(hotkey: string) {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `Open ${__BUILD__.name}`, click: showMain },
-      { label: 'Capture', accelerator: HOTKEY, click: () => app.emit(CAPTURE_EVENT) },
+      { label: 'Capture', accelerator: hotkey, click: () => app.emit(CAPTURE_EVENT) },
       { type: 'separator' },
       { label: 'Quit', role: 'quit' },
     ]),
@@ -376,13 +381,16 @@ function start() {
     // A page that died mid-transaction must not leave it open for the next one.
     if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
   }, wasOpenedAtLogin);
-  createTray();
-  startAtLoginOnFirstRun();
-
   (app as NodeJS.EventEmitter).on(CAPTURE_EVENT, openCapture);
-  if (!globalShortcut.register(HOTKEY, () => app.emit(CAPTURE_EVENT))) {
-    console.error(`${HOTKEY} is taken by another app`);
-  }
+  const hotkey = captureHotkey(join(app.getPath('userData'), 'capture-shortcut.json'), globalShortcut, () => app.emit(CAPTURE_EVENT));
+  handleFrom(main, 'shortcut:get', () => hotkey.get());
+  handleFrom(main, 'shortcut:set', (accelerator: unknown) => {
+    const ok = hotkey.set(accelerator);
+    if (ok) trayMenu(hotkey.get().accelerator);
+    return ok;
+  });
+  createTray(hotkey.get().accelerator);
+  startAtLoginOnFirstRun();
 
   app.on('activate', showMain);
   app.on('second-instance', showMain);

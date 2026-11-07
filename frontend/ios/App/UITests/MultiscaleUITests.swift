@@ -92,6 +92,12 @@ private func allowNotificationsIfAsked() {
     if allow.waitForExistence(timeout: 5) { allow.tap() }
 }
 
+/// iOS asks before another app's link opens this one.
+private func openLinkPrompt() {
+    let open = springboard.alerts.buttons["Open"]
+    if open.waitForExistence(timeout: 5) { open.tap() }
+}
+
 /// The real app, through its web view.
 final class ShellUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
@@ -154,6 +160,63 @@ final class ShellUITests: XCTestCase {
         app.tapWeb("More")
         app.tapWeb(startingWith: "One offs")
         exists(app.webElement("Return the library books done"))
+    }
+
+    func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
+        let app = launchApp(seed: "Seed plan")
+        exists(app.webButton("Capture a task"))
+        // The link the Control Center button opens, so a cold launch from either goes the same way.
+        app.terminate()
+        XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
+        openLinkPrompt()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        captureAboveTheKeyboard(app, saving: "Buy rye flour")
+
+        app.tapWeb("Capture a task")
+        captureAboveTheKeyboard(app, saving: "Clean the banneton")
+    }
+
+    /// Capture's field and Save stay on screen above the software keyboard, which covers the page rather than shrinking
+    /// it, and Save then saves.
+    private func captureAboveTheKeyboard(_ app: XCUIApplication, saving title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.page.textFields["Capture to Inbox"]
+        exists(field, file: file, line: line)
+        let keyboard = app.keyboards.element
+        // The field asks for focus as it opens, which brings the keyboard up only where iOS allows it.
+        if !keyboard.waitForExistence(timeout: 5) { field.tap() }
+        XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up, as when the Mac's keyboard is connected. On screen:\n\(app.debugDescription)", file: file, line: line)
+        let save = app.webButton("Save")
+        // shortcut: the Simulator (iOS 18.6 and 26.2) pans the page up to the focused field, so the field clears the
+        // keyboard there even with the sheet left at the bottom, and this passes with the sheet fix taken out; it fails
+        // as a phone did only once the suite runs on a device.
+        let above = NSPredicate { _, _ in
+            field.isHittable && save.isHittable && max(field.frame.maxY, save.frame.maxY) <= keyboard.frame.minY
+        }
+        let risen = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: above, object: nil)], timeout: patience) == .completed
+        XCTAssertTrue(risen, "Capture's field at \(field.frame) and Save at \(save.frame) are not both clear above the keyboard at \(keyboard.frame)", file: file, line: line)
+        field.typeText(title)
+        save.tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open", file: file, line: line)
+    }
+
+    func testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday() throws {
+        // shortcut: work dropped on today lands no earlier than now and ends by 11pm, so after 10:15pm there's no room
+        // for the half hour and the test skips; run it at any hour once a test can set the Simulator's clock.
+        let late = Calendar.current.date(bySettingHour: 22, minute: 15, second: 0, of: Date())!
+        try XCTSkipIf(Date() > late, "after 10:15pm today has no room left for the half hour")
+        let app = launchApp(seed: "Seed to schedule")
+        let card = app.webButton(startingWith: "Mix the dough, ")
+        exists(card)
+        let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
+        exists(day)
+
+        // Held past the lift, and let go once the drag has caught up. Wherever it's let go, it lands no earlier than now.
+        let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = day.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0)).withOffset(CGVector(dx: 0, dy: 140))
+        from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
+        exists(app.page.sliders.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)
+        XCTAssertTrue(card.waitForNonExistence(timeout: patience), "Mix the dough is still waiting in To schedule")
+        allowNotificationsIfAsked()
     }
 
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
@@ -381,12 +444,6 @@ final class NativeUITests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
         XCTAssertTrue(add.waitForNonExistence(timeout: patience), "Control Center is still editing")
     }
-
-    /// iOS asks before another app's link opens this one.
-    private func openLinkPrompt() {
-        let open = springboard.alerts.buttons["Open"]
-        if open.waitForExistence(timeout: 5) { open.tap() }
-    }
 }
 
 /// What scripts/test-ios.sh signs in to: the local stack it started, or a deployment as its test user.
@@ -554,7 +611,7 @@ final class SignedInUITests: XCTestCase {
         // Deleted here, deleted there, so a deployment's test user keeps nothing live.
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 1 item")
-        app.tapWeb("Delete")
+        app.tapWeb("Delete/done")
         app.tapWeb("Yes, delete")
         exists(app.webText("Inbox clear"))
         app.tapWeb("Done")

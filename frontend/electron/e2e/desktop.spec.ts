@@ -34,10 +34,11 @@ const inbox = (page: Page) =>
     (window.multiscaleElectron as ElectronBridge).db.all("SELECT title FROM task WHERE kind = 'inbox'", []),
   );
 
+/** The capture window, which the app makes hidden once its page is up. */
 async function captureWindow(electronApp: ElectronApplication): Promise<Page> {
-  const opened = electronApp.waitForEvent('window');
+  await expect.poll(() => electronApp.windows().some((w) => w.url().endsWith('capture.html'))).toBe(true);
   await electronApp.evaluate(({ app: a }) => void a.emit('capture-shortcut'));
-  return opened;
+  return electronApp.windows().find((w) => w.url().endsWith('capture.html'))!;
 }
 
 test.beforeEach(() => {
@@ -93,6 +94,9 @@ test('the shortcut opens a one-field window that saves to the Inbox, and it surv
   // shortcut: registration is checked here; the OS key press itself isn't reachable from Playwright, so the test sends
   // the event the shortcut's callback sends. A real press is on the manual checklist.
   expect(await running.evaluate(({ globalShortcut }) => globalShortcut.isRegistered('Shift+Command+Space'))).toBe(true);
+  // Loaded and hidden before the first press, which then only has to show it.
+  await expect.poll(() => running.windows().length).toBe(2);
+  expect(await running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible()).length)).toBe(1);
 
   const capture = await captureWindow(running);
   const field = capture.getByRole('textbox', { name: 'Capture' });
@@ -230,15 +234,17 @@ test('a sign-in return reaches the page, a foreign link does not, and links open
   await page.evaluate(() => void (location.href = 'https://example.com/'));
   await page.waitForTimeout(300);
   expect(new URL(page.url()).protocol).toBe('multiscale-app:');
-  expect(running.windows()).toHaveLength(1);
+  // The app's window and its hidden capture window, and nothing else.
+  expect(running.windows().map((w) => new URL(w.url()).pathname.split('/').pop()).sort()).toEqual(['', 'capture.html']);
 });
 
 test('closing the window keeps the app running in the tray, and it comes back', async () => {
   const { app: running, page } = await launch();
-  await running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
-  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isVisible())).toBe(false);
+  // The app's window is the first one made; the capture window comes after it.
+  await running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.close());
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(false);
   await running.evaluate(({ app: a }) => void a.emit('activate'));
-  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isVisible())).toBe(true);
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(true);
   expect(await page.evaluate(() => 1 + 1)).toBe(2);
 });
 
@@ -248,7 +254,7 @@ test('Appearance in Settings sets the native theme and the window background, an
   const native = (electronApp: ElectronApplication) =>
     electronApp.evaluate(({ BrowserWindow, nativeTheme }) => ({
       source: nativeTheme.themeSource,
-      background: BrowserWindow.getAllWindows()[0]!.getBackgroundColor().toLowerCase(),
+      background: BrowserWindow.fromId(1)!.getBackgroundColor().toLowerCase(),
     }));
   await page.getByRole('button', { name: 'Skip' }).click();
   await page.getByRole('button', { name: 'Next' }).click();

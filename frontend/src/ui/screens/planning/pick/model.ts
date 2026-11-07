@@ -3,7 +3,7 @@
 
 import type { AimRow } from '../../../../core/capacity';
 import type { Clock } from '../../../../core/clock';
-import { addDays, formatDate, formatMinutes, today } from '../../../../core/dates';
+import { addDays, formatDate, formatMinutes, localDate, today } from '../../../../core/dates';
 import {
   effectiveDue,
   lateMilestone,
@@ -19,7 +19,7 @@ import type { Candidate, ProjectPlan } from '../../../../core/plan';
 import { status } from '../../../../core/status';
 import type { ProjectStatus } from '../../../../core/status';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import type { Minutes, SlipEntry } from '../../../../core/types';
+import type { Minutes, SlipEntry, Task } from '../../../../core/types';
 import type { DiamondState } from '../../../components/MilestoneDiamond';
 import type { TimelineMark } from '../../../components/TimelineBar';
 import type { PlanningData, WeekModel } from '../model';
@@ -35,6 +35,8 @@ export interface PickTask {
   meta: string;
   /** What tapping the title shows on phone. */
   note: string;
+  /** Finished today: struck through, with Undo, and nothing to add. */
+  done: boolean;
 }
 
 export interface PickGroup {
@@ -85,8 +87,14 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       adds: hint?.minutes ?? c.left,
       meta: join([c.picked ? 'In the plan' : (hint?.why ?? ''), waiting, carried, dates]),
       note: join([c.picked ? '' : (hint?.why ?? ''), waiting, carried, dates]),
+      done: !!c.task.done_at,
     };
   };
+  // Finished today, so a task marked done here stays in its place, struck through, until the day is over.
+  const doneToday = (tasks: readonly Task[]): Candidate[] =>
+    tasks
+      .filter((t) => t.done_at && !t.deleted_at && localDate(t.done_at, clock.zone()) === on)
+      .map((t) => ({ task: t, left: 0, picked: false, week: 0, carried: false, stale: false, placed: false }));
 
   const marksOf = (plan: ProjectPlan) =>
     plan.milestones
@@ -110,7 +118,8 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       if (!g) groups.push((g = { key, head, isMs: false, late: false, rows: [], planned: 0, ...extra }));
       return g;
     };
-    for (const c of projectCandidates(plan, input, ctx)) {
+    // Tasks already on the calendar stay listed with nothing left to add, so changing an estimate never hides one.
+    for (const c of [...projectCandidates(plan, input, ctx, true), ...doneToday(plan.tasks)]) {
       const due = taskDue(c.task, plan, input.weekStart, ctx);
       const ms = due.milestone;
       const late = (due.dueDay ?? 0) < 0;
@@ -143,7 +152,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     };
   });
 
-  const oneOffRows = oneOffCandidates(m.oneOffs, input, ctx).map(task);
+  const oneOffRows = [...oneOffCandidates(m.oneOffs, input, ctx, true), ...doneToday(m.oneOffs)].map(task);
   const oneOffs = {
     rows: oneOffRows,
     aim: aimOf(ONE_OFFS_BUCKET),

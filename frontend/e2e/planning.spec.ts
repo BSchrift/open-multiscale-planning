@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { openSeeded } from './seed';
+import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -50,6 +50,28 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
   const renamed = page.getByRole('button', { name: /^Edit task Write the first chapter/ });
   await expect(renamed).toBeFocused();
   if (phone) expect((await renamed.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+  // Its estimate opens a slider, and Mark done finishes it in place, struck through, until Undo.
+  const est = page.getByRole('button', { name: /^Estimate for Write the first chapter:/ });
+  if (phone) await expectTapTarget(est);
+  await est.click();
+  const pop = page.getByRole('dialog', { name: 'Estimate for Write the first chapter' });
+  const slider = pop.getByRole('slider', { name: 'Estimate' });
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuetext', '5h');
+  // Back where it was, so the suggestions below stay as they are.
+  await page.keyboard.press('ArrowLeft');
+  await pop.getByRole('button', { name: 'Done' }).click();
+  await expect(pop).toHaveCount(0);
+  const done = page.getByRole('button', { name: 'Mark Write the first chapter done' });
+  if (phone) await expectTapTarget(done);
+  await done.click();
+  const undo = page.getByRole('button', { name: 'Undo finishing Write the first chapter' });
+  await expect(undo).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`pick-done-${info.project.name}.png`) });
+  await undo.click();
+  await expect(page.getByRole('button', { name: 'Mark Write the first chapter done' })).toBeVisible();
 
   if (phone) {
     // The board opens on the first project, with its tasks in a half-height sheet.

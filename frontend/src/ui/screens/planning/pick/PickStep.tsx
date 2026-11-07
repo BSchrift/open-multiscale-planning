@@ -4,9 +4,11 @@
 
 import { useState } from 'react';
 import { formatMinutes } from '../../../../core/dates';
-import type { ProjectPlan } from '../../../../core/plan';
+import { applyPlanChange } from '../../../../core/plan';
+import type { PlanChange, ProjectPlan } from '../../../../core/plan';
 import { removeWeekPick, setWeekPick, weekPlanId } from '../../../../core/records';
-import { undoProjectChange } from '../../../../core/tasks';
+import type { Writer } from '../../../../core/records';
+import { closeTask, tickOneOff, undoProjectChange } from '../../../../core/tasks';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Fields, LocalDate, Minutes } from '../../../../core/types';
 import { useRingPop } from '../../../components/ring/CapacityRing';
@@ -41,6 +43,12 @@ export interface PickProps {
   add(row: PickTask): void;
   remove(row: PickTask): void;
   setMinutes(row: PickTask, minutes: Minutes): void;
+  /** The time the task takes: its time left when it has some recorded, else its estimate. */
+  setEstimate(row: PickTask, minutes: Minutes): void;
+  /** Finished here, so the row shows Undo. */
+  isDone(row: PickTask): boolean;
+  markDone(row: PickTask): void;
+  undoDone(row: PickTask): void;
   /** Adds every suggestion and resolves to the ids added, for Undo. */
   addSuggested(): Promise<string[]>;
   removeAll(ids: readonly string[]): void;
@@ -64,6 +72,9 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   });
   const planWrite = useMutation((w, fields: Fields<'week_plan'>) => w.create('week_plan', { week_start: week, ...fields }, weekPlanId(week)));
   const undo = useMutation((w, plan: ProjectPlan) => undoProjectChange(w, plan, clock));
+  const taskWrite = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
+  // What each Mark done here wrote, so Undo puts back the picks and blocks it freed, and a repeating one off's date.
+  const [doneHere, setDoneHere] = useState<Record<string, PlanChange>>({});
 
   if (!data) return null;
   const model = weekModel(data, clock);
@@ -124,6 +135,26 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       void planWrite.run({ skipped_aims: skipped.includes(bucket) ? skipped.filter((b) => b !== bucket) : [...skipped, bucket] }),
     skipPastEnd: (id) => void planWrite.run({ skipped_past_end: [...(weekPlan?.skipped_past_end ?? []), id] }),
     undoChange: (plan) => void undo.run(plan),
+    setEstimate: (row, minutes) => {
+      const t = row.c.task;
+      const fields = t.remaining_min != null ? { remaining_min: minutes || null } : { estimate_min: minutes || null };
+      void taskWrite.run((w) => applyPlanChange(w, { writes: [{ type: 'task', id: t.id, fields }] }));
+    },
+    isDone: (row) => row.done || !!doneHere[row.c.task.id],
+    markDone: async (row) => {
+      const t = row.c.task;
+      const reverse = await taskWrite.run((w) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock)));
+      if (!reverse) return;
+      setDoneHere((d) => ({ ...d, [t.id]: reverse }));
+      setSaid(`${row.title} done.`);
+    },
+    undoDone: async (row) => {
+      const t = row.c.task;
+      const reverse = doneHere[t.id] ?? { writes: [{ type: 'task', id: t.id, fields: { done_at: null } }] };
+      if (!(await taskWrite.run((w) => applyPlanChange(w, reverse)))) return;
+      setDoneHere(({ [t.id]: _, ...rest }) => rest);
+      setSaid(`${row.title} not done.`);
+    },
     onNext: props.onNext,
   };
   return props.layout === 'phone' ? <PickPhone {...pickProps} /> : <PickDesktop {...pickProps} />;

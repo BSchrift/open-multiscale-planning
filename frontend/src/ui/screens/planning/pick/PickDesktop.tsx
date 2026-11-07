@@ -1,13 +1,17 @@
 // Pick tasks on desktop: every project on one rolling timeline, each opening to its tasks, One offs below, and the
-// Planned list beside them, where the capacity ring pops up. A task's title opens its editor.
+// Planned list beside them, where the capacity ring pops up. A task's title opens its editor, its estimate a slider,
+// and Mark done finishes it in place, struck through with Undo.
 
 import { useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import type { AimRow } from '../../../../core/capacity';
 import { pickWarning } from '../../../../core/capacity';
 import { formatDate, formatMinutes, formatWeekRange } from '../../../../core/dates';
+import { minutesLeft } from '../../../../core/plan';
+import { EstimateSlider } from '../../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
 import { Pill } from '../../../components/Pill';
+import { Popover } from '../../../components/Popover';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { useFocusLanding } from '../../../components/useFocusLanding';
@@ -19,7 +23,12 @@ import { OverdueFix } from './OverdueFix';
 import { PastEnd } from './PastEnd';
 import type { PickProps } from './PickStep';
 
-const est = (r: PickTask) => (r.c.left ? `${formatMinutes(r.c.left)} estimate` : 'No estimate');
+/** Its estimate as Pick counts it, or, with all of it on the calendar this week, that. */
+export function estWords(r: PickTask): string {
+  const t = r.c.task;
+  if (t.estimate_min == null && t.remaining_min == null) return 'No estimate';
+  return r.c.left || !r.c.placed ? `${formatMinutes(r.c.left)} estimate` : 'On the calendar';
+}
 
 function AimMeter(props: { aim: AimRow }) {
   const w = aimWords(props.aim);
@@ -51,14 +60,22 @@ function SkipAim(props: PickProps & { aim?: AimRow; rows: PickTask[] }) {
 function TaskLine(props: PickProps & { row: PickTask }) {
   const { row: r } = props;
   const [editing, setEditing] = useState(false);
+  const [estOpen, setEstOpen] = useState(false);
   const titleRef = useRef<HTMLButtonElement>(null);
+  const estRef = useRef<HTMLButtonElement>(null);
   const close = () => {
     setEditing(false);
     titleRef.current?.focus();
   };
+  const closeEst = () => {
+    setEstOpen(false);
+    estRef.current?.focus();
+  };
+  const done = props.isDone(r);
+  const full = !r.c.picked && !r.c.left && r.c.placed && estWords(r) === 'On the calendar';
   return (
     <div className="editrow">
-      <div className="pickrow">
+      <div className={`pickrow${done ? ' isdone' : ''}`}>
         <div className="pickinfo">
           <button
             ref={titleRef}
@@ -72,9 +89,24 @@ function TaskLine(props: PickProps & { row: PickTask }) {
           </button>
           {r.meta && <span className="subline small quiet">{r.meta}</span>}
         </div>
-        <span className="small quiet pickest">{est(r)}</span>
+        {done ? (
+          <span className="small quiet pickest">Done</span>
+        ) : (
+          <button ref={estRef} className="small quiet pickest pickestbtn" type="button" aria-expanded={estOpen} aria-label={`Estimate for ${r.title}: ${estWords(r)}`} onClick={() => setEstOpen(!estOpen)}>
+            {estWords(r)}
+          </button>
+        )}
         <span className="pickact">
-          {r.c.picked ? (
+          {done ? (
+            <button className="btn sm pickbtn" type="button" aria-label={`Undo finishing ${r.title}`} onClick={() => props.undoDone(r)}>
+              Undo
+            </button>
+          ) : (
+            <button className="btn sm pickbtn" type="button" aria-label={`Mark ${r.title} done`} onClick={() => props.markDone(r)}>
+              Mark done
+            </button>
+          )}
+          {done || full ? null : r.c.picked ? (
             <button className="btn sm pickbtn" type="button" aria-label={`Remove ${r.title} from the plan`} onClick={() => props.remove(r)}>
               Remove
             </button>
@@ -86,6 +118,16 @@ function TaskLine(props: PickProps & { row: PickTask }) {
         </span>
       </div>
       {editing && <EditTask row={r} view={props.view} ctx={props.model.ctx} onClose={close} />}
+      {estOpen && !done && (
+        <Popover label={`Estimate for ${r.title}`} onClose={closeEst}>
+          <EstimateSlider label={r.c.task.remaining_min != null ? 'Time left' : 'Estimate'} value={minutesLeft(r.c.task)} onChange={(m) => props.setEstimate(r, m)} />
+          <div className="row">
+            <button className="btn sm pri" type="button" onClick={closeEst}>
+              Done
+            </button>
+          </div>
+        </Popover>
+      )}
     </div>
   );
 }

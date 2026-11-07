@@ -143,6 +143,7 @@ p {
   padding-top: env(safe-area-inset-top);
 }
 
+/* The page runs to the bottom of the screen and scrolls behind the floating tab bar, ending clear of it. */
 [data-layout='phone'] .pane {
   position: absolute;
   inset: env(safe-area-inset-top) 0 0;
@@ -150,7 +151,9 @@ p {
   flex-direction: column;
   gap: 20px;
   overflow-y: auto;
-  padding: 20px 16px 92px;
+  /* Room for the tab bar and a docked tray above it, as when the page stopped at the tab bar. */
+  padding: 20px 16px calc(60px + max(8px, env(safe-area-inset-bottom)) + 92px);
+  scroll-padding-bottom: calc(60px + max(8px, env(safe-area-inset-bottom)) + 76px);
 }
 
 /* A flow covers everything, tab bar included, and brings its own bottom bar. */
@@ -174,7 +177,8 @@ p {
 }
 
 [data-layout='phone'] .tabs {
-  position: relative;
+  position: absolute;
+  inset: auto 0 0;
   z-index: 4;
 }
 

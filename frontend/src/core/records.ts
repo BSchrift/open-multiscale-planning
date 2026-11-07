@@ -370,7 +370,7 @@ export function updateSettings(w: Writer, fields: Fields<'settings'>): Promise<s
 export function setWeekPick(w: Writer, weekStart: LocalDate, taskId: string, minutes: number): Promise<string> {
   return w.create(
     'week_pick',
-    { week_start: weekStart, task_id: taskId, minutes, skipped: false, deleted_at: null },
+    { week_start: weekStart, task_id: taskId, minutes, deleted_at: null },
     weekPickId(weekStart, taskId),
   );
 }

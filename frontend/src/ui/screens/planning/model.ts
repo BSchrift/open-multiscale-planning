@@ -58,7 +58,7 @@ export function weekModel(d: PlanningData, clock: Clock) {
   const ranked = plannable(plans, ctx);
   const weekPlan = d.weekPlans.find((p) => p.week_start === week) ?? null;
   const queue = queueItems(d.queue, d.weekPlans, d.picks, clock);
-  const picks = d.picks.filter((p) => p.week_start === week && !p.skipped);
+  const picks = d.picks.filter((p) => p.week_start === week);
   const blocks: TimeBlock[] = d.blocks.map((b) => ({ ...b, tz: b.tz ?? clock.zone() }));
   const slot = slotContext({
     week,

@@ -465,7 +465,7 @@ describe('records', () => {
     const clocksBefore = await getMeta(db, META.clock);
     const events: DbChange[] = [];
     db.subscribe((c) => events.push(c));
-    await transact(db, clock, (w) => w.set('task', id, { title: 'One', link: undefined }));
+    await transact(db, clock, (w) => w.set('task', id, { title: 'One', estimate_min: undefined }));
     expect(await getMeta(db, META.clock)).toBe(clocksBefore);
     expect(events).toEqual([]);
   });
@@ -509,6 +509,7 @@ describe('records', () => {
     const picks = await listRecords(db, 'week_pick');
     expect(picks).toHaveLength(1);
     expect(picks[0]).toMatchObject({ id: weekPickId('2026-11-02', 't1'), minutes: 45, deleted_at: null });
+    expect(picks[0]).not.toHaveProperty('skipped');
     expect(occurrenceId('time_block', 't1', '2026-11-02')).toBe(occurrenceId('time_block', 't1', '2026-11-02'));
     expect(occurrenceId('time_block', 't1', '2026-11-02')).not.toBe(occurrenceId('task_completion', 't1', '2026-11-02'));
   });

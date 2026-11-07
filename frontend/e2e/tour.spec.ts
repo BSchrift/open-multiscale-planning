@@ -40,7 +40,7 @@ const week: Seed[] = [
   { type: 'milestone', id: 'm3', fields: { project_id: 'p1', title: 'Full draft', due: '2026-12-15' } },
   task('t1', { kind: 'project', project_id: 'p1', milestone_id: 'm1', title: 'Sketch the chapter list', estimate_min: 120, done_at: '2026-10-10T18:00:00Z' }),
   task('t2', { kind: 'project', project_id: 'p1', milestone_id: 'm2', title: 'Draft chapter four', estimate_min: 90, done_at: at(2, '10:30') }),
-  task('t3', { kind: 'project', project_id: 'p1', milestone_id: 'm2', title: 'Draft chapter five', estimate_min: 180, remaining_min: 120, first_step: 'Reread the end of chapter four' }),
+  task('t3', { kind: 'project', project_id: 'p1', milestone_id: 'm2', title: 'Draft chapter five', estimate_min: 180, remaining_min: 120 }),
   task('t4', { kind: 'project', project_id: 'p1', milestone_id: 'm2', title: 'Revise chapter three', estimate_min: 90 }),
   task('t5', { kind: 'project', project_id: 'p1', milestone_id: 'm3', title: 'Draft the closing chapter', estimate_min: 240 }),
 

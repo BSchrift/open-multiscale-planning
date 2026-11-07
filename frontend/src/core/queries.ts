@@ -105,18 +105,18 @@ export const SQL = {
     ORDER BY id`,
 
   futureBlocks: `
-    SELECT id, task_id, practice_id, start, end, tz, started_at, ended_at, edited, cancelled, deleted_at
+    SELECT id, task_id, practice_id, start, end, tz, started_at, ended_at, cancelled, deleted_at
     FROM time_block
     WHERE task_id = :task_id AND start > :now
       AND started_at IS NULL AND cancelled IS NOT 1 AND deleted_at IS NULL`,
 
   futurePicks: `
-    SELECT id, week_start, task_id, minutes, skipped, deleted_at
+    SELECT id, week_start, task_id, minutes, deleted_at
     FROM week_pick
     WHERE task_id = :task_id AND week_start >= :week_start AND deleted_at IS NULL`,
 
   weekPractices: `
-    SELECT id, task_id, practice_id, start, end, tz, started_at, ended_at, edited, cancelled, deleted_at
+    SELECT id, task_id, practice_id, start, end, tz, started_at, ended_at, cancelled, deleted_at
     FROM time_block
     WHERE start >= :from_utc AND start < :to_utc
       AND practice_id IS NOT NULL AND deleted_at IS NULL`,

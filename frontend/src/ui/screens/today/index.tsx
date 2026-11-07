@@ -110,7 +110,6 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   const [skippedStretch, setSkippedStretch] = useStickyState<string | null>('today.skippedStretch', null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
   const phone = layout === 'phone';
-  const tasks = new Map(data.tasks.map((t) => [t.id, t]));
 
   const shift = shiftRestOfToday(data.blocks, data.events, data.settings.availability, clock);
   const clash = shift && `${shift.conflict.block.title} conflicts with ${shift.conflict.event.title}.`;
@@ -182,7 +181,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       {unplanned && data.blocks.length === 0 ? (
         <NextUp data={data} pick={props.pick} />
       ) : (
-        <NowCard blocks={data.blocks} tasks={tasks} layout={layout} />
+        <NowCard blocks={data.blocks} layout={layout} />
       )}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />

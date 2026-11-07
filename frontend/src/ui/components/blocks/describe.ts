@@ -35,7 +35,6 @@ export interface BlockDescription {
   word: string;
   /** 'Goal > Project', a one off's schedule, or a practice's goal and target. */
   path: string;
-  first: string | null;
 }
 
 export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>, records: BlockRecords): BlockDescription {
@@ -43,14 +42,13 @@ export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>
   const kind = blockKind(block);
   if (kind === 'practice') {
     const target = practice ? `${formatMinutes(practice.target_min)} a ${practice.per}` : '';
-    return { kind, word: 'Practice', path: [objective?.title, target].filter(Boolean).join(', '), first: null };
+    return { kind, word: 'Practice', path: [objective?.title, target].filter(Boolean).join(', ') };
   }
-  const first = task?.first_step || null;
   if (kind === 'one_off') {
     const s = task?.schedule;
     const when = s && (isRepeating(task!) ? scheduleLabel(s) : s.type === 'once' ? onceWhen(s) : '');
-    return { kind, word: 'One off', path: when || 'No date', first };
+    return { kind, word: 'One off', path: when || 'No date' };
   }
-  if (objective && project) return { kind, word: 'Goal', path: `${objective.title} > ${project.title}`, first };
-  return { kind, word: 'Project', path: project?.title ?? '', first };
+  if (objective && project) return { kind, word: 'Goal', path: `${objective.title} > ${project.title}` };
+  return { kind, word: 'Project', path: project?.title ?? '' };
 }

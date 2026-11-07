@@ -173,18 +173,11 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
 export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined; onClose(): void }) {
   const { block, next } = props;
   const { clock } = useApp();
-  const task = useTask(block);
   const actions = useBlockActions();
   const ago = Math.max(1, Math.round((clock.now() - instantMs(block.start)) / 60_000));
   return (
     <PromptFrame label="Have you started?" onClose={props.onClose}>
       <Heading over={`Started ${ago} ${ago === 1 ? 'minute' : 'minutes'} ago`} title={`Have you started ${block.title ?? 'this block'}?`} />
-      {task?.first_step && (
-        <div className="small">
-          <span className="quiet">First step: </span>
-          {task.first_step}
-        </div>
-      )}
       <div className="stack8">
         <div className="row">
           <button className="btn pri" type="button" onClick={() => void actions.start(block).then(props.onClose)}>

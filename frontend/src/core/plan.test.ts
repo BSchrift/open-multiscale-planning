@@ -441,13 +441,12 @@ describe('the candidates for a week', () => {
     expect(c?.left).toBe(180);
   });
 
-  it('reads picks for that week only, ignoring removed and skipped ones', () => {
+  it('reads picks for that week only, ignoring removed ones', () => {
     const p = reportPlan();
     const c = (picks: WeekPick[]) => projectCandidates(p, week({ picks }), ctx).find((x) => x.task.id === 't3');
     expect(c([pick('t3', 60)])).toMatchObject({ picked: true, week: 60 });
     expect(c([{ ...pick('t3', 60), week_start: '2026-11-09' }])?.picked).toBe(false);
     expect(c([{ ...pick('t3', 60), deleted_at: NOW }])?.picked).toBe(false);
-    expect(c([{ ...pick('t3', 60), skipped: true }])?.picked).toBe(false);
   });
 
   it('starts a one off dated inside the week as picked, and no other', () => {
@@ -538,17 +537,16 @@ describe('the candidates for a week', () => {
     expect(suggestions([second, first], [], week({ freeMin: 0 }), ctx)).toEqual({});
   });
 
-  it('does not suggest what is picked, stale, waiting, or in a project planning cannot schedule', () => {
+  it('does not suggest what is picked, stale, or in a project planning cannot schedule', () => {
     const p = reportPlan({ weekly_aim: 0 });
     p.milestones = [milestone('m', 'Soon', '2026-11-03')];
     p.tasks = [
       task('picked', 'm', 1),
       task('stale', 'm', 1),
-      task('waits', 'm', 1, { waiting_until: '2026-11-04' }),
-      task('waited', 'm', 1, { waiting_until: '2026-11-02' }),
+      task('open', 'm', 1),
     ];
     const got = suggestions([p], [], week({ freeMin: 6000, picks: [pick('picked', 60)], stale: new Set(['stale']) }), ctx);
-    expect(Object.keys(got)).toEqual(['waited']);
+    expect(Object.keys(got)).toEqual(['open']);
     expect(suggestions([{ ...p, project: { ...p.project, state: 'paused' } }], [], week({ freeMin: 6000 }), ctx)).toEqual({});
   });
 

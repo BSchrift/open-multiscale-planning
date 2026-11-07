@@ -356,13 +356,12 @@ function hadDate(e: SlipEntry, id: string): boolean {
 }
 
 /**
- * A milestone's first date: its baseline's, or the date it was first moved from, or the date it has, or undated in
+ * A milestone's first date: the date it was first moved from, or the date it has, or undated in
  * the stretch looked at, that stretch's end capped at the project's end.
  */
 function originalDate(m: Milestone, project: Project, stretch: { start: LocalDate; end: LocalDate } | null): LocalDate | null {
   const byStretch = stretch && m.stretch === stretch.start ? (stretch.end < project.end ? stretch.end : project.end) : null;
   return (
-    project.baseline?.milestones.find((b) => b.id === m.id)?.due ??
     project.slip_log?.find((e) => e.kind === 'move' && e.milestone_id === m.id && hadDate(e, m.id))?.from ??
     m.due ??
     byStretch

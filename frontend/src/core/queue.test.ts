@@ -113,10 +113,9 @@ describe('Still want this?', () => {
     expect(stale([plan('2026-11-09', '2026-11-08T20:00:00Z')], [pick('2026-11-09', 't1')]).stale).toBe(false);
   });
 
-  it('a removed or skipped pick, or a pick in another week, does not count as added', () => {
+  it('a removed pick, or a pick in another week, does not count as added', () => {
     const plans = [plan('2026-11-09', '2026-11-08T20:00:00Z')];
     expect(stale(plans, [pick('2026-11-09', 't1', { deleted_at: '2026-11-08T19:00:00Z' })]).stale).toBe(true);
-    expect(stale(plans, [pick('2026-11-09', 't1', { skipped: true })]).stale).toBe(true);
     expect(stale(plans, [pick('2026-11-02', 't1')]).stale).toBe(true);
   });
 
@@ -372,7 +371,7 @@ describe('Shift rest of today', () => {
     expect(result!.runs_past).toBeNull();
   });
 
-  it('applying moves the blocks and marks a moved practice session as this week only', async () => {
+  it('applying moves the blocks, practice sessions too, and undoes exactly', async () => {
     const db = await openTestDb();
     const clock = at('09:00');
     await transact(db, clock, async (w) => {
@@ -384,11 +383,11 @@ describe('Shift rest of today', () => {
     const undo = await transact(db, clock, (w) => applyShift(w, result.moves));
 
     expect(await getRecord(db, 'time_block', 'a')).toMatchObject({ start: day('10:30'), end: day('11:30') });
-    expect((await getRecord(db, 'time_block', 'a'))!.edited).toBeUndefined();
-    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:30'), end: day('12:00'), edited: true });
+    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:30'), end: day('12:00') });
+    expect(await getRecord(db, 'time_block', 'b')).not.toHaveProperty('edited');
 
     await transact(db, clock, (w) => applyPlanChange(w, undo));
-    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:00'), end: day('11:30'), edited: null });
+    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:00'), end: day('11:30') });
   });
 });
 
@@ -470,13 +469,12 @@ describe('Pick one thing for today', () => {
     ).toEqual(['fence', 'draft', 'loaf']);
   });
 
-  it('skips work that is closed, waiting, unsorted, or in a project that is not running', () => {
+  it('skips work that is closed, unsorted, or in a project that is not running', () => {
     expect(
       ids([
         task('done', { project_id: 'p1', done_at: '2026-11-01T00:00:00Z' }),
         task('cancelled', { project_id: 'p1', cancelled_at: '2026-11-01T00:00:00Z' }),
         task('deleted', { project_id: 'p1', deleted_at: '2026-11-01T00:00:00Z' }),
-        task('waiting', { project_id: 'p1', waiting_until: '2026-11-20' }),
         task('inbox', { kind: 'inbox' }),
         task('paused', { project_id: 'old' }),
         task('notyet', { project_id: 'soon' }),

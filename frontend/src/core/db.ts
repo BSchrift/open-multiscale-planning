@@ -135,19 +135,16 @@ export function createDb(driver: SqlDriver): Db {
 /** The fields on each record type, which become its view's columns. The checks below keep this list complete. */
 export const RECORD_FIELDS = {
   objective: ['title', 'state', 'not_now_until', 'order', 'deleted_at'],
-  project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'baseline', 'slip_log', 'estimates_raised_at', 'deleted_at'],
+  project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'slip_log', 'estimates_raised_at', 'deleted_at'],
   milestone: ['project_id', 'title', 'start', 'due', 'stretch', 'added_on', 'met_at', 'dropped_at', 'deleted_at'],
   task: [
     'kind',
     'project_id',
     'milestone_id',
     'title',
-    'first_step',
-    'link',
     'estimate_min',
     'remaining_min',
     'order',
-    'waiting_until',
     'schedule',
     'next_due',
     'done_at',
@@ -156,10 +153,10 @@ export const RECORD_FIELDS = {
     'deleted_at',
   ],
   task_completion: ['task_id', 'done_at', 'previous_next', 'undo', 'deleted_at'],
-  time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'edited', 'cancelled', 'deleted_at'],
+  time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'cancelled', 'deleted_at'],
   block_outcome: ['result', 'remaining_min', 'logged_min', 'answered_at', 'dropped_at', 'deleted_at'],
   week_plan: ['week_start', 'finished_at', 'aims', 'skipped_aims', 'skipped_practices', 'skipped_past_end', 'deleted_at'],
-  week_pick: ['week_start', 'task_id', 'minutes', 'skipped', 'deleted_at'],
+  week_pick: ['week_start', 'task_id', 'minutes', 'deleted_at'],
   away_period: ['start', 'end', 'deleted_at'],
   settings: [
     'availability',
@@ -183,10 +180,23 @@ type MissingViewField = {
 const _everyFieldHasAColumn: [MissingViewField] extends [never] ? true : MissingViewField = true;
 void _everyFieldHasAColumn;
 
+/**
+ * Fields no longer in the data model whose columns stay in the views, because a bundle a device can roll back to still
+ * selects them. They read as NULL, or as an older device wrote them.
+ * shortcut: these only serve rollbacks; drop them once no installed app can go back to a bundle from before they were
+ * retired, counting the bundle built into each app.
+ */
+const RETIRED_COLUMNS: Partial<Record<RecordType, readonly string[]>> = {
+  project: ['baseline'],
+  task: ['first_step', 'link', 'waiting_until'],
+  time_block: ['edited'],
+  week_pick: ['skipped'],
+};
+
 function viewSql(type: RecordType): string {
   const columns = ['id'];
   if (type === 'block_outcome') columns.push("substr(id, 9) AS block_id");
-  for (const field of RECORD_FIELDS[type] as readonly string[]) {
+  for (const field of [...RECORD_FIELDS[type], ...(RETIRED_COLUMNS[type] ?? [])]) {
     // ORDER is a keyword, so that field is exposed as sort_order.
     columns.push(`json_extract(data, '$.${field}') AS ${field === 'order' ? 'sort_order' : field}`);
   }

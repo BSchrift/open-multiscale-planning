@@ -5,14 +5,12 @@ import { META, setMeta } from '../../core/db';
 import { listRecords } from '../../core/records';
 import type { AppSync } from '../../core/syncRunner';
 import { setAppearance } from './appearance';
-import { setShowCompleted } from './showCompleted';
 import { renderApp } from './testing';
 import type { Harness } from './testing';
 
 afterEach(() => {
   cleanup();
   setAppearance('system');
-  setShowCompleted(false);
 });
 
 function fakeSync(email: string | null = 'reader@example.com') {
@@ -125,7 +123,7 @@ describe('switching accounts', () => {
     it("keeps this device's Show completed choice, which isn't the account's either", async () => {
       const sync = fakeSync();
       const t = await renderApp({ layout, sync });
-      act(() => setShowCompleted(true));
+      localStorage.setItem('multiscale.showCompleted', 'true');
       localStorage.setItem('multiscale.plan.flow', JSON.stringify({ begun: true }));
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));

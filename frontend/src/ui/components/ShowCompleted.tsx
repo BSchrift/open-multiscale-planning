@@ -1,15 +1,14 @@
 // Show N completed, or Hide completed, under a task list whose completed tasks wait out of view, and the tick that
 // sends a task there.
 
-import { setShowCompleted, useShowCompleted } from '../app/showCompleted';
-import { useApp } from '../app/store';
+import { useApp, useStickyState } from '../app/store';
 import { useToast } from './Toast';
 import { useFocusLanding } from './useFocusLanding';
 
 /** Nothing while the list has nothing completed. `list` names the list for screen readers, as a page can have several. */
 export function ShowCompleted(props: { count: number; list: string }) {
   const { layout } = useApp();
-  const shown = useShowCompleted();
+  const [shown, setShown] = useStickyState('showCompleted', false);
   if (!props.count) return null;
   const text = shown ? 'Hide completed' : `Show ${props.count} completed`;
   return (
@@ -19,7 +18,7 @@ export function ShowCompleted(props: { count: number; list: string }) {
         type="button"
         aria-expanded={shown}
         aria-label={`${text} in ${props.list}`}
-        onClick={() => setShowCompleted(!shown)}
+        onClick={() => setShown(!shown)}
       >
         {text}
       </button>

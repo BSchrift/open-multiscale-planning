@@ -1,11 +1,12 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { setShowCompleted, useShowCompleted } from './showCompleted';
+import { SHOW_COMPLETED_KEY, useShowCompleted } from './showCompleted';
+import { useStickyState } from './store';
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  act(() => setShowCompleted(false));
-});
+afterEach(() => vi.restoreAllMocks());
+
+// Show completed's own toggle, as in components/ShowCompleted.tsx.
+const toggle = () => renderHook(() => useStickyState('showCompleted', false));
 
 describe('show completed', () => {
   it('hides completed tasks by default', () => {
@@ -13,22 +14,23 @@ describe('show completed', () => {
   });
 
   it('flips for every list at once, and is kept on this device', () => {
+    const show = toggle();
     const first = renderHook(() => useShowCompleted());
     const second = renderHook(() => useShowCompleted());
-    act(() => setShowCompleted(true));
+    act(() => show.result.current[1](true));
     expect(first.result.current).toBe(true);
     expect(second.result.current).toBe(true);
-    expect(localStorage.getItem('multiscale.showCompleted')).toBe('true');
+    expect(localStorage.getItem(SHOW_COMPLETED_KEY)).toBe('true');
 
-    act(() => setShowCompleted(false));
+    act(() => show.result.current[1](false));
     expect(first.result.current).toBe(false);
-    expect(localStorage.getItem('multiscale.showCompleted')).toBeNull();
+    expect(localStorage.getItem(SHOW_COMPLETED_KEY)).toBe('false');
   });
 
-  it('reads back what this device kept, as after a restart', () => {
-    localStorage.setItem('multiscale.showCompleted', 'true');
+  it('reads back what this device kept, as after a restart, including what earlier versions kept', () => {
+    localStorage.setItem(SHOW_COMPLETED_KEY, 'true');
     expect(renderHook(() => useShowCompleted()).result.current).toBe(true);
-    localStorage.setItem('multiscale.showCompleted', 'nonsense');
+    localStorage.setItem(SHOW_COMPLETED_KEY, 'nonsense');
     expect(renderHook(() => useShowCompleted()).result.current).toBe(false);
   });
 
@@ -39,8 +41,9 @@ describe('show completed', () => {
     vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('blocked');
     });
+    const show = toggle();
     const { result } = renderHook(() => useShowCompleted());
-    act(() => setShowCompleted(true));
+    act(() => show.result.current[1](true));
     expect(result.current).toBe(true);
   });
 });

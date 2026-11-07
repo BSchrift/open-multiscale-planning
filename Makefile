@@ -1,5 +1,5 @@
 # One entry point per job. Areas that don't exist yet say so and succeed, except deploy and smoke.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-ios test-deployed smoke deploy release scan dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-ios test-deployed smoke deploy release scan update-skills dev up down
 
 COMPOSE_PROJECT ?= multiscale-test-$(shell date +%s)
 
@@ -45,6 +45,10 @@ deploy:
 # Builds the Mac app and the web bundle on this Mac, signs the bundle and uploads both: ENV=staging (default) or prod.
 release:
 	@scripts/release.sh
+
+# Updates the agent skills in .claude/skills to their latest releases, as .claude/skills/sources.tsv lists them.
+update-skills:
+	@scripts/update-skills.sh
 
 scan:
 	@if command -v gitleaks >/dev/null 2>&1; then gitleaks dir . --redact; \

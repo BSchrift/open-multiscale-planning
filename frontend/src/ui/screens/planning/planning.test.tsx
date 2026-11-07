@@ -67,6 +67,8 @@ describe('the planning frame', () => {
   it('on phone has tappable steps, a Continue button that names the next step, and Capture', async () => {
     const t = await openPlanning({ layout: 'phone' });
     const steps = await screen.findByRole('navigation', { name: 'Planning steps' });
+    // Named for screen readers, as on desktop, though phone has no room to show it.
+    expect(screen.getByRole('heading', { level: 1, name: 'Plan the week' })).toHaveClass('sr');
     expect(within(steps).getAllByRole('button').map((b) => b.textContent)).toEqual(['Inbox', 'Pick', 'Schedule', 'Review']);
     expect(screen.getByRole('button', { name: 'Previous step' })).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Continue to picking tasks' }));

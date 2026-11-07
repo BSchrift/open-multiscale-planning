@@ -11,3 +11,6 @@ dns:
   # The zone Route 53 made when you registered the domain: Route 53 > Hosted zones, or
   # aws route53 list-hosted-zones-by-name --dns-name <domain> --profile <profile>
   hostedZoneId: Z0123456789EXAMPLE
+  # Optional: TXT values on the domain itself, such as the one Google Search Console gives to prove you own it.
+  # txt:
+  #   - google-site-verification=...

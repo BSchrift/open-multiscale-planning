@@ -1,6 +1,7 @@
 // Pick tasks on phone: a board of project bars that compare at a glance, over a half-height sheet of the open
 // project's tasks with ‹ › to the next. Pills show only when something needs you. A star marks suggested work, and
-// + adds the suggested part. The dock shows the week's numbers, and the ring pops up above it on each change.
+// + adds the suggested part. Tapping a task's title edits it. The dock shows the week's numbers, and the ring pops up
+// above it on each change.
 
 import { useEffect, useState } from 'react';
 import { formatMinutes, formatWeekRange } from '../../../../core/dates';
@@ -13,6 +14,7 @@ import { Sheet } from '../../../components/Sheet';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { pickWarning } from '../../../../core/capacity';
 import { Aims } from './Aims';
+import { EditTask } from './EditTask';
 import { aimWords } from './model';
 import type { PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
@@ -52,7 +54,7 @@ export function PickPhone(props: PickProps) {
   const [chosen, setChosen] = useState<string | null | undefined>(undefined);
   const active = chosen === undefined ? seq[0]! : chosen;
   const at = active ? seq.indexOf(active) : -1;
-  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [editFor, setEditFor] = useState<string | null>(null);
   const [sheet, setSheet] = useState<string | null>(null);
   const [fixFor, setFixFor] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; ids: string[] } | null>(null);
@@ -64,10 +66,7 @@ export function PickPhone(props: PickProps) {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const show = (id: string | null) => {
-    setChosen(id);
-    setNoteFor(null);
-  };
+  const show = (id: string | null) => setChosen(id);
   const closeSheet = () => setSheet(null);
   const weekLabel = formatWeekRange(week);
   const { used, free } = model.use;
@@ -78,24 +77,21 @@ export function PickPhone(props: PickProps) {
   const warn = pickWarning(free, model.pushback);
   const fixProject = view.projects.find((p) => p.plan.project.id === fixFor);
   const pastNow = view.pastEnd.find((p) => sheet === `past:${p.plan.project.id}`);
+  const editRow = allRows.find((r) => r.c.task.id === editFor);
 
   const taskRow = (r: PickTask) => (
-    <div key={r.c.task.id}>
-      <div className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}`}>
-        {r.note ? (
-          <button className="tmain" type="button" aria-expanded={noteFor === r.c.task.id} onClick={() => setNoteFor(noteFor === r.c.task.id ? null : r.c.task.id)}>
-            {r.title}
-            <small>{estText(r)}</small>
-          </button>
-        ) : (
-          <div className="tmain">
-            {r.title}
-            <small>{estText(r)}</small>
-          </div>
-        )}
-        <AddButton {...props} row={r} />
-      </div>
-      {noteFor === r.c.task.id && r.note && <div className="tnote">{r.note}</div>}
+    <div key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}`}>
+      <button
+        className="tmain"
+        type="button"
+        aria-haspopup="dialog"
+        aria-label={`Edit task ${r.title}, ${estText(r).replace('★', 'Suggested')}`}
+        onClick={() => setEditFor(r.c.task.id)}
+      >
+        {r.title}
+        <small>{estText(r)}</small>
+      </button>
+      <AddButton {...props} row={r} />
     </div>
   );
 
@@ -471,6 +467,8 @@ export function PickPhone(props: PickProps) {
           }}
         />
       )}
+
+      {editRow && <EditTask row={editRow} view={view} ctx={model.ctx} onClose={() => setEditFor(null)} />}
     </>
   );
 }

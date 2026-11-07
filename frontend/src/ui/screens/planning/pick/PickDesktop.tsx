@@ -1,5 +1,5 @@
 // Pick tasks on desktop: every project on one rolling timeline, each opening to its tasks, One offs below, and the
-// Planned list beside them, where the capacity ring pops up.
+// Planned list beside them, where the capacity ring pops up. A task's title opens its editor.
 
 import { useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
@@ -12,6 +12,7 @@ import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { Aims } from './Aims';
+import { EditTask } from './EditTask';
 import { aimWords } from './model';
 import type { PickGroup, PickProject, PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
@@ -49,24 +50,42 @@ function SkipAim(props: PickProps & { aim?: AimRow; rows: PickTask[] }) {
 
 function TaskLine(props: PickProps & { row: PickTask }) {
   const { row: r } = props;
+  const [editing, setEditing] = useState(false);
+  const titleRef = useRef<HTMLButtonElement>(null);
+  const close = () => {
+    setEditing(false);
+    titleRef.current?.focus();
+  };
   return (
-    <div className="pickrow">
-      <div className="pickinfo">
-        <span className="subline">{r.title}</span>
-        {r.meta && <span className="subline small quiet">{r.meta}</span>}
+    <div className="editrow">
+      <div className="pickrow">
+        <div className="pickinfo">
+          <button
+            ref={titleRef}
+            className="picktitle subline"
+            type="button"
+            aria-expanded={editing}
+            aria-label={`Edit task ${r.title}`}
+            onClick={() => (editing ? close() : setEditing(true))}
+          >
+            {r.title}
+          </button>
+          {r.meta && <span className="subline small quiet">{r.meta}</span>}
+        </div>
+        <span className="small quiet pickest">{est(r)}</span>
+        <span className="pickact">
+          {r.c.picked ? (
+            <button className="btn sm pickbtn" type="button" aria-label={`Remove ${r.title} from the plan`} onClick={() => props.remove(r)}>
+              Remove
+            </button>
+          ) : (
+            <button className="btn sm pickbtn" type="button" aria-label={`Add ${r.title} to the plan`} onClick={() => props.add(r)}>
+              Add
+            </button>
+          )}
+        </span>
       </div>
-      <span className="small quiet pickest">{est(r)}</span>
-      <span className="pickact">
-        {r.c.picked ? (
-          <button className="btn sm pickbtn" type="button" aria-label={`Remove ${r.title} from the plan`} onClick={() => props.remove(r)}>
-            Remove
-          </button>
-        ) : (
-          <button className="btn sm pickbtn" type="button" aria-label={`Add ${r.title} to the plan`} onClick={() => props.add(r)}>
-            Add
-          </button>
-        )}
-      </span>
+      {editing && <EditTask row={r} view={props.view} ctx={props.model.ctx} onClose={close} />}
     </div>
   );
 }

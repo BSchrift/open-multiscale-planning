@@ -5,7 +5,6 @@
 [data-layout] .row.nowrap { flex-wrap: nowrap; }
 [data-layout] .tlwhat { display: block; min-width: 0; }
 [data-layout] .tlwhat > span { display: block; }
-[data-layout] .process { color: var(--blue); }
 /* Each section is a card on the ground. The layouts draw alerts and panels as grey boxes, so here they take the card's look; warnings keep their amber. */
 [data-layout] .today .attn, [data-layout] .today > .panel, [data-layout] .shiftwarn, [data-layout] .now { box-shadow: var(--card-shadow); }
 [data-layout] .today .attn:not(.warn), [data-layout] .today > .panel { border-color: var(--card-line); background: var(--white); }

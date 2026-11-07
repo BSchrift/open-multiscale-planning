@@ -103,11 +103,11 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(now.getByText('In progress, time left')).toBeVisible();
   await expect(now.getByRole('timer')).toHaveText(/^5\d:\d\d$/);
 
-  // At its end it asks how it went: Done.
+  // At its end it asks how it went: Task finished.
   await jumpTo(page, chicago('2026-11-02', '18:01'));
   let ended = page.getByRole('dialog', { name: 'Block finished' });
   await expect(ended.getByText('Sketch the chapter list')).toBeVisible();
-  await ended.getByRole('button', { name: 'Done', exact: true }).click();
+  await ended.getByRole('button', { name: 'Task finished', exact: true }).click();
   await expect(ended).toHaveCount(0);
   // The next block's check-in can wait ten minutes, and then asks again.
   await jumpTo(page, chicago('2026-11-02', '18:06'));

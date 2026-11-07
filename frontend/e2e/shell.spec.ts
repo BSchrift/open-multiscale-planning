@@ -33,6 +33,8 @@ test('starts at setup on an empty database, then shows the shell', async ({ page
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await page.screenshot({ path: info.outputPath('shell.png') });
+  // The browser build saves 200ms after the last change, and a reload sooner loses it (a shortcut in platform/web.ts).
+  await page.waitForTimeout(600);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Welcome' })).toHaveCount(0);
   await expect(nav).toBeVisible();

@@ -369,6 +369,13 @@ describe('Needs a new time', () => {
     expect(within(panel).queryByRole('button', { name: /Someday/ })).toBeNull();
     await userEvent.click(within(panel).getByRole('button', { name: 'Keep Rake the leaves' }));
     expect(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ })).toBeVisible();
+    expect(screen.getByText('Kept Rake the leaves.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await within(panel).findByText('Still want this?')).toBeVisible();
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('old')))?.answered_at).toBe(at('10:00', '2026-11-01'));
+    await userEvent.click(within(panel).getByRole('button', { name: 'Keep Rake the leaves' }));
+    expect(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ })).toBeVisible();
     await userEvent.click(within(panel).getByRole('button', { name: 'Delete Rake the leaves' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.deleted_at).toBe(NOW));
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));

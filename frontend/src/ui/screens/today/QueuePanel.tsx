@@ -8,7 +8,7 @@ import type { PlanChange } from '../../../core/plan';
 import { blocksInRange } from '../../../core/queries';
 import { deleteWork, keepWork } from '../../../core/queue';
 import type { QueueItem } from '../../../core/queue';
-import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
+import { CALENDAR_ID, getRecord, getSettings, listRecords, outcomeId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { offers, slotContext, slotInstants } from '../../../core/slots';
 import type { Offer, SlotContext, Work } from '../../../core/slots';
@@ -50,6 +50,17 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
     const reverse = await write.run((w) => deleteWork(w, item, clock));
     if (reverse) toast.show('Deleted', { undo: () => write.run((w) => applyPlanChange(w, reverse as PlanChange)), focusUndo: true });
   };
+  // Keep only marks it answered now, so Undo puts back when it was answered and the question comes back.
+  const keep = async () => {
+    const id = outcomeId(item.block_id);
+    const reverse = await write.run(async (w) => {
+      const was = await getRecord(w.sql, 'block_outcome', id);
+      await keepWork(w, item, clock);
+      const reverse: PlanChange = { writes: [{ type: 'block_outcome', id, fields: { answered_at: was?.answered_at ?? null } }] };
+      return reverse;
+    });
+    if (reverse) toast.show(`Kept ${item.title}.`, { undo: () => write.run((w) => applyPlanChange(w, reverse as PlanChange)), focusUndo: true });
+  };
   const deleteButton = (
     <button className="btn sm" type="button" aria-label={`Delete ${item.title}`} disabled={write.pending} onClick={() => void remove()}>
       Delete
@@ -65,7 +76,7 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
       {item.stale ? (
         <div className="row">
           <span className="small">Still want this?</span>
-          <button className="btn sm pri" type="button" aria-label={`Keep ${item.title}`} onClick={() => void write.run((w) => keepWork(w, item, clock))}>
+          <button className="btn sm pri" type="button" aria-label={`Keep ${item.title}`} disabled={write.pending} onClick={() => void keep()}>
             Keep
           </button>
           {deleteButton}

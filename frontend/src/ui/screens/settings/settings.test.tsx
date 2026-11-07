@@ -328,6 +328,12 @@ describe('Settings', () => {
       await userEvent.click(within(away).getByRole('button', { name: 'Remove Dec 20 to Dec 28' }));
       await waitFor(() => expect(within(away).queryByText('Dec 20 to Dec 28')).toBeNull());
       expect(await listRecords(t.db, 'away_period')).toHaveLength(0);
+      expect(screen.getByText('Removed away dates Dec 20 to Dec 28.')).toBeVisible();
+      // Remove has gone with its row, so focus goes to Undo rather than the page.
+      expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(await within(away).findByText('Dec 20 to Dec 28')).toBeVisible();
+      expect(await listRecords(t.db, 'away_period')).toMatchObject([{ start: '2026-12-20', end: '2026-12-28' }]);
     });
 
     it('leaves out away dates that have passed', async () => {

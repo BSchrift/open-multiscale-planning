@@ -6,8 +6,8 @@ import { defineConfig, devices } from '@playwright/test';
 const port = Number(process.env.E2E_PORT) || 5183;
 export default defineConfig({
   testDir: 'e2e',
-  // Those sign in to a backend, and run from their own config.
-  testIgnore: '**/e2e/stack/**',
+  // Those sign in to a backend or check a deployment, and run from their own configs.
+  testIgnore: ['**/e2e/stack/**', '**/e2e/deployed/**'],
   fullyParallel: true,
   reporter: 'line',
   use: { baseURL: `http://localhost:${port}`, trace: 'retain-on-failure' },

@@ -161,6 +161,11 @@ button('Shared', async () => {
   await share.remove(items.map((item) => item.id));
   return `shared:${items.map((item) => item.text).join('|')}`;
 });
+button('Diagnostics', async () => {
+  const snap = await platform.diagnostics!.snapshot();
+  log(`previous:${snap.previous?.state ?? 'none'}`);
+  return snap.footprint > 0 && snap.peak >= snap.footprint && /^\w+\d/.test(snap.model ?? '') ? 'diagnostics:ok' : `diagnostics:${JSON.stringify(snap)}`;
+});
 button('Erase', () => erase(platform));
 button('Seed plan', () => seed(platform.db, []));
 // One block ended half an hour ago and one started six minutes ago, unstarted, so both of Today's questions are due.

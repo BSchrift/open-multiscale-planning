@@ -41,6 +41,7 @@ export async function createElectronPlatform(): Promise<Platform> {
     openExternal: bridge.openExternal,
     signInRedirectUri: bridge.signInRedirectUri,
     setAppearance: bridge.setAppearance,
+    updates: bridge.updates,
     onDeepLink: (listener) => {
       const stop = links.onDeepLink(listener);
       // A link can start the app, and arrive before the first listener does.

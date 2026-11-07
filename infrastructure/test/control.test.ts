@@ -42,6 +42,7 @@ describe('control stack with a domain', () => {
 
   it('adopts the zone Route 53 made when the domain was registered, and creates no zone or name-server change', () => {
     t.resourceCountIs('AWS::Route53::HostedZone', 0);
+    t.resourceCountIs('AWS::Route53::RecordSet', 0);
     assert.deepEqual(ofType(t, 'Custom::AWS'), []);
     assert.deepEqual(ofType(t, 'AWS::Lambda::Function'), []);
   });
@@ -67,6 +68,21 @@ describe('control stack with a domain', () => {
       'route53:ChangeResourceRecordSetsNormalizedRecordNames': ['staging.example.net', 'app.example.net'],
     });
     assert.deepEqual(change.Resource, { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':route53:::hostedzone/Z0PARENTZONE']] });
+  });
+
+  it('puts dns.txt on the domain itself, in one record, with or without environments', () => {
+    const c = control();
+    const withTxt = { ...c, dns: { ...c.dns!, txt: ['google-site-verification=abc', 'v=spf1 -all'] } };
+    for (const environments of [[env(STAGING, 'staging.example.net')], []]) {
+      const txt = synth(withTxt, environments);
+      txt.resourceCountIs('AWS::Route53::RecordSet', 1);
+      txt.hasResourceProperties('AWS::Route53::RecordSet', {
+        Name: 'example.net.',
+        Type: 'TXT',
+        HostedZoneId: 'Z0PARENTZONE',
+        ResourceRecords: ['"google-site-verification=abc"', '"v=spf1 -all"'],
+      });
+    }
   });
 
   it('trusts only environments that set a zone, and creates no role when none does', () => {

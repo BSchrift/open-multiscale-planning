@@ -3,7 +3,9 @@
 // browser build and by tests. Core code never imports this: it gets data and a Clock as arguments.
 
 import type { Db } from '../core/db';
+import type { Diagnostics } from '../core/telemetry';
 import type { Reminder } from '../core/types';
+import type { NativeUpdates } from '../core/updates';
 
 export type PlatformKind = 'electron' | 'ios' | 'web' | 'test';
 
@@ -62,6 +64,10 @@ export interface Platform {
   };
   /** Only where native parts draw around the page: the window and menus on desktop, the status bar on iPhone. */
   setAppearance?(appearance: Appearance): Promise<void>;
+  /** Only where native code can measure the app: memory, and memory warnings. */
+  readonly diagnostics?: Diagnostics;
+  /** Only in the apps, whose native code checks and installs a downloaded web bundle. */
+  readonly updates?: NativeUpdates;
   /** Only where a share sheet exists. */
   readonly shareImport?: {
     /** Text shared while the app was closed, oldest first. It stays queued until removed. */

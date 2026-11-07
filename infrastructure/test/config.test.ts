@@ -173,6 +173,8 @@ describe('loadControl', () => {
     ['dns.hostedZoneId', undefined],
     ['dns.hostedZoneId', 'z0123456789'],
     ['dns.hostedZoneId', '/hostedzone/Z0123456789'],
+    ['dns.txt', 'google-site-verification=abc'],
+    ['dns.txt', ['']],
   ] as const) {
     it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
       assert.throws(() => loadControl(dirWith({ control: withField(goodControl, path, bad) }), false), new RegExp(path.replace('.', '\\.')));

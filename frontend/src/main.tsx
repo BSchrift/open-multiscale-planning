@@ -5,6 +5,7 @@ import { systemClock } from './core/clock';
 import { transact } from './core/records';
 import type { Fields, RecordType } from './core/types';
 import { startAppSync } from './core/syncRunner';
+import { createUpdater } from './core/updates';
 import { createPlatform } from './platform';
 import { Shell } from './ui/app/Shell';
 import { AppProvider } from './ui/app/store';
@@ -27,9 +28,25 @@ createPlatform(__APP_CONFIG__.env).then(
           }),
       });
     }
+    // Over-the-air updates, in the apps of an environment that publishes them. The disk image is for the Mac only.
+    const { releaseUrl, downloadsUrl, version, build, shell } = __APP_CONFIG__;
+    const kind = platform.kind === 'electron' || platform.kind === 'ios' ? platform.kind : null;
+    const updates =
+      platform.updates && kind && releaseUrl && version && build && shell
+        ? createUpdater({
+            url: releaseUrl,
+            version,
+            build,
+            shell: shell[kind],
+            platform: kind,
+            native: platform.updates,
+            onForeground: platform.lifecycle.onForeground,
+            ...(kind === 'electron' && downloadsUrl ? { download: `${downloadsUrl}/Multiscale.dmg` } : {}),
+          })
+        : undefined;
     root.render(
       <StrictMode>
-        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__)}>
+        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, updates ? { updates } : {})} updates={updates}>
           <Shell />
         </AppProvider>
       </StrictMode>,

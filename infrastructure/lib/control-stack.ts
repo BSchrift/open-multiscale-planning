@@ -4,7 +4,7 @@
 import { Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { AccountPrincipal, CompositePrincipal, Role } from 'aws-cdk-lib/aws-iam';
-import { HostedZone } from 'aws-cdk-lib/aws-route53';
+import { HostedZone, TxtRecord } from 'aws-cdk-lib/aws-route53';
 import type { Config, ControlConfig } from './config.ts';
 
 /** Fixed, so that staging and prod can name it without a reference across accounts. */
@@ -22,12 +22,15 @@ export class ControlStack extends Stack {
     const dns = control.dns;
     if (!dns) return;
 
-    // Without a zone to limit it to, the grant would allow delegating any name.
-    const zones = environments.flatMap((e) => (e.dns?.zone ? [e.dns.zone] : []));
-    if (zones.length === 0) return;
     // The zone Route 53 made when the domain was registered, so the domain already points at it and this stack never
     // owns it.
     const zone = HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: dns.hostedZoneId, zoneName: dns.domain });
+    // Proofs of owning the domain, such as Google's site verification. A name has one TXT record, so they share it.
+    if (dns.txt?.length) new TxtRecord(this, 'DomainTxt', { zone, values: dns.txt });
+
+    // Without a zone to limit it to, the grant would allow delegating any name.
+    const zones = environments.flatMap((e) => (e.dns?.zone ? [e.dns.zone] : []));
+    if (zones.length === 0) return;
     const accounts = [...new Set(environments.filter((e) => e.dns?.zone).map((e) => e.aws.account))];
     const role = new Role(this, 'DelegationRole', {
       roleName: DELEGATION_ROLE_NAME,

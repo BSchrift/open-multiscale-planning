@@ -147,12 +147,24 @@ test('a page reloading mid-transaction leaves no open transaction behind', async
   });
   await page.reload();
   await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
-  const rows = await page.evaluate(async () => {
-    const { db } = window.multiscaleElectron as ElectronBridge;
-    await db.exec('BEGIN IMMEDIATE');
-    await db.exec('COMMIT');
-    return db.all("SELECT value FROM meta WHERE key = 'half'", []);
-  });
+  // The new page's own startup may hold a transaction for a moment; one the old page left open would never end.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const { db } = window.multiscaleElectron as ElectronBridge;
+          try {
+            await db.exec('BEGIN IMMEDIATE');
+          } catch {
+            return false;
+          }
+          await db.exec('COMMIT');
+          return true;
+        }),
+      { timeout: 5000 },
+    )
+    .toBe(true);
+  const rows = await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.all("SELECT value FROM meta WHERE key = 'half'", []));
   expect(rows).toEqual([]);
 });
 

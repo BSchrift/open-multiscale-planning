@@ -235,6 +235,15 @@ final class NativeUITests: XCTestCase {
         XCTAssertTrue(arrived, "\(result) did not appear. The page says:\n\(page)", file: file, line: line)
     }
 
+    func testDiagnosticsMeasureMemoryAndReportARunThatWasKilled() {
+        run("Diagnostics", expect: "diagnostics:ok")
+        // Killed while open, as iOS does at a memory limit: the next run reports it once.
+        app.terminate()
+        app.launch()
+        exists(app.webText("ready"))
+        run("Diagnostics", expect: "previous:active")
+    }
+
     func testNotificationPermissionThenCancelThenActionReachesTheApp() {
         // The script gives each run a new Simulator, and only this test asks, so the dialog must show.
         app.webButton("Ask").tap()

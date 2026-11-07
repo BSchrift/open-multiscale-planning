@@ -85,13 +85,13 @@ describe('API', () => {
     return hit[1].Properties;
   };
 
-  it('has exactly the five routes', () => {
+  it('has exactly the six routes', () => {
     const keys = ofType('AWS::ApiGatewayV2::Route').map(([, r]) => r.Properties.RouteKey).sort();
-    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /sync']);
+    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /sync', 'POST /v1/logs']);
   });
 
   it('protects every route with the JWT authorizer except the Google callback', () => {
-    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect']) {
+    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect', 'POST /v1/logs']) {
       assert.equal(route(key).AuthorizationType, 'JWT', key);
       assert.ok(route(key).AuthorizerId, key);
     }
@@ -319,6 +319,20 @@ describe('observability', () => {
     }
   });
 
+  it('shows what the apps report, from Logs Insights on the API log group', () => {
+    const body = JSON.stringify(ofType('AWS::CloudWatch::Dashboard')[0]![1].Properties.DashboardBody);
+    for (const title of ['App memory (MB), by platform and version', 'App memory, by platform and version', 'How app runs ended', 'App errors', 'App events by screen', 'Update checks', 'Updates rolled back']) {
+      assert.ok(body.includes(title), title);
+    }
+    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 7);
+    assert.equal(body.match(/client_event/g)?.length, 7);
+    // Every panel tells desktop from mobile and one build from another.
+    assert.equal(body.match(/app\.platform/g)?.length, 7);
+    assert.equal(body.match(/service\.version/g)?.length, 8);
+    for (const field of ['app.update.check', 'app.update.outcome', 'app.update.failure', 'app.update.rollback', 'app.update.build']) assert.ok(body.includes(field), field);
+    assert.ok(body.includes('ApiLogs'));
+  });
+
   it('uses only the five allowed custom metrics', () => {
     const text = JSON.stringify(t.toJSON());
     const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events)\w+)\b/g)].map((m) => m[1]));
@@ -437,5 +451,43 @@ describe('DNS', () => {
       z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
       z.hasOutput('CognitoDomain', { Value: `https://${host}` });
     });
+
+    it(`${envName} serves releases on downloads.${zone} and release.${zone}, from one private bucket`, () => {
+      const z = zoned(envName, zone);
+      z.resourceCountIs('AWS::S3::Bucket', 1);
+      z.hasResourceProperties('AWS::S3::Bucket', {
+        PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+      });
+      // CloudFront only takes us-east-1 certificates; one covers both names.
+      const [cert] = Object.values(
+        z.findResources('AWS::CloudFormation::CustomResource', { Properties: { DomainName: `downloads.${zone}`, SubjectAlternativeNames: [`release.${zone}`], Region: 'us-east-1' } }),
+      );
+      const [delegation] = Object.keys(z.findResources('Custom::CrossAccountZoneDelegation'));
+      assert.ok(([] as string[]).concat(cert.DependsOn ?? []).includes(delegation));
+      const distributions = Object.values(z.findResources('AWS::CloudFront::Distribution')).map((d) => d.Properties.DistributionConfig);
+      const byHost = (host: string) => distributions.find((d) => d.Aliases.includes(host));
+      // Each host serves its own folder of the bucket.
+      assert.equal(byHost(`downloads.${zone}`).Origins[0].OriginPath, '/downloads');
+      assert.equal(byHost(`release.${zone}`).Origins[0].OriginPath, '/release');
+      // The apps fetch the feed from their own origins. S3 answers CORS, and Origin is in the cache key, so a copy cached
+      // for a request without one never reaches the apps.
+      z.hasResourceProperties('AWS::S3::Bucket', { CorsConfiguration: { CorsRules: [{ AllowedMethods: ['GET', 'HEAD'], AllowedOrigins: ['*'] }] } });
+      const policies = z.findResources('AWS::CloudFront::CachePolicy');
+      const releasePolicy = policies[byHost(`release.${zone}`).DefaultCacheBehavior.CachePolicyId.Ref];
+      assert.deepEqual(releasePolicy.Properties.CachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig, { HeaderBehavior: 'whitelist', Headers: ['Origin'] });
+      for (const host of [`downloads.${zone}`, `release.${zone}`]) assert.equal(byHost(host).DefaultCacheBehavior.ResponseHeadersPolicyId, undefined);
+      for (const host of [`downloads.${zone}`, `release.${zone}`]) {
+        assert.equal(byHost(host).DefaultCacheBehavior.ViewerProtocolPolicy, 'redirect-to-https');
+        z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `${host}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
+      }
+      z.hasOutput('ReleaseUrl', { Value: `https://release.${zone}` });
+      z.hasOutput('DownloadsUrl', { Value: `https://downloads.${zone}` });
+      z.hasOutput('ReleaseBucket', { Value: Match.anyValue() });
+    });
   }
+
+  it('has no release hosting without a zone', () => {
+    t.resourceCountIs('AWS::S3::Bucket', 0);
+    t.resourceCountIs('AWS::CloudFront::Distribution', 0);
+  });
 });

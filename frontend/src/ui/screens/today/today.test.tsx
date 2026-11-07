@@ -498,6 +498,17 @@ describe('when the week is not planned', () => {
     localStorage.clear();
   });
 
+  it('on phone, Start opens planning the stretch, and its × is named in full and puts it away', async () => {
+    const t = await open(async () => undefined, { layout: 'phone' });
+    const start = await screen.findByRole('button', { name: 'Plan your first stretch. It ends Dec 31. Start' });
+    expect(within(start).getByText('Start')).toHaveClass('attngo');
+    await userEvent.click(start);
+    expect(t.nav().flow?.area).toBe('plan');
+    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Plan your first stretch. It ends Dec 31.' }));
+    await waitFor(() => expect(screen.queryByText('Plan your first stretch. It ends Dec 31.')).toBeNull());
+    localStorage.clear();
+  });
+
   it('lets the next stretch alert be skipped on desktop too', async () => {
     await open(async (w) => {
       await w.create('settings', monthly, 'settings');
@@ -545,7 +556,7 @@ describe('Google Calendar', () => {
     await signIn(t);
     await userEvent.click(await screen.findByRole('button', { name: 'Connect Google Calendar Connect' }));
     expect(sync.connectCalendar).toHaveBeenCalledOnce();
-    await userEvent.click(screen.getByRole('button', { name: 'Skip Connect Google Calendar for now' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Connect Google Calendar' }));
     await waitFor(() => expect(screen.queryByText('Connect Google Calendar')).toBeNull());
     cleanup();
     await signIn(await open(async () => undefined, { layout: 'phone', sync, now: at('14:00', '2026-11-04') }));

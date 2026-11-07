@@ -107,8 +107,10 @@ for extensions in $runs; do
   fi
   xcrun simctl bootstatus "$device" >/dev/null
 
+  # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password.
   TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
-    TEST_RUNNER_MULTISCALE_TARGET="$target" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"}
+    TEST_RUNNER_MULTISCALE_TARGET="$target" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} 2>&1 |
+    sed -E "s/Type '[^']*'/Type '…'/"
 
   xcrun simctl delete "$device"
   device=""

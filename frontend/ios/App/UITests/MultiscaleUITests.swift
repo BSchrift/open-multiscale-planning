@@ -618,8 +618,9 @@ final class SignedInUITests: XCTestCase {
         app.tapWeb(startingWith: "Settings")
         app.tapWeb("Sign in")
         if let user = target.test_user { signInOnHostedPage(app, user) }
-        // The browser sheet closes itself once the sign-in links back, and the first sync follows.
-        exists(app.webText("Synced"), timeout: 60)
+        // The browser sheet closes itself once the sign-in links back, and the first sync follows. On a deployment that
+        // sync pulls every record earlier runs left on the test user, thousands of them.
+        exists(app.webText("Synced"), timeout: 180)
         let other = try SecondDevice(target)
 
         app.tapWeb("Capture a task")

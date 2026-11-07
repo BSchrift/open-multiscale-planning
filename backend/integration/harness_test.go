@@ -570,17 +570,27 @@ func (a *account) get(recordType, id string) (record, bool) {
 	return find(all, recordType, id)
 }
 
-// cleanUp tombstones what the test pushed. There's no hard delete in the API, so these rows stay as deleted records in
-// the test user's own partition, where unique ids keep them out of any later run's way.
+// cleanUp tombstones what the test pushed and empties its fields. There's no hard delete in the API, so these rows stay
+// as deleted records in the test user's own partition, where unique ids keep them out of any later run's way. Emptied,
+// they stay small: every new device pulls them all, and the large-record tests alone left tens of megabytes before.
 func (a *account) cleanUp() {
 	if len(a.pushed) == 0 {
 		return
 	}
 	a.reSignIn()
 	stamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	written, _ := a.pullAll(a.base)
 	var batch []record
 	for key := range a.pushed {
-		batch = append(batch, a.record(key[0], key[1], "deleted_at", stamp))
+		pairs := []any{"deleted_at", stamp}
+		if stored, ok := find(written, key[0], key[1]); ok {
+			for name := range stored.Fields {
+				if name != "deleted_at" {
+					pairs = append(pairs, name, nil)
+				}
+			}
+		}
+		batch = append(batch, a.record(key[0], key[1], pairs...))
 		if len(batch) == 99 {
 			a.sync(a.startCursor(), batch...)
 			batch = nil

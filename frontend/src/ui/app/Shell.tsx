@@ -8,7 +8,7 @@ import { PlusIcon, TabIcon } from '../components/icons';
 import { ToastProvider } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
-import { NavProvider, useNav } from './nav';
+import { NavProvider, useNav, useOverlay } from './nav';
 import type { Route } from './nav';
 import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useReminders } from './reminders';
@@ -194,12 +194,6 @@ function Frame() {
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 
-  // Telemetry reports the screen on show, which is the only place it learns it.
-  const screen = nav.overlay?.area ?? nav.flow?.area ?? nav.route.area;
-  useEffect(() => {
-    document.documentElement.dataset.screen = screen;
-  }, [screen]);
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code === 'Space' && event.shiftKey && event.metaKey) {
@@ -218,11 +212,22 @@ function Frame() {
         <Panes />
       </main>
       {layout === 'phone' && <PhoneNav />}
-      {nav.overlay && (
-        <AreaScreen area={nav.overlay.area} params={nav.overlay.params} presentation="overlay" close={nav.closeOverlay} />
-      )}
+      <OverlayScreen />
     </>
   );
+}
+
+/** Its own component, so only it renders when an overlay opens or closes. */
+function OverlayScreen() {
+  const overlay = useOverlay();
+  const nav = useNav();
+  // Telemetry reports the screen on show, which is the only place it learns it. Here, as the overlay is only read here.
+  const screen = overlay?.area ?? nav.flow?.area ?? nav.route.area;
+  useEffect(() => {
+    document.documentElement.dataset.screen = screen;
+  }, [screen]);
+  if (!overlay) return null;
+  return <AreaScreen area={overlay.area} params={overlay.params} presentation="overlay" close={nav.closeOverlay} />;
 }
 
 /** Setup until first run has finished, then the app. The settings record carries this between devices. */

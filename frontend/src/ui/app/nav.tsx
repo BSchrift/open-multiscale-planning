@@ -29,7 +29,6 @@ interface NavState {
   tab: TabId;
   stacks: Partial<Record<TabId, Route[]>>;
   flow: Overlay | null;
-  overlay: Overlay | null;
   /** Bumps when a tab is re-tapped, telling its pane to scroll to the top. */
   topSignal: number;
 }
@@ -40,7 +39,6 @@ export interface Nav {
   route: Route;
   stacks: Partial<Record<TabId, Route[]>>;
   flow: Overlay | null;
-  overlay: Overlay | null;
   topSignal: number;
   go(area: AreaId, params?: RouteParams): void;
   selectTab(tab: TabId): void;
@@ -54,11 +52,19 @@ export interface Nav {
 }
 
 const NavContext = createContext<Nav | null>(null);
+// Kept out of Nav, so opening or closing Capture or Process doesn't render every pane and screen again, none of which
+// shows it. That took most of the time Capture took to open.
+const OverlayContext = createContext<Overlay | null>(null);
 
 export function useNav(): Nav {
   const nav = useContext(NavContext);
   if (!nav) throw new Error('useNav needs a NavProvider');
   return nav;
+}
+
+/** The overlay that's open, such as Capture or Process. */
+export function useOverlay(): Overlay | null {
+  return useContext(OverlayContext);
 }
 
 const root = (tab: TabId): Route => ({ area: tab, params: {} });
@@ -72,10 +78,12 @@ export function NavProvider(props: { layout: Layout; initial?: Route; children: 
       tab,
       stacks: { [tab]: initial && initial.area !== tab ? [root(tab), initial] : [initial ?? root(tab)] },
       flow: null,
-      overlay: null,
       topSignal: 0,
     };
   });
+  const [overlay, setOverlay] = useState<Overlay | null>(null);
+  const openOverlay = useCallback((area: AreaId, params: RouteParams = {}) => setOverlay({ area, params }), []);
+  const closeOverlay = useCallback(() => setOverlay(null), []);
 
   const go = useCallback(
     (area: AreaId, params: RouteParams = {}) => {
@@ -126,7 +134,6 @@ export function NavProvider(props: { layout: Layout; initial?: Route; children: 
       route,
       stacks: state.stacks,
       flow: state.flow,
-      overlay: state.overlay,
       topSignal: state.topSignal,
       go,
       selectTab,
@@ -134,10 +141,14 @@ export function NavProvider(props: { layout: Layout; initial?: Route; children: 
       backLabel,
       openFlow: (area, params = {}) => setState((s) => ({ ...s, flow: { area, params } })),
       closeFlow: () => setState((s) => ({ ...s, flow: null })),
-      openOverlay: (area, params = {}) => setState((s) => ({ ...s, overlay: { area, params } })),
-      closeOverlay: () => setState((s) => ({ ...s, overlay: null })),
+      openOverlay,
+      closeOverlay,
     };
-  }, [state, layout, go, selectTab, back]);
+  }, [state, layout, go, selectTab, back, openOverlay, closeOverlay]);
 
-  return <NavContext.Provider value={value}>{children}</NavContext.Provider>;
+  return (
+    <NavContext.Provider value={value}>
+      <OverlayContext.Provider value={overlay}>{children}</OverlayContext.Provider>
+    </NavContext.Provider>
+  );
 }

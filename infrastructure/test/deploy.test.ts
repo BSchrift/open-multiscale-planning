@@ -48,10 +48,12 @@ describe('scripts/deploy.sh', () => {
     assert.doesNotMatch(s.log(), /Multiscale-prod/);
   });
 
-  it('treats the ENV=local that make exports for its test targets as the default, never as prod', () => {
+  it('refuses ENV=local, since there is no local deployment, rather than deploying staging', () => {
     const s = sandbox();
-    assert.equal(s.run({ ENV: 'local' }).status, 0);
-    assert.match(s.log(), /npx cdk deploy Multiscale-staging /);
+    const r = s.run({ ENV: 'local' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /not local/);
+    assert.equal(s.log(), '');
   });
 
   it('deploys prod only when asked', () => {

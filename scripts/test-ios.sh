@@ -26,7 +26,7 @@ esac
 cd "$root/frontend"
 runtime_device="${IOS_DEVICE:-iPhone 16}"
 runs="${MULTISCALE_RUNS:-NO YES}"
-derived="${IOS_DERIVED_DATA:-$PWD/ios/DerivedData}"
+derived="$PWD/ios/DerivedData"
 
 work="$(mktemp -d)"
 device=""
@@ -63,7 +63,10 @@ else
   only=(-only-testing:MultiscaleUITests/SignedInUITests)
 fi
 target=""
-if [ "$ENV" != local ] || [ -n "$api" ]; then
+if [ "$ENV" != local ]; then
+  # Run from scripts/test-deployed.sh, it's already read, test user's password and all.
+  target="${MULTISCALE_TARGET:-$(node scripts/test-target.mjs)}"
+elif [ -n "$api" ]; then
   target="$(node scripts/test-target.mjs)"
 fi
 

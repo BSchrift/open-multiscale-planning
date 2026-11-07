@@ -1,6 +1,8 @@
 name: CI
 on:
+  # A branch's pushes run once, through its pull request.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -31,7 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        if: hashFiles('backend/go.mod') != ''
         with:
           go-version: "1.25"
           cache-dependency-path: |
@@ -46,8 +47,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 25
-      - if: hashFiles('infrastructure/package-lock.json') != ''
-        run: npm ci
+      - run: npm ci
         working-directory: infrastructure
       - run: make test-infra
 
@@ -58,7 +58,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        if: hashFiles('backend/go.mod') != ''
         with:
           go-version: "1.25"
           cache-dependency-path: |

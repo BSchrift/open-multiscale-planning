@@ -57,10 +57,12 @@ describe('scripts/smoke.sh', () => {
     assert.equal(s.log(), '');
   });
 
-  it('treats the ENV=local that make exports as staging', () => {
+  it('refuses ENV=local, since there is no local deployment, rather than checking staging', () => {
     const s = sandbox();
-    assert.equal(s.run({ ENV: 'local' }).status, 0);
-    assert.match(s.log(), /integration ENV=staging/);
+    const r = s.run({ ENV: 'local' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /not local/);
+    assert.equal(s.log(), '');
   });
 
   it('refuses prod without CONFIRM_PROD=yes', () => {

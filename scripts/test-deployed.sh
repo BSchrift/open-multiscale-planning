@@ -11,9 +11,7 @@
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-# make exports ENV=local as the default for its test targets. There is no local deployment, so it means the default.
 env_name="${ENV:-staging}"
-[ "$env_name" = local ] && env_name=staging
 case "$env_name" in
   staging) ;;
   prod)

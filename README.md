@@ -49,6 +49,8 @@ The local API listens on `localhost:8787` and signs in anyone. For iPhone, run `
 
 Before the first `make test-e2e`, run `npx playwright install chromium webkit` in `frontend`.
 
+The capture benchmarks run only when asked, and print their timings rather than checking them: in `frontend`, `BENCH=1 npx playwright test capture-bench` for the browser build, or `BENCH=1 npm run e2e:electron -- capture-bench` for the Mac app. `BENCH_RUNS` sets the repeats.
+
 Against a deployment, the same suites sign in as a dedicated test user, use unique ids and clean up after themselves. Tests that need the local stack's clock or injected failures are listed as skipped. Prod also needs `CONFIRM_PROD=yes`.
 
 ```sh

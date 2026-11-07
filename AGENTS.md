@@ -23,7 +23,7 @@ name are in [.claude/skills](.claude/skills): Claude Code loads them from there,
 | --- | --- | --- |
 | Local, no deployment | Unit tests; browser e2e at desktop and phone sizes; the Mac app; a Docker stand-in backend for sync; the iPhone Simulator | `make test`, `make test-e2e`, `make test-ios` |
 | Against a deployment | The deployed web app, sync, the integration suite, smoke, the iPhone signed-in test | `make test-deployed` (staging), `ENV=prod CONFIRM_PROD=yes` |
-| CI | Everything in the local layer, on every push and PR | `.github/workflows/ci.yml` |
+| CI | Everything in the local layer, on every PR and every push to main | `.github/workflows/ci.yml` |
 | Release | `make release` runs `make test-deployed` against what it just released | `scripts/release.sh` |
 
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it

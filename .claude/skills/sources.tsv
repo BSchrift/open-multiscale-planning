@@ -1,0 +1,6 @@
+# Where each skill here comes from, and the release copied. make update-skills reads this and rewrites the release.
+# skill	repo	path	release
+ponytail	DietrichGebert/ponytail	skills/ponytail	v5.3.3
+caveman	JuliusBrussee/caveman	skills/caveman	v4.0.1
+ultracave	JuliusBrussee/caveman	skills/ultracave	v4.0.1
+megacave	JuliusBrussee/caveman	skills/megacave	v4.0.1

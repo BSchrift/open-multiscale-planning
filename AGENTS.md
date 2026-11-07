@@ -1,7 +1,9 @@
 # How we build Multiscale
 
 For any agent working in this repo. These are the habits the project was built with. Use judgement inside them, and
-when one doesn't fit a case, say so rather than quietly working around it.
+when one doesn't fit a case, say so rather than quietly working around it. The `ponytail` and `caveman` skills they
+name are in [.claude/skills](.claude/skills): Claude Code loads them from there, and any other agent can read their
+`SKILL.md`.
 
 ## Building
 

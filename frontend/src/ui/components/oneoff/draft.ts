@@ -136,8 +136,19 @@ export function draftError(d: OneOffDraft): string | null {
   return validateSchedule(draftSchedule(d));
 }
 
-/** The fields of a new one off task, ready for Writer.create('task', ...) or to turn an Inbox item into one. */
+/**
+ * The fields of a new one off task, ready for Writer.create('task', ...) or to turn an Inbox item into one. Fields merge
+ * one by one, so it clears a project's too: another device may have sent the same item to a project.
+ */
 export function oneOffFields(d: OneOffDraft, today: LocalDate): Fields<'task'> {
   const schedule = draftSchedule(d);
-  return { kind: 'one_off', title: d.title.trim(), schedule, next_due: firstDue(schedule, today), estimate_min: d.estimate || null };
+  return {
+    kind: 'one_off',
+    project_id: null,
+    milestone_id: null,
+    title: d.title.trim(),
+    schedule,
+    next_due: firstDue(schedule, today),
+    estimate_min: d.estimate || null,
+  };
 }

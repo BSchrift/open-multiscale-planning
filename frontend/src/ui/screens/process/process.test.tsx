@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getRecord, listRecords, weekPickId } from '../../../core/records';
+import { formatClock } from '../../../core/clock';
+import { applyRemote, getRecord, listRecords, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
 import type { HarnessOptions } from '../../app/testing';
@@ -133,6 +134,22 @@ describe('Process on desktop', () => {
     expect(await task(t.db, 'i2')).toMatchObject({ kind: 'project', project_id: 'p1', estimate_min: 90 });
     expect(last()).toHaveTextContent('Sent to Paint the fence.');
     expect(screen.getByRole('slider', { name: 'Time' })).toHaveAttribute('aria-valuetext', 'No estimate');
+  });
+
+  it('clears what the other kind of task had, so two devices sorting one item merge into one kind', async () => {
+    const t = await open();
+    // Another device sent each item the other way first; its writes reach this one after this one's.
+    const earlier = (id: string, fields: Record<string, unknown>) =>
+      applyRemote(t.db, [{ type: 'task', id, fields: Object.fromEntries(Object.entries(fields).map(([f, v]) => [f, { v, c: formatClock({ wall: 1, counter: 0, device: 'other' }) }])) }]);
+    await userEvent.click(await screen.findByRole('button', { name: 'One offs' }));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    await earlier('i1', { kind: 'project', project_id: 'p1', milestone_id: 'm1' });
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'one_off', project_id: null, milestone_id: null });
+
+    await userEvent.click(btn('Paint the fence'));
+    await screen.findByRole('heading', { name: 'Read the article' });
+    await earlier('i2', { kind: 'one_off', schedule: { type: 'float', every: 2, unit: 'week' }, next_due: '2026-11-16' });
+    expect(await task(t.db, 'i2')).toMatchObject({ kind: 'project', project_id: 'p1', schedule: null, next_due: null });
   });
 
   it('lets the last project send pick a milestone, and the last one off a date', async () => {

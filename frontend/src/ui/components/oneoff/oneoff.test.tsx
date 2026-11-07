@@ -33,6 +33,8 @@ describe('a draft becomes a schedule', () => {
     expect(draft.type).toBe('once');
     expect(oneOffFields({ ...draft, title: ' Paint the fence ' }, TODAY)).toEqual({
       kind: 'one_off',
+      project_id: null,
+      milestone_id: null,
       title: 'Paint the fence',
       schedule: { type: 'once', from: null, to: null },
       next_due: null,
@@ -103,6 +105,8 @@ describe('OneOffForm', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
     expect(onSave).toHaveBeenCalledWith({
       kind: 'one_off',
+      project_id: null,
+      milestone_id: null,
       title: 'Collect the parcel',
       schedule: { type: 'once', from: '2026-11-04', to: '2026-11-05' },
       next_due: '2026-11-04',

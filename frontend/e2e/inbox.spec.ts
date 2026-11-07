@@ -128,3 +128,15 @@ test('keyboard shortcuts on the desktop card', async ({ page }, info) => {
   await expect(card(page)).toHaveCount(0);
   await expect(inboxPane(page).locator('.inboxrow')).toHaveCount(2);
 });
+
+test('phone: the Capture sheet rises above the keyboard, which covers the page rather than shrinking it', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The keyboard is a phone matter');
+  await open(page, true);
+  await page.getByRole('button', { name: 'Capture a task' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Capture' });
+  const height = page.viewportSize()!.height;
+  // A browser can't open a keyboard in a test, so this sets what app/keyboard.ts would for a 336pt keyboard.
+  await page.evaluate(() => document.documentElement.style.setProperty('--keyboard', '336px'));
+  await expect.poll(async () => Math.round((await sheet.boundingBox())!.y + (await sheet.boundingBox())!.height)).toBe(height - 336);
+  await expect(sheet.getByRole('textbox', { name: 'Capture to Inbox' })).toBeInViewport();
+});

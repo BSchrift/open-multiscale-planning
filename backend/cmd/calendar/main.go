@@ -11,13 +11,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/gcal"
-	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 func main() {
-	if _, err := appconfig.LoadDeployed(); err != nil {
-		log.Fatal(err)
-	}
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		log.Fatal(err)

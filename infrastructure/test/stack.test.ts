@@ -394,12 +394,8 @@ describe('Go binaries', () => {
   };
 
   it('use the build output when it is there', () => {
-    const stack = build('staging', dist(['bootstrap', 'config.yaml']), true);
+    const stack = build('staging', dist(['bootstrap']), true);
     Annotations.fromStack(stack).hasNoWarning('*', Match.stringLikeRegexp('not built'));
-  });
-
-  it('refuse to deploy a binary without the config it loads at startup', () => {
-    assert.throws(() => build('staging', dist(['bootstrap']), true), /config\.yaml/);
   });
 });
 

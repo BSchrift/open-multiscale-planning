@@ -168,27 +168,6 @@ func LoadControl(dir string) (*Control, error) {
 	return &out, nil
 }
 
-// LoadDeployed reads the config.yaml that make deploy puts next to each Lambda's binary.
-func LoadDeployed() (*Environment, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	return loadDeployed(filepath.Join(filepath.Dir(exe), "config.yaml"))
-}
-
-func loadDeployed(path string) (*Environment, error) {
-	var out Environment
-	err := decode(path, &out)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("missing %s: make deploy copies the environment's YAML there", path)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 type checked interface{ check() error }
 
 func fromFolder(dir, name string, into checked) error {

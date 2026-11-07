@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { configFiles, sandboxRepo } from './sandbox.ts';
@@ -132,15 +132,17 @@ describe('scripts/deploy.sh', () => {
     assert.match(s.log(), /go GOOS=linux GOARCH=arm64 CGO=0 build .*-o \S*backend\/dist\/calendar\/bootstrap \.\/cmd\/calendar/);
   });
 
-  it("puts the environment's config next to each Lambda, which loads it at startup", () => {
+  it('ships each Lambda as its binary alone, clearing what an earlier deploy left beside it', () => {
     const s = sandbox();
-    assert.equal(s.run({ ENV: 'prod' }).status, 0);
     for (const name of ['api', 'calendar']) {
-      assert.equal(readFileSync(join(s.root, `backend/dist/${name}/config.yaml`), 'utf8'), readFileSync(s.file('prod.yaml'), 'utf8'));
+      mkdirSync(join(s.root, `backend/dist/${name}`), { recursive: true });
+      writeFileSync(join(s.root, `backend/dist/${name}/config.yaml`), 'alarmEmail: me@example.net\n');
     }
+    assert.equal(s.run({ ENV: 'prod' }).status, 0);
+    for (const name of ['api', 'calendar']) assert.deepEqual(readdirSync(join(s.root, `backend/dist/${name}`)), ['bootstrap']);
   });
 
-  it("checks the file with the Lambdas' own strict loader first, and ships nothing it rejects", () => {
+  it('checks the file with the strict Go loader first, and ships nothing it rejects', () => {
     const s = sandbox({
       go: `echo "go $* in $PWD with $MULTISCALE_CONFIG_DIR" >> "$LOG"
 [ "$1" = run ] && { echo "prod.yaml: field bundleID not found in type config.App" >&2; exit 1; }; exit 0`,
@@ -150,7 +152,6 @@ describe('scripts/deploy.sh', () => {
     assert.match(r.stderr, /field bundleID not found/);
     assert.ok(s.log().includes(`go run ./cmd/check prod in ${join(s.root, 'config')} with ${s.config}`), s.log());
     assert.doesNotMatch(s.log(), /go build|cdk deploy/);
-    assert.ok(!existsSync(join(s.root, 'backend/dist/api/config.yaml')));
     assert.ok(!existsSync(s.file('prod.deployed')));
   });
 

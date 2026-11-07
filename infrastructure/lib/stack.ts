@@ -36,7 +36,7 @@ export interface MultiscaleStackProps {
   config: Config;
   /** Needed when config sets dns.zone: the zone is delegated from its domain, in its account. */
   control?: ControlConfig;
-  /** Holds api/ and calendar/, each a bootstrap and the config.yaml it loads, put there by scripts/deploy.sh. */
+  /** Holds api/ and calendar/, each a bootstrap put there by scripts/deploy.sh. */
   backendDist: string;
   /** Set when deploying, so that a missing build fails instead of shipping the stand-in. */
   requireBinaries: boolean;
@@ -55,11 +55,7 @@ export class MultiscaleStack extends Stack {
 
     const goCode = (name: string) => {
       const dir = join(backendDist, name);
-      if (existsSync(join(dir, 'bootstrap'))) {
-        // The binary fails at startup without it.
-        if (requireBinaries && !existsSync(join(dir, 'config.yaml'))) throw new Error(`${dir}/config.yaml is missing. Deploy with scripts/deploy.sh.`);
-        return Code.fromAsset(dir);
-      }
+      if (existsSync(join(dir, 'bootstrap'))) return Code.fromAsset(dir);
       if (requireBinaries) throw new Error(`${dir}/bootstrap is not built. Deploy with scripts/deploy.sh.`);
       Annotations.of(this).addWarning(`Go binary ${name} not built: synthesizing with a stand-in. Deploy with scripts/deploy.sh.`);
       return Code.fromAsset(join(import.meta.dirname, '../placeholder'));

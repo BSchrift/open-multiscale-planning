@@ -180,19 +180,3 @@ func TestDir(t *testing.T) {
 		t.Fatalf("a relative folder must come back absolute, got %q", Dir())
 	}
 }
-
-func TestDeployedCopy(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	if _, err := loadDeployed(path); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "make deploy") {
-		t.Fatalf("missing: %v", err)
-	}
-	os.WriteFile(path, []byte(example(t, "prod")), 0o600)
-	if got, err := loadDeployed(path); err != nil || got.AWS.Profile != "multiscale-prod" {
-		t.Fatalf("%+v %v", got, err)
-	}
-	os.WriteFile(path, []byte(example(t, "prod")+"extra: 1\n"), 0o600)
-	if _, err := loadDeployed(path); err == nil || !strings.Contains(err.Error(), "extra") {
-		t.Fatalf("invalid: %v", err)
-	}
-}

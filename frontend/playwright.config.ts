@@ -9,7 +9,8 @@ export default defineConfig({
   // Those sign in to a backend, and run from their own config.
   testIgnore: '**/e2e/stack/**',
   fullyParallel: true,
-  reporter: 'line',
+  // CI also writes an HTML report, which it keeps when a run fails.
+  reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
   use: { baseURL: `http://localhost:${port}`, trace: 'retain-on-failure' },
   webServer: {
     command: `npx vite --port ${port} --strictPort`,

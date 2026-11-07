@@ -10,18 +10,20 @@ import type { ElectronBridge } from '../bridge';
 
 declare global {
   var firedNotifications: Electron.Notification[];
+  var browserUrls: string[];
 }
 
 // Always the unpackaged app: the packaged one has its inspector fuse off, so Playwright can't attach to it.
 const ROOT = join(import.meta.dirname, '../..');
+const KEYCHAIN = process.platform === 'linux' ? ['-r', join(import.meta.dirname, 'linux-keychain.cjs')] : [];
 
 let dataDir: string;
 let app: ElectronApplication | undefined;
 
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   app = await electron.launch({
-    // The mock keychain keeps an unattended run from stopping at a keychain prompt.
-    args: [ROOT, `--user-data-dir=${dataDir}`, '--use-mock-keychain'],
+    // The mock keychain keeps an unattended run from stopping at a keychain prompt. Linux has none, see linux-keychain.cjs.
+    args: [...KEYCHAIN, ROOT, `--user-data-dir=${dataDir}`, '--use-mock-keychain'],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   });
   const page = await app.firstWindow();
@@ -142,32 +144,35 @@ test('a save that fails keeps the text and says so', async () => {
   await expect(field).toHaveValue('Paint the fence');
 });
 
-test('a page reloading mid-transaction leaves no open transaction behind', async () => {
-  const { page } = await launch();
-  await page.evaluate(async () => {
-    const { db } = window.multiscaleElectron as ElectronBridge;
-    await db.exec('BEGIN IMMEDIATE');
-    await db.run("INSERT INTO meta (key, value) VALUES ('half', 'done')", []);
-  });
-  await page.reload();
-  await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
-  // The new page's own startup may hold a transaction for a moment; one the old page left open would never end.
-  await expect
+/**
+ * Begins a transaction on the page's connection. The page's startup may hold one of its own for a moment, and these
+ * calls skip the queue the page's own work waits in, so this waits for the moment it ends.
+ */
+const begin = (page: Page) =>
+  expect
     .poll(
       () =>
         page.evaluate(async () => {
-          const { db } = window.multiscaleElectron as ElectronBridge;
           try {
-            await db.exec('BEGIN IMMEDIATE');
+            await (window.multiscaleElectron as ElectronBridge).db.exec('BEGIN IMMEDIATE');
+            return true;
           } catch {
             return false;
           }
-          await db.exec('COMMIT');
-          return true;
         }),
       { timeout: 5000 },
     )
     .toBe(true);
+
+test('a page reloading mid-transaction leaves no open transaction behind', async () => {
+  const { page } = await launch();
+  await begin(page);
+  await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.run("INSERT INTO meta (key, value) VALUES ('half', 'done')", []));
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
+  // One the old page left open would never end.
+  await begin(page);
+  await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.exec('COMMIT'));
   const rows = await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.all("SELECT value FROM meta WHERE key = 'half'", []));
   expect(rows).toEqual([]);
 });
@@ -228,12 +233,19 @@ test('a sign-in return reaches the page, a foreign link does not, and links open
   }
   await expect.poll(() => page.evaluate(() => (window as unknown as { links: string[] }).links)).toEqual([`${scheme}://auth/callback?code=c`]);
 
+  // The system browser is stood in for. A real one can outlive the app, as on Linux, where it keeps the app's output
+  // open and so its close waiting.
+  await running.evaluate(({ shell }) => {
+    globalThis.browserUrls = [];
+    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
+  });
   await expect(page.evaluate(() => (window.multiscaleElectron as ElectronBridge).openExternal('file:///etc/passwd'))).rejects.toThrow();
-  // A window.open or a navigation stays out of the app.
+  // A window.open goes to the browser, and a navigation goes nowhere.
   await page.evaluate(() => void window.open('https://example.com/'));
   await page.evaluate(() => void (location.href = 'https://example.com/'));
   await page.waitForTimeout(300);
   expect(new URL(page.url()).protocol).toBe('multiscale-app:');
+  expect(await running.evaluate(() => globalThis.browserUrls)).toEqual(['https://example.com/']);
   // The app's window and its hidden capture window, and nothing else.
   expect(running.windows().map((w) => new URL(w.url()).pathname.split('/').pop()).sort()).toEqual(['', 'capture.html']);
 });

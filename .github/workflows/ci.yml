@@ -71,6 +71,105 @@ jobs:
         working-directory: frontend
       - run: make test-integration
 
+  # The rest of make test-e2e, a part per job so they run side by side. The screens in desktop Chromium and phone WebKit.
+  e2e-browser:
+    runs-on: ubuntu-latest
+    needs: [frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: playwright
+        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-webkit
+      # The system libraries aren't cached, so this runs either way. It skips browsers already there.
+      - run: npx playwright install --with-deps chromium webkit
+        working-directory: frontend
+      - run: scripts/e2e.sh browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-browser
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+
+  # Two signed-in browsers syncing through the local stack.
+  e2e-stack:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            backend/go.sum
+            config/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: playwright
+        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: scripts/e2e.sh stack
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-stack
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+
+  # The core database tests under Electron's runtime, then the real app, two instances of it syncing through the local
+  # stack. On Linux, which the stack's Docker needs, with a virtual display. Electron downloads its own binary on first
+  # launch, and better-sqlite3 ships prebuilt.
+  e2e-electron:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            backend/go.sum
+            config/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: xvfb-run -a scripts/e2e.sh electron
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-electron
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+
   # The real app on an iPhone Simulator, with the extensions off and then on.
   ios:
     runs-on: macos-15

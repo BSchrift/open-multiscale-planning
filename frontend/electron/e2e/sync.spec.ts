@@ -20,6 +20,7 @@ declare global {
 }
 
 const ROOT = join(import.meta.dirname, '../..');
+const KEYCHAIN = process.platform === 'linux' ? ['-r', join(import.meta.dirname, 'linux-keychain.cjs')] : [];
 const API = process.env.LOCAL_API_URL ?? '';
 
 test.skip(!API, 'needs: the local stack. make test-e2e starts one and builds the app for it.');
@@ -44,8 +45,8 @@ test.afterEach(async () => {
 async function launch(dir = mkdtempSync(join(tmpdir(), 'multiscale-sync-'))): Promise<Device> {
   if (!dirs.includes(dir)) dirs.push(dir);
   const app = await electron.launch({
-    // The mock keychain keeps an unattended run from stopping at a keychain prompt.
-    args: [ROOT, `--user-data-dir=${dir}`, '--use-mock-keychain'],
+    // The mock keychain keeps an unattended run from stopping at a keychain prompt. Linux has none, see linux-keychain.cjs.
+    args: [...KEYCHAIN, ROOT, `--user-data-dir=${dir}`, '--use-mock-keychain'],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   });
   // The system browser is the one thing stood in for: signIn plays it.
@@ -307,7 +308,7 @@ test('dragging and resizing a block on the Week grid moves it on the other devic
   expect(b.errors).toEqual([]);
 });
 
-test("a reminder for a block near now is scheduled, and its Done writes what the in-app prompt's Done writes", async () => {
+test("a reminder for a block near now is scheduled, and its Not done writes what the in-app prompt's Not done writes", async () => {
   const run = randomUUID().slice(0, 8);
   const a = await launch();
   await firstRun(a, `e2e-${run}`);
@@ -348,15 +349,16 @@ test("a reminder for a block near now is scheduled, and its Done writes what the
   await go(a.page, 'Today', /./);
   const prompt = a.page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText(`Sweep the porch ${run}`)).toBeVisible();
-  await prompt.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect.poll(() => record(a, outcomeId(ended.block))).toMatchObject({ result: 'done' });
+  await prompt.getByRole('button', { name: 'Not done', exact: true }).click();
+  await expect.poll(() => record(a, outcomeId(ended.block))).toMatchObject({ result: 'not' });
 
-  // The notification's first button is Done.
+  // The notification offers no Done, since a task finishes only in the app. Not done is its third button.
   await expect
     .poll(() => a.app.evaluate(() => globalThis.shownReminders.map((n) => `${n.title}: ${n.body}`)), { timeout: 90_000 })
     .toContain(`Block ended: Did you finish Water the plants ${run}?`);
-  await a.app.evaluate(() => void globalThis.shownReminders.at(-1)!.emit('action', {}, 0));
-  await expect.poll(() => record(a, outcomeId(ending.block))).toMatchObject({ result: 'done' });
+  expect(await a.app.evaluate(() => globalThis.shownReminders.at(-1)!.actions.map((action) => action.text))).toEqual(['Still going', 'Partly', 'Not done']);
+  await a.app.evaluate(() => void globalThis.shownReminders.at(-1)!.emit('action', {}, 2));
+  await expect.poll(() => record(a, outcomeId(ending.block))).toMatchObject({ result: 'not' });
 
   const answer = async (ids: typeof ended) => {
     const { answered_at, ...outcome } = (await record(a, outcomeId(ids.block)))!;

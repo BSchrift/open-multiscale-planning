@@ -182,11 +182,6 @@
 :where([data-layout='desktop']) .ptrack{position:relative;height:36px;border-radius:4px;background:var(--track)}
 :where([data-layout='desktop']) .pspan{position:absolute;top:5px;height:6px;border-radius:3px;background:var(--grey)}
 :where([data-layout='desktop']) .pdot{position:absolute;top:3px;width:10px;height:10px;margin-left:-5px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}
-:where([data-layout='desktop']) .pdot.on{background:var(--blue)}
-:where([data-layout='desktop']) .pdot.met{border-color:var(--grey);background:var(--grey)}
-:where([data-layout='desktop']) .pdot.late{border-color:var(--red);background:var(--white)}
-:where([data-layout='desktop']) .pdot.late.on{background:var(--red)}
-:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}
 :where([data-layout='desktop']) .pkey{position:relative;display:inline-block;width:10px;height:10px;margin-right:6px}
 :where([data-layout='desktop']) .pkey .pdot{top:0;margin-left:0}
 :where([data-layout='desktop']) .pmshead{padding:8px 0 0}

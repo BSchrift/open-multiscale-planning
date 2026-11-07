@@ -2,6 +2,6 @@
 
 export { draftError, draftSchedule, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
 export type { OneOffDraft, RepeatType } from './draft';
-export { OneOffDates } from './OneOffDates';
+export { OneOffDateForm, OneOffDates } from './OneOffDates';
 export { OneOffForm } from './OneOffForm';
 export { OneOffEditor, OneOffRow, useOneOffTick } from './OneOffRow';

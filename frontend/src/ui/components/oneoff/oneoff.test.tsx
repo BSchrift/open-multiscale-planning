@@ -1,29 +1,35 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { fixedClock } from '../../../core/clock';
+import { getRecord, transact } from '../../../core/records';
+import type { Writer } from '../../../core/records';
 import { firstDue, scheduleLabel } from '../../../core/schedule';
 import type { Task } from '../../../core/types';
 import { createTestPlatform } from '../../../platform/testing';
 import type { Layout } from '../../app/registry';
 import { AppProvider } from '../../app/store';
 import { ToastProvider } from '../Toast';
-import { draftSchedule, emptyDraft, oneOffFields, OneOffDates, OneOffForm } from '.';
+import { draftSchedule, emptyDraft, oneOffFields, OneOffDateForm, OneOffDates, OneOffForm } from '.';
 
 afterEach(cleanup);
 
 const TODAY = '2026-11-02';
 
-async function inApp(ui: ReactNode, layout: Layout = 'desktop') {
+const CLOCK = fixedClock('2026-11-02T20:00:00Z', 'America/Chicago');
+
+async function inApp(ui: ReactNode, layout: Layout = 'desktop', seed?: (w: Writer) => Promise<unknown>) {
   const platform = await createTestPlatform();
-  return render(
-    <AppProvider platform={platform} clock={fixedClock('2026-11-02T20:00:00Z', 'America/Chicago')} layout={layout}>
+  if (seed) await transact(platform.db, CLOCK, seed);
+  render(
+    <AppProvider platform={platform} clock={CLOCK} layout={layout}>
       <ToastProvider>
         <div data-layout={layout}>{ui}</div>
       </ToastProvider>
     </AppProvider>,
   );
+  return platform.db;
 }
 
 describe('a draft becomes a schedule', () => {
@@ -162,18 +168,19 @@ describe('OneOffForm', () => {
 
 describe('OneOffDates', () => {
   const task = (schedule: Task['schedule'], extra: Partial<Task> = {}): Task => ({ id: 't', kind: 'one_off', title: 'Tidy the shed', schedule, ...extra });
+  const saved = (t: Task) => (w: Writer) => w.create('task', { kind: t.kind, title: t.title, schedule: t.schedule }, t.id);
 
   it('is offered only on one off tasks that do not repeat and are still to do', async () => {
-    await inApp(<OneOffDates task={task({ type: 'recurring', every: 1, unit: 'week', anchor: TODAY })} commit={vi.fn()} />);
+    await inApp(<OneOffDates task={task({ type: 'recurring', every: 1, unit: 'week', anchor: TODAY })} />);
     expect(screen.queryByRole('button')).toBeNull();
     cleanup();
-    await inApp(<OneOffDates task={task({ type: 'once' }, { done_at: '2026-11-02T10:00:00Z' })} commit={vi.fn()} />);
+    await inApp(<OneOffDates task={task({ type: 'once' }, { done_at: '2026-11-02T10:00:00Z' })} />);
     expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('adds a date in place, refuses a missing or backwards one, and returns focus on close', async () => {
-    const commit = vi.fn();
-    await inApp(<OneOffDates task={task({ type: 'once' })} commit={commit} />);
+    const t = task({ type: 'once' });
+    const db = await inApp(<OneOffDates task={t} />, 'desktop', saved(t));
     const toggle = screen.getByRole('button', { name: 'Add date for Tidy the shed' });
     await userEvent.click(toggle);
     expect(screen.getByLabelText('Date')).toHaveFocus();
@@ -188,14 +195,14 @@ describe('OneOffDates', () => {
 
     fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-11-25' } });
     await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
-    expect(commit).toHaveBeenCalledWith('2026-11-20', '2026-11-25');
-    expect(screen.queryByLabelText('Date')).toBeNull();
+    await waitFor(() => expect(screen.queryByLabelText('Date')).toBeNull());
+    expect((await getRecord(db, 'task', 't'))?.schedule).toEqual({ type: 'once', from: '2026-11-20', to: '2026-11-25' });
     expect(toggle).toHaveFocus();
   });
 
   it('changes or clears a date, and Escape closes it', async () => {
-    const commit = vi.fn();
-    await inApp(<OneOffDates task={task({ type: 'once', from: '2026-11-03', to: '2026-11-06' })} commit={commit} />);
+    const t = task({ type: 'once', from: '2026-11-03', to: '2026-11-06' });
+    const db = await inApp(<OneOffDates task={t} />, 'desktop', saved(t));
     await userEvent.click(screen.getByRole('button', { name: 'Change date for Tidy the shed' }));
     expect(screen.getByLabelText('Date')).toHaveValue('2026-11-03');
     expect(screen.getByLabelText('End date')).toHaveValue('2026-11-06');
@@ -203,6 +210,22 @@ describe('OneOffDates', () => {
     expect(screen.queryByLabelText('Date')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Change date for Tidy the shed' }));
     await userEvent.click(screen.getByRole('button', { name: 'Clear date' }));
-    expect(commit).toHaveBeenCalledWith(null, null);
+    await waitFor(async () => expect((await getRecord(db, 'task', 't'))?.schedule).toEqual({ type: 'once', from: null, to: null }));
+  });
+});
+
+describe('OneOffDateForm', () => {
+  const t: Task = { id: 't', kind: 'one_off', title: 'Tidy the shed', schedule: { type: 'once', from: '2026-11-03' } };
+
+  it('saves through commit, and stays open when the save fails', async () => {
+    const commit = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce(true);
+    const onClose = vi.fn();
+    await inApp(<OneOffDateForm task={t} commit={commit} onClose={onClose} />);
+    expect(screen.getByRole('form', { name: 'Dates for Tidy the shed' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
+    expect(commit).toHaveBeenLastCalledWith('2026-11-03', null);
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

@@ -612,7 +612,13 @@ describe('one offs due today', () => {
   it('Find a time opens Week to place it, and Change date moves it off today', async () => {
     const t = await open(dated);
     const list = await screen.findByRole('region', { name: 'One offs today' });
-    await userEvent.click(within(list).getByRole('button', { name: 'Change date for Paint the fence' }));
+    const change = within(list).getByRole('button', { name: 'Change date for Paint the fence' });
+    await userEvent.click(change);
+    await userEvent.keyboard('{Escape}');
+    expect(within(list).queryByLabelText('Date')).toBeNull();
+    // Focus goes back to Change date rather than the page.
+    expect(change).toHaveFocus();
+    await userEvent.click(change);
     fireEvent.change(within(list).getByLabelText('Date'), { target: { value: '2026-11-05' } });
     await userEvent.click(within(list).getByRole('button', { name: 'Set date' }));
     await waitFor(() => expect(screen.queryByRole('region', { name: 'One offs today' })).toBeNull());

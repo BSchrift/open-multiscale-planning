@@ -4,7 +4,7 @@
 // Every change goes through act, so the pinned Undo line takes them back newest first.
 
 import { useRef, useState } from 'react';
-import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react';
+import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref, RefObject } from 'react';
 import { addDays, dayNumber, diffDays, formatDate, formatMinutes, fromDayNumber, nowInstant, today } from '../../../core/dates';
 import {
   applyPlanChange,
@@ -30,9 +30,10 @@ import { newId } from '../../../core/records';
 import { moveOnce, onceWhen, setOnceDates } from '../../../core/schedule';
 import { status, withStatusLine } from '../../../core/status';
 import { closeProject } from '../../../core/tasks';
-import type { LocalDate, Milestone, Minutes, Task } from '../../../core/types';
+import type { Fields, LocalDate, Milestone, Minutes, Task } from '../../../core/types';
 import { useApp } from '../../app/store';
 import { CloseQuestion } from '../../components/editors';
+import { OneOffDateForm } from '../../components/oneoff';
 import { Pill } from '../../components/Pill';
 import { Popover } from '../../components/Popover';
 import { Sheet } from '../../components/Sheet';
@@ -681,65 +682,23 @@ function CallRow(props: { call: Call; st: Stretch; ctx: PlanContext; phone: bool
 
 const onceOf = (t: Task) => (t.schedule?.type === 'once' ? t.schedule : { type: 'once' as const });
 
-function OneOffDates(props: { task: Task; phone: boolean; act: Act; onClose(): void }) {
-  const { task, phone } = props;
-  const s = onceOf(task);
-  const [from, setFrom] = useState(s.from ?? '');
-  const [to, setTo] = useState(s.to ?? '');
-  const [ranged, setRanged] = useState(!!s.to);
-  const [error, setError] = useState('');
-  const label = s.from ? 'Change date' : 'Add date';
-  const write = (fields: ReturnType<typeof setOnceDates>, when: string) => {
-    props.onClose();
-    void props.act(`oo-${task.id}`, `${task.title}, ${when}.`, (w) => applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] }));
-  };
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!isDay(from)) return setError('Pick a date.');
-    if (ranged && to && (!isDay(to) || to < from)) return setError('End on or after the start.');
-    const fields = setOnceDates(from, ranged && to ? to : null);
-    write(fields, onceWhen(onceOf({ ...task, ...fields } as Task)));
-  };
-  const form = (
-    <form className="stack8 oodate" aria-label={`${label} for ${task.title}`} noValidate onSubmit={submit} onKeyDown={(event) => event.key === 'Escape' && props.onClose()}>
-      <div className={phone ? 'stack8' : 'row small'}>
-        <label className="popfield">
-          Date
-          <input className="field datefield" type="date" autoFocus value={from} onChange={(event) => (setFrom(event.target.value), setError(''))} />
-        </label>
-        {ranged ? (
-          <label className="popfield">
-            End date
-            <input className="field datefield" type="date" min={from} value={to} onChange={(event) => (setTo(event.target.value), setError(''))} />
-          </label>
-        ) : (
-          <button className="btn sm" type="button" onClick={() => setRanged(true)}>
-            + End date
-          </button>
-        )}
-      </div>
-      {error && (
-        <div className="fielderr" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="row">
-        <button className="btn sm pri" type="submit">
-          Set date
-        </button>
-        {s.from && (
-          <button className="btn sm" type="button" onClick={() => write(setOnceDates(null, null), 'no date')}>
-            Clear date
-          </button>
-        )}
-        <button className="btn sm" type="button" onClick={props.onClose}>
-          Close
-        </button>
-      </div>
-    </form>
+/** A one off's new dates, as a change on the Undo line. */
+const setDates = (act: Act, task: Task, fields: Fields<'task'>) =>
+  act(`oo-${task.id}`, `${task.title}, ${onceWhen(onceOf({ ...task, ...fields } as Task)) || 'no date'}.`, (w) =>
+    applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] }),
   );
+
+/** The one off date form under its row, or in a sheet on phone. Closing puts focus back on the row's date. */
+function OneOffDateEditor(props: { task: Task; phone: boolean; act: Act; opener: RefObject<HTMLButtonElement | null>; onClose(): void }) {
+  const { task, phone } = props;
+  // The sheet puts focus back itself.
+  const close = () => {
+    props.onClose();
+    if (!phone) props.opener.current?.focus();
+  };
+  const form = <OneOffDateForm task={task} commit={(from, to) => setDates(props.act, task, setOnceDates(from, to))} onClose={close} />;
   return phone ? (
-    <Sheet label={`${label} for ${task.title}`} onClose={props.onClose}>
+    <Sheet label={`${onceOf(task).from ? 'Change date' : 'Add date'} for ${task.title}`} onClose={props.onClose}>
       {form}
     </Sheet>
   ) : (
@@ -753,21 +712,18 @@ function OneOffRow(props: { task: Task; axis: Axis; st: Stretch; on: LocalDate; 
   const s = onceOf(task);
   const { drag, dragged, grab } = useDrag(axis);
   const [editing, setEditing] = useState(false);
+  const dateRef = useRef<HTMLButtonElement>(null);
   const length = s.from && s.to ? diffDays(s.from, s.to) : 0;
   const from = drag?.day ?? s.from!;
   const to = s.to ? addDays(from, length) : null;
   const when = onceWhen({ type: 'once', from, to });
   const tip = `One off: ${task.title}, ${when}`;
   const commit = (d: LocalDate) => {
-    if (d === s.from) return;
-    const fields = moveOnce(s, d);
-    void act(`oo-${task.id}`, `${task.title}, ${onceWhen(onceOf({ ...task, ...fields } as Task))}.`, (w) =>
-      applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] }),
-    );
+    if (d !== s.from) void setDates(act, task, moveOnce(s, d));
   };
   const half = Math.floor(length / 2);
   const dateButton = (
-    <button className={phone ? 'link small' : 'plandate'} type="button" aria-label={`Change date for ${task.title}, ${when}`} onClick={() => setEditing(true)}>
+    <button ref={dateRef} className={phone ? 'link small' : 'plandate'} type="button" aria-label={`Change date for ${task.title}, ${when}`} onClick={() => setEditing(true)}>
       {when}
     </button>
   );
@@ -803,22 +759,23 @@ function OneOffRow(props: { task: Task; axis: Axis; st: Stretch; on: LocalDate; 
           {track}
         </div>
       )}
-      {editing && <OneOffDates task={task} phone={phone} act={act} onClose={() => setEditing(false)} />}
+      {editing && <OneOffDateEditor task={task} phone={phone} act={act} opener={dateRef} onClose={() => setEditing(false)} />}
     </>
   );
 }
 
 function Undated(props: { task: Task; phone: boolean; act: Act }) {
   const [editing, setEditing] = useState(false);
+  const addRef = useRef<HTMLButtonElement>(null);
   return (
     <>
       <div className="planshowrow small undated">
         <span className="grow">{props.task.title}</span>
-        <button className={props.phone ? 'btn' : 'btn sm'} type="button" aria-label={`Add date for ${props.task.title}`} onClick={() => setEditing(true)}>
+        <button ref={addRef} className={props.phone ? 'btn' : 'btn sm'} type="button" aria-label={`Add date for ${props.task.title}`} onClick={() => setEditing(true)}>
           Add date
         </button>
       </div>
-      {editing && <OneOffDates task={props.task} phone={props.phone} act={props.act} onClose={() => setEditing(false)} />}
+      {editing && <OneOffDateEditor task={props.task} phone={props.phone} act={props.act} opener={addRef} onClose={() => setEditing(false)} />}
     </>
   );
 }

@@ -1,5 +1,6 @@
 // Add date or Change date on a one off that doesn't repeat, edited in place under its title. Anywhere a one off
-// shows (One offs, Today, the week, the plan) can use it; pass commit to put the change on that screen's Undo.
+// shows as a row (One offs, Today, Process) uses OneOffDates. The plan opens OneOffDateForm from its own date
+// controls, with commit putting the change on its Undo line.
 
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -15,34 +16,27 @@ interface Editing {
   error: string | null;
 }
 
-export function OneOffDates(props: {
+/** A one off's dates. It closes once they save, or on Close or Esc. */
+export function OneOffDateForm(props: {
   task: Task;
-  /** Saves new dates; null clears them. Defaults to writing them to the task. */
-  commit?(from: LocalDate | null, to: LocalDate | null): unknown;
+  /** Saves new dates, null clearing them, resolving to something once saved. Defaults to writing them to the task. */
+  commit?(from: LocalDate | null, to: LocalDate | null): Promise<unknown>;
+  onClose(): void;
 }) {
-  const { task } = props;
+  const { task, onClose } = props;
   const { layout } = useApp();
   const save = useMutation((w, from: LocalDate | null, to: LocalDate | null) => w.set('task', task.id, setOnceDates(from, to)));
   const commit = props.commit ?? save.run;
-  const [ed, setEd] = useState<Editing | null>(null);
-  const toggleRef = useRef<HTMLButtonElement>(null);
-  if (isRepeating(task) || task.done_at) return null;
-
   const s = task.schedule?.type === 'once' ? task.schedule : null;
-  const label = s?.from ? 'Change date' : 'Add date';
+  const [ed, setEd] = useState<Editing>({ from: s?.from ?? '', to: s?.to ?? '', ranged: !!s?.to, error: null });
   const phone = layout === 'phone';
-  const put = (patch: Partial<Editing>) => setEd((e) => e && { ...e, error: null, ...patch });
-  const close = () => {
-    setEd(null);
-    toggleRef.current?.focus();
-  };
+  const put = (patch: Partial<Editing>) => setEd((e) => ({ ...e, error: null, ...patch }));
+  // A save that fails stays open, with the toast saying so, so nothing typed is lost.
   const apply = async (from: LocalDate | null, to: LocalDate | null) => {
-    await commit(from, to);
-    close();
+    if (await commit(from, to)) onClose();
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!ed) return;
     const to = ed.ranged && ed.to ? ed.to : null;
     const error = ed.from ? validateSchedule(setOnceDates(ed.from, to).schedule!) : 'Pick a date.';
     if (error) return put({ error });
@@ -50,70 +44,86 @@ export function OneOffDates(props: {
   };
 
   return (
+    <form
+      className="stack8 oodate"
+      aria-label={`Dates for ${task.title}`}
+      noValidate
+      onSubmit={submit}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <div className={phone ? 'stack8' : 'row small'}>
+        <label className={phone ? 'stack8 small quiet' : 'popfield'}>
+          Date
+          <input className="field oodatefield" type="date" autoFocus value={ed.from} onChange={(e) => put({ from: e.target.value })} />
+        </label>
+        {ed.ranged ? (
+          <label className={phone ? 'stack8 small quiet' : 'popfield'}>
+            End date
+            <input className="field oodatefield" type="date" min={ed.from || undefined} value={ed.to} onChange={(e) => put({ to: e.target.value })} />
+          </label>
+        ) : (
+          <div>
+            <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => put({ ranged: true })}>
+              + End date
+            </button>
+          </div>
+        )}
+      </div>
+      {ed.error && (
+        <div className="fielderr" role="alert">
+          {ed.error}
+        </div>
+      )}
+      <div className="row">
+        <button className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
+          Set date
+        </button>
+        {s?.from && (
+          <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => void apply(null, null)}>
+            {phone ? 'Clear' : 'Clear date'}
+          </button>
+        )}
+        <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Add date or Change date, and the dates under it when open. Closing puts focus back on it. */
+export function OneOffDates(props: { task: Task }) {
+  const { task } = props;
+  const { layout } = useApp();
+  const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  if (isRepeating(task) || task.done_at) return null;
+
+  const label = task.schedule?.type === 'once' && task.schedule.from ? 'Change date' : 'Add date';
+  const close = () => {
+    setOpen(false);
+    toggleRef.current?.focus();
+  };
+  return (
     <>
       <div>
         <button
           ref={toggleRef}
-          className={phone ? 'btn plain' : 'link small'}
+          className={layout === 'phone' ? 'btn plain' : 'link small'}
           type="button"
-          aria-expanded={!!ed}
+          aria-expanded={open}
           aria-label={`${label} for ${task.title}`}
-          onClick={() => (ed ? close() : setEd({ from: s?.from ?? '', to: s?.to ?? '', ranged: !!s?.to, error: null }))}
+          onClick={() => (open ? close() : setOpen(true))}
         >
           {label}
         </button>
       </div>
-      {ed && (
-        <form
-          className="stack8 oodate"
-          aria-label={`Dates for ${task.title}`}
-          noValidate
-          onSubmit={submit}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.stopPropagation();
-              close();
-            }
-          }}
-        >
-          <div className={phone ? 'stack8' : 'row small'}>
-            <label className={phone ? 'stack8 small quiet' : 'popfield'}>
-              Date
-              <input className="field oodatefield" type="date" autoFocus value={ed.from} onChange={(e) => put({ from: e.target.value })} />
-            </label>
-            {ed.ranged ? (
-              <label className={phone ? 'stack8 small quiet' : 'popfield'}>
-                End date
-                <input className="field oodatefield" type="date" min={ed.from || undefined} value={ed.to} onChange={(e) => put({ to: e.target.value })} />
-              </label>
-            ) : (
-              <div>
-                <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => put({ ranged: true })}>
-                  + End date
-                </button>
-              </div>
-            )}
-          </div>
-          {ed.error && (
-            <div className="fielderr" role="alert">
-              {ed.error}
-            </div>
-          )}
-          <div className="row">
-            <button className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
-              Set date
-            </button>
-            {s?.from && (
-              <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => void apply(null, null)}>
-                {phone ? 'Clear' : 'Clear date'}
-              </button>
-            )}
-            <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={close}>
-              Close
-            </button>
-          </div>
-        </form>
-      )}
+      {open && <OneOffDateForm task={task} onClose={close} />}
     </>
   );
 }

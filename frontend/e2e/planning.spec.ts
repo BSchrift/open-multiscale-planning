@@ -40,6 +40,17 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
   await expect(page.getByRole('button', { name: 'Process 1 item' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
+  // Pick: a task's title opens its editor, and a rename shows at once, with focus back on the title.
+  if (!phone) await page.getByRole('button', { name: /^Write the report,/ }).click();
+  await page.getByRole('button', { name: /^Edit task Write chapter one/ }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit task' });
+  await editor.getByRole('textbox', { name: 'Title' }).fill('Write the first chapter');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(editor).toHaveCount(0);
+  const renamed = page.getByRole('button', { name: /^Edit task Write the first chapter/ });
+  await expect(renamed).toBeFocused();
+  if (phone) expect((await renamed.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
   if (phone) {
     // The board opens on the first project, with its tasks in a half-height sheet.
     const sheet = page.getByRole('region', { name: 'Tasks in Write the report' });
@@ -67,7 +78,6 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
 
     await steps(page).getByRole('button', { name: 'Review' }).click();
   } else {
-    await page.getByRole('button', { name: /^Write the report,/ }).click();
     await page.getByRole('button', { name: 'Add Collect the sources to the plan' }).click();
     const planned = page.getByRole('complementary', { name: 'Time this week' });
     await expect(planned.getByText('Collect the sources', { exact: true })).toBeVisible();

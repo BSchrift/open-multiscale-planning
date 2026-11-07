@@ -17,6 +17,7 @@ import { DayTimeline } from './DayTimeline';
 import { NowCard } from './NowCard';
 import { OneOffsToday } from './OneOffsToday';
 import { QueuePanel } from './QueuePanel';
+import { ToSchedule } from './ToSchedule';
 import { ShiftPanel } from './ShiftPanel';
 import { usePrompts } from './usePrompts';
 import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
@@ -134,9 +135,6 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         : { key: 'queue', title: 'Needs a new time', text: `${queued} ${queued === 1 ? 'task' : 'tasks'} that didn't get done. Choose when it suits you.`, label: 'Review', act: () => setPanel('queue') },
     );
   }
-  if (data.inbox && !phone) {
-    alerts.push({ key: 'inbox', title: 'Inbox', text: `${data.inbox} ${data.inbox === 1 ? 'item' : 'items'} to sort.`, label: 'Open Inbox', act: () => nav.go('inbox') });
-  }
   if (stretchDue && !phone) {
     alerts.push({ key: 'stretch', title: planText, label: 'Start', act: () => nav.openFlow('plan'), skip: () => setSkippedStretch(stretchDue.end) });
   }
@@ -187,11 +185,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         <NowCard blocks={data.blocks} tasks={tasks} layout={layout} />
       )}
       <OneOffsToday data={data} />
-      {phone && data.inbox > 0 && (
-        <button className="attn" type="button" onClick={() => nav.openOverlay('process')}>
-          <span>{data.inbox} to sort</span> <span className="strong process">Process</span>
-        </button>
-      )}
+      <ToSchedule date={data.date} />
       {(data.blocks.length > 0 || !unplanned) && <DayTimeline data={data} events={data.events} />}
       {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
       {prompt}

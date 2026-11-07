@@ -29,7 +29,7 @@ export interface GridBlock extends Slot {
   clash?: boolean;
   /** Drawn, but never dragged or removed. */
   fixed?: boolean;
-  /** The block being placed: solid blue, and Enter places it through onOpen. */
+  /** The block being placed: solid orange over the others, and Enter places it through onOpen. */
   draft?: boolean;
 }
 
@@ -295,10 +295,12 @@ export function WeekGrid(props: WeekGridProps) {
                   const style = { top: y(at.start), height: Math.max(13, h) };
                   const when = `${dayName(at.date)}, ${formatTimeOfDay(at.start)} to ${formatTimeOfDay(at.end)}`;
                   const said = `${b.title}, ${when}, ${KIND_WORD[b.kind]}.${b.note ? ` ${b.note}.` : ''}`;
+                  // The block being placed floats beside what it overlaps, so nothing under it moves or hides.
+                  const beside = b.draft && [...blocks.filter((o) => !o.draft), ...ctx.busy].some((o) => o.date === at.date && o.start < at.end && at.start < o.end);
                   // Under two lines tall, the title stays on one line rather than being cut through.
-                  const cls = `${b.draft ? 'ev evdrag evdraft' : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}`}${h < 30 ? ' short' : ''}`;
+                  const cls = `${b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''}` : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}`}${h < 30 ? ' short' : ''}`;
                   if (movable(b)) {
-                    const help = b.draft ? ' Arrow keys move it, Shift and arrows change its length, Enter places it.' : ' Arrow keys move it, Shift and arrows change its length.';
+                    const help = b.draft ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.' : ' Arrow keys move it, Shift and arrows change its length.';
                     return (
                       <div
                         key={b.id}

@@ -44,6 +44,13 @@ export interface Lifecycle {
   onBackground(listener: () => void): () => void;
 }
 
+export interface CaptureShortcut {
+  /** registered is false when another app held it at launch. */
+  get(): Promise<{ accelerator: string; registered: boolean }>;
+  /** False when another app holds it, and the old one stays. */
+  set(accelerator: string): Promise<boolean>;
+}
+
 export interface Platform {
   readonly kind: PlatformKind;
   /** The open, migrated database. */
@@ -68,6 +75,8 @@ export interface Platform {
   readonly diagnostics?: Diagnostics;
   /** Only in the apps, whose native code checks and installs a downloaded web bundle. */
   readonly updates?: NativeUpdates;
+  /** Only on desktop: the global shortcut that opens capture, as an Electron accelerator. */
+  readonly captureShortcut?: CaptureShortcut;
   /** Only where a share sheet exists. */
   readonly shareImport?: {
     /** Text shared while the app was closed, oldest first. It stays queued until removed. */

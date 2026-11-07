@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectTapTarget, openSeeded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -234,5 +234,34 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
     await expect(placed).toHaveCount(0);
     await expect(lane.getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' })).toBeVisible();
   }
+  expect(errors).toEqual([]);
+});
+
+test('phone: a card held, then dragged down onto the day, is placed where it is let go', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'Holding first is for touch');
+  const errors = await openWeek(page);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  const card = lane.getByRole('button', { name: /^Piano practice, Practice, 6 × 30m/ });
+  await expect(card).toBeVisible();
+  // A swipe that moves before the hold leaves it be.
+  await touchDrag(page, card, { x: 20, y: 700 }, 50);
+  await expect(card).toBeVisible();
+
+  // Held near the bottom, the day scrolls up under the card; moved back up off the edge, it's let go in the evening.
+  await lane.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  const height = page.viewportSize()!.height;
+  const evening = page.locator('.tlrow', { hasText: /^\d+(am|pm)Free, / }).last();
+  // Let go over the middle of the evening that shows between the sticky day strip and the tray.
+  const overEvening = async () => {
+    const [b, top] = [(await evening.boundingBox())!, (await page.locator('.weektop').boundingBox())!];
+    const from = Math.max(b.y, top.y + top.height);
+    return { x: b.x + b.width / 2, y: (from + Math.min(b.y + b.height, height - 170)) / 2 };
+  };
+  await touchDrag(page, card, { x: 200, y: height - 110 }, 500, 1000, overEvening);
+  await expect(lane.getByRole('button', { name: /^Piano practice, Practice, 5 × 30m/ })).toBeVisible();
+  const placed = await page.getByRole('button', { name: /^Piano practice, \d/ }).getAttribute('aria-label');
+  const [, h, m, ap] = /^Piano practice, (\d+)(?::(\d+))?(am|pm)/.exec(placed!)!;
+  const minutes = ((Number(h) % 12) + (ap === 'pm' ? 12 : 0)) * 60 + Number(m ?? 0);
+  expect(minutes).toBeGreaterThanOrEqual(17 * 60);
   expect(errors).toEqual([]);
 });

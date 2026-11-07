@@ -131,7 +131,7 @@ export function PhoneWeek(props: WeekProps) {
       item={x}
       ctx={model.ctx}
       open={false}
-      draggable={isThis && editing && !placing}
+      draggable={isThis && !placing}
       onToggle={() => setOpen({ kind: 'item', id: x.id })}
       onPreview={(slot) => setDropAt(slot && { item: x, slot })}
       onDrop={(slot) => void act.place(x, slot)}
@@ -266,7 +266,11 @@ export function PhoneWeek(props: WeekProps) {
             <span className="quiet">{model.unscheduled.length ? laneCount(model.unscheduled) : 'Everything this week is on the calendar.'}</span>
           </div>
           {laneItems.length > 0 && <div className="lanerow">{laneItems.map(card)}</div>}
-          {isThis && editing && <p className="small quiet">Drag work down onto the day to place it, or a block up here to take it off the calendar.</p>}
+          {isThis && laneItems.length > 0 && (
+            <p className="small quiet">
+              {editing ? 'Hold a card, then drag it down onto the day. Drag a block up here to take it off the calendar.' : 'Hold a card, then drag it down onto the day, or tap it for suggested times.'}
+            </p>
+          )}
           {model.unscheduled.length > 0 && (
             <button className="btn" type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
               Schedule one at a time
@@ -462,9 +466,10 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
   // Open time that has gone by shows what happened, so it's never free.
   const kindAt = (m: number) => (!isOpen(availability, date, m, 'project') ? 'closed' : isPast(date, m, model.ctx) ? 'gone' : 'free');
   const rows: ReactElement[] = [];
-  const row = (key: string, time: number, body: ReactElement) =>
+  // Each row says the time it covers, so a card dropped on it lands where it was let go.
+  const row = (key: string, time: number, body: ReactElement, from: number, to: number) =>
     rows.push(
-      <div key={key} className="tlrow">
+      <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to}>
         <span className="tltime">{formatTimeOfDay(time)}</span>
         {body}
       </div>,
@@ -506,6 +511,8 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
             {inner}
           </button>
         ),
+        m,
+        m + cells * 30,
       );
       m += cells * 30;
       continue;
@@ -520,12 +527,14 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
           <span className="tlname">{inf.title}</span>
           <span className="tlkind">Information, {range(inf)}</span>
         </div>,
+        inf.start,
+        inf.end,
       );
       m = Math.max(m, m + Math.ceil((inf.end - m) / 30) * 30);
       continue;
     }
     if (event) {
-      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {range(event)}</div>);
+      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {range(event)}</div>, m, event.end);
       m = event.end;
       continue;
     }
@@ -545,6 +554,8 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
           Free, {text}
         </div>
       ),
+      m,
+      n,
     );
     m = n;
   }
@@ -674,12 +685,13 @@ export function DragDay(props: {
       if (next.start !== slot.start || next.end !== slot.end) on.change(next);
     };
     let latest = slot;
-    const snaps = key === 'moving' || key === props.selected;
+    // The block being placed, or the one selected: drawn apart, and it snaps to the suggested times.
+    const chosen = key === 'moving' || key === props.selected;
     const drag = (mode: 'move' | 'resize') => (e: ReactPointerEvent) =>
       track(
         e,
         (minutes) => {
-          latest = dragResult(slot, mode, 0, minutes, mode === 'move' && snaps ? targets : [], bounds);
+          latest = dragResult(slot, mode, 0, minutes, mode === 'move' && chosen ? targets : [], bounds);
           if (on.commit) setPreview({ id: key, slot: latest });
           else on.change(latest);
         },
@@ -691,14 +703,16 @@ export function DragDay(props: {
         mode === 'move' ? on.unschedule : undefined,
       );
     const shown = preview?.id === key ? preview.slot : slot;
+    // It floats beside what it overlaps, so nothing under it moves or hides.
+    const beside = chosen && overlaps([...props.blocks.filter((b) => b.id !== key), ...ctx.busy], date, shown.start, shown.end);
     const help = on.commit ? ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter opens its options.' : ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter saves.';
     return (
       <div
         key={key}
-        className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}`}
+        className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}`}
         role="slider"
         tabIndex={0}
-        aria-label={(on.commit ? title : `Time for ${title}`) + '.' + help}
+        aria-label={(on.commit ? title : `Time for ${title}, being placed`) + '.' + help}
         // The day runs down the screen, so the value is the time left in the day after its start: Up, and VoiceOver's
         // swipe up, raise it and move the block up. aria-valuetext says the actual time.
         aria-orientation="vertical"

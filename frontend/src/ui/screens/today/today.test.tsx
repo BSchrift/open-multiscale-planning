@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
 import { META, setMeta } from '../../../core/db';
-import { CALENDAR_ID, getRecord, listRecords, outcomeId, weekPickId, weekPlanId } from '../../../core/records';
+import { CALENDAR_ID, getRecord, listRecords, outcomeId, setWeekPick, weekPickId, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
@@ -840,10 +840,75 @@ describe('moving a block on the timeline', () => {
   });
 });
 
-describe('on phone', () => {
-  it('shows what is left to sort, with Process', async () => {
-    const t = await open((w) => w.create('task', { kind: 'inbox', title: 'Rake the leaves' }), { layout: 'phone' });
-    await userEvent.click(await screen.findByRole('button', { name: '1 to sort Process' }));
-    expect(t.nav().overlay?.area).toBe('process');
+describe.each(['desktop', 'phone'] as const)('the Inbox, on %s', (layout) => {
+  it("isn't asked about on Today: the tab shows its count, and planning asks", async () => {
+    await open((w) => w.create('task', { kind: 'inbox', title: 'Rake the leaves' }), { layout });
+    await screen.findByRole('heading', { name: 'Today' });
+    expect(screen.queryByText(/to sort/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open Inbox' })).toBeNull();
+  });
+});
+
+describe('To schedule on Today', () => {
+  // Picked for 2h with nothing placed, a one off dated Wednesday, and one dated today.
+  const picks = async (w: Writer) => {
+    await w.create('project', { title: 'Report', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+    await task(w, 't1', 'Write the report', { estimate_min: 120 });
+    await setWeekPick(w, DAY, 't1', 120);
+    await w.create('task', { kind: 'one_off', title: 'Renew the passport', estimate_min: 30, schedule: { type: 'once', from: '2026-11-04' } }, 'o1');
+    await w.create('task', { kind: 'one_off', title: 'Call the bank', estimate_min: 30, schedule: { type: 'once', from: DAY } }, 'o2');
+  };
+  const pointAt = (el: () => Element | null) => Object.defineProperty(document, 'elementFromPoint', { value: () => el(), configurable: true });
+  afterEach(() => Reflect.deleteProperty(document, 'elementFromPoint'));
+  const live = async (t: Harness, id: string) => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === id && !b.deleted_at);
+
+  it('sits just above the day with work for today or any day, and a suggestion places it', async () => {
+    const t = await open(picks);
+    const lane = await screen.findByRole('region', { name: 'To schedule' });
+    expect(within(lane).getByText('2 · 2h 30m')).toBeVisible();
+    expect(within(lane).queryByRole('button', { name: /^Renew the passport/ })).toBeNull();
+    // Right above the timeline.
+    expect(lane.nextElementSibling?.querySelector('.day, .daywrap')).not.toBeNull();
+    await userEvent.click(within(lane).getByRole('button', { name: /^Write the report, Project, 2h/ }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Write the report' })).getAllByRole('button', { name: /^Place Write the report, / })[0]!);
+    await waitFor(async () => expect(await live(t, 't1')).toHaveLength(1));
+    await waitFor(() => expect(within(lane).queryByRole('button', { name: /^Write the report, Project/ })).toBeNull());
+  });
+
+  it('a card dragged onto the day is placed where it is let go', async () => {
+    const t = await open(picks);
+    const card = await screen.findByRole('button', { name: /^Call the bank, One off/ });
+    const day = document.querySelector('[data-drop-date="2026-11-02"]')!;
+    // The day from 7am to 10pm drawn 450px tall, 30px an hour, so y 330 is 6pm.
+    vi.spyOn(day, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 450, top: 0, left: 0, right: 300, bottom: 450, x: 0, y: 0, toJSON: () => ({}) });
+    pointAt(() => day);
+    fireEvent.pointerDown(card, { clientX: 10, clientY: 10, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 100, clientY: 330 });
+    fireEvent.pointerUp(window, { clientX: 100, clientY: 330 });
+    await waitFor(async () => expect((await live(t, 'o2')).map((b) => b.start)).toEqual([at('18:00')]));
+  });
+
+  it('on phone, a card is held before it drags, and a quick swipe leaves it be', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const t = await open(picks, { layout: 'phone' });
+      const card = await screen.findByRole('button', { name: /^Call the bank, One off/ });
+      const day = document.querySelector('[data-drop-date="2026-11-02"]')!;
+      vi.spyOn(day, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 450, top: 0, left: 0, right: 300, bottom: 450, x: 0, y: 0, toJSON: () => ({}) });
+      pointAt(() => day);
+      const press = (holdMs: number) => {
+        fireEvent.pointerDown(card, { clientX: 10, clientY: 10, button: 0, pointerType: 'touch' });
+        act(() => void vi.advanceTimersByTime(holdMs));
+        fireEvent.pointerMove(window, { clientX: 100, clientY: 330, pointerType: 'touch' });
+        fireEvent.pointerUp(window, { clientX: 100, clientY: 330, pointerType: 'touch' });
+      };
+      press(100);
+      expect(document.querySelector('.cardghost')).toBeNull();
+      expect(await live(t, 'o2')).toEqual([]);
+      press(450);
+      await waitFor(async () => expect((await live(t, 'o2')).map((b) => b.start)).toEqual([at('18:00')]));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -61,3 +61,35 @@ export async function setDate(page: Page, title: string, date: string) {
   // The row's line starts with the date, then its estimate if it has one.
   await expect(oneOffRow(page, title).getByText(new RegExp(`^${formatDate(date)}(,|$)`))).toBeVisible();
 }
+
+/**
+ * A finger held on an element, then dragged to a point and let go, as touch pointer events: Playwright's touchscreen
+ * only taps. The hold is real time, so the app's hold-to-drag timer runs as it would.
+ */
+export async function touchDrag(page: Page, target: Locator, to: { x: number; y: number }, holdMs = 500, dwellMs = 0, letGo: { x: number; y: number } | Locator | (() => Promise<{ x: number; y: number }>) = to): Promise<void> {
+  const box = (await target.boundingBox())!;
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const fire = (type: string, at: { x: number; y: number }, onTarget = false) =>
+    (onTarget ? target : page.locator('body')).evaluate(
+      (el, { type, x, y, onTarget }) => {
+        const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: y };
+        (onTarget ? el : window).dispatchEvent(new PointerEvent(type, init));
+      },
+      { type, x: at.x, y: at.y, onTarget },
+    );
+  await fire('pointerdown', from, true);
+  await page.waitForTimeout(holdMs);
+  for (let i = 1; i <= 4; i++) await fire('pointermove', { x: from.x + ((to.x - from.x) * i) / 4, y: from.y + ((to.y - from.y) * i) / 4 });
+  // Held still there, as a finger waits at the edge for the page to scroll.
+  if (dwellMs) await page.waitForTimeout(dwellMs);
+  // Let go over an element: the middle of the part of it on screen, once the page has stopped scrolling.
+  let end = letGo as { x: number; y: number };
+  if (typeof letGo === 'function') end = await letGo();
+  else if ('boundingBox' in letGo) {
+    const b = (await letGo.boundingBox())!;
+    const bottom = Math.min(b.y + b.height, page.viewportSize()!.height - 160);
+    end = { x: b.x + b.width / 2, y: (Math.max(b.y, 0) + bottom) / 2 };
+  }
+  if (end !== to) await fire('pointermove', end);
+  await fire('pointerup', end);
+}

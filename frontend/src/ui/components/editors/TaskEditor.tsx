@@ -21,6 +21,8 @@ export function TaskEditor(props: {
   milestoneId?: string | null;
   /** Called with each task added, and the milestone it went under. */
   onAdded?(id: string, milestoneId: string | null): void;
+  /** A line about the task under the heading, such as why it's suggested. */
+  note?: string;
   onClose(): void;
 }) {
   const { plan, ctx, onClose } = props;
@@ -82,6 +84,7 @@ export function TaskEditor(props: {
     <Popover label={heading} onClose={onClose}>
       <form className="stack8 editor" onSubmit={save}>
         <h2>{heading}</h2>
+        {props.note && <p className="small quiet">{props.note}</p>}
         <label className="popfield">
           Title
           <input

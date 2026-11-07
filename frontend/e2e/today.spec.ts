@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectTapTarget, openSeeded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -100,7 +100,8 @@ test('on phone, a short block on the calendar still has a 44pt tap target', asyn
   const errors = await open(page, [planned, fence, block('b2', 't2', '16:00', '16:15')]);
   // Still to come, so it's a slider, as on Week.
   const short = page.getByRole('slider', { name: /^Paint the fence, 4pm to 4:15pm/ });
-  await short.scrollIntoViewIfNeeded();
+  // Scrolled clear of the floating tab bar, as a finger would.
+  await short.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const box = (await short.boundingBox())!;
   expect(box.height).toBeLessThan(44);
   for (const dy of [-21, 21]) {
@@ -177,5 +178,34 @@ test('a clash with the calendar shifts the rest of today', async ({ page }, info
   await panel.getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByText('Rest of today shifted. Time blocks calendar will update.')).toBeVisible();
   await expect(page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4:30pm to 5:30pm/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('to schedule sits just above the day, and a card dragged onto it is placed there, held first on phone', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const pick: Seed = { type: 'week_pick', id: 'pick:2026-11-02:t2', fields: { week_start: '2026-11-02', task_id: 't2', minutes: 30 } };
+  const errors = await open(page, [planned, report, fence, pick, block('b1', 't1', '16:00', '17:00')]);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  const card = lane.getByRole('button', { name: /^Paint the fence, One off, 30m/ });
+  await expect(card).toBeVisible();
+  if (phone) await expectTapTarget(card);
+  await lane.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  const day = page.locator('[data-drop-date="2026-11-02"]');
+  const [l, d] = [(await lane.boundingBox())!, (await day.boundingBox())!];
+  expect(d.y).toBeGreaterThanOrEqual(l.y + l.height);
+  await page.screenshot({ path: info.outputPath(`today-to-schedule-${info.project.name}.png`) });
+
+  // The first zoom draws 30px an hour from 7am, so 3pm is 240px down.
+  const to = { x: d.x + d.width / 2, y: d.y + 240 + 2 };
+  if (phone) await touchDrag(page, card, to);
+  else {
+    const c = (await card.boundingBox())!;
+    await page.mouse.move(c.x + 20, c.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+  }
+  await expect(page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 3pm to 3:30pm/ })).toBeVisible();
+  await expect(card).toHaveCount(0);
   expect(errors).toEqual([]);
 });

@@ -7,6 +7,8 @@ import { useApp } from '../../app/store';
 import { dragCard } from '../../components/weekgrid';
 import { dayName, KIND_WORD } from './data';
 import type { LaneItem } from './data';
+// The card styles, for Today too.
+import './week.css';
 
 const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint' } as const;
 

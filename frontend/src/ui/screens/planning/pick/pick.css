@@ -9,6 +9,9 @@
 :where([data-layout]) .planning .wide-range{width:100%}
 
 :where([data-layout='desktop']) .planning .qpad{padding-left:40px}
+/* A task's title reads as text and opens its editor. */
+:where([data-layout='desktop']) .planning .picktitle{padding:0;border:0;background:transparent;text-align:left}
+:where([data-layout='desktop']) .planning .picktitle:hover{text-decoration:underline;text-underline-offset:2px}
 :where([data-layout='desktop']) .planning .pklegend{margin-top:4px}
 :where([data-layout='desktop']) .planning .pickmain>section.card{padding:12px 16px}
 /* One offs stay a purple band, raised like the cards beside it. */
@@ -17,6 +20,7 @@
 :where([data-layout='phone']) .pklegend{display:flex;gap:8px;font-size:14px;color:var(--ink-2)}
 :where([data-layout='phone']) .pklegend span{display:inline-flex;align-items:center;gap:6px}
 :where([data-layout='phone']) .pklegend i{display:inline-block;width:10px;height:10px;border-radius:2px}
+:where([data-layout='phone']) .planning button.tmain{min-height:var(--tap)}
 :where([data-layout='phone']) .sheet .fixacts{flex-direction:column;align-items:stretch}
 :where([data-layout='phone']) .sheet .pastacts .btn{flex:1 1 auto}
 /* The board is a card under Pick's header, its axis pinned along the card's top. */

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
@@ -410,6 +410,28 @@ describe('To schedule on Week', () => {
     await userEvent.click(within(sheet).getAllByRole('button', { name: /^Place Piano practice, / })[0]!);
     await waitFor(async () => expect(await live(t, (b) => b.practice_id === 'pr')).toHaveLength(2));
     expect(await screen.findByRole('button', { name: /^Piano practice, Practice, 5 × 30m/ })).toBeVisible();
+  });
+
+  it('on phone, a card held then dragged onto a row of the day is placed at that time', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const t = await open({ layout: 'phone', seed: picks });
+      const card = await screen.findByRole('button', { name: /^Piano practice, Practice/ });
+      // The free row from 5pm to 10pm drawn 300px tall, so y 60 is 6pm.
+      const free = document.querySelector('.tlrow[data-drop-from="1020"]')!;
+      expect(free).toHaveTextContent('Free, 5pm to 10pm');
+      rect(free, 300);
+      pointAt(() => free);
+      fireEvent.pointerDown(card, { clientX: 10, clientY: 10, button: 0, pointerType: 'touch' });
+      act(() => void vi.advanceTimersByTime(450));
+      expect(document.querySelector('.cardghost')).not.toBeNull();
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
+      expect(document.querySelector('.cardghost .ghostwhen')).toHaveTextContent('6pm');
+      fireEvent.pointerUp(window, { clientX: 50, clientY: 60, pointerType: 'touch' });
+      await waitFor(async () => expect((await live(t, (b) => b.practice_id === 'pr')).map((b) => b.start)).toContain(at('18:00')));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('on phone while editing, cards drag onto the day and blocks drag back up', async () => {

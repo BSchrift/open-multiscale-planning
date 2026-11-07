@@ -123,8 +123,6 @@ export function useReminders(): void {
       case A.start:
       case A.started:
         return startBlock(w, id, clock);
-      case A.done:
-        return answerBlock(w, id, { result: 'done' }, clock);
       case A.notDone:
         return answerBlock(w, id, { result: 'not' }, clock);
       case A.skip:
@@ -144,7 +142,8 @@ export function useReminders(): void {
 
   const respond = (response: ReminderResponse) => {
     if (response.action_id === REMINDER_ACTION.snooze) return snoozeBlock(response.block_id, snoozeUntil(clock));
-    if (response.action_id === null || response.action_id === REMINDER_ACTION.partly) {
+    // Done from a notification delivered before it was taken off opens the app to ask, rather than finishing the task.
+    if (response.action_id === null || response.action_id === REMINDER_ACTION.partly || response.action_id === REMINDER_ACTION.done) {
       nav.go('today');
       if (response.action_id === REMINDER_ACTION.partly) requestPrompt(response.block_id);
       return;

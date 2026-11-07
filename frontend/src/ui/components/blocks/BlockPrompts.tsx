@@ -1,4 +1,4 @@
-// The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Done, Partly with the
+// The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Task finished, Partly with the
 // time left, Not done), a practice's time logged, and one check-in for several missed blocks. On desktop they sit in
 // the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they close. One
 // that opens while you're typing or in another dialog waits until you're done.
@@ -131,7 +131,7 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
 }
 
 /**
- * The end-of-block prompt. Work asks Done, Partly or Not done, with Partly setting the time left; a practice logs
+ * The end-of-block prompt. Work asks Task finished, Partly or Not done, with Partly setting the time left; a practice logs
  * how much was done. onClose without an answer means "Answer later".
  */
 export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean }) {
@@ -147,7 +147,7 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
       <div className="stack8">
         <div className="row">
           <button className="btn pri" type="button" disabled={actions.pending} onClick={() => answer('done')}>
-            Done
+            Task finished
           </button>
           <button className="btn" type="button" onClick={() => setPartly(true)}>
             Partly
@@ -240,7 +240,7 @@ export function CheckIn(props: { blocks: readonly BlockRow[]; onPartly(block: Bl
           </div>
           <div className="row">
             <button className="btn sm" type="button" disabled={actions.pending} onClick={() => void actions.answer(b, { result: 'done' })}>
-              Done
+              Task finished
             </button>
             <button className="btn sm" type="button" onClick={() => props.onPartly(b)}>
               Partly

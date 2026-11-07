@@ -49,28 +49,35 @@ describe('reminders', () => {
     await waitFor(async () => expect(await t.scheduled()).toEqual([]));
   });
 
-  it('records Start, Done and Still going from the notification', async () => {
+  it('records Start and Still going from the notification', async () => {
     const t = await open();
     await respond(t, REMINDER_ACTION.start, 'start');
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
     await respond(t, REMINDER_ACTION.stillGoing);
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16, 30)));
+  });
+
+  it('never finishes a task from a notification: Done left on an old one opens Today to ask', async () => {
+    const t = await open();
+    t.clock.set(at(16, 5));
     await respond(t, REMINDER_ACTION.done);
-    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(NOW));
-    expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('done');
+    const prompt = await screen.findByRole('dialog', { name: 'Block finished' });
+    expect(within(prompt).getByRole('button', { name: 'Task finished' })).toBeVisible();
+    await act(() => t.write(async () => {}));
+    expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeFalsy();
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
   });
 
   it('ignores a stale notification for a block already answered', async () => {
     const t = await open();
     t.clock.set(at(16, 5));
-    await respond(t, REMINDER_ACTION.done);
-    // Done counts when the block ended, not when the notification was answered.
-    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(at(16)));
-    t.clock.set(at(18));
     await respond(t, REMINDER_ACTION.notDone);
+    await waitFor(async () => expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not'));
+    t.clock.set(at(18));
+    await respond(t, REMINDER_ACTION.stillGoing);
     // Writes go one at a time, so this one lands after the answer above has been handled.
     await act(() => t.write(async () => {}));
-    expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('done');
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16));
   });
 
   it('Ask again moves the check-in ten minutes on', async () => {

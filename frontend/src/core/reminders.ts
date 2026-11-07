@@ -41,11 +41,12 @@ const CHECK_IN_ACTIONS: ReminderAction[] = [
   { id: A.nextBlock, title: 'Do next block instead' },
   { id: A.skip, title: 'Skip, choose a new time later' },
 ];
+// No Done here: a task finishes only when someone says so in the app. On the Mac the first action shows as a button
+// beside Close, where Done read as dismissing the notification and finished tasks unasked.
 const END_ACTIONS: ReminderAction[] = [
-  { id: A.done, title: 'Done' },
+  { id: A.stillGoing, title: 'Still going' },
   { id: A.partly, title: 'Partly', opens_app: true },
   { id: A.notDone, title: 'Not done' },
-  { id: A.stillGoing, title: 'Still going' },
 ];
 
 const startId = (blockId: string) => `reminder:${blockId}:start`;

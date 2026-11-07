@@ -255,13 +255,16 @@ final class ShellUITests: XCTestCase {
         // The block ends two minutes after it was seeded.
         exists(banner, timeout: 180)
         banner.press(forDuration: 1.5)
-        let done = springboard.buttons["Done"]
-        exists(done)
+        let notDone = springboard.buttons["Not done"]
+        exists(notDone)
+        XCTAssertTrue(springboard.buttons["Still going"].exists)
         XCTAssertTrue(springboard.buttons["Partly"].exists)
-        done.tap()
+        // A task is never finished from a notification.
+        XCTAssertFalse(springboard.buttons["Done"].exists)
+        notDone.tap()
 
         app.activate()
-        let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Done.'")).firstMatch
+        let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
         exists(answered)
     }
 

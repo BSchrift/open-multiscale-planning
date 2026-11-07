@@ -80,7 +80,7 @@ async function deleteFromInbox(page: Page, title: string) {
   await pane(page, 'Inbox').getByRole('button', { name: `Assign ${title}` }).click();
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
   await expect(card.getByRole('heading', { name: title, level: 1 })).toBeVisible();
-  await card.getByRole('button', { name: 'Delete' }).click();
+  await card.getByRole('button', { name: 'Delete/done' }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card.getByRole('heading', { name: title })).toHaveCount(0);
   await page.keyboard.press('Escape');

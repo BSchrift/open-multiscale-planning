@@ -140,11 +140,11 @@ describe('Process on desktop', () => {
     await screen.findByRole('heading', { name: 'Return the books' });
     expect(last()).toHaveTextContent('Skipped. It stays in your Inbox.');
 
-    await userEvent.click(btn('Delete'));
+    await userEvent.click(btn('Delete/done'));
     expect(within(card()).getByRole('alert')).toHaveTextContent('Delete this item?');
     await userEvent.click(btn('Cancel'));
     expect(title()).toHaveTextContent('Return the books');
-    await userEvent.click(btn('Delete'));
+    await userEvent.click(btn('Delete/done'));
     await userEvent.click(btn('Yes, delete'));
     expect(await screen.findByRole('heading', { name: "That's everything for now" })).toBeInTheDocument();
     expect(within(card()).getByText('3 sorted, 1 deleted, 1 skipped, still in your Inbox.')).toBeInTheDocument();
@@ -230,7 +230,7 @@ describe('Process on phone', () => {
     const order = Array.from(card().querySelectorAll('h1, [role=status], button, input')).map((e) =>
       e.tagName === 'INPUT' ? 'Time' : e.tagName === 'H1' ? 'title' : e.getAttribute('role') === 'status' ? 'last' : (e.getAttribute('aria-label') ?? e.textContent),
     );
-    expect(order).toEqual(['Exit', 'title', 'last', 'Time', '+Add to this week', 'Paint the fence', 'Learn to bake bread', 'One offs', 'Other project', '‹ Undo', 'Skip', 'Delete']);
+    expect(order).toEqual(['Exit', 'title', 'last', 'Time', '+Add to this week', 'Paint the fence', 'Learn to bake bread', 'One offs', 'Other project', '‹ Undo', 'Skip', 'Delete/done']);
   });
 
   it('picks another project from a searchable sheet, then confirms', async () => {

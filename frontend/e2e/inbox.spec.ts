@@ -70,7 +70,7 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
   await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeFocused();
   await page.screenshot({ path: info.outputPath('process.png') });
   if (phone) {
-    for (const name of ['Paint the fence', 'One offs', 'Other project', 'Skip', 'Delete']) {
+    for (const name of ['Paint the fence', 'One offs', 'Other project', 'Skip', 'Delete/done']) {
       const box = await card(page).getByRole('button', { name, exact: true }).boundingBox();
       expect(box!.height, name).toBeGreaterThanOrEqual(44);
     }
@@ -101,7 +101,7 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
   }
   await expect(card(page).getByRole('status')).toHaveText('Sent to Write the report.');
 
-  await card(page).getByRole('button', { name: 'Delete' }).click();
+  await card(page).getByRole('button', { name: 'Delete/done' }).click();
   await expect(card(page).getByRole('alert')).toContainText('Delete this item?');
   await card(page).getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card(page).getByRole('heading', { name: 'Inbox clear' })).toBeVisible();

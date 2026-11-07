@@ -1,6 +1,7 @@
 // Needs a new time: planned work that didn't get done. Each row still belongs to its project or One offs; it offers
 // its best open time in one tap, and work passed over at the last planning first asks "Still want this?".
 
+import { placeBlock } from '../../../core/blocks';
 import { addWeeks, formatDate, formatTimeOfDay, formatWeekday, thisWeek, weekRange } from '../../../core/dates';
 import { applyPlanChange, gatherPlans, taskDue, taskWork } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -39,11 +40,11 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
   const phone = layout === 'phone';
   const label = offer && `${formatWeekday(offer.date)} ${formatDate(offer.date)}, ${formatTimeOfDay(offer.start)}`;
 
+  // As placing on Week: an estimate the time no longer fits goes up, and Undo takes both back.
   const place = async () => {
     if (!offer) return;
-    const zone = clock.zone();
-    const placed = await write.run((w) => w.create('time_block', { task_id: item.id, ...slotInstants(offer, zone), tz: zone }));
-    if (placed) toast.show(`Placed ${item.title}, ${label}`);
+    const reverse = await write.run((w) => placeBlock(w, item.id, slotInstants(offer, clock.zone()), clock));
+    if (reverse) toast.show(`Placed ${item.title}, ${label}`, { undo: () => write.run((w) => applyPlanChange(w, reverse as PlanChange)), focusUndo: true });
   };
   const remove = async () => {
     const reverse = await write.run((w) => deleteWork(w, item, clock));

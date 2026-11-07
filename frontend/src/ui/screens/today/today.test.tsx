@@ -325,6 +325,26 @@ describe('Needs a new time', () => {
     expect(await within(panel).findByText('Nothing needs a new time.')).toBeVisible();
   });
 
+  it('placing raises an estimate the time no longer fits, as placing on Week does, and Undo takes both back', async () => {
+    const t = await open(async (w) => {
+      await missed(at('09:00'))(w);
+      await w.set('task', 't3', { estimate_min: 30 });
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    const panel = screen.getByRole('region', { name: 'Needs a new time' });
+    await userEvent.click(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ }));
+    expect(await screen.findByText(/^Placed Rake the leaves, /)).toBeVisible();
+    const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't3' && b.id !== 'old');
+    expect(await placed()).toHaveLength(1);
+    expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(60);
+    // The row and its button have gone, so focus goes to Undo rather than the page.
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await placed()).toEqual([]));
+    expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(30);
+    expect(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ })).toBeVisible();
+  });
+
   it("offers a time before the task's milestone is due, not just the emptiest day", async () => {
     await open(async (w) => {
       await w.create('project', { title: 'Learn to bake bread', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');

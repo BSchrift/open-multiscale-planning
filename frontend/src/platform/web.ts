@@ -72,13 +72,18 @@ export function relaySignIn(tab: { redirectUri: string; url: string; closeTab():
   return false;
 }
 
-/** Holds the database for this tab until it closes. False when another tab holds it. */
+/**
+ * Holds the database for this tab until it closes. False when another tab still holds it after 3 seconds: a reload asks
+ * before the page it replaces has let go.
+ */
 function holdDatabase(): Promise<boolean> {
   return new Promise((resolve) => {
-    void navigator.locks.request('multiscale.db', { ifAvailable: true }, (lock) => {
-      resolve(lock !== null);
-      return lock ? new Promise<void>(() => {}) : undefined;
-    });
+    navigator.locks
+      .request('multiscale.db', { signal: AbortSignal.timeout(3000) }, () => {
+        resolve(true);
+        return new Promise<void>(() => {});
+      })
+      .catch(() => resolve(false));
   });
 }
 
@@ -96,6 +101,8 @@ export async function createWebPlatform(): Promise<Platform> {
   const sqlite = new SQL.Database(await loadFile());
   const db = await openDb(sqlJsDriver(sqlite));
 
+  // shortcut: a reload or a closed tab within 200ms of an edit loses it, since a browser drops a write started as the page
+  // goes; save on every change if that matters more than writing the whole file each time.
   let timer: ReturnType<typeof setTimeout> | undefined;
   db.subscribe(() => {
     clearTimeout(timer);

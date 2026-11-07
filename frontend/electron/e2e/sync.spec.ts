@@ -111,11 +111,13 @@ async function expectSynced(page: Page) {
   await expect(account(page).getByText('Synced', { exact: true })).toBeVisible();
 }
 
-/** Through the global shortcut's path: the event its callback sends, then the one-field window. */
+/** Through the global shortcut's path: the event its callback sends, then the one-field window, which the app makes
+ * hidden at startup so the shortcut shows it rather than opening one. */
 async function captureByShortcut(d: Device, title: string) {
-  const opened = d.app.waitForEvent('window');
+  const isCapture = (w: Page) => w.url().endsWith('capture.html');
+  await expect.poll(() => d.app.windows().some(isCapture)).toBe(true);
   await d.app.evaluate(({ app }) => void app.emit('capture-shortcut'));
-  const field = (await opened).getByRole('textbox', { name: 'Capture' });
+  const field = d.app.windows().find(isCapture)!.getByRole('textbox', { name: 'Capture' });
   await expect(field).toBeFocused();
   await field.fill(title);
   await field.press('Enter');

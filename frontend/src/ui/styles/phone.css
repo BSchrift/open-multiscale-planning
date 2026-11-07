@@ -82,7 +82,6 @@
 :where([data-layout='phone']) .tray.dragbar{flex-direction:column;align-items:stretch;padding:8px 10px}
 :where([data-layout='phone']) .tray{position:fixed;left:16px;right:92px;bottom:84px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:52px;padding:6px 8px 6px 14px;border:1px solid var(--blue-line);border-radius:12px;background:var(--blue-pale);color:var(--blue-ink);font-size:14px;text-align:left;box-shadow:0 4px 14px rgba(var(--ink-rgb),.12)}
 :where([data-layout='phone']) button.tray{cursor:pointer}
-:where([data-layout='phone']) .sheet.tall{max-height:86%;overflow-y:auto}
 :where([data-layout='phone']) .sheet.tall>.btn.pri{position:sticky;bottom:0}
 /* The week's key wraps whole items, so no label is left apart from its swatch. */
 :where([data-layout='phone']) .wkkeys{display:flex;flex-wrap:wrap;gap:2px 12px}

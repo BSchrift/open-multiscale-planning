@@ -20,6 +20,9 @@ const records: Seed[] = [
   pick('t1', 120),
   pick('t2', 240),
   pick('o1', 90),
+  // Morning stretch is already placed on both its days, 7am in Chicago.
+  { type: 'time_block', id: 's1', fields: { practice_id: 'pr', start: '2026-11-03T13:00:00Z', end: '2026-11-03T13:30:00Z', tz: 'America/Chicago' } },
+  { type: 'time_block', id: 's2', fields: { practice_id: 'pr', start: '2026-11-04T13:00:00Z', end: '2026-11-04T13:30:00Z', tz: 'America/Chicago' } },
 ];
 
 async function openSchedule(page: Page, phone: boolean) {
@@ -35,7 +38,7 @@ async function openSchedule(page: Page, phone: boolean) {
 test('desktop: drag the task to a time, place it, then place the rest with Undo', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openSchedule(page, false);
-  await expect(page.getByText('0 of 3 placed')).toBeVisible();
+  await expect(page.getByText('1 of 4 placed')).toBeVisible();
   const draft = page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, Project\./ });
   await expect(draft).toBeVisible();
   await expect(page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ })).toBeVisible();
@@ -53,17 +56,17 @@ test('desktop: drag the task to a time, place it, then place the rest with Undo'
   await expect(page.getByText('Tue Nov 3, 3pm to 5pm (2h)')).toBeVisible();
 
   await page.getByRole('button', { name: 'Place here' }).click();
-  await expect(page.getByText('1 of 3 placed')).toBeVisible();
+  await expect(page.getByText('2 of 4 placed')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
   // Its row closed, so focus moves on to the next task rather than falling to the page.
   await expect(page.getByRole('button', { name: /^Write chapter one/ })).toBeFocused();
 
   await page.getByRole('button', { name: 'Place the rest at suggested times' }).click();
-  await expect(page.getByText('3 of 3 placed')).toBeVisible();
+  await expect(page.getByText('4 of 4 placed')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'All tasks are placed' })).toBeFocused();
   await page.screenshot({ path: info.outputPath('schedule-desktop-placed.png') });
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByText('1 of 3 placed')).toBeVisible();
+  await expect(page.getByText('2 of 4 placed')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -88,7 +91,7 @@ test('phone: compare days, move the task to another day, place it, and place the
   await expect(strip.getByRole('button')).toHaveCount(7);
   await expectTapTarget(strip.getByRole('button').first());
   await expect(page.getByText('Mon Nov 2, 2pm to 4pm (2h)')).toBeVisible();
-  const summary = page.getByRole('button', { name: 'All picked tasks, 0 of 3 placed' });
+  const summary = page.getByRole('button', { name: 'All picked tasks, 1 of 4 placed' });
   await expectTapTarget(summary);
   await page.screenshot({ path: info.outputPath('schedule-phone.png') });
 
@@ -108,18 +111,18 @@ test('phone: compare days, move the task to another day, place it, and place the
   const place = page.getByRole('button', { name: 'Place here' });
   await expectTapTarget(place);
   await place.click();
-  await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' }).click();
+  await page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' }).click();
   const sheet = page.getByRole('dialog', { name: 'All picked tasks' });
-  await expect(sheet.getByText('Morning stretch')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: /^Morning stretch/ })).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-phone-list.png') });
   await sheet.getByRole('button', { name: 'Place the rest at suggested times' }).click();
   await expect(sheet).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'All picked tasks, 3 of 3 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 4 of 4 placed' })).toBeVisible();
   await expect(page.getByText('All tasks are placed')).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-phone-placed.png') });
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' })).toBeVisible();
   expect(errors).toEqual([]);
 });

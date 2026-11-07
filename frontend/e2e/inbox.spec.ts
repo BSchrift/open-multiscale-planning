@@ -83,7 +83,7 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
   await card(page).getByRole('button', { name: 'Add to this week' }).click();
   await card(page).getByRole('button', { name: 'One offs, add to this week' }).click();
   await expect(card(page).getByRole('heading', { name: 'Buy stamps' })).toBeVisible();
-  await expect(card(page).getByRole('status')).toHaveText('Sent to One offs, Mon 5pm.');
+  await expect(card(page).getByRole('status')).toHaveText('Sent to One offs and added to this week, not on the calendar yet.');
 
   await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();

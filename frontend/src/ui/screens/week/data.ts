@@ -3,20 +3,21 @@
 import { loadAnalyticsData } from '../../../core/analytics';
 import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
-import { addDays, instantMs, thisWeek, weekRange } from '../../../core/dates';
+import { addDays, formatMinutes, instantMs, thisWeek, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherPlans, oneOffCandidates, plannable, projectCandidates, taskDue, taskWork } from '../../../core/plan';
+import { gatherPlans, minutesLeft, oneOffCandidates, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
 import { blocksInRange, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
-import { infoSpans, slotContext, spansAhead } from '../../../core/slots';
-import type { SlotContext, Span, Work } from '../../../core/slots';
+import { infoSpans, offers, practicesLeft, practiceSlots, slotContext, spansAhead } from '../../../core/slots';
+import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
-import type { LocalDate, Minutes, Task, TimeBlock } from '../../../core/types';
+import type { LocalDate, Minutes, Practice, Task, TimeBlock } from '../../../core/types';
 import { dayName, placedBlocks, slotRange } from '../../components/weekgrid';
 import type { PlacedBlock } from '../../components/weekgrid';
+import type { BlockKind } from '../../components/blocks/describe';
 
 // shortcut: reads every task, project and block on each change, as planning does; add narrower queries if Week slows.
 export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
@@ -60,7 +61,36 @@ export interface AddGroup {
   rows: AddRow[];
 }
 
+/** Work waiting for a time this week: picked tasks, one offs dated in it, and practices short of their target. */
+export interface LaneItem {
+  /** The task's or practice's. */
+  id: string;
+  title: string;
+  kind: BlockKind;
+  work: Work;
+  /** Minutes still to place. */
+  left: Minutes;
+  /** A new block's length: up to 2h of a task, or one session of a practice. */
+  length: Minutes;
+  /** '2h of 3h left', '2 × 30m' */
+  line: string;
+  /** A one off's dates: it waits above those days. */
+  dates?: { from: LocalDate; to: LocalDate };
+  task?: Task;
+  practice?: Practice;
+  /** Picked for this week, so it can be taken out again. */
+  picked: boolean;
+  /** Up to three suggested times, best first. */
+  offers: Slot[];
+}
+
+/** What can be put on the calendar: a task, or a practice's session. */
+export type Placeable = Pick<LaneItem, 'id' | 'title' | 'kind' | 'work' | 'task' | 'practice'>;
+
+export const rowItem = (r: AddRow): Placeable => ({ id: r.task.id, title: r.task.title, kind: r.work.kind === 'one_off' ? 'one_off' : 'project', work: r.work, task: r.task });
+
 const NO_ESTIMATE_MIN = 30;
+const MAX_LEN = 120;
 
 /** The due and open dates slots.ts ranks by, from a task's milestone or its own dates. */
 function workOf(t: Task, plan: ProjectPlan | null, week: LocalDate, ctx: PlanContext): { work: Work; label: string } {
@@ -130,12 +160,57 @@ export function weekModel(d: WeekData, clock: Clock) {
     ...groups.map((g) => ({ ...g, rows: g.rows.filter((r) => !carried.has(r.task.id)) })),
   ].filter((g) => g.rows.length > 0);
 
-  // One offs dated in the week with no time yet, which wait above the days they span.
-  const lane = oneOffs
-    .filter((t) => !t.cancelled_at && onceOverlaps(t, week, addDays(week, 6)) && !blocks.some((b) => b.task_id === t.id))
-    .sort((a, b) => ((a.schedule as { from: string }).from < (b.schedule as { from: string }).from ? -1 : 1));
-
+  // To schedule: picks less what's placed, one offs dated in the week with nothing placed, and practices short of
+  // their target. Dated ones wait above their days, the rest above the whole week.
   const weekPlan = d.weekPlans.find((p) => p.week_start === week) ?? null;
+  const placedMin = (id: string) => blocks.filter((b) => b.task_id === id).reduce((sum, b) => sum + b.end - b.start, 0);
+  const datesOf = (t: Task) => {
+    const s = t.schedule;
+    return t.kind === 'one_off' && s?.type === 'once' && s.from && onceOverlaps(t, week, addDays(week, 6)) ? { from: s.from, to: s.to ?? s.from } : undefined;
+  };
+  const taskItem = (t: Task, left: Minutes, picked: Minutes | null): LaneItem => {
+    const plan = ranked.find((p) => p.project.id === t.project_id) ?? null;
+    const { work } = workOf(t, plan, week, planCtx);
+    const length = Math.min(left, MAX_LEN);
+    return {
+      id: t.id,
+      title: t.title,
+      kind: t.kind === 'one_off' ? 'one_off' : 'project',
+      work,
+      left,
+      length,
+      line: picked && left < picked ? `${formatMinutes(left)} of ${formatMinutes(picked)} left` : formatMinutes(left),
+      ...(datesOf(t) ? { dates: datesOf(t)! } : {}),
+      task: t,
+      picked: picked !== null,
+      offers: offers(length, work, ctx).slice(0, 3),
+    };
+  };
+  const picks = scheduleOrder(plans, oneOffs, input, planCtx);
+  const unscheduled: LaneItem[] = [
+    ...picks.flatMap((c) => {
+      const left = Math.max(0, (c.week || NO_ESTIMATE_MIN) - placedMin(c.task.id));
+      return left > 0 ? [taskItem(c.task, left, c.week || NO_ESTIMATE_MIN)] : [];
+    }),
+    ...oneOffs
+      .filter((t) => !t.cancelled_at && !t.deleted_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
+      .map((t) => taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null)),
+    ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? []).map(
+      (x): LaneItem => ({
+        id: x.practice.id,
+        title: x.practice.title,
+        kind: 'practice',
+        work: { kind: 'project' },
+        left: x.minutes,
+        length: x.length,
+        line: x.sessions > 1 ? `${x.sessions} × ${formatMinutes(x.length)}` : formatMinutes(x.minutes),
+        practice: x.practice,
+        picked: false,
+        offers: practiceSlots(x.practice, ctx).slice(0, 3),
+      }),
+    ),
+  ].sort((a, b) => (a.dates?.from ?? '~').localeCompare(b.dates?.from ?? '~'));
+
   const got: Record<string, Minutes> = {};
   const bucketOf = new Map(records.tasks.map((t) => [t.id, t.project_id ?? ONE_OFFS_BUCKET]));
   for (const b of blocks) {
@@ -154,7 +229,7 @@ export function weekModel(d: WeekData, clock: Clock) {
     free,
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
-    lane,
+    unscheduled,
     practices: new Map(records.practices.map((p) => [p.id, p])),
     rows,
     current,

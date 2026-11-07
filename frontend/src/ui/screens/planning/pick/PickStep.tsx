@@ -13,7 +13,7 @@ import { useRingPop } from '../../../components/ring/CapacityRing';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
 import { loadPlanning, weekModel } from '../model';
-import type { PlanningData, WeekModel } from '../model';
+import type { WeekModel } from '../model';
 import { aimWords, pickModel } from './model';
 import type { PickTask, PickView } from './model';
 import { PickDesktop } from './PickDesktop';
@@ -31,7 +31,6 @@ export interface AimSetting {
 /** Everything a layout needs: the rows, the figures, and the actions. */
 export interface PickProps {
   week: LocalDate;
-  data: PlanningData;
   model: WeekModel;
   view: PickView;
   ring: ReturnType<typeof useRingPop>;
@@ -87,7 +86,6 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
 
   const pickProps: PickProps = {
     week,
-    data,
     model,
     view,
     ring,

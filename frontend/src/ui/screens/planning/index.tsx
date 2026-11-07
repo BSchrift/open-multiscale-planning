@@ -1,9 +1,8 @@
 // Weekly planning: Inbox, Pick tasks, Schedule and Review, as tabs that can be visited in any order. Params:
-// week, the Monday to plan; with none, this week until it's planned, then next week. The step is kept on this
-// device per week, so leaving part way resumes there.
+// week, the Monday to plan; with none, this week until it's planned, then next week. step: 'schedule', to open on
+// Schedule. The step is kept on this device per week, so leaving part way resumes there.
 
 import { useEffect, useRef, useState } from 'react';
-import { placeWeekPractices } from '../../../core/blocks';
 import { addWeeks, formatWeekRange, nowInstant, weekStart } from '../../../core/dates';
 import { autoPickedOneOffs, minutesLeft } from '../../../core/plan';
 import { getRecord, listRecords, setWeekPick, weekPickId, weekPlanId } from '../../../core/records';
@@ -35,16 +34,21 @@ export default function PlanningScreen(props: ScreenProps) {
     if (!chosen && week) setChosen(week);
   }, [chosen, week]);
   if (!week) return null;
-  return <Flow key={week} week={week} current={current} onWeek={setChosen} layout={props.layout} close={props.close} />;
+  const start = props.params.step === 'schedule' && week === props.params.week ? 2 : undefined;
+  return <Flow key={week} week={week} current={current} start={start} onWeek={setChosen} layout={props.layout} close={props.close} />;
 }
 
-function Flow(props: { week: LocalDate; current: LocalDate; onWeek(week: LocalDate): void; layout: Layout; close(): void }) {
+function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWeek(week: LocalDate): void; layout: Layout; close(): void }) {
   const { week, layout, close } = props;
   const { clock } = useApp();
   const nav = useNav();
   const toast = useToast();
   const [stored, setStep] = useStickyState<number>(`planning.step.${week}`, 0);
   const step = Math.max(0, Math.min(STEPS.length - 1, Math.trunc(Number(stored)) || 0));
+  useEffect(() => {
+    if (props.start !== undefined) setStep(props.start);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const root = useRef<HTMLDivElement>(null);
   // Each step starts at its top. Focus left behind, by the screen underneath or a step's own button that went away,
   // goes to the current step's tab, which names the step.
@@ -53,14 +57,13 @@ function Flow(props: { week: LocalDate; current: LocalDate; onWeek(week: LocalDa
     if (!root.current?.contains(document.activeElement)) root.current?.querySelector<HTMLElement>('[aria-current="step"]')?.focus({ preventScroll: true });
   }, [step]);
 
-  // A one off dated inside the week starts picked. One taken out keeps its removed pick, so it stays out. The week's
-  // practices are placed now too, so Pick tasks counts their time before Schedule is opened. Written as automatic,
-  // since this runs on opening, maybe before a pull: another device's picks and moved sessions win over it.
+  // A one off dated inside the week starts picked. One taken out keeps its removed pick, so it stays out. Nothing is
+  // placed for you: practices wait in Schedule with the rest. Written as automatic, since this runs on opening, maybe
+  // before a pull: another device's picks win over it.
   const autoPick = useMutation(async ({ automatic: w }) => {
     for (const t of autoPickedOneOffs(await listRecords(w.sql, 'task'), week)) {
       if (!(await getRecord(w.sql, 'week_pick', weekPickId(week, t.id)))) await setWeekPick(w, week, t.id, minutesLeft(t));
     }
-    await placeWeekPractices(w, week, clock);
   });
   const autoPickRun = autoPick.run;
   useEffect(() => {

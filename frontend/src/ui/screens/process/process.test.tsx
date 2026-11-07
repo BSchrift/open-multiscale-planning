@@ -152,7 +152,7 @@ describe('Process on desktop', () => {
     expect(title()).toHaveTextContent('Read the article');
   });
 
-  it('adds to this week in the next open time, then resets the toggle', async () => {
+  it('adds to this week as a pick, not on the calendar, then resets the toggle', async () => {
     const t = await open();
     const toggle = await screen.findByRole('button', { name: 'Add to this week' });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -161,14 +161,14 @@ describe('Process on desktop', () => {
     expect(btn('One offs, add to this week')).toBeInTheDocument();
     await userEvent.click(btn('One offs, add to this week'));
     await screen.findByRole('heading', { name: 'Fix the gate' });
-    expect(last().textContent).toMatch(/^Sent to One offs, Mon 5pm\.$/);
-    const blocks = (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 'i1');
-    expect(blocks).toHaveLength(1);
+    expect(last()).toHaveTextContent('Sent to One offs and added to this week, not on the calendar yet.');
+    expect(await getRecord(t.db, 'week_pick', weekPickId('2026-11-02', 'i1'))).toMatchObject({ minutes: 30, deleted_at: null });
+    expect(await listRecords(t.db, 'time_block')).toHaveLength(0);
     expect(btn('Add to this week')).toHaveAttribute('aria-pressed', 'false');
 
     await userEvent.click(btn('‹ Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect((await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 'i1')).toHaveLength(0);
+    expect((await getRecord(t.db, 'week_pick', weekPickId('2026-11-02', 'i1')))?.deleted_at).toBeTruthy();
   });
 
   it('adds to the plan being made, as a pick rather than a block', async () => {

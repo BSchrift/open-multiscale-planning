@@ -1,6 +1,6 @@
 // A day's blocks as they happen: which one is now, the end-of-block answers, Mark done now, Start, Start early,
-// Do next block instead and Still going, plus the week's edits: move, remove, place, keeping a practice change and
-// placing the week's practices.
+// Do next block instead and Still going, plus the week's edits: move, remove, place, take off the calendar, keeping a
+// practice change, skipping a practice and placing the week's practices when asked.
 // The in-app prompts and notification actions both write through here.
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
 
@@ -10,7 +10,7 @@ import { applyPlanChange, minutesLeft } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
 import { blocksInRange, futureBlocks, weekPractices } from './queries';
 import type { BlockRow } from './queries';
-import { CALENDAR_ID, getRecord, getSettings, listRecords, outcomeId, practiceSessionId, weekPlanId } from './records';
+import { CALENDAR_ID, getRecord, getSettings, listRecords, outcomeId, practiceSessionId, weekPickId, weekPlanId } from './records';
 import type { Writer } from './records';
 import { blockFinish, tickFromBlock } from './schedule';
 import { placePractices, slotContext, slotInstants } from './slots';
@@ -181,23 +181,45 @@ export async function placeBlock(w: Writer, taskId: string, times: { start: Inst
   return { writes: reverse };
 }
 
+/** Takes the sessions still to come off the week for each practice skipped this week. Returns the reverse, for Undo. */
+export async function dropSkippedPractices(w: Writer, week: LocalDate, clock: Clock): Promise<PlanChange> {
+  const now = nowInstant(clock);
+  const skipped = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.skipped_practices ?? [];
+  const sessions = await weekPractices(w.sql, weekRange(week, clock.zone()));
+  const reverse: RecordWrite[] = [];
+  for (const b of sessions) {
+    if (!skipped.includes(b.practice_id!) || instantMs(b.start) <= clock.now() || b.started_at || b.cancelled) continue;
+    reverse.unshift(...(await change(w, 'time_block', b.id, { deleted_at: now })).writes);
+  }
+  return { writes: reverse };
+}
+
+/** Skips a practice this week, which takes its sessions still to come off, or includes it again with nothing placed. */
+export async function skipPractice(w: Writer, week: LocalDate, practiceId: string, off: boolean, clock: Clock): Promise<PlanChange> {
+  const id = weekPlanId(week);
+  const plan = await getRecord(w.sql, 'week_plan', id);
+  const was = plan?.skipped_practices ?? [];
+  const skipped_practices = off ? [...was.filter((p) => p !== practiceId), practiceId] : was.filter((p) => p !== practiceId);
+  const reverse: RecordWrite = plan
+    ? { type: 'week_plan', id, fields: await w.set('week_plan', id, { skipped_practices }) }
+    : { type: 'week_plan', id, fields: { deleted_at: nowInstant(clock) } };
+  if (!plan) await w.create('week_plan', { week_start: week, skipped_practices }, id);
+  const dropped = await dropSkippedPractices(w, week, clock);
+  return { writes: [...dropped.writes, reverse] };
+}
+
 /**
- * Puts the week's practice sessions on it, each practice once a week: at a preferred time if open, otherwise the
- * first open time that day, around what's already there. A practice skipped this week gives up its sessions still to
- * come. redo re-places one practice's sessions not changed by hand, after its usual time changes or it's included
- * again. Returns the reverse, for Undo.
+ * Places each practice's sessions still missing this week: at a preferred time if open, otherwise the first open time
+ * that day, around what's already there. Only ever on request, as part of Place the rest. Returns the reverse, for Undo.
  */
-export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Clock, redo?: string): Promise<PlanChange> {
+export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Clock): Promise<PlanChange> {
   const zone = clock.zone();
   const range = weekRange(week, zone);
   const now = nowInstant(clock);
+  const dropped = await dropSkippedPractices(w, week, clock);
   const skipped = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.skipped_practices ?? [];
-  // Removed sessions count as placed, so a practice taken off a day stays off.
-  const sessions = await weekPractices(w.sql, range);
-  const ahead = (b: TimeBlock) => instantMs(b.start) > clock.now() && !b.started_at && !b.cancelled;
-  const drop = sessions.filter((b) => ahead(b) && (skipped.includes(b.practice_id!) || (b.practice_id === redo && !b.edited)));
-  const kept = sessions.filter((b) => !drop.includes(b));
-  const todo = (await listRecords(w.sql, 'practice')).filter((p) => !skipped.includes(p.id) && (p.id === redo || !kept.some((b) => b.practice_id === p.id)));
+  const kept = (await weekPractices(w.sql, range)).filter((b) => !b.cancelled);
+  const todo = (await listRecords(w.sql, 'practice')).filter((p) => !skipped.includes(p.id));
 
   const settings = await getSettings(w.sql);
   const ctx = slotContext({
@@ -206,27 +228,53 @@ export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Cloc
     avoided: settings.avoided_slots,
     sources: await listRecords(w.sql, 'calendar_source'),
     calendar: (await getRecord(w.sql, 'calendar', CALENDAR_ID)) ?? null,
-    blocks: (await blocksInRange(w.sql, range)).filter((b) => !drop.some((d) => d.id === b.id)),
+    blocks: await blocksInRange(w.sql, range),
     clock,
   });
   // Newest first, since a session dropped here can come back on the same record below.
   const reverse: RecordWrite[] = [];
-  for (const b of drop) reverse.unshift(...(await change(w, 'time_block', b.id, { deleted_at: now })).writes);
   const edited = kept.map((b) => ({ practice_id: b.practice_id!, date: localDate(b.start, zone) }));
   for (const s of placePractices(todo, ctx, { edited })) {
     const dayId = practiceSessionId(s.practice_id, s.date);
     const fields = { practice_id: s.practice_id, ...slotInstants(s, zone), tz: zone };
     const existing = await getRecord(w.sql, 'time_block', dayId);
     if (existing?.deleted_at) {
-      reverse.unshift({ type: 'time_block', id: dayId, fields: await w.set('time_block', dayId, { ...fields, edited: false, deleted_at: null }) });
+      reverse.unshift({ type: 'time_block', id: dayId, fields: await w.set('time_block', dayId, { ...fields, edited: false, cancelled: false, deleted_at: null }) });
     } else {
-      // A live record under this day's id is a session moved to another day, which stays put, so this one gets its own id.
-      // shortcut: two offline devices re-placing after the same move each add a session here; merge by practice and day if that shows up.
+      // A live record under this day's id is a session moved to another day or taken off, so this one gets its own id.
+      // shortcut: two offline devices placing after the same move each add a session here; merge by practice and day if that shows up.
       const id = await w.create('time_block', fields, existing ? undefined : dayId);
       reverse.unshift({ type: 'time_block', id, fields: { deleted_at: now } });
     }
   }
-  return { writes: reverse };
+  return { writes: [...reverse, ...dropped.writes] };
+}
+
+/** Puts one practice session on the calendar. The reverse deletes it. */
+export async function placeSession(w: Writer, practiceId: string, times: { start: Instant; end: Instant }, clock: Clock): Promise<PlanChange> {
+  const id = await w.create('time_block', { practice_id: practiceId, ...times, tz: clock.zone() });
+  return { writes: [{ type: 'time_block', id, fields: { deleted_at: nowInstant(clock) } }] };
+}
+
+/**
+ * Takes a block off the calendar but keeps its work in the week, waiting for a time: a task not picked for the week is
+ * picked for the time placed, so the block's time is what's left to place.
+ */
+export async function unscheduleBlock(w: Writer, blockId: string, week: LocalDate, clock: Clock): Promise<PlanChange> {
+  const block = await readBlock(w, blockId);
+  const removed = await removeBlock(w, blockId);
+  if (!block.task_id) return removed;
+  const id = weekPickId(week, block.task_id);
+  const pick = await getRecord(w.sql, 'week_pick', id);
+  if (pick && !pick.deleted_at && !pick.skipped) return removed;
+  const others = (await blocksInRange(w.sql, weekRange(week, clock.zone()))).filter((b) => b.task_id === block.task_id);
+  const minutes = blockMinutes(block) + others.reduce((sum, b) => sum + blockMinutes(b), 0);
+  const fields = { week_start: week, task_id: block.task_id, minutes, skipped: false, deleted_at: null };
+  const undo: RecordWrite = pick
+    ? { type: 'week_pick', id, fields: await w.set('week_pick', id, fields) }
+    : { type: 'week_pick', id, fields: { deleted_at: nowInstant(clock) } };
+  if (!pick) await w.create('week_pick', fields, id);
+  return { writes: [undo, ...removed.writes] };
 }
 
 /**

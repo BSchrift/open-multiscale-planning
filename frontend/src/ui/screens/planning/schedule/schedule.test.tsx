@@ -154,37 +154,73 @@ describe('Schedule on desktop', () => {
     expect(await blocks(t, 't2')).toEqual([]);
   });
 
-  it('places practices for you, and one can be skipped this week and included again', async () => {
+  it('lists practices after the tasks to place one at a time, on their days at their usual time', async () => {
     const t = await open({ seed: async (w) => (await picked(w), stretch(w)) });
     const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start);
-    await waitFor(async () => expect(await sessions()).toEqual([at('2026-11-03', 7), at('2026-11-04', 7)]));
-    const toggle = await screen.findByRole('button', { name: 'Practices are placed for you' });
+    expect(await screen.findByText('0 of 4 placed')).toBeInTheDocument();
+    expect(await sessions()).toEqual([]);
+    await userEvent.click(screen.getByRole('button', { name: /^Morning stretch/ }));
+    const cur = row('Morning stretch');
+    expect(within(cur).getByText('Practice, 30m a day')).toBeInTheDocument();
+    expect(within(cur).getByText('Tue Nov 3, 7am to 7:30am (30m)')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Use suggested time/ }).map((b) => b.getAttribute('aria-label'))).toEqual(['Use suggested time, Wed Nov 4, 7am']);
+    await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect(await sessions()).toEqual([at('2026-11-03', 7)]));
+    expect(await within(row('Morning stretch')).findByText('Wed Nov 4, 7am to 7:30am (30m)')).toBeInTheDocument();
+  });
+
+  it('a practice can be skipped this week, which takes its sessions off, and included again with nothing placed', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await stretch(w);
+        await w.create('time_block', { practice_id: 'pr', start: at('2026-11-03', 7), end: at('2026-11-03', 7, 30), tz: ZONE }, 's1');
+      },
+    });
+    const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at);
+    const toggle = await screen.findByRole('button', { name: 'Skip a practice this week' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(toggle);
-    expect(await screen.findByText('2 sessions, 1h')).toBeInTheDocument();
+    expect(await screen.findByText('1 session, 30m')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Skip this week, Morning stretch' }));
     expect(await screen.findByText('Skipped this week')).toBeInTheDocument();
     expect(await sessions()).toEqual([]);
+    expect(screen.queryByText('Morning stretch', { selector: '.subline' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Include this week, Morning stretch' }));
-    expect(await screen.findByText('2 sessions, 1h')).toBeInTheDocument();
-    expect(await sessions()).toHaveLength(2);
+    expect(await screen.findByText('0 sessions, 0m')).toBeInTheDocument();
+    expect(await sessions()).toEqual([]);
+    expect(row('Morning stretch')).toBeInTheDocument();
   });
 
-  it('moving a practice session asks to make it permanent, and Yes changes its usual time', async () => {
+  it('Place the rest places the practices too, and Undo takes them back', async () => {
     const t = await open({ seed: async (w) => (await picked(w), stretch(w)) });
+    const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start).sort();
+    await userEvent.click(await screen.findByRole('button', { name: 'Place the rest at suggested times' }));
+    expect(await screen.findByText('4 of 4 placed')).toBeInTheDocument();
+    expect(await sessions()).toHaveLength(2);
+    expect(screen.getByText('Placed 6 blocks')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('0 of 4 placed')).toBeInTheDocument();
+    expect(await sessions()).toEqual([]);
+  });
+
+  it('moving a practice session asks to make it permanent, and Yes changes only its usual time', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await stretch(w);
+        await w.create('time_block', { practice_id: 'pr', start: at('2026-11-03', 7), end: at('2026-11-03', 7, 30), tz: ZONE }, 's1');
+        await w.create('time_block', { practice_id: 'pr', start: at('2026-11-04', 7), end: at('2026-11-04', 7, 30), tz: ZONE }, 's2');
+      },
+    });
     const session = await screen.findByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ });
     fireEvent.keyDown(session, { key: 'ArrowDown' });
     const ask = await screen.findByRole('status', { name: 'Make this change permanent?' });
     expect(await within(ask).findByText('Morning stretch is now Tue Nov 3, 7:15am to 7:45am.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Collect the sources/ })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByRole('button', { name: /^Morning stretch/ })).toHaveAttribute('aria-current', 'step');
     await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every week' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
-    await waitFor(async () =>
-      expect((await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start).sort()).toEqual([
-        at('2026-11-03', 7, 15),
-        at('2026-11-04', 7, 15),
-      ]),
-    );
+    expect((await getRecord(t.db, 'time_block', 's2'))?.start).toBe(at('2026-11-04', 7));
     expect(screen.queryByRole('status', { name: 'Make this change permanent?' })).toBeNull();
   });
 
@@ -243,14 +279,15 @@ describe('Schedule on phone', () => {
     expect(screen.getByText('1h more of this task stays to place')).toBeInTheDocument();
   });
 
-  it('All tasks lists every picked task, with Place the rest and the practices', async () => {
+  it('All tasks lists every picked task and practice, with Place the rest and Skip a practice', async () => {
     await phone({ seed: async (w) => (await picked(w), stretch(w)) });
-    await userEvent.click(await screen.findByRole('button', { name: 'All picked tasks, 0 of 3 placed' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'All picked tasks, 0 of 4 placed' }));
     const sheet = screen.getByRole('dialog', { name: 'All picked tasks' });
     expect(within(sheet).getByRole('button', { name: /Collect the sources/ })).toHaveAttribute('aria-current', 'step');
     expect(within(sheet).getByText('Paint the fence').closest('.mhead')).not.toBeNull();
-    expect(within(sheet).getByRole('heading', { name: 'Practices are placed for you' })).toBeInTheDocument();
-    expect(await within(sheet).findByText('2 sessions, 1h')).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: /^Morning stretch/ })).toBeInTheDocument();
+    expect(within(sheet).getByRole('heading', { name: 'Skip a practice this week' })).toBeInTheDocument();
+    expect(await within(sheet).findByText('0 sessions, 0m')).toBeInTheDocument();
     await userEvent.click(within(sheet).getByRole('button', { name: /Write chapter one/ }));
     expect(screen.queryByRole('dialog', { name: 'All picked tasks' })).toBeNull();
     expect(screen.getByText('Write chapter one', { selector: '.strong' })).toBeInTheDocument();
@@ -275,15 +312,21 @@ describe('Schedule on phone', () => {
   });
 
   it('a press on a practice session selects it, and dragging it asks at the end', async () => {
-    await phone({ seed: async (w) => (await picked(w), stretch(w)) });
+    await phone({
+      seed: async (w) => {
+        await picked(w);
+        await stretch(w);
+        await w.create('time_block', { practice_id: 'pr', start: at('2026-11-03', 7), end: at('2026-11-03', 7, 30), tz: ZONE }, 's1');
+      },
+    });
     await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
     const session = () => screen.getByRole('slider', { name: /^Morning stretch\./ });
     await waitFor(() => expect(session()).toBeInTheDocument());
     fireEvent.pointerDown(session(), { clientY: 300, button: 0 });
     fireEvent.pointerUp(window, { clientY: 300 });
-    expect(await screen.findByText('Practice, placed for you')).toBeInTheDocument();
+    expect(await screen.findByText('Practice, 30m a day')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Make this change permanent?' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Remove from calendar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
 
     // The drawn day is 17 hours over 816px, so 48px is an hour.
     fireEvent.pointerDown(session(), { clientY: 300, button: 0 });

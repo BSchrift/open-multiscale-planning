@@ -5,6 +5,7 @@ import {
   dayOffer,
   defaultSlot,
   dragResult,
+  dropSlot,
   fits,
   infoSpans,
   isOpen,
@@ -12,6 +13,7 @@ import {
   otherOffers,
   placePractices,
   placeRest,
+  practicesLeft,
   slotContext,
   slotInstants,
   slotNotes,
@@ -310,6 +312,23 @@ describe('dragResult', () => {
   });
 });
 
+describe('dropSlot', () => {
+  const c = ctx({ earliest: { date: TUE, minutes: 14 * 60 + 5 } });
+
+  it('lands on the grid, snaps to a suggested time nearby, and stays in the drawn day', () => {
+    expect(dropSlot(WED, 9 * 60 + 8, 60, c)).toEqual({ date: WED, start: 9 * 60 + 15, end: 10 * 60 + 15 });
+    expect(dropSlot(WED, 9 * 60 + 8, 60, c, [{ date: WED, start: 9 * 60 + 25 }])).toEqual({ date: WED, start: 9 * 60 + 25, end: 10 * 60 + 25 });
+    expect(dropSlot(WED, 23 * 60, 60, c)).toEqual({ date: WED, start: 22 * 60, end: 23 * 60 });
+    expect(dropSlot(WED, 60, 30, c)).toEqual({ date: WED, start: 6 * 60, end: 6 * 60 + 30 });
+  });
+
+  it('never lands in time gone by', () => {
+    expect(dropSlot(MON, 600, 60, c)).toBeNull();
+    expect(dropSlot(TUE, 600, 60, c)).toEqual({ date: TUE, start: 14 * 60 + 15, end: 15 * 60 + 15 });
+    expect(dropSlot(TUE, 600, 60, ctx({ earliest: { date: TUE, minutes: 22 * 60 + 30 } }))).toBeNull();
+  });
+});
+
 describe('closestFit', () => {
   it('keeps a free time and moves a taken one to the nearest free one', () => {
     expect(closestFit(MON, 600, 60, 'project', ctx())).toBe(600);
@@ -485,6 +504,30 @@ describe('placePractices', () => {
   });
 });
 
+describe('practicesLeft', () => {
+  const practice = (over: Partial<Practice> = {}): Practice => ({ id: 'p1', title: 'Stretch', target_min: 30, per: 'day', state: 'active', ...over });
+  const session = (date: string, start: number, end: number, id = 'p1') => span(date, start, end, { kind: 'practice', practice_id: id });
+
+  it("a daily practice needs a session on each of its days still to come that hasn't one", () => {
+    const c = ctx({ earliest: { date: TUE, minutes: 600 }, placed: [session(WED, 420, 450), span(THU, 420, 450, { kind: 'project' })] });
+    expect(practicesLeft([practice({ days: [0, 1, 2, 3] })], c)).toEqual([{ practice: practice({ days: [0, 1, 2, 3] }), length: 30, sessions: 2, minutes: 60 }]);
+  });
+
+  it('a weekly one needs its target less the time placed, an hour a session, the last one shorter', () => {
+    const c = ctx({ placed: [session(MON, 420, 480)] });
+    expect(practicesLeft([practice({ per: 'week', target_min: 150 })], c)[0]).toMatchObject({ length: 60, sessions: 2, minutes: 90 });
+    expect(practicesLeft([practice({ per: 'week', target_min: 90 })], c)[0]).toMatchObject({ length: 30, sessions: 1, minutes: 30 });
+  });
+
+  it('nothing for a practice met, skipped, paused, or a week gone by', () => {
+    const c = ctx({ placed: [session(MON, 420, 480)] });
+    expect(practicesLeft([practice({ per: 'week', target_min: 60 })], c)).toEqual([]);
+    expect(practicesLeft([practice()], c, ['p1'])).toEqual([]);
+    expect(practicesLeft([practice({ state: 'paused' })], c)).toEqual([]);
+    expect(practicesLeft([practice()], ctx({ earliest: { date: '2026-11-09', minutes: 0 } }))).toEqual([]);
+  });
+});
+
 describe('slotContext', () => {
   const clock = fixedClock('2026-11-02T18:00:00Z', 'America/Chicago');
   const sources: CalendarSource[] = [
@@ -553,8 +596,8 @@ describe('slotContext', () => {
       ],
     });
     expect(c.placed).toEqual([
-      { date: TUE, start: 540, end: 600, id: 'b1', title: 'Write the report', kind: 'project' },
-      { date: TUE, start: 660, end: 720, id: 'b2', title: 'Stretch', kind: 'practice' },
+      { date: TUE, start: 540, end: 600, id: 'b1', title: 'Write the report', kind: 'project', practice_id: null },
+      { date: TUE, start: 660, end: 720, id: 'b2', title: 'Stretch', kind: 'practice', practice_id: 'p1' },
     ]);
   });
 });

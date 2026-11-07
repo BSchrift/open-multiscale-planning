@@ -190,3 +190,49 @@ test("phone: Edit this week's plan and add a task from the drawer", async ({ pag
   await expect(page.getByRole('heading', { name: 'This week' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('to schedule: picked work waits above the week, a suggestion places it, Undo brings it back, and it drags both ways', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const pick = { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 180 } } as const;
+  const errors = await openWeek(page, [...records, pick]);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  await expect(lane.getByText('2 · 5h')).toBeVisible();
+  const card = lane.getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' });
+  if (phone) await expectTapTarget(card);
+  await page.screenshot({ path: info.outputPath(`to-schedule-${info.project.name}.png`) });
+
+  await card.click();
+  const panel = phone ? page.getByRole('dialog', { name: 'Draft the summary' }) : page.getByRole('group', { name: 'Draft the summary' });
+  const first = panel.getByRole('group', { name: 'Suggested times' }).getByRole('button').first();
+  await expect(first).toHaveAccessibleName(/^Place Draft the summary, /);
+  await first.click();
+  await expect(card).toHaveCount(0);
+  await expect(lane.getByText('1 · 3h')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(card).toBeVisible();
+
+  if (!phone) {
+    // Dragged by the mouse onto Thursday, 26px an hour from 6am: 8am.
+    const thu = (await page.locator('[data-drop-date="2026-11-05"]').boundingBox())!;
+    const from = (await card.boundingBox())!;
+    await page.mouse.move(from.x + 20, from.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(thu.x + thu.width / 2, thu.y + 26 * 2 + 1, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByRole('button', { name: /^Draft the summary, Thu Nov 5, 8am to 10am, Project\./ })).toBeVisible();
+    await expect(card).toHaveCount(0);
+
+    // And while editing, dragged back up onto To schedule it comes off the calendar.
+    await page.getByRole('button', { name: "Edit this week's plan" }).click();
+    const placed = page.getByRole('group', { name: /^Draft the summary, Thu Nov 5/ });
+    const box = (await placed.boundingBox())!;
+    const target = (await lane.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, target.y + 10, { steps: 8 });
+    await page.mouse.up();
+    await expect(placed).toHaveCount(0);
+    await expect(lane.getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' })).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});

@@ -412,7 +412,7 @@ export class MultiscaleStack extends Stack {
 
       // The web app: the build the apps run, on the zone's own name. Sign-in comes back to /auth/callback, which only the
       // app's page answers. Sign-in sits in the browser's storage, so the page runs only its own scripts: the Mac app's
-      // policy (electron/security.ts), plus WebAssembly for sql.js and no framing.
+      // policy (electron/security.ts), plus WebAssembly for SQLite and no framing. SQLite's worker falls under script-src.
       const webCertificate = new DnsValidatedCertificate(this, 'WebCertificate', { domainName: config.dns.zone, hostedZone: zone, region: 'us-east-1' });
       webCertificate.node.addDependency(delegation);
       const webDistribution = new Distribution(this, 'WebDistribution', {

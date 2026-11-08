@@ -71,7 +71,8 @@ test('answers the overdue question and adds and edits tasks on a project', async
   if (phone) await expectTapTarget(show);
   await show.click();
   await expect(starter.getByRole('button', { name: 'Hide completed' })).toHaveAttribute('aria-expanded', 'true');
-  await check.uncheck();
+  // A click, as uncheck() wants the box changed at once, and it shows what was saved, a moment later.
+  await check.click();
   await expect(fix).toBeVisible();
 
   const add = page.getByRole('button', { name: 'Add task to Make a starter' });

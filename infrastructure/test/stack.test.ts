@@ -526,11 +526,13 @@ describe('DNS', () => {
         web.CustomErrorResponses.map((r: { ErrorCode: number; ResponseCode: number; ResponsePagePath: string }) => [r.ErrorCode, r.ResponseCode, r.ResponsePagePath]),
         [[403, 200, '/index.html'], [404, 200, '/index.html']],
       );
-      // Only the app's own scripts run, with sql.js's WebAssembly, and it talks only to its API and sign-in.
+      // Only the app's own scripts run, with SQLite's WebAssembly, and it talks only to its API and sign-in.
       const policies = z.findResources('AWS::CloudFront::ResponseHeadersPolicy');
       const csp = policies[web.DefaultCacheBehavior.ResponseHeadersPolicyId.Ref].Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy;
       assert.ok(csp.Override);
       assert.match(csp.ContentSecurityPolicy, /script-src 'self' 'wasm-unsafe-eval';/);
+      // The database runs in a worker from the app's own files, which script-src allows while nothing narrower is set.
+      assert.doesNotMatch(csp.ContentSecurityPolicy, /worker-src|child-src/);
       assert.ok(csp.ContentSecurityPolicy.includes(`connect-src 'self' https://api.${zone} https://auth.${zone};`));
       assert.match(csp.ContentSecurityPolicy, /frame-ancestors 'none'/);
       const [cert] = Object.values(z.findResources('AWS::CloudFormation::CustomResource', { Properties: { DomainName: zone, Region: 'us-east-1' } }));

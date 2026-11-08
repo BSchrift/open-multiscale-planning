@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import initSqlJs from 'sql.js';
 import { describe, expect, it, vi } from 'vitest';
 import { clockWins, fixedClock, formatClock, nextClock, observeClock, parseClock } from './clock';
@@ -44,6 +45,7 @@ import {
 import { RECORD_TYPES } from './types';
 import type { RecordChange } from './types';
 import { nodeSqliteDriver, openTestDb } from '../platform/node-sqlite';
+import { sqliteWasmDriver } from '../platform/sqlite-wasm-driver';
 import { sqlJsDriver } from '../platform/sqljs-driver';
 
 const clock = fixedClock('2026-11-02T15:00:00Z', 'America/Chicago');
@@ -285,6 +287,7 @@ describe('db', () => {
   it.each([
     ['this platform', async () => nodeSqliteDriver()],
     ['sql.js', async () => sqlJsDriver(new (await initSqlJs()).Database())],
+    ['SQLite Wasm', async () => sqliteWasmDriver(new (await sqlite3InitModule()).oo1.DB(':memory:'))],
   ])('writes nothing on an open that finds the views as this code makes them, on %s', async (_, make) => {
     const inner = await make();
     await openDb(inner);

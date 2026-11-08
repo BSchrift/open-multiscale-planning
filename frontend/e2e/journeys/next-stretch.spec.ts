@@ -46,6 +46,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   // Do the starter's one task now, from Today's Next up, and answer the block.
   await tab(page, phone, 'Today');
   await page.getByRole('region', { name: 'Next up' }).getByRole('button', { name: 'Start Mix the starter' }).click();
+  // Saved before the clock moves on, or the block would start at the later time.
+  await expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible();
   await jumpTo(page, chicago('2026-12-07', '09:31'));
   await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Task finished', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);

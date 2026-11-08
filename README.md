@@ -64,7 +64,7 @@ make test-compat ENV=staging
 make test-ios ENV=staging
 ```
 
-`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. It names any that failed. `SKIP_IOS=1` leaves out the iPhone test, much the slowest. `make release` runs it after every release.
+`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, its data on OPFS, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. It names any that failed. `SKIP_IOS=1` leaves out the iPhone test, much the slowest. `make release` runs it after every release.
 
 These read your config folder, `$MULTISCALE_CONFIG_DIR` or else `config/`: `<env>.yaml`, and the `<env>.outputs.json` that `make deploy` writes. Test-user passwords come from SSM in that environment's account. [docs/setup.md](docs/setup.md) covers creating them.
 

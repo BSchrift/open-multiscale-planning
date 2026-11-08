@@ -6,13 +6,24 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const NOT_SHIPPED = /(\.test\.ts|\/e2e\/.*|\/UITests\/.*|playwright\.config\.ts|vitest\.electron\.config\.ts|\/harness\/.*|README\.md|\.gitignore)$/;
+const NOT_SHIPPED =
+  /(\.test\.ts|\/e2e\/.*|\/UITests\/.*|playwright\.config\.ts|vitest\.electron\.config\.ts|node-sqlite-swap\.ts|Config\.example\.xcconfig|\/harness\/.*|README\.md|\.gitignore)$/;
 
 /** What each app's native code is made of: tracked files, and the installed versions of native packages. */
 export const SHELL_SOURCES: Record<'electron' | 'ios', { paths: string[]; packages(name: string): boolean }> = {
-  electron: { paths: ['electron', 'scripts/electron-compile.mjs'], packages: (name) => name === 'electron' || name === 'better-sqlite3' },
+  electron: {
+    // With the web app's own code that esbuild bundles into the main process. electron-compile.mjs checks this list
+    // against what it bundled, so a new import from src fails the Mac build until it's added here.
+    paths: ['electron', 'scripts/electron-compile.mjs', 'src/platform/shortcut.ts', 'src/core/captureTitle.ts'],
+    packages: (name) => name === 'electron' || name === 'better-sqlite3',
+  },
   ios: { paths: ['ios', 'capacitor.config.json'], packages: (name) => name.includes('capacitor') },
 };
+
+/** Whether the app's hash covers this file, as a path from the frontend folder. */
+export function isHashed(app: 'electron' | 'ios', path: string): boolean {
+  return SHELL_SOURCES[app].paths.some((p) => path === p || path.startsWith(`${p}/`)) && !NOT_SHIPPED.test(path);
+}
 
 /** files: path to contents. versions: installed package name to version. */
 export function shellHash(files: Record<string, string | Buffer>, versions: Record<string, string>): string {

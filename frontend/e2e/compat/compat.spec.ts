@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
+import { goals, openProject } from '../journeys/journey';
 import { account, go, oneOffRow, openSeeded, pane, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
 import { capture, closeDevices, daysAhead, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
@@ -43,6 +44,55 @@ async function expectTicked(page: Page, title: string) {
 }
 
 const dated = (page: Page, title: string, date: string) => oneOffRow(page, title).getByText(new RegExp(`^${formatDate(date)}(,|$)`));
+
+/** A goal with a project to finish, which has an open task, and one to pause. */
+function house(run: string, dates: { start: string; end: string; due: string }) {
+  const titles = { goal: `Fix up the house${run}`, fence: `Paint the fence${run}`, shed: `Clear out the shed${run}`, task: `Sand the boards${run}` };
+  const id = (name: string) => `house${run.replace(/\W/g, '-')}-${name}`;
+  const records: Seed[] = [
+    { type: 'objective', id: id('goal'), fields: { title: titles.goal, state: 'active' } },
+    { type: 'project', id: id('fence'), fields: { objective_id: id('goal'), title: titles.fence, state: 'active', start: dates.start, end: dates.end } },
+    { type: 'milestone', id: id('coat'), fields: { project_id: id('fence'), title: 'First coat', due: dates.due } },
+    { type: 'task', id: id('task'), fields: { kind: 'project', project_id: id('fence'), milestone_id: id('coat'), title: titles.task, estimate_min: 60 } },
+    { type: 'project', id: id('shed'), fields: { objective_id: id('goal'), title: titles.shed, state: 'active', start: dates.start, end: dates.end } },
+  ];
+  return { titles, records };
+}
+
+type House = ReturnType<typeof house>['titles'];
+
+/** Finishes the fence from its settings, which cancels its open task. */
+async function finishFence(page: Page, h: House) {
+  const project = await openProject(page, false, h.goal, h.fence);
+  await project.getByRole('button', { name: 'Project settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Project settings' });
+  await dialog.getByRole('button', { name: 'Finish', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Yes, finish' }).click();
+  await expect(page.getByText('Finished. Open tasks cancelled.')).toBeVisible();
+}
+
+/** Restores the fence from Archived, and finds the task finishing it cancelled open again. */
+async function restoreFence(page: Page, h: House) {
+  await goals(page, false);
+  const archived = page.getByRole('button', { name: /^Archived \(\d+\)$/ });
+  if ((await archived.getAttribute('aria-expanded')) !== 'true') await archived.click();
+  await page.getByRole('button', { name: `Restore ${h.fence}` }).click();
+  await expect(page.getByText(`${h.fence} restored.`)).toBeVisible();
+  const project = await openProject(page, false, h.goal, h.fence);
+  await expect(project.getByRole('button', { name: `Edit task ${h.task}, 1h` })).toBeVisible();
+}
+
+/** Pauses or resumes the shed from its settings. Resuming moves its end by the days it was paused. */
+async function pauseShed(page: Page, h: House, action: 'Pause' | 'Resume', end?: string) {
+  const project = await openProject(page, false, h.goal, h.shed);
+  await project.getByRole('button', { name: 'Project settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Project settings' });
+  await dialog.getByRole('button', { name: action }).click();
+  await expect(dialog.getByRole('button', { name: action === 'Pause' ? 'Resume' : 'Pause' })).toBeVisible();
+  if (end) await expect(dialog.getByLabel('Ends')).toHaveValue(end);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+}
 
 test.describe('one device', () => {
   test.use({ timezoneId: 'America/Chicago' });
@@ -91,24 +141,24 @@ test.describe('one device', () => {
     },
   ];
 
-  /** A new tab at NOW, noting errors. */
-  async function launch(context: BrowserContext, name: Bundle, errors: string[]): Promise<Page> {
+  /** A new tab at NOW, or some days later, noting errors. */
+  async function launch(context: BrowserContext, name: Bundle, errors: string[], days = 0): Promise<Page> {
     const page = await context.newPage();
     page.on('pageerror', (error) => errors.push(`${name}: ${error.message}`));
     consoleErrors(page, errors, name);
-    await page.clock.install({ time: NOW });
+    await page.clock.install({ time: NOW.getTime() + days * 86_400_000 });
     return page;
   }
 
   /** Quits the app once its last change is saved, and opens it on the other bundle, as an update or a rollback does. */
-  async function relaunch(page: Page, name: Bundle, errors: string[]): Promise<Page> {
+  async function relaunch(page: Page, name: Bundle, errors: string[], days = 0): Promise<Page> {
     // The bundle before OPFS saves 200ms after the last change, and this one copies its database to IndexedDB for that
     // bundle as late, so a tab closed sooner loses it (platform/opfs.worker.ts).
     await page.waitForTimeout(600);
     const context = page.context();
     await page.close();
     await context.addCookies([bundle(name)]);
-    const next = await launch(context, name, errors);
+    const next = await launch(context, name, errors, days);
     await next.goto('/');
     const nav = next.getByRole('navigation', { name: 'Main' });
     await expect(nav.or(next.getByText("Couldn't open your data", { exact: false }))).toBeVisible();
@@ -151,6 +201,35 @@ test.describe('one device', () => {
     await expectTicked(page, 'Renew the library card');
     await tick(page, 'Sort old photos', errors);
     await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('a project one bundle finished or paused, the other restores with its tasks or resumes with its dates moved', async ({ context }) => {
+    test.setTimeout(240_000);
+    const errors: string[] = [];
+    const { titles, records } = house('', { start: '2026-10-01', end: '2026-12-31', due: '2026-12-20' });
+    await context.addCookies([bundle('old')]);
+    let page = await launch(context, 'old', errors);
+    await openSeeded(page, records);
+    await finishFence(page, titles);
+    await pauseShed(page, titles, 'Pause');
+
+    // Two weeks on, the update brings both back, moving the shed's end by the two weeks.
+    page = await relaunch(page, 'new', errors, 14);
+    await restoreFence(page, titles);
+    await pauseShed(page, titles, 'Resume', '2027-01-14');
+    await finishFence(page, titles);
+    await pauseShed(page, titles, 'Pause');
+
+    // It fails its trial two weeks later, and the old bundle brings back what the update closed and paused.
+    page = await relaunch(page, 'old', errors, 28);
+    await restoreFence(page, titles);
+    await pauseShed(page, titles, 'Resume', '2027-01-28');
+    await pauseShed(page, titles, 'Pause');
+
+    // Updated again two weeks on, it counts that pause from the old bundle's, not its own from before.
+    page = await relaunch(page, 'new', errors, 42);
+    await pauseShed(page, titles, 'Resume', '2027-02-11');
     expect(errors).toEqual([]);
   });
 });
@@ -206,6 +285,44 @@ test('an old and a new device of one user sync captures, dates, ticks and delete
     ...Object.values(ids).map((id) => ({ type: 'task', id, fields: { deleted_at: now } })),
     ...[ids.hinges, ids.shed].map((id) =>({ type: 'task_completion', id: `occ-done:${id}:${today}`, fields: { deleted_at: now } })),
   ]);
+  await syncNow(oldDevice.page);
+  await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
+
+  expect(oldDevice.errors).toEqual([]);
+  expect(newDevice.errors).toEqual([]);
+});
+
+test('an old and a new device of one user restore and resume a project the other finished or paused', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const run = ` ${randomUUID().slice(0, 8)}`;
+  const dates = { start: daysAhead(-30), end: daysAhead(60), due: daysAhead(30) };
+  const { titles, records } = house(run, dates);
+  const oldDevice = await device(browser, `e2e-${run.trim()}`, on('old'));
+  const newDevice = await device(browser, `e2e-${run.trim()}`, on('new'));
+  consoleErrors(oldDevice.page, oldDevice.errors, 'old');
+  consoleErrors(newDevice.page, newDevice.errors, 'new');
+  await seed(oldDevice.page, records);
+  await signIn(oldDevice.page);
+  await signIn(newDevice.page);
+
+  // Each closes and pauses, and the other brings both back. Both happen today, so resuming moves no dates.
+  for (const [from, to] of [
+    [oldDevice, newDevice],
+    [newDevice, oldDevice],
+  ] as const) {
+    await finishFence(from.page, titles);
+    await pauseShed(from.page, titles, 'Pause');
+    await syncNow(from.page);
+    await syncNow(to.page);
+    await restoreFence(to.page, titles);
+    await pauseShed(to.page, titles, 'Resume', dates.end);
+    await syncNow(to.page);
+    await syncNow(from.page);
+  }
+
+  // A deployment's test user keeps nothing live.
+  const now = new Date().toISOString();
+  await seed(oldDevice.page, records.map(({ type, id }) => ({ type, id, fields: { deleted_at: now } })));
   await syncNow(oldDevice.page);
   await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
 

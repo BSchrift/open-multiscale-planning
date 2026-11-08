@@ -1,12 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SHOW_COMPLETED_KEY, useShowCompleted } from './showCompleted';
-import { useStickyState } from './store';
+import { SHOW_COMPLETED_KEY, useShowCompleted, useShowCompletedState } from './showCompleted';
 
 afterEach(() => vi.restoreAllMocks());
 
 // Show completed's own toggle, as in components/ShowCompleted.tsx.
-const toggle = () => renderHook(() => useStickyState('showCompleted', false));
+const toggle = () => renderHook(() => useShowCompletedState());
 
 describe('show completed', () => {
   it('hides completed tasks by default', () => {

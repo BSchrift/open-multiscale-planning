@@ -7,12 +7,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
-import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, today, weekRange } from '../../../../core/dates';
+import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
 import type { Writer } from '../../../../core/records';
-import { closestFit, dayBaseAhead, dayFree, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes, TIGHT_SHARE } from '../../../../core/slots';
+import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
 import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
@@ -22,7 +22,8 @@ import { useToast } from '../../../components/Toast';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { WeekGrid } from '../../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../../components/weekgrid';
-import { DayShape, DragDay } from '../../week/Phone';
+import { DayStrip, PackedDay, weekFree } from '../../../components/week/DayStrip';
+import { DragDay } from '../../week/Phone';
 import { loadPlanning, weekModel } from '../model';
 import { dayName, range, scheduleModel } from './model';
 import type { SchedBlock, SchedRow } from './model';
@@ -37,7 +38,6 @@ export interface ScheduleStepProps {
 }
 
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
-const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
 /** 'A', 'A and B', 'A, B and C' */
 const listed = (names: readonly string[]) => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
@@ -412,11 +412,6 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   // Phone
   const kind = work.kind;
-  const free = (date: LocalDate) => dayFree(date, 'project', ctx);
-  // A day gone by shows no free figure, as on Week.
-  const freeText = (date: LocalDate) => (date < ctx.earliest.date ? '' : formatMinutes(free(date)));
-  const packed = (date: LocalDate) => free(date) < dayBaseAhead(date, 'project', ctx) * TIGHT_SHARE;
-  const weekFree = [0, 1, 2, 3, 4, 5, 6].reduce((sum, i) => sum + free(addDays(week, i)), 0);
   const planned = ctx.placed.reduce((sum, p) => sum + p.end - p.start, 0);
   const floorOf = (date: LocalDate) =>
     date > ctx.earliest.date ? DAY_FROM : date < ctx.earliest.date ? DAY_TO : Math.max(DAY_FROM, Math.ceil(ctx.earliest.minutes / GRID) * GRID);
@@ -444,7 +439,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           <div className="weektop">
             <div className="card stack8">
               <div className="small">
-                <span className="strong">{formatMinutes(weekFree)} free</span>
+                <span className="strong">{formatMinutes(weekFree(week, ctx))} free</span>
                 <span className="quiet"> of {formatMinutes(model.open)} available, </span>
                 {formatMinutes(planned)} planned
               </div>
@@ -460,48 +455,23 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 <span className="skey sug" />
                 suggested
               </div>
-              <div className="wstrip" role="group" aria-label="Compare days">
-                {[0, 1, 2, 3, 4, 5, 6].map((i) => {
-                  const date = addDays(week, i);
-                  const on = date === day;
+              <DayStrip
+                week={week}
+                label="Compare days"
+                selected={day}
+                ctx={ctx}
+                placed={ctxOut.placed}
+                draft={b}
+                hint={(date) => {
                   const o = found.find((x) => x.date === date);
-                  const mine = b?.date === date;
-                  const noFit = !!cur && !o && !mine && !!b && closestFit(date, b.start, len, kind, ctxOut) === null;
-                  const sug = !cur ? '' : o ? formatTimeOfDay(o.start) : noFit ? 'No slot' : '';
-                  const say = !cur ? '' : o ? `, suggested ${formatTimeOfDay(o.start)}` : noFit ? ', no slot for this task' : '';
-                  return (
-                    <button
-                      key={date}
-                      type="button"
-                      className={`wday sched${on ? ' on' : ''}${date === today(clock) ? ' today' : ''}${packed(date) ? ' tight' : ''}${noFit ? ' nofit' : ''}`}
-                      aria-pressed={on}
-                      aria-current={date === today(clock) ? 'date' : undefined}
-                      aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${say}`}
-                      onClick={() => setLook({ key: curKey, date })}
-                    >
-                      <span>
-                        <span>{LETTERS[i]} </span>
-                        <span className="strong">{Number(date.slice(8))}</span>
-                      </span>
-                      <DayShape ctx={ctx} placed={ctxOut.placed} date={date} draft={b} suggested={o && !(mine && o.start === b?.start) ? o : null} />
-                      <span className="wfree">{freeText(date)}</span>
-                      <span className="wsug">{sug}</span>
-                    </button>
-                  );
-                })}
-              </div>
+                  return { suggested: o, noFit: !!cur && !o && b?.date !== date && !!b && closestFit(date, b.start, len, kind, ctxOut) === null };
+                }}
+                suggestions
+                onPick={(date) => setLook({ key: curKey, date })}
+              />
             </div>
           </div>
-          {packed(day) && (
-            <div className="warn">
-              <div>
-                <div className="strong">{dayName(day)} is packed</div>
-                <div>
-                  {formatMinutes(free(day))} free of {formatMinutes(dayBaseAhead(day, 'project', ctx))} available that day.
-                </div>
-              </div>
-            </div>
-          )}
+          <PackedDay date={day} ctx={ctx} />
           <h3 className="schday">{dayName(day)}</h3>
           <p className="small quiet">Drag the block anywhere, or tap a suggested time. Drag its bottom edge to change the time.</p>
           <BringIntoView watch={`${curKey}|${day}`}>

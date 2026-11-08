@@ -7,12 +7,13 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
 import { addDays, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
-import { closestFit, dayBaseAhead, dayFree, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes, TIGHT_SHARE } from '../../../core/slots';
-import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
+import { closestFit, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
+import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
+import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { clearLane, overLane } from '../../components/weekgrid';
 import type { GridGhost } from '../../components/weekgrid';
@@ -27,7 +28,6 @@ const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
 const CELL_PX = 46;
 const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint' } as const;
-const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
 const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
 
@@ -137,11 +137,6 @@ export function PhoneWeek(props: WeekProps) {
       onDrop={(slot) => void act.place(x, slot)}
     />
   );
-  // Counted from now on: a day gone by shows what happened, never free time.
-  const free = (date: LocalDate) => dayFree(date, 'project', ctx);
-  const freeText = (date: LocalDate) => (date < day0 ? '' : formatMinutes(free(date)));
-  const packed = (date: LocalDate) => free(date) < dayBaseAhead(date, 'project', ctx) * TIGHT_SHARE;
-  const weekFree = [0, 1, 2, 3, 4, 5, 6].reduce((a, i) => a + free(addDays(data.week, i)), 0);
   const dayIndex = diffDays(data.week, selDay);
   const dayTitle = dayName(selDay);
   const showDrag = !!placing || editing;
@@ -197,7 +192,7 @@ export function PhoneWeek(props: WeekProps) {
           <div className="small wkkeys">
             <span className="keyitem">
               <span className="skey" />
-              <span className="strong">{formatMinutes(weekFree)} free</span>
+              <span className="strong">{formatMinutes(weekFree(data.week, ctx))} free</span>
               <span className="quiet"> of {formatMinutes(model.open)} available</span>
             </span>
             <span className="keyitem">
@@ -210,32 +205,16 @@ export function PhoneWeek(props: WeekProps) {
             </span>
           </div>
           <div className="small quiet">{capLine}</div>
-          <div className="wstrip" role="group" aria-label="Choose a day">
-            {[0, 1, 2, 3, 4, 5, 6].map((i) => {
-              const date = addDays(data.week, i);
-              const on = date === selDay;
-              const nofit = noFit(date);
-              const cur = placing && at && at.date === date ? at : null;
-              return (
-                <button
-                  key={date}
-                  type="button"
-                  className={`wday${on ? ' on' : ''}${date === day0 ? ' today' : ''}${packed(date) ? ' tight' : ''}${nofit ? ' nofit' : ''}`}
-                  aria-pressed={on}
-                  aria-current={date === day0 ? 'date' : undefined}
-                  aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${nofit ? ', no slot for this task' : ''}`}
-                  onClick={() => pickDay(date)}
-                >
-                  <span>
-                    <span>{LETTERS[i]} </span>
-                    <span className="strong">{Number(date.slice(8))}</span>
-                  </span>
-                  <DayShape ctx={ctx} placed={ctx.placed} date={date} draft={cur} />
-                  <span className="wfree">{nofit ? 'No slot' : freeText(date)}</span>
-                </button>
-              );
-            })}
-          </div>
+          <DayStrip
+            week={data.week}
+            label="Choose a day"
+            selected={selDay}
+            ctx={ctx}
+            placed={ctx.placed}
+            draft={placing ? at : null}
+            hint={(date) => ({ noFit: noFit(date) })}
+            onPick={pickDay}
+          />
         </div>
       </div>
 
@@ -247,16 +226,7 @@ export function PhoneWeek(props: WeekProps) {
           </button>
         </>
       )}
-      {packed(selDay) && (
-        <div className="warn">
-          <div>
-            <div className="strong">{dayTitle} is packed</div>
-            <div>
-              {formatMinutes(free(selDay))} free of {formatMinutes(dayBaseAhead(selDay, 'project', ctx))} available that day.
-            </div>
-          </div>
-        </div>
-      )}
+      <PackedDay date={selDay} ctx={ctx} />
       {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
 
       {offset >= 0 && !placing && (
@@ -566,35 +536,6 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
  * The drawn day behind a drag: hours, closed time, calendar events, and the blocks that move. The planning Schedule
  * step also passes suggested times, which the moving and selected blocks snap to.
  */
-/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy or closed. Open time gone by is drawn as closed. */
-export function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: LocalDate; draft?: Slot | null; suggested?: Slot | null }) {
-  const { ctx, date } = props;
-  const hit = (x: Slot | null | undefined, m: number) => !!x && x.date === date && x.start < m + 30 && m < x.end;
-  return (
-    <span className="wshape" aria-hidden="true">
-      {Array.from({ length: (DAY_TO - DAY_FROM) / 30 }, (_, k) => {
-        const m = DAY_FROM + k * 30;
-        const busy = overlaps(ctx.busy, date, m, m + 30);
-        const placed = props.placed.find((x) => hit(x, m));
-        const cls = hit(props.draft, m)
-          ? 'draft'
-          : hit(props.suggested, m)
-            ? 'sug'
-            : !isOpen(ctx.availability, date, m, 'project') && !busy
-              ? 'closed'
-              : placed
-                ? `planned${placed.kind === 'practice' ? ' practice' : placed.kind === 'one_off' ? ' maint' : ''}`
-                : busy
-                  ? 'busy'
-                  : isPast(date, m, ctx)
-                    ? 'closed'
-                    : '';
-        return <span key={m} className={`sl ${cls}`} />;
-      })}
-    </span>
-  );
-}
-
 export function DragDay(props: {
   date: LocalDate;
   ctx: SlotContext;

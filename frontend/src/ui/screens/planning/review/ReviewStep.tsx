@@ -8,6 +8,7 @@ import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { LocalDate } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useQuery } from '../../../app/store';
+import { TimeUse } from '../../../components/week/TimeUse';
 import { loadPlanning, weekModel } from '../model';
 
 export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish(): void }) {
@@ -25,13 +26,6 @@ export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish():
   // Set against the open time left, so only what's still ahead.
   const used = plannedByKind(spansAhead(m.slot.placed, m.slot));
   const free = Math.max(0, m.open - used.total);
-  const scale = Math.max(1, m.open, used.total);
-  const segs = [
-    { label: 'Projects', minutes: used.project, cls: 'seg-project' },
-    { label: 'Practices', minutes: used.practice, cls: 'seg-practice' },
-    { label: 'One offs', minutes: used.one_off, cls: 'seg-maint' },
-  ];
-  const alerts = weekAlerts(m.slot, aims, m.pushback);
 
   return (
     <div className={layout === 'phone' ? 'scroll' : 'wrap stack'}>
@@ -49,42 +43,7 @@ export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish():
           {unmet.length > 0 && <p className="quiet">You can still finish short of an aim.</p>}
         </div>
       </div>
-      <section className="card stack8" aria-label="How this week's time is used">
-        <div>
-          <span className="capnum">{formatMinutes(free)} free</span>
-          <span className="quiet"> of {formatMinutes(m.open)} available</span>
-        </div>
-        <div
-          className="capbar"
-          role="img"
-          aria-label={`${segs.map((g) => `${formatMinutes(g.minutes)} ${g.label.toLowerCase()}`).join(', ')}, ${formatMinutes(free)} free`}
-        >
-          {segs.map((g) => (
-            <span key={g.cls} className={g.cls} style={{ width: `${Math.round((g.minutes / scale) * 100)}%` }} />
-          ))}
-        </div>
-        <div className="legend">
-          {segs.map((g) => (
-            <span key={g.cls}>
-              <i className={g.cls} />
-              {g.label} {formatMinutes(g.minutes)}
-            </span>
-          ))}
-          <span>
-            <i className="seg-free" />
-            Free {formatMinutes(free)}
-          </span>
-        </div>
-        <p className="small quiet">Available is the time outside sleep, work and your other blocked times, minus calendar events, so it changes every week.</p>
-        {alerts.map((a) => (
-          <div key={a.title} className="warn" role="status">
-            <div>
-              <div className="strong">{a.title}</div>
-              <div>{a.text}</div>
-            </div>
-          </div>
-        ))}
-      </section>
+      <TimeUse open={m.open} planned={used} free={free} alerts={weekAlerts(m.slot, aims, m.pushback)} />
       {layout === 'desktop' && (
         <div className="row">
           <button className="btn pri" type="button" onClick={props.onFinish}>

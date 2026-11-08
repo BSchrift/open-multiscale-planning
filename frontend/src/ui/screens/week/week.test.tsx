@@ -117,6 +117,7 @@ describe('Week on desktop', () => {
     // What's planned is the whole week's, past days included, as they show what happened.
     expect(within(used).getByRole('img', { name: '5h 30m projects, 30m practices, 6h one offs, 44h 30m free' })).toBeVisible();
     expect(within(used).getByText('Free 44h 30m')).toBeVisible();
+    expect(within(used).getByText('Free 44h 30m').querySelector('.seg-free')).toBeInTheDocument();
     // Today has only its evening left, so it's packed; Monday was full, but it has gone by.
     expect(within(used).getByText('Wed Nov 4 is packed')).toBeVisible();
     expect(within(used).getByText('30m free of 5h available that day.')).toBeVisible();

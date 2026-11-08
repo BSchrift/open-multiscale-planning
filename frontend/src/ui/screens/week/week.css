@@ -17,7 +17,6 @@
 [data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
 [data-layout] .wknote { color: var(--amber-ink-2); }
 [data-layout] .wklegend { margin-top: 8px; }
-[data-layout] .legend i.keyfree { background: var(--fill); }
 [data-layout] .legend i.keyinfo { background: transparent; border: 1px dashed var(--info-line); }
 [data-layout] .legend i.keyclosed { background: var(--closed); border: 1px solid var(--line-soft); }
 [data-layout] .legend i.ev-busy { background: repeating-linear-gradient(135deg, var(--line) 0, var(--line) 3px, var(--stripe-2) 3px, var(--stripe-2) 6px); }

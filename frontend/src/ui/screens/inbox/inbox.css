@@ -1,32 +1,7 @@
-/* Inbox: what the shared styles don't cover. */
-
-[data-layout] .inboxlines {
-  min-width: 0;
-}
-
-[data-layout] .inboxlines > span {
-  display: block;
-}
+/* Inbox: what the shared styles and its list don't cover. */
 
 [data-layout='desktop'] .inboxintro {
   margin-bottom: 8px;
-}
-
-/* The items are rows of one card. */
-[data-layout='phone'] .inboxlist > .morerow {
-  padding: 6px var(--space-4);
-}
-
-[data-layout='desktop'] .inboxlist {
-  margin-top: var(--space-2);
-}
-
-[data-layout='desktop'] .inboxlist > .inboxrow {
-  padding: var(--space-2) var(--space-4);
-}
-
-[data-layout] .inboxlist > :first-child {
-  border-top: 0;
 }
 
 /* Room for the docked Process button, so it never covers the last row. */

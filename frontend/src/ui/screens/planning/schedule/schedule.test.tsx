@@ -357,6 +357,21 @@ describe('Schedule on phone', () => {
     expect(await screen.findByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeInTheDocument();
   });
 
+  it('says a day looked at is packed, as on Week', async () => {
+    await phone({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 't2', start: at(WEEK, 14), end: at(WEEK, 21, 30), tz: ZONE });
+      },
+    });
+    const days = within(await screen.findByRole('group', { name: 'Compare days' })).getAllByRole('button');
+    expect(days[0]).toHaveAccessibleName(/^Mon Nov 2, 30m free, packed/);
+    expect(days[0]).toHaveClass('tight');
+    await userEvent.click(days[0]!);
+    expect(await screen.findByText('Mon Nov 2 is packed')).toBeVisible();
+    expect(screen.getByText('30m free of 8h available that day.')).toBeVisible();
+  });
+
   it('mid-week, a day gone by shows no free time, as on Week', async () => {
     await phone({ now: '2026-11-04T18:00:00Z' });
     const days = within(await screen.findByRole('group', { name: 'Compare days' })).getAllByRole('button');

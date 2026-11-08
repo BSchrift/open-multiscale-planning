@@ -144,6 +144,15 @@ describe('the Inbox step', () => {
     await openPlanning();
     expect(await screen.findByText('Inbox is empty.')).toBeInTheDocument();
   });
+
+  it('on phone lists rows named by what they say, as the Inbox does, each opening the cards on it', async () => {
+    const t = await openPlanning({
+      layout: 'phone',
+      seed: (w) => w.create('task', { kind: 'inbox', title: 'Return the library books', estimate_min: 30 }, 'i1'),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Return the library books/ }));
+    expect(t.nav().overlay).toEqual({ area: 'process', params: { planning: '2026-11-02', item: 'i1' } });
+  });
 });
 
 describe('the Schedule step', () => {
@@ -163,6 +172,11 @@ describe('the Review step', () => {
     expect(screen.getByText('Learn to bake bread: 0m of 2h aim')).toBeInTheDocument();
     expect(await screen.findByText("1h 30m of what you picked isn't scheduled. It stays on its project or in One offs.")).toBeInTheDocument();
     expect(screen.getByText('98h free')).toBeInTheDocument();
+    // The same card as Week's, with each part of the bar named on hover.
+    const used = screen.getByRole('region', { name: "How this week's time is used" });
+    expect(within(used).getByRole('img', { name: '0m projects, 0m practices, 0m one offs, 98h free' })).toBeInTheDocument();
+    expect(used.querySelector('.capbar .seg-project')).toHaveAttribute('title', 'Projects: 0m');
+    expect(within(used).getByText('Free 98h').querySelector('.seg-free')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Finish plan' }));
     await waitFor(() => expect(close).toHaveBeenCalled());
     expect((await getRecord(t.db, 'week_plan', weekPlanId('2026-11-02')))?.finished_at).toBe('2026-11-02T20:00:00Z');

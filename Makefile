@@ -25,9 +25,6 @@ test-e2e:
 test-ios:
 	@scripts/test-ios.sh
 
-smoke:
-	@scripts/smoke.sh
-
 # Every suite that can run against a deployment: ENV=staging (default) or prod with CONFIRM_PROD=yes. make release
 # runs it after each release. SKIP_IOS=1 leaves out the iPhone test.
 test-deployed:
@@ -37,6 +34,9 @@ test-deployed:
 # read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile.
 deploy:
 	@scripts/deploy.sh
+
+smoke:
+	@scripts/smoke.sh
 
 # Builds the Mac app and the web bundle on this Mac, signs the bundle and uploads both: ENV=staging (default) or prod.
 release:

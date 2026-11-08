@@ -27,7 +27,8 @@ esac
 cd "$root/frontend"
 
 if [ "$env_name" != local ]; then
-  MULTISCALE_TARGET="$(node scripts/test-target.mjs)"
+  # Run from scripts/test-deployed.sh, it's already read, test user's password and all.
+  MULTISCALE_TARGET="${MULTISCALE_TARGET:-$(node scripts/test-target.mjs)}"
   export MULTISCALE_TARGET
   exec npx playwright test -c e2e/stack/playwright.config.ts
 fi

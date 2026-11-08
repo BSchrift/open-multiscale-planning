@@ -10,13 +10,13 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
-# make exports ENV=local as the default for its test targets. Nothing releases to local, so it means the default.
 env_name="${ENV:-staging}"
-[ "$env_name" = local ] && env_name=staging
 case "$env_name" in
   staging | prod) ;;
   *) echo "ENV must be staging or prod, not $env_name" >&2; exit 1 ;;
 esac
+# The release builds dist and then uploads it, so a run started alongside waits rather than rebuilding it in between.
+[ -n "${MULTISCALE_BUILD_LOCK:-}" ] || exec "$root/frontend/scripts/build-lock.sh" "$0" "$@"
 
 config_dir="${MULTISCALE_CONFIG_DIR:-$root/config}"
 case "$config_dir" in /*) ;; *) config_dir="$PWD/$config_dir" ;; esac
@@ -75,6 +75,6 @@ if [ "${SKIP_TESTS:-}" = 1 ]; then
   exit 0
 fi
 if ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" "$root/scripts/test-deployed.sh"; then
-  echo "$version is live on $env_name, but its tests failed. To go back, release the last good commit." >&2
+  echo "$version is live on $env_name, but its tests failed. To go back, revert the bad commit and release that." >&2
   exit 1
 fi

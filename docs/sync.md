@@ -1,5 +1,28 @@
 # Sync
 
+Sync merges each field of a record on its own, and the last write wins. That suits a field one edit replaces, such as a
+date or a state. It doesn't suit a list two devices each add to, since the later device's list replaces the other's.
+
+## The replanning log
+
+A project's replanning log, `slip_log`, is one such list: one field holding every entry. When two devices replan a
+project while one is offline, the later device's log wins and the other's entries are lost. So the log is history
+only. It gives the lines a project shows, its slip figures, and the Undo for the latest change, and a rare lost entry
+costs one of those.
+
+What a feature has to read back is kept on the records the change touched, where last writer wins is right:
+
+- **`cancelled_by`** on a task names the project whose finish or drop cancelled it. Restore reopens the tasks marked
+  with its project that are still cancelled, and clears the mark with `cancelled_at`. A milestone still counts them,
+  since they were never done. A task the person cancelled is never marked.
+- **`paused_on`** on a project is the day it was paused. Resume moves open dates by the days since, and clears it.
+
+Closing and pausing still log their entries, for history and for older apps, which read only the log. The app reads
+the log too, for what was closed or paused before these fields existed: Restore also undoes a close entry that is
+still the newest, and the milestone count includes the tasks a close entry lists. Resume goes by the last pause entry
+when it's later than `paused_on`, as it is after an older app resumed and paused again. A close entry's Undo clears
+the marks as well, so an older app's Restore leaves none behind.
+
 ## The 10 GB cap per user
 
 Each user's records share one partition of the table, and pull reads them in order through `by_seq`, a local secondary index. On a table with a local index, DynamoDB caps each partition's item collection at 10 GB: the items themselves plus their copies in the index. `by_seq` copies every attribute, so a record counts about twice. Sync never removes a row, deletes included, so a user's collection only grows.

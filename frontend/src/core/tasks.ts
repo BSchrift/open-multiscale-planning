@@ -60,18 +60,22 @@ export async function closeProject(w: Writer, projectId: string, state: 'finishe
   if (!project) throw new Error(`No project ${projectId}`);
   const reverses: PlanChange[] = [];
   for (const { id } of open) reverses.unshift(await closeTask(w, id, 'cancelled', clock));
-  // Logged so Restore can reopen these tasks later; the time they gave up stays free.
+  // Each task is marked, so Restore can reopen it later; the time it gave up stays free. The entry is history, and
+  // what Restore goes by for an older app or a close from before the marks.
   const entry: SlipEntry = {
     at: nowInstant(clock),
     kind: 'close',
     text: `${formatDate(today(clock))}: ${state === 'finished' ? 'Finished' : 'Dropped'}.`,
     undo: [
       { type: 'project', id: projectId, fields: { state: project.state } },
-      ...open.map(({ id }): RecordWrite => ({ type: 'task', id, fields: { cancelled_at: null } })),
+      ...open.map(({ id }): RecordWrite => ({ type: 'task', id, fields: { cancelled_at: null, cancelled_by: null } })),
     ] satisfies RecordWrite[],
   };
-  const fields = { state, slip_log: [...(project.slip_log ?? []), entry] };
-  reverses.unshift(await applyPlanChange(w, { writes: [{ type: 'project', id: projectId, fields }] }));
+  const writes: RecordWrite[] = [
+    { type: 'project', id: projectId, fields: { state, slip_log: [...(project.slip_log ?? []), entry] } },
+    ...open.map(({ id }): RecordWrite => ({ type: 'task', id, fields: { cancelled_by: projectId } })),
+  ];
+  reverses.unshift(await applyPlanChange(w, { writes }));
   return { writes: reverses.flatMap((r) => r.writes) };
 }
 

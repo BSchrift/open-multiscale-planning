@@ -935,17 +935,30 @@ describe('replanning a project', () => {
       p.milestones[0] = { ...ms(p, 'm1'), met_at: '2026-10-05T12:00:00Z' };
       p.milestones[1] = { ...ms(p, 'm2'), dropped_at: '2026-10-05T12:00:00Z' };
       const paused = withChange(p, pauseProject(p, on('2026-10-16')));
-      expect(paused.project.state).toBe('paused');
+      expect(paused.project).toMatchObject({ state: 'paused', paused_on: '2026-10-16' });
       const after = withChange(paused, resumeProject(paused, ctx));
-      expect(after.project).toMatchObject({ state: 'active', end: '2026-12-29' });
+      expect(after.project).toMatchObject({ state: 'active', end: '2026-12-29', paused_on: null });
       expect(ms(after, 'm1').due).toBe('2026-10-18');
       expect(ms(after, 'm2').due).toBe('2026-11-09');
       expect(ms(after, 'm3').due).toBe('2026-12-15');
       expect(replannedBadge(after)).toBe('Replanned: 14 days later, 1 milestone dropped');
       expect(log(after).at(-1)?.text).toBe('Oct 30: Resumed. Open dates moved by the 14 days it was paused.');
       const back = undone(after);
-      expect(back.project).toMatchObject({ state: 'paused', end: '2026-12-15' });
+      expect(back.project).toMatchObject({ state: 'paused', end: '2026-12-15', paused_on: '2026-10-16' });
       expect(ms(back, 'm3').due).toBe('2026-12-01');
+      expect(undone(back).project).toMatchObject({ state: 'active', paused_on: null });
+    });
+
+    const pausedEntry = { at: '2026-10-16T12:00:00Z', kind: 'pause', text: 'Oct 16: Paused.', undo: [] } as const;
+
+    it('resumes a project paused before it kept the day, by its pause entry', () => {
+      const p = reportPlan({ state: 'paused', slip_log: [pausedEntry] });
+      expect(withChange(p, resumeProject(p, ctx)).project).toMatchObject({ state: 'active', end: '2026-12-29' });
+    });
+
+    it('goes by a newer pause entry than its day, as an older app logs a pause after resuming without clearing the day', () => {
+      const p = reportPlan({ state: 'paused', paused_on: '2026-10-01', slip_log: [pausedEntry] });
+      expect(withChange(p, resumeProject(p, ctx)).project.end).toBe('2026-12-29');
     });
 
     it('does not count a resumed shift again on the next move', () => {

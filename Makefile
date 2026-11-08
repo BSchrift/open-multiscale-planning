@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-ios test-deployed smoke deploy release scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-deployed smoke deploy release scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -21,6 +21,11 @@ test-integration:
 
 test-e2e:
 	@scripts/e2e.sh
+
+# The last release's web bundle beside this checkout's: one device's database opened by each in turn, and an old and a
+# new device syncing. BASE picks the old bundle's commit. make test-e2e runs it too.
+test-compat:
+	@scripts/test-compat.sh
 
 test-ios:
 	@scripts/test-ios.sh

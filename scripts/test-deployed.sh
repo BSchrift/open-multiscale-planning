@@ -2,6 +2,7 @@
 # Every suite that can run against a deployment, run against one, as make release does after each release:
 #   web app      the deployed web app as people get it (frontend/e2e/deployed), desktop and phone sizes
 #   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack); staging only
+#   compat       on staging, prod's web bundle and this checkout's sharing a database and syncing (scripts/test-compat.sh)
 #   integration  the black-box suite against its API and sign-in
 #   smoke        that its logs and metrics arrive
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
@@ -63,6 +64,8 @@ if [ "$env_name" = prod ]; then
   echo "== sync skipped: prod's sign-in doesn't return to a local app"
 else
   run "sync" "$root/scripts/e2e.sh"
+  # Its old and new devices are this Mac's builds too, signing in as the test user.
+  run "compat" "$root/scripts/test-compat.sh"
 fi
 run "integration" "$root/scripts/integration.sh"
 run "smoke" "$root/scripts/smoke.sh"

@@ -21,6 +21,8 @@ It is local-first: everything lives in SQLite on the device and syncs through a 
 | `site/` | The public page at `www.` your domain, deployed with the control stack |
 | `scripts/`, `Makefile` | Deploy, test and local stack entry points |
 
+[docs/records.md](docs/records.md) describes the record types and how devices' copies merge.
+
 ## Run it locally
 
 Needs Node 25, Go 1.25 and Docker. No AWS.

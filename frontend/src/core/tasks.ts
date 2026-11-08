@@ -7,8 +7,9 @@ import type { Params, Sql } from './db';
 import { applyPlanChange, undoLastChange } from './plan';
 import type { PlanChange, ProjectPlan, RecordWrite, ScheduledWork } from './plan';
 import { futureBlocks, futurePicks } from './queries';
-import { getRecord } from './records';
+import { getRecord, newId, slipEntryId } from './records';
 import type { Writer } from './records';
+import { getProject, logWrites } from './slipLog';
 import { blocksToRelease, isRepeating, retick, tick, untick } from './schedule';
 import type { Fields, Instant, SlipEntry, Task, TaskCompletion, TimeBlock, WeekPick } from './types';
 
@@ -56,12 +57,13 @@ export async function closeProject(w: Writer, projectId: string, state: 'finishe
     'SELECT id FROM task WHERE project_id = :project AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL',
     { project: projectId },
   );
-  const project = await getRecord(w.sql, 'project', projectId);
+  const project = await getProject(w.sql, projectId);
   if (!project) throw new Error(`No project ${projectId}`);
   const reverses: PlanChange[] = [];
   for (const { id } of open) reverses.unshift(await closeTask(w, id, 'cancelled', clock));
   // Logged so Restore can reopen these tasks later; the time they gave up stays free.
-  const entry: SlipEntry = {
+  const entry: SlipEntry & { id: string } = {
+    id: slipEntryId(projectId, newId(clock)),
     at: nowInstant(clock),
     kind: 'close',
     text: `${formatDate(today(clock))}: ${state === 'finished' ? 'Finished' : 'Dropped'}.`,
@@ -70,8 +72,7 @@ export async function closeProject(w: Writer, projectId: string, state: 'finishe
       ...open.map(({ id }): RecordWrite => ({ type: 'task', id, fields: { cancelled_at: null } })),
     ] satisfies RecordWrite[],
   };
-  const fields = { state, slip_log: [...(project.slip_log ?? []), entry] };
-  reverses.unshift(await applyPlanChange(w, { writes: [{ type: 'project', id: projectId, fields }] }));
+  reverses.unshift(await applyPlanChange(w, { writes: [{ type: 'project', id: projectId, fields: { state } }, ...logWrites(project, entry)] }));
   return { writes: reverses.flatMap((r) => r.writes) };
 }
 
@@ -216,7 +217,7 @@ export async function untickOneOff(w: Writer, completionId: string, clock: Clock
  * picks from this week on, so time that has passed doesn't come back as a missed block. Returns the reverse.
  */
 export async function undoProjectChange(w: Writer, plan: ProjectPlan, clock: Clock): Promise<PlanChange> {
-  const undo = undoLastChange(plan);
+  const undo = undoLastChange(plan, clock);
   return undo ? applyPlanChange(w, { writes: await stillAhead(w, undo.writes, clock) }) : { writes: [] };
 }
 

@@ -8,6 +8,7 @@ import type { Sql } from './db';
 import { msTasks } from './plan';
 import { isAway } from './queue';
 import { getSettings, listRecords, outcomeId } from './records';
+import { listProjects } from './slipLog';
 import { ONE_OFFS_BUCKET } from './types';
 import type {
   AvoidedSlot,
@@ -64,7 +65,7 @@ export interface AnalyticsData {
 export async function loadAnalyticsData(sql: Sql): Promise<AnalyticsData> {
   const [objectives, projects, milestones, tasks, blocks, outcomes, practices, away, settings] = await Promise.all([
     listRecords(sql, 'objective'),
-    listRecords(sql, 'project'),
+    listProjects(sql),
     listRecords(sql, 'milestone'),
     listRecords(sql, 'task'),
     listRecords(sql, 'time_block'),

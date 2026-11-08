@@ -533,7 +533,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
                     className="btn sm"
                     type="button"
                     aria-label={`Restore ${plan.project.title}`}
-                    onClick={() => apply(() => restoreProject(plan), { message: `${plan.project.title} restored.` })}
+                    onClick={() => apply(() => restoreProject(plan, clock), { message: `${plan.project.title} restored.` })}
                   >
                     Restore
                   </button>

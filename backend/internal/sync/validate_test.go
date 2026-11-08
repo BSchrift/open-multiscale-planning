@@ -39,7 +39,7 @@ func TestParseRequestAcceptsAPullWithNoChanges(t *testing.T) {
 
 // An app with a record type this server has never seen can be released first, so any well-formed type is taken.
 func TestAnyWellFormedRecordTypeIsAccepted(t *testing.T) {
-	for _, recordType := range []string{"objective", "project", "milestone", "task", "task_completion", "time_block",
+	for _, recordType := range []string{"objective", "project", "slip_entry", "milestone", "task", "task_completion", "time_block",
 		"block_outcome", "week_plan", "week_pick", "away_period", "settings", "calendar", "calendar_source", "practice",
 		"a_type_no_app_has_yet", "x", strings.Repeat("x", 64)} {
 		body := fmt.Sprintf(`{"changes":[{"type":%q,"id":"a","fields":{}}]}`, recordType)

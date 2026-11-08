@@ -10,6 +10,7 @@ import { deleteWork, keepWork } from '../../../core/queue';
 import type { QueueItem } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
+import { listProjects } from '../../../core/slipLog';
 import { offers, slotContext, slotInstants } from '../../../core/slots';
 import type { Offer, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate } from '../../../core/types';
@@ -99,7 +100,7 @@ export function QueuePanel(props: { items: readonly QueueItem[]; onClose(): void
   const slots = useQuery(async (sql, clock) => {
     const settings = await getSettings(sql);
     const [projects, milestones, tasks, away] = await Promise.all([
-      listRecords(sql, 'project'),
+      listProjects(sql),
       listRecords(sql, 'milestone'),
       listRecords(sql, 'task'),
       listRecords(sql, 'away_period'),

@@ -14,7 +14,7 @@ import { gatherPlans, msReached, toggleInPlan, withChange } from './plan';
 import type { ProjectPlan } from './plan';
 import { needsNewTime } from './queries';
 import { deleteWork, queueItems } from './queue';
-import { outcomeId, transact } from './records';
+import { getRecord, outcomeId, transact } from './records';
 import { closeProject } from './tasks';
 import type { BlockResult, Milestone, Task, TimeBlock } from './types';
 
@@ -359,6 +359,25 @@ describe('stretch view', () => {
         ms('m11', { due: '2026-12-10' }), // Not due yet, open.
       ];
       expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 2, total: 5, early: 2 });
+    });
+
+    it('reads moves from entry records too, and a project from before them exactly as it was', async () => {
+      const db = await openTestDb();
+      const move = { at: NOW, kind: 'move' as const, from: '2026-10-10', to: '2026-10-30' };
+      const met = localToInstant('2026-10-30', 600, ZONE);
+      await transact(db, clock, async (w) => {
+        await w.create('project', { title: 'First draft', state: 'active', start: '2026-09-01', end: '2026-12-31' }, 'p1');
+        await w.create('milestone', { project_id: 'p1', title: 'Outline', due: '2026-10-30', met_at: met }, 'm1');
+        // The array alone, as a bundle from before entry records logged it.
+        await w.create('project', { title: 'Sourdough', state: 'active', start: '2026-09-01', end: '2026-12-31', slip_log: [{ ...move, milestone_id: 'm2' }] }, 'p2');
+        await w.create('milestone', { project_id: 'p2', title: 'First loaf', due: '2026-10-30', met_at: met }, 'm2');
+        // The record alone, as when another device's array replaced the one that logged it.
+        await w.create('slip_entry', { project_id: 'p1', ...move, milestone_id: 'm1' }, 'slip:p1:moved');
+      });
+      const d = await loadAnalyticsData(db);
+      expect(d.projects.find((p) => p.id === 'p2')).toEqual(await getRecord(db, 'project', 'p2'));
+      // Both were met on the date they were moved to, so neither counts as met on its first date.
+      expect(stretchAnalytics(d, clock, stretch).milestones_met).toEqual({ met: 0, total: 2, early: 0 });
     });
 
     it('counts a milestone reached by finishing its tasks, on the day the last one was done', () => {

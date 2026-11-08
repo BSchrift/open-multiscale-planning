@@ -35,7 +35,7 @@ describe('restoring a finished or dropped project', () => {
     const closed = await load();
     expect(closed.project.slip_log?.at(-1)).toMatchObject({ kind: 'close', text: 'Nov 4: Dropped.' });
 
-    await transact(db, clock, (w) => applyPlanChange(w, restoreProject(closed)));
+    await transact(db, clock, (w) => applyPlanChange(w, restoreProject(closed, clock)));
     const back = await load();
     expect(back.project.state).toBe('paused');
     expect(back.project.slip_log).toEqual([]);
@@ -51,7 +51,7 @@ describe('restoring a finished or dropped project', () => {
       milestones: [],
       tasks: [],
     };
-    expect(restoreProject(plan)).toEqual({ writes: [{ type: 'project', id: 'p', fields: { state: 'active' } }] });
+    expect(restoreProject(plan, fixedClock(NOW))).toEqual({ writes: [{ type: 'project', id: 'p', fields: { state: 'active' } }] });
   });
 });
 

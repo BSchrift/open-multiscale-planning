@@ -120,12 +120,15 @@ export function withStatusLine(plan: ProjectPlan, change: PlanChange, ctx: PlanC
   const before = status(plan, ctx).pill;
   const after = status(withChange(plan, change), ctx).pill;
   const line = before === after ? `Project is still ${before}.` : `Project went from ${before} to ${after}.`;
+  const said = <T extends { text?: unknown }>(e: T): T => ({ ...e, text: `${e.text as string} ${line}` });
   return {
     writes: change.writes.map((w) => {
+      // The new entry is in its record and at the end of the array, and both say the same.
+      if (w.type === 'slip_entry') return w.fields.deleted_at ? w : { ...w, fields: said(w.fields) };
       const log = w.fields.slip_log as SlipEntry[] | undefined;
       const last = log?.at(-1);
       if (!log || !last) return w;
-      return { ...w, fields: { ...w.fields, slip_log: [...log.slice(0, -1), { ...last, text: `${last.text} ${line}` }] } };
+      return { ...w, fields: { ...w.fields, slip_log: [...log.slice(0, -1), said(last)] } };
     }),
   };
 }

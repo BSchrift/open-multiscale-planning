@@ -7,6 +7,7 @@ import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { inboxTasks, projectTasks } from '../../../core/queries';
 import type { InboxRow } from '../../../core/queries';
 import { getSettings, listRecords } from '../../../core/records';
+import { listProjects } from '../../../core/slipLog';
 import { status } from '../../../core/status';
 
 export interface Destination {
@@ -29,7 +30,7 @@ const SHOWN = 8;
 export async function loadProcess(sql: Sql, clock: Clock): Promise<ProcessData> {
   const [inbox, projects, milestones, tasks, settings, away, objectives] = await Promise.all([
     inboxTasks(sql),
-    listRecords(sql, 'project'),
+    listProjects(sql),
     listRecords(sql, 'milestone'),
     projectTasks(sql),
     getSettings(sql),

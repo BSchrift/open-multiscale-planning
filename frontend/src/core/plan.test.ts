@@ -621,7 +621,7 @@ describe('replanning a project', () => {
   const ms = (plan: ProjectPlan, id: string) => plan.milestones.find((m) => m.id === id)!;
   const tk = (plan: ProjectPlan, id: string) => plan.tasks.find((t) => t.id === id)!;
   const log = (plan: ProjectPlan) => plan.project.slip_log ?? [];
-  const undone = (plan: ProjectPlan) => withChange(plan, undoLastChange(plan)!);
+  const undone = (plan: ProjectPlan) => withChange(plan, undoLastChange(plan, ctx.clock)!);
   const moved = (plan: ProjectPlan, id: string, day: string, c = ctx) => withChange(plan, moveMilestone(plan, id, day, c));
 
   describe('moving a milestone', () => {
@@ -828,7 +828,7 @@ describe('replanning a project', () => {
       expect(change.writes).toContainEqual({ type: 'time_block', id: 'ahead', fields: { cancelled: true } });
       expect(change.writes).toContainEqual({ type: 'week_pick', id: 'pick1', fields: { deleted_at: NOW } });
       expect(change.writes.filter((w) => ['past', 'other', 'pick2'].includes(w.id))).toEqual([]);
-      const undo = undoLastChange(after)!;
+      const undo = undoLastChange(after, ctx.clock)!;
       expect(undo.writes).toContainEqual({ type: 'time_block', id: 'ahead', fields: { cancelled: null } });
       expect(undo.writes).toContainEqual({ type: 'week_pick', id: 'pick1', fields: { deleted_at: null } });
       expect(tk(undone(after), 't2').cancelled_at).toBeNull();
@@ -970,7 +970,7 @@ describe('replanning a project', () => {
     expect(ms(back, 'm3').due).toBe('2026-12-01');
     expect(ms(back, 'm2').due).toBe('2026-11-20');
     expect(ms(undone(back), 'm2').due).toBe('2026-11-09');
-    expect(undoLastChange(reportPlan())).toBeNull();
+    expect(undoLastChange(reportPlan(), ctx.clock)).toBeNull();
   });
 
   it('badges days and drops together, with singular words', () => {
@@ -1000,7 +1000,7 @@ describe('replanning a project', () => {
     expect(saved.tasks.find((t) => t.id === 't2')?.cancelled_at).toBe(NOW);
     expect(saved.project.slip_log).toHaveLength(1);
 
-    await transact(db, clock, (w) => applyPlanChange(w, undoLastChange(saved)!));
+    await transact(db, clock, (w) => applyPlanChange(w, undoLastChange(saved, clock)!));
     saved = await load();
     expect(saved.milestones.find((m) => m.id === 'm1')?.dropped_at).toBeNull();
     expect(saved.tasks.find((t) => t.id === 't2')?.cancelled_at).toBeNull();

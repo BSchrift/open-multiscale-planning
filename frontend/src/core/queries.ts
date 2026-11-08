@@ -127,7 +127,7 @@ export const SQL = {
     SELECT id AS goal, 1 AS own, clocks FROM records WHERE type = 'objective'
     UNION ALL SELECT json_extract(data, '$.objective_id'), 0, clocks FROM records WHERE type IN ('project', 'practice')
     UNION ALL SELECT p.objective_id, 0, r.clocks FROM records r JOIN project p ON p.id = json_extract(r.data, '$.project_id')
-      WHERE r.type IN ('milestone', 'task')
+      WHERE r.type IN ('milestone', 'task', 'slip_entry')
     UNION ALL SELECT p.objective_id, 0, r.clocks FROM records r JOIN task t ON t.id = json_extract(r.data, '$.task_id')
       JOIN project p ON p.id = t.project_id WHERE r.type = 'task_completion'
     UNION ALL SELECT COALESCE(p.objective_id, pr.objective_id), 0, r.clocks FROM records r

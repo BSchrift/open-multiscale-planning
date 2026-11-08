@@ -10,6 +10,7 @@ import { gatherPlans } from '../../../core/plan';
 import type { ProjectPlan } from '../../../core/plan';
 import { blocksInRange, goalChanges, projectTasks } from '../../../core/queries';
 import { getRecord, getSettings, listRecords, outcomeId } from '../../../core/records';
+import { listProjects } from '../../../core/slipLog';
 import type { AwayPeriod, BlockOutcome, Objective, Practice, Settings, TimeBlock } from '../../../core/types';
 
 export interface GoalsData {
@@ -28,7 +29,7 @@ export interface GoalsData {
 export async function loadGoals(sql: Sql, clock: Clock): Promise<GoalsData> {
   const [objectives, projects, milestones, tasks, practices, settings, away, changed] = await Promise.all([
     listRecords(sql, 'objective'),
-    listRecords(sql, 'project'),
+    listProjects(sql),
     listRecords(sql, 'milestone'),
     projectTasks(sql),
     listRecords(sql, 'practice'),

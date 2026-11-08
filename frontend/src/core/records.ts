@@ -79,6 +79,11 @@ export function practiceSessionId(practiceId: string, date: LocalDate): string {
   return `session:${practiceId}:${date}`;
 }
 
+/** A replanning-log entry's id, under its project's: a new id for a new entry, or one derived from an older entry. */
+export function slipEntryId(projectId: string, key: string): string {
+  return `slip:${projectId}:${key}`;
+}
+
 /** The id of one finish of a recurring task, so that two offline devices finishing the same occurrence merge. */
 export function occurrenceId(taskId: string, date: LocalDate): string {
   return `occ-done:${taskId}:${date}`;

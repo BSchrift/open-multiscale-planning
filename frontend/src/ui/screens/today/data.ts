@@ -6,6 +6,7 @@ import type { Sql } from '../../../core/db';
 import { blocksInRange, completionsSince, inboxCount, needsNewTime } from '../../../core/queries';
 import { busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
+import { listProjects } from '../../../core/slipLog';
 import { isSignedIn, syncStatus } from '../../../core/sync';
 
 const DAY_MS = 86_400_000;
@@ -28,7 +29,7 @@ export async function loadToday(sql: Sql, clock: Clock) {
     settings: await getSettings(sql),
     // shortcut: whole tables for lookups and Welcome back's options, fine for one person's records; narrow with queries if Today slows.
     tasks: await listRecords(sql, 'task'),
-    projects: await listRecords(sql, 'project'),
+    projects: await listProjects(sql),
     milestones: await listRecords(sql, 'milestone'),
     objectives: await listRecords(sql, 'objective'),
     practices: await listRecords(sql, 'practice'),

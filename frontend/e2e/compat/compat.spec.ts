@@ -44,6 +44,25 @@ async function expectTicked(page: Page, title: string) {
 
 const dated = (page: Page, title: string, date: string) => oneOffRow(page, title).getByText(new RegExp(`^${formatDate(date)}(,|$)`));
 
+/** Opens a project on Goals. Screens keep their state while hidden, so a row already open there is left open. */
+async function openProject(page: Page, goal: string, project: string) {
+  await go(page, 'Goals');
+  for (const name of [goal, project]) {
+    const row = page.getByRole('button', { name: new RegExp(`^${name}`) }).first();
+    if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
+  }
+}
+
+/** Pauses or resumes the open project from its settings, as both bundles can, and closes them. */
+async function pauseOrResume(page: Page, action: 'Pause' | 'Resume') {
+  await page.getByRole('button', { name: 'Project settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Project settings' });
+  await dialog.getByRole('button', { name: action, exact: true }).click();
+  await expect(dialog.getByRole('button', { name: action === 'Pause' ? 'Resume' : 'Pause', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+}
+
 test.describe('one device', () => {
   test.use({ timezoneId: 'America/Chicago' });
 
@@ -56,10 +75,26 @@ test.describe('one device', () => {
   };
   const tz = 'America/Chicago';
 
+  const moved = {
+    at: at(2, '09:00'),
+    kind: 'move',
+    milestone_id: 'm1',
+    from: '2026-11-13',
+    to: '2026-11-20',
+    days: 7,
+    text: 'Nov 2: Moved Half the chapters from Nov 13 to Nov 20.',
+    undo: [{ type: 'milestone', id: 'm1', fields: { due: '2026-11-13' } }],
+  };
+
   // A lived-in week with a record of every type, including fields newer code may stop using but older bundles read.
   const week: Seed[] = [
     { type: 'objective', id: 'g1', fields: { title: 'Write a book', state: 'active' } },
-    { type: 'project', id: 'p1', fields: { objective_id: 'g1', title: 'Finish the first draft', state: 'active', start: '2026-09-01', end: '2026-12-20', weekly_aim: 360 } },
+    // Its replanning log only in the array, as bundles from before slip_entry records kept it.
+    {
+      type: 'project',
+      id: 'p1',
+      fields: { objective_id: 'g1', title: 'Finish the first draft', state: 'active', start: '2026-09-01', end: '2026-12-20', weekly_aim: 360, slip_log: [moved] },
+    },
     { type: 'milestone', id: 'm1', fields: { project_id: 'p1', title: 'Half the chapters', start: '2026-10-16', due: '2026-11-20' } },
     {
       type: 'task',
@@ -124,9 +159,7 @@ test.describe('one device', () => {
   async function expectOldFields(page: Page) {
     await go(page, 'Today', /./);
     await expect(page.getByRole('region', { name: 'Current block' }).getByText('Reread the end of chapter four')).toBeVisible();
-    await go(page, 'Goals');
-    await page.getByRole('button', { name: /^Write a book/ }).first().click();
-    await page.getByRole('button', { name: /^Finish the first draft/ }).first().click();
+    await openProject(page, 'Write a book', 'Finish the first draft');
     await expect(page.getByText(`Waiting until ${formatDate('2026-11-20')}`)).toBeVisible();
   }
 
@@ -137,9 +170,11 @@ test.describe('one device', () => {
     await openSeeded(page, week);
     await capture(page, 'Ask about the gutter');
     await expectOldFields(page);
+    await expect(page.getByText(moved.text)).toBeVisible();
     await everyScreen(page);
 
-    // The update opens the old bundle's data, and changes it.
+    // The update opens the old bundle's data, and changes it. It reads the log from the old bundle's array, and logs the
+    // pause as a record and in that array.
     page = await relaunch(page, 'new', errors);
     await go(page, 'Inbox');
     for (const title of ['Ask about the gutter', 'Look up a bike repair shop', 'Order more coffee beans']) await expect(pane(page, 'Inbox').getByText(title)).toBeVisible();
@@ -149,6 +184,10 @@ test.describe('one device', () => {
     await setDate(page, 'Sort old photos', '2026-11-20');
     await tick(page, 'Renew the library card', errors);
     await deleteFromInbox(page, 'Look up a bike repair shop');
+    await openProject(page, 'Write a book', 'Finish the first draft');
+    await expect(page.getByText(moved.text)).toBeVisible();
+    await pauseOrResume(page, 'Pause');
+    await expect(page.getByText('Nov 4: Paused.')).toBeVisible();
     await everyScreen(page);
 
     // It fails its trial, and the old bundle opens what it wrote, and carries on: a tick reads the views the update left.
@@ -161,7 +200,19 @@ test.describe('one device', () => {
     await expectTicked(page, 'Renew the library card');
     await tick(page, 'Sort old photos', errors);
     await expectOldFields(page);
+    // The pause the update logged is in the array, which is all this bundle reads.
+    await expect(page.getByText('Nov 4: Paused.')).toBeVisible();
+    await pauseOrResume(page, 'Resume');
+    await expect(page.getByText('Nov 4: Resumed.')).toBeVisible();
     await everyScreen(page);
+
+    // Updated again, it reads the resume, which only the array has, beside the pause it logged as a record too.
+    page = await relaunch(page, 'new', errors);
+    await openProject(page, 'Write a book', 'Finish the first draft');
+    await expect(page.getByText('Nov 4: Resumed.')).toBeVisible();
+    await page.getByRole('button', { name: 'Project settings' }).click();
+    const earlier = page.getByRole('dialog', { name: 'Project settings' });
+    for (const line of ['Nov 4: Paused.', moved.text]) await expect(earlier.getByText(line)).toHaveCount(1);
     expect(errors).toEqual([]);
   });
 });
@@ -175,12 +226,21 @@ test('an old and a new device of one user sync captures, dates, ticks and delete
   const ids = { fence: `e2e-${run}-fence`, hinges: `e2e-${run}-hinges`, gutter: `e2e-${run}-gutter`, shed: `e2e-${run}-shed` };
   const plumber = `Call the plumber ${run}`;
   const brushes = `Buy brushes ${run}`;
+  const house = { id: `e2e-${run}-house`, title: `Fix up the house ${run}` };
+  const porch = { id: `e2e-${run}-porch`, title: `Repaint the porch ${run}` };
 
   const oldDevice = await device(browser, `e2e-${run}`, on('old'));
   const newDevice = await device(browser, `e2e-${run}`, on('new'));
   consoleErrors(oldDevice.page, oldDevice.errors, 'old');
   consoleErrors(newDevice.page, newDevice.errors, 'new');
-  await seed(oldDevice.page, [oneOff(ids.fence, fence), oneOff(ids.hinges, hinges), oneOff(ids.gutter, gutter), oneOff(ids.shed, shed)]);
+  await seed(oldDevice.page, [
+    oneOff(ids.fence, fence),
+    oneOff(ids.hinges, hinges),
+    oneOff(ids.gutter, gutter),
+    oneOff(ids.shed, shed),
+    { type: 'objective', id: house.id, fields: { title: house.title, state: 'active' } },
+    { type: 'project', id: porch.id, fields: { objective_id: house.id, title: porch.title, state: 'active', start: daysAhead(-30), end: daysAhead(60) } },
+  ]);
   await signIn(oldDevice.page);
   await signIn(newDevice.page);
 
@@ -210,12 +270,29 @@ test('an old and a new device of one user sync captures, dates, ticks and delete
     for (const title of [plumber, brushes]) await expect(pane(d.page, 'Inbox').getByText(title)).toHaveCount(0);
   }
 
+  // The new device pauses a project, logging it as a record and in the array. The old one reads it from the array, and
+  // resumes, logging to the array alone, which the new one reads beside its record.
+  const day = `${formatDate(daysAhead(0))}: `;
+  await openProject(newDevice.page, house.title, porch.title);
+  await pauseOrResume(newDevice.page, 'Pause');
+  await expect(newDevice.page.getByText(`${day}Paused.`)).toBeVisible();
+  for (const d of [newDevice, oldDevice]) await syncNow(d.page);
+  await openProject(oldDevice.page, house.title, porch.title);
+  await expect(oldDevice.page.getByText(`${day}Paused.`)).toBeVisible();
+  await pauseOrResume(oldDevice.page, 'Resume');
+  await expect(oldDevice.page.getByText(`${day}Resumed.`)).toBeVisible();
+  for (const d of [oldDevice, newDevice]) await syncNow(d.page);
+  await openProject(newDevice.page, house.title, porch.title);
+  await expect(newDevice.page.getByText(`${day}Resumed.`)).toBeVisible();
+
   // The rest goes too, the ticks' completions with them, so a deployment's test user keeps nothing live.
   const now = new Date().toISOString();
   const today = daysAhead(0);
   await seed(oldDevice.page, [
     ...Object.values(ids).map((id) => ({ type: 'task', id, fields: { deleted_at: now } })),
     ...[ids.hinges, ids.shed].map((id) =>({ type: 'task_completion', id: `occ-done:${id}:${today}`, fields: { deleted_at: now } })),
+    { type: 'project', id: porch.id, fields: { deleted_at: now } },
+    { type: 'objective', id: house.id, fields: { deleted_at: now } },
   ]);
   await syncNow(oldDevice.page);
   await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();

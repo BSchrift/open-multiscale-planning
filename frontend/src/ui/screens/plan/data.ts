@@ -10,6 +10,7 @@ import { gatherPlans } from '../../../core/plan';
 import type { ProjectPlan, Stretch } from '../../../core/plan';
 import { oneOffTasks, projectTasks } from '../../../core/queries';
 import { getSettings, listRecords } from '../../../core/records';
+import { listProjects } from '../../../core/slipLog';
 import type { AwayPeriod, Minutes, Objective, Practice, Settings, Task } from '../../../core/types';
 
 export interface PlanData {
@@ -27,7 +28,7 @@ export async function loadPlan(sql: Sql, clock: Clock): Promise<PlanData> {
   const [settings, objectives, projects, milestones, tasks, oneOffs, practices, away] = await Promise.all([
     getSettings(sql),
     listRecords(sql, 'objective'),
-    listRecords(sql, 'project'),
+    listProjects(sql),
     listRecords(sql, 'milestone'),
     projectTasks(sql),
     oneOffTasks(sql, { since: dayRange(today(clock), clock.zone()).from_utc }),

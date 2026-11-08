@@ -136,6 +136,7 @@ export function createDb(driver: SqlDriver): Db {
 export const RECORD_FIELDS = {
   objective: ['title', 'state', 'not_now_until', 'order', 'deleted_at'],
   project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'slip_log', 'estimates_raised_at', 'deleted_at'],
+  slip_entry: ['project_id', 'at', 'kind', 'milestone_id', 'from', 'to', 'days', 'end_days', 'text', 'undo', 'deleted_at'],
   milestone: ['project_id', 'title', 'start', 'due', 'stretch', 'added_on', 'met_at', 'dropped_at', 'deleted_at'],
   task: [
     'kind',
@@ -193,12 +194,14 @@ const RETIRED_COLUMNS: Partial<Record<RecordType, readonly string[]>> = {
   week_pick: ['skipped'],
 };
 
+// ORDER is a keyword, so that field is exposed as sort_order. FROM and TO are too.
+const COLUMN_NAMES: Readonly<Record<string, string>> = { order: 'sort_order', from: 'from_date', to: 'to_date' };
+
 function viewSql(type: RecordType): string {
   const columns = ['id'];
   if (type === 'block_outcome') columns.push("substr(id, 9) AS block_id");
   for (const field of [...RECORD_FIELDS[type], ...(RETIRED_COLUMNS[type] ?? [])]) {
-    // ORDER is a keyword, so that field is exposed as sort_order.
-    columns.push(`json_extract(data, '$.${field}') AS ${field === 'order' ? 'sort_order' : field}`);
+    columns.push(`json_extract(data, '$.${field}') AS ${COLUMN_NAMES[field] ?? field}`);
   }
   return `CREATE VIEW ${type} AS SELECT ${columns.join(', ')} FROM records WHERE type = '${type}'`;
 }

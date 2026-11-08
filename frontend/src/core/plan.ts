@@ -4,7 +4,9 @@
 
 import type { Clock } from './clock';
 import { addDays, addMonths, blockMinutes, dayNumber, diffDays, formatDate, instantMs, localDate, nowInstant, quarterEnd, quarterStart, thisWeek, today } from './dates';
+import { getRecord, newId, slipEntryId } from './records';
 import type { Writer } from './records';
+import { logWrites, unlogWrites } from './slipLog';
 import type { Work } from './slots';
 import type {
   AwayPeriod,
@@ -19,6 +21,7 @@ import type {
   Project,
   Settings,
   SlipEntry,
+  SlipEntryRecord,
   Task,
   TimeBlock,
   WeekPick,
@@ -586,7 +589,18 @@ export function pickToPlace(c: Candidate, drawn: readonly { task_id?: string | n
 
 /** One record's new field values. */
 export interface RecordWrite {
-  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice';
+  type:
+    | 'objective'
+    | 'project'
+    | 'slip_entry'
+    | 'milestone'
+    | 'task'
+    | 'time_block'
+    | 'week_pick'
+    | 'week_plan'
+    | 'task_completion'
+    | 'block_outcome'
+    | 'practice';
   id: string;
   fields: Record<string, unknown>;
 }
@@ -599,10 +613,20 @@ export interface PlanChange {
 /** Writes a change, and returns its exact reverse from the values replaced, for an Undo held on screen. */
 export async function applyPlanChange(w: Writer, change: PlanChange): Promise<PlanChange> {
   const reverse: RecordWrite[] = [];
-  for (const { type, id, fields } of change.writes) {
-    reverse.unshift({ type, id, fields: await w.set(type, id, fields as Fields<typeof type>) });
-  }
+  for (const write of change.writes) reverse.unshift(await applyWrite(w, write));
   return { writes: reverse };
+}
+
+/**
+ * Writes one record's fields and returns their reverse. A log entry comes and goes whole, so one not here yet is
+ * created, and its reverse is the opposite delete: a new entry's is dated when it was logged.
+ */
+async function applyWrite(w: Writer, { type, id, fields }: RecordWrite): Promise<RecordWrite> {
+  if (type === 'slip_entry' && !(await getRecord(w.sql, type, id))) {
+    await w.create(type, fields as Fields<'slip_entry'>, id);
+    return { type, id, fields: { deleted_at: fields.deleted_at ? null : fields.at } };
+  }
+  return { type, id, fields: await w.set(type, id, fields as Fields<typeof type>) };
 }
 
 /** The plan as it would be after a change, for previews. Changes to anything else are ignored. */
@@ -627,9 +651,6 @@ type NewEntry = Omit<SlipEntry, 'at' | 'undo' | 'text'> & { text: string };
 const slipLog = ({ project }: ProjectPlan) => project.slip_log ?? [];
 
 /** Only this change's fields are reversed by its Undo, so tasks ticked since then stay ticked. */
-// shortcut: the whole slip_log is one field, so two devices replanning the same project offline keep only the later
-// device's log, losing the other's entries and what Restore would put back; and it only grows, toward the 100 KB a
-// record can hold. Make each entry its own record once every installed app reads them.
 function logged(plan: ProjectPlan, ctx: PlanContext, edits: readonly Edit[], entry: NewEntry | null): PlanChange {
   const writes: RecordWrite[] = edits.map(({ type, record, fields }) => ({ type, id: record.id, fields }));
   if (!entry) return { writes };
@@ -638,8 +659,9 @@ function logged(plan: ProjectPlan, ctx: PlanContext, edits: readonly Edit[], ent
     id: record.id,
     fields: Object.fromEntries(Object.keys(fields).map((k) => [k, (record as unknown as Record<string, unknown>)[k] ?? null])),
   }));
-  const line = { at: nowInstant(ctx.clock), ...entry, text: `${formatDate(today(ctx.clock))}: ${entry.text}`, undo };
-  writes.push({ type: 'project', id: plan.project.id, fields: { slip_log: [...slipLog(plan), line] } });
+  const id = slipEntryId(plan.project.id, newId(ctx.clock));
+  const line = { id, at: nowInstant(ctx.clock), ...entry, text: `${formatDate(today(ctx.clock))}: ${entry.text}`, undo };
+  writes.push(...logWrites(plan.project, line));
   return { writes };
 }
 
@@ -734,8 +756,14 @@ export function unplanMilestone(plan: ProjectPlan, id: string, st: Stretch, ctx:
   });
 }
 
-const isLogWrite = (w: RecordWrite) => 'slip_log' in w.fields;
-const lastEntry = (change: PlanChange) => (change.writes.find(isLogWrite)?.fields.slip_log as SlipEntry[]).at(-1)!;
+const isLogWrite = (w: RecordWrite) => w.type === 'slip_entry' || 'slip_log' in w.fields;
+
+/** The entry a change logs, read from its record. */
+function lastEntry(change: PlanChange): SlipEntry & { id: string } {
+  const { id, fields } = change.writes.find((w) => w.type === 'slip_entry')!;
+  const { project_id: _project, ...entry } = fields as unknown as Omit<SlipEntryRecord, 'id'>;
+  return { ...entry, id };
+}
 
 /** Adds a milestone to the plan or takes it out. Bringing one in resumes a paused project and pulls a later start into the stretch, undone as one change. */
 export function toggleInPlan(plan: ProjectPlan, id: string, st: Stretch, ctx: PlanContext): PlanChange {
@@ -776,7 +804,7 @@ export function toggleInPlan(plan: ProjectPlan, id: string, st: Stretch, ctx: Pl
       ...(resumed?.writes.filter((w) => !isLogWrite(w)) ?? []),
       ...pulled,
       ...inner.writes.filter((w) => !isLogWrite(w)),
-      { type: 'project', id: plan.project.id, fields: { slip_log: [...slipLog(plan), merged] } },
+      ...logWrites(plan.project, merged),
     ],
   };
 }
@@ -911,22 +939,24 @@ export function resumeProject(plan: ProjectPlan, ctx: PlanContext): PlanChange {
   });
 }
 
-/** Reverses the newest change and takes it off the log. Null when there's nothing to undo. */
-export function undoLastChange(plan: ProjectPlan): PlanChange | null {
-  const log = slipLog(plan);
-  const last = log.at(-1);
-  if (!last) return null;
-  return {
-    writes: [
-      ...(Array.isArray(last.undo) ? (last.undo as RecordWrite[]) : []),
-      { type: 'project', id: plan.project.id, fields: { slip_log: log.slice(0, -1) } },
-    ],
-  };
+/** Reverses one logged change and takes it off the log. */
+function undoEntry(plan: ProjectPlan, entry: SlipEntry, clock: Clock): PlanChange {
+  return { writes: [...(Array.isArray(entry.undo) ? (entry.undo as RecordWrite[]) : []), ...unlogWrites(plan.project, entry, nowInstant(clock))] };
 }
 
-/** Brings back a finished or dropped project as it was, reopening the tasks closing it cancelled. Their freed time stays free. */
-export function restoreProject(plan: ProjectPlan): PlanChange {
-  if (slipLog(plan).at(-1)?.kind === 'close') return undoLastChange(plan)!;
+/** Reverses the newest change and takes it off the log. Null when there's nothing to undo. */
+export function undoLastChange(plan: ProjectPlan, clock: Clock): PlanChange | null {
+  const last = slipLog(plan).at(-1);
+  return last ? undoEntry(plan, last, clock) : null;
+}
+
+/**
+ * Brings back a finished or dropped project as it was, reopening the tasks its last close cancelled. Their freed time
+ * stays free. Changes logged after the close, such as one another device made before it heard of it, stay.
+ */
+export function restoreProject(plan: ProjectPlan, clock: Clock): PlanChange {
+  const close = slipLog(plan).findLast((e) => e.kind === 'close');
+  if (close) return undoEntry(plan, close, clock);
   return { writes: [{ type: 'project', id: plan.project.id, fields: { state: 'active' } }] };
 }
 

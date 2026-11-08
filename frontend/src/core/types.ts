@@ -36,6 +36,8 @@ export interface Objective extends BaseRecord {
 export type ProjectState = 'active' | 'paused' | 'finished' | 'dropped';
 
 export interface SlipEntry {
+  /** Its slip_entry record's id. Entries logged before those records have none, and slipLog.entryId derives one. */
+  id?: string;
   at: Instant;
   /**
    * end moves the project's end, pause and resume cover the whole project, and close finishes or drops it, so those
@@ -63,9 +65,21 @@ export interface Project extends BaseRecord {
   start: LocalDate;
   end: LocalDate;
   weekly_aim?: Minutes | null;
+  /**
+   * The replanning log, oldest first. On disk, only the copy bundles before slip_entry records read and write. Read
+   * through slipLog.listProjects, it's the whole log: this array and the project's slip_entry records together.
+   */
   slip_log?: SlipEntry[];
   /** When Raise estimates was last pressed: tasks finished before it no longer argue for raising. */
   estimates_raised_at?: Instant | null;
+}
+
+/**
+ * One entry of a project's replanning log, as a record of its own, so entries two devices log offline merge rather than
+ * one device's whole log replacing the other's. Its id is slipEntryId(project, ...).
+ */
+export interface SlipEntryRecord extends BaseRecord, Omit<SlipEntry, 'id'> {
+  project_id: string;
 }
 
 /** A dated checkpoint in a project, not something you do. */
@@ -274,6 +288,7 @@ export interface Practice extends BaseRecord {
 export interface RecordMap {
   objective: Objective;
   project: Project;
+  slip_entry: SlipEntryRecord;
   milestone: Milestone;
   task: Task;
   task_completion: TaskCompletion;
@@ -296,6 +311,7 @@ export type Fields<T extends RecordType> = Partial<Omit<RecordMap[T], 'id'>>;
 export const RECORD_TYPES = [
   'objective',
   'project',
+  'slip_entry',
   'milestone',
   'task',
   'task_completion',

@@ -70,9 +70,13 @@ export function queueItems(rows: readonly QueueRow[], plans: readonly WeekPlan[]
     .sort((a, b) => (a.block_start < b.block_start ? -1 : a.block_start > b.block_start ? 1 : 0));
 }
 
-/** Answers "Still want this?" with yes: the answer is newer than the last plan, so the work reads as fresh again. */
-export async function keepWork(w: Writer, item: QueueItem, clock: Clock): Promise<void> {
-  await w.set('block_outcome', outcomeId(item.block_id), { answered_at: nowInstant(clock) });
+/**
+ * Answers "Still want this?" with yes: the answer is newer than the last plan, so the work reads as fresh again.
+ * Returns the exact reverse, for Undo.
+ */
+export async function keepWork(w: Writer, item: QueueItem, clock: Clock): Promise<PlanChange> {
+  const id = outcomeId(item.block_id);
+  return { writes: [{ type: 'block_outcome', id, fields: await w.set('block_outcome', id, { answered_at: nowInstant(clock) }) }] };
 }
 
 /**

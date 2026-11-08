@@ -105,7 +105,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
 
-   No password or secret goes in these files. Test-user passwords go to SSM in step 8.
+   No password or secret goes in these files. Test-user passwords go to SSM in step 8. The app's own settings, its limits and what differs between staging and prod for everyone, aren't copied here: they're public, in `config/protocol.yaml` and `config/env/`, as [config.md](config.md) explains.
 
 3. Commit them. `make deploy` adds `<env>.outputs.json`, the stack's outputs, and `<env>.deployed`, the commit it deployed and when. Commit after each deploy, and the repository records what is live with which config.
 

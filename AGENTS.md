@@ -17,6 +17,23 @@ name are in [.claude/skills](.claude/skills): Claude Code loads them from there,
 - **Check your work as a person would.** Run the app, look at screenshots on desktop and phone, and say plainly what you
   didn't verify.
 
+## Settings
+
+A new value someone might change, unless it's specific to one deployment or secret, goes in the app's config, as
+[docs/config.md](docs/config.md) explains:
+
+- **The same in every environment, and read by both Go and TypeScript:** `config/protocol.yaml`.
+- **Different per environment:** all three files in `config/env/`. Nothing is inherited, so each names every key.
+- **Read only by TypeScript:** a TypeScript module. Error codes are contracts and stay where they're returned.
+- **Specific to one deployment,** such as an account, domain or email: the private config folder. **Secrets:** SSM.
+- **Keys name their unit,** such as `maxRecordBytes` and `maxClockAheadHours`.
+- **Released apps keep working:** a server limit never drops below what a released app sends, so raise the server's
+  first; id and clock formats only get wider; and retention never lets the server purge what an older app could push
+  back, so shorten it over two releases, the server's last.
+
+After editing the YAML, run `go generate ./...` in `config/` and commit `app.gen.ts` with it. Native code imports
+nothing from the package.
+
 ## Tests
 
 | Layer | Runs | Command |

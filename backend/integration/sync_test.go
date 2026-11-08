@@ -200,6 +200,11 @@ func TestPagingReturnsEverythingOnceInOrder(t *testing.T) {
 // DynamoDB stops a query at 1 MB whatever the limit, and a transaction at 4 MB.
 func TestLargeRecordsSplitAndPage(t *testing.T) {
 	needs(t)
+	// Pushing 4.5 MB at once, and emptying it again afterwards, throttles the test user's partition, and prod's throttle
+	// alarm emails the owner for any throttle. Local and staging still run it.
+	if target.Env == "prod" {
+		t.Skip("writes 4.5 MB at once, which sets off prod's throttle alarm; local and staging run it")
+	}
 	a := signIn(t)
 	start := a.startCursor()
 	text := strings.Repeat("x", 90*1024)

@@ -19,6 +19,11 @@ import './week.css';
 /** What both layouts get: the week, its figures, and how to move between weeks and modes. */
 export interface WeekProps {
   data: WeekData;
+  /**
+   * The week the arrows last asked for, which data.week catches up to once it loads. The arrows count from it, so a
+   * second click while a week loads still moves on.
+   */
+  week: LocalDate;
   model: WeekModel;
   /** Weeks from this one: 0 is this week. */
   offset: number;
@@ -73,6 +78,7 @@ export default function WeekScreen(props: ScreenProps) {
   const offset = Math.round(diffDays(current, data.week) / 7);
   const shared: WeekProps = {
     data,
+    week,
     model,
     offset,
     title: weekTitle(offset, editing && offset === 0),

@@ -122,7 +122,7 @@ export function DesktopWeek(props: WeekProps) {
     <div className="wide stack24 week">
       <div className="between">
         <div className="row wkhead">
-          <WeekArrows week={data.week} current={props.model.current} onWeek={props.goWeek} />
+          <WeekArrows week={props.week} current={props.model.current} onWeek={props.goWeek} />
           <div>
             <div className="date">{props.label}</div>
             <h1>{props.title}</h1>

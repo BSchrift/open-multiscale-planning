@@ -170,6 +170,14 @@ describe('Week on desktop', () => {
     expect(t.nav().route).toMatchObject({ area: 'analytics', params: { week: '2026-08-24' } });
   });
 
+  it.each(['desktop', 'phone'] as const)('on %s, arrows clicked before a week loads each still count', async (layout) => {
+    await open({ layout });
+    await screen.findByRole('heading', { name: 'This week' });
+    const previous = screen.getByRole('button', { name: 'Previous week' });
+    for (let i = 0; i < 3; i++) fireEvent.click(previous);
+    expect(await screen.findByText('Oct 12 to Oct 18')).toBeVisible();
+  });
+
   it('left on this week, follows it when the week turns over; another week stays put', async () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'This week' });

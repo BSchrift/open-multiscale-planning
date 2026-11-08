@@ -36,13 +36,10 @@ const (
 var (
 	idPattern    = regexp.MustCompile(`^[\x21-\x7e]{1,200}$`)
 	clockPattern = regexp.MustCompile(`^\d{13}-\d{6}-[\x21-\x7e]+$`)
+	// Any type, not a list: an app with a new one may be released before the server knows it. No # either, so the
+	// sort key still splits into type and id.
+	typePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)
 )
-
-var recordTypes = map[string]bool{
-	"objective": true, "project": true, "milestone": true, "task": true, "task_completion": true, "time_block": true,
-	"block_outcome": true, "week_plan": true, "week_pick": true, "away_period": true, "settings": true,
-	"calendar": true, "calendar_source": true, "practice": true,
-}
 
 // Rejection is a request refused at the trust boundary. Code is stable for clients and safe to log.
 type Rejection struct {
@@ -99,7 +96,7 @@ func ParseRequest(body []byte, now time.Time) (Request, error) {
 }
 
 func validateChange(change Change, latestClock int64) error {
-	if !recordTypes[change.Type] {
+	if !typePattern.MatchString(change.Type) {
 		return rejected("unknown_type")
 	}
 	if !idPattern.MatchString(change.ID) {

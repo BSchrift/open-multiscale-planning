@@ -6,9 +6,11 @@
 #   integration  the black-box suite against its API and sign-in
 #   smoke        that its logs and metrics arrive
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
+#   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh)
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve.
-#   SKIP_IOS=1 leaves out the iPhone test, much the slowest. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
+#   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
+#   slowest. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -70,9 +72,14 @@ fi
 run "integration" "$root/scripts/integration.sh"
 run "smoke" "$root/scripts/smoke.sh"
 [ "${SKIP_IOS:-}" = 1 ] || run "iPhone" "$root/scripts/test-ios.sh"
+# Its numbers against their budgets, on staging only: prod has no history user, and none of its data is made up.
+if [ "$env_name" = staging ] && [ "${SKIP_HISTORY:-}" != 1 ]; then run "history" "$root/scripts/test-history.sh"; fi
 
 if [ ${#failed[@]} -gt 0 ]; then
   echo "$env_name: failed: ${failed[*]}" >&2
   exit 1
 fi
-if [ "${SKIP_IOS:-}" = 1 ]; then echo "$env_name: every deployed suite passed; the iPhone test was left out."; else echo "$env_name: every deployed suite passed."; fi
+left_out=()
+[ "${SKIP_IOS:-}" != 1 ] || left_out+=("the iPhone tests")
+[ "$env_name" != staging ] || [ "${SKIP_HISTORY:-}" != 1 ] || left_out+=("the history-scale test")
+if [ ${#left_out[@]} -gt 0 ]; then echo "$env_name: every deployed suite passed; left out: ${left_out[*]}."; else echo "$env_name: every deployed suite passed."; fi

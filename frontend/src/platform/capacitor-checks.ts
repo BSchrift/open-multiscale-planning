@@ -10,6 +10,7 @@ import type { Db } from '../core/db';
 import { planProblems, seedLarge } from '../core/queries-testing';
 import { setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
+import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
 
 const output = document.getElementById('log')!;
@@ -184,4 +185,6 @@ button('Seed today', () =>
 // A started block that ends in two minutes, so its end notification is the only one, and comes after even a slow
 // Simulator has opened the app and scheduled it.
 button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 2, started: true }]));
+// Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
+button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');

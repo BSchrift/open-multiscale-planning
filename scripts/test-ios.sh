@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Builds the web app into the iOS project and runs XCUITest on a throwaway Simulator: once as a free team would
 # install it, with the extensions off, and once with them on. MULTISCALE_RUNS=NO or YES runs just that one.
-#   ENV=local (default) also starts a local stack for the signed-in test, which skips where Docker doesn't run.
+#   ENV=local (default) also starts a local stack for the signed-in test, which skips where Docker doesn't run, or uses
+#   the one LOCAL_API_URL names.
 #   ENV=staging, or ENV=prod with CONFIRM_PROD=yes, builds the app for that deployment and runs only the signed-in
 #   test, as integration.testUser in <env>.yaml, with its password from SSM (frontend/scripts/test-target.mjs).
+#   MULTISCALE_ONLY=<test class> runs only that class, on any ENV, as scripts/test-history.sh does with HistoryUITests.
 #   The config folder is $MULTISCALE_CONFIG_DIR, or config/ in the repo.
 set -euo pipefail
 
@@ -46,7 +48,10 @@ trap 'exit 143' TERM
 only=()
 api=""
 if [ "$ENV" = local ]; then
-  if docker info >/dev/null 2>&1; then
+  if [ -n "${LOCAL_API_URL:-}" ]; then
+    # A stack the caller started, and seeded.
+    api="$LOCAL_API_URL"
+  elif docker info >/dev/null 2>&1; then
     "$root/scripts/local-stack.sh" "$work/api_url" >"$work/stack.log" 2>&1 &
     stack=$!
     until [ -s "$work/api_url" ]; do
@@ -62,6 +67,7 @@ if [ "$ENV" = local ]; then
 else
   only=(-only-testing:MultiscaleUITests/SignedInUITests)
 fi
+[ -z "${MULTISCALE_ONLY:-}" ] || only=("-only-testing:MultiscaleUITests/$MULTISCALE_ONLY")
 target=""
 if [ "$ENV" != local ]; then
   # Run from scripts/test-deployed.sh, it's already read, test user's password and all.
@@ -112,7 +118,7 @@ for extensions in $runs; do
 
   # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password.
   TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
-    TEST_RUNNER_MULTISCALE_TARGET="$target" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} 2>&1 |
+    TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} 2>&1 |
     sed -E "s/Type '[^']*'/Type '…'/"
 
   xcrun simctl delete "$device"

@@ -46,13 +46,13 @@ func TestCommittedExamplesLoad(t *testing.T) {
 
 func TestOptionalParts(t *testing.T) {
 	staging := strings.Replace(example(t, "staging"), "capabilities: [googleClient]",
-		"capabilities: [googleClient, secondUser]\n  secondTestUser: second-test@example.com", 1)
+		"capabilities: [googleClient, secondUser]\n  secondTestUser: second-test@example.com\n  historyUser: history-test@example.com", 1)
 	staging = strings.Replace(staging, "dns:\n  zone: staging.example.com", "app:\n  bundleId: com.example.planner", 1)
 	got, err := Load(folder(t, map[string]string{"staging.yaml": staging}), "staging")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Integration.SecondTestUser != "second-test@example.com" || got.App == nil || got.App.BundleID != "com.example.planner" || got.DNS != nil {
+	if got.Integration.SecondTestUser != "second-test@example.com" || got.Integration.HistoryUser != "history-test@example.com" || got.App == nil || got.App.BundleID != "com.example.planner" || got.DNS != nil {
 		t.Fatalf("%+v", got)
 	}
 }

@@ -67,6 +67,8 @@ vi.mock('@capacitor-community/sqlite', () => {
     isDBOpen: vi.fn(async () => ({ result: false })),
     execute: vi.fn(async (sql: string, transaction: boolean) => {
       native.sql.push({ method: 'execute', sql, transaction });
+      // As SQLite answers when no transaction is open.
+      if (sql === 'ROLLBACK') throw new Error('cannot rollback - no transaction is active');
       return {};
     }),
     run: vi.fn(async (sql: string, values: unknown[], transaction: boolean) => {
@@ -150,10 +152,11 @@ describe('database driver', () => {
     expect(native.databases).toEqual(['multiscale', 'multiscale-staging', 'multiscale-local']);
   });
 
-  it('reuses the native connection after the web view reloads', async () => {
+  it('reuses the native connection after the web view reloads, ending any transaction the old page left open', async () => {
     native.connectionExists = true;
     const driver = await capacitorSqlDriver('check');
     expect(await driver.all('SELECT value FROM meta', [])).toEqual([{ value: 'stored' }]);
+    expect(native.sql[0]).toEqual({ method: 'execute', sql: 'ROLLBACK', transaction: false });
   });
 });
 

@@ -289,6 +289,7 @@ async function schemaState(driver: SqlDriver): Promise<{ version: number; minApp
   return { version: value(META.schemaVersion), minApp: value(META.minAppSchema) };
 }
 
+/** BEGIN stays outside the try: when it fails, no transaction is this code's to roll back, as in createDb. */
 async function inTransaction(driver: SqlDriver, work: () => Promise<void>): Promise<void> {
   await driver.exec('BEGIN IMMEDIATE');
   try {

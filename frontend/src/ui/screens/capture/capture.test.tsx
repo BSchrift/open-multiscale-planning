@@ -42,7 +42,7 @@ describe('Capture on desktop', () => {
 
   it('saves to the Inbox on Enter, says so, then closes', async () => {
     const t = await open();
-    await userEvent.type(field(), '  Call the bank {Enter}');
+    await userEvent.type(field(), '  Call  the bank {Enter}');
     expect(await screen.findByText('Saved to Inbox, 1 waiting')).toBeInTheDocument();
     expect(await tasks(t.db)).toMatchObject([{ kind: 'inbox', title: 'Call the bank' }]);
     expect((await tasks(t.db))[0]!.estimate_min ?? null).toBeNull();

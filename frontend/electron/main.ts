@@ -12,7 +12,7 @@ import type { DownloadedRelease } from '../src/core/updates';
 import type { ReminderResponse } from '../src/platform/types';
 import { captureHotkey } from './hotkey';
 import { createReminderTimers } from './reminder-timers';
-import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isSqlValues, isWebUrl } from './security';
+import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isOwnDbSql, isSqlValues, isWebUrl } from './security';
 import { betterSqliteDriver } from './sqlite-driver';
 import { fileTokens } from './tokens';
 import { webBundles } from './updates';
@@ -73,7 +73,7 @@ function handleFrom<A extends unknown[], R>(
 }
 
 function checkedSql(sql: unknown, values: unknown = []): asserts sql is string {
-  if (typeof sql !== 'string' || !isSqlValues(values)) throw new Error('Bad SQL call');
+  if (!isOwnDbSql(sql) || !isSqlValues(values)) throw new Error('Bad SQL call');
 }
 
 function registerAppScheme() {

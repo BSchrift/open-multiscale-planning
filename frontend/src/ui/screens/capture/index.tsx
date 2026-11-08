@@ -3,6 +3,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
 import { inboxCount } from '../../../core/queries';
 import { listRecords } from '../../../core/records';
 import type { Fields, LocalDate, Minutes } from '../../../core/types';
@@ -17,8 +18,6 @@ import { useDialogFocus } from '../../components/useDialogFocus';
 import './capture.css';
 
 const ONE_OFFS = 'oneoffs';
-/** The longest title, as for a share, so a paste can't make a record too large to sync. */
-const MAX_TITLE = 2000;
 /** How long desktop shows what it saved before it fades and closes. */
 const SAVED_MS = 700;
 const FADE_MS = 120;
@@ -71,7 +70,7 @@ export default function Screen(props: ScreenProps) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const title = text.trim();
+    const title = captureTitle(text);
     if (!title || saved || save.pending) return;
     const waiting = await save.run(fieldsFor(title, where, milestone, est, today));
     if (waiting === undefined) return;

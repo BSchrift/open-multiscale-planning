@@ -66,6 +66,9 @@ test('launches to first-run setup with the page isolated from Node', async () =>
   expect(new URL(page.url()).protocol).toBe('multiscale-app:');
   const csp = await page.evaluate(() => fetch(location.href).then((r) => r.headers.get('content-security-policy')));
   expect(csp).toContain("script-src 'self'");
+  // Its SQL reaches only the app's own database, not another file.
+  const attach = page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.exec("ATTACH DATABASE ':memory:' AS other"));
+  await expect(attach).rejects.toThrow(/Bad SQL call/);
   expect(errors).toEqual([]);
 });
 
@@ -135,7 +138,13 @@ test('the shortcut opens a one-field window that saves to the Inbox, and it surv
 
 test('a save that fails keeps the text and says so', async () => {
   const { app: running, page } = await launch();
-  await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.run('DROP TABLE outbox', []));
+  // In a transaction of its own, so the page's startup one can't end around the drop and undo it.
+  await begin(page);
+  await page.evaluate(async () => {
+    const db = (window.multiscaleElectron as ElectronBridge).db;
+    await db.run('DROP TABLE outbox', []);
+    await db.exec('COMMIT');
+  });
   const capture = await captureWindow(running);
   const field = capture.getByRole('textbox', { name: 'Capture' });
   await field.fill('Paint the fence');

@@ -6,5 +6,5 @@ DEVELOPMENT_TEAM = YOUR_TEAM_ID
 // A free team needs an id nobody else has registered.
 // MULTISCALE_BUNDLE_ID = com.example.multiscale
 
-// Once you have a paid membership: adds the share sheet and the Control Center widget.
+// Once you have a paid membership: adds the share sheet.
 // MULTISCALE_EXTENSIONS = YES

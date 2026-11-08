@@ -140,6 +140,16 @@ describe('first-run setup', () => {
     expect(await listRecords(t.db, 'objective')).toHaveLength(0);
   });
 
+  it('keeps a pasted capture to a length that syncs, as the capture field does', async () => {
+    const t = await renderScreen('setup', { firstRun: true });
+    await click('Next');
+    await click('Next');
+    await userEvent.click(await screen.findByRole('textbox'));
+    await userEvent.paste('word '.repeat(1000));
+    await click('Capture');
+    await waitFor(async () => expect(await listRecords(t.db, 'task')).toMatchObject([{ title: 'word '.repeat(400).trim() }]));
+  });
+
   it('Enter in the field adds it as a goal', async () => {
     const t = await renderScreen('setup', { firstRun: true });
     await click('Next');

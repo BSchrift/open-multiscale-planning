@@ -495,7 +495,7 @@ func TestABadRecordRefusesTheWholeBatch(t *testing.T) {
 	a := signIn(t)
 	good := fresh("good")
 	before := a.startCursor()
-	res := a.send(before, a.record("task", good, "title", "fine"), record{"nonsense", fresh("bad"), map[string]field{"x": {1, a.clock()}}})
+	res := a.send(before, a.record("task", good, "title", "fine"), record{"Not a type", fresh("bad"), map[string]field{"x": {1, a.clock()}}})
 	if res.status != 400 {
 		t.Fatalf("%d", res.status)
 	}

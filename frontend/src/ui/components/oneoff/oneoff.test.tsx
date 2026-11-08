@@ -17,13 +17,14 @@ const TODAY = '2026-11-02';
 
 async function inApp(ui: ReactNode, layout: Layout = 'desktop') {
   const platform = await createTestPlatform();
-  return render(
+  const view = render(
     <AppProvider platform={platform} clock={fixedClock('2026-11-02T20:00:00Z', 'America/Chicago')} layout={layout}>
       <ToastProvider>
         <div data-layout={layout}>{ui}</div>
       </ToastProvider>
     </AppProvider>,
   );
+  return { ...view, platform };
 }
 
 describe('a draft becomes a schedule', () => {
@@ -208,5 +209,24 @@ describe('OneOffDates', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Change date for Tidy the shed' }));
     await userEvent.click(screen.getByRole('button', { name: 'Clear date' }));
     expect(commit).toHaveBeenCalledWith(null, null);
+  });
+
+  it('stays open with the date typed when the save fails', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { platform } = await inApp(<OneOffDates task={task({ type: 'once' })} />);
+    vi.spyOn(platform.db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+    await userEvent.click(screen.getByRole('button', { name: 'Add date for Tidy the shed' }));
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-20' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
+    expect(await screen.findByText("Couldn't save that. Try again.")).toBeVisible();
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20');
+    error.mockRestore();
+  });
+
+  it('stays open when the screen saving the dates says it could not', async () => {
+    await inApp(<OneOffDates task={task({ type: 'once', from: '2026-11-03' })} commit={async () => false} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Change date for Tidy the shed' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Clear date' }));
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-11-03');
   });
 });

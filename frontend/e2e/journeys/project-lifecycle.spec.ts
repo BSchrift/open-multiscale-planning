@@ -23,7 +23,7 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
   ]);
   await fence.getByRole('checkbox', { name: 'Choose a colour done' }).click();
   await expect(fence.getByRole('button', { name: 'Show 1 completed' })).toBeVisible();
-  if (phone) await page.getByRole('button', { name: '‹ Goals' }).click();
+  if (phone) await page.getByRole('button', { name: 'Back to Goals' }).click();
   const shed = await addProject(page, phone, goal, 'Clear out the shed', '2027-01-29');
   await addMilestones(shed, [{ name: 'Shelves up', due: '2026-12-11' }]);
 

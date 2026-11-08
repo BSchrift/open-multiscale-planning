@@ -83,6 +83,7 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
     await w.create('milestone', { project_id: plan.project.id, title, due, start: start || null, added_on: on });
     // Done stays last, so a date past the end moves it.
     if (due > plan.project.end) await applyPlanChange(w, moveDone(plan, due, ctx));
+    return true;
   });
 
   const met = !!m && msReached(plan, m);
@@ -100,8 +101,9 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
     if (!title) return setError('Give it a name.');
     if ((!m || dateChanged) && !dateValid) return setError('Pick today or a later date.');
     if (start && start > (due || (m ? effectiveDue(plan, m, ctx) : ''))) return setError('A start date has to be on or before the due date.');
+    // A failed save keeps the form as it was, and has said so.
     if (!m) {
-      await add.run(title);
+      if (!(await add.run(title))) return;
       setName('');
       setDue('');
       setStart('');
@@ -109,20 +111,17 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
       setLast(title);
       return;
     }
-    await apply(() => ({ writes: [{ type: 'milestone', id: m.id, fields: { title, start: start || null } }, ...(moved?.writes ?? [])] }));
-    onClose();
+    if (await apply(() => ({ writes: [{ type: 'milestone', id: m.id, fields: { title, start: start || null } }, ...(moved?.writes ?? [])] }))) onClose();
   };
 
   const togglePlan = async () => {
     if (!m) return;
     const change = withStatusLine(plan, toggleInPlan(plan, m.id, stretch, ctx), ctx);
-    await apply(() => change);
-    setDue(withChange(plan, change).milestones.find((x) => x.id === m.id)?.due ?? '');
+    if (await apply(() => change)) setDue(withChange(plan, change).milestones.find((x) => x.id === m.id)?.due ?? '');
   };
 
   const after = (make: () => PlanChange) => async () => {
-    await apply(make);
-    onClose();
+    if (await apply(make)) onClose();
   };
 
   return (

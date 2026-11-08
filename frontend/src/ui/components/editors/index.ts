@@ -9,8 +9,7 @@
 
 import './editors.css';
 
-export { ChangeEndDate, CloseProject, CloseQuestion } from './CloseProject';
-export { DropMilestone } from './DropMilestone';
+export { CloseProject, CloseQuestion } from './CloseProject';
 export { diamondFor, doneDiamond, MilestoneEditor } from './MilestoneEditor';
 export { OverdueFix, OverdueQuestion } from './OverdueFix';
 export { GoalSelect, PracticeAdd, PracticeFields, practiceRule, PracticeSheet } from './PracticeEditor';

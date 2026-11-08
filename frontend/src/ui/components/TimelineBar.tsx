@@ -8,12 +8,12 @@ import { TimelineDiamond } from './MilestoneDiamond';
 import type { DiamondState } from './MilestoneDiamond';
 
 /** The dates a row spans, both inclusive. */
-export interface TimelineAxis {
+interface TimelineAxis {
   start: LocalDate;
   end: LocalDate;
 }
 
-export interface DateSpan {
+interface DateSpan {
   start: LocalDate;
   end: LocalDate;
 }

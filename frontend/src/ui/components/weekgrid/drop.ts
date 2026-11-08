@@ -30,7 +30,7 @@ function under(x: number, y: number) {
 }
 
 /** Where a point over a day lands, measured from the drawn day each time, so scrolling during a drag can't shift it. */
-export function slotAt(x: number, y: number, length: number, ctx: SlotContext, targets: readonly Slot[] = []): Slot | null {
+function slotAt(x: number, y: number, length: number, ctx: SlotContext, targets: readonly Slot[] = []): Slot | null {
   const { day } = under(x, y);
   if (!day) return null;
   const r = day.getBoundingClientRect();

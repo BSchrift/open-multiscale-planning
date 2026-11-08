@@ -1,10 +1,14 @@
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { extendBlock, moveBlock, swapBlocks } from '../../core/blocks';
 import { localToInstant } from '../../core/dates';
 import { getRecord, outcomeId } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { REMINDER_ACTION } from '../../core/reminders';
+import type { AppSync } from '../../core/syncRunner';
+import type { Route } from './nav';
 import { renderApp } from './testing';
+import type { HarnessOptions } from './testing';
 
 afterEach(cleanup);
 
@@ -18,15 +22,43 @@ const seed = async (w: Writer) => {
   await w.create('time_block', { task_id: 't1', start: at(15), end: at(16), tz: ZONE }, 'b1');
 };
 
-async function open() {
-  const t = await renderApp({ now: NOW, zone: ZONE, seed });
+async function open(options: HarnessOptions & { initial?: Route } = {}) {
+  const t = await renderApp({ now: NOW, zone: ZONE, seed, ...options });
   const scheduled = () => t.platform.notifications.scheduled();
   await waitFor(async () => expect(await scheduled()).toHaveLength(3));
-  return { ...t, scheduled };
+  // The notifications as first scheduled, which stay showing once delivered whatever is scheduled after them.
+  const shown = Object.fromEntries((await scheduled()).map((r) => [r.kind, r]));
+  return { ...t, scheduled, shown };
 }
 
-const respond = (t: Awaited<ReturnType<typeof open>>, action: string | null, kind = 'end') =>
-  act(() => t.platform.notifications.respond({ reminder_id: `reminder:b1:${kind}`, block_id: 'b1', action_id: action }));
+/** Signed in, where each sync can bring in what another device changed. */
+function fakeSync() {
+  return {
+    signIn: vi.fn(async () => undefined),
+    signOut: vi.fn(async () => undefined),
+    syncNow: vi.fn(async () => undefined),
+    connectCalendar: vi.fn(async () => undefined),
+    refreshCalendar: vi.fn(async () => undefined),
+    disconnectCalendar: vi.fn(async () => undefined),
+    stop: vi.fn(),
+    email: vi.fn(async () => null),
+    eraseAndSignIn: vi.fn(async () => undefined),
+  } satisfies AppSync;
+}
+
+/** The app open on Week, signed in, with this change made on another device and not yet synced here. */
+async function changedElsewhere(change: (w: Writer) => Promise<unknown>) {
+  const sync = fakeSync();
+  const t = await open({ sync, initial: { area: 'week', params: {} } });
+  sync.syncNow.mockImplementationOnce(async () => void (await t.write(change)));
+  return { ...t, sync };
+}
+
+const KINDS = { start: 'block_start', check_in: 'check_in', end: 'block_end' } as const;
+
+/** An answer to b1's notification of this kind, as first scheduled. */
+const respond = (t: Awaited<ReturnType<typeof open>>, action: string | null, kind: keyof typeof KINDS = 'end') =>
+  act(() => t.platform.notifications.respond({ reminder_id: t.shown[KINDS[kind]]!.id, block_id: 'b1', action_id: action }));
 
 describe('reminders', () => {
   it('asks for permission once there is something to remind about, then schedules the coming blocks', async () => {
@@ -100,5 +132,98 @@ describe('reminders', () => {
     await respond(t, REMINDER_ACTION.partly);
     const prompt = await screen.findByRole('dialog', { name: 'How much is left?' });
     expect(within(prompt).getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '1h');
+  });
+
+  // A notification was scheduled from this device's copy of the plan, which can be behind another device's.
+  describe('syncs before acting, and opens Today instead of acting on a block changed since', () => {
+    const today = () => screen.findByRole('region', { name: 'Today' });
+
+    it('moved in a sync before the tap, while its notification showed: Start leaves it unstarted', async () => {
+      const t = await open({ initial: { area: 'week', params: {} } });
+      await act(() => t.write((w) => moveBlock(w, 'b1', { start: at(17), end: at(18) })));
+      await waitFor(async () => expect((await t.scheduled()).find((r) => r.kind === 'block_start')?.at).toBe(at(17)));
+      t.clock.set(at(15, 5));
+      await respond(t, REMINDER_ACTION.start, 'start');
+      expect(await today()).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeFalsy();
+    });
+
+    it('moved on another device, arriving with the sync the tap starts: Start leaves it unstarted', async () => {
+      const t = await changedElsewhere((w) => moveBlock(w, 'b1', { start: at(17), end: at(18) }));
+      t.clock.set(at(15, 1));
+      await respond(t, REMINDER_ACTION.start, 'start');
+      expect(await today()).toBeVisible();
+      expect(t.sync.syncNow).toHaveBeenCalledOnce();
+      const block = await getRecord(t.db, 'time_block', 'b1');
+      expect(block?.start).toBe(at(17));
+      expect(block?.started_at).toBeFalsy();
+    });
+
+    it('Still going answered on another device too: the time is added once', async () => {
+      const t = await changedElsewhere((w) => extendBlock(w, 'b1', 30));
+      t.clock.set(at(16, 1));
+      await respond(t, REMINDER_ACTION.stillGoing);
+      expect(await today()).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16, 30));
+    });
+
+    it('swapped with the next block on another device: Not done answers for neither', async () => {
+      const t = await changedElsewhere((w) => swapBlocks(w, 'b1', 'b2'));
+      await act(() =>
+        t.write(async (w) => {
+          await w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't2');
+          await w.create('time_block', { task_id: 't2', start: at(17), end: at(18), tz: ZONE }, 'b2');
+        }),
+      );
+      await waitFor(async () => expect(await t.scheduled()).toHaveLength(6));
+      t.clock.set(at(16, 1));
+      await respond(t, REMINDER_ACTION.notDone);
+      expect(await today()).toBeVisible();
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
+    });
+
+    it('started already: a second Start keeps the first start time', async () => {
+      const t = await open({ initial: { area: 'week', params: {} } });
+      t.clock.set(at(15, 1));
+      await respond(t, REMINDER_ACTION.start, 'start');
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(at(15, 1)));
+      t.clock.set(at(15, 5));
+      await respond(t, REMINDER_ACTION.started, 'check_in');
+      expect(await today()).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(at(15, 1));
+    });
+
+    it('shown before notifications said which block they were about: Start leaves it unstarted', async () => {
+      const t = await open({ initial: { area: 'week', params: {} } });
+      t.clock.set(at(15, 1));
+      act(() => t.platform.notifications.respond({ reminder_id: 'reminder:b1:start', block_id: 'b1', action_id: REMINDER_ACTION.start }));
+      expect(await today()).toBeVisible();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeFalsy();
+    });
+
+    it("a practice's All, answered for a block that holds a task, finishes nothing", async () => {
+      const t = await open({ initial: { area: 'week', params: {} } });
+      t.clock.set(at(16, 1));
+      await respond(t, REMINDER_ACTION.logAll);
+      expect(await today()).toBeVisible();
+      expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeFalsy();
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
+    });
+  });
+
+  it("acts as of the tap, without waiting long for a sync that doesn't finish", async () => {
+    const sync = fakeSync();
+    sync.syncNow.mockImplementation(() => new Promise(() => undefined));
+    const t = await open({ sync });
+    t.clock.set(at(15, 1));
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      await respond(t, REMINDER_ACTION.start, 'start');
+      t.clock.set(at(15, 3));
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(at(15, 1)));
   });
 });

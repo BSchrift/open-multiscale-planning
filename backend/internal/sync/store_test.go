@@ -113,7 +113,7 @@ func title(value, c string) map[string]msync.Field {
 
 func mustSync(t *testing.T, s *msync.Store, user string, cursor int64, changes ...msync.Change) msync.Response {
 	t.Helper()
-	res, _, err := s.Sync(context.Background(), user, cursor, changes)
+	res, _, err := s.Sync(context.Background(), user, msync.Request{Cursor: cursor, Changes: changes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,9 +262,9 @@ func TestNoChangesIsAnEmptyListNotNull(t *testing.T) {
 func TestNumberFormsDynamoDBTakes(t *testing.T) {
 	s, _ := newStore(t)
 	for _, n := range []string{"0", "-0", "0.0", "1E5", "1e+5", "1e-5", "-1.5", "0e999", "9.99e125", "1e-130", "12345678901234567890123456789012345678"} {
-		_, _, err := s.Sync(context.Background(), "numbers", 0, []msync.Change{task("r-"+n, map[string]msync.Field{
+		_, _, err := s.Sync(context.Background(), "numbers", msync.Request{Cursor: 0, Changes: []msync.Change{task("r-"+n, map[string]msync.Field{
 			"n": {V: json.Number(n), C: clock(1, "a")},
-		})})
+		})}})
 		if err != nil {
 			t.Errorf("%s: %v", n, err)
 		}
@@ -391,7 +391,7 @@ func TestEveryResponseCarriesTheTableGeneration(t *testing.T) {
 func TestAGenerationThatIsNotTextFailsTheSync(t *testing.T) {
 	s, client := newStore(t)
 	putGeneration(t, s, client, &types.AttributeValueMemberN{Value: "2"})
-	if _, _, err := s.Sync(context.Background(), "abc", 0, nil); err == nil {
+	if _, _, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 0, Changes: nil}); err == nil {
 		t.Fatal("a malformed generation was ignored")
 	}
 }
@@ -428,9 +428,9 @@ func TestMergedRecordOverTheLimitIsRefused(t *testing.T) {
 	s, _ := newStore(t)
 	big := strings.Repeat("x", 60*1024)
 	mustSync(t, s, "abc", 0, task("r1", map[string]msync.Field{"a": {V: big, C: clock(1, "a")}}))
-	_, _, err := s.Sync(context.Background(), "abc", 1, []msync.Change{
+	_, _, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 1, Changes: []msync.Change{
 		task("r1", map[string]msync.Field{"b": {V: big, C: clock(1, "a")}}),
-	})
+	}})
 	var rejection *msync.Rejection
 	if !errors.As(err, &rejection) || rejection.Code != "record_too_large" {
 		t.Fatalf("got %v", err)
@@ -447,7 +447,7 @@ func TestConflictRetriesThenWins(t *testing.T) {
 	db := &fakes.ConflictDB{DB: client}
 	db.Conflicts.Store(2)
 	s.DB = db
-	res, stats, err := s.Sync(context.Background(), "abc", 0, []msync.Change{task("r1", title("x", clock(1, "a")))})
+	res, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 0, Changes: []msync.Change{task("r1", title("x", clock(1, "a")))}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestConflictGivesUpAfterThreeTries(t *testing.T) {
 	db := &fakes.ConflictDB{DB: client}
 	db.Conflicts.Store(3)
 	s.DB = db
-	_, stats, err := s.Sync(context.Background(), "abc", 0, []msync.Change{task("r1", title("x", clock(1, "a")))})
+	_, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 0, Changes: []msync.Change{task("r1", title("x", clock(1, "a")))}})
 	if !errors.Is(err, msync.ErrConflict) {
 		t.Fatalf("got %v", err)
 	}
@@ -493,7 +493,7 @@ func TestARealCounterMoveIsCaughtAndRemerged(t *testing.T) {
 			t.Error(err)
 		}
 	}}
-	res, stats, err := s.Sync(context.Background(), "abc", 1, []msync.Change{task("r1", title("Second", clock(2000, "a")))})
+	res, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 1, Changes: []msync.Change{task("r1", title("Second", clock(2000, "a")))}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,7 +720,7 @@ func TestOtherTransactionFailuresAreNotRetried(t *testing.T) {
 	s.DB = &beforeWriteDB{DB: client, Err: &types.TransactionCanceledException{
 		CancellationReasons: []types.CancellationReason{{Code: aws.String("ValidationError")}},
 	}}
-	_, stats, err := s.Sync(context.Background(), "abc", 0, []msync.Change{task("r1", title("x", clock(1, "a")))})
+	_, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 0, Changes: []msync.Change{task("r1", title("x", clock(1, "a")))}})
 	if err == nil || errors.Is(err, msync.ErrConflict) || stats.Retries != 0 {
 		t.Fatalf("err %v, stats %+v", err, stats)
 	}
@@ -748,16 +748,20 @@ func TestRequestShapes(t *testing.T) {
 	mustSync(t, s, "abc", 0, task("r1", title("x", clock(1, "a"))))
 	mustSync(t, s, "abc", 1, task("r2", title("y", clock(2, "a"))))
 
-	// The counter's read also takes the table's generation, and the record's read comes after it.
+	// The counter's read also takes the user's expiry mark and the table's generation, and the record's read comes after it.
 	for i, in := range spy.Reads[:2] {
-		if read := in.RequestItems[s.Table]; !aws.ToBool(read.ConsistentRead) || len(read.Keys) != 2-i {
+		if read := in.RequestItems[s.Table]; !aws.ToBool(read.ConsistentRead) || len(read.Keys) != []int{3, 1}[i] {
 			t.Fatalf("read %+v", read)
 		}
 	}
 	if sk := spy.Reads[0].RequestItems[s.Table].Keys[0]["sk"].(*types.AttributeValueMemberS).Value; sk != "meta#counter" {
 		t.Fatalf("read the record first: %s", sk)
 	}
-	if key := spy.Reads[0].RequestItems[s.Table].Keys[1]; key["pk"].(*types.AttributeValueMemberS).Value != "meta" ||
+	if key := spy.Reads[0].RequestItems[s.Table].Keys[1]; key["pk"].(*types.AttributeValueMemberS).Value != "user#abc" ||
+		key["sk"].(*types.AttributeValueMemberS).Value != "meta#expired" {
+		t.Fatalf("mark key %+v", key)
+	}
+	if key := spy.Reads[0].RequestItems[s.Table].Keys[2]; key["pk"].(*types.AttributeValueMemberS).Value != "meta" ||
 		key["sk"].(*types.AttributeValueMemberS).Value != "generation" {
 		t.Fatalf("generation key %+v", key)
 	}

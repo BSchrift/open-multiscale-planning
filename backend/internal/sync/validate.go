@@ -72,6 +72,9 @@ type Change struct {
 type Request struct {
 	Cursor  int64    `json:"cursor"`
 	Changes []Change `json:"changes"`
+	// ExpiryReset says the device takes a reset when records it hasn't seen were removed as expired. Apps from before
+	// retention don't send it, and get Push's checks for stale changes instead.
+	ExpiryReset bool `json:"expiry_reset,omitempty"`
 }
 
 // ParseRequest decodes and validates a request body. Any error is a *Rejection.

@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	"github.com/BSchrift/open-multiscale-planning/config"
 )
 
 const (
@@ -45,12 +47,22 @@ type DB interface {
 	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
 	TransactWriteItems(context.Context, *dynamodb.TransactWriteItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
 	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 }
 
 // Store is the DynamoDB side of sync. Every writer goes through Push, so every write moves the counter.
 type Store struct {
 	DB    DB
 	Table string
+	// Expiry keeps expired records out of pulls and changes to them out of the table, as docs/retention.md says. Without
+	// it nothing is left out, as in the tests of everything else.
+	Expiry *Expiry
+}
+
+// Expiry is what the store needs to tell what has expired: the time, and how long a deleted record is kept.
+type Expiry struct {
+	Now     func() time.Time
+	Deleted config.Period
 }
 
 // Response is the body of a 200 from POST /sync. A cursor below the one sent, or a generation other than the last one
@@ -60,11 +72,24 @@ type Response struct {
 	More       bool     `json:"more"`
 	Changes    []Change `json:"changes"`
 	Generation string   `json:"generation,omitempty"`
+	// Reset is ResetExpired when records the device hasn't seen were removed as expired. It answers only a request with
+	// expiry_reset, and nothing was merged.
+	Reset string `json:"reset,omitempty"`
 }
+
+// ResetExpired tells a device to pull everything from 0, keep only what comes back or what it made since it last synced,
+// and then send its changes again.
+const ResetExpired = "expired"
 
 // Stats is what a request did, for logs and metrics.
 type Stats struct {
-	Merged     int
+	Merged int
+	// Dropped counts changes left out because they'd bring back an expired record.
+	Dropped int
+	// Filled counts expiries filled in on records that had none, without a new sequence number.
+	Filled int
+	// Skipped counts expired records a pull left out.
+	Skipped    int
 	Retries    int
 	Pulled     int
 	counter    int64
@@ -74,27 +99,65 @@ type Stats struct {
 	// ItemCollectionGB is the most DynamoDB estimated the user's records to take after this request's writes, the upper
 	// end of its range, or 0 when it wrote nothing or DynamoDB reported no size. The by_seq index caps them at 10 GB.
 	ItemCollectionGB float64
+	// ExpiryReset is set when the device was behind the expiry mark and was answered with a reset.
+	ExpiryReset bool
 }
 
+// pusher is who a push comes from, which decides the expiry checks it gets.
+type pusher int
+
+const (
+	// server is the backend's own writer, the calendar worker.
+	server pusher = iota
+	// oldDevice is an app from before retention, which never asks for a reset.
+	oldDevice
+	// device is an app that takes a reset when it's behind the expiry mark.
+	device
+)
+
 // Sync pushes changes and returns the records above cursor, up to one page.
-func (s *Store) Sync(ctx context.Context, sub string, cursor int64, changes []Change) (Response, Stats, error) {
-	stats, err := s.Push(ctx, sub, cursor, changes)
+func (s *Store) Sync(ctx context.Context, sub string, req Request) (Response, Stats, error) {
+	who := oldDevice
+	if req.ExpiryReset {
+		who = device
+	}
+	stats, err := s.push(ctx, sub, req.Cursor, req.Changes, who)
 	if err != nil {
 		return Response{}, stats, err
 	}
 	if stats.reset {
 		return Response{Cursor: stats.counter, Changes: []Change{}, Generation: stats.generation}, stats, nil
 	}
-	res, err := s.pull(ctx, sub, cursor, stats.counter)
+	reset := Response{Changes: []Change{}, Generation: stats.generation, Reset: ResetExpired}
+	if stats.ExpiryReset {
+		return reset, stats, nil
+	}
+	res, skipped, err := s.pull(ctx, sub, req.Cursor, stats.counter)
+	if err != nil {
+		return Response{}, stats, err
+	}
 	res.Generation = stats.generation
-	stats.Pulled = len(res.Changes)
-	return res, stats, err
+	stats.Pulled, stats.Skipped = len(res.Changes), skipped
+	// The pull left out an expired record whose last write this device hasn't had, so it may hold an older copy: it pulls
+	// everything instead, which leaves the copy out. What it sent merged, and sending it again changes nothing.
+	if who == device && skipped > 0 && holdsRecords(req.Cursor, req.Changes) {
+		stats.ExpiryReset, stats.Pulled = true, 0
+		return reset, stats, nil
+	}
+	return res, stats, nil
 }
+
+// holdsRecords is false only for a device that holds nothing yet: at 0, with nothing to send.
+func holdsRecords(cursor int64, changes []Change) bool { return cursor > 0 || len(changes) > 0 }
 
 // Push merges changes in and writes what altered, retrying when another writer moves the counter first. A cursor above
 // the stored counter writes nothing and marks the result for a reset. Callers with no cursor, such as the calendar
 // worker, pass 0.
 func (s *Store) Push(ctx context.Context, sub string, cursor int64, changes []Change) (Stats, error) {
+	return s.push(ctx, sub, cursor, changes, server)
+}
+
+func (s *Store) push(ctx context.Context, sub string, cursor int64, changes []Change, who pusher) (Stats, error) {
 	changes = combine(changes)
 	var stats Stats
 	// One budget across every attempt, so a conflict between throttles doesn't start it again.
@@ -109,10 +172,27 @@ func (s *Store) Push(ctx context.Context, sub string, cursor int64, changes []Ch
 			stats.reset = true
 			return stats, nil
 		}
-		merged, err := mergeAll(changes, state.records)
+		// A device that hasn't seen every record removed as expired may hold an older copy of one, which its changes would
+		// bring back in part. It pulls everything instead.
+		if who == device && cursor < state.mark && holdsRecords(cursor, changes) {
+			stats.ExpiryReset = true
+			return stats, nil
+		}
+		fills, rest, orphans := s.fills(changes, state)
+		for _, f := range fills {
+			filled, err := s.fill(ctx, sub, f, state.seqs[f.sk])
+			if err != nil {
+				return stats, err
+			}
+			if filled {
+				stats.Filled++
+			}
+		}
+		merged, dropped, err := s.mergeAll(rest, state.records, who)
 		if err != nil {
 			return stats, err
 		}
+		stats.Dropped = dropped + orphans
 		written, counter, size, err := s.write(ctx, sub, state, merged, giveUp)
 		stats.Merged += written
 		stats.ItemCollectionGB = max(stats.ItemCollectionGB, size)
@@ -153,7 +233,10 @@ type storedState struct {
 	counter    int64
 	exists     bool
 	generation string
-	records    map[string]Fields
+	// mark is the highest sequence number removed as expired, or about to be by staging's cleanup.
+	mark    int64
+	records map[string]Fields
+	seqs    map[string]int64
 }
 
 // read takes the counter before the records. A batch read isn't one snapshot, and the counter is all a write is
@@ -161,9 +244,10 @@ type storedState struct {
 // would then overwrite that commit.
 func (s *Store) read(ctx context.Context, sub string, changes []Change) (storedState, error) {
 	pk := &types.AttributeValueMemberS{Value: userKey(sub)}
-	state := storedState{records: map[string]Fields{}}
+	state := storedState{records: map[string]Fields{}, seqs: map[string]int64{}}
 	counter := []map[string]types.AttributeValue{
 		{"pk": pk, "sk": &types.AttributeValueMemberS{Value: counterKey}},
+		{"pk": pk, "sk": &types.AttributeValueMemberS{Value: markKey}},
 		{"pk": &types.AttributeValueMemberS{Value: generationPK}, "sk": &types.AttributeValueMemberS{Value: generationKey}},
 	}
 	if err := s.readKeys(ctx, counter, &state); err != nil {
@@ -200,6 +284,12 @@ func (s *Store) readKeys(ctx context.Context, keys []map[string]types.AttributeV
 				state.exists = true
 				continue
 			}
+			if sk.Value == markKey {
+				if state.mark, err = numberAttr(item["value"]); err != nil {
+					return err
+				}
+				continue
+			}
 			if sk.Value == generationKey {
 				generation, ok := item["value"].(*types.AttributeValueMemberS)
 				if !ok {
@@ -209,6 +299,9 @@ func (s *Store) readKeys(ctx context.Context, keys []map[string]types.AttributeV
 				continue
 			}
 			if state.records[sk.Value], err = fieldsFromItem(item); err != nil {
+				return err
+			}
+			if state.seqs[sk.Value], err = numberAttr(item["seq"]); err != nil {
 				return err
 			}
 		}
@@ -232,25 +325,173 @@ type mergedRecord struct {
 	sk     string
 	fields Fields
 	size   int
+	// expires is when DynamoDB's TTL may remove the item, or zero for never.
+	expires time.Time
 }
 
-// mergeAll returns the records that altered. A record that would pass the limit once merged is refused here: it would
-// otherwise grow until DynamoDB's item limit fails every later write to it.
-func mergeAll(changes []Change, stored map[string]Fields) ([]mergedRecord, error) {
+// mergeAll returns the records that altered, leaving out the changes stale reports for who sent them, and how many it
+// left out. A record that would pass the limit once merged is refused here: it would otherwise grow until DynamoDB's item
+// limit fails every later write to it.
+func (s *Store) mergeAll(changes []Change, stored map[string]Fields, who pusher) ([]mergedRecord, int, error) {
 	var merged []mergedRecord
+	dropped := 0
+	stale := s.stale(who)
 	for _, change := range changes {
 		sk := recordKey(change.Type, change.ID)
-		fields, altered := MergeFields(stored[sk], change.Fields)
+		current, held := stored[sk]
+		fields, altered := MergeFields(current, change.Fields)
 		if altered == 0 {
 			continue
 		}
+		if stale != nil && stale(held, change.Fields, fields) {
+			dropped++
+			continue
+		}
+		if s.Expiry != nil && who != device {
+			clearOvertakenExpiry(change.Fields, fields)
+		}
 		size := recordBytes(fields)
 		if size > MaxRecordBytes+mergedRoom {
-			return nil, tooLarge("record_too_large")
+			return nil, 0, tooLarge("record_too_large")
 		}
-		merged = append(merged, mergedRecord{sk, fields, size})
+		expires, _ := s.expiry(fields)
+		merged = append(merged, mergedRecord{sk, fields, size, expires})
 	}
-	return merged, nil
+	return merged, dropped, nil
+}
+
+// expiry is when a record expires: its expires_at, which the app works out, or else, for a record deleted by an app
+// from before that or by the calendar worker, its deleted_at plus the deleted period.
+func (s *Store) expiry(fields Fields) (time.Time, bool) {
+	if at, ok := instantField(fields, "expires_at"); ok {
+		return at, true
+	}
+	if s.Expiry != nil {
+		if at, ok := instantField(fields, "deleted_at"); ok {
+			return s.Expiry.Deleted.After(at), true
+		}
+	}
+	return time.Time{}, false
+}
+
+// expirySources are the fields an expiry counts from, as frontend/src/core/expiry.ts lists them.
+var expirySources = []string{"deleted_at", "done_at", "cancelled_at", "state", "end", "week_start", "answered_at", "project_id"}
+
+// clearOvertakenExpiry empties a record's expiry once a writer that doesn't work expiries out, an app from before
+// retention or the calendar worker, has changed what it counts from since it was set, as when one reopens a task or
+// restores a deleted record. The old expiry would otherwise remove the record early. A deleted record then goes by its
+// deleted_at, and the next up-to-date app to launch works the expiry out again.
+func clearOvertakenExpiry(change, merged Fields) {
+	expires, ok := merged["expires_at"]
+	if !ok || expires.V == nil {
+		return
+	}
+	latest := expires.C
+	for _, name := range expirySources {
+		if _, sent := change[name]; sent && merged[name].C > latest {
+			latest = merged[name].C
+		}
+	}
+	if latest != expires.C {
+		merged["expires_at"] = Field{V: nil, C: latest}
+	}
+}
+
+func instantField(fields Fields, name string) (time.Time, bool) {
+	value, _ := fields[name].V.(string)
+	at, err := time.Parse(time.RFC3339, value)
+	return at, err == nil
+}
+
+// fillChange only fills in a record's expiry with the lowest clock, as each app does once for what it held before
+// records had one.
+type fillChange struct {
+	sk    string
+	field Field
+}
+
+// fills sets apart the changes that fill in an expiry the stored record lacks. They're written in place, keeping the
+// record's sequence number: every device fills it in the same way, so none needs to pull the record again. That also
+// lets an expiry that has already passed reach a record from before, so TTL removes it. An expiry alone for a record
+// that isn't here can only be for one already removed, so those are left out and counted.
+func (s *Store) fills(changes []Change, state storedState) ([]fillChange, []Change, int) {
+	var fills []fillChange
+	rest, orphans := changes[:0:0], 0
+	for _, change := range changes {
+		sk := recordKey(change.Type, change.ID)
+		field, onlyExpiry := change.Fields["expires_at"]
+		onlyExpiry = onlyExpiry && len(change.Fields) == 1 && s.Expiry != nil
+		stored, held := state.records[sk]
+		_, has := stored["expires_at"]
+		switch {
+		case onlyExpiry && !held:
+			orphans++
+		case onlyExpiry && !has && strings.HasPrefix(field.C, "0000000000000-"):
+			fills = append(fills, fillChange{sk, field})
+		default:
+			rest = append(rest, change)
+		}
+	}
+	return fills, rest, orphans
+}
+
+// fill writes one fill unless the record changed since it was read, and reports whether it did.
+func (s *Store) fill(ctx context.Context, sub string, f fillChange, seq int64) (bool, error) {
+	value, err := toAttribute(f.field.V)
+	if err != nil {
+		return false, err
+	}
+	update := "SET #fields.#expires = :field"
+	values := map[string]types.AttributeValue{
+		":field": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{"v": value, "c": &types.AttributeValueMemberS{Value: f.field.C}}},
+		":seq":   number(seq),
+	}
+	if at, ok := instantField(Fields{"expires_at": f.field}, "expires_at"); ok {
+		update += ", #expires = :ttl"
+		values[":ttl"] = number(at.Unix())
+	}
+	_, err = s.DB.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:                 aws.String(s.Table),
+		Key:                       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: userKey(sub)}, "sk": &types.AttributeValueMemberS{Value: f.sk}},
+		UpdateExpression:          aws.String(update),
+		ConditionExpression:       aws.String("seq = :seq AND attribute_not_exists(#fields.#expires)"),
+		ExpressionAttributeNames:  map[string]string{"#fields": "fields", "#expires": ttlAttribute},
+		ExpressionAttributeValues: values,
+	})
+	var failed *types.ConditionalCheckFailedException
+	if errors.As(err, &failed) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("sync: fill: %w", err)
+	}
+	return true, nil
+}
+
+// stale reports a change that would bring back an expired record, so Push leaves it out. That's any change whose record,
+// once merged, has an expiry that has passed. From an app that can't take a reset it's also one for a record this store
+// doesn't hold whose every clock is older than the deleted period: only a device that missed the record's removal still
+// sends that. Nil without Expiry.
+func (s *Store) stale(who pusher) func(held bool, change, merged Fields) bool {
+	if s.Expiry == nil {
+		return nil
+	}
+	now := s.Expiry.Now()
+	before := s.Expiry.Deleted.Before(now).UnixMilli()
+	return func(held bool, change, merged Fields) bool {
+		if at, ok := s.expiry(merged); ok && at.Before(now) {
+			return true
+		}
+		if held || who != oldDevice {
+			return false
+		}
+		for _, field := range change {
+			if wall, err := strconv.ParseInt(field.C[:13], 10, 64); err != nil || wall >= before {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 // write commits records in transactions under DynamoDB's size limit. Each one is conditional on the counter, so sequence
@@ -329,15 +570,18 @@ func recordItem(table, sub string, record mergedRecord, seq int64) (types.Transa
 			"c": &types.AttributeValueMemberS{Value: field.C},
 		}}
 	}
-	return types.TransactWriteItem{Put: &types.Put{
-		TableName: aws.String(table),
-		Item: map[string]types.AttributeValue{
-			"pk":     &types.AttributeValueMemberS{Value: userKey(sub)},
-			"sk":     &types.AttributeValueMemberS{Value: record.sk},
-			"seq":    number(seq),
-			"fields": &types.AttributeValueMemberM{Value: fields},
-		},
-	}}, nil
+	item := map[string]types.AttributeValue{
+		"pk":     &types.AttributeValueMemberS{Value: userKey(sub)},
+		"sk":     &types.AttributeValueMemberS{Value: record.sk},
+		"seq":    number(seq),
+		"fields": &types.AttributeValueMemberM{Value: fields},
+	}
+	// The table's TTL attribute, so DynamoDB removes the item once it has expired. A put replaces the item, so a cleared
+	// expiry takes the attribute away.
+	if !record.expires.IsZero() {
+		item[ttlAttribute] = number(record.expires.Unix())
+	}
+	return types.TransactWriteItem{Put: &types.Put{TableName: aws.String(table), Item: item}}, nil
 }
 
 func counterUpdate(table, sub string, old, next int64, exists bool) types.TransactWriteItem {
@@ -418,9 +662,11 @@ func isConflict(err error) bool {
 // pull goes no further than a counter read beforehand. A query can show part of a transaction that's landing right now,
 // and since a cursor only moves forward, seeing a later record without an earlier one would lose that one for good. A
 // transaction the counter already includes has landed whole.
-func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Response, error) {
+// It leaves out records that have expired but that DynamoDB hasn't removed yet, which can take days, and returns how
+// many. The cursor still moves past them.
+func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Response, int, error) {
 	if cursor >= counter {
-		return Response{Cursor: cursor, Changes: []Change{}}, nil
+		return Response{Cursor: cursor, Changes: []Change{}}, 0, nil
 	}
 	out, err := s.DB.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(s.Table),
@@ -435,32 +681,50 @@ func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Re
 		},
 	})
 	if err != nil {
-		return Response{}, fmt.Errorf("sync: pull: %w", err)
+		return Response{}, 0, fmt.Errorf("sync: pull: %w", err)
 	}
+	var now int64
+	if s.Expiry != nil {
+		now = s.Expiry.Now().Unix()
+	}
+	skipped := 0
 	res := Response{Cursor: cursor, More: len(out.LastEvaluatedKey) > 0, Changes: make([]Change, 0, len(out.Items))}
 	for _, item := range out.Items {
 		sk, _ := item["sk"].(*types.AttributeValueMemberS)
 		if sk == nil {
-			return Response{}, errors.New("sync: pull: item has no sort key")
+			return Response{}, 0, errors.New("sync: pull: item has no sort key")
 		}
 		recordType, id, ok := strings.Cut(strings.TrimPrefix(sk.Value, recordPrefix), "#")
 		if !ok {
-			return Response{}, errors.New("sync: pull: malformed sort key")
+			return Response{}, 0, errors.New("sync: pull: malformed sort key")
+		}
+		if res.Cursor, err = numberAttr(item["seq"]); err != nil {
+			return Response{}, 0, err
+		}
+		if expires, err := numberAttr(item[ttlAttribute]); s.Expiry != nil && err == nil && expires < now {
+			skipped++
+			continue
 		}
 		fields, err := fieldsFromItem(item)
 		if err != nil {
-			return Response{}, err
-		}
-		if res.Cursor, err = numberAttr(item["seq"]); err != nil {
-			return Response{}, err
+			return Response{}, 0, err
 		}
 		res.Changes = append(res.Changes, Change{Type: recordType, ID: id, Fields: fields})
 	}
-	return res, nil
+	// The last page has read everything up to the counter. A record removed as expired leaves a gap that can sit above
+	// the last one read, and a cursor left below it would be behind the mark for good.
+	if !res.More {
+		res.Cursor = counter
+	}
+	return res, skipped, nil
 }
 
 const (
-	counterKey   = "meta#counter"
+	counterKey = "meta#counter"
+	// markKey holds a user's expiry mark, the highest sequence number removed as expired, and when it was last raised.
+	markKey = "meta#expired"
+	// ttlAttribute is the table's TTL attribute: when the item expires, in epoch seconds.
+	ttlAttribute = "expires_at"
 	recordPrefix = "rec#"
 	// The table's generation is one item for every user, absent until the first restore from backup. The restore's last
 	// step writes a new one, which a counter can't stand in for: other devices may have moved it past an old cursor.

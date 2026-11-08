@@ -12,6 +12,8 @@ Every setting has one home, picked by who reads it and who it belongs to.
 
 The first two are the app's own settings. They're public, in this repo, and the same for anyone who deploys it. The last two are yours, and [setup.md](setup.md) covers them. The two kinds are never merged: `config/env/staging.yaml` is the app's, and `staging.yaml` in your config folder is yours. Error codes, such as `record_too_large`, are contracts between the server and the apps, and stay in the code beside what returns them.
 
+How long each environment keeps history is the app's own too, but for now it lives in `config/retention.yaml`, with a reader in each language (`config/retention.go` and `config/retention.ts`), until it moves into `config/env/`. [retention.md](retention.md) covers it.
+
 ## How each language reads them
 
 Go is the only reader of the YAML, and its only validator.

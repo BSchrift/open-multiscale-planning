@@ -17,7 +17,7 @@ import (
 
 // Syncer is what POST /sync needs. *sync.Store implements it.
 type Syncer interface {
-	Sync(ctx context.Context, sub string, cursor int64, changes []sync.Change) (sync.Response, sync.Stats, error)
+	Sync(ctx context.Context, sub string, req sync.Request) (sync.Response, sync.Stats, error)
 }
 
 // Calendar is the Google connection behind the /calendar routes.
@@ -131,8 +131,12 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 		if stats.ItemCollectionGB > 0 {
 			sizes = append(sizes, obs.GB{Name: "ItemCollectionSizeGB", Value: stats.ItemCollectionGB})
 		}
+		attrs := []any{"changes", changes, "pulled", stats.Pulled, "dropped", stats.Dropped}
+		if stats.ExpiryReset {
+			attrs = append(attrs, "reset", sync.ResetExpired)
+		}
 		return outcome{status: status, errorType: errorType, attrs: append(
-			[]any{"changes", changes, "pulled", stats.Pulled},
+			attrs,
 			obs.Metrics(s.Env, s.Now(), map[string]int{
 				"SyncRecordsMerged":    stats.Merged,
 				"SyncConflictRetries":  stats.Retries,
@@ -167,7 +171,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 	}
 	changes = len(req.Changes)
 	var res sync.Response
-	res, stats, err = s.Sync.Sync(r.Context(), sub, req.Cursor, req.Changes)
+	res, stats, err = s.Sync.Sync(r.Context(), sub, req)
 	if err != nil {
 		return fail(err)
 	}

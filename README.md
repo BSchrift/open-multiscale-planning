@@ -4,6 +4,8 @@ A personal planner that connects long-term goals to the week. Goals hold project
 
 It is local-first: everything lives in SQLite on the device and syncs through a small serverless backend you host yourself. One React app runs in the browser, on the Mac (Electron) and on iPhone (Capacitor).
 
+History is kept for a set time: time blocks and week plans for 2 years, finished work for 5 years, anything deleted for 30 days. [docs/retention.md](docs/retention.md) has the details, and `config/retention.yaml` the periods.
+
 **Status:** early development. Nothing has been released yet.
 
 ## How it's built
@@ -14,10 +16,10 @@ It is local-first: everything lives in SQLite on the device and syncs through a 
 | `frontend/src/platform` | Adapters for the browser, Electron and Capacitor |
 | `frontend/src/ui` | React screens and components, one tree with desktop and phone layouts |
 | `frontend/electron`, `frontend/ios` | The Mac app and the Xcode project |
-| `backend/` | Go: `cmd/api` (sync and Google connect Lambda), `cmd/calendar` (the Google Calendar worker), `cmd/local` (both, plus stand-in sign-in and Google, for local use) |
+| `backend/` | Go: `cmd/api` (sync and Google connect Lambda), `cmd/calendar` (the Google Calendar worker), `cmd/retention` (keeps the expiry mark, and staging's cleanup), `cmd/local` (all of them, plus stand-in sign-in and Google, for local use) |
 | `backend/integration` | The black-box API suite, run against local, staging or prod |
 | `infrastructure/` | AWS CDK: one stack per environment, `Multiscale-staging` and `Multiscale-prod`, plus `Multiscale-control` for an optional domain |
-| `config/` | The app's own settings, `protocol.yaml` and `env/`, which Go checks and exports to TypeScript as `@multiscale/config`; the Go module that loads each deployment's YAML, with an example of each file. [docs/config.md](docs/config.md) says what goes where. |
+| `config/` | The app's own settings, `protocol.yaml` and `env/`, which Go checks and exports to TypeScript as `@multiscale/config`; `retention.yaml`, how long each environment keeps history; the Go module that loads each deployment's YAML, with an example of each file. [docs/config.md](docs/config.md) says what goes where. |
 | `site/` | The public page at `www.` your domain, deployed with the control stack |
 | `scripts/`, `Makefile` | Deploy, test and local stack entry points |
 
@@ -59,6 +61,7 @@ Against a deployment, the same suites sign in as a dedicated test user, use uniq
 make test-deployed                                  # every suite below, plus the deployed web app, against staging
 make test-deployed ENV=prod CONFIRM_PROD=yes
 make test-integration ENV=staging
+make test-retention                                 # staging only: records expire and leave every device, about 25 minutes
 make smoke                                          # fast wiring check, plus CloudWatch logs and metrics
 make test-e2e ENV=staging
 make test-compat ENV=staging
@@ -66,7 +69,7 @@ make test-ios ENV=staging
 make test-history ENV=staging                       # as a user of its own, holding the five-year account
 ```
 
-`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, its data on OPFS, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. On staging it then runs the history-scale test. It names any that failed. `SKIP_IOS=1` leaves out the iPhone tests, much the slowest, and `SKIP_HISTORY=1` the history-scale test. `make release` runs it after every release.
+`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, its data on OPFS, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. On staging it then runs the retention suite and the history-scale test. It names any that failed. `SKIP_IOS=1` leaves out the iPhone tests, much the slowest, and `SKIP_HISTORY=1` the history-scale test. `make release` runs it after every release.
 
 These read your config folder, `$MULTISCALE_CONFIG_DIR` or else `config/`: `<env>.yaml`, and the `<env>.outputs.json` that `make deploy` writes. Test-user passwords come from SSM in that environment's account. [docs/setup.md](docs/setup.md) covers creating them.
 

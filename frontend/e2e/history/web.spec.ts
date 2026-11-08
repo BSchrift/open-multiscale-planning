@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { historyFacts } from '../../src/core/history-testing';
 import { account, go, pane } from '../seed';
-import { historyTarget, NETWORK, record, timeQueries, usableAt } from './history';
+import { historyTarget, keptChanges, NETWORK, record, timeQueries, usableAt } from './history';
 
 const t = historyTarget();
 
@@ -86,7 +86,7 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(watchSaves);
-  const { openInbox } = historyFacts();
+  const { openInbox } = historyFacts(keptChanges());
 
   // The shipped web app has no Skip: a new browser signs in first.
   await page.goto('/');
@@ -110,7 +110,7 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   await expect(account(page).getByText('Synced', { exact: true })).toBeVisible(NETWORK);
   await quiet(page);
   const queries = await timeQueries(page, 'web');
-  expect(queries.records).toBeGreaterThanOrEqual(historyFacts().records);
+  expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
 
   // A setting turned off and on twice, so the account ends as it began.
   const toggle = pane(page, 'Settings').getByRole('checkbox', { name: 'Notify at block start' });

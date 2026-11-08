@@ -137,9 +137,9 @@ describe('API', () => {
 });
 
 describe('Lambdas', () => {
-  it('are exactly two arm64 Go functions', () => {
+  it('are exactly three arm64 Go functions', () => {
     const fns = ofType('AWS::Lambda::Function');
-    assert.equal(fns.length, 2);
+    assert.equal(fns.length, 3);
     for (const [, f] of fns) {
       assert.deepEqual(f.Properties.Architectures, ['arm64']);
       assert.equal(f.Properties.Runtime, 'provided.al2023');
@@ -149,7 +149,7 @@ describe('Lambdas', () => {
 
   it('each has its own role', () => {
     const roles = new Set(ofType('AWS::Lambda::Function').map(([, f]) => f.Properties.Role['Fn::GetAtt'][0]));
-    assert.equal(roles.size, 2);
+    assert.equal(roles.size, 3);
   });
 
   it('get what they need through the environment', () => {
@@ -164,6 +164,10 @@ describe('Lambdas', () => {
     const worker = all[logicalId('Calendar')].Properties.Environment.Variables;
     assert.ok(worker.TABLE_NAME);
     assert.equal(worker.SSM_PREFIX, '/multiscale/staging');
+    // The retention periods are built into the binaries, picked by ENV_NAME, so they aren't passed here.
+    const retention = all[logicalId('Retention')].Properties.Environment.Variables;
+    assert.ok(retention.TABLE_NAME);
+    assert.equal(retention.ENV_NAME, 'staging');
   });
 });
 
@@ -178,7 +182,9 @@ describe('table', () => {
           KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }, { AttributeName: 'seq', KeyType: 'RANGE' }],
           Projection: { ProjectionType: 'ALL' },
         }],
-        StreamSpecification: { StreamViewType: 'KEYS_ONLY' },
+        // The old image, for the sequence number of what TTL removed.
+        StreamSpecification: { StreamViewType: 'OLD_IMAGE' },
+        TimeToLiveSpecification: { AttributeName: 'expires_at', Enabled: true },
         PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
         DeletionProtectionEnabled: true,
       },
@@ -197,7 +203,7 @@ describe('calendar triggers', () => {
   });
 
   it('runs from the stream with a 60 second window, for its inputs only and not the record it writes itself', () => {
-    const [[, mapping]] = ofType('AWS::Lambda::EventSourceMapping');
+    const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => m.Properties.FunctionName.Ref === logicalId('Calendar'))!;
     assert.equal(mapping.Properties.MaximumBatchingWindowInSeconds, 60);
     assert.deepEqual(mapping.Properties.FunctionName, { Ref: logicalId('Calendar') });
     const pattern = JSON.parse(mapping.Properties.FilterCriteria.Filters[0].Pattern);
@@ -206,6 +212,45 @@ describe('calendar triggers', () => {
       { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
     ]);
     assert.ok(mapping.Properties.MaximumRetryAttempts <= 3, 'the next run fixes anything a failed one missed');
+  });
+});
+
+describe('retention', () => {
+  const mapping = (template: Template) => {
+    const id = Object.entries(template.toJSON().Resources as Record<string, Resource>).find(([k, r]) => k.startsWith('Retention') && r.Type === 'AWS::Lambda::Function')![0];
+    return Object.values(template.toJSON().Resources as Record<string, Resource>).find((r) => r.Type === 'AWS::Lambda::EventSourceMapping' && r.Properties.FunctionName.Ref === id)!;
+  };
+
+  it("reads only TTL's removals from the stream, from as far back as it holds", () => {
+    const m = mapping(t);
+    assert.equal(m.Properties.StartingPosition, 'TRIM_HORIZON');
+    assert.deepEqual(JSON.parse(m.Properties.FilterCriteria.Filters[0].Pattern), {
+      eventName: ['REMOVE'],
+      userIdentity: { type: ['Service'], principalId: ['dynamodb.amazonaws.com'] },
+    });
+  });
+
+  it("runs staging's cleanup every minute, from retention.yaml, and prod has none", () => {
+    t.hasResourceProperties('AWS::Scheduler::Schedule', {
+      ScheduleExpression: 'rate(1 minute)',
+      Target: Match.objectLike({ Arn: { 'Fn::GetAtt': [logicalId('Retention'), 'Arn'] } }),
+    });
+    const prod = Template.fromStack(build('prod'));
+    assert.equal(Object.values(prod.toJSON().Resources as Record<string, Resource>).filter((r) => r.Type === 'AWS::Scheduler::Schedule').length, 1);
+    assert.ok(mapping(prod));
+  });
+
+  it('may raise marks, and only on staging read the table and remove from it', () => {
+    const dynamo = policyFor('Retention').flatMap((s) => s.Action).filter((a: string) => a.startsWith('dynamodb:') && !/Stream|Shard|GetRecords/.test(a));
+    assert.deepEqual(dynamo.sort(), ['dynamodb:DeleteItem', 'dynamodb:Scan', 'dynamodb:UpdateItem']);
+    const prod = Template.fromStack(build('prod')).toJSON().Resources as Record<string, Resource>;
+    const role = (Object.entries(prod).find(([k, r]) => k.startsWith('Retention') && r.Type === 'AWS::Lambda::Function')![1].Properties.Role as any)['Fn::GetAtt'][0];
+    const prodActions = Object.values(prod)
+      .filter((r) => r.Type === 'AWS::IAM::Policy' && r.Properties.Roles.some((x: any) => x.Ref === role))
+      .flatMap((r) => r.Properties.PolicyDocument.Statement.flatMap((st: any) => [st.Action].flat()))
+      .filter((a: string) => a.startsWith('dynamodb:') && !/Stream|Shard|GetRecords/.test(a));
+    assert.deepEqual(prodActions, ['dynamodb:UpdateItem']);
+    assert.ok(!actions('Retention').some((a) => a.startsWith('ssm:')));
   });
 });
 
@@ -227,6 +272,14 @@ describe('least privilege', () => {
       }
     });
   }
+
+  it('Retention has no wildcard actions or a wildcard resource, except what the stream API needs', () => {
+    for (const s of policyFor('Retention')) {
+      for (const a of s.Action) assert.ok(!a.endsWith(':*') && a !== '*', a);
+      if (s.Resource === '*') assert.deepEqual(s.Action, ['dynamodb:ListStreams']);
+      else assert.doesNotMatch(JSON.stringify(s.Resource), /index/);
+    }
+  });
 
   it('API may read this environment\'s secrets and write or delete only the refresh token', () => {
     for (const action of ['ssm:PutParameter', 'ssm:DeleteParameter']) {
@@ -266,9 +319,9 @@ describe('least privilege', () => {
 });
 
 describe('observability', () => {
-  it('sets 30-day retention on all three log groups, and both functions use theirs', () => {
+  it('sets 30-day retention on all four log groups, and every function uses its own', () => {
     const groups = ofType('AWS::Logs::LogGroup');
-    assert.equal(groups.length, 3);
+    assert.equal(groups.length, 4);
     for (const [, g] of groups) assert.equal(g.Properties.RetentionInDays, 30);
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
@@ -294,9 +347,9 @@ describe('observability', () => {
     assert.equal(a.TreatMissingData, 'notBreaching');
   });
 
-  it('Lambda errors alarm covers both functions', () => {
+  it('Lambda errors alarm covers every function', () => {
     const body = JSON.stringify(alarm('LambdaErrors').Metrics);
-    assert.ok(body.includes(logicalId('Api')) && body.includes(logicalId('Calendar')));
+    for (const fn of ['Api', 'Calendar', 'Retention']) assert.ok(body.includes(logicalId(fn)), fn);
   });
 
   it('throttle alarm covers reads and writes', () => {
@@ -411,7 +464,7 @@ describe('Go binaries', () => {
 
   const dist = (files: string[]) => {
     const dir = mkdtempSync(join(tmpdir(), 'dist-'));
-    for (const name of ['api', 'calendar']) {
+    for (const name of ['api', 'calendar', 'retention']) {
       mkdirSync(join(dir, name));
       for (const file of files) writeFileSync(join(dir, name, file), name);
     }

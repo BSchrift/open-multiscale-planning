@@ -31,6 +31,12 @@ func (c *heldClock) advance(by time.Duration) {
 	c.set()
 }
 
+func (c *heldClock) to(at time.Time) {
+	c.t.Helper()
+	c.now = at.UTC().Truncate(time.Second)
+	c.set()
+}
+
 func (c *heldClock) set() {
 	c.t.Helper()
 	res := request(c.t, "POST", "/_local/clock", "", []byte(fmt.Sprintf(`{"now":%q}`, c.now.Format(time.RFC3339))))

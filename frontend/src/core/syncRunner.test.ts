@@ -3,6 +3,8 @@ import { fixedClock, parseClock } from './clock';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
 import { CALENDAR_ID, getRecord, transact } from './records';
+import { configureRetention } from './retention';
+import { parsePeriod } from '../../../config/retention';
 import { SyncError, syncStatus, unsyncedChanges } from './sync';
 import type { SyncSend } from './sync';
 import { fakeSyncServer } from './sync-testing';
@@ -640,5 +642,43 @@ describe('startAppSync', () => {
     await flush();
     expect(t.fetchFn).not.toHaveBeenCalled();
     expect(await getMeta(t.platform.db, META.cursor)).toBeNull();
+  });
+});
+
+describe('expiry', () => {
+  afterEach(() => configureRetention(null));
+
+  it('fills in expiries and removes what has expired at launch, and removes again after each sync', async () => {
+    const t = await setup();
+    // Held from before retention, and deleted long enough ago to have expired.
+    const old = await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Oil the hinges', deleted_at: '2026-09-01T00:00:00Z' }));
+    const done = await transact(t.db, t.clock, (w) => w.create('task', { kind: 'one_off', title: 'Paint the fence', done_at: NOW }));
+    configureRetention({ scheduling: parsePeriod('PT10M'), closed: parsePeriod('PT20M'), deleted: parsePeriod('PT5M') });
+    t.runner.start();
+    await flush();
+    expect(await getRecord(t.db, 'task', old)).toBeUndefined();
+    expect(t.send.mock.calls[0]![0].changes.map((c) => c.id)).toEqual([done]);
+
+    t.clock.set(Date.parse(NOW) + 21 * MINUTE);
+    await t.runner.syncNow();
+    expect(await getRecord(t.db, 'task', done)).toBeUndefined();
+    t.runner.stop();
+  });
+
+  it('never stops a sync', async () => {
+    const t = await setup();
+    configureRetention({ scheduling: parsePeriod('P2Y'), closed: parsePeriod('P5Y'), deleted: parsePeriod('P30D') });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const all = t.db.all.bind(t.db);
+    let broken = true;
+    t.db.all = (async (sql: string, params?: never) => {
+      if (broken && sql.includes('expires_at')) throw new Error('disk');
+      return all(sql, params);
+    }) as typeof t.db.all;
+    await t.runner.syncNow();
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('Expiry failed', expect.any(Error));
+    broken = false;
+    error.mockRestore();
   });
 });

@@ -48,6 +48,8 @@ infrastructure/config/
 # The app's own settings, which are public: see docs/config.md.
 !/config/protocol.yaml
 !/config/env/
+# The retention policy is code, the same for everyone.
+!/config/retention.yaml
 /config/*.deployed
 /config/*.outputs.json
 frontend/app.config.*

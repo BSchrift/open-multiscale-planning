@@ -89,12 +89,13 @@ func (s *DynamoStates) Consume(ctx context.Context, sub, nonce string) (bool, er
 	return err == nil, err
 }
 
-// FromEnvironment builds the deployed connection from what the stack sets, for both Lambdas.
-func FromEnvironment(cfg aws.Config, trigger func(context.Context) error) *Google {
+// FromEnvironment builds the deployed connection from what the stack sets, for both Lambdas. expiry is the one the API's
+// store has, so a calendar the worker removes expires like anything else deleted.
+func FromEnvironment(cfg aws.Config, expiry *sync.Expiry, trigger func(context.Context) error) *Google {
 	client := dynamodb.NewFromConfig(cfg)
 	table := os.Getenv("TABLE_NAME")
 	return &Google{
-		Records:     &sync.Store{DB: client, Table: table},
+		Records:     &sync.Store{DB: client, Table: table, Expiry: expiry},
 		Secrets:     &SSMSecrets{Client: ssm.NewFromConfig(cfg), Prefix: os.Getenv("SSM_PREFIX")},
 		States:      &DynamoStates{DB: client, Table: table},
 		Log:         obs.NewLogger(os.Stdout),

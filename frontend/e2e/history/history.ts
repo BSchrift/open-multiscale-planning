@@ -5,8 +5,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import type { Page } from '@playwright/test';
+import { parse } from 'yaml';
+import { loadRetention } from '../../../config/retention';
 import { createAuth } from '../../src/core/auth';
 import { systemClock } from '../../src/core/clock';
+import { keptHistory } from '../../src/core/history-testing';
 import { createHttpSend } from '../../src/core/sync';
 import { memoryTokens } from '../../src/platform/memory';
 
@@ -31,6 +34,15 @@ export function historyTarget(): HistoryTarget {
     throw new Error('MULTISCALE_TARGET has no history user. Run make test-history.');
   }
   return target as HistoryTarget;
+}
+
+/**
+ * The history as this environment's server keeps it, by its retention: what the seed sends and the specs count. An hour
+ * ahead, so nothing counted goes while the seed and the specs run.
+ */
+export function keptChanges() {
+  const { deleted } = loadRetention(historyTarget().env, { read: (path) => readFileSync(path, 'utf8'), parse });
+  return keptHistory(deleted, Date.now() + 3_600_000);
 }
 
 /** A deployment's sign-in page and network take longer than the local stack's. */

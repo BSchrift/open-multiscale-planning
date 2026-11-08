@@ -405,6 +405,28 @@ describe('Planning ahead', () => {
       await waitFor(async () => expect((await record(t, 'task', 'o1'))?.schedule).toMatchObject({ type: 'once', from: '2027-01-10' }));
     });
 
+    it('a one off given its first date leaves focus on the next with no date, then on the One offs heading', async () => {
+      await flow(layout, 2, {
+        seed: async (w) => {
+          await seed(w);
+          await w.create('task', { kind: 'one_off', title: 'Tidy the shed', schedule: { type: 'once' } }, 'o3');
+        },
+      });
+      const oneOffs = await screen.findByRole('region', { name: 'One offs in this plan' });
+      await userEvent.click(within(oneOffs).getByRole('button', { name: 'No date yet (2)' }));
+      const date = async (title: string, day: string) => {
+        await userEvent.click(within(oneOffs).getByRole('button', { name: `Add date for ${title}` }));
+        fireEvent.change(screen.getByLabelText('Date'), { target: { value: day } });
+        await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
+        await waitFor(() => expect(within(oneOffs).queryByRole('button', { name: `Add date for ${title}` })).toBeNull());
+      };
+      // The row that had focus goes each time: focus moves to the next with no date, then, with none left, to the list.
+      await date('Fix the gate', '2027-02-01');
+      await waitFor(() => expect(within(oneOffs).getByRole('button', { name: 'Add date for Tidy the shed' })).toHaveFocus());
+      await date('Tidy the shed', '2027-02-02');
+      await waitFor(() => expect(within(oneOffs).getByRole('heading', { name: 'One offs' })).toHaveFocus());
+    });
+
     it('adds and takes out milestones by name, each with Undo, newest first', async () => {
       const { t } = await flow(layout, 2);
       await userEvent.click(await screen.findByRole('button', { name: 'Add milestone Share a loaf to this plan' }));

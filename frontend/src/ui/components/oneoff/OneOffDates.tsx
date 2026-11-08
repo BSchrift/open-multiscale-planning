@@ -22,6 +22,8 @@ export function OneOffDateForm(props: {
   task: Task;
   /** Saves new dates, null clearing them, resolving to something once saved. Defaults to writing them to the task, with Undo. */
   commit?(from: LocalDate | null, to: LocalDate | null): Promise<unknown>;
+  /** Called as the dates save, so a list can say where focus lands if they take the row out of it. */
+  onSave?(): void;
   onClose(): void;
 }) {
   const { task, onClose } = props;
@@ -40,6 +42,7 @@ export function OneOffDateForm(props: {
   const put = (patch: Partial<Editing>) => setEd((e) => ({ ...e, error: null, ...patch }));
   // A save that fails stays open, with the toast saying so, so nothing typed is lost.
   const apply = async (from: LocalDate | null, to: LocalDate | null) => {
+    props.onSave?.();
     if (await commit(from, to)) onClose();
   };
   const submit = async (event: FormEvent) => {
@@ -104,7 +107,7 @@ export function OneOffDateForm(props: {
 }
 
 /** Add date or Change date, and the dates under it when open. Closing puts focus back on it. */
-export function OneOffDates(props: { task: Task }) {
+export function OneOffDates(props: { task: Task; onSave?(): void }) {
   const { task } = props;
   const { layout } = useApp();
   const [open, setOpen] = useState(false);
@@ -130,7 +133,7 @@ export function OneOffDates(props: { task: Task }) {
           {label}
         </button>
       </div>
-      {open && <OneOffDateForm task={task} onClose={close} />}
+      {open && <OneOffDateForm task={task} {...(props.onSave ? { onSave: props.onSave } : {})} onClose={close} />}
     </>
   );
 }

@@ -39,6 +39,7 @@ import { Popover } from '../../components/Popover';
 import { Sheet } from '../../components/Sheet';
 import { axisMonths } from '../../components/TimelineBar';
 import { useToast } from '../../components/Toast';
+import { useFocusLanding } from '../../components/useFocusLanding';
 import type { PlanData } from './data';
 import { hrs, msWhen, needsCall, oneOffsIn } from './model';
 import type { Act, Call } from './model';
@@ -689,14 +690,21 @@ const setDates = (act: Act, task: Task, fields: Fields<'task'>) =>
   );
 
 /** The one off date form under its row, or in a sheet on phone. Closing puts focus back on the row's date. */
-function OneOffDateEditor(props: { task: Task; phone: boolean; act: Act; opener: RefObject<HTMLButtonElement | null>; onClose(): void }) {
+function OneOffDateEditor(props: { task: Task; phone: boolean; act: Act; opener: RefObject<HTMLButtonElement | null>; onSave?(): void; onClose(): void }) {
   const { task, phone } = props;
   // The sheet puts focus back itself.
   const close = () => {
     props.onClose();
     if (!phone) props.opener.current?.focus();
   };
-  const form = <OneOffDateForm task={task} commit={(from, to) => setDates(props.act, task, setOnceDates(from, to))} onClose={close} />;
+  const form = (
+    <OneOffDateForm
+      task={task}
+      commit={(from, to) => setDates(props.act, task, setOnceDates(from, to))}
+      {...(props.onSave ? { onSave: props.onSave } : {})}
+      onClose={close}
+    />
+  );
   return phone ? (
     <Sheet label={`${onceOf(task).from ? 'Change date' : 'Add date'} for ${task.title}`} onClose={props.onClose}>
       {form}
@@ -764,7 +772,7 @@ function OneOffRow(props: { task: Task; axis: Axis; st: Stretch; on: LocalDate; 
   );
 }
 
-function Undated(props: { task: Task; phone: boolean; act: Act }) {
+function Undated(props: { task: Task; phone: boolean; act: Act; onSave(): void }) {
   const [editing, setEditing] = useState(false);
   const addRef = useRef<HTMLButtonElement>(null);
   return (
@@ -775,14 +783,14 @@ function Undated(props: { task: Task; phone: boolean; act: Act }) {
           Add date
         </button>
       </div>
-      {editing && <OneOffDateEditor task={props.task} phone={props.phone} act={props.act} opener={addRef} onClose={() => setEditing(false)} />}
+      {editing && <OneOffDateEditor task={props.task} phone={props.phone} act={props.act} opener={addRef} onSave={props.onSave} onClose={() => setEditing(false)} />}
     </>
   );
 }
 
-function Caret(props: { open: boolean; label: string; onToggle(): void; phone: boolean }) {
+function Caret(props: { open: boolean; label: string; onToggle(): void; phone: boolean; btnRef?: Ref<HTMLButtonElement> }) {
   const button = (
-    <button className="qbtn" type="button" aria-expanded={props.open} onClick={props.onToggle}>
+    <button ref={props.btnRef} className="qbtn" type="button" aria-expanded={props.open} onClick={props.onToggle}>
       {!props.phone && (
         <span className="qcaret" aria-hidden="true">
           {props.open ? '▾' : '▸'}
@@ -816,6 +824,21 @@ export function ProjectsStep(props: {
   const on = today(ctx.clock);
   const [laterOpen, setLaterOpen] = useState(false);
   const [looseOpen, setLooseOpen] = useState(false);
+  // A date takes a one off out of No date yet, so focus lands on the next one there, the list's toggle or the heading.
+  const land = useFocusLanding();
+  const oneOffsRef = useRef<HTMLElement>(null);
+  const looseRef = useRef<HTMLButtonElement>(null);
+  const oneOffsHeadRef = useRef<HTMLHeadingElement>(null);
+  const landFrom = (i: number) =>
+    land(() => {
+      const adds = oneOffsRef.current?.querySelectorAll<HTMLElement>('.undated button');
+      return adds?.[i] ?? adds?.[i - 1] ?? looseRef.current ?? oneOffsHeadRef.current;
+    });
+  const oneOffsHead = (
+    <h3 ref={oneOffsHeadRef} className="mhead" tabIndex={-1}>
+      One offs
+    </h3>
+  );
 
   const pastEnd = (p: ProjectPlan) => p.project.state === 'active' && p.project.end < on;
   const active = data.plans.filter((p) => p.project.state === 'active' && !pastEnd(p) && p.project.start <= st.end);
@@ -906,19 +929,19 @@ export function ProjectsStep(props: {
         <Legend phone={phone} />
       </section>
       {(oneOffs.length > 0 || loose.length > 0) && (
-        <section className="card" aria-label="One offs in this plan">
+        <section ref={oneOffsRef} className="card" aria-label="One offs in this plan">
           {phone ? (
-            <h3 className="mhead">One offs</h3>
+            oneOffsHead
           ) : (
-            <div className="qline qhead">
-              <h3 className="mhead">One offs</h3>
-            </div>
+            <div className="qline qhead">{oneOffsHead}</div>
           )}
           {oneOffs.map((t) => (
             <OneOffRow key={t.id} task={t} axis={axis} st={st} on={on} phone={phone} act={act} />
           ))}
-          {loose.length > 0 && <Caret open={looseOpen} label={`No date yet (${loose.length})`} onToggle={() => setLooseOpen(!looseOpen)} phone={phone} />}
-          {looseOpen && loose.map((t) => <Undated key={t.id} task={t} phone={phone} act={act} />)}
+          {loose.length > 0 && (
+            <Caret open={looseOpen} label={`No date yet (${loose.length})`} onToggle={() => setLooseOpen(!looseOpen)} phone={phone} btnRef={looseRef} />
+          )}
+          {looseOpen && loose.map((t, i) => <Undated key={t.id} task={t} phone={phone} act={act} onSave={() => landFrom(i)} />)}
         </section>
       )}
       {!phone && (

@@ -609,6 +609,28 @@ describe('one offs due today', () => {
     expect(fence()).not.toBeChecked();
   });
 
+  it('a row moved off today leaves focus on the next one, and on Undo once none are left', async () => {
+    const t = await open(async (w) => {
+      await dated(w);
+      await w.create('task', { kind: 'one_off', title: 'Wash the car', schedule: { type: 'once', from: DAY }, next_due: DAY }, 't3');
+    });
+    const list = await screen.findByRole('region', { name: 'One offs today' });
+    await userEvent.click(within(list).getByRole('button', { name: 'Change date for Paint the fence' }));
+    fireEvent.change(within(list).getByLabelText('Date'), { target: { value: '2026-11-05' } });
+    await userEvent.click(within(list).getByRole('button', { name: 'Set date' }));
+    await waitFor(() => expect(within(list).queryByText('Paint the fence')).toBeNull());
+    await waitFor(() => expect(within(list).getByRole('checkbox', { name: 'Wash the car done' })).toHaveFocus());
+
+    await userEvent.click(within(list).getByRole('button', { name: 'Change date for Wash the car' }));
+    fireEvent.change(within(list).getByLabelText('Date'), { target: { value: '2026-11-06' } });
+    await userEvent.click(within(list).getByRole('button', { name: 'Set date' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'One offs today' })).toBeNull());
+    expect(screen.getByText('Wash the car, Nov 6.')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.schedule).toEqual({ type: 'once', from: DAY }));
+  });
+
   it('Find a time opens Week to place it, and Change date moves it off today', async () => {
     const t = await open(dated);
     const list = await screen.findByRole('region', { name: 'One offs today' });

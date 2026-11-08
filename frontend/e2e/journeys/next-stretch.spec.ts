@@ -87,12 +87,16 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   // On the timeline, a date inside the stretch is already in the plan and a later one is not.
   await expect(page.getByRole('button', { name: /^Milestone: First good loaf, Feb 12, in this plan\./ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Milestone: Share a loaf, May 1, not in this plan\./ })).toBeVisible();
+  // The toggle acts on what the screen shows, so each change shows before the next: until the add is read back, the
+  // screen still says it's out, and a click then would take it out again.
   const share = page.getByRole('button', { name: 'Add milestone Share a loaf to this plan' });
+  const shared = page.getByRole('button', { name: 'Take milestone Share a loaf out of this plan' });
   await share.click();
+  await expect(shared).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Undo: Added Share a loaf to this plan, by Mar 31.' }).click();
   await expect(share).toHaveAttribute('aria-pressed', 'false');
   await share.click();
-  await expect(page.getByRole('button', { name: 'Take milestone Share a loaf out of this plan' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(shared).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: /^Milestone: Share a loaf, by Mar 31, in this plan\./ })).toBeVisible();
   await page.getByRole('button', { name: 'Change the date of First good loaf, Feb 12' }).click();
   const date = page.getByRole('form', { name: 'Date for First good loaf' });

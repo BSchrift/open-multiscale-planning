@@ -72,7 +72,12 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
 
-  await page.getByRole('button', { name: phone ? '1 task needs a new time Review' : 'Review' }).click();
+  // The answer's own alert: until the screen reads the saved answer back, the block still shows as missed, with a
+  // Review of its own.
+  await (phone
+    ? page.getByRole('button', { name: '1 task needs a new time Review' })
+    : page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' })
+  ).click();
   const queue = phone ? page.getByRole('dialog', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Partly done today, 1h 30m left')).toBeVisible();
   await expect(queue.getByRole('button', { name: /^Place Write the report, / })).toBeVisible();

@@ -43,7 +43,8 @@ The local API listens on `localhost:8787` and signs in anyone. For iPhone, run `
 | `make test-unit` | Vitest, `go test ./...` and the CDK tests with a synth. No Docker. |
 | `make test-integration` | The API suite against a local stack it starts in Docker, plus the backend and sync client against the same stand-ins |
 | `make test` | Both of the above |
-| `make test-e2e` | Playwright: screens in Chrome and WebKit at desktop and phone sizes, two signed-in browsers syncing, then the real Electron app as two devices. Needs Docker. |
+| `make test-e2e` | Playwright: screens in Chrome and WebKit at desktop and phone sizes, two signed-in browsers syncing, then the real Electron app as two devices, then `make test-compat`. Needs Docker. |
+| `make test-compat` | The last release's web bundle beside this checkout's: each opens a database the other wrote, as an update and a rollback after a failed trial do, and an old and a new device sync. `BASE` picks the old bundle's commit, by default the one prod serves when your config folder has prod, else `origin/main`. Needs Docker. |
 | `make test-ios` | XCUITest on a throwaway iPhone Simulator (`IOS_DEVICE`, default `iPhone 16`), with the share sheet and widget off and on |
 | `make scan` | gitleaks over the working tree |
 
@@ -57,10 +58,11 @@ make test-deployed ENV=prod CONFIRM_PROD=yes
 make test-integration ENV=staging
 make smoke                                          # fast wiring check, plus CloudWatch logs and metrics
 make test-e2e ENV=staging
+make test-compat ENV=staging
 make test-ios ENV=staging
 ```
 
-`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check and the iPhone test. It names any that failed. `SKIP_IOS=1` leaves out the iPhone test, much the slowest. `make release` runs it after every release.
+`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. It names any that failed. `SKIP_IOS=1` leaves out the iPhone test, much the slowest. `make release` runs it after every release.
 
 These read your config folder, `$MULTISCALE_CONFIG_DIR` or else `config/`: `<env>.yaml`, and the `<env>.outputs.json` that `make deploy` writes. Test-user passwords come from SSM in that environment's account. [docs/setup.md](docs/setup.md) covers creating them.
 

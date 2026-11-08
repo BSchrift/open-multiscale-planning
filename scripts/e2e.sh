@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # The app end to end: screens in the browser build at desktop and phone sizes, then the browser build as two devices
 # signed in to a local stack started for them, then the core database tests under Electron's runtime, then the real
-# Electron app, also as two devices on that stack.
+# Electron app, also as two devices on that stack, then the last release's web bundle beside this one's
+# (scripts/test-compat.sh) on that stack.
 #   ENV=local (default). ENV=staging, or ENV=prod with CONFIRM_PROD=yes, runs only the signed-in specs, against that
 #   deployment as integration.testUser in <env>.yaml, with its password from SSM (scripts/test-target.mjs).
 #   The config folder is $MULTISCALE_CONFIG_DIR, or config/ in the repo.
 #   With ENV=local, arguments pick the parts that run, all of them by default, so CI can give each a job of its own.
-#   scripts/e2e.sh [browser] [stack] [electron]
+#   scripts/e2e.sh [browser] [stack] [electron] [compat]
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,9 +33,9 @@ if [ "$env_name" != local ]; then
   exec npx playwright test -c e2e/stack/playwright.config.ts
 fi
 
-parts=" ${*:-browser stack electron} "
+parts=" ${*:-browser stack electron compat} "
 for part in $parts; do
-  case "$part" in browser | stack | electron) ;; *) echo "Parts are browser, stack and electron, not $part" >&2; exit 1 ;; esac
+  case "$part" in browser | stack | electron | compat) ;; *) echo "Parts are browser, stack, electron and compat, not $part" >&2; exit 1 ;; esac
 done
 runs() { case "$parts" in *" $1 "*) ;; *) return 1 ;; esac; }
 
@@ -43,7 +44,7 @@ if runs browser; then
   export E2E_PORT="${E2E_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')}"
   npx playwright test
 fi
-runs stack || runs electron || exit 0
+runs stack || runs electron || runs compat || exit 0
 
 work="$(mktemp -d)"
 stack_pid=""
@@ -70,5 +71,8 @@ if runs electron; then
   npm run test:electron-runtime
   # Built for the same stack, so two instances of the app can sign in and sync through it.
   npm run e2e:electron
+fi
+if runs compat; then
+  "$root/scripts/test-compat.sh"
 fi
 stop_stack

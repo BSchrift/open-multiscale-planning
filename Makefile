@@ -1,5 +1,5 @@
 # One entry point per job. Areas that don't exist yet say so and succeed, except deploy and smoke.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-ios test-deployed smoke deploy release scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-deployed smoke deploy release scan update-skills dev up down
 
 COMPOSE_PROJECT ?= multiscale-test-$(shell date +%s)
 
@@ -25,6 +25,11 @@ test-integration:
 
 test-e2e:
 	@if [ -x scripts/e2e.sh ]; then scripts/e2e.sh; else echo "e2e: not built yet, skipping"; fi
+
+# The last release's web bundle beside this checkout's: one device's database opened by each in turn, and an old and a
+# new device syncing. BASE picks the old bundle's commit. make test-e2e runs it too.
+test-compat:
+	@scripts/test-compat.sh
 
 test-ios:
 	@if [ -x scripts/test-ios.sh ]; then scripts/test-ios.sh; else echo "ios tests: not built yet, skipping"; fi

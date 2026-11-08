@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isHashed, shellHash, shellHashes, SHELL_SOURCES } from './shell-hash';
+import { isHashed, macBuild, shellHash, shellHashes, SHELL_SOURCES } from './shell-hash';
 
 describe('shellHash', () => {
   const files = { 'electron/main.ts': 'main', 'electron/preload.ts': 'preload' };
@@ -13,6 +13,16 @@ describe('shellHash', () => {
     expect(shellHash({ ...files, 'electron/main.ts': 'changed' }, { electron: '45.2.1' })).not.toBe(base);
     expect(shellHash(files, { electron: '45.3.0' })).not.toBe(base);
     expect(shellHash({ 'electron/preload.ts': 'preload', 'electron/main.ts': 'main' }, { electron: '45.2.1' })).toBe(base);
+  });
+
+  it('changes with the settings the Mac app’s main process is built with', () => {
+    const build = macBuild({ apiUrl: 'https://api.example.test', authUrl: 'https://auth.example.test' }, { name: 'Multiscale', scheme: 'multiscale' });
+    expect(build).toEqual({ name: 'Multiscale', scheme: 'multiscale', backendOrigins: ['https://api.example.test', 'https://auth.example.test'] });
+    const base = shellHash(files, {}, build);
+    expect(shellHash(files, {}, { ...build, backendOrigins: ['https://api.example.test', 'https://auth2.example.test'] })).not.toBe(base);
+    expect(shellHash(files, {}, { ...build, scheme: 'multiscale-staging' })).not.toBe(base);
+    expect(shellHash(files, {}, build)).toBe(base);
+    expect(shellHash(files, {})).not.toBe(base);
   });
 
   it("ignores tests and other files the app doesn't ship", () => {
@@ -41,14 +51,19 @@ describe('shellHash', () => {
     for (const path of ['src/platform/shortcut.ts', 'src/core/captureTitle.ts']) write(path, 'one');
     execFileSync('git', ['init', '-q'], { cwd: root });
     execFileSync('git', ['add', '-A'], { cwd: root });
-    const base = shellHashes(root);
+    const build = { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [] };
+    const base = shellHashes(root, build);
     for (const path of ['src/platform/shortcut.ts', 'src/core/captureTitle.ts']) {
       write(path, 'two');
-      const changed = shellHashes(root);
+      const changed = shellHashes(root, build);
       expect(changed.electron).not.toBe(base.electron);
       expect(changed.ios).toBe(base.ios);
       write(path, 'one');
     }
+    // The main process bakes the backend origins into the page's policy, so a bundle for others needs a new app.
+    const moved = shellHashes(root, { ...build, backendOrigins: ['https://api.example.test'] });
+    expect(moved.electron).not.toBe(base.electron);
+    expect(moved.ios).toBe(base.ios);
   });
 
   // electron-compile.mjs checks what esbuild bundles against this, so a new import can't slip past the hash.
@@ -72,7 +87,7 @@ describe('shellHash', () => {
   });
 
   it('hashes this repo for both apps', () => {
-    const hashes = shellHashes(`${import.meta.dirname}/..`);
+    const hashes = shellHashes(`${import.meta.dirname}/..`, { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [] });
     expect(hashes.electron).toMatch(/^[0-9a-f]{16}$/);
     expect(hashes.ios).toMatch(/^[0-9a-f]{16}$/);
     expect(hashes.electron).not.toBe(hashes.ios);

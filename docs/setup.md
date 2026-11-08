@@ -421,7 +421,7 @@ The first release makes the signing key, `<env>.release-key.pem`, in your config
 How the apps update:
 
 - **Most releases change only the web bundle**, which both apps download by themselves: soon after starting, every six hours, and on coming back after an hour away. The Mac app switches to it when its window closes or at its next launch. The phone switches at its next launch, or on returning after half an hour in the background. **Settings > Updates** shows the version, checks on request, and has **Restart now** for a downloaded update.
-- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again.
+- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. For the Mac app that includes the API, sign-in and release addresses its main process allows the page to reach, so moving any of them also needs a new Mac app. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again.
 - **A bundle that doesn't start** within 20 seconds is rolled back to the one before it and never tried again.
 
 Releases are only as safe as the key: the apps check every bundle's signature and every file's hash before installing it, so someone who got into the bucket still couldn't change what runs.

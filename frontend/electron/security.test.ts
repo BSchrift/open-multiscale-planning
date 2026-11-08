@@ -35,13 +35,14 @@ describe('isDeepLink', () => {
 });
 
 describe('cleanCapture', () => {
-  it('trims to one line of text', () => {
+  it('makes a title the way every capture does', () => {
     expect(cleanCapture('  Paint the fence \n')).toBe('Paint the fence');
-    expect(cleanCapture('Paint\nthe fence')).toBe('Paint the fence');
+    expect(cleanCapture('Paint\nthe\tfence')).toBe('Paint the fence');
+    expect(cleanCapture('x'.repeat(2001))).toBe('x'.repeat(2000));
   });
 
   it('rejects what is not a usable title', () => {
-    for (const bad of ['', '   ', 42, null, undefined, {}, 'x'.repeat(2001)]) expect(cleanCapture(bad)).toBeNull();
+    for (const bad of ['', '   ', 42, null, undefined, {}]) expect(cleanCapture(bad)).toBeNull();
   });
 });
 

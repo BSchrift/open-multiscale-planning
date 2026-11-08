@@ -1,6 +1,7 @@
 // Checks on everything that crosses into the main process from a window or the OS.
 
 import { resolve, sep } from 'node:path';
+import { captureTitle } from '../src/core/captureTitle';
 import type { SqlValue } from '../src/core/db';
 
 /** The file a request to the app's own scheme means, or null if it would leave the app's folder. */
@@ -30,13 +31,9 @@ export function isDeepLink(url: string, scheme: string): boolean {
   return url.startsWith(`${scheme}://`);
 }
 
-const MAX_CAPTURE_LENGTH = 2000;
-
 /** The task title to save from the capture field, or null if there's nothing usable. */
 export function cleanCapture(text: unknown): string | null {
-  if (typeof text !== 'string') return null;
-  const title = text.replace(/\s*\n\s*/g, ' ').trim();
-  return title && title.length <= MAX_CAPTURE_LENGTH ? title : null;
+  return typeof text === 'string' ? captureTitle(text) : null;
 }
 
 /** Only SQL on the app's own database: ATTACH and VACUUM INTO would let the page read or write any file the user can. */

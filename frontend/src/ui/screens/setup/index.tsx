@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { captureTitle } from '../../../core/captureTitle';
 import { nowInstant } from '../../../core/dates';
 import { getMeta, META } from '../../../core/db';
 import { CALENDAR_ID, getRecord, updateSettings } from '../../../core/records';
@@ -48,8 +49,9 @@ export default function Screen(props: ScreenProps) {
   }, [step]);
   const finish = useMutation(async (w, kind: 'goal' | 'capture' | null) => {
     const text = title.trim();
+    const captured = captureTitle(title);
     if (kind === 'goal' && text) await w.create('objective', { title: text, state: 'active' });
-    if (kind === 'capture' && text) await w.create('task', { kind: 'inbox', title: text });
+    if (kind === 'capture' && captured) await w.create('task', { kind: 'inbox', title: captured });
     await updateSettings(w, { setup_done_at: nowInstant(clock) });
   });
   const done = (kind: 'goal' | 'capture' | null) => {

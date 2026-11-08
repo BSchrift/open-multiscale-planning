@@ -252,7 +252,7 @@ make smoke
 
 Both read `staging.yaml` and `staging.outputs.json` from your config folder, and the test-user passwords from SSM with the file's profile and region. The suite signs in with the stack's test client, which allows password sign-in; the app's client doesn't.
 
-The suite signs in as the test user, uses unique ids per run and cleans up. Its records stay behind as deleted rows in the test user's data, since sync never removes a row. Run one suite at a time against a deployment. Tests that need a fake clock or injected failures are listed as skipped. Google checks skip unless `testCalendar` is set. `make smoke` is the fast subset, and also confirms that a log line and the `SyncRecordsMerged` metric arrive in CloudWatch, which can take a few minutes. It warns if the calendar worker hasn't run yet, which is normal within 30 minutes of a first deploy.
+The suite signs in as the test user, uses unique ids per run and cleans up. Its records stay behind as deleted rows in the test user's data, since sync never removes a row. Run one suite at a time against a deployment. Tests that need a fake clock or injected failures are listed as skipped. Google checks skip unless `testCalendar` is set. `make smoke` is the fast subset, and also confirms that a log line and the `SyncRecordsMerged` and `ItemCollectionSizeGB` metrics arrive in CloudWatch, which can take a few minutes. The second shows DynamoDB reporting each user's size, which the alarm in [sync.md](sync.md) watches. It warns if the calendar worker hasn't run yet, which is normal within 30 minutes of a first deploy.
 
 Check the `Multiscale-staging` dashboard under **CloudWatch > Dashboards**. Nothing should be red.
 

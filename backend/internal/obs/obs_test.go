@@ -66,6 +66,32 @@ func TestMetricsAreValidEMFOnOneLogLine(t *testing.T) {
 	}
 }
 
+func TestSizesAreDeclaredInGigabytesBesideTheCounts(t *testing.T) {
+	var buf bytes.Buffer
+	NewLogger(&buf).Info("request", Metrics("staging", time.UnixMilli(1800000000000), map[string]int{"SyncRecordsMerged": 3},
+		GB{Name: "ItemCollectionSizeGB", Value: 1.5})...)
+
+	var line struct {
+		Aws struct {
+			CloudWatchMetrics []struct{ Metrics []struct{ Name, Unit string } }
+		} `json:"_aws"`
+		Size *float64 `json:"ItemCollectionSizeGB"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatal(err)
+	}
+	units := map[string]string{}
+	for _, m := range line.Aws.CloudWatchMetrics[0].Metrics {
+		units[m.Name] = m.Unit
+	}
+	if len(units) != 2 || units["SyncRecordsMerged"] != "Count" || units["ItemCollectionSizeGB"] != "Gigabytes" {
+		t.Fatalf("declared %v", units)
+	}
+	if line.Size == nil || *line.Size != 1.5 {
+		t.Fatalf("size %v", line.Size)
+	}
+}
+
 func TestNewLoggerWritesJSONWithAtLeastInfo(t *testing.T) {
 	var buf bytes.Buffer
 	NewLogger(&buf).Info("hello")

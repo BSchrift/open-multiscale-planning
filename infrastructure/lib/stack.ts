@@ -284,6 +284,17 @@ export class MultiscaleStack extends Stack {
       comparisonOperator: ComparisonOperator.LESS_THAN_THRESHOLD,
       treatMissingData: TreatMissingData.BREACHING,
     }).addAlarmAction(alarmAction);
+    // Each sync that writes reports its user's size, so the Maximum is the largest writing user's. One who stops writing
+    // reports nothing, which leaves the alarm as it was rather than reading as the size falling.
+    const largestUser = custom('ItemCollectionSizeGB', 'Maximum');
+    new Alarm(this, 'ItemCollectionSize', {
+      alarmDescription: "A user's records reached 5 GB of DynamoDB's 10 GB cap per user. See docs/sync.md.",
+      metric: largestUser,
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.IGNORE,
+    }).addAlarmAction(alarmAction);
 
     // Dashboard
 
@@ -304,6 +315,7 @@ export class MultiscaleStack extends Stack {
         ],
         [
           new GraphWidget({ title: 'Worker health', width, left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount')], right: [calendarFunction.metricDuration({ period: fiveMinutes })] }),
+          new GraphWidget({ title: 'Largest user (GB of the 10 GB cap)', width, left: [largestUser] }),
         ],
         [
           appEvents('App memory (MB), by platform and version', LogQueryVisualizationType.LINE,

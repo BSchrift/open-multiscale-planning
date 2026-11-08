@@ -272,9 +272,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly five alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly six alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 5);
+    assert.equal(alarms.length, 6);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -319,14 +319,29 @@ describe('observability', () => {
     assert.equal(a.Dimensions, undefined);
   });
 
-  it('has one dashboard with requests, errors, latency, sync volume and worker health', () => {
+  // The by_seq index caps each user's records at 10 GB, and the API reports each writing user's size, so the Maximum is
+  // the largest user's. A user who stops writing reports nothing, which mustn't read as the size falling.
+  it('item collection alarm fires on the largest user reaching half the 10 GB cap, and holds through missing data', () => {
+    const a = alarm('ItemCollectionSize');
+    assert.equal(a.MetricName, 'ItemCollectionSizeGB');
+    assert.equal(a.Namespace, 'Multiscale/staging');
+    assert.equal(a.Statistic, 'Maximum');
+    assert.equal(a.Threshold, 5);
+    assert.equal(a.ComparisonOperator, 'GreaterThanOrEqualToThreshold');
+    assert.equal(a.TreatMissingData, 'ignore');
+    assert.equal(a.Dimensions, undefined);
+    assert.match(a.AlarmDescription, /docs\/sync\.md/);
+  });
+
+  it('has one dashboard with requests, errors, latency, sync volume, worker health and the largest user', () => {
     const dashboards = ofType('AWS::CloudWatch::Dashboard');
     assert.equal(dashboards.length, 1);
     const body = JSON.stringify(dashboards[0][1].Properties.DashboardBody);
-    for (const title of ['Requests', 'Errors', 'Latency', 'Sync volume', 'Worker health']) assert.ok(body.includes(title), title);
-    for (const metric of ['SyncRecordsMerged', 'SyncConflictRetries', 'SyncRequestsRejected', 'CalendarRunFailures', 'CalendarEventsChanged']) {
+    for (const title of ['Requests', 'Errors', 'Latency', 'Sync volume', 'Worker health', 'Largest user (GB of the 10 GB cap)']) assert.ok(body.includes(title), title);
+    for (const metric of ['SyncRecordsMerged', 'SyncConflictRetries', 'SyncRequestsRejected', 'CalendarRunFailures', 'CalendarEventsChanged', 'ItemCollectionSizeGB']) {
       assert.ok(body.includes(metric), metric);
     }
+    assert.match(body, /ItemCollectionSizeGB[^\]]*Maximum/);
   });
 
   it('shows what the apps report, from Logs Insights on the API log group', () => {

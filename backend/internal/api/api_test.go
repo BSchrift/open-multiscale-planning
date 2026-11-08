@@ -249,6 +249,43 @@ func TestSyncLogLine(t *testing.T) {
 	}
 }
 
+// A sync that wrote carries the user's item collection size, whose Maximum is the largest user's. One that wrote
+// nothing has no size to report, so it declares none, rather than a 0 that would look like an empty collection.
+func TestSyncThatWroteLogsTheItemCollectionSize(t *testing.T) {
+	for name, c := range map[string]struct {
+		stats   sync.Stats
+		metrics int
+	}{
+		"wrote":   {sync.Stats{Merged: 2, ItemCollectionGB: 3}, 4},
+		"nothing": {sync.Stats{}, 3},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, logs := newServer(&fakeSyncer{res: sync.Response{Changes: []sync.Change{}}, stats: c.stats}, nil)
+			if rec := do(s, "POST", "/sync", goodBody, testSub); rec.Code != 200 {
+				t.Fatalf("%d", rec.Code)
+			}
+			line := logLine(t, logs)
+			size, reported := line["ItemCollectionSizeGB"]
+			if c.stats.ItemCollectionGB > 0 && size != c.stats.ItemCollectionGB || c.stats.ItemCollectionGB == 0 && reported {
+				t.Fatalf("size %v", size)
+			}
+			declared := line["_aws"].(map[string]any)["CloudWatchMetrics"].([]any)[0].(map[string]any)["Metrics"].([]any)
+			if len(declared) != c.metrics {
+				t.Fatalf("declared %v", declared)
+			}
+			if !reported {
+				return
+			}
+			if m := declared[len(declared)-1].(map[string]any); m["Name"] != "ItemCollectionSizeGB" || m["Unit"] != "Gigabytes" {
+				t.Fatalf("declared %v", m)
+			}
+			if line["user"] != obs.HashSub(testSub) {
+				t.Fatalf("user %v", line["user"])
+			}
+		})
+	}
+}
+
 func TestLogsNeverCarryValuesTitlesOrTokens(t *testing.T) {
 	const marker = "MARKER-do-not-log"
 	bodies := map[string]string{

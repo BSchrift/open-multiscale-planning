@@ -52,15 +52,19 @@ arrives() {
 }
 log_lines() { aws logs filter-log-events --region "$region" --log-group-name "$1" --start-time "$2" --page-size 1 --max-items 1 --query 'length(events)' --output json; }
 metric_points() {
-  aws cloudwatch get-metric-statistics --region "$region" --namespace "$namespace" --metric-name SyncRecordsMerged \
+  aws cloudwatch get-metric-statistics --region "$region" --namespace "$namespace" --metric-name "$1" \
     --start-time "$start" --end-time "$(($(date +%s) + 60))" --period 60 --statistics Sum --query 'length(Datapoints)' --output text
 }
 
 echo "Checking $api_logs received a line"
 arrives log_lines "$api_logs" "$((start * 1000))" || { echo "No log line reached $api_logs" >&2; exit 1; }
 
-echo "Checking metric SyncRecordsMerged in $namespace"
-arrives metric_points || { echo "SyncRecordsMerged never showed up in $namespace" >&2; exit 1; }
+# The subset's sync writes, and DynamoDB Local never reports item collection sizes, so this is where the size alarm's
+# metric is shown to arrive.
+for metric in SyncRecordsMerged ItemCollectionSizeGB; do
+  echo "Checking metric $metric in $namespace"
+  arrives metric_points "$metric" || { echo "$metric never showed up in $namespace" >&2; exit 1; }
+done
 
 if [ "$(log_lines "$calendar_logs" "$(((start - 2100) * 1000))")" = 0 ]; then
   echo "WARN: the calendar worker has not logged in 35 minutes. Normal within 30 minutes of a first deploy, otherwise check its schedule."

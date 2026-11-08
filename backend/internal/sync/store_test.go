@@ -653,6 +653,68 @@ func TestTransactionsFitOnePartitionsWriteRate(t *testing.T) {
 	}
 }
 
+// sizeReportingDB answers every read as an empty table and accepts every transaction, reporting the user's item
+// collection at the next of Sizes, as DynamoDB does and DynamoDB Local never does. A nil size reports nothing.
+type sizeReportingDB struct {
+	msync.DB
+	Sizes  [][]float64
+	Writes []*dynamodb.TransactWriteItemsInput
+}
+
+func (d *sizeReportingDB) BatchGetItem(context.Context, *dynamodb.BatchGetItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
+	return &dynamodb.BatchGetItemOutput{}, nil
+}
+
+func (d *sizeReportingDB) TransactWriteItems(_ context.Context, in *dynamodb.TransactWriteItemsInput, _ ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+	d.Writes = append(d.Writes, in)
+	size := d.Sizes[len(d.Writes)-1]
+	if size == nil {
+		return &dynamodb.TransactWriteItemsOutput{}, nil
+	}
+	put := in.TransactItems[0].Put
+	return &dynamodb.TransactWriteItemsOutput{ItemCollectionMetrics: map[string][]types.ItemCollectionMetrics{
+		aws.ToString(put.TableName): {{ItemCollectionKey: map[string]types.AttributeValue{"pk": put.Item["pk"]}, SizeEstimateRangeGB: size}},
+	}}, nil
+}
+
+// The by_seq index caps each user's records at 10 GB, so every write asks for their size, and a push reports the upper
+// bound of the largest estimate across its transactions.
+func TestWritesReportTheUsersItemCollectionSize(t *testing.T) {
+	// Four 90 KB records go in two transactions.
+	var changes []msync.Change
+	for i := range 4 {
+		changes = append(changes, task(fmt.Sprintf("r%d", i), title(strings.Repeat("x", 90*1024), clock(1, "a"))))
+	}
+	for name, c := range map[string]struct {
+		sizes [][]float64
+		want  float64
+	}{
+		// Estimates can move either way between transactions.
+		"largest upper bound": {[][]float64{{2, 3}, {1, 2}}, 3},
+		"none reported":       {[][]float64{nil, nil}, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := &sizeReportingDB{Sizes: c.sizes}
+			s := &msync.Store{DB: db, Table: "records"}
+			stats, err := s.Push(context.Background(), "abc", 0, changes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(db.Writes) != 2 || stats.Merged != 4 {
+				t.Fatalf("%d transactions, stats %+v", len(db.Writes), stats)
+			}
+			for i, in := range db.Writes {
+				if in.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsSize {
+					t.Errorf("transaction %d asks for %q", i, in.ReturnItemCollectionMetrics)
+				}
+			}
+			if stats.ItemCollectionGB != c.want {
+				t.Fatalf("size %v, want %v", stats.ItemCollectionGB, c.want)
+			}
+		})
+	}
+}
+
 func TestOtherTransactionFailuresAreNotRetried(t *testing.T) {
 	s, client := newStore(t)
 	s.DB = &beforeWriteDB{DB: client, Err: &types.TransactionCanceledException{

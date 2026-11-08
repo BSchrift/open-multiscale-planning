@@ -3,12 +3,13 @@
 
 import { plannedByKind, weekAlerts } from '../../../../core/capacity';
 import { spansAhead } from '../../../../core/slots';
-import { blockMinutes, formatMinutes } from '../../../../core/dates';
+import { formatMinutes } from '../../../../core/dates';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { LocalDate } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useQuery } from '../../../app/store';
 import { TimeUse } from '../../../components/week/TimeUse';
+import { placedBlocks } from '../../../components/weekgrid';
 import { loadPlanning, weekModel } from '../model';
 
 export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish(): void }) {
@@ -20,7 +21,9 @@ export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish():
   const aims = m.aimRows(m.placedBy);
   const unmet = aims.filter((r) => r.short > 0);
   const name = (bucket: string) => (bucket === ONE_OFFS_BUCKET ? 'One offs' : (data.records.projects.find((p) => p.id === bucket)?.title ?? ''));
-  const placedFor = (taskId: string) => data.blocks.filter((b) => b.task_id === taskId).reduce((sum, b) => sum + blockMinutes(b), 0);
+  // From the blocks as drawn on the week, as Week and Schedule count them: one running into next week counts only its part in this one.
+  const drawn = placedBlocks(m.slot.placed, data.blocks, clock.now());
+  const placedFor = (taskId: string) => drawn.filter((b) => b.task_id === taskId).reduce((sum, b) => sum + b.end - b.start, 0);
   const left = m.picks.reduce((sum, p) => sum + Math.max(0, p.minutes - placedFor(p.task_id)), 0);
 
   // Set against the open time left, so only what's still ahead.

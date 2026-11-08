@@ -182,6 +182,20 @@ describe('the Review step', () => {
     expect((await getRecord(t.db, 'week_plan', weekPlanId('2026-11-02')))?.finished_at).toBe('2026-11-02T20:00:00Z');
   });
 
+  it("counts what isn't scheduled as Week and Schedule do: a block running into next week counts only its hour in this one", async () => {
+    await openPlanning({
+      step: 3,
+      seed: async (w) => {
+        await w.create('project', { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-12-15' }, 'report');
+        await w.create('task', { kind: 'project', project_id: 'report', title: 'Write chapter one', estimate_min: 240 }, 't2');
+        await setWeekPick(w, '2026-11-02', 't2', 240);
+        // Sunday 11pm to Monday 1am in Chicago.
+        await w.create('time_block', { task_id: 't2', start: '2026-11-09T05:00:00Z', end: '2026-11-09T07:00:00Z', tz: 'America/Chicago' });
+      },
+    });
+    expect(await screen.findByText("3h of what you picked isn't scheduled. It stays on its project or in One offs.")).toBeInTheDocument();
+  });
+
   it('counts placed blocks toward aims, and skipped aims do not count', async () => {
     await openPlanning({
       step: 3,

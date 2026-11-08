@@ -41,7 +41,7 @@ async function openAnalytics(page: Page, phone: boolean) {
     const row = page.getByRole('button', { name: /^Analytics/ });
     await expect(row).toContainText('50% reliable this week, 2h of 4h so far');
     await row.click();
-    await expect(page.getByRole('button', { name: '‹ More' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Back to More' })).toBeVisible();
   } else {
     await nav.getByRole('button', { name: 'Analytics' }).click();
   }

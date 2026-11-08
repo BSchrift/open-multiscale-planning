@@ -148,7 +148,7 @@ To add a zone to staging or prod later, set its `dns.zone`, run `make deploy ENV
 make deploy
 ```
 
-`ENV=staging` is the default. This builds both Lambdas for arm64, puts `staging.yaml` next to each as `config.yaml`, which they read at startup, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`ENV=staging` is the default. This checks `staging.yaml`, builds both Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 
@@ -265,6 +265,14 @@ make test-e2e ENV=staging
 
 This builds the app from `staging.outputs.json`, signs in through the Cognito sign-in page as `integration.testUser`, with its password from SSM, and runs only the signed-in tests. Everything they create is deleted at the end, apart from the test user's settings. The sign-in expiry test needs the local stack's clock, so it's listed as skipped. Against prod it also needs `CONFIRM_PROD=yes`, and the same callback in `prod.yaml`.
 
+Before a release, check this checkout's web bundle against the one prod serves, on the same callback:
+
+```sh
+make test-compat ENV=staging
+```
+
+This reads prod's version from its `version.json`, builds the web bundle at that commit and at this checkout, both for staging, and serves them from `http://localhost:5199`. One browser opens each in turn on the same data, as an update and a rollback after a failed trial do on a device, and then an old and a new device sign in as the test user and sync captures, dates, ticks and deletes both ways. `BASE=<commit>` picks a different old bundle. `make test-deployed` runs it against staging, and `make test-compat` and `make test-e2e` run it against a local stack, with `origin/main` as the old bundle when there's no config folder, as in CI.
+
 The iPhone app's tests can do the same on the Simulator, with the `multiscale://auth/callback` callback that's already in the example config:
 
 ```sh
@@ -347,14 +355,14 @@ Limits of a free team:
 
 - The install stops launching after **7 days**. Reconnect and press **Run** again. Your data stays.
 - Three apps per device at a time.
-- App Groups aren't available, so the share sheet and Control Center widget are left out of the build. Everything else, including notifications, works.
+- App Groups aren't available, so the share sheet is left out of the build. Everything else works, including notifications and the Control Center capture button, which only opens the app and so needs no App Group. On iOS 18, add it from Control Center's controls.
 
 ## 15. What changes with a paid membership
 
 The Apple Developer Program costs about $99 a year; check the current price when you enroll.
 
 1. Enroll at <https://developer.apple.com/programs/>.
-2. In `frontend/ios/App/Config.local.xcconfig`, set `DEVELOPMENT_TEAM` to the paid team's id and uncomment `MULTISCALE_EXTENSIONS = YES`. That one setting builds in the share sheet and Control Center widget, and App Groups now provision automatically.
+2. In `frontend/ios/App/Config.local.xcconfig`, set `DEVELOPMENT_TEAM` to the paid team's id and uncomment `MULTISCALE_EXTENSIONS = YES`. That one setting builds in the share sheet, and App Groups now provision automatically.
 3. In Xcode, press **Run** again.
 4. Installs now last a year instead of 7 days. TestFlight builds, if you prefer them, last 90 days.
 
@@ -366,7 +374,8 @@ A Simulator can't prove these, so check them once on a real phone:
 - [ ] A notification fires with no network.
 - [ ] Hold to drag and pinch to zoom feel right on Week.
 - [ ] Key screens stay quick with a year or more of data.
-- [ ] With a paid team: the share sheet saves into Inbox, and the Control Center widget opens Capture.
+- [ ] The Control Center capture button opens Capture.
+- [ ] With a paid team: the share sheet saves into Inbox.
 
 ## Run it locally
 
@@ -381,7 +390,7 @@ It listens on `localhost:8787`, which app builds without an `ENV` use by default
 
 To run several side by side, `scripts/local-stack.sh` starts all three on free ports, prints the API's URL as `LOCAL_API_URL=...`, and removes everything when stopped. Pass that variable to `npm run dev` or an app build to use it.
 
-App builds share `frontend/dist` and the iOS build folders, so `npm run build`, `npm run ios:sync`, `npm run electron:build`, `make test-ios` and the Electron part of `make test-e2e` take turns: one started while another runs says it's waiting and starts once the other is done.
+App builds share `frontend/dist` and the iOS build folders, so `npm run build`, `npm run ios:sync`, `npm run electron:build`, `make release`, `make test-ios` and the Electron part of `make test-e2e` take turns: one started while another runs says it's waiting and starts once the other is done.
 
 ## Day to day
 
@@ -394,6 +403,7 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | Every suite against a deployment | `make test-deployed`, `make test-deployed ENV=prod CONFIRM_PROD=yes` |
 | Unit and integration suites, no AWS | `make test` |
 | App and iPhone tests, no AWS | `make test-e2e`, `make test-ios` |
+| This checkout's web bundle beside prod's, on one device and syncing | `make test-compat`, `make test-compat ENV=staging` |
 | Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
@@ -402,7 +412,7 @@ Each signs in with the profile in its environment's file. After a deploy, commit
 
 `make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
 
-Then it runs `make test-deployed` against what it just released, checking the web app serves that version, and fails if any suite does. The release is live by then, so to go back, release the last good commit. `SKIP_TESTS=1` leaves the tests out, for a fix that can't wait; run `make test-deployed` after.
+Then it runs `make test-deployed` against what it just released, checking the web app serves that version, and fails if any suite does. The release is live by then, so to go back, revert the bad commit and release that. Releasing an older commit would only roll back the web app: its build number is its commit's time, and the apps skip any release whose build isn't newer than the one they run. `SKIP_TESTS=1` leaves the tests out, for a fix that can't wait; run `make test-deployed` after.
 
 The web app keeps its data in the browser and syncs like the apps. It opens in one tab at a time, and it doesn't send reminders.
 

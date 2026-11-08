@@ -5,14 +5,12 @@ import { META, setMeta } from '../../core/db';
 import { listRecords } from '../../core/records';
 import type { AppSync } from '../../core/syncRunner';
 import { setAppearance } from './appearance';
-import { setShowCompleted } from './showCompleted';
 import { renderApp } from './testing';
 import type { Harness } from './testing';
 
 afterEach(() => {
   cleanup();
   setAppearance('system');
-  setShowCompleted(false);
 });
 
 function fakeSync(email: string | null = 'reader@example.com') {
@@ -35,7 +33,7 @@ async function signedInAsAnother(t: Harness, unsynced: number) {
     await t.db.run('DELETE FROM outbox');
     for (let i = 1; i <= unsynced; i++) await t.write((w) => w.create('task', { kind: 'inbox', title: `Write the report, part ${i}` }));
     await setMeta(t.db, META.lastSyncError, 'other_account');
-    t.db.notifyChanged({ types: [], source: 'remote' });
+    t.db.notifyChanged({ source: 'remote' });
   });
 }
 
@@ -108,7 +106,7 @@ describe('switching accounts', () => {
       // As the real erase does, which closes the dialog.
       sync.eraseAndSignIn.mockImplementation(async () => {
         await t.db.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
-        t.db.notifyChanged({ types: [], source: 'remote' });
+        t.db.notifyChanged({ source: 'remote' });
       });
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));
@@ -125,7 +123,7 @@ describe('switching accounts', () => {
     it("keeps this device's Show completed choice, which isn't the account's either", async () => {
       const sync = fakeSync();
       const t = await renderApp({ layout, sync });
-      act(() => setShowCompleted(true));
+      localStorage.setItem('multiscale.showCompleted', 'true');
       localStorage.setItem('multiscale.plan.flow', JSON.stringify({ begun: true }));
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));
@@ -158,7 +156,7 @@ describe('switching accounts', () => {
     const t = await renderApp({ sync: fakeSync() });
     await act(async () => {
       await setMeta(t.db, META.lastSyncError, 'offline');
-      t.db.notifyChanged({ types: [], source: 'remote' });
+      t.db.notifyChanged({ source: 'remote' });
     });
     expect(await screen.findByRole('navigation', { name: 'Main' })).toBeVisible();
     expect(screen.queryByRole('dialog', { name: 'Switch accounts' })).toBeNull();

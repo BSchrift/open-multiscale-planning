@@ -213,6 +213,7 @@ p {
 
 /* Above the keyboard when it's open: it covers the page rather than shrinking it (app/keyboard.ts). */
 [data-layout='phone'] .sheet {
+  max-height: calc(86vh - var(--keyboard, 0px));
   max-height: calc(86dvh - var(--keyboard, 0px));
   overflow-y: auto;
   padding-bottom: max(32px, env(safe-area-inset-bottom));

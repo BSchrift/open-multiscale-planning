@@ -113,10 +113,9 @@ describe('Still want this?', () => {
     expect(stale([plan('2026-11-09', '2026-11-08T20:00:00Z')], [pick('2026-11-09', 't1')]).stale).toBe(false);
   });
 
-  it('a removed or skipped pick, or a pick in another week, does not count as added', () => {
+  it('a removed pick, or a pick in another week, does not count as added', () => {
     const plans = [plan('2026-11-09', '2026-11-08T20:00:00Z')];
     expect(stale(plans, [pick('2026-11-09', 't1', { deleted_at: '2026-11-08T19:00:00Z' })]).stale).toBe(true);
-    expect(stale(plans, [pick('2026-11-09', 't1', { skipped: true })]).stale).toBe(true);
     expect(stale(plans, [pick('2026-11-02', 't1')]).stale).toBe(true);
   });
 
@@ -129,7 +128,7 @@ describe('Still want this?', () => {
     expect(stale([{ ...plan('2026-11-09', '2026-11-08T20:00:00Z'), deleted_at: '2026-11-08T21:00:00Z' }], []).stale).toBe(false);
   });
 
-  it('Keep answers the question and the work stays in the queue', async () => {
+  it('Keep answers the question and the work stays in the queue, and its reverse asks again', async () => {
     const db = await openTestDb();
     await transact(db, clock, async (w) => {
       await w.create('task', { kind: 'project', project_id: 'p1', title: 'Write the report' }, 't1');
@@ -140,9 +139,13 @@ describe('Still want this?', () => {
     const before = queueItems(await needsNewTime(db), plans, [], clock)[0]!;
     expect(before.stale).toBe(true);
 
-    await transact(db, clock, (w) => keepWork(w, before, clock));
+    const reverse = await transact(db, clock, (w) => keepWork(w, before, clock));
     const after = queueItems(await needsNewTime(db), plans, [], clock);
     expect(after).toMatchObject([{ id: 't1', stale: false, minutes: 60 }]);
+
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect(queueItems(await needsNewTime(db), plans, [], clock)).toMatchObject([{ id: 't1', stale: true }]);
+    expect((await getRecord(db, 'block_outcome', outcomeId('b1')))?.answered_at).toBe('2026-11-02T18:00:00Z');
   });
 });
 
@@ -366,13 +369,28 @@ describe('Shift rest of today', () => {
     expect(result!.runs_past).toBe(22 * 60);
   });
 
+  it('ignores hours that start and end at the same time, which close nothing', () => {
+    const none = [{ days: 'all' as const, from: 21 * 60, to: 21 * 60, projects: true, one_offs: true }];
+    const result = shiftRestOfToday([block('a', day('21:00'), day('21:45'))], [event('call', '21:00', '21:30')], none, at('20:00'));
+    expect(result!.runs_past).toBeNull();
+  });
+
+  it('counts closed hours only for the kind of work that moves, practices as projects', () => {
+    const oneOffsOnly = [{ days: 'all' as const, from: 22 * 60, to: 7 * 60, projects: false, one_offs: true }];
+    const late = (over: Partial<BlockRow>) =>
+      shiftRestOfToday([block('a', day('21:00'), day('21:45'), over)], [event('call', '21:00', '21:30')], oneOffsOnly, at('20:00'))!.runs_past;
+    expect(late({})).toBeNull();
+    expect(late({ task_id: null, task_kind: null, practice_id: 'pr' })).toBeNull();
+    expect(late({ task_kind: 'one_off' })).toBe(22 * 60);
+  });
+
   it('ignores closed hours for other days of the week', () => {
     const weekends = [{ days: 'weekends' as const, from: 18 * 60, to: 23 * 60, projects: true, one_offs: true }];
     const result = shiftRestOfToday([block('a', day('19:00'), day('20:00'))], [event('call', '19:00', '19:30')], weekends, at('18:00'));
     expect(result!.runs_past).toBeNull();
   });
 
-  it('applying moves the blocks and marks a moved practice session as this week only', async () => {
+  it('applying moves the blocks, practice sessions too, and undoes exactly', async () => {
     const db = await openTestDb();
     const clock = at('09:00');
     await transact(db, clock, async (w) => {
@@ -384,11 +402,11 @@ describe('Shift rest of today', () => {
     const undo = await transact(db, clock, (w) => applyShift(w, result.moves));
 
     expect(await getRecord(db, 'time_block', 'a')).toMatchObject({ start: day('10:30'), end: day('11:30') });
-    expect((await getRecord(db, 'time_block', 'a'))!.edited).toBeUndefined();
-    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:30'), end: day('12:00'), edited: true });
+    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:30'), end: day('12:00') });
+    expect(await getRecord(db, 'time_block', 'b')).not.toHaveProperty('edited');
 
     await transact(db, clock, (w) => applyPlanChange(w, undo));
-    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:00'), end: day('11:30'), edited: null });
+    expect(await getRecord(db, 'time_block', 'b')).toMatchObject({ start: day('11:00'), end: day('11:30') });
   });
 });
 
@@ -470,13 +488,12 @@ describe('Pick one thing for today', () => {
     ).toEqual(['fence', 'draft', 'loaf']);
   });
 
-  it('skips work that is closed, waiting, unsorted, or in a project that is not running', () => {
+  it('skips work that is closed, unsorted, or in a project that is not running', () => {
     expect(
       ids([
         task('done', { project_id: 'p1', done_at: '2026-11-01T00:00:00Z' }),
         task('cancelled', { project_id: 'p1', cancelled_at: '2026-11-01T00:00:00Z' }),
         task('deleted', { project_id: 'p1', deleted_at: '2026-11-01T00:00:00Z' }),
-        task('waiting', { project_id: 'p1', waiting_until: '2026-11-20' }),
         task('inbox', { kind: 'inbox' }),
         task('paused', { project_id: 'old' }),
         task('notyet', { project_id: 'soon' }),

@@ -120,9 +120,29 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 		})...)...)
 		return nil
 	}
+	if errors.Is(err, errConnectionGone) {
+		// A success: a disconnect or another user's consent ended it, and has already said so in the record.
+		finish(append([]any{"outcome", "connection_gone"}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarEventsChanged": counts.changed(), "CalendarRunFailures": 0,
+		})...)...)
+		return nil
+	}
 	code := errorCode(err)
 	finish(failed(code)...)
-	return g.recordFailure(ctx, conn.Sub, code)
+	return g.recordFailure(ctx, conn, code)
+}
+
+// errConnectionGone stops a run whose connection ended while it ran.
+var errConnectionGone = errors.New("gcal: the connection ended during the run")
+
+// stillConnected reports whether conn is still the connection. A disconnect or another user's consent can end it while a
+// run is under way, and either has already shown this user unconnected, which the run's own writes would undo.
+func (g *Google) stillConnected(ctx context.Context, conn connection) (bool, error) {
+	current, err := g.connection(ctx)
+	if errors.Is(err, ErrNoSecret) {
+		return false, nil
+	}
+	return err == nil && current.Sub == conn.Sub, err
 }
 
 func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
@@ -165,15 +185,25 @@ func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
 	if err != nil {
 		return counts, err
 	}
+	still, err := g.stillConnected(ctx, conn)
+	if err != nil {
+		return counts, err
+	}
+	if !still {
+		return counts, errConnectionGone
+	}
 	if len(sourceChanges) > 0 {
 		if _, err := g.Records.Push(ctx, conn.Sub, 0, sourceChanges); err != nil {
 			return counts, err
 		}
 	}
 	kept, lastError := fitEvents(events)
-	return counts, g.writeCalendar(ctx, conn.Sub, stored, map[string]any{
-		"connected": true, "events": kept, "synced_at": instant(now), "last_error": lastError,
-	})
+	values := map[string]any{"connected": true, "events": kept, "last_error": lastError}
+	// Every device downloads the whole record again when any field moves, so a run that changed nothing leaves it alone.
+	if counts.changed() > 0 || len(changedFields(stored, values)) > 0 {
+		values["synced_at"] = instant(now)
+	}
+	return counts, g.writeCalendar(ctx, conn.Sub, stored, values)
 }
 
 // EventID derives an event's id from its block's, so inserting twice can't make a duplicate. Lowercase hex is inside
@@ -348,10 +378,12 @@ func reconcile(ctx context.Context, svc *calendar.Service, calendarID string, wa
 			continue
 		}
 		err := svc.Events.Delete(calendarID, id).Context(ctx).Do()
-		if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) {
+		switch {
+		case err == nil:
+			counts.deleted++
+		case !hasStatus(err, http.StatusNotFound, http.StatusGone):
 			return err
 		}
-		counts.deleted++
 	}
 	return nil
 }
@@ -526,17 +558,22 @@ func (g *Google) calendarRecord(ctx context.Context, sub string) (sync.Fields, e
 
 // writeCalendar writes the fields that differ from what's stored, plus anything never written yet.
 func (g *Google) writeCalendar(ctx context.Context, sub string, stored sync.Fields, values map[string]any) error {
+	changed := changedFields(stored, values)
+	if len(changed) == 0 {
+		return nil
+	}
+	_, err := g.Records.Push(ctx, sub, 0, []sync.Change{g.change("calendar", CalendarRecordID, stored, changed)})
+	return err
+}
+
+func changedFields(stored sync.Fields, values map[string]any) map[string]any {
 	changed := map[string]any{}
 	for name, value := range values {
 		if field, ok := stored[name]; !ok || !reflect.DeepEqual(field.V, value) {
 			changed[name] = value
 		}
 	}
-	if len(changed) == 0 {
-		return nil
-	}
-	_, err := g.Records.Push(ctx, sub, 0, []sync.Change{g.change("calendar", CalendarRecordID, stored, changed)})
-	return err
+	return changed
 }
 
 var clockWall = regexp.MustCompile(`^\d{13}`)
@@ -560,8 +597,11 @@ func (g *Google) change(recordType, id string, stored sync.Fields, values map[st
 	return sync.Change{Type: recordType, ID: id, Fields: fields}
 }
 
-func (g *Google) recordFailure(ctx context.Context, sub, code string) error {
-	stored, err := g.calendarRecord(ctx, sub)
+func (g *Google) recordFailure(ctx context.Context, conn connection, code string) error {
+	if still, err := g.stillConnected(ctx, conn); err != nil || !still {
+		return err
+	}
+	stored, err := g.calendarRecord(ctx, conn.Sub)
 	if err != nil {
 		return err
 	}
@@ -569,7 +609,7 @@ func (g *Google) recordFailure(ctx context.Context, sub, code string) error {
 	if code == ErrorRevoked {
 		values["connected"] = false
 	}
-	return g.writeCalendar(ctx, sub, stored, values)
+	return g.writeCalendar(ctx, conn.Sub, stored, values)
 }
 
 func errorCode(err error) string {

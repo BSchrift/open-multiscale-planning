@@ -120,3 +120,19 @@ test('adds one offs of each kind, and dates one in place', async ({ page }, info
   const names = await boxes(page).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
   expect(names.slice(0, 3)).toEqual(['Mend the gate done', 'Tidy the shed done', 'Return the drill done']);
 });
+
+test('phone: a tall sheet rises above the keyboard without its top going off the screen', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The keyboard is a phone matter');
+  await openOneOffs(page, true);
+  await pane(page, 'One offs').getByRole('button', { name: 'Add one off' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Add a one off' });
+  // The twelve months make the sheet taller than the room a keyboard leaves.
+  await sheet.getByLabel('Repeats').selectOption('seasonal');
+  const height = page.viewportSize()!.height;
+  // As in the Capture sheet's test: what app/keyboard.ts would set for a 336pt keyboard.
+  await page.evaluate(() => document.documentElement.style.setProperty('--keyboard', '336px'));
+  await expect.poll(async () => Math.round((await sheet.boundingBox())!.y + (await sheet.boundingBox())!.height)).toBe(height - 336);
+  expect((await sheet.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  await expect(sheet.getByLabel('Title')).toBeInViewport();
+  await page.screenshot({ path: info.outputPath('tall-sheet-keyboard.png') });
+});

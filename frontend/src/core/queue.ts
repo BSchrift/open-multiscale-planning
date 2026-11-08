@@ -51,7 +51,7 @@ export function queueItems(rows: readonly QueueRow[], plans: readonly WeekPlan[]
     (last, p) => (p.finished_at && !p.deleted_at && (!last || p.finished_at > last.finished_at!) ? p : last),
     null,
   );
-  const added = new Set(picks.filter((k) => k.week_start === lastPlan?.week_start && !k.deleted_at && !k.skipped).map((k) => k.task_id));
+  const added = new Set(picks.filter((k) => k.week_start === lastPlan?.week_start && !k.deleted_at).map((k) => k.task_id));
   const date = today(clock);
 
   return rows
@@ -70,9 +70,13 @@ export function queueItems(rows: readonly QueueRow[], plans: readonly WeekPlan[]
     .sort((a, b) => (a.block_start < b.block_start ? -1 : a.block_start > b.block_start ? 1 : 0));
 }
 
-/** Answers "Still want this?" with yes: the answer is newer than the last plan, so the work reads as fresh again. */
-export async function keepWork(w: Writer, item: QueueItem, clock: Clock): Promise<void> {
-  await w.set('block_outcome', outcomeId(item.block_id), { answered_at: nowInstant(clock) });
+/**
+ * Answers "Still want this?" with yes: the answer is newer than the last plan, so the work reads as fresh again.
+ * Returns the exact reverse, for Undo.
+ */
+export async function keepWork(w: Writer, item: QueueItem, clock: Clock): Promise<PlanChange> {
+  const id = outcomeId(item.block_id);
+  return { writes: [{ type: 'block_outcome', id, fields: await w.set('block_outcome', id, { answered_at: nowInstant(clock) }) }] };
 }
 
 /**
@@ -134,10 +138,11 @@ export interface ShiftPlan {
   runs_past: TimeOfDay | null;
 }
 
-function closedToday(block: AvailabilityBlock, date: LocalDate): boolean {
-  if (!block.projects && !block.one_offs) return false;
+/** Whether these hours are closed today to a block's kind of work. Practices count as projects, as placing them does. */
+function closedToday(a: AvailabilityBlock, date: LocalDate, block: BlockRow): boolean {
+  if (a.from === a.to || !(block.task_kind === 'one_off' ? a.one_offs : a.projects)) return false;
   const weekend = weekday(date) >= 5;
-  return block.days === 'all' || (block.days === 'weekends') === weekend;
+  return a.days === 'all' || (a.days === 'weekends') === weekend;
 }
 
 /**
@@ -171,11 +176,10 @@ export function shiftRestOfToday(
   const date = today(clock);
   const zone = clock.zone();
   const closed = availability
-    .filter((a) => closedToday(a, date))
     .filter((a) => {
       const from = localToMs(date, a.from, zone);
-      const to = a.to <= a.from ? localToMs(addDays(date, 1), a.to, zone) : localToMs(date, a.to, zone);
-      return moves.some((m) => instantMs(m.end) > from && instantMs(m.start) < to);
+      const to = a.to < a.from ? localToMs(addDays(date, 1), a.to, zone) : localToMs(date, a.to, zone);
+      return moves.some((m) => closedToday(a, date, m.block) && instantMs(m.end) > from && instantMs(m.start) < to);
     })
     .map((a) => a.from);
   return { conflict, moves, runs_past: closed.length ? Math.min(...closed) : null };
@@ -184,8 +188,7 @@ export function shiftRestOfToday(
 /** Moves the blocks, and returns the exact reverse, for Undo. */
 export function applyShift(w: Writer, moves: readonly ShiftMove[]): Promise<PlanChange> {
   return applyPlanChange(w, {
-    // edited tells re-placing to leave a practice session's one-week change alone.
-    writes: moves.map(({ block, start, end }) => ({ type: 'time_block', id: block.id, fields: block.practice_id ? { start, end, edited: true } : { start, end } })),
+    writes: moves.map(({ block, start, end }) => ({ type: 'time_block', id: block.id, fields: { start, end } })),
   });
 }
 
@@ -222,7 +225,7 @@ export function welcomeOptions(tasks: readonly Task[], milestones: readonly Mile
   const dateOf = (t: Task) => (t.kind === 'project' ? dueOf.get(t.milestone_id ?? '') : t.next_due ?? once(t)?.to ?? once(t)?.from) ?? '9999';
 
   const open = tasks.filter((t) => {
-    if (t.done_at || t.cancelled_at || t.deleted_at || (t.waiting_until && t.waiting_until > date)) return false;
+    if (t.done_at || t.cancelled_at || t.deleted_at) return false;
     if (t.kind === 'project') return running.has(t.project_id ?? '');
     const opens = t.next_due ?? once(t)?.from;
     // A one off that opens later, or a repeat not due yet, isn't for today.

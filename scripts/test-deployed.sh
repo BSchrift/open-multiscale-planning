@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Every suite that can run against a deployment, run against one, as make release does after each release:
 #   web app      the deployed web app as people get it (frontend/e2e/deployed), desktop and phone sizes
-#   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack)
+#   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack); staging only
+#   compat       on staging, prod's web bundle and this checkout's sharing a database and syncing (scripts/test-compat.sh)
 #   integration  the black-box suite against its API and sign-in
 #   smoke        that its logs and metrics arrive
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
@@ -11,9 +12,7 @@
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-# make exports ENV=local as the default for its test targets. There is no local deployment, so it means the default.
 env_name="${ENV:-staging}"
-[ "$env_name" = local ] && env_name=staging
 case "$env_name" in
   staging) ;;
   prod)
@@ -59,7 +58,15 @@ run() {
 }
 run "web app" npx playwright test -c e2e/deployed/playwright.config.ts
 # Off local, e2e.sh runs only the signed-in specs, against this deployment.
-run "sync" "$root/scripts/e2e.sh"
+if [ "$env_name" = prod ]; then
+  # Its devices are the app served from this Mac, and prod's sign-in returns only to the deployed app. The web app suite
+  # signs in to prod, and integration covers its sync API.
+  echo "== sync skipped: prod's sign-in doesn't return to a local app"
+else
+  run "sync" "$root/scripts/e2e.sh"
+  # Its old and new devices are this Mac's builds too, signing in as the test user.
+  run "compat" "$root/scripts/test-compat.sh"
+fi
 run "integration" "$root/scripts/integration.sh"
 run "smoke" "$root/scripts/smoke.sh"
 [ "${SKIP_IOS:-}" = 1 ] || run "iPhone" "$root/scripts/test-ios.sh"

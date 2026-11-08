@@ -16,7 +16,7 @@
 .pxbar{flex:1 1 auto;height:4px;border-radius:2px;background:var(--fill)}
 .pxbar span{display:block;height:100%;border-radius:2px;background:var(--blue)}
 .fielderr{color:var(--red);font-size:13px}
-h3{font-size:13px;font-weight:600;color:var(--quiet)}
+h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 .stack8{display:flex;flex-direction:column;gap:8px}
 /* A screen's section, raised off --ground; layouts set the radius. Rows inside bring their own padding; a .stack of content gets 16px. */
 .card{background:var(--white);border:1px solid var(--card-line);box-shadow:var(--card-shadow)}
@@ -76,14 +76,10 @@ h3{font-size:13px;font-weight:600;color:var(--quiet)}
 .p-r{background:var(--red-tint);color:var(--red)}
 .pillbtn:hover .p-r{background:var(--red-soft)}
 .gdia{position:absolute;top:4px;z-index:1;width:10px;height:10px;margin-left:-5px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}
-.gdia.on{background:var(--blue)}
-.gdia.met{border-color:var(--grey);background:var(--grey)}
-.gdia.late{border-color:var(--red);background:var(--white)}
-.gdia.late.on{background:var(--red)}
-.gdia.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}
 .msdia{display:inline-block;width:10px;height:10px;margin:0 8px 0 2px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}
-.msdia.on{background:var(--blue)}
-.msdia.met{border-color:var(--grey);background:var(--grey)}
-.msdia.late{border-color:var(--red);background:var(--white)}
-.msdia.late.on{background:var(--red)}
-.msdia.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}
+/* A milestone's diamond, in each of its states: on a timeline track, inline in a list, and on the desktop plan's timeline. */
+.gdia.on,.msdia.on,:where([data-layout='desktop']) .pdot.on{background:var(--blue)}
+.gdia.met,.msdia.met,:where([data-layout='desktop']) .pdot.met{border-color:var(--grey);background:var(--grey)}
+.gdia.late,.msdia.late,:where([data-layout='desktop']) .pdot.late{border-color:var(--red);background:var(--white)}
+.gdia.late.on,.msdia.late.on,:where([data-layout='desktop']) .pdot.late.on{background:var(--red)}
+.gdia.done,.msdia.done,:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}

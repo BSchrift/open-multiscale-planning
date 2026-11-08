@@ -22,7 +22,7 @@ import { PickDesktop } from './PickDesktop';
 import { PickPhone } from './PickPhone';
 import './pick.css';
 
-export interface AimSetting {
+interface AimSetting {
   bucket: string;
   name: string;
   value: Minutes;

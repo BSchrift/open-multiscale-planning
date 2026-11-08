@@ -7,9 +7,10 @@ import { formatTimeOfDay } from '../../../core/dates';
 import { dropSlot, DRAWN_DAY } from '../../../core/slots';
 import type { Slot, SlotContext } from '../../../core/slots';
 
-/** On touch, a card lifts once held this long without moving, so a swipe still scrolls. As holding a block on Today. */
+/** On touch, a card lifts once held this long without moving, so a swipe still scrolls. Every hold to drag uses it. */
 export const HOLD_MS = 400;
-const SLOP_PX = 8;
+/** How far a finger can drift during a hold before it counts as a swipe instead. */
+export const SLOP_PX = 8;
 /** Near the top or bottom of the screen, where the strip and tab bar sit, a dragged card scrolls the page. */
 const EDGE_PX = 120;
 const SCROLL_PX = 12;
@@ -30,7 +31,7 @@ function under(x: number, y: number) {
 }
 
 /** Where a point over a day lands, measured from the drawn day each time, so scrolling during a drag can't shift it. */
-export function slotAt(x: number, y: number, length: number, ctx: SlotContext, targets: readonly Slot[] = []): Slot | null {
+function slotAt(x: number, y: number, length: number, ctx: SlotContext, targets: readonly Slot[] = []): Slot | null {
   const { day } = under(x, y);
   if (!day) return null;
   const r = day.getBoundingClientRect();

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import initSqlJs from 'sql.js';
 import { describe, expect, it, vi } from 'vitest';
 import { clockWins, fixedClock, formatClock, nextClock, observeClock, parseClock } from './clock';
 import {
@@ -25,7 +26,7 @@ import {
 } from './dates';
 import { createDb, getMeta, META, MIGRATIONS, openDb, RECORD_FIELDS, setMeta, toPositional } from './db';
 import { QUERY_INDEX } from './queries';
-import type { DbChange, Migration } from './db';
+import type { DbChange, Migration, SqlDriver } from './db';
 import {
   applyRemote,
   getRecord,
@@ -43,8 +44,51 @@ import {
 import { RECORD_TYPES } from './types';
 import type { RecordChange } from './types';
 import { nodeSqliteDriver, openTestDb } from '../platform/node-sqlite';
+import { sqlJsDriver } from '../platform/sqljs-driver';
 
 const clock = fixedClock('2026-11-02T15:00:00Z', 'America/Chicago');
+
+/**
+ * What the bundle released at c88b04d needs of a database, since a device whose next bundle fails its trial goes back
+ * to it: a schema version no higher than its own, and every view column it can select.
+ */
+const RELEASED = {
+  version: 4,
+  views: {
+    objective: ['id', 'title', 'state', 'not_now_until', 'sort_order', 'deleted_at'],
+    project: ['id', 'objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'baseline', 'slip_log', 'estimates_raised_at', 'deleted_at'],
+    milestone: ['id', 'project_id', 'title', 'start', 'due', 'stretch', 'added_on', 'met_at', 'dropped_at', 'deleted_at'],
+    task: [
+      'id',
+      'kind',
+      'project_id',
+      'milestone_id',
+      'title',
+      'first_step',
+      'link',
+      'estimate_min',
+      'remaining_min',
+      'sort_order',
+      'waiting_until',
+      'schedule',
+      'next_due',
+      'done_at',
+      'cancelled_at',
+      'moved_from',
+      'deleted_at',
+    ],
+    task_completion: ['id', 'task_id', 'done_at', 'previous_next', 'undo', 'deleted_at'],
+    time_block: ['id', 'task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'edited', 'cancelled', 'deleted_at'],
+    block_outcome: ['id', 'block_id', 'result', 'remaining_min', 'logged_min', 'answered_at', 'dropped_at', 'deleted_at'],
+    week_plan: ['id', 'week_start', 'finished_at', 'aims', 'skipped_aims', 'skipped_practices', 'skipped_past_end', 'deleted_at'],
+    week_pick: ['id', 'week_start', 'task_id', 'minutes', 'skipped', 'deleted_at'],
+    away_period: ['id', 'start', 'end', 'deleted_at'],
+    settings: ['id', 'availability', 'one_offs_weekly_aim', 'plan_cadence', 'plan_stretch', 'reminders', 'avoided_slots', 'setup_done_at', 'deleted_at'],
+    calendar: ['id', 'connected', 'calendar_id', 'events', 'synced_at', 'last_error', 'deleted_at'],
+    calendar_source: ['id', 'google_id', 'name', 'mode', 'deleted_at'],
+    practice: ['id', 'objective_id', 'title', 'target_min', 'per', 'days', 'preferred_times', 'state', 'deleted_at'],
+  },
+};
 
 describe('hybrid clock', () => {
   it('round trips and sorts as text', () => {
@@ -210,7 +254,71 @@ describe('db', () => {
     expect(await getMeta(db2, META.schemaVersion)).toBe(String(top + 1));
     expect(await db2.all("SELECT 1 FROM sqlite_master WHERE name = 'half'")).toEqual([]);
 
-    await expect(openDb(driver, MIGRATIONS)).rejects.toThrow(/newer/);
+    // An app older than the database still opens it, unless a migration said older apps can't read what it wrote.
+    await openDb(driver, MIGRATIONS);
+    const breaking: Migration[] = [...next, { version: top + 2, statements: ['CREATE TABLE other (x)'], breaking: true }];
+    await openDb(driver, breaking);
+    expect(await getMeta(db2, META.minAppSchema)).toBe(String(top + 2));
+    await openDb(driver, breaking);
+    await expect(openDb(driver, next)).rejects.toThrow(/newer/);
+  });
+
+  it('stays readable by the released bundle a failed update rolls back to', async () => {
+    const driver = nodeSqliteDriver();
+    const db = await openDb(driver);
+    await transact(db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }, 't1'));
+    // That bundle refuses a version above its own and otherwise migrates nothing, so it reads the views as left here.
+    expect(Number(await getMeta(db, META.schemaVersion))).toBeLessThanOrEqual(RELEASED.version);
+    for (const [type, columns] of Object.entries(RELEASED.views)) await db.all(`SELECT ${columns.join(', ')} FROM ${type}`);
+    expect(await db.get(`SELECT ${RELEASED.views.task.join(', ')} FROM task`)).toMatchObject({ id: 't1', kind: 'inbox', title: 'Paint the fence' });
+  });
+
+  it('keeps every column of the version 4 views', async () => {
+    const db = await openTestDb();
+    for (const [type, columns] of Object.entries(RELEASED.views)) {
+      const names = (await db.all<{ name: string }>(`PRAGMA table_info(${type})`)).map((c) => c.name);
+      expect(names, type).toEqual(expect.arrayContaining(columns));
+    }
+  });
+
+  // SQLite keeps a view's text as given, so it compares the same in each build the app uses.
+  it.each([
+    ['this platform', async () => nodeSqliteDriver()],
+    ['sql.js', async () => sqlJsDriver(new (await initSqlJs()).Database())],
+  ])('writes nothing on an open that finds the views as this code makes them, on %s', async (_, make) => {
+    const inner = await make();
+    await openDb(inner);
+    const writes: string[] = [];
+    const driver: SqlDriver = {
+      ...inner,
+      exec: async (sql) => {
+        writes.push(sql);
+        await inner.exec(sql);
+      },
+      run: async (sql, values) => {
+        writes.push(sql);
+        await inner.run(sql, values);
+      },
+    };
+    await openDb(driver);
+    expect(writes).toEqual([]);
+
+    // One view gone: only that one is made again.
+    await inner.exec('DROP VIEW week_pick');
+    await openDb(driver);
+    expect(writes.join('\n')).toMatch(/CREATE VIEW week_pick /);
+    expect(writes.join('\n')).not.toMatch(/CREATE VIEW task /);
+  });
+
+  it('opens a database a newer bundle left behind, with views rebuilt from this code', async () => {
+    const driver = nodeSqliteDriver();
+    await openDb(driver);
+    // A newer bundle added a migration and changed a view, then failed its trial.
+    await driver.run('UPDATE meta SET value = ? WHERE key = ?', ['99', META.schemaVersion]);
+    await driver.exec("DROP VIEW task; CREATE VIEW task AS SELECT id FROM records WHERE type = 'task'");
+    const db = await openDb(driver);
+    expect(await db.all('SELECT title, sort_order FROM task')).toEqual([]);
+    expect(await getMeta(db, META.schemaVersion)).toBe('99');
   });
 
   it('rolls a transaction back on error and keeps working', async () => {
@@ -388,7 +496,7 @@ describe('records', () => {
     const clocksBefore = await getMeta(db, META.clock);
     const events: DbChange[] = [];
     db.subscribe((c) => events.push(c));
-    await transact(db, clock, (w) => w.set('task', id, { title: 'One', link: undefined }));
+    await transact(db, clock, (w) => w.set('task', id, { title: 'One', estimate_min: undefined }));
     expect(await getMeta(db, META.clock)).toBe(clocksBefore);
     expect(events).toEqual([]);
   });
@@ -432,8 +540,9 @@ describe('records', () => {
     const picks = await listRecords(db, 'week_pick');
     expect(picks).toHaveLength(1);
     expect(picks[0]).toMatchObject({ id: weekPickId('2026-11-02', 't1'), minutes: 45, deleted_at: null });
-    expect(occurrenceId('time_block', 't1', '2026-11-02')).toBe(occurrenceId('time_block', 't1', '2026-11-02'));
-    expect(occurrenceId('time_block', 't1', '2026-11-02')).not.toBe(occurrenceId('task_completion', 't1', '2026-11-02'));
+    expect(picks[0]).not.toHaveProperty('skipped');
+    // The id older versions gave the same finish, so theirs and this one's merge.
+    expect(occurrenceId('t1', '2026-11-02')).toBe('occ-done:t1:2026-11-02');
   });
 
   it('exposes outcomes by block id through the view', async () => {
@@ -465,7 +574,7 @@ describe('records', () => {
       await w.create('objective', { title: 'y', state: 'active' });
       expect(events).toEqual([]);
     });
-    expect(events).toEqual([{ types: ['task', 'objective'], source: 'local' }]);
+    expect(events).toEqual([{ source: 'local' }]);
   });
 });
 
@@ -569,7 +678,7 @@ describe('applyRemote', () => {
     const change = { type: 'task', id: 't', fields: { title: { v: 'x', c: c(1) } } };
     await applyRemote(db, [change]);
     await applyRemote(db, [change]);
-    expect(events).toEqual([{ types: ['task'], source: 'remote' }]);
+    expect(events).toEqual([{ source: 'remote' }]);
   });
 });
 

@@ -12,7 +12,7 @@ import { closeTask, tickOneOff } from '../../../core/tasks';
 import type { LocalDate, Minutes, Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import { useToast } from '../../components/Toast';
-import { dayName } from './data';
+import { dayName } from '../../components/weekgrid';
 import type { Placeable } from './data';
 
 export function useWeekActions() {

@@ -5,7 +5,7 @@ import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from 
 import type { Clock } from '../../../core/clock';
 import { addDays, formatMinutes, instantMs, thisWeek, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherPlans, minutesLeft, oneOffCandidates, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
+import { FIRST_BLOCK_MIN, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
 import { blocksInRange, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
@@ -15,7 +15,7 @@ import { infoSpans, offers, practicesLeft, practiceSlots, slotContext, spansAhea
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
 import type { LocalDate, Minutes, Practice, Task, TimeBlock } from '../../../core/types';
-import { dayName, placedBlocks, slotRange } from '../../components/weekgrid';
+import { placedBlocks } from '../../components/weekgrid';
 import type { PlacedBlock } from '../../components/weekgrid';
 import type { BlockKind } from '../../components/blocks/describe';
 
@@ -37,13 +37,6 @@ export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
 
 export type WeekData = Awaited<ReturnType<typeof loadWeek>>;
 
-export { dayName };
-export { slotRange as range };
-
-export { KIND_WORD } from '../../components/blocks/describe';
-
-export type WeekBlock = PlacedBlock;
-
 /** A task that can be added to the week, with what slots.ts needs to suggest times for it. */
 export interface AddRow {
   task: Task;
@@ -52,10 +45,10 @@ export interface AddRow {
   work: Work;
   context: string;
   /** This week's blocks for it not yet over, soonest first. */
-  placed: WeekBlock[];
+  placed: PlacedBlock[];
 }
 
-export interface AddGroup {
+interface AddGroup {
   name: string;
   oneOffs: boolean;
   rows: AddRow[];
@@ -89,9 +82,6 @@ export type Placeable = Pick<LaneItem, 'id' | 'title' | 'kind' | 'work' | 'task'
 
 export const rowItem = (r: AddRow): Placeable => ({ id: r.task.id, title: r.task.title, kind: r.work.kind === 'one_off' ? 'one_off' : 'project', work: r.work, task: r.task });
 
-const NO_ESTIMATE_MIN = 30;
-const MAX_LEN = 120;
-
 /** The due and open dates slots.ts ranks by, from a task's milestone or its own dates. */
 function workOf(t: Task, plan: ProjectPlan | null, week: LocalDate, ctx: PlanContext): { work: Work; label: string } {
   const due = taskDue(t, plan, week, ctx);
@@ -115,8 +105,7 @@ export function weekModel(d: WeekData, clock: Clock) {
 
   const upcoming = d.blocks.filter((b) => !b.result && instantMs(b.end) > now);
   const conflicts = new Map(blockConflicts(upcoming, busyEvents(calendar ?? undefined, sources)).map((c) => [c.block.id, c.event.title]));
-  const rows = new Map(d.blocks.map((b) => [b.id, b]));
-  const blocks: WeekBlock[] = placedBlocks(ctx.placed, d.blocks, now).map((b) => {
+  const blocks: PlacedBlock[] = placedBlocks(ctx.placed, d.blocks, now).map((b) => {
     const clash = conflicts.get(b.id);
     return clash ? { ...b, note: `Conflicts with ${clash}`, clash: true } : b;
   });
@@ -163,7 +152,6 @@ export function weekModel(d: WeekData, clock: Clock) {
   // To schedule: picks less what's placed, one offs dated in the week with nothing placed, and practices short of
   // their target. Dated ones wait above their days, the rest above the whole week.
   const weekPlan = d.weekPlans.find((p) => p.week_start === week) ?? null;
-  const placedMin = (id: string) => blocks.filter((b) => b.task_id === id).reduce((sum, b) => sum + b.end - b.start, 0);
   const datesOf = (t: Task) => {
     const s = t.schedule;
     return t.kind === 'one_off' && s?.type === 'once' && s.from && onceOverlaps(t, week, addDays(week, 6)) ? { from: s.from, to: s.to ?? s.from } : undefined;
@@ -171,7 +159,7 @@ export function weekModel(d: WeekData, clock: Clock) {
   const taskItem = (t: Task, left: Minutes, picked: Minutes | null): LaneItem => {
     const plan = ranked.find((p) => p.project.id === t.project_id) ?? null;
     const { work } = workOf(t, plan, week, planCtx);
-    const length = Math.min(left, MAX_LEN);
+    const length = Math.min(left, FIRST_BLOCK_MIN);
     return {
       id: t.id,
       title: t.title,
@@ -189,11 +177,11 @@ export function weekModel(d: WeekData, clock: Clock) {
   const picks = scheduleOrder(plans, oneOffs, input, planCtx);
   const unscheduled: LaneItem[] = [
     ...picks.flatMap((c) => {
-      const left = Math.max(0, (c.week || NO_ESTIMATE_MIN) - placedMin(c.task.id));
-      return left > 0 ? [taskItem(c.task, left, c.week || NO_ESTIMATE_MIN)] : [];
+      const { picked, left } = pickToPlace(c, blocks);
+      return left > 0 ? [taskItem(c.task, left, picked)] : [];
     }),
     ...oneOffs
-      .filter((t) => !t.cancelled_at && !t.deleted_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
+      .filter((t) => !t.cancelled_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
       .map((t) => taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null)),
     ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? []).map(
       (x): LaneItem => ({
@@ -230,8 +218,6 @@ export function weekModel(d: WeekData, clock: Clock) {
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
     unscheduled,
-    practices: new Map(records.practices.map((p) => [p.id, p])),
-    rows,
     current,
     thisPlanned: d.weekPlans.some((p) => p.week_start === current && !!p.finished_at),
   };

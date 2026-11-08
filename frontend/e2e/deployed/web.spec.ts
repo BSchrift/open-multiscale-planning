@@ -4,6 +4,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
+import { syncNow } from '../seed';
 import { deployed } from './target';
 
 const d = deployed();
@@ -153,6 +154,8 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
     await page.getByRole('button', { name: 'Yes, delete' }).click();
     await page.keyboard.press('Escape');
   }
+  // Sent before the browser closes, or the deployment keeps these checks as Inbox items for the next suite to trip on.
+  await syncNow(page);
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

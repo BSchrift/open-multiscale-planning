@@ -1,12 +1,12 @@
 // Planning opens with the Inbox. Process opens its cards over the flow, told which week is being planned, so Add to
 // this week adds to that plan; a single row opens the cards on that item.
 
-import { formatMinutes } from '../../../../core/dates';
 import { inboxTasks } from '../../../../core/queries';
 import type { LocalDate } from '../../../../core/types';
 import { useNav } from '../../../app/nav';
 import type { Layout } from '../../../app/registry';
 import { useQuery } from '../../../app/store';
+import { InboxList } from '../../../components/inbox/InboxList';
 
 export function InboxStep(props: { week: LocalDate; layout: Layout; onNext(): void }) {
   const { week, layout } = props;
@@ -28,34 +28,7 @@ export function InboxStep(props: { week: LocalDate; layout: Layout; onNext(): vo
             </button>
           </div>
         )}
-        {rows.length > 0 && (
-          <div className="card">
-            {rows.map((i) => {
-              const est = i.estimate_min ? <span className="small quiet block">{formatMinutes(i.estimate_min)} estimate</span> : null;
-              return phone ? (
-                <button key={i.id} className="projbtn morerow" type="button" aria-label={`Assign ${i.title}`} onClick={() => process(i.id)}>
-                  <span className="grow">
-                    <span className="block">{i.title}</span>
-                    {est}
-                  </span>
-                  <span className="chev" aria-hidden="true">
-                    ›
-                  </span>
-                </button>
-              ) : (
-                <div key={i.id} className="qrow">
-                  <div>
-                    <div>{i.title}</div>
-                    {est}
-                  </div>
-                  <button className="btn sm" type="button" aria-label={`Assign ${i.title}`} onClick={() => process(i.id)}>
-                    Assign
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <InboxList rows={rows} phone={phone} onOpen={process} />
       </div>
       {!phone && (
         <div className="row">

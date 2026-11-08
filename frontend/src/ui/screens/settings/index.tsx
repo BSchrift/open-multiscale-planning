@@ -2,7 +2,7 @@ import { useId, useState, useSyncExternalStore } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { availableHours } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
-import { addWeeks, formatDate, formatMinutes, formatTime, localDate, thisWeek, today } from '../../../core/dates';
+import { addWeeks, formatDate, formatMinutes, formatTime, localDate, nowInstant, thisWeek, today } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { cadenceLabel } from '../../../core/plan';
 import { CALENDAR_ID, getRecord, getSettings, listRecords, updateSettings } from '../../../core/records';
@@ -10,7 +10,7 @@ import { slotContext } from '../../../core/slots';
 import { syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
 import type { UpdateStatus, Updater } from '../../../core/updates';
-import type { CalendarMode, Instant, ReminderSettings } from '../../../core/types';
+import type { CalendarMode, Fields, Instant, ReminderSettings } from '../../../core/types';
 import { DEFAULT_SHORTCUT, shortcutFromKeys, shortcutLabel } from '../../../platform/shortcut';
 import { setAppearance, useAppearance } from '../../app/appearance';
 import { useCaptureShortcut } from '../../app/captureShortcut';
@@ -265,6 +265,7 @@ function Calendar(props: { layout: Layout }) {
 }
 
 function Away(props: { layout: Layout }) {
+  const { clock } = useApp();
   const toast = useToast();
   const day = useToday();
   const ids = useId();
@@ -275,8 +276,12 @@ function Away(props: { layout: Layout }) {
     [day],
   );
   const add = useMutation((w, start: string, end: string) => w.create('away_period', { start, end }));
-  const remove = useMutation((w, id: string) => w.delete('away_period', id));
+  const setAway = useMutation((w, id: string, fields: Fields<'away_period'>) => w.set('away_period', id, fields));
   const phone = props.layout === 'phone';
+  const remove = async (id: string, text: string) => {
+    const previous = await setAway.run(id, { deleted_at: nowInstant(clock) });
+    if (previous) toast.show(`Removed away dates ${text}.`, { undo: () => setAway.run(id, previous), focusUndo: true });
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!from || !to || to < from) {
@@ -309,7 +314,7 @@ function Away(props: { layout: Layout }) {
           <div key={a.id} className={phone ? 'rowline' : 'setrow'}>
             <div className="between">
               <span>{text}</span>
-              <button className={phone ? 'btn' : 'btn sm'} type="button" aria-label={`Remove ${text}`} onClick={() => void remove.run(a.id)}>
+              <button className={phone ? 'btn' : 'btn sm'} type="button" aria-label={`Remove ${text}`} onClick={() => void remove(a.id, text)}>
                 Remove
               </button>
             </div>

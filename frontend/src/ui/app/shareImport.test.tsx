@@ -52,9 +52,9 @@ describe('share import', () => {
   });
 
   it('tidies what it is given: blank text is skipped, space is collapsed, and very long text is cut', async () => {
-    const long = 'x'.repeat(2500);
-    const t = await mount([['  ', '  Call\n  the bank  ', long]]);
-    await waitFor(async () => expect(await t.titles()).toEqual(['Call the bank', 'x'.repeat(2000)]));
+    const t = await mount([['  ', '  Call\n  the bank  ', 'x'.repeat(2500), 'fences '.repeat(400)]]);
+    // Cut on a whole word: the 286th "fences" would run past 2,000 characters.
+    await waitFor(async () => expect(await t.titles()).toEqual(['Call the bank', 'x'.repeat(2000), 'fences '.repeat(285).trim()]));
     await waitFor(() => expect(t.queue).toEqual([]));
   });
 

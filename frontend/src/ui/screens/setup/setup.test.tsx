@@ -28,7 +28,7 @@ async function syncState(t: Harness, at: string | null, error: string | null) {
     if (at) await setMeta(t.db, META.lastSyncAt, at);
     if (error) await setMeta(t.db, META.lastSyncError, error);
     else await t.db.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
-    t.db.notifyChanged({ types: [], source: 'remote' });
+    t.db.notifyChanged({ source: 'remote' });
   });
 }
 
@@ -85,13 +85,13 @@ describe('first-run setup', () => {
     await syncState(t, null, 'sign_in_expired');
     await act(async () => {
       await setMeta(t.db, META.signingIn, '1');
-      t.db.notifyChanged({ types: [], source: 'remote' });
+      t.db.notifyChanged({ source: 'remote' });
     });
     expect((await screen.findByText('Signing in…')).closest('[role=status]')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
     await act(async () => {
       await t.db.run('DELETE FROM meta WHERE key = :key', { key: META.signingIn });
-      t.db.notifyChanged({ types: [], source: 'remote' });
+      t.db.notifyChanged({ source: 'remote' });
     });
     expect(await screen.findByRole('button', { name: 'Sign in' })).toBeVisible();
   });
@@ -138,6 +138,16 @@ describe('first-run setup', () => {
     await waitFor(async () => expect((await getSettings(t.db)).setup_done_at).toBeTruthy());
     expect(await listRecords(t.db, 'task')).toMatchObject([{ kind: 'inbox', title: 'Paint the fence' }]);
     expect(await listRecords(t.db, 'objective')).toHaveLength(0);
+  });
+
+  it('keeps a pasted capture to a length that syncs, as the capture field does', async () => {
+    const t = await renderScreen('setup', { firstRun: true });
+    await click('Next');
+    await click('Next');
+    await userEvent.click(await screen.findByRole('textbox'));
+    await userEvent.paste('word '.repeat(1000));
+    await click('Capture');
+    await waitFor(async () => expect(await listRecords(t.db, 'task')).toMatchObject([{ title: 'word '.repeat(400).trim() }]));
   });
 
   it('Enter in the field adds it as a goal', async () => {

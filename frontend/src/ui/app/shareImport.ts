@@ -5,17 +5,9 @@
 // queue item if duplicates ever show up.
 
 import { useEffect } from 'react';
+import { captureTitle } from '../../core/captureTitle';
 import { transact } from '../../core/records';
 import { useApp } from './store';
-
-/** The longest title a share can make, as for any capture. */
-const MAX_TITLE = 2000;
-
-/** Shared text comes from other apps, so it's tidied into a one-line title, or dropped if blank. */
-function titleOf(text: string): string | null {
-  const title = text.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE).trim();
-  return title || null;
-}
 
 export function useShareImport(): void {
   const { platform, db, clock } = useApp();
@@ -28,7 +20,8 @@ export function useShareImport(): void {
       if (items.length === 0) return;
       await transact(db, clock, async (w) => {
         for (const { text } of items) {
-          const title = titleOf(String(text));
+          // From other apps, so tidied like any capture, or dropped if blank.
+          const title = captureTitle(String(text));
           if (title) await w.create('task', { kind: 'inbox', title });
         }
       });

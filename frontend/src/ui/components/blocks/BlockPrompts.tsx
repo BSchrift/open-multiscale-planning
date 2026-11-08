@@ -10,12 +10,13 @@ import { blockMinutes, formatMinutes, instantMs } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import { useOverlay } from '../../app/nav';
+import { STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
 import { Sheet } from '../Sheet';
 import { useDialogFocus } from '../useDialogFocus';
 import { formatRange } from './describe';
-import { STILL_GOING_MIN, useBlockActions } from './useBlockActions';
+import { useBlockActions } from './useBlockActions';
 
 function DesktopPrompt(props: { label: string; onClose(): void; children: ReactNode }) {
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);
@@ -31,7 +32,7 @@ const busy = () =>
   !!document.querySelector('[aria-modal="true"]') || !!document.activeElement?.closest('input, textarea, select, [role="dialog"]');
 
 /** The corner panel on desktop, a sheet on phone. It waits while you're busy, looking again each time it re-renders. */
-export function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
+function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
   const { layout } = useApp();
   const [ready, setReady] = useState(false);
   // Read only to render again when Capture or Process closes, which renders nothing else here.
@@ -157,7 +158,7 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
           </button>
         </div>
         <div className="row">
-          <button className="link small" type="button" onClick={() => void actions.stillGoing(block).then(props.onClose)}>
+          <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.stillGoing(block).then(props.onClose)}>
             Still going, add {formatMinutes(STILL_GOING_MIN)}
           </button>
           <button className="link small" type="button" onClick={props.onClose}>
@@ -173,21 +174,14 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
 export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined; onClose(): void }) {
   const { block, next } = props;
   const { clock } = useApp();
-  const task = useTask(block);
   const actions = useBlockActions();
   const ago = Math.max(1, Math.round((clock.now() - instantMs(block.start)) / 60_000));
   return (
     <PromptFrame label="Have you started?" onClose={props.onClose}>
       <Heading over={`Started ${ago} ${ago === 1 ? 'minute' : 'minutes'} ago`} title={`Have you started ${block.title ?? 'this block'}?`} />
-      {task?.first_step && (
-        <div className="small">
-          <span className="quiet">First step: </span>
-          {task.first_step}
-        </div>
-      )}
       <div className="stack8">
         <div className="row">
-          <button className="btn pri" type="button" onClick={() => void actions.start(block).then(props.onClose)}>
+          <button className="btn pri" type="button" disabled={actions.pending} onClick={() => void actions.start(block).then(props.onClose)}>
             Yes, started
           </button>
           <button
@@ -203,11 +197,11 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
         </div>
         <div className="row">
           {next && (
-            <button className="link small" type="button" onClick={() => void actions.swap(block, next).then(props.onClose)}>
+            <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.swap(block, next).then(props.onClose)}>
               Do next block instead
             </button>
           )}
-          <button className="link small" type="button" onClick={() => void actions.skip(block).then(props.onClose)}>
+          <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.skip(block).then(props.onClose)}>
             Skip, choose a new time later
           </button>
         </div>

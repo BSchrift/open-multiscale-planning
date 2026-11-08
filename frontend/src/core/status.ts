@@ -1,6 +1,6 @@
 // Traffic lights. Status is computed, never stored, from milestones plus pace: the first rule that matches wins.
 
-import { addDays, diffDays, formatDate, formatMinutes, today } from './dates';
+import { addDays, diffDays, formatDate, formatMinutes, isDay, today } from './dates';
 import { dropTarget, effectiveDue, lateMilestone, milestoneWarnings, minutesLeft, moveMilestone, withChange } from './plan';
 import type { PlanChange, PlanContext, ProjectPlan } from './plan';
 import type { LocalDate, Milestone, SlipEntry } from './types';
@@ -92,8 +92,6 @@ export function fixSummary(plan: ProjectPlan, id: string, ctx: PlanContext) {
     title: `${m.title} was due ${formatDate(effectiveDue(plan, m, ctx))}`,
     sub: own.length ? `${own.length - open.length} of ${taskWord(own.length)} done, ${formatMinutes(openMin)} left.` : 'No tasks under this milestone.',
     doneCount: own.length - open.length,
-    openCount: open.length,
-    openMin,
     target,
     markLabel: open.length ? `Mark ${taskWord(open.length)} done` : 'Mark done',
     keepLabel: `Move to ${target ? `${target.title}, ${targetDue}` : `Done, ${formatDate(plan.project.end)}`}`,
@@ -101,12 +99,10 @@ export function fixSummary(plan: ProjectPlan, id: string, ctx: PlanContext) {
   };
 }
 
-const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
-
 /** What moving an overdue milestone to a date would do. It has to be a date after today. */
 export function previewMove(plan: ProjectPlan, id: string, date: string, ctx: PlanContext) {
   const on = today(ctx.clock);
-  if (!isDate(date) || date <= on) {
+  if (!isDay(date) || date <= on) {
     return { valid: false, moveLabel: 'Move date', preview: `Pick a date after ${formatDate(on)}.`, warnings: [] as string[] };
   }
   const before = status(plan, ctx).pill;

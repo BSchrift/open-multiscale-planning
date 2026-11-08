@@ -195,18 +195,21 @@ describe('calendar triggers', () => {
     });
   });
 
-  it('runs from the stream with a 60 second window, and only for what the worker does not write itself', () => {
+  it('runs from the stream with a 60 second window, for its inputs only and not the record it writes itself', () => {
     const [[, mapping]] = ofType('AWS::Lambda::EventSourceMapping');
     assert.equal(mapping.Properties.MaximumBatchingWindowInSeconds, 60);
     assert.deepEqual(mapping.Properties.FunctionName, { Ref: logicalId('Calendar') });
     const pattern = JSON.parse(mapping.Properties.FilterCriteria.Filters[0].Pattern);
-    assert.deepEqual(pattern.dynamodb.Keys.sk.S, [{ prefix: 'rec#time_block#' }, { prefix: 'rec#calendar_source#' }]);
+    // Events take their titles from tasks and practices, so renaming one is an input too.
+    assert.deepEqual(pattern.dynamodb.Keys.sk.S, [
+      { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
+    ]);
     assert.ok(mapping.Properties.MaximumRetryAttempts <= 3, 'the next run fixes anything a failed one missed');
   });
 });
 
 describe('least privilege', () => {
-  const data = ['dynamodb:BatchGetItem', 'dynamodb:ConditionCheckItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'];
+  const data = ['dynamodb:BatchGetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'];
 
   for (const fn of ['Api', 'Calendar']) {
     it(`${fn} has only the data actions a sync transaction uses, on this table`, () => {
@@ -236,8 +239,15 @@ describe('least privilege', () => {
     for (const fn of ['Api', 'Calendar']) {
       const get = policyFor(fn).filter((s) => s.Action.includes('ssm:GetParameter'));
       assert.equal(get.length, 1, fn);
-      assert.match(JSON.stringify(get[0].Resource), /parameter\/multiscale\/staging\/google\/\*"/, fn);
+      for (const resource of [get[0].Resource].flat()) assert.match(JSON.stringify(resource), /parameter\/multiscale\/staging\/google\//, fn);
     }
+    assert.match(JSON.stringify(policyFor('Api').find((s) => s.Action.includes('ssm:GetParameter'))!.Resource), /google\/\*"/);
+  });
+
+  it('lets the worker read only the client and the connection, not the key that signs consents', () => {
+    const get = policyFor('Calendar').filter((s) => s.Action.includes('ssm:GetParameter'));
+    const names = [get[0].Resource].flat().map((r: unknown) => JSON.stringify(r).match(/google\/([a-z-]+)"/)?.[1]);
+    assert.deepEqual(names.sort(), ['client-id', 'client-secret', 'refresh-token']);
   });
 
   it('worker reads secrets but cannot write them, and only it reads the stream', () => {
@@ -387,12 +397,8 @@ describe('Go binaries', () => {
   };
 
   it('use the build output when it is there', () => {
-    const stack = build('staging', dist(['bootstrap', 'config.yaml']), true);
+    const stack = build('staging', dist(['bootstrap']), true);
     Annotations.fromStack(stack).hasNoWarning('*', Match.stringLikeRegexp('not built'));
-  });
-
-  it('refuse to deploy a binary without the config it loads at startup', () => {
-    assert.throws(() => build('staging', dist(['bootstrap']), true), /config\.yaml/);
   });
 });
 

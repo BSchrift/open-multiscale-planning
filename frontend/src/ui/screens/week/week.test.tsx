@@ -27,7 +27,7 @@ async function week(w: Writer) {
     ],
   });
   await w.create('project', { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
-  await w.create('task', { kind: 'project', project_id: 'p', title: 'Draft the summary', first_step: 'Open the outline', estimate_min: 120 }, 't1');
+  await w.create('task', { kind: 'project', project_id: 'p', title: 'Draft the summary', estimate_min: 120 }, 't1');
   await w.create('task', { kind: 'one_off', title: 'Paint the fence', estimate_min: 60 }, 't2');
   await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr');
   await w.create('time_block', { task_id: 't1', start: at('18:00', TUE), end: at('19:00', TUE), tz: ZONE }, 'b1');
@@ -117,6 +117,7 @@ describe('Week on desktop', () => {
     // What's planned is the whole week's, past days included, as they show what happened.
     expect(within(used).getByRole('img', { name: '5h 30m projects, 30m practices, 6h one offs, 44h 30m free' })).toBeVisible();
     expect(within(used).getByText('Free 44h 30m')).toBeVisible();
+    expect(within(used).getByText('Free 44h 30m').querySelector('.seg-free')).toBeInTheDocument();
     // Today has only its evening left, so it's packed; Monday was full, but it has gone by.
     expect(within(used).getByText('Wed Nov 4 is packed')).toBeVisible();
     expect(within(used).getByText('30m free of 5h available that day.')).toBeVisible();
@@ -207,7 +208,7 @@ describe('Week on desktop', () => {
     await userEvent.click(opener);
     const details = await screen.findByRole('region', { name: 'Draft the summary' });
     expect(opener).toHaveAttribute('aria-expanded', 'true');
-    expect(await within(details).findByText('Open the outline')).toBeVisible();
+    expect(await within(details).findByText('Write the report')).toBeVisible();
     await userEvent.click(within(details).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('region', { name: 'Draft the summary' })).toBeNull();
     // Focus goes back to the block, not the page.
@@ -252,7 +253,6 @@ describe('Week on desktop', () => {
     await userEvent.keyboard('{ArrowDown}');
     const ask = await screen.findByRole('status', { name: 'Make this change permanent?' });
     expect(within(ask).getByText('Piano practice is now Wed Nov 4, 7:15am to 7:45am.')).toBeVisible();
-    expect((await block('b2')(t))?.edited).toBe(true);
     await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every week' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
     expect(await screen.findByText('Piano practice changed for every week. Edit it any time in Goals.')).toBeVisible();

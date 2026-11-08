@@ -182,9 +182,10 @@ function Patterns(props: { layout: Layout; patterns: Pattern[]; projects: { id: 
   const toast = useToast();
   const { clock } = useApp();
   const [raised, setRaised] = useState<string[]>([]);
-  const toggle = useMutation(async (w, slot: AvoidedSlot) => {
-    const settings = await getSettings(w.sql);
-    await updateSettings(w, { avoided_slots: toggleAvoidedSlot(settings.avoided_slots, slot) });
+  const setAvoided = useMutation(async (w, change: (slots: AvoidedSlot[]) => AvoidedSlot[]) => {
+    const was = (await getSettings(w.sql)).avoided_slots;
+    await updateSettings(w, { avoided_slots: change(was) });
+    return was;
   });
   // The project remembers the raise, so the work that led to it isn't offered again.
   const raise = useMutation(async (w, projectId: string, overPct: number) => {
@@ -195,6 +196,15 @@ function Patterns(props: { layout: Layout; patterns: Pattern[]; projects: { id: 
     await applyPlanChange(w, before);
     return true;
   });
+
+  const onToggle = async (p: Extract<Pattern, { kind: 'avoid' | 'avoided' }>) => {
+    const was = await setAvoided.run((slots) => toggleAvoidedSlot(slots, p.slot));
+    if (!was) return;
+    toast.show(p.kind === 'avoid' ? 'Stopped suggesting those times.' : 'Suggesting those times again.', {
+      undo: () => setAvoided.run(() => was),
+      focusUndo: true,
+    });
+  };
 
   const onRaise = async (p: Extract<Pattern, { kind: 'estimate' }>) => {
     const before = await raise.run(p.project_id, p.over_pct);
@@ -213,7 +223,7 @@ function Patterns(props: { layout: Layout; patterns: Pattern[]; projects: { id: 
       .map((p) =>
         p.kind === 'best'
           ? { text: p.text, label: null, act: null }
-          : { text: p.text, label: p.label, act: p.kind === 'estimate' ? () => void onRaise(p) : () => void toggle.run(p.slot) },
+          : { text: p.text, label: p.label, act: p.kind === 'estimate' ? () => void onRaise(p) : () => void onToggle(p) },
       ),
     ...raised.map((id) => ({ text: `${props.projects.find((x) => x.id === id)?.title ?? 'These'} tasks now start with longer estimates.`, label: null, act: null })),
   ];

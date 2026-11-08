@@ -19,15 +19,13 @@ import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetai
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
 import { useToast } from '../../components/Toast';
+import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
 const DAY_FROM = 7 * 60;
 const DAY_TO = 22 * 60;
 const KIND_CLASS: Record<BlockKind, string> = { project: 'project', one_off: 'maint', practice: 'practice' };
-// As holding a task on Goals.
-const HOLD_MS = 400;
-const SLOP_PX = 8;
 
 const same = (a: Slot, b: Slot) => a.start === b.start && a.end === b.end;
 const range = (s: Slot) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;

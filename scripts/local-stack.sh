@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Starts the local stack on free ports: DynamoDB Local and Moto under a Compose project of its own, then cmd/local with
 # the Cognito and Google stand-ins. Once the API answers it prints one NAME=value line per endpoint, LOCAL_API_URL last,
-# and writes the API URL alone to the file given as the first argument or LOCAL_STACK_URL_FILE. It stays up until it
-# gets SIGTERM or Ctrl-C, or cmd/local exits, then removes everything it started, that file included. Several can run
-# at once.
+# and writes the API URL alone to the file given as the first argument. It stays up until it gets SIGTERM or Ctrl-C, or
+# cmd/local exits, then removes everything it started, that file included. Several can run at once.
 #   scripts/local-stack.sh [url-file]
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-url_file="${1:-${LOCAL_STACK_URL_FILE:-}}"
+url_file="${1:-}"
 work="$(mktemp -d)"
 # The PID keeps the project unique even when callers share a prefix.
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-multiscale-stack}-$$"

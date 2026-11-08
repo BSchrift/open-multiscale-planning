@@ -59,5 +59,5 @@ it('frees the lock when the command is done, even if it leaves something running
 it('runs everything that writes or reads the shared build output under the lock', () => {
   const { scripts } = JSON.parse(readFileSync(join(frontend, 'package.json'), 'utf8'));
   for (const name of ['build', 'e2e:electron', 'electron:build', 'ios:sync']) expect(scripts[name], name).toMatch(/^scripts\/build-lock\.sh /);
-  expect(readFileSync(join(frontend, '../scripts/test-ios.sh'), 'utf8')).toContain('frontend/scripts/build-lock.sh');
+  for (const script of ['release.sh', 'test-ios.sh']) expect(readFileSync(join(frontend, '../scripts', script), 'utf8'), script).toContain('frontend/scripts/build-lock.sh');
 });

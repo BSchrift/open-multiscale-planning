@@ -103,6 +103,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
   if (layout === 'phone') {
     return (
       <div ref={root} className="planning pflow">
+        <h1 className="sr">Plan the week</h1>
         <div className="flowtop">
           <button className="btn" type="button" onClick={close}>
             Save and exit

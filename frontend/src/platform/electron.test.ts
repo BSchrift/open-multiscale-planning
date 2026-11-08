@@ -67,12 +67,12 @@ describe('the Electron platform', () => {
 
   it('saves a capture to the Inbox, queued to sync, tells subscribers, and then acknowledges', async () => {
     const changes: string[] = [];
-    platform.db.subscribe((c) => changes.push(...c.types));
+    platform.db.subscribe((c) => changes.push(c.source));
     fake.capture('c1', 'Paint the fence');
     await vi.waitFor(() => expect(fake.done).toEqual([['c1', undefined]]));
     expect(await platform.db.all("SELECT title FROM task WHERE kind = 'inbox'")).toEqual([{ title: 'Paint the fence' }]);
     expect(await platform.db.all("SELECT field FROM outbox WHERE field = 'title'")).toEqual([{ field: 'title' }]);
-    expect(changes).toEqual(['task']);
+    expect(changes).toEqual(['local']);
   });
 
   it('reports a failed capture instead of acknowledging it', async () => {

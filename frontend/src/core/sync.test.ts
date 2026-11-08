@@ -107,10 +107,10 @@ describe('runSync pushing', () => {
     const db = await openTestDb();
     const s = server();
     await transact(db, clock, async (w) => {
-      for (let i = 0; i < 100; i++) await w.create('task', { kind: 'inbox', title: `Task ${i}`, first_step: 'Begin', link: 'x' }, `r${String(i).padStart(3, '0')}`);
+      for (let i = 0; i < 100; i++) await w.create('task', { kind: 'inbox', title: `Task ${i}`, estimate_min: 30, remaining_min: 20 }, `r${String(i).padStart(3, '0')}`);
     });
     await runSync(db, s.send);
-    for (const change of s.requests[0]!.changes) expect(Object.keys(change.fields).sort()).toEqual(['first_step', 'kind', 'link', 'title']);
+    for (const change of s.requests[0]!.changes) expect(Object.keys(change.fields).sort()).toEqual(['estimate_min', 'kind', 'remaining_min', 'title']);
   });
 });
 
@@ -409,7 +409,7 @@ async function convergeUnder(schedule: readonly ('a' | 'b')[]) {
 
   ca.set(NOW + 1000);
   cb.set(NOW + 2000);
-  await transact(a, ca, (w) => w.set('task', shared, { title: 'A wrote this', first_step: 'A step' }));
+  await transact(a, ca, (w) => w.set('task', shared, { title: 'A wrote this', remaining_min: 20 }));
   await transact(b, cb, (w) => w.set('task', shared, { title: 'B wrote this later', estimate_min: 30 }));
   await transact(a, ca, (w) => w.create('task', { kind: 'one_off', title: 'Only on A' }, 'only-a'));
   await transact(b, cb, (w) => w.create('task', { kind: 'one_off', title: 'Only on B' }, 'only-b'));
@@ -449,7 +449,7 @@ describe('two replicas', () => {
       results.push(r.a.map(({ id, data }) => ({ id, data })));
     }
     for (const r of results) expect(r).toEqual(results[0]);
-    expect(results[0]!.find((r) => r.id === 'shared-task')!.data).toMatchObject({ title: 'B wrote this later', first_step: 'A step', estimate_min: 30 });
+    expect(results[0]!.find((r) => r.id === 'shared-task')!.data).toMatchObject({ title: 'B wrote this later', remaining_min: 20, estimate_min: 30 });
     expect(results[0]!.find((r) => r.id === 'only-a')!.data).toMatchObject({ deleted_at: expect.any(String) });
     expect(results[0]!.find((r) => r.id === 'only-b')).toBeDefined();
   });
@@ -457,8 +457,8 @@ describe('two replicas', () => {
   it('converge when server pages arrive in any order, with repeats', async () => {
     const c = (wall: number, device: string) => formatClock({ wall, counter: 0, device });
     const pages: RecordChange[] = [
-      { type: 'task', id: 't', fields: { title: { v: 'A', c: c(1000, 'a') }, link: { v: 'x', c: c(5000, 'a') } } },
-      { type: 'task', id: 't', fields: { title: { v: 'B', c: c(2000, 'b') }, link: { v: 'y', c: c(5000, 'b') } } },
+      { type: 'task', id: 't', fields: { title: { v: 'A', c: c(1000, 'a') }, estimate_min: { v: 30, c: c(5000, 'a') } } },
+      { type: 'task', id: 't', fields: { title: { v: 'B', c: c(2000, 'b') }, estimate_min: { v: 45, c: c(5000, 'b') } } },
       { type: 'task', id: 't', fields: { deleted_at: { v: '2026-11-01T00:00:00Z', c: c(1500, 'c') } } },
     ];
     const orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0], [1, 1, 0, 2, 0]];
@@ -467,9 +467,9 @@ describe('two replicas', () => {
       const db = await openTestDb();
       for (const i of order) await applyRemote(db, [pages[i]!]);
       const record = await getRecord(db, 'task', 't');
-      seen.add(JSON.stringify([record!.title, record!.link, record!.deleted_at]));
+      seen.add(JSON.stringify([record!.title, record!.estimate_min, record!.deleted_at]));
     }
-    expect([...seen]).toEqual([JSON.stringify(['B', 'y', '2026-11-01T00:00:00Z'])]);
+    expect([...seen]).toEqual([JSON.stringify(['B', 45, '2026-11-01T00:00:00Z'])]);
   });
 });
 

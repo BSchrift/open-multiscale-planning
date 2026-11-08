@@ -45,18 +45,17 @@ const slideTo = (slider: HTMLElement, minutes: number) => fireEvent.change(slide
 
 describe('the Now card', () => {
   const day = async (w: Writer) => {
-    await task(w, 't1', 'Write the report', { first_step: 'Open the outline' });
+    await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '13:00', '15:00');
     await w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't2');
     await block(w, 'b2', 't2', '16:00', '17:00');
   };
 
-  it('shows the block in progress with its first step, and Start sets the clock going', async () => {
+  it('shows the block in progress, and Start sets the clock going', async () => {
     const t = await open(day);
     const now = await screen.findByRole('region', { name: 'Current block' });
     expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
     expect(within(now).getByRole('heading', { name: 'Write the report' })).toBeVisible();
-    expect(within(now).getByText('Open the outline')).toBeVisible();
     await userEvent.click(within(now).getByRole('button', { name: 'Start' }));
     expect(await within(now).findByText('In progress, time left')).toBeVisible();
     expect(within(now).getByRole('timer')).toHaveTextContent('1:00:00');
@@ -207,7 +206,7 @@ describe('the end-of-block prompt', () => {
 
 describe('the start check-in', () => {
   const late = async (w: Writer) => {
-    await task(w, 't1', 'Write the report', { first_step: 'Open the outline' });
+    await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '13:50', '15:00');
   };
 
@@ -230,7 +229,7 @@ describe('the start check-in', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
     // Not answered, so it isn't crossed off or sent to Needs a new time: it waits in To schedule.
     expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
-    expect(await getRecord(t.db, 'week_pick', weekPickId(DAY, 't1'))).toMatchObject({ minutes: 70, skipped: false });
+    expect(await getRecord(t.db, 'week_pick', weekPickId(DAY, 't1'))).toMatchObject({ minutes: 70 });
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy());
   });
@@ -325,6 +324,26 @@ describe('Needs a new time', () => {
     expect(await within(panel).findByText('Nothing needs a new time.')).toBeVisible();
   });
 
+  it('placing raises an estimate the time no longer fits, as placing on Week does, and Undo takes both back', async () => {
+    const t = await open(async (w) => {
+      await missed(at('09:00'))(w);
+      await w.set('task', 't3', { estimate_min: 30 });
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    const panel = screen.getByRole('region', { name: 'Needs a new time' });
+    await userEvent.click(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ }));
+    expect(await screen.findByText(/^Placed Rake the leaves, /)).toBeVisible();
+    const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't3' && b.id !== 'old');
+    expect(await placed()).toHaveLength(1);
+    expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(60);
+    // The row and its button have gone, so focus goes to Undo rather than the page.
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await placed()).toEqual([]));
+    expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(30);
+    expect(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ })).toBeVisible();
+  });
+
   it("offers a time before the task's milestone is due, not just the emptiest day", async () => {
     await open(async (w) => {
       await w.create('project', { title: 'Learn to bake bread', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
@@ -347,6 +366,13 @@ describe('Needs a new time', () => {
     const panel = screen.getByRole('region', { name: 'Needs a new time' });
     expect(within(panel).getByText('Still want this?')).toBeVisible();
     expect(within(panel).queryByRole('button', { name: /Someday/ })).toBeNull();
+    await userEvent.click(within(panel).getByRole('button', { name: 'Keep Rake the leaves' }));
+    expect(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ })).toBeVisible();
+    expect(screen.getByText('Kept Rake the leaves.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await within(panel).findByText('Still want this?')).toBeVisible();
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('old')))?.answered_at).toBe(at('10:00', '2026-11-01'));
     await userEvent.click(within(panel).getByRole('button', { name: 'Keep Rake the leaves' }));
     expect(await within(panel).findByRole('button', { name: /^Place Rake the leaves/ })).toBeVisible();
     await userEvent.click(within(panel).getByRole('button', { name: 'Delete Rake the leaves' }));
@@ -471,6 +497,17 @@ describe('when the week is not planned', () => {
     localStorage.clear();
   });
 
+  it('on phone, Start opens planning the stretch, and its × is named in full and puts it away', async () => {
+    const t = await open(async () => undefined, { layout: 'phone' });
+    const start = await screen.findByRole('button', { name: 'Plan your first stretch. It ends Dec 31. Start' });
+    expect(within(start).getByText('Start')).toHaveClass('attngo');
+    await userEvent.click(start);
+    expect(t.nav().flow?.area).toBe('plan');
+    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Plan your first stretch. It ends Dec 31.' }));
+    await waitFor(() => expect(screen.queryByText('Plan your first stretch. It ends Dec 31.')).toBeNull());
+    localStorage.clear();
+  });
+
   it('lets the next stretch alert be skipped on desktop too', async () => {
     await open(async (w) => {
       await w.create('settings', monthly, 'settings');
@@ -497,7 +534,7 @@ describe('Google Calendar', () => {
   const signIn = (t: Harness) =>
     act(async () => {
       await setMeta(t.db, META.lastSyncAt, NOW);
-      t.db.notifyChanged({ types: [], source: 'remote' });
+      t.db.notifyChanged({ source: 'remote' });
     });
   afterEach(() => localStorage.clear());
 
@@ -518,7 +555,7 @@ describe('Google Calendar', () => {
     await signIn(t);
     await userEvent.click(await screen.findByRole('button', { name: 'Connect Google Calendar Connect' }));
     expect(sync.connectCalendar).toHaveBeenCalledOnce();
-    await userEvent.click(screen.getByRole('button', { name: 'Skip Connect Google Calendar for now' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Connect Google Calendar' }));
     await waitFor(() => expect(screen.queryByText('Connect Google Calendar')).toBeNull());
     cleanup();
     await signIn(await open(async () => undefined, { layout: 'phone', sync, now: at('14:00', '2026-11-04') }));
@@ -571,10 +608,38 @@ describe('one offs due today', () => {
     expect(fence()).not.toBeChecked();
   });
 
+  it('a row moved off today leaves focus on the next one, and on Undo once none are left', async () => {
+    const t = await open(async (w) => {
+      await dated(w);
+      await w.create('task', { kind: 'one_off', title: 'Wash the car', schedule: { type: 'once', from: DAY }, next_due: DAY }, 't3');
+    });
+    const list = await screen.findByRole('region', { name: 'One offs today' });
+    await userEvent.click(within(list).getByRole('button', { name: 'Change date for Paint the fence' }));
+    fireEvent.change(within(list).getByLabelText('Date'), { target: { value: '2026-11-05' } });
+    await userEvent.click(within(list).getByRole('button', { name: 'Set date' }));
+    await waitFor(() => expect(within(list).queryByText('Paint the fence')).toBeNull());
+    await waitFor(() => expect(within(list).getByRole('checkbox', { name: 'Wash the car done' })).toHaveFocus());
+
+    await userEvent.click(within(list).getByRole('button', { name: 'Change date for Wash the car' }));
+    fireEvent.change(within(list).getByLabelText('Date'), { target: { value: '2026-11-06' } });
+    await userEvent.click(within(list).getByRole('button', { name: 'Set date' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'One offs today' })).toBeNull());
+    expect(screen.getByText('Wash the car, Nov 6.')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.schedule).toEqual({ type: 'once', from: DAY }));
+  });
+
   it('Find a time opens Week to place it, and Change date moves it off today', async () => {
     const t = await open(dated);
     const list = await screen.findByRole('region', { name: 'One offs today' });
-    await userEvent.click(within(list).getByRole('button', { name: 'Change date for Paint the fence' }));
+    const change = within(list).getByRole('button', { name: 'Change date for Paint the fence' });
+    await userEvent.click(change);
+    await userEvent.keyboard('{Escape}');
+    expect(within(list).queryByLabelText('Date')).toBeNull();
+    // Focus goes back to Change date rather than the page.
+    expect(change).toHaveFocus();
+    await userEvent.click(change);
     fireEvent.change(within(list).getByLabelText('Date'), { target: { value: '2026-11-05' } });
     await userEvent.click(within(list).getByRole('button', { name: 'Set date' }));
     await waitFor(() => expect(screen.queryByRole('region', { name: 'One offs today' })).toBeNull());
@@ -590,16 +655,15 @@ describe('the timeline', () => {
   const day = async (w: Writer) => {
     await w.create('objective', { title: 'Write more', state: 'active' }, 'g');
     await w.create('project', { objective_id: 'g', title: 'Finish the essay', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
-    await task(w, 't1', 'Write the report', { first_step: 'Open the outline' });
+    await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '16:00', '17:00');
   };
 
-  it('opens a block to show its first step and what it belongs to', async () => {
+  it('opens a block to show what it belongs to', async () => {
     await open(day);
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
     const detail = screen.getByRole('region', { name: 'Write the report' });
     expect(await within(detail).findByText('Write more > Finish the essay')).toBeVisible();
-    expect(within(detail).getByText('Open the outline')).toBeVisible();
   });
 
   it('says what kind each block is, not only by its colour', async () => {
@@ -620,7 +684,7 @@ describe('the timeline', () => {
     expect(row).toHaveTextContent('4pm to 5pm');
     await userEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
-    expect(await within(row.parentElement!).findByText('Open the outline')).toBeVisible();
+    expect(await within(row.parentElement!).findByText('Write more > Finish the essay')).toBeVisible();
   });
 
   it('zooms in and out', async () => {
@@ -635,7 +699,7 @@ describe('the timeline', () => {
     await open(day, { layout: 'phone' });
     await userEvent.click(await screen.findByRole('slider', { name: /^Write the report, 4pm to 5pm/ }));
     const sheet = await dialog('Write the report');
-    expect(await within(sheet).findByText('Open the outline')).toBeVisible();
+    expect(await within(sheet).findByText('Write more > Finish the essay')).toBeVisible();
   });
 });
 

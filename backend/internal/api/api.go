@@ -147,7 +147,9 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 			return finish(http.StatusConflict, "conflict")
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-		return finish(http.StatusInternalServerError, "internal")
+		out := finish(http.StatusInternalServerError, "internal")
+		out.attrs = append(out.attrs, sync.ErrorAttrs(err)...)
+		return out
 	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, sync.MaxBodyBytes))

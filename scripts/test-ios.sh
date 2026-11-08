@@ -26,7 +26,7 @@ esac
 cd "$root/frontend"
 runtime_device="${IOS_DEVICE:-iPhone 16}"
 runs="${MULTISCALE_RUNS:-NO YES}"
-derived="${IOS_DERIVED_DATA:-$PWD/ios/DerivedData}"
+derived="$PWD/ios/DerivedData"
 
 work="$(mktemp -d)"
 device=""
@@ -63,7 +63,10 @@ else
   only=(-only-testing:MultiscaleUITests/SignedInUITests)
 fi
 target=""
-if [ "$ENV" != local ] || [ -n "$api" ]; then
+if [ "$ENV" != local ]; then
+  # Run from scripts/test-deployed.sh, it's already read, test user's password and all.
+  target="${MULTISCALE_TARGET:-$(node scripts/test-target.mjs)}"
+elif [ -n "$api" ]; then
   target="$(node scripts/test-target.mjs)"
 fi
 
@@ -82,6 +85,11 @@ server=$!
 for extensions in $runs; do
   echo "== Extensions $extensions =="
   device="$(xcrun simctl create "multiscale-test-$$" "$runtime_device")"
+  # The keyboard tests need the software keyboard, which Simulator hides once it connects the Mac's keyboard.
+  defaults write com.apple.iphonesimulator DevicePreferences -dict-add "$device" '<dict><key>ConnectHardwareKeyboard</key><false/></dict>'
+  # A new Simulator goes on setting itself up for minutes after it starts, and the first app launches meanwhile can
+  # take longer than a test waits for the app. So it boots while the app builds, and the tests wait until it's done.
+  xcrun simctl boot "$device"
   build_settings=(-project ios/App/App.xcodeproj -scheme App -configuration Debug -derivedDataPath "$derived"
     -destination "id=$device" "MULTISCALE_EXTENSIONS=$extensions")
 
@@ -90,8 +98,9 @@ for extensions in $runs; do
   # A Simulator build carries its entitlements in the executable rather than in a signature.
   if grep -aq com.apple.security.application-groups "$app/App"; then group=YES; else group=NO; fi
   if [ "$extensions" = NO ]; then
-    # What a free personal team would be asked to sign: no extensions and no App Group.
-    if [ -e "$app/PlugIns" ]; then echo "App has extensions while they are off"; exit 1; fi
+    # What a free personal team would be asked to sign: the Control Center button, which needs no entitlements, and no
+    # share sheet or App Group.
+    if [ -e "$app/PlugIns/MultiscaleShare.appex" ]; then echo "App has the share extension while extensions are off"; exit 1; fi
     if [ "$group" = YES ]; then echo "App has an App Group while extensions are off"; exit 1; fi
   else
     for appex in MultiscaleShare MultiscaleCapture; do
@@ -99,9 +108,12 @@ for extensions in $runs; do
     done
     if [ "$group" = NO ]; then echo "App has no App Group with extensions on"; exit 1; fi
   fi
+  xcrun simctl bootstatus "$device" >/dev/null
 
+  # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password.
   TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
-    TEST_RUNNER_MULTISCALE_TARGET="$target" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"}
+    TEST_RUNNER_MULTISCALE_TARGET="$target" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} 2>&1 |
+    sed -E "s/Type '[^']*'/Type '…'/"
 
   xcrun simctl delete "$device"
   device=""

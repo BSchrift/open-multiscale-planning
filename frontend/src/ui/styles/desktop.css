@@ -116,7 +116,7 @@
 :where([data-layout='desktop']) .wrap{max-width:760px}
 :where([data-layout='desktop']) .wide{max-width:1120px}
 :where([data-layout='desktop']) .date{color:var(--quiet);font-size:14px}
-:where([data-layout='desktop']) h1{font-size:24px;font-weight:600;line-height:1.25}
+:where([data-layout='desktop']) h1{font-size:var(--text-h1-desktop);font-weight:600;line-height:1.25}
 :where([data-layout='desktop']) h2{font-size:17px;font-weight:600}
 :where([data-layout='desktop']) .stack{display:flex;flex-direction:column;gap:16px}
 /* First-run setup sits in the middle of the window, in a column narrow enough to read as one. */
@@ -182,11 +182,6 @@
 :where([data-layout='desktop']) .ptrack{position:relative;height:36px;border-radius:4px;background:var(--track)}
 :where([data-layout='desktop']) .pspan{position:absolute;top:5px;height:6px;border-radius:3px;background:var(--grey)}
 :where([data-layout='desktop']) .pdot{position:absolute;top:3px;width:10px;height:10px;margin-left:-5px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}
-:where([data-layout='desktop']) .pdot.on{background:var(--blue)}
-:where([data-layout='desktop']) .pdot.met{border-color:var(--grey);background:var(--grey)}
-:where([data-layout='desktop']) .pdot.late{border-color:var(--red);background:var(--white)}
-:where([data-layout='desktop']) .pdot.late.on{background:var(--red)}
-:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}
 :where([data-layout='desktop']) .pkey{position:relative;display:inline-block;width:10px;height:10px;margin-right:6px}
 :where([data-layout='desktop']) .pkey .pdot{top:0;margin-left:0}
 :where([data-layout='desktop']) .pmshead{padding:8px 0 0}
@@ -202,8 +197,6 @@
 :where([data-layout='desktop']) .pickside .between{flex-wrap:nowrap}
 :where([data-layout='desktop']) .offer{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--blue-line);border-radius:8px;background:var(--white);text-align:left}
 :where([data-layout='desktop']) .dchip{min-width:44px;min-height:36px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--white);font-size:14px}
-:where([data-layout='desktop']) .meter{height:10px;border-radius:5px;background:var(--fill);overflow:hidden;display:flex}
-:where([data-layout='desktop']) .meter span{display:block;height:100%}
 :where([data-layout='desktop']) .gridbox{overflow-x:auto}
 :where([data-layout='desktop']) .grid{display:grid;grid-template-columns:44px repeat(7,minmax(92px,1fr));min-width:700px;gap:0 2px}
 :where([data-layout='desktop']) .colhead{min-height:48px;padding:4px;font-size:13px}
@@ -229,7 +222,6 @@
 :where([data-layout='desktop']) .schedrow.cur .schedbtn:hover{background:transparent}
 :where([data-layout='desktop']) .schedmark{flex:none;width:18px;text-align:center}
 :where([data-layout='desktop']) .scheddetail{padding:0 10px 0 34px}
-:where([data-layout='desktop']) .ev-ghost.first{background:var(--blue-tint)}
 :where([data-layout='desktop']) .evdrag{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 :where([data-layout='desktop']) .evdrag:focus-visible{outline:2px solid var(--blue);outline-offset:1px;z-index:4}
 :where([data-layout='desktop']) .evh{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize;opacity:.35}

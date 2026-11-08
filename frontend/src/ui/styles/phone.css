@@ -1,6 +1,6 @@
 /* Phone layout. In class names, "maint" means one-off colours. Overlays are fixed to the viewport. */
 
-:where([data-layout='phone']) h1{font-size:28px;font-weight:600;line-height:1.2}
+:where([data-layout='phone']) h1{font-size:var(--text-h1-phone);font-weight:600;line-height:1.2}
 :where([data-layout='phone']) h2{font-size:18px;font-weight:600}
 :where([data-layout='phone']) .small{font-size:14px}
 :where([data-layout='phone']) .stack{display:flex;flex-direction:column;gap:12px}
@@ -80,9 +80,8 @@
 :where([data-layout='phone']) .dragblock::before{content:'';position:absolute;left:0;right:0;top:-10px;bottom:-10px}
 :where([data-layout='phone']) .dragblock:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 :where([data-layout='phone']) .tray.dragbar{flex-direction:column;align-items:stretch;padding:8px 10px}
-:where([data-layout='phone']) .tray{position:fixed;left:16px;right:92px;bottom:84px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:52px;padding:6px 8px 6px 14px;border:1px solid var(--blue-line);border-radius:12px;background:var(--blue-pale);color:var(--blue-ink);font-size:14px;text-align:left;box-shadow:0 4px 14px rgba(var(--ink-rgb),.12)}
+:where([data-layout='phone']) .tray{position:fixed;left:16px;right:92px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:52px;padding:6px 8px 6px 14px;border:1px solid var(--blue-line);border-radius:12px;background:var(--blue-pale);color:var(--blue-ink);font-size:14px;text-align:left;box-shadow:0 4px 14px rgba(var(--ink-rgb),.12)}
 :where([data-layout='phone']) button.tray{cursor:pointer}
-:where([data-layout='phone']) .sheet.tall{max-height:86%;overflow-y:auto}
 :where([data-layout='phone']) .sheet.tall>.btn.pri{position:sticky;bottom:0}
 /* The week's key wraps whole items, so no label is left apart from its swatch. */
 :where([data-layout='phone']) .wkkeys{display:flex;flex-wrap:wrap;gap:2px 12px}
@@ -96,7 +95,7 @@
 :where([data-layout='phone']) .candsel{padding:0 0 12px}
 :where([data-layout='phone']) .offer{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:48px;padding:8px 12px;border:1px solid var(--blue-line);border-radius:10px;background:var(--white);text-align:left}
 :where([data-layout='phone']) .checkcircle{flex:none;appearance:none;-webkit-appearance:none;width:28px;height:28px;margin:0;padding:0;border:1.5px solid var(--grey);border-radius:50%;background:var(--white) center/16px no-repeat}
-:where([data-layout='phone']) .fab{position:fixed;right:16px;bottom:88px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:var(--blue);color:var(--white);box-shadow:0 6px 18px rgba(var(--ink-rgb),.32);z-index:5}
+:where([data-layout='phone']) .fab{position:fixed;right:16px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:var(--blue);color:var(--white);box-shadow:0 6px 18px rgba(var(--ink-rgb),.32);z-index:5}
 :where([data-layout='phone']) .fab svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round}
 :where([data-layout='phone']) .backbtn{align-self:flex-start;min-height:44px;padding:0;border:0;background:transparent;color:var(--blue)}
 :where([data-layout='phone']) .projbtn{display:flex;gap:8px;align-items:flex-start;width:100%;min-height:44px;padding:6px 0;border:0;background:transparent;text-align:left}
@@ -136,7 +135,7 @@
 :where([data-layout='phone']) .c-project.c-ended,:where([data-layout='phone']) .c-maint.c-ended,:where([data-layout='phone']) .c-practice.c-ended{background:var(--closed);color:var(--quiet);border-color:var(--line)}
 :where([data-layout='phone']) .goalbtn{display:flex;gap:10px;align-items:flex-start;width:100%;min-height:60px;padding:14px 16px;border:0;background:transparent;text-align:left}
 :where([data-layout='phone']) .nested{gap:0}
-:where([data-layout='phone']) .toast{position:fixed;left:16px;right:16px;bottom:158px;padding:10px 14px;border-radius:10px;background:var(--ink);color:var(--white);font-size:14px;z-index:15}
+:where([data-layout='phone']) .toast{position:fixed;left:16px;right:16px;padding:10px 14px;border-radius:10px;background:var(--ink);color:var(--white);font-size:14px;z-index:15}
 :where([data-layout='phone']) .icbtn{flex:none;width:44px;height:44px;padding:0;border:1px solid var(--border);border-radius:10px;background:var(--white);font-size:20px;line-height:1}
 :where([data-layout='phone']) .icbtn:disabled{opacity:.35;cursor:default}
 :where([data-layout='phone']) .c-info{background:transparent;border:1px dashed var(--info-line);color:var(--ink-2)}
@@ -165,7 +164,6 @@
 :where([data-layout='phone']) .planshowrow{display:flex;align-items:baseline;gap:6px}
 :where([data-layout='phone']) .oomark{position:absolute;top:17px;height:10px;min-width:10px;padding:0;border:0;border-radius:5px;background:var(--purple);cursor:ew-resize;touch-action:none;z-index:2}
 :where([data-layout='phone']) .oomark::before{content:'';position:absolute;inset:-17px -17px}
-:where([data-layout='phone']) .oorow{padding:8px 0 8px 10px;border-left:4px solid var(--purple);margin-bottom:8px}
 :where([data-layout='phone']) .planshowrow>:last-child:not(.grow){flex:none;max-width:45%;text-align:right}
 :where([data-layout='phone']) .gtrack{position:relative;height:18px;background:var(--track)}
 :where([data-layout='phone']) .gbar{position:absolute;top:4px;height:10px;border-radius:3px;background:var(--blue-soft);overflow:hidden}
@@ -234,22 +232,8 @@
 :where([data-layout='phone']) .trow.oo .tadd.on span{background:var(--purple);color:var(--white)}
 :where([data-layout='phone']) .pktoast{position:absolute;left:16px;right:16px;bottom:calc(100% + 8px);z-index:7;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 4px 4px 14px;border-radius:10px;background:var(--ink);color:var(--white);font-size:14px}
 :where([data-layout='phone']) .pktoast button{min-height:44px;padding:4px 12px;border:0;background:transparent;color:var(--blue-on-dark);font-weight:600}
-:where([data-layout='phone']) .donut{position:absolute;z-index:6;left:calc(50% - 44px);top:-100px;width:88px;height:88px;pointer-events:none;transition:opacity .3s;animation:popin .12s ease-out}
-:where([data-layout='phone']) .donut.small{left:auto;right:16px;top:-36px;width:72px;height:72px}
-:where([data-layout='phone']) .donut.fading{opacity:0}
-:where([data-layout='phone']) .donut .disc{position:absolute;inset:0;border-radius:50%;background:var(--disc);box-shadow:0 3px 12px rgba(var(--ink-rgb),.2)}
-:where([data-layout='phone']) .donut svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
-:where([data-layout='phone']) .donut circle{fill:none;stroke-width:9}
-:where([data-layout='phone']) .dtrack{stroke:var(--fill)}
-:where([data-layout='phone']) .dold{stroke:var(--blue);transition:stroke .4s,stroke-dasharray .2s}
-:where([data-layout='phone']) .dnew{stroke:var(--blue);opacity:.45;transition:stroke .4s,stroke-dasharray .4s ease-out}
-:where([data-layout='phone']) .dlabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:15px;line-height:1.1;font-weight:600}
-:where([data-layout='phone']) .small .dlabel{font-size:13px}
-@keyframes popin{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
-@keyframes popfade{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){
-  :where([data-layout='phone']) .dnew,:where([data-layout='phone']) .dold,:where([data-layout='phone']) .mm i,:where([data-layout='phone']) .trow{transition:none}
-  :where([data-layout='phone']) .donut{animation:popfade .15s both}
+  :where([data-layout='phone']) .mm i,:where([data-layout='phone']) .trow{transition:none}
 }
 :where([data-layout='phone']) .wday.sched{height:132px}
 :where([data-layout='phone']) .wday.sched .wfree{font-size:10px}

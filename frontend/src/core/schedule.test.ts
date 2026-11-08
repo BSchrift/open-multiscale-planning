@@ -289,12 +289,12 @@ describe('ticking', () => {
     const t = task({ type: 'once', from: '2026-10-30' }, '2026-10-30');
     const r = tick(t, clockAt());
     expect(r.task).toEqual({ done_at: NOW });
-    expect(r.completion.id).toBe(occurrenceId('task_completion', 't1', '2026-10-30'));
+    expect(r.completion.id).toBe(occurrenceId('t1', '2026-10-30'));
     expect(r.completion.fields).toEqual({ task_id: 't1', done_at: NOW, previous_next: '2026-10-30', deleted_at: null });
   });
 
   it('keys an undated task by the day it was done', () => {
-    expect(tick(task({ type: 'once' }), clockAt()).completion.id).toBe(occurrenceId('task_completion', 't1', '2026-10-30'));
+    expect(tick(task({ type: 'once' }), clockAt()).completion.id).toBe(occurrenceId('t1', '2026-10-30'));
     expect(tick(task(null), clockAt()).task).toEqual({ done_at: NOW });
   });
 
@@ -307,7 +307,7 @@ describe('ticking', () => {
   it('gives two offline devices the same completion for one occurrence', () => {
     const t = task(weekly, '2026-11-07');
     expect(tick(t, clockAt('2026-11-01T10:00:00Z')).completion.id).toBe(tick(t, clockAt()).completion.id);
-    expect(tick(t, clockAt()).completion.id).toBe(occurrenceId('task_completion', 't1', '2026-11-07'));
+    expect(tick(t, clockAt()).completion.id).toBe(occurrenceId('t1', '2026-11-07'));
   });
 
   it('gives each tick of a recurring task its own completion', () => {
@@ -320,7 +320,7 @@ describe('ticking', () => {
   it('uses the local date of the finish, not the UTC one', () => {
     const r = tick(task(float6), clockAt('2026-11-01T03:00:00Z', 'America/Chicago'));
     expect(r.task.next_due).toBe('2026-12-12');
-    expect(r.completion.id).toBe(occurrenceId('task_completion', 't1', '2026-10-31'));
+    expect(r.completion.id).toBe(occurrenceId('t1', '2026-10-31'));
   });
 
   it('logs a finish from a block once, and moves a recurring task on', () => {

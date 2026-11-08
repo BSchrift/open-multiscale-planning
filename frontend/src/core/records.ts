@@ -79,12 +79,9 @@ export function practiceSessionId(practiceId: string, date: LocalDate): string {
   return `session:${practiceId}:${date}`;
 }
 
-/**
- * The id of a record belonging to one occurrence of a recurring task. If two offline devices generate the same
- * occurrence, they merge into one record. Each record type gets its own id, because ids are unique across types.
- */
-export function occurrenceId(type: 'time_block' | 'task_completion', taskId: string, date: LocalDate): string {
-  return `${type === 'time_block' ? 'occ-block' : 'occ-done'}:${taskId}:${date}`;
+/** The id of one finish of a recurring task, so that two offline devices finishing the same occurrence merge. */
+export function occurrenceId(taskId: string, date: LocalDate): string {
+  return `occ-done:${taskId}:${date}`;
 }
 
 const parse = (json: string) => JSON.parse(json) as Record<string, unknown>;
@@ -126,7 +123,7 @@ export interface Writer {
 class TxWriter implements Writer {
   private lastClock: string | null | undefined;
   private device: string | null = null;
-  readonly types = new Set<string>();
+  wrote = false;
 
   constructor(
     readonly sql: Sql,
@@ -198,7 +195,7 @@ class TxWriter implements Writer {
       );
     }
     await writeRow(this.sql, id, type, data, clocks);
-    this.types.add(type);
+    this.wrote = true;
     return previous;
   }
 
@@ -226,15 +223,15 @@ class TxWriter implements Writer {
 
 /** Runs fn in one transaction and announces the change once it has committed. */
 export async function transact<R>(db: Db, clock: Clock, fn: (w: Writer) => Promise<R>): Promise<R> {
-  let types: readonly string[] = [];
+  let wrote = false;
   const result = await db.transaction(async (tx) => {
     const writer = new TxWriter(tx, clock);
     const value = await fn(writer);
     await writer.finish();
-    types = [...writer.types];
+    wrote = writer.wrote;
     return value;
   });
-  if (types.length > 0) db.notifyChanged({ types, source: 'local' });
+  if (wrote) db.notifyChanged({ source: 'local' });
   return result;
 }
 
@@ -248,7 +245,6 @@ const isWellFormed = (change: RecordChange) =>
  * batch would stop the cursor advancing, and this device would never sync again. Returns how many fields changed.
  */
 export async function applyRemote(db: Db, changes: readonly RecordChange[]): Promise<number> {
-  const types = new Set<string>();
   let applied = 0;
   await db.transaction(async (tx) => {
     let highest = await getMeta(tx, META.clock);
@@ -271,14 +267,11 @@ export async function applyRemote(db: Db, changes: readonly RecordChange[]): Pro
         applied++;
         await tx.run('DELETE FROM outbox WHERE record_id = :id AND field = :field', { id: change.id, field });
       }
-      if (changed) {
-        await writeRow(tx, change.id, row?.type ?? change.type, data, clocks);
-        types.add(change.type);
-      }
+      if (changed) await writeRow(tx, change.id, row?.type ?? change.type, data, clocks);
     }
     if (highest && highest !== start) await setMeta(tx, META.clock, highest);
   });
-  if (types.size > 0) db.notifyChanged({ types: [...types], source: 'remote' });
+  if (applied > 0) db.notifyChanged({ source: 'remote' });
   return applied;
 }
 
@@ -370,7 +363,7 @@ export function updateSettings(w: Writer, fields: Fields<'settings'>): Promise<s
 export function setWeekPick(w: Writer, weekStart: LocalDate, taskId: string, minutes: number): Promise<string> {
   return w.create(
     'week_pick',
-    { week_start: weekStart, task_id: taskId, minutes, skipped: false, deleted_at: null },
+    { week_start: weekStart, task_id: taskId, minutes, deleted_at: null },
     weekPickId(weekStart, taskId),
   );
 }

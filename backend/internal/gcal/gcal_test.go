@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	gosync "sync"
 	"testing"
@@ -465,25 +466,82 @@ func TestInProgressAcrossMidnightStays(t *testing.T) {
 	}
 }
 
-func TestARunWithNothingToDoWritesNothingToGoogle(t *testing.T) {
+// Every device downloads the calendar record again whenever it changes, so a run that finds nothing to do leaves it
+// alone, synced_at included.
+func TestARunWithNothingToDoWritesNothing(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)
 	w.block("b1", "Paint the fence", at(1), at(2))
 	w.fake.AddCalendar("home@example.test", "Home")
 	w.run()
 	writes := w.fake.Writes()
-	eventsClock := w.calendarRecord(testSub)["events"].C
+	before := w.calendarRecord(testSub)
 	nameClock := w.sources()["home@example.test"]["name"].C
 	w.now = w.now.Add(time.Minute)
 	w.run()
 	if w.fake.Writes() != writes {
 		t.Fatalf("%d writes", w.fake.Writes()-writes)
 	}
-	if w.calendarRecord(testSub)["events"].C != eventsClock || w.sources()["home@example.test"]["name"].C != nameClock {
-		t.Fatal("unchanged fields rewritten")
+	if !reflect.DeepEqual(w.calendarRecord(testSub), before) || w.sources()["home@example.test"]["name"].C != nameClock {
+		t.Fatalf("unchanged fields rewritten: %+v", w.calendarRecord(testSub))
 	}
-	if w.calendarRecord(testSub)["synced_at"].V != instant(w.now) {
-		t.Fatal("synced_at not moved")
+}
+
+// synced_at says when a run last changed something, in Google or in the record.
+func TestSyncedAtMovesWhenARunChangesEventsOrTheMirror(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.block("b1", "Paint the fence", at(1), at(2))
+	w.fake.AddCalendar("home@example.test", "Home")
+	w.run()
+	syncedAt := func() any { return w.calendarRecord(testSub)["synced_at"].V }
+
+	w.now = w.now.Add(time.Minute)
+	w.write(testSub, "task", "task-b1", map[string]any{"title": "Paint the gate"})
+	w.run()
+	if w.eventFor("b1").Summary != "Paint the gate" || syncedAt() != instant(w.now) {
+		t.Fatalf("an event changed: synced_at %v", syncedAt())
+	}
+
+	w.now = w.now.Add(time.Minute)
+	w.fake.AddEvent("home@example.test", &calendar.Event{
+		Summary: "Team lunch",
+		Start:   &calendar.EventDateTime{DateTime: at(3).Format(time.RFC3339)},
+		End:     &calendar.EventDateTime{DateTime: at(4).Format(time.RFC3339)},
+	})
+	w.run()
+	if len(w.storedEvents()) != 1 || syncedAt() != instant(w.now) {
+		t.Fatalf("the mirror changed: synced_at %v", syncedAt())
+	}
+}
+
+// An event Google says is already gone was deleted by someone else, so the run counts no deletion and moves nothing.
+func TestAnEventAlreadyGoneIsNotCountedAsDeleted(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.block("b1", "Paint the fence", at(1), at(2))
+	w.run()
+	syncedAt := w.calendarRecord(testSub)["synced_at"].V
+	cal := w.timeBlocks()
+	// The person deletes the event in Google between the run's list and its delete.
+	racing := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			w.fake.DeleteEvent(cal, EventID("b1"))
+		}
+		w.fake.ServeHTTP(rw, r)
+	}))
+	t.Cleanup(racing.Close)
+	w.g.APIURL = racing.URL + "/calendar/v3/"
+	w.write(testSub, "time_block", "b1", map[string]any{"deleted_at": instant(testNow)})
+	w.now = w.now.Add(time.Minute)
+	w.run()
+
+	lines := w.runLines()
+	if last := lines[len(lines)-1]; last["deleted"] != float64(0) || last["CalendarEventsChanged"] != float64(0) {
+		t.Fatalf("%+v", last)
+	}
+	if got := w.calendarRecord(testSub)["synced_at"].V; got != syncedAt {
+		t.Fatalf("synced_at %v then %v", syncedAt, got)
 	}
 }
 
@@ -806,6 +864,61 @@ func TestRunEmitsEMFAndNoValues(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "CalendarEventsChanged,CalendarRunFailures" {
 		t.Fatalf("%v", names)
+	}
+}
+
+// hookedRecords calls before ahead of each List, so a test can act at a set point inside a run.
+type hookedRecords struct {
+	*memRecords
+	before func(recordType string)
+}
+
+func (h hookedRecords) List(ctx context.Context, sub, recordType string) ([]sync.Change, error) {
+	h.before(recordType)
+	return h.memRecords.List(ctx, sub, recordType)
+}
+
+// A run reads the connection when it starts. Another user's consent can take it over before the run's last writes, or
+// this user disconnect, and either has already shown this user unconnected. Writing on would show them connected again,
+// with events the app counts as busy time, or an error to fix.
+func TestARunWritesNothingMoreOnceItsConnectionIsGone(t *testing.T) {
+	for name, c := range map[string]struct {
+		during string
+		gone   func(w *world)
+	}{
+		"taken over":                  {"calendar_source", func(w *world) { w.connect("someone-else") }},
+		"taken over before a failure": {"time_block", func(w *world) { w.connect("someone-else"); w.fake.RateLimit(1) }},
+		"disconnected": {"calendar_source", func(w *world) {
+			if err := w.g.Disconnect(context.Background(), testSub); err != nil {
+				w.t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			w.connect(testSub)
+			w.fake.AddCalendar("home@example.test", "Home")
+			w.run()
+			w.fake.AddEvent("home@example.test", &calendar.Event{
+				Summary: "Team lunch",
+				Start:   &calendar.EventDateTime{DateTime: at(1).Format(time.RFC3339)},
+				End:     &calendar.EventDateTime{DateTime: at(2).Format(time.RFC3339)},
+			})
+			happened := false
+			w.g.Records = hookedRecords{w.records, func(recordType string) {
+				if recordType == c.during && !happened {
+					happened = true
+					c.gone(w)
+				}
+			}}
+			w.now = w.now.Add(time.Minute)
+			if err := w.g.Run(context.Background(), "schedule", "r"); err != nil || !happened {
+				t.Fatalf("%v, happened %v", err, happened)
+			}
+			if rec := w.calendarRecord(testSub); rec["connected"].V != false || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
+				t.Fatalf("%+v", rec)
+			}
+		})
 	}
 }
 

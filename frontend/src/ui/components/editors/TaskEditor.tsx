@@ -57,7 +57,8 @@ export function TaskEditor(props: {
     }
     const moved = milestone !== (task.milestone_id ?? '');
     const target = options.find((m) => m.id === milestone)?.title ?? 'Done';
-    await apply(
+    // A failed save keeps the editor open as it was, and has said so.
+    const saved = await apply(
       () => ({
         writes: [
           {
@@ -69,14 +70,15 @@ export function TaskEditor(props: {
       }),
       moved ? { message: `Moved ${name} to ${target}.` } : {},
     );
-    onClose();
+    if (saved) onClose();
   };
 
   const deleteTask = async () => {
     if (!task) return;
     const reverse = await remove.run(task.id);
+    if (!reverse) return;
     onClose();
-    if (reverse) toast.show(`Deleted ${task.title}.`, { undo: () => apply(() => reverse) });
+    toast.show(`Deleted ${task.title}.`, { undo: () => apply(() => reverse) });
   };
 
   const heading = task ? 'Edit task' : 'Add task';

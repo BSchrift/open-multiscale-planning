@@ -8,7 +8,7 @@ import { addDays, nowInstant, thisWeek, toInstant, today } from '../core/dates';
 import { META, openDb, refreshStatistics } from '../core/db';
 import type { Db } from '../core/db';
 import { planProblems, seedLarge } from '../core/queries-testing';
-import { transact, updateSettings, weekPlanId } from '../core/records';
+import { setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import type { Platform } from './types';
 
@@ -80,7 +80,7 @@ const MINUTE_MS = 60_000;
  * Simulator's clock can't be moved. The UI tests wait near midnight until the earliest block fits in today, so a
  * change to how far back a seed reaches goes in their launchApp call too.
  */
-async function seed(db: Db, blocks: readonly { title: string; from: number; to: number; started?: boolean }[]): Promise<string> {
+async function seed(db: Db, blocks: readonly { title: string; from: number; to: number; started?: boolean }[], picked: readonly string[] = []): Promise<string> {
   const clock = systemClock;
   const on = today(clock);
   const now = clock.now();
@@ -90,6 +90,10 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
     const goal = await w.create('objective', { title: 'Learn to bake bread', state: 'active' });
     const project = await w.create('project', { objective_id: goal, title: 'Bake a sourdough loaf', state: 'active', start: on, end: addDays(on, 90) });
     const milestone = await w.create('milestone', { project_id: project, title: 'A starter that rises', due: addDays(on, 14), added_on: on });
+    for (const title of picked) {
+      const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title, estimate_min: 30 });
+      await setWeekPick(w, thisWeek(clock), task, 30);
+    }
     for (const b of blocks) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title: b.title, estimate_min: 120 });
       await w.create('time_block', {
@@ -168,6 +172,8 @@ button('Diagnostics', async () => {
 });
 button('Erase', () => erase(platform));
 button('Seed plan', () => seed(platform.db, []));
+// Picked for this week with nothing placed, so it waits in To schedule on Today.
+button('Seed to schedule', () => seed(platform.db, [], ['Mix the dough']));
 // One block ended half an hour ago and one started six minutes ago, unstarted, so both of Today's questions are due.
 button('Seed today', () =>
   seed(platform.db, [

@@ -123,7 +123,7 @@ test('edits settings in place', async ({ page }, info) => {
   await expect(cadence.getByText('Calendar quarters')).toBeVisible();
   await cadence.getByRole('button', { name: 'Change planning cadence' }).click();
   await expect(pane(page, 'Plan')).toBeVisible();
-  await page.getByRole('button', { name: '‹ Settings' }).click();
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
   await expect(pane(page, 'Settings')).toBeVisible();
 
   // Everything above was saved.

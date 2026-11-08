@@ -6,9 +6,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
-# make exports ENV=local as the default for its test targets. There is no local deployment, so it means the default.
 env_name="${ENV:-staging}"
-[ "$env_name" = local ] && env_name=staging
 case "$env_name" in
   control | staging | prod) ;;
   *) echo "ENV must be control, staging or prod, not $env_name" >&2; exit 1 ;;
@@ -39,15 +37,15 @@ dirty=false
 [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ] && dirty=true
 
 if [ "$env_name" != control ]; then
-  # The Lambdas load this file strictly at startup and stop on any problem, so check it with their loader first.
+  # The integration suite reads this file with the strict Go loader, so stop on a file it would refuse.
   (cd "$root/config" && go run ./cmd/check "$env_name")
   echo "Building Lambdas"
   for name in api calendar; do
+    # Each folder is the Lambda's whole package, so only the binary may be in it: an earlier deploy put config.yaml here.
+    rm -rf "$root/backend/dist/$name"
     # -trimpath and an empty build id keep the binary identical when the code is, so an unchanged Lambda doesn't redeploy.
     (cd "$root/backend" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags='-s -w -buildid=' \
       -o "$root/backend/dist/$name/bootstrap" "./cmd/$name")
-    # Loaded at startup. It can't be embedded, since it lives outside the repo.
-    cp "$config_dir/$env_name.yaml" "$root/backend/dist/$name/config.yaml"
   done
 fi
 

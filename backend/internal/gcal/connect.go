@@ -201,6 +201,22 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if err != nil {
 		return err
 	}
+	// There is one connection, so another user's consent takes it over. Their app is told before it's replaced, so a
+	// failure here leaves nothing replaced unannounced. Their Google is left alone: it's theirs to remove access or Time
+	// blocks from. Time blocks is still there, so its id stays, for a later consent of theirs to find it again.
+	previous, err := g.connection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return err
+	}
+	if previous.Sub != "" && previous.Sub != sub {
+		theirs, err := g.calendarRecord(ctx, previous.Sub)
+		if err != nil {
+			return err
+		}
+		if err := g.writeCalendar(ctx, previous.Sub, theirs, map[string]any{"connected": false, "events": []any{}, "last_error": nil}); err != nil {
+			return err
+		}
+	}
 	if err := g.Secrets.Put(ctx, SecretRefreshToken, string(encoded)); err != nil {
 		return err
 	}

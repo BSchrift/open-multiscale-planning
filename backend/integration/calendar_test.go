@@ -730,9 +730,10 @@ func TestWorkerWakesOnBlocksAfterItsWindowAndOnSchedule(t *testing.T) {
 		a.reSignIn()
 	}
 	start := clock.now.Add(2 * time.Hour)
+	block := fresh("b")
 
 	// Inside the batch window nothing runs, however often it's checked.
-	a.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
+	a.pushBlock(block, "Write the report", start, start.Add(time.Hour))
 	if ran := tick(t); ran != "" {
 		t.Fatalf("ran %q inside the window", ran)
 	}
@@ -763,35 +764,41 @@ func TestWorkerWakesOnBlocksAfterItsWindowAndOnSchedule(t *testing.T) {
 		t.Fatalf("%v then %v", before, got)
 	}
 
-	// A change to a task alone isn't a trigger, but the schedule picks everything up.
-	a.sync(a.startCursor(), a.record("task", fresh("other"), "title", "Paint the fence"))
-	move(61 * time.Second)
-	tick(t)
-	if got := syncedAt(); got != before {
-		t.Fatalf("a task woke it: %v then %v", before, got)
+	// Renaming the block's task wakes it, since the event takes its title from the task.
+	a.sync(a.startCursor(), a.record("task", "task-"+block, "title", "Paint the fence"))
+	if ran := tick(t); ran != "" {
+		t.Fatalf("ran %q inside the window", ran)
 	}
+	move(61 * time.Second)
+	if ran := tick(t); ran != "" && ran != "stream" {
+		t.Fatalf("ran %q", ran)
+	}
+	if _, event := oneEvent(t, a); event.Summary != "Paint the fence" || syncedAt() != instantOf(clock.now) {
+		t.Fatalf("a rename didn't wake it: %+v, synced_at %v", event, syncedAt())
+	}
+
+	// The schedule picks up what wakes nothing, such as an event added in Google.
+	home := addGoogleCalendar(t, "Home")
+	addGoogleEvent(t, home, "Team lunch", start, start.Add(time.Hour))
 	move(30 * time.Minute)
 	if ran := tick(t); ran != "" && ran != "schedule" {
 		t.Fatalf("ran %q", ran)
 	}
-	if got := syncedAt(); got != instantOf(clock.now) {
-		t.Fatalf("%v, want %s", got, instantOf(clock.now))
+	if len(mirrored(t, a, home)) != 1 || syncedAt() != instantOf(clock.now) {
+		t.Fatalf("the schedule didn't run: synced_at %v, want %s", syncedAt(), instantOf(clock.now))
 	}
 
-	// A device changing a calendar's mode also wakes it.
-	home := addGoogleCalendar(t, "Home")
-	move(30 * time.Minute)
-	tick(t)
+	// A device changing a calendar's mode also wakes it. By then the device has seen the worker's clock, which the held
+	// clock puts ahead of this test's own, so its write is newer than the worker's.
 	source := sourceOf(t, a, home)
-	before = syncedAt()
-	a.sync(a.startCursor(), a.record("calendar_source", source.ID, "mode", "info"))
+	a.sync(a.startCursor(), record{"calendar_source", source.ID, map[string]field{"mode": {"ignore", clockAt(clock.now, 1, a.device)}}})
 	tick(t)
 	move(61 * time.Second)
 	if ran := tick(t); ran != "" && ran != "stream" {
 		t.Fatalf("ran %q", ran)
 	}
-	if got := syncedAt(); got == before {
-		t.Fatalf("a mode change didn't wake it: %v", got)
+	if len(mirrored(t, a, home)) != 0 || syncedAt() != instantOf(clock.now) {
+		t.Fatalf("a mode change didn't wake it: synced_at %v", syncedAt())
 	}
 }
 
@@ -857,14 +864,16 @@ func TestOnlyTheConnectedUsersRefreshRunsTheWorker(t *testing.T) {
 	clock := holdClock(t)
 	a := connectedUser(t)
 	other := signInOther(t)
-	before := calendarFields(t, a)["synced_at"]
 
 	clock.advance(time.Minute)
 	a.reSignIn()
 	other.reSignIn()
+	// A block waiting for the worker, so that a run shows.
+	start := clock.now.Add(time.Hour)
+	a.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
 	runWorker(t, other)
-	if got := calendarFields(t, a)["synced_at"]; got != before {
-		t.Fatalf("another user's refresh ran the worker: %v then %v", before, got)
+	if events := timeBlocks(t, a).Events; len(events) != 0 {
+		t.Fatalf("another user's refresh ran the worker: %+v", events)
 	}
 	if _, ok := other.get("calendar", "calendar"); ok {
 		t.Fatal("another user's refresh wrote a calendar record for them")
@@ -872,7 +881,24 @@ func TestOnlyTheConnectedUsersRefreshRunsTheWorker(t *testing.T) {
 	// Starting a consent, without finishing it, changes nothing for the connected user.
 	consentURL(t, other)
 	runWorker(t, a)
+	oneEvent(t, a)
 	if got := calendarFields(t, a)["synced_at"]; got != instantOf(clock.now) {
 		t.Fatalf("%v", got)
 	}
+
+	// Finishing it hands the one connection over. The first user's app shows it unconnected, keeping the id of their
+	// Time blocks for a later consent of theirs, and from then on only the new user's refresh runs the worker.
+	theirs, _ := calendarID(a)
+	connectCalendar(t, other)
+	values := calendarFields(t, a)
+	if events, _ := values["events"].([]any); values["connected"] != false || values["calendar_id"] != theirs || len(events) != 0 || values["last_error"] != nil {
+		t.Fatalf("the first user's app still shows a connection: %+v", values)
+	}
+	other.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
+	runWorker(t, a)
+	if events := timeBlocks(t, other).Events; len(events) != 0 {
+		t.Fatalf("the first user's refresh still ran the worker: %+v", events)
+	}
+	runWorker(t, other)
+	oneEvent(t, other)
 }

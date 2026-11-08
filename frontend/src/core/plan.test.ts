@@ -12,6 +12,7 @@ import {
   doneOf,
   dropMilestone,
   effectiveDue,
+  FIRST_BLOCK_MIN,
   gatherPlans,
   markMilestoneDone,
   markMilestoneNotMet,
@@ -21,9 +22,11 @@ import {
   msInPlan,
   msLate,
   nextStretch,
+  NO_ESTIMATE_MIN,
   originalDue,
   parkMilestone,
   pauseProject,
+  pickToPlace,
   plannable,
   plannedIds,
   planningDue,
@@ -441,13 +444,12 @@ describe('the candidates for a week', () => {
     expect(c?.left).toBe(180);
   });
 
-  it('reads picks for that week only, ignoring removed and skipped ones', () => {
+  it('reads picks for that week only, ignoring removed ones', () => {
     const p = reportPlan();
     const c = (picks: WeekPick[]) => projectCandidates(p, week({ picks }), ctx).find((x) => x.task.id === 't3');
     expect(c([pick('t3', 60)])).toMatchObject({ picked: true, week: 60 });
     expect(c([{ ...pick('t3', 60), week_start: '2026-11-09' }])?.picked).toBe(false);
     expect(c([{ ...pick('t3', 60), deleted_at: NOW }])?.picked).toBe(false);
-    expect(c([{ ...pick('t3', 60), skipped: true }])?.picked).toBe(false);
   });
 
   it('starts a one off dated inside the week as picked, and no other', () => {
@@ -538,17 +540,16 @@ describe('the candidates for a week', () => {
     expect(suggestions([second, first], [], week({ freeMin: 0 }), ctx)).toEqual({});
   });
 
-  it('does not suggest what is picked, stale, waiting, or in a project planning cannot schedule', () => {
+  it('does not suggest what is picked, stale, or in a project planning cannot schedule', () => {
     const p = reportPlan({ weekly_aim: 0 });
     p.milestones = [milestone('m', 'Soon', '2026-11-03')];
     p.tasks = [
       task('picked', 'm', 1),
       task('stale', 'm', 1),
-      task('waits', 'm', 1, { waiting_until: '2026-11-04' }),
-      task('waited', 'm', 1, { waiting_until: '2026-11-02' }),
+      task('open', 'm', 1),
     ];
     const got = suggestions([p], [], week({ freeMin: 6000, picks: [pick('picked', 60)], stale: new Set(['stale']) }), ctx);
-    expect(Object.keys(got)).toEqual(['waited']);
+    expect(Object.keys(got)).toEqual(['open']);
     expect(suggestions([{ ...p, project: { ...p.project, state: 'paused' } }], [], week({ freeMin: 6000 }), ctx)).toEqual({});
   });
 
@@ -597,6 +598,20 @@ describe('the candidates for a week', () => {
     const blocks = [block('t5', '2026-11-03T10:00:00Z', '2026-11-03T11:00:00Z'), { ...block('one', '2026-11-03T12:00:00Z', '2026-11-03T13:00:00Z'), id: 'b2' }];
     const order = scheduleOrder([p], [off], week({ picks: [pick('t5', 60), pick('one', 60)], blocks }), ctx);
     expect(order.map((c) => [c.task.id, c.left])).toEqual([['t5', 0], ['one', 0]]);
+  });
+
+  it("counts a pick's time still to place from the week's drawn blocks, with half an hour for a pick with no minutes", () => {
+    const p = reportPlan();
+    const [t5] = scheduleOrder([p], [], week({ picks: [pick('t5', 180)] }), ctx);
+    const drawn = [
+      { task_id: 't5', start: 600, end: 660 },
+      { task_id: 't5', start: 1380, end: 1440 },
+      { task_id: 't2', start: 600, end: 720 },
+    ];
+    expect(pickToPlace(t5!, drawn)).toEqual({ picked: 180, left: 60 });
+    expect(pickToPlace({ ...t5!, week: 0 }, drawn.slice(0, 1))).toEqual({ picked: NO_ESTIMATE_MIN, left: 0 });
+    expect(pickToPlace({ ...t5!, week: 0 }, [])).toEqual({ picked: 30, left: 30 });
+    expect(FIRST_BLOCK_MIN).toBe(120);
   });
 });
 

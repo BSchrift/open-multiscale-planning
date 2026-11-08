@@ -9,11 +9,10 @@ import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
 import type { Writer } from '../../../core/records';
 import { snoozeUntil } from '../../../core/reminders';
-import { snoozeBlock } from '../../app/reminders';
+import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useMutation } from '../../app/store';
 import { useToast } from '../Toast';
 
-export const STILL_GOING_MIN = 30;
 const QUEUED = 'Added to Needs a new time. No need to decide now.';
 
 export function useBlockActions() {

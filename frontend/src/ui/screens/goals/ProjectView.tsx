@@ -29,6 +29,7 @@ import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
+import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import { ProjectTimeline } from './ProjectTimeline';
 
 type Editing =
@@ -38,8 +39,6 @@ type Editing =
   | { kind: 'addMilestone' };
 
 const LOOSE = 'loose';
-const HOLD_MS = 400;
-const SLOP_PX = 8;
 
 type Point = { clientX: number; clientY: number };
 
@@ -152,13 +151,9 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
 
   const taskRow = (t: Task, locked: boolean) => {
     const from = t.moved_from ? plan.milestones.find((m) => m.id === t.moved_from)?.title : undefined;
-    const meta = t.cancelled_at
-      ? 'Cancelled'
-      : t.waiting_until
-        ? `Waiting until ${formatDate(t.waiting_until)}`
-        : `${t.estimate_min ? formatMinutes(t.estimate_min) : 'No estimate'}${from ? `, from ${from}` : ''}`;
+    const meta = t.cancelled_at ? 'Cancelled' : `${t.estimate_min ? formatMinutes(t.estimate_min) : 'No estimate'}${from ? `, from ${from}` : ''}`;
     const editable = !locked && !t.cancelled_at && !t.done_at;
-    const cls = t.done_at || t.cancelled_at ? 'done' : t.waiting_until ? 'quiet' : undefined;
+    const cls = t.done_at || t.cancelled_at ? 'done' : undefined;
     return (
       <div key={t.id} className={`taskline editrow${drag?.id === t.id ? ' lifted' : ''}`}>
         <label className="taskcheck">

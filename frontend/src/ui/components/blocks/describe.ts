@@ -11,7 +11,7 @@ export type BlockKind = 'project' | 'one_off' | 'practice';
 /** The kind in words, for labels, so it never rests on colour alone. */
 export const KIND_WORD: Record<BlockKind, string> = { project: 'Project', practice: 'Practice', one_off: 'One off' };
 
-export function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKind {
+function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKind {
   return block.practice_id ? 'practice' : block.task_kind === 'one_off' ? 'one_off' : 'project';
 }
 
@@ -29,13 +29,12 @@ export interface BlockRecords {
   practice?: Practice | undefined;
 }
 
-export interface BlockDescription {
+interface BlockDescription {
   kind: BlockKind;
   /** What the path is: Goal, Project, One off or Practice. */
   word: string;
   /** 'Goal > Project', a one off's schedule, or a practice's goal and target. */
   path: string;
-  first: string | null;
 }
 
 export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>, records: BlockRecords): BlockDescription {
@@ -43,14 +42,13 @@ export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>
   const kind = blockKind(block);
   if (kind === 'practice') {
     const target = practice ? `${formatMinutes(practice.target_min)} a ${practice.per}` : '';
-    return { kind, word: 'Practice', path: [objective?.title, target].filter(Boolean).join(', '), first: null };
+    return { kind, word: 'Practice', path: [objective?.title, target].filter(Boolean).join(', ') };
   }
-  const first = task?.first_step || null;
   if (kind === 'one_off') {
     const s = task?.schedule;
     const when = s && (isRepeating(task!) ? scheduleLabel(s) : s.type === 'once' ? onceWhen(s) : '');
-    return { kind, word: 'One off', path: when || 'No date', first };
+    return { kind, word: 'One off', path: when || 'No date' };
   }
-  if (objective && project) return { kind, word: 'Goal', path: `${objective.title} > ${project.title}`, first };
-  return { kind, word: 'Project', path: project?.title ?? '', first };
+  if (objective && project) return { kind, word: 'Goal', path: `${objective.title} > ${project.title}` };
+  return { kind, word: 'Project', path: project?.title ?? '' };
 }

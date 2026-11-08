@@ -1,0 +1,4 @@
+/* The week pieces Week and planning share. Shared tokens and classes come from the app styles. */
+[data-layout] .legend .seg-free {
+  background: var(--fill);
+}

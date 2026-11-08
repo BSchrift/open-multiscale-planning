@@ -1,5 +1,5 @@
-// Package config reads the per-environment YAML: control.yaml for the account that owns the domain, and staging.yaml
-// and prod.yaml for each deployment. Loading is strict, so a misspelt or unknown key fails instead of being ignored.
+// Package config reads a deployment's YAML, staging.yaml or prod.yaml. Loading is strict, so a misspelt or unknown key
+// fails instead of being ignored. control.yaml, for the account that owns the domain, is read only by the infrastructure.
 package config
 
 import (
@@ -39,18 +39,6 @@ func (a *Account) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-// Control is control.yaml. Without DNS nothing deploys to that account and the environments skip DNS.
-type Control struct {
-	AWS AWS  `yaml:"aws"`
-	DNS *DNS `yaml:"dns"`
-}
-
-// DNS names the domain and the zone Route 53 made when it was registered.
-type DNS struct {
-	Domain       string `yaml:"domain"`
-	HostedZoneID string `yaml:"hostedZoneId"`
-}
-
 // Environment is staging.yaml or prod.yaml. It holds no secrets: test-user passwords live in SSM.
 type Environment struct {
 	AWS         AWS         `yaml:"aws"`
@@ -86,16 +74,6 @@ func (a AWS) check() error {
 		return errors.New(accountRule)
 	}
 	return required("aws.region", a.Region, "aws.profile", a.Profile)
-}
-
-func (c *Control) check() error {
-	if err := c.AWS.check(); err != nil {
-		return err
-	}
-	if c.DNS != nil {
-		return required("dns.domain", c.DNS.Domain, "dns.hostedZoneId", c.DNS.HostedZoneID)
-	}
-	return nil
 }
 
 func (e *Environment) check() error {
@@ -155,35 +133,6 @@ func Load(dir, env string) (*Environment, error) {
 	}
 	var out Environment
 	if err := fromFolder(dir, env, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func LoadControl(dir string) (*Control, error) {
-	var out Control
-	if err := fromFolder(dir, "control", &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// LoadDeployed reads the config.yaml that make deploy puts next to each Lambda's binary.
-func LoadDeployed() (*Environment, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	return loadDeployed(filepath.Join(filepath.Dir(exe), "config.yaml"))
-}
-
-func loadDeployed(path string) (*Environment, error) {
-	var out Environment
-	err := decode(path, &out)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("missing %s: make deploy copies the environment's YAML there", path)
-	}
-	if err != nil {
 		return nil, err
 	}
 	return &out, nil

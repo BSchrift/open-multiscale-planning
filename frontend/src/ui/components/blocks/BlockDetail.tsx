@@ -1,4 +1,4 @@
-// A block's details: when, its outcome, first step and what it belongs to. A sheet on phone; on desktop a panel in
+// A block's details: when, its outcome and what it belongs to. A sheet on phone; on desktop a panel in
 // place, or the body alone for a caller that has its own popover.
 
 import type { Sql } from '../../../core/db';
@@ -11,7 +11,7 @@ import { describeBlock, formatRange, OUTCOME_WORD } from './describe';
 import type { BlockRecords } from './describe';
 
 /** The records describeBlock needs for one block. */
-export async function loadBlockRecords(sql: Sql, block: Pick<BlockRow, 'task_id' | 'practice_id'>): Promise<BlockRecords> {
+async function loadBlockRecords(sql: Sql, block: Pick<BlockRow, 'task_id' | 'practice_id'>): Promise<BlockRecords> {
   const task = block.task_id ? await getRecord(sql, 'task', block.task_id) : undefined;
   const practice = block.practice_id ? await getRecord(sql, 'practice', block.practice_id) : undefined;
   const project = task?.project_id ? await getRecord(sql, 'project', task.project_id) : undefined;
@@ -29,12 +29,6 @@ export function BlockDetailBody(props: { block: BlockRow }) {
       {block.result && (
         <div>
           <Pill tone="grey">{OUTCOME_WORD[block.result]}</Pill>
-        </div>
-      )}
-      {info?.first && (
-        <div>
-          <span className="quiet">First step: </span>
-          {info.first}
         </div>
       )}
       {info?.path && (

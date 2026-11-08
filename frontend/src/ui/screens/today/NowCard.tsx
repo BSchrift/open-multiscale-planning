@@ -4,7 +4,6 @@ import { useRef } from 'react';
 import { currentBlock, nextBlock } from '../../../core/blocks';
 import { formatTime, instantMs } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
-import type { Task } from '../../../core/types';
 import type { Layout } from '../../app/registry';
 import { useApp, useNow } from '../../app/store';
 import { formatRange } from '../../components/blocks/describe';
@@ -24,18 +23,8 @@ function Countdown(props: { end: string }) {
   );
 }
 
-function FirstStep(props: { task: Task | undefined; layout: Layout }) {
-  if (!props.task?.first_step) return null;
-  return (
-    <p className={props.layout === 'phone' ? 'small' : undefined}>
-      <span className="quiet">First step: </span>
-      {props.task.first_step}
-    </p>
-  );
-}
-
-export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap<string, Task>; layout: Layout }) {
-  const { blocks, tasks, layout } = props;
+export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) {
+  const { blocks, layout } = props;
   const { clock } = useApp();
   const actions = useBlockActions();
   const head = useRef<HTMLHeadingElement>(null);
@@ -48,7 +37,6 @@ export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap
 
   if (cur) {
     const started = !!cur.started_at;
-    const task = tasks.get(cur.task_id ?? '');
     const markDone = (
       <button className="btn" type="button" disabled={actions.pending} onClick={() => void actions.markDoneNow(cur, next)}>
         Mark done now
@@ -60,7 +48,6 @@ export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap
         <h2 ref={head} tabIndex={-1}>
           {cur.title}
         </h2>
-        <FirstStep task={task} layout={layout} />
         {started && (
           <div>
             <div className="small quiet">In progress, time left</div>
@@ -72,11 +59,11 @@ export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap
           <div className="row">
             {!started && (
               <>
-                <button className={`btn pri${phone ? ' grow' : ''}`} type="button" onClick={() => thenFocus(actions.start(cur))}>
+                <button className={`btn pri${phone ? ' grow' : ''}`} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.start(cur))}>
                   Start
                 </button>
                 {next && (
-                  <button className="btn" type="button" onClick={() => thenFocus(actions.swap(cur, next))}>
+                  <button className="btn" type="button" disabled={actions.pending} onClick={() => thenFocus(actions.swap(cur, next))}>
                     Do next block instead
                   </button>
                 )}
@@ -97,9 +84,8 @@ export function NowCard(props: { blocks: readonly BlockRow[]; tasks: ReadonlyMap
         <h2 ref={head} tabIndex={-1}>
           {phone ? next.title : `Next: ${next.title}`}
         </h2>
-        <FirstStep task={tasks.get(next.task_id ?? '')} layout={layout} />
         <div className="row">
-          <button className={phone ? 'btn pri' : 'btn'} type="button" onClick={() => thenFocus(actions.startEarly(next))}>
+          <button className={phone ? 'btn pri' : 'btn'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>
             Start early
           </button>
         </div>

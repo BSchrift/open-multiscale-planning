@@ -92,6 +92,12 @@ private func allowNotificationsIfAsked() {
     if allow.waitForExistence(timeout: 5) { allow.tap() }
 }
 
+/// iOS asks before another app's link opens this one.
+private func openLinkPrompt() {
+    let open = springboard.alerts.buttons["Open"]
+    if open.waitForExistence(timeout: 5) { open.tap() }
+}
+
 /// The real app, through its web view.
 final class ShellUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
@@ -156,6 +162,73 @@ final class ShellUITests: XCTestCase {
         exists(app.webElement("Return the library books done"))
     }
 
+    func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
+        let app = launchApp(seed: "Seed plan")
+        exists(app.webButton("Capture a task"))
+        // The link the Control Center button opens, so a cold launch from either goes the same way.
+        app.terminate()
+        XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
+        openLinkPrompt()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        captureAboveTheKeyboard(app, saving: "Buy rye flour")
+
+        app.tapWeb("Capture a task")
+        captureAboveTheKeyboard(app, saving: "Clean the banneton")
+    }
+
+    /// Capture's field and Save stay on screen above the software keyboard, which covers the page rather than shrinking
+    /// it, and Save then saves.
+    private func captureAboveTheKeyboard(_ app: XCUIApplication, saving title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.page.textFields["Capture to Inbox"]
+        exists(field, file: file, line: line)
+        let keyboard = app.keyboards.element
+        // The field asks for focus as it opens, which brings the keyboard up only where iOS allows it.
+        if !keyboard.waitForExistence(timeout: 5) { field.tap() }
+        XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up, as when the Mac's keyboard is connected. On screen:\n\(app.debugDescription)", file: file, line: line)
+        let save = app.webButton("Save")
+        // shortcut: the Simulator (iOS 18.6 and 26.2) pans the page up to the focused field, so the field clears the
+        // keyboard there even with the sheet left at the bottom, and this passes with the sheet fix taken out; it fails
+        // as a phone did only once the suite runs on a device.
+        let above = NSPredicate { _, _ in
+            field.isHittable && save.isHittable && max(field.frame.maxY, save.frame.maxY) <= keyboard.frame.minY
+        }
+        let risen = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: above, object: nil)], timeout: patience) == .completed
+        XCTAssertTrue(risen, "Capture's field at \(field.frame) and Save at \(save.frame) are not both clear above the keyboard at \(keyboard.frame)", file: file, line: line)
+        field.typeText(title)
+        save.tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open", file: file, line: line)
+    }
+
+    func testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday() throws {
+        // shortcut: work dropped on today lands no earlier than now and ends by 11pm, so after 10:15pm there's no room
+        // for the half hour and the test skips; run it at any hour once a test can set the Simulator's clock.
+        let late = Calendar.current.date(bySettingHour: 22, minute: 15, second: 0, of: Date())!
+        try XCTSkipIf(Date() > late, "after 10:15pm today has no room left for the half hour")
+        let app = launchApp(seed: "Seed to schedule")
+        // Its own label, since the block it becomes is a button too once it's under way.
+        let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
+        // shortcut: on CI's iOS 26.2 Simulator Today's content often reaches the screen but not the accessibility tree,
+        // which shows Today empty until the page changes, so the test goes to Week and back; drop the detour once
+        // WebKit's tree keeps up on its own there.
+        if !card.waitForExistence(timeout: 10) {
+            app.tapWeb("Week")
+            exists(app.page.otherElements["Week"])
+            app.tapWeb("Today")
+        }
+        exists(card)
+        let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
+        exists(day)
+
+        // Held past the lift, and let go once the drag has caught up. Wherever it's let go, it lands no earlier than now.
+        let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = day.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0)).withOffset(CGVector(dx: 0, dy: 140))
+        from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
+        // Any kind of element: a block is a slider until it's under way, which one placed at now soon is.
+        exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)
+        XCTAssertTrue(card.waitForNonExistence(timeout: patience), "Mix the dough is still waiting in To schedule")
+        allowNotificationsIfAsked()
+    }
+
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
         let app = launchApp(seed: "Seed today", reach: 90 * 60)
         allowNotificationsIfAsked()
@@ -192,13 +265,16 @@ final class ShellUITests: XCTestCase {
         // The block ends two minutes after it was seeded.
         exists(banner, timeout: 180)
         banner.press(forDuration: 1.5)
-        let done = springboard.buttons["Done"]
-        exists(done)
+        let notDone = springboard.buttons["Not done"]
+        exists(notDone)
+        XCTAssertTrue(springboard.buttons["Still going"].exists)
         XCTAssertTrue(springboard.buttons["Partly"].exists)
-        done.tap()
+        // A task is never finished from a notification.
+        XCTAssertFalse(springboard.buttons["Done"].exists)
+        notDone.tap()
 
         app.activate()
-        let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Done.'")).firstMatch
+        let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
         exists(answered)
     }
 
@@ -381,12 +457,6 @@ final class NativeUITests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
         XCTAssertTrue(add.waitForNonExistence(timeout: patience), "Control Center is still editing")
     }
-
-    /// iOS asks before another app's link opens this one.
-    private func openLinkPrompt() {
-        let open = springboard.alerts.buttons["Open"]
-        if open.waitForExistence(timeout: 5) { open.tap() }
-    }
 }
 
 /// What scripts/test-ios.sh signs in to: the local stack it started, or a deployment as its test user.
@@ -409,10 +479,15 @@ private struct Target: Decodable {
 private struct SecondDevice {
     let target: Target
     let token: String
+    let start: Int
 
+    /// Reads only what reaches the server from now on, as the Go suite does. A deployment's test user keeps what
+    /// earlier runs wrote, and some of it, such as 0e999 from the number tests, is more than Foundation's JSON reads.
     init(_ target: Target) throws {
         self.target = target
         token = try target.test_user.map { try Self.passwordSignIn(target, $0) } ?? Self.localSignIn(target)
+        // A cursor above the server's counter writes nothing and is answered with the counter.
+        start = try Self.page(target, token, from: Int(Int64.max))["cursor"] as? Int ?? 0
     }
 
     /// The local sign-in lets anyone in with no page, as the same user the app signed in as.
@@ -456,20 +531,13 @@ private struct SecondDevice {
         return try XCTUnwrap(result?["AccessToken"] as? String, "Cognito refused the test user")
     }
 
-    /// Every record the server holds for this user, by id, with each field's latest value.
+    /// Every record written since this device started, by id, with each field's latest value.
     func records() throws -> [String: [String: Any]] {
         var all: [String: [String: Any]] = [:]
-        var cursor = 0
+        var cursor = start
         var more = true
         while more {
-            var request = URLRequest(url: URL(string: "\(target.api_url)/sync")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["cursor": cursor, "changes": []])
-            let (data, response) = try Self.send(request)
-            XCTAssertEqual(response.statusCode, 200, String(decoding: data, as: UTF8.self))
-            let page = try Self.json(data)
+            let page = try Self.page(target, token, from: cursor)
             for change in page["changes"] as? [[String: Any]] ?? [] {
                 guard let id = change["id"] as? String, let fields = change["fields"] as? [String: [String: Any]] else { continue }
                 all[id, default: ["type": change["type"] ?? ""]].merge(fields.mapValues { $0["v"] ?? NSNull() }) { $1 }
@@ -478,6 +546,17 @@ private struct SecondDevice {
             more = page["more"] as? Bool ?? false
         }
         return all
+    }
+
+    private static func page(_ target: Target, _ token: String, from cursor: Int) throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: "\(target.api_url)/sync")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["cursor": cursor, "changes": []])
+        let (data, response) = try send(request)
+        XCTAssertEqual(response.statusCode, 200, String(decoding: data, as: UTF8.self))
+        return try json(data)
     }
 
     /// Waits for the server to hold a record that matches.
@@ -539,8 +618,10 @@ final class SignedInUITests: XCTestCase {
         app.tapWeb(startingWith: "Settings")
         app.tapWeb("Sign in")
         if let user = target.test_user { signInOnHostedPage(app, user) }
-        // The browser sheet closes itself once the sign-in links back, and the first sync follows.
-        exists(app.webText("Synced"), timeout: 60)
+        // The browser sheet closes itself once the sign-in links back, and the first sync follows. On a deployment that
+        // sync pulls every record earlier runs left on the test user, thousands of them.
+        exists(app.webText("Synced"), timeout: 180)
+        let other = try SecondDevice(target)
 
         app.tapWeb("Capture a task")
         let field = app.page.textFields["Capture to Inbox"]
@@ -548,16 +629,15 @@ final class SignedInUITests: XCTestCase {
         field.tap()
         field.typeText(title + "\n")
 
-        let other = try SecondDevice(target)
         other.eventually("the capture") { $0["title"] as? String == title && !($0["deleted_at"] is String) }
 
         // Deleted here, deleted there, so a deployment's test user keeps nothing live.
+        // Only this run's item: a deployment's Inbox can hold what other suites left.
         app.tapWeb(startingWith: "Inbox")
-        app.tapWeb("Process 1 item")
-        app.tapWeb("Delete")
+        app.tapWeb(title)
+        app.tapWeb("Delete/done")
         app.tapWeb("Yes, delete")
-        exists(app.webText("Inbox clear"))
-        app.tapWeb("Done")
+        // Process goes on to whatever else is in the Inbox, so the server is what shows it worked.
         other.eventually("the capture deleted") { $0["title"] as? String == title && $0["deleted_at"] is String }
     }
 
@@ -570,7 +650,13 @@ final class SignedInUITests: XCTestCase {
         // into whatever has focus.
         name.tap()
         app.typeText(user.username)
-        password.tap()
+        // With the software keyboard up, a tap on the password field can leave focus on the email field, so the
+        // keyboard's own Next moves it. A connected Mac keyboard shows no toolbar, and there the tap works.
+        let next = app.toolbars.buttons["Next"]
+        if next.exists && next.isEnabled { next.tap() } else { password.tap() }
         app.typeText(user.password + "\n")
+        // Safari's sheet offers to keep the password on a domain it hasn't saved one for.
+        let notNow = app.buttons["Not Now"]
+        if notNow.waitForExistence(timeout: 10) { notNow.tap() }
     }
 }

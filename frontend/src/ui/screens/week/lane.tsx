@@ -5,7 +5,8 @@ import { formatDate, formatMinutes, formatTimeOfDay } from '../../../core/dates'
 import type { Slot, SlotContext } from '../../../core/slots';
 import { useApp } from '../../app/store';
 import { dragCard } from '../../components/weekgrid';
-import { dayName, KIND_WORD } from './data';
+import { KIND_WORD } from '../../components/blocks/describe';
+import { dayName } from '../../components/weekgrid';
 import type { LaneItem } from './data';
 // The card styles, for Today too.
 import './week.css';

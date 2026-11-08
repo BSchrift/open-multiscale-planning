@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { answerBlock } from '../../core/blocks';
 import { listRecords, updateSettings, weekPlanId } from '../../core/records';
 import type { Writer } from '../../core/records';
@@ -43,6 +43,17 @@ describe('shell on desktop', () => {
     expect(paneOf('Today')).toHaveAttribute('aria-hidden', 'true');
     expect(paneOf('Today')).not.toBeVisible();
     expect(paneOf('Today')!.childElementCount).toBeGreaterThan(0);
+  });
+
+  it('names the page showing, and a flow over it, as regions, which the hidden pages are not', async () => {
+    await renderApp();
+    expect(await screen.findByRole('region', { name: 'Today' })).toBe(paneOf('Today'));
+    await userEvent.click(tab('Goals'));
+    expect(await screen.findByRole('region', { name: 'Goals' })).toBe(paneOf('Goals'));
+    expect(screen.queryByRole('region', { name: 'Today' })).toBeNull();
+    await userEvent.click(tab('Today'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Start planning' }));
+    expect(await screen.findByRole('region', { name: 'Plan your week' })).toBe(document.querySelector('.flowpane'));
   });
 
   it('counts the inbox live', async () => {
@@ -194,9 +205,12 @@ describe('shell on phone', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Settings/ }));
     await showsPane('Settings');
     expect(tab('More')).toHaveAttribute('aria-current', 'page');
-    await userEvent.click(screen.getByRole('button', { name: '‹ More' }));
+    // The arrow is drawn, not read out.
+    const back = screen.getByRole('button', { name: 'Back to More' });
+    expect(back).toHaveTextContent('‹ More');
+    await userEvent.click(back);
     await screen.findByRole('heading', { name: 'More' });
-    expect(screen.queryByRole('button', { name: '‹ More' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Back to More' })).toBeNull();
   });
 
   it('tapping the current tab returns to its root, and other tabs keep their page', async () => {
@@ -268,6 +282,23 @@ describe('appearance', () => {
     await waitFor(() => expect(t.platform.appearances).toEqual(['dark', 'light']));
     act(() => setAppearance('system'));
     await waitFor(() => expect(t.platform.appearances).toEqual(['dark', 'light', 'system']));
+  });
+});
+
+describe('over-the-air updates', () => {
+  const native = () => ({ install: vi.fn(), staged: vi.fn(async () => null), apply: vi.fn(), ready: vi.fn(), rolledBack: vi.fn(async () => null) });
+
+  // A new bundle that never says so is rolled back at the next launch.
+  it.each([
+    ['the app', false],
+    ['first-run setup', true],
+  ])('tells native code the bundle started once the data has opened and %s shows', async (_, firstRun) => {
+    const nativeUpdates = native();
+    const t = await renderApp({ nativeUpdates, firstRun });
+    await waitFor(() => expect(nativeUpdates.ready).toHaveBeenCalledOnce());
+    expect(t.container.querySelector('.pane')).not.toBeNull();
+    await act(() => t.write((w) => updateSettings(w, { setup_done_at: '2026-11-02T20:00:00Z' })));
+    expect(nativeUpdates.ready).toHaveBeenCalledOnce();
   });
 });
 

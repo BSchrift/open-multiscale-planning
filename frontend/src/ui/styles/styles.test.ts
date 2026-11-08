@@ -13,6 +13,17 @@ describe('the stylesheets', () => {
     expect(sheets.filter((file) => readFileSync(join(ui, file), 'utf8').includes('-webkit-overflow-scrolling'))).toEqual([]);
   });
 
+  // iOS has dvh only from 15.4, and ignores a declaration it can't read, so without a vh one before it there's no limit.
+  it('give every dvh a vh fallback just before it', () => {
+    const missing = sheets.flatMap((file) => {
+      const css = readFileSync(join(ui, file), 'utf8').replace(/\s/g, '');
+      return [...css.matchAll(/([\w-]+):([^;{}]*dvh[^;{}]*);/g)]
+        .filter((m) => !css.slice(0, m.index).endsWith(`${m[1]}:${m[2]!.replaceAll('dvh', 'vh')};`))
+        .map((m) => `${file}: ${m[0]}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   // Dark mode reaches only colours that come from tokens.css. Black shadows suit both themes, and the select's
   // mid-grey chevron, inside an image, is 3:1 on both themes' fields.
   it('take every colour from the tokens', () => {

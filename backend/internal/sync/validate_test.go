@@ -37,9 +37,11 @@ func TestParseRequestAcceptsAPullWithNoChanges(t *testing.T) {
 	}
 }
 
-func TestEveryRecordTypeIsKnown(t *testing.T) {
+// An app with a record type this server has never seen can be released first, so any well-formed type is taken.
+func TestAnyWellFormedRecordTypeIsAccepted(t *testing.T) {
 	for _, recordType := range []string{"objective", "project", "milestone", "task", "task_completion", "time_block",
-		"block_outcome", "week_plan", "week_pick", "away_period", "settings", "calendar", "calendar_source", "practice"} {
+		"block_outcome", "week_plan", "week_pick", "away_period", "settings", "calendar", "calendar_source", "practice",
+		"a_type_no_app_has_yet", "x", strings.Repeat("x", 64)} {
 		body := fmt.Sprintf(`{"changes":[{"type":%q,"id":"a","fields":{}}]}`, recordType)
 		if _, err := ParseRequest([]byte(body), testNow); err != nil {
 			t.Errorf("%s: %v", recordType, err)
@@ -77,7 +79,10 @@ func TestParseRequestRefuses(t *testing.T) {
 		"string cursor":    {`{"cursor":"1"}`, "invalid_json"},
 		"negative cursor":  {`{"cursor":-1}`, "invalid_cursor"},
 		"over 99 records":  {`{"changes":[` + strings.Join(tooMany, ",") + `]}`, "too_many_changes"},
-		"unknown type":     {change("widget", "a", `{}`), "unknown_type"},
+		"type in capitals": {change("Task", "a", `{}`), "unknown_type"},
+		"type with a hash": {change("task#x", "a", `{}`), "unknown_type"},
+		"type with space":  {change("time block", "a", `{}`), "unknown_type"},
+		"type over 64":     {change(strings.Repeat("x", 65), "a", `{}`), "unknown_type"},
 		"empty type":       {change("", "a", `{}`), "unknown_type"},
 		"empty id":         {change("task", "", `{}`), "invalid_id"},
 		"id with space":    {change("task", "a b", `{}`), "invalid_id"},

@@ -338,10 +338,10 @@ describe('stretch view', () => {
   describe('milestones met on their original date', () => {
     const ms = (id: string, f: Partial<Milestone>): Milestone => ({ id, project_id: 'p1', title: id, ...f });
 
-    it('uses the baseline date, then the first moved-from date, then the due date', () => {
+    it('uses the first moved-from date, then the due date', () => {
       const d = emptyData();
-      d.projects[0]!.baseline = { start: '2026-09-01', end: '2026-12-31', milestones: [{ id: 'm1', due: '2026-10-10' }] };
       d.projects[0]!.slip_log = [
+        { at: NOW, kind: 'move', milestone_id: 'm1', from: '2026-10-10', to: '2026-10-30' },
         { at: NOW, kind: 'move', milestone_id: 'm2', from: '2026-10-12', to: '2026-10-20' },
         { at: NOW, kind: 'move', milestone_id: 'm2', from: '2026-10-20', to: '2026-10-25' },
       ];

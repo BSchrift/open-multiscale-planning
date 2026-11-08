@@ -34,8 +34,8 @@ export function builderConfig(env: AppEnv, identity: AppIdentity) {
     // better-sqlite3 ships a prebuilt Node-API binary that Electron can load, so nothing needs compiling.
     npmRebuild: false,
     protocols: [{ name: identity.name, schemes: [identity.scheme] }],
+    // No target: electron-build.mjs picks the disk image, or only the app folder with --dir.
     mac: {
-      target: ['dmg'],
       icon: 'electron/assets/icon.png',
       category: 'public.app-category.productivity',
       // shortcut: ad-hoc signed, which Apple Silicon requires to launch at all; use a Developer ID once there is one.

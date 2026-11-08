@@ -41,5 +41,4 @@ export default defineConfig({
   // capacitor:// on iPhone serve the bundle at their root too.
   base: '/',
   build: { outDir: 'dist', sourcemap: true },
-  server: { port: 5173, strictPort: false },
 });

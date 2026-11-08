@@ -1,6 +1,7 @@
 // Needs a new time: planned work that didn't get done. Each row still belongs to its project or One offs; it offers
 // its best open time in one tap, and work passed over at the last planning first asks "Still want this?".
 
+import { placeBlock } from '../../../core/blocks';
 import { addWeeks, formatDate, formatTimeOfDay, formatWeekday, thisWeek, weekRange } from '../../../core/dates';
 import { applyPlanChange, gatherPlans, taskDue, taskWork } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -35,19 +36,23 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
   const { clock, layout } = useApp();
   const nav = useNav();
   const toast = useToast();
-  const write = useMutation((w, fn: (w: Writer) => Promise<unknown>) => fn(w));
+  const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const phone = layout === 'phone';
   const label = offer && `${formatWeekday(offer.date)} ${formatDate(offer.date)}, ${formatTimeOfDay(offer.start)}`;
 
+  // As placing on Week: an estimate the time no longer fits goes up, and Undo takes both back.
   const place = async () => {
     if (!offer) return;
-    const zone = clock.zone();
-    const placed = await write.run((w) => w.create('time_block', { task_id: item.id, ...slotInstants(offer, zone), tz: zone }));
-    if (placed) toast.show(`Placed ${item.title}, ${label}`);
+    const reverse = await write.run((w) => placeBlock(w, item.id, slotInstants(offer, clock.zone()), clock));
+    if (reverse) toast.show(`Placed ${item.title}, ${label}`, { undo: () => write.run((w) => applyPlanChange(w, reverse)), focusUndo: true });
   };
   const remove = async () => {
     const reverse = await write.run((w) => deleteWork(w, item, clock));
-    if (reverse) toast.show('Deleted', { undo: () => write.run((w) => applyPlanChange(w, reverse as PlanChange)), focusUndo: true });
+    if (reverse) toast.show('Deleted', { undo: () => write.run((w) => applyPlanChange(w, reverse)), focusUndo: true });
+  };
+  const keep = async () => {
+    const reverse = await write.run((w) => keepWork(w, item, clock));
+    if (reverse) toast.show(`Kept ${item.title}.`, { undo: () => write.run((w) => applyPlanChange(w, reverse)), focusUndo: true });
   };
   const deleteButton = (
     <button className="btn sm" type="button" aria-label={`Delete ${item.title}`} disabled={write.pending} onClick={() => void remove()}>
@@ -64,7 +69,7 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
       {item.stale ? (
         <div className="row">
           <span className="small">Still want this?</span>
-          <button className="btn sm pri" type="button" aria-label={`Keep ${item.title}`} onClick={() => void write.run((w) => keepWork(w, item, clock))}>
+          <button className="btn sm pri" type="button" aria-label={`Keep ${item.title}`} disabled={write.pending} onClick={() => void keep()}>
             Keep
           </button>
           {deleteButton}

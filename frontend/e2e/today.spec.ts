@@ -13,7 +13,7 @@ const at = (time: string) => {
 };
 
 const planned: Seed = { type: 'week_plan', id: 'week:2026-11-02', fields: { week_start: '2026-11-02', finished_at: at('08:00') } };
-const report: Seed = { type: 'task', id: 't1', fields: { kind: 'project', project_id: 'p', title: 'Write the report', first_step: 'Open the outline', estimate_min: 180 } };
+const report: Seed = { type: 'task', id: 't1', fields: { kind: 'project', project_id: 'p', title: 'Write the report', estimate_min: 180 } };
 const fence: Seed = { type: 'task', id: 't2', fields: { kind: 'one_off', title: 'Paint the fence', estimate_min: 30 } };
 const block = (id: string, task: string, from: string, to: string): Seed => ({
   type: 'time_block',
@@ -35,7 +35,6 @@ test('the Now card: Start counts down, Mark done now frees the time, and Undo pu
   const now = page.getByRole('region', { name: 'Current block' });
   await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
   await expect(now.getByRole('heading', { name: 'Write the report' })).toBeVisible();
-  await expect(now.getByText('Open the outline')).toBeVisible();
 
   const start = now.getByRole('button', { name: 'Start', exact: true });
   if (phone) await expectTapTarget(start);

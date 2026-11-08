@@ -30,13 +30,13 @@ func example(t *testing.T) string {
 	return string(raw)
 }
 
-func TestPassesAFileTheLambdasLoad(t *testing.T) {
+func TestPassesAValidFile(t *testing.T) {
 	if out, err := check(t, example(t)); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 }
 
-func TestFailsOnAFileTheLambdasWouldStopOn(t *testing.T) {
+func TestFailsOnAFileTheLoaderRefuses(t *testing.T) {
 	for _, c := range []struct{ name, file, wants string }{
 		{"misspelt key", example(t) + "app:\n  bundleID: com.example.app\n", "field bundleID not found"},
 		{"second user without a name", strings.Replace(example(t), "[googleClient]", "[googleClient, secondUser]", 1), "integration.secondTestUser is required"},

@@ -47,7 +47,7 @@ export function RetentionPage(props: { layout: Layout }) {
         Data retention
       </h1>
       <p className={text}>
-        Your history is kept for a set time, then removed from your devices and from the server. Each item is removed within a few days of its
+        Your history is kept for a set time, then removed from your devices and from the server. Items are removed within a few days of each
         period ending.
       </p>
       <section className="stack8" aria-labelledby={`${id}kept`}>
@@ -67,7 +67,8 @@ export function RetentionPage(props: { layout: Layout }) {
         <h2 id={`${id}always`}>Kept until you delete it</h2>
         <div className="card">
           <p className={text}>
-            Open tasks and Inbox items, active projects and their milestones, goals you haven't archived, practices, your settings and your calendars.
+            Open tasks and Inbox items, active and paused projects and their milestones, goals you haven't archived, practices, your settings
+            and your calendars.
           </p>
         </div>
       </section>

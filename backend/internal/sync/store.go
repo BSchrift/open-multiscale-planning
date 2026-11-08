@@ -188,7 +188,7 @@ func (s *Store) push(ctx context.Context, sub string, cursor int64, changes []Ch
 				stats.Filled++
 			}
 		}
-		merged, dropped, err := s.mergeAll(rest, state.records, s.stale(who))
+		merged, dropped, err := s.mergeAll(rest, state.records, who)
 		if err != nil {
 			return stats, err
 		}
@@ -329,12 +329,13 @@ type mergedRecord struct {
 	expires time.Time
 }
 
-// mergeAll returns the records that altered, leaving out the changes stale reports, and how many it left out. A record
-// that would pass the limit once merged is refused here: it would otherwise grow until DynamoDB's item limit fails every
-// later write to it.
-func (s *Store) mergeAll(changes []Change, stored map[string]Fields, stale func(held bool, change, merged Fields) bool) ([]mergedRecord, int, error) {
+// mergeAll returns the records that altered, leaving out the changes stale reports for who sent them, and how many it
+// left out. A record that would pass the limit once merged is refused here: it would otherwise grow until DynamoDB's item
+// limit fails every later write to it.
+func (s *Store) mergeAll(changes []Change, stored map[string]Fields, who pusher) ([]mergedRecord, int, error) {
 	var merged []mergedRecord
 	dropped := 0
+	stale := s.stale(who)
 	for _, change := range changes {
 		sk := recordKey(change.Type, change.ID)
 		current, held := stored[sk]
@@ -345,6 +346,9 @@ func (s *Store) mergeAll(changes []Change, stored map[string]Fields, stale func(
 		if stale != nil && stale(held, change.Fields, fields) {
 			dropped++
 			continue
+		}
+		if s.Expiry != nil && who != device {
+			clearOvertakenExpiry(change.Fields, fields)
 		}
 		size := recordBytes(fields)
 		if size > MaxRecordBytes+mergedRoom {
@@ -368,6 +372,29 @@ func (s *Store) expiry(fields Fields) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+// expirySources are the fields an expiry counts from, as frontend/src/core/expiry.ts lists them.
+var expirySources = []string{"deleted_at", "done_at", "cancelled_at", "state", "end", "week_start", "answered_at", "project_id"}
+
+// clearOvertakenExpiry empties a record's expiry once a writer that doesn't work expiries out, an app from before
+// retention or the calendar worker, has changed what it counts from since it was set, as when one reopens a task or
+// restores a deleted record. The old expiry would otherwise remove the record early. A deleted record then goes by its
+// deleted_at, and the next up-to-date app to launch works the expiry out again.
+func clearOvertakenExpiry(change, merged Fields) {
+	expires, ok := merged["expires_at"]
+	if !ok || expires.V == nil {
+		return
+	}
+	latest := expires.C
+	for _, name := range expirySources {
+		if _, sent := change[name]; sent && merged[name].C > latest {
+			latest = merged[name].C
+		}
+	}
+	if latest != expires.C {
+		merged["expires_at"] = Field{V: nil, C: latest}
+	}
 }
 
 func instantField(fields Fields, name string) (time.Time, bool) {

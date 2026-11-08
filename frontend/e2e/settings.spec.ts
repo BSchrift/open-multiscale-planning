@@ -158,7 +158,7 @@ test("Data retention says what's kept and for how long, from this build's period
   await expect(p.getByRole('heading', { name: 'Data retention', level: 1 })).toBeFocused();
   // A local build has prod's periods.
   for (const line of ['2 years after they end', "5 years after they're closed", '30 days after you delete them']) await expect(p.getByText(line)).toBeVisible();
-  await expect(p.getByText(/removed within a few days of its period ending/)).toBeVisible();
+  await expect(p.getByText(/removed within a few days of each period/)).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Kept until you delete it', level: 2 })).toBeVisible();
   // Informational only: no control but the way back.
   await expect(p.locator('button, input, select, textarea, a')).toHaveCount(1);

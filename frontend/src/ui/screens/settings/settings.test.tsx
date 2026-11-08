@@ -511,7 +511,7 @@ describe('Data retention', () => {
 
     const page = within(await screen.findByRole('region', { name: 'Settings', hidden: false }));
     expect(await page.findByRole('heading', { level: 1, name: 'Data retention' })).toBeVisible();
-    expect(page.getByText(/removed within a few days of its period ending/)).toBeVisible();
+    expect(page.getByText(/removed within a few days of each period/)).toBeVisible();
     expect(page.getByText('2 years after they end')).toBeVisible();
     expect(page.getByText('5 years after they\'re closed')).toBeVisible();
     expect(page.getByText('30 days after you delete them')).toBeVisible();

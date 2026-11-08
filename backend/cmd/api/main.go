@@ -45,7 +45,7 @@ func main() {
 	}
 	server := &api.Server{
 		Sync:     store,
-		Calendar: gcal.FromEnvironment(cfg, startWorker(lambdasdk.NewFromConfig(cfg), os.Getenv("CALENDAR_FUNCTION_NAME"))),
+		Calendar: gcal.FromEnvironment(cfg, store.Expiry, startWorker(lambdasdk.NewFromConfig(cfg), os.Getenv("CALENDAR_FUNCTION_NAME"))),
 		Log:      obs.NewLogger(os.Stdout),
 		Env:      os.Getenv("ENV_NAME"),
 		Now:      time.Now,

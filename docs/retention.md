@@ -73,6 +73,10 @@ few minutes across a change that then expires is reset when it next syncs, which
   `expires_at`, in epoch seconds, which is the table's TTL attribute, and leaves it off when the field is null. A record
   deleted by an app from before, or by the calendar worker, gets `deleted_at` plus the deleted period instead. DynamoDB
   removes an item usually within a few days of that time.
+- **Writers that don't work expiries out can't leave a wrong one.** When an app from before, or the calendar worker,
+  changes a field an expiry counts from after the expiry was set, as when one reopens a task or restores a deleted
+  record, the API clears `expires_at` in the same write, so the old expiry can't remove the record early. A deleted
+  record then goes by `deleted_at`, and the next up-to-date app to launch works the expiry out again.
 - **Pulls leave out what has expired** as soon as it has, so nothing waits on DynamoDB. The cursor still moves past it,
   and a pull that reaches the end moves the cursor to the counter, past any record already removed.
 - **The Streams consumer keeps the expiry mark.** `cmd/retention` reads TTL's removals from the table's stream, which
@@ -115,7 +119,8 @@ to pull the record again. This is also how records deleted before retention, who
 
 - Apps from before ignore `expires_at`, since unknown fields are kept, and get the API's checks for stale changes
   instead of resets. An older app offline for longer than a period can keep an older copy of something that expired
-  meanwhile, since it can't be reset.
+  meanwhile, since it can't be reset. What they reopen or restore loses its expiry rather than keeping one that no longer
+  fits, until an up-to-date app works it out again.
 - The device database needs no migration: `expires_at` lives in each record's JSON, and nothing in the views changes, so
   a bundle rolled back to an older one opens the database as before.
 - The request's `expiry_reset` and the response's `reset` are new fields that older servers and apps ignore.
@@ -126,12 +131,14 @@ to pull the record again. This is also how records deleted before retention, who
   record's last write falls in that moment, after the record has expired, could keep an older copy of it.
 - A device restoring a deleted record offline after it has been removed from the server sends the restore back as a
   record with only the fields it changed.
+- A milestone, or a block's answer, keeps the expiry it took from its project or block when an app from before reopens
+  that project or moves that block.
 
 ## Tests
 
 | Layer | What |
 | --- | --- |
-| Unit | `expiryFor` for every type and state, list trimming, the write path, filling in, device expiry and resets (`frontend/src/core/retention.test.ts`, `expiry.test.ts`, `sync.test.ts`); the store, TTL, the guard, drops, fills and cleanup (`backend/internal/sync/expiry_test.go`); the Streams consumer (`backend/cmd/retention`); the config readers |
+| Unit | `expiryFor` for every type and state, list trimming, the write path, filling in, device expiry and resets (`frontend/src/core/retention.test.ts`, `expiry.test.ts`, `sync.test.ts`); the store, TTL, the guard, drops, fills, expiries cleared by older writers and cleanup (`backend/internal/sync/expiry_test.go`); the Streams consumer (`backend/cmd/retention`); the config readers |
 | Local integration | `backend/integration/retention_test.go` moves the local clock past each period, and `frontend/src/core/retention.stack.test.ts` does the same with the app's own client, in `make test-integration` |
 | Staging | `make test-retention`, also part of `make test-deployed` on staging: the same app-client suite in real time, about 25 minutes |
 | End to end | `frontend/e2e/settings.spec.ts` opens the Data retention page at desktop and phone sizes |

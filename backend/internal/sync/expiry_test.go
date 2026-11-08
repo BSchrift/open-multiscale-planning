@@ -247,6 +247,50 @@ func TestChangesThatWouldBringBackAnExpiredRecordAreDropped(t *testing.T) {
 	}
 }
 
+func TestAnOlderWriterChangingWhatAnExpiryCountsFromClearsIt(t *testing.T) {
+	s, _, now, client := expiringStore(t)
+	c := fresh(*now, "a")
+	closed := at(now.AddDate(5, 0, 0))
+	device(t, s, "abc", 0,
+		task("reopened", msync.Fields{"title": {V: "Paint the fence", C: c}, "done_at": {V: at(*now), C: c}, "expires_at": {V: closed, C: c}}),
+		task("restored", msync.Fields{"title": {V: "Oil the hinges", C: c}, "deleted_at": {V: at(*now), C: c}, "expires_at": {V: at(now.AddDate(0, 0, 30)), C: c}}),
+		task("deleted", msync.Fields{"title": {V: "Sand the boards", C: c}, "done_at": {V: at(*now), C: c}, "expires_at": {V: closed, C: c}}),
+		task("renamed", msync.Fields{"title": {V: "Buy brushes", C: c}, "done_at": {V: at(*now), C: c}, "expires_at": {V: closed, C: c}}),
+		msync.Change{Type: "calendar_source", ID: "work", Fields: msync.Fields{"name": {V: "Work", C: c}, "deleted_at": {V: at(*now), C: c}, "expires_at": {V: at(now.AddDate(0, 0, 30)), C: c}}},
+	)
+	later := fresh(now.Add(time.Minute), "old")
+	// An app from before reopens one, restores one, deletes one and renames one, none of them sending an expiry.
+	mustSync(t, s, "abc", 5,
+		task("reopened", msync.Fields{"done_at": {V: nil, C: later}}),
+		task("restored", msync.Fields{"deleted_at": {V: nil, C: later}}),
+		task("deleted", msync.Fields{"deleted_at": {V: at(now.Add(time.Minute)), C: later}}),
+		task("renamed", title("Buy new brushes", later)),
+	)
+	// And the calendar worker restores a calendar it had removed.
+	if _, err := s.Push(context.Background(), "abc", 0, []msync.Change{{Type: "calendar_source", ID: "work", Fields: msync.Fields{"deleted_at": {V: nil, C: later}}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range []string{"rec#task#reopened", "rec#task#restored", "rec#calendar_source#work"} {
+		if ttl, ok := item(t, client, s.Table, "abc", sk)["expires_at"]; ok {
+			t.Errorf("%s kept its TTL: %v", sk, ttl)
+		}
+	}
+	// Deleted beats the 5 years it had, as the server works it out.
+	if got := num(t, item(t, client, s.Table, "abc", "rec#task#deleted")["expires_at"]); got != now.Add(time.Minute).AddDate(0, 0, 30).Unix() {
+		t.Errorf("deleted ttl %d", got)
+	}
+	// Not what it counts from: it keeps its expiry.
+	if got := num(t, item(t, client, s.Table, "abc", "rec#task#renamed")["expires_at"]); got != now.AddDate(5, 0, 0).Unix() {
+		t.Errorf("renamed ttl %d", got)
+	}
+	// Devices get the cleared expiry with the change, so none removes the record early either.
+	for _, change := range mustSync(t, s, "abc", 5).Changes {
+		if want := change.ID != "renamed"; (change.Fields["expires_at"].V == nil) != want {
+			t.Errorf("%s: %+v", change.ID, change.Fields["expires_at"])
+		}
+	}
+}
+
 func TestAnAppFillingInExpiriesMovesNoSequenceNumbers(t *testing.T) {
 	s, _, now, client := expiringStore(t)
 	c := fresh(*now, "a")

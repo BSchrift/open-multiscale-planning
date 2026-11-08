@@ -8,7 +8,10 @@ import type { Db } from './db';
 import { transact } from './records';
 import { activeRetention, expiryDiffers, expiryFor } from './retention';
 
-/** The fields an expiry counts from. One written after expires_at was means an app from before changed it. */
+/**
+ * The fields an expiry counts from. One written after expires_at was means an app from before changed it. The server
+ * keeps the same list (clearOvertakenExpiry in backend/internal/sync/store.go).
+ */
 const SOURCES = ['deleted_at', 'done_at', 'cancelled_at', 'state', 'end', 'week_start', 'answered_at', 'project_id'];
 const BATCH = 100;
 const LOWEST = '0000000000000-';

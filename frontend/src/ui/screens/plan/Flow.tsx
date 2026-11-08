@@ -529,7 +529,6 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
       act={act}
       undoText={undoText}
       onUndo={undo}
-      count={count}
       continueLabel={continueLabel}
       onNext={next}
       headRef={head}

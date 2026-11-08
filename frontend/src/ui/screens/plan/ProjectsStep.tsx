@@ -5,7 +5,7 @@
 
 import { useRef, useState } from 'react';
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref, RefObject } from 'react';
-import { addDays, dayNumber, diffDays, formatDate, formatMinutes, fromDayNumber, nowInstant, today } from '../../../core/dates';
+import { addDays, dayNumber, diffDays, formatDate, formatMinutes, fromDayNumber, isDay, nowInstant, today } from '../../../core/dates';
 import {
   applyPlanChange,
   doneDateError,
@@ -40,7 +40,7 @@ import { Sheet } from '../../components/Sheet';
 import { axisMonths } from '../../components/TimelineBar';
 import { useToast } from '../../components/Toast';
 import type { PlanData } from './data';
-import { hrs, isDay, msWhen, needsCall, oneOffsIn } from './model';
+import { hrs, msWhen, needsCall, oneOffsIn } from './model';
 import type { Act, Call } from './model';
 import { Diamond } from './PlanPage';
 
@@ -808,7 +808,6 @@ export function ProjectsStep(props: {
   act: Act;
   undoText: string | null;
   onUndo(): void;
-  count: number;
   continueLabel: string;
   onNext(): void;
   headRef: Ref<HTMLHeadingElement>;

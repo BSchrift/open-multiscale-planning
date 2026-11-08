@@ -1,7 +1,7 @@
 // The wording and shapes the Plan page, the flow and the More line share. Domain rules stay in core/plan.
 
 import type { Clock } from '../../../core/clock';
-import { formatDate, formatMinutes, isDay, localDate, today } from '../../../core/dates';
+import { formatDate, formatMinutes, localDate, today } from '../../../core/dates';
 import { status } from '../../../core/status';
 import {
   currentStretch,
@@ -30,8 +30,6 @@ export type Act = (key: string, text: string, build: (w: Writer) => Promise<Plan
 
 /** Rounded, for totals that are only ever about right. */
 export const hrs = (minutes: number) => `${Math.round(minutes / 60)}h`;
-
-export { isDay };
 
 export function planContext(data: PlanData, clock: Clock, planning: boolean): PlanContext {
   return { settings: data.settings, clock, away: data.away, planning };
@@ -104,7 +102,7 @@ export function whereNow(settings: CadenceSettings, on: LocalDate, flow: PlanFlo
   };
 }
 
-export interface PlanItem {
+interface PlanItem {
   key: string;
   name: string;
   state: DiamondState;

@@ -15,7 +15,7 @@ import { infoSpans, offers, practicesLeft, practiceSlots, slotContext, spansAhea
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
 import type { LocalDate, Minutes, Practice, Task, TimeBlock } from '../../../core/types';
-import { dayName, placedBlocks, slotRange } from '../../components/weekgrid';
+import { placedBlocks } from '../../components/weekgrid';
 import type { PlacedBlock } from '../../components/weekgrid';
 import type { BlockKind } from '../../components/blocks/describe';
 
@@ -37,13 +37,6 @@ export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
 
 export type WeekData = Awaited<ReturnType<typeof loadWeek>>;
 
-export { dayName };
-export { slotRange as range };
-
-export { KIND_WORD } from '../../components/blocks/describe';
-
-export type WeekBlock = PlacedBlock;
-
 /** A task that can be added to the week, with what slots.ts needs to suggest times for it. */
 export interface AddRow {
   task: Task;
@@ -52,10 +45,10 @@ export interface AddRow {
   work: Work;
   context: string;
   /** This week's blocks for it not yet over, soonest first. */
-  placed: WeekBlock[];
+  placed: PlacedBlock[];
 }
 
-export interface AddGroup {
+interface AddGroup {
   name: string;
   oneOffs: boolean;
   rows: AddRow[];
@@ -112,8 +105,7 @@ export function weekModel(d: WeekData, clock: Clock) {
 
   const upcoming = d.blocks.filter((b) => !b.result && instantMs(b.end) > now);
   const conflicts = new Map(blockConflicts(upcoming, busyEvents(calendar ?? undefined, sources)).map((c) => [c.block.id, c.event.title]));
-  const rows = new Map(d.blocks.map((b) => [b.id, b]));
-  const blocks: WeekBlock[] = placedBlocks(ctx.placed, d.blocks, now).map((b) => {
+  const blocks: PlacedBlock[] = placedBlocks(ctx.placed, d.blocks, now).map((b) => {
     const clash = conflicts.get(b.id);
     return clash ? { ...b, note: `Conflicts with ${clash}`, clash: true } : b;
   });
@@ -189,7 +181,7 @@ export function weekModel(d: WeekData, clock: Clock) {
       return left > 0 ? [taskItem(c.task, left, picked)] : [];
     }),
     ...oneOffs
-      .filter((t) => !t.cancelled_at && !t.deleted_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
+      .filter((t) => !t.cancelled_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
       .map((t) => taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null)),
     ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? []).map(
       (x): LaneItem => ({
@@ -226,8 +218,6 @@ export function weekModel(d: WeekData, clock: Clock) {
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
     unscheduled,
-    practices: new Map(records.practices.map((p) => [p.id, p])),
-    rows,
     current,
     thisPlanned: d.weekPlans.some((p) => p.week_start === current && !!p.finished_at),
   };

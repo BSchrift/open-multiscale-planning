@@ -166,13 +166,13 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
   const setGoal = useMutation((w, id: string, fields: Fields<'objective'>) => w.set('objective', id, fields));
   const addGoal = useMutation((w, title: string) => w.create('objective', { title, state: 'active' }));
 
-  const goals = data.objectives.filter((g) => !g.deleted_at && g.state !== 'archived');
+  const goals = data.objectives.filter((g) => g.state !== 'archived');
   goals.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.id < b.id ? -1 : 1));
   const goalIds = new Set(goals.map((g) => g.id));
   const plans = data.plans.filter(live);
-  const practices = data.practices.filter((p) => p.state !== 'ended' && !p.deleted_at);
+  const practices = data.practices.filter((p) => p.state !== 'ended');
   const homeOf = (id: string | null | undefined) => (id && goalIds.has(id) ? id : NO_GOAL);
-  const archivedGoals = data.objectives.filter((g) => !g.deleted_at && g.state === 'archived');
+  const archivedGoals = data.objectives.filter((g) => g.state === 'archived');
   const archivedProjects = data.plans.filter((p) => !live(p));
   const looseProjects = plans.filter((p) => homeOf(p.project.objective_id) === NO_GOAL);
   const loosePractices = practices.filter((p) => homeOf(p.objective_id) === NO_GOAL);

@@ -20,16 +20,16 @@ import { useApp, useMutation, useQuery } from '../../../app/store';
 import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
 import { useFocusLanding } from '../../../components/useFocusLanding';
-import { WeekGrid } from '../../../components/weekgrid';
-import type { GridBlock, GridGhost } from '../../../components/weekgrid';
+import { dayName, slotRange, WeekGrid } from '../../../components/weekgrid';
+import type { GridBlock, GridGhost, PlacedBlock } from '../../../components/weekgrid';
 import { DayStrip, PackedDay, weekFree } from '../../../components/week/DayStrip';
 import { DragDay } from '../../week/Phone';
 import { loadPlanning, weekModel } from '../model';
-import { dayName, range, scheduleModel } from './model';
-import type { SchedBlock, SchedRow } from './model';
+import { scheduleModel } from './model';
+import type { SchedRow } from './model';
 import './schedule.css';
 
-export interface ScheduleStepProps {
+interface ScheduleStepProps {
   /** The Monday being planned. */
   week: LocalDate;
   layout: Layout;
@@ -64,7 +64,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const [look, setLook] = useState<{ key: string; date: LocalDate } | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [practicesOpen, setPracticesOpen] = useState(false);
-  const lenFrom = useRef<SchedBlock | null>(null);
+  const lenFrom = useRef<PlacedBlock | null>(null);
   const lenId = useId();
   const land = useFocusLanding();
   const listRef = useRef<HTMLOListElement>(null);
@@ -84,7 +84,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const ctx = model.slot;
   const blockOf = (id: string | null) => (id ? s.blocks.find((b) => b.id === id) : undefined);
   /** The row a block belongs to: its task's or its practice's. */
-  const rowId = (x: SchedBlock) => x.task_id ?? x.practice_id;
+  const rowId = (x: PlacedBlock) => x.task_id ?? x.practice_id;
 
   // On phone, a block outside the list, such as a practice session, can be selected too.
   const edited = blockOf(editId);
@@ -126,7 +126,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     setEditId(r.toPlace <= 0 ? (r.blocks[r.blocks.length - 1]?.id ?? null) : null);
     setSkipped(skipped.filter((id) => id !== r.id));
   };
-  const selectBlock = (x: SchedBlock) => {
+  const selectBlock = (x: PlacedBlock) => {
     if (!phone && !s.rows.some((r) => r.id === rowId(x))) return;
     setSelected(rowId(x));
     setEditId(x.id);
@@ -165,7 +165,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     setEditId(null);
     setSelected(cur.toPlace - len > 0 ? cur.id : null);
   };
-  const remove = async (x: SchedBlock) => {
+  const remove = async (x: PlacedBlock) => {
     const reverse = await run((w) => removeBlock(w, x.id));
     if (!reverse) return;
     notify(`Removed ${x.title}`, () => run((w) => applyPlanChange(w, reverse)));
@@ -177,7 +177,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
    * Saves a placed block's new time, and after a practice moves, asks whether that's for every week. The task being
    * placed stays current: only a tap or click selects a block.
    */
-  const changeBlock = (x: SchedBlock, slot: Slot) => {
+  const changeBlock = (x: PlacedBlock, slot: Slot) => {
     if (same(x, slot)) return;
     const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
     setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
@@ -226,7 +226,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   // What the current task or block says about itself.
   const title = cur?.title ?? editB?.title ?? '';
-  const when = b ? `${dayName(b.date)}, ${range(b)} (${formatMinutes(len)})` : '';
+  const when = b ? `${dayName(b.date)}, ${slotRange(b)} (${formatMinutes(len)})` : '';
   const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
   const amount =
     !cur || editB || !draftSlot
@@ -243,7 +243,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const noneTitle = s.rows.length ? 'All tasks are placed' : 'Nothing is picked yet';
   const noneText = s.rows.length ? `${phone ? 'Tap' : 'Click'} any task or block to change it.` : "Go back to Pick to add tasks, or carry on with what's placed.";
   const askBlock = blockOf(ask?.blockId ?? null);
-  const askText = askBlock ? `${askBlock.title} is now ${dayName(askBlock.date)}, ${range(askBlock)}.` : '';
+  const askText = askBlock ? `${askBlock.title} is now ${dayName(askBlock.date)}, ${slotRange(askBlock)}.` : '';
   const oneOffCls = (cur?.oneOff ?? editB?.kind === 'one_off') ? 'mhead' : '';
   const curKind = cur?.practice ? 'practice' : cur?.oneOff ? 'one_off' : 'project';
 
@@ -489,7 +489,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
               selected={editB?.id ?? null}
               onMoving={(slot) => setDraft({ key: draftKey, slot })}
               onDone={() => void place()}
-              onChange={(x, slot) => changeBlock(x as SchedBlock, slot)}
+              onChange={changeBlock}
               onOpen={(id) => {
                 const x = blockOf(id);
                 if (x) selectBlock(x);

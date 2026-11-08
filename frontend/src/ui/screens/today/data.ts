@@ -34,7 +34,7 @@ export async function loadToday(sql: Sql, clock: Clock) {
     practices: await listRecords(sql, 'practice'),
     away: await listRecords(sql, 'away_period'),
     completions: await completionsSince(sql, { since: day.from_utc }),
-    planned: plans.some((p) => p.week_start === thisWeek(clock) && !!p.finished_at && !p.deleted_at),
+    planned: plans.some((p) => p.week_start === thisWeek(clock) && !!p.finished_at),
     events: busyEvents(calendar, sources).filter((e) => instantMs(e.start) < to && from < instantMs(e.end)),
     // For the timeline's suggested time and its notes on a moved block.
     calendar: calendar ?? null,

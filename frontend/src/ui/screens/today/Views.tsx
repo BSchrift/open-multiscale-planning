@@ -109,7 +109,7 @@ export function NextUp(props: { data: TodayData; pick: string | null }) {
   const tasks = new Map(data.tasks.map((t) => [t.id, t]));
   const projects = new Map(data.projects.map((p) => [p.id, p]));
   const picked = pick ? tasks.get(pick) : undefined;
-  const open = picked && !picked.done_at && !picked.cancelled_at && !picked.deleted_at ? [picked] : [];
+  const open = picked && !picked.done_at && !picked.cancelled_at ? [picked] : [];
   const rows = [...open, ...welcomeOptions(data.tasks, data.milestones, data.projects, clock).filter((t) => t.id !== pick)];
   const sub = (t: Task) => {
     if (t.id === pick) return 'Your pick for today';

@@ -15,10 +15,11 @@ import { useApp } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
-import { clearLane, overLane } from '../../components/weekgrid';
-import type { GridGhost } from '../../components/weekgrid';
-import { dayName, KIND_WORD, range, rowItem } from './data';
-import type { AddRow, LaneItem, Placeable, WeekBlock, WeekModel } from './data';
+import { KIND_WORD } from '../../components/blocks/describe';
+import { clearLane, dayName, overLane, slotRange } from '../../components/weekgrid';
+import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
+import { rowItem } from './data';
+import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { WeekProps } from './index';
 import { PracticeAsk } from './parts';
@@ -33,7 +34,7 @@ const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: nu
 
 /** A block being moved, or a task being placed, before Move here or Place here. */
 type Placing =
-  | { mode: 'move'; block: WeekBlock; length: Minutes }
+  | { mode: 'move'; block: PlacedBlock; length: Minutes }
   | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean };
 
 type Open = { kind: 'block'; id: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
@@ -88,7 +89,7 @@ export function PhoneWeek(props: WeekProps) {
     setAt({ date, start, end: start + len });
   };
 
-  const changeBlock = (b: WeekBlock, slot: Slot) => {
+  const changeBlock = (b: PlacedBlock, slot: Slot) => {
     if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return;
     void act.move(b.id, slot);
     setEdSel(b.id);
@@ -310,7 +311,7 @@ export function PhoneWeek(props: WeekProps) {
         <div className="tray dragbar">
           <div role="status">
             <div className="strong">
-              {dayName(at.date)}, {range(at)}
+              {dayName(at.date)}, {slotRange(at)}
             </div>
             <div className="small">{placingText}</div>
             {placingNote && <div className="small">{placingNote}</div>}
@@ -329,7 +330,7 @@ export function PhoneWeek(props: WeekProps) {
           <div role="status">
             {edBlock && (
               <div className="small strong">
-                {edBlock.title}, {dayName(edBlock.date)}, {range(edBlock)}
+                {edBlock.title}, {dayName(edBlock.date)}, {slotRange(edBlock)}
               </div>
             )}
             {edBlock && <div className="small">{slotNotes(edBlock, { kind: edBlock.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ')}</div>}
@@ -475,7 +476,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
             className={cls}
             type="button"
             style={{ height: cells * CELL_PX - 2 }}
-            aria-label={`${block.title}, ${range(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}`}
+            aria-label={`${block.title}, ${slotRange(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}`}
             onClick={() => props.onOpen(block.id)}
           >
             {inner}
@@ -495,7 +496,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
         inf.start,
         <div className="tlblock c-info" style={{ height: CELL_PX - 2 }}>
           <span className="tlname">{inf.title}</span>
-          <span className="tlkind">Information, {range(inf)}</span>
+          <span className="tlkind">Information, {slotRange(inf)}</span>
         </div>,
         inf.start,
         inf.end,
@@ -504,7 +505,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       continue;
     }
     if (event) {
-      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {range(event)}</div>, m, event.end);
+      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {slotRange(event)}</div>, m, event.end);
       m = event.end;
       continue;
     }
@@ -541,17 +542,17 @@ export function DragDay(props: {
   ctx: SlotContext;
   info: WeekModel['info'];
   floor: number;
-  blocks: WeekBlock[];
-  moving: { title: string; kind: WeekBlock['kind']; slot: Slot } | null;
+  blocks: PlacedBlock[];
+  moving: { title: string; kind: PlacedBlock['kind']; slot: Slot } | null;
   editing: boolean;
   ghosts?: readonly GridGhost[];
   /** Drawn in full rather than calm. */
   selected?: string | null;
   onMoving(slot: Slot): void;
   onDone(): void;
-  onChange(b: WeekBlock, slot: Slot): void;
+  onChange(b: PlacedBlock, slot: Slot): void;
   /** A block let go over To schedule, which takes it off the calendar. */
-  onUnschedule?(b: WeekBlock): void;
+  onUnschedule?(b: PlacedBlock): void;
   onOpen(id: string): void;
 }) {
   const { date, ctx, floor, moving, ghosts = [] } = props;
@@ -607,7 +608,7 @@ export function DragDay(props: {
   const handle = (
     key: string,
     title: string,
-    kind: WeekBlock['kind'],
+    kind: PlacedBlock['kind'],
     slot: Slot,
     calm: boolean,
     on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
@@ -660,7 +661,7 @@ export function DragDay(props: {
         aria-valuemin={len}
         aria-valuemax={DAY_TO - floor}
         aria-valuenow={DAY_TO - shown.start}
-        aria-valuetext={`${dayName(date)}, ${range(shown)}`}
+        aria-valuetext={`${dayName(date)}, ${slotRange(shown)}`}
         style={{ top: y(shown.start), height: Math.max(24, y(shown.end) - y(shown.start)) }}
         onPointerDown={drag('move')}
         onKeyDown={step}
@@ -735,7 +736,7 @@ export function DragDay(props: {
 
 /** A tapped block: its length on a slider, Move and Remove. */
 function BlockSheet(props: {
-  block: WeekBlock;
+  block: PlacedBlock;
   model: WeekModel;
   canEdit: boolean;
   onClose(): void;
@@ -752,7 +753,7 @@ function BlockSheet(props: {
     <Sheet label={block.title} onClose={props.onClose}>
       <div>
         <div className="small quiet">
-          {dayName(block.date)}, {range(block)}
+          {dayName(block.date)}, {slotRange(block)}
         </div>
         <h2>{block.title}</h2>
       </div>

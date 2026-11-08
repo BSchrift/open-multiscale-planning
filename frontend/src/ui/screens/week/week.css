@@ -30,8 +30,6 @@
 [data-layout] .wkhint { margin-bottom: 8px; }
 [data-layout] .wkbusy { display: flex; align-items: center; }
 [data-layout] .wkstats { width: 100%; margin-top: var(--space-3); }
-[data-layout] .wkgrow { flex: 1; min-width: 0; }
-[data-layout] .wkline { display: block; }
 [data-layout] .wkgroup { margin-bottom: 4px; }
 [data-layout] .wkrow { padding: 0; }
 [data-layout] .wkrange { width: 100%; }

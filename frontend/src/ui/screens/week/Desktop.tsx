@@ -14,9 +14,9 @@ import { useNav } from '../../app/nav';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { TimeUse } from '../../components/week/TimeUse';
-import { dragCard, WeekGrid } from '../../components/weekgrid';
+import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
-import { dayName, range, rowItem } from './data';
+import { rowItem } from './data';
 import type { AddRow, LaneItem } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { WeekProps } from './index';
@@ -174,7 +174,7 @@ export function DesktopWeek(props: WeekProps) {
             {lastMoved && !cur && (
               <div className="stack8" role="status" aria-label="Last change">
                 <div className="small strong">
-                  {lastMoved.title}, {dayName(lastMoved.date)}, {range(lastMoved)}
+                  {lastMoved.title}, {dayName(lastMoved.date)}, {slotRange(lastMoved)}
                 </div>
                 {slotNotes(lastMoved, { kind: lastMoved.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).map((n) => (
                   <div key={n} className="small wknote">
@@ -364,7 +364,7 @@ function Placing(props: { row: AddRow; draft: Slot; model: WeekProps['model']; o
     <div className="scheddetail stack8">
       <div className="small quiet">{row.context}</div>
       <div className="strong">
-        {dayName(draft.date)}, {range(draft)} ({formatMinutes(len)})
+        {dayName(draft.date)}, {slotRange(draft)} ({formatMinutes(len)})
       </div>
       {len < row.left && <div className="small">{formatMinutes(row.left - len)} more of this task stays to place</div>}
       {notes.map((n) => (

@@ -1,8 +1,8 @@
 // What a person can do to a block, as one transaction each with the message that follows. Today and Week share it.
 
 import { useCallback } from 'react';
-import { answerBlock, extendBlock, markDoneNow, startBlock, startEarly, swapBlocks, unscheduleBlock } from '../../../core/blocks';
-import type { BlockAnswer } from '../../../core/blocks';
+import { answerBlock, answerBlocks, extendBlock, markDoneNow, startBlock, startEarly, swapBlocks, unscheduleBlock } from '../../../core/blocks';
+import type { BlockAnswer, BlockAnswerFor } from '../../../core/blocks';
 import { formatMinutes, formatTime, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -38,13 +38,19 @@ export function useBlockActions() {
       if (block.practice_id) toast.show(answer.result === 'done' ? `Logged ${formatMinutes(answer.logged_min ?? 0)}` : "Skipped. It doesn't need a new time.");
       else if (answer.result !== 'done') toast.show(QUEUED);
     },
-    /** One check-in answer for several missed blocks. */
-    noneDone: async (blocks: readonly BlockRow[]) => {
-      const done = await run(async (w) => {
-        for (const b of blocks) await answerBlock(w, b.id, { result: 'not' }, clock);
-        return { writes: [] };
+    /**
+     * Answers from the missed blocks sheet, one row or several, in one transaction with one Undo. The message hears
+     * how many later blocks went with a task the answers finished. Resolves to whether it saved.
+     */
+    answerAll: async (answers: readonly BlockAnswerFor[], message: (freed: number) => string) => {
+      let freed = 0;
+      const reverse = await run(async (w) => {
+        const answered = await answerBlocks(w, answers, clock);
+        freed = answered.freed.length;
+        return answered;
       });
-      if (done) toast.show(QUEUED);
+      if (reverse) toast.show(message(freed), { undo: () => run((w) => applyPlanChange(w, reverse)) });
+      return !!reverse;
     },
     markDoneNow: (block: BlockRow, next: BlockRow | undefined) =>
       withUndo(

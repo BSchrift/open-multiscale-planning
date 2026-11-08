@@ -153,25 +153,29 @@ describe('the end-of-block prompt', () => {
       await task(w, 't2', 'Paint the fence');
       await block(w, 'b2', 't2', '13:00', '13:55');
     });
-    // Two missed blocks ask together; answer them one by one.
-    const check = await dialog('Check-in');
-    expect(within(check).getByRole('heading', { name: 'Check in on 2 missed blocks' })).toBeVisible();
-    const rows = within(check).getAllByRole('group');
-    await userEvent.click(within(rows[0]!).getByRole('button', { name: 'Not done' }));
+    // Two missed blocks ask together in one sheet. Put away, one left over gets its own prompt.
+    const sheet = await dialog('2 missed blocks');
+    expect(within(sheet).getByRole('heading', { name: '2 missed blocks' })).toBeVisible();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Not done: Write the report' }));
+    await userEvent.click(within(await dialog('1 missed block')).getByRole('button', { name: 'Later' }));
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not');
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
     const prompt = await dialog('Block finished');
     await userEvent.click(within(prompt).getByRole('button', { name: 'Still going, add 30m' }));
-    expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not');
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.end).toBe(at('14:25')));
   });
 
-  it('None of them sends every missed block to Needs a new time', async () => {
+  it('Select all then Not done sends every missed block to Needs a new time', async () => {
     const t = await open(async (w) => {
       await ended(w);
       await task(w, 't2', 'Paint the fence');
       await block(w, 'b2', 't2', '13:00', '13:30');
     });
-    await userEvent.click(within(await dialog('Check-in')).getByRole('button', { name: "None of them, I'll choose new times later" }));
-    expect(await screen.findByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
+    const sheet = await dialog('2 missed blocks');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Select' }));
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Select all' }));
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Not done' }));
+    expect(await screen.findByText('Answered 2 blocks.')).toBeVisible();
     expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not');
     expect((await getRecord(t.db, 'block_outcome', outcomeId('b2')))?.result).toBe('not');
   });

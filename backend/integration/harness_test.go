@@ -581,9 +581,13 @@ func (a *account) cleanUp() {
 	stamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	written, _ := a.pullAll(a.base)
 	var batch []record
+	// An update is billed at the size it replaces, so emptying large records goes a few at a time, paced under the
+	// partition's write rate.
+	size := 0
 	for key := range a.pushed {
 		pairs := []any{"deleted_at", stamp}
 		if stored, ok := find(written, key[0], key[1]); ok {
+			size += len(mustJSON(a.t, stored.Fields))
 			for name := range stored.Fields {
 				if name != "deleted_at" {
 					pairs = append(pairs, name, nil)
@@ -591,9 +595,12 @@ func (a *account) cleanUp() {
 			}
 		}
 		batch = append(batch, a.record(key[0], key[1], pairs...))
-		if len(batch) == 99 {
+		if len(batch) == 99 || size >= 200<<10 {
 			a.sync(a.startCursor(), batch...)
-			batch = nil
+			if size >= 200<<10 {
+				time.Sleep(500 * time.Millisecond)
+			}
+			batch, size = nil, 0
 		}
 	}
 	if len(batch) > 0 {

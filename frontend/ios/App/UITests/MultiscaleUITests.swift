@@ -637,8 +637,7 @@ final class SignedInUITests: XCTestCase {
         app.tapWeb(title)
         app.tapWeb("Delete/done")
         app.tapWeb("Yes, delete")
-        exists(app.webText("0 sorted, 1 deleted."))
-        app.tapWeb("Done")
+        // Process goes on to whatever else is in the Inbox, so the server is what shows it worked.
         other.eventually("the capture deleted") { $0["title"] as? String == title && $0["deleted_at"] is String }
     }
 

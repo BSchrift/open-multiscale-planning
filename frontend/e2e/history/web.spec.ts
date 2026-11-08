@@ -10,57 +10,60 @@ import { historyTarget, keptChanges, NETWORK, record, timeQueries, usableAt } fr
 const t = historyTarget();
 
 /**
- * Before the app loads: notes each click, each arming and firing of a 200 ms timer (the web app's wait for more edits
- * before saving, src/platform/web.ts), and each write of the database file to IndexedDB and when it finished.
+ * Before the app loads: notes each click, and keeps the app's database worker (src/platform/web.ts) for page.ts, noting
+ * how many of the page's requests to it are waiting, when one last went or came back, and each COMMIT's round trip.
  */
-function watchSaves() {
-  const marks = { clicks: [] as number[], timers: [] as { armed: number; fired?: number }[], saves: [] as { put: number; done?: number; bytes: number }[] };
+function watchDatabase() {
+  const marks: Marks = { clicks: [], waiting: 0, active: 0, commits: [] };
   Object.assign(window, { historyMarks: marks });
   addEventListener('click', () => marks.clicks.push(performance.now()), true);
-  const setTimer = window.setTimeout;
-  window.setTimeout = ((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
-    if (ms !== 200 || typeof fn !== 'function') return setTimer(fn, ms, ...args);
-    const timer: { armed: number; fired?: number } = { armed: performance.now() };
-    marks.timers.push(timer);
-    return setTimer(() => {
-      timer.fired = performance.now();
-      (fn as (...a: unknown[]) => void)(...args);
-    }, ms);
-  }) as typeof window.setTimeout;
-  const put = IDBObjectStore.prototype.put;
-  IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
-    const request = put.call(this, value, key);
-    if (key === 'multiscale.sqlite') {
-      const save: { put: number; done?: number; bytes: number } = { put: performance.now(), bytes: (value as Uint8Array).byteLength };
-      marks.saves.push(save);
-      this.transaction.addEventListener('complete', () => (save.done = performance.now()));
+  window.Worker = class extends window.Worker {
+    constructor(url: string | URL, options?: WorkerOptions) {
+      super(url, options);
+      Object.assign(window, { historyWorker: this });
+      const commits = new Map<number, { sent: number; answered?: number }>();
+      const post = this.postMessage.bind(this) as (message: unknown) => void;
+      // page.ts's own requests have ids below 0, and aren't the app's.
+      this.postMessage = ((message: { id: number; op: string; sql?: string }) => {
+        if (message.id >= 0) {
+          marks.waiting++;
+          marks.active = performance.now();
+          if (message.op === 'exec' && message.sql === 'COMMIT') {
+            const commit = { sent: marks.active };
+            commits.set(message.id, commit);
+            marks.commits.push(commit);
+          }
+        }
+        post(message);
+      }) as Worker['postMessage'];
+      this.addEventListener('message', ({ data }: MessageEvent<{ id: number }>) => {
+        if (data.id < 0) return;
+        marks.waiting--;
+        marks.active = performance.now();
+        const commit = commits.get(data.id);
+        if (commit) commit.answered = marks.active;
+        commits.delete(data.id);
+      });
     }
-    return request;
   };
 }
 
-type Marks = { clicks: number[]; timers: { armed: number; fired?: number }[]; saves: { put: number; done?: number; bytes: number }[] };
+type Marks = { clicks: number[]; waiting: number; active: number; commits: { sent: number; answered?: number }[] };
 const marks = (page: Page) => page.evaluate(() => (window as unknown as { historyMarks: Marks }).historyMarks);
 
-/** Until no save is armed or under way, and the sync an edit sets off 2 seconds later has saved too. */
+/** Until the database has nothing waiting, and the sync an edit sets off 2 seconds later has written too. */
 async function quiet(page: Page) {
   await page.waitForFunction(
     () => {
       const m = (window as unknown as { historyMarks: Marks }).historyMarks;
-      const last = m.timers.at(-1);
-      const save = m.saves.at(-1);
-      const busy = (last && !last.fired) || (save && !save.done);
-      return !busy && performance.now() - Math.max(last?.armed ?? 0, m.clicks.at(-1) ?? 0) > 3000;
+      return m.waiting === 0 && performance.now() - Math.max(m.active, m.clicks.at(-1) ?? 0) > 3000;
     },
     null,
     { polling: 100, ...NETWORK },
   );
 }
 
-/**
- * One edit, from its click to its database file written: the edit itself up to the save being armed, then the save's
- * own work from its timer firing. The 200 ms wait between is the app's choice, not work, so it's left out.
- */
+/** One edit, from its click until its transaction has committed, which on OPFS is when it's on disk. */
 async function timeEdit(page: Page, control: () => Promise<void>) {
   const before = (await marks(page)).clicks.length;
   await control();
@@ -68,24 +71,22 @@ async function timeEdit(page: Page, control: () => Promise<void>) {
     (n) => {
       const m = (window as unknown as { historyMarks: Marks }).historyMarks;
       const click = m.clicks[n];
-      return click !== undefined && m.saves.some((s) => s.put > click && s.done !== undefined);
+      return click !== undefined && m.commits.some((c) => c.sent > click && c.answered !== undefined);
     },
     before,
     NETWORK,
   );
   const m = await marks(page);
   const click = m.clicks[before]!;
-  const save = m.saves.find((s) => s.put > click)!;
-  const timer = m.timers.filter((x) => x.fired !== undefined && x.fired <= save.put).at(-1)!;
-  const edit = { armed: timer.armed - click, saved: save.done! - timer.fired! };
-  console.log(`web edit: ${edit.armed.toFixed(1)} ms to commit and arm the save, ${edit.saved.toFixed(1)} ms to export and write the ${(save.bytes / 1e6).toFixed(1)} MB file`);
-  return edit.armed + edit.saved;
+  const saved = m.commits.find((c) => c.sent > click)!.answered! - click;
+  console.log(`web edit: ${saved.toFixed(1)} ms from the click to its transaction committed`);
+  return saved;
 }
 
 test('a new browser of the five-year account: first sync, Today and Week, and saving an edit', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.addInitScript(watchSaves);
+  await page.addInitScript(watchDatabase);
   const { openInbox } = historyFacts(keptChanges());
 
   // The shipped web app has no Skip: a new browser signs in first.

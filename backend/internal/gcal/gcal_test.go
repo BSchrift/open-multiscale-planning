@@ -515,6 +515,36 @@ func TestSyncedAtMovesWhenARunChangesEventsOrTheMirror(t *testing.T) {
 	}
 }
 
+// An event Google says is already gone was deleted by someone else, so the run counts no deletion and moves nothing.
+func TestAnEventAlreadyGoneIsNotCountedAsDeleted(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.block("b1", "Paint the fence", at(1), at(2))
+	w.run()
+	syncedAt := w.calendarRecord(testSub)["synced_at"].V
+	cal := w.timeBlocks()
+	// The person deletes the event in Google between the run's list and its delete.
+	racing := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			w.fake.DeleteEvent(cal, EventID("b1"))
+		}
+		w.fake.ServeHTTP(rw, r)
+	}))
+	t.Cleanup(racing.Close)
+	w.g.APIURL = racing.URL + "/calendar/v3/"
+	w.write(testSub, "time_block", "b1", map[string]any{"deleted_at": instant(testNow)})
+	w.now = w.now.Add(time.Minute)
+	w.run()
+
+	lines := w.runLines()
+	if last := lines[len(lines)-1]; last["deleted"] != float64(0) || last["CalendarEventsChanged"] != float64(0) {
+		t.Fatalf("%+v", last)
+	}
+	if got := w.calendarRecord(testSub)["synced_at"].V; got != syncedAt {
+		t.Fatalf("synced_at %v then %v", syncedAt, got)
+	}
+}
+
 func TestMalformedBlocksDoNotStopTheRun(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)

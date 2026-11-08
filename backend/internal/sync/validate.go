@@ -24,8 +24,8 @@ const (
 	// MaxBodyBytes stays under the 6 MB Lambda takes, so the API answers a bigger body itself. A device's batch stops
 	// near 4 MB, plus at most one record.
 	MaxBodyBytes = 5 << 20
-	// MaxClockAhead stops a device with a bad clock winning every future conflict.
-	MaxClockAhead = 24 * time.Hour
+	// maxClockAhead stops a device with a bad clock winning every future conflict.
+	maxClockAhead = 24 * time.Hour
 
 	// The value limits DynamoDB enforces, checked here so a bad value is a refused request and not a failed write.
 	// A record's values sit three levels down in the item, and DynamoDB allows 32.
@@ -86,7 +86,7 @@ func ParseRequest(body []byte, now time.Time) (Request, error) {
 	if len(req.Changes) > MaxChanges {
 		return Request{}, rejected("too_many_changes")
 	}
-	latest := now.Add(MaxClockAhead).UnixMilli()
+	latest := now.Add(maxClockAhead).UnixMilli()
 	for _, change := range req.Changes {
 		if err := validateChange(change, latest); err != nil {
 			return Request{}, err

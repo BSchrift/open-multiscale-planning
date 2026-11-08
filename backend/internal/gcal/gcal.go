@@ -351,10 +351,12 @@ func reconcile(ctx context.Context, svc *calendar.Service, calendarID string, wa
 			continue
 		}
 		err := svc.Events.Delete(calendarID, id).Context(ctx).Do()
-		if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) {
+		switch {
+		case err == nil:
+			counts.deleted++
+		case !hasStatus(err, http.StatusNotFound, http.StatusGone):
 			return err
 		}
-		counts.deleted++
 	}
 	return nil
 }

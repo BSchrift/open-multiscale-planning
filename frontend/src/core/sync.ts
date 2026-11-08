@@ -3,18 +3,20 @@
 // why applying a response, clearing the outbox and storing the cursor can be separate steps: a crash between them
 // only means the next sync repeats some work.
 
+import { protocol } from '@multiscale/config';
 import { getMeta, META, setMeta } from './db';
 import type { Db, Sql } from './db';
 import { applyRemote } from './records';
 import type { Instant, RecordChange } from './types';
 
-const BATCH_RECORDS = 99;
+// The server's limits, from config/protocol.yaml.
+const BATCH_RECORDS = protocol.sync.maxChanges;
 /** The server refuses a change over this, measured as its fields' values and clocks in JSON. */
-const RECORD_BYTES = 100 * 1024;
+const RECORD_BYTES = protocol.sync.maxRecordBytes;
 /** How far the server lets a merged record pass RECORD_BYTES, so one at the limit can still take deleted_at. */
-const MERGED_ROOM = 1024;
+const MERGED_ROOM = protocol.sync.mergedRoomBytes;
 /** Well under the 6 MB a request can carry, leaving room for the rest of the request. */
-const BATCH_BYTES = 4 * 1024 * 1024;
+const BATCH_BYTES = protocol.sync.clientBatchBytes;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 export type SyncErrorCode = 'offline' | 'sign_in_expired' | 'sign_in_failed' | 'clock_ahead' | 'other_account' | 'too_large' | 'error';

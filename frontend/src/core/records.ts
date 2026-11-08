@@ -10,6 +10,7 @@
 // deleted_at and keep the row, so a delete merges like any other field. For Undo, set returns the values it
 // replaced: write them back.
 
+import { protocol } from '@multiscale/config';
 import { nowInstant } from './dates';
 import { clockWins, formatClock, isClock, nextClock, observeClock, parseClock } from './clock';
 import type { Clock } from './clock';
@@ -29,7 +30,7 @@ export const CALENDAR_ID = 'calendar';
 const OUTCOME_PREFIX = 'outcome:';
 
 /** Ids are printable ASCII. The server enforces the same rule. */
-export const ID_PATTERN = /^[\x21-\x7e]{1,200}$/;
+export const ID_PATTERN = new RegExp(protocol.records.idPattern);
 
 let lastIdMs = 0;
 let idSequence = 0;
@@ -276,7 +277,7 @@ export async function applyRemote(db: Db, changes: readonly RecordChange[]): Pro
 }
 
 /** The server refuses a clock more than this far ahead of its own time. */
-const CLOCK_AHEAD_LIMIT_MS = 24 * 60 * 60_000;
+const CLOCK_AHEAD_LIMIT_MS = protocol.sync.maxClockAheadHours * 60 * 60_000;
 
 /**
  * Once the device's time is set right after running far ahead, gives the edits made meanwhile new clocks from now,

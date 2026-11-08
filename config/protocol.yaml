@@ -1,0 +1,41 @@
+# What the server and every app agree on, the same in every environment. Go embeds this file and checks it when the
+# config package loads; go generate copies it to app.gen.ts for TypeScript. See docs/config.md.
+#
+# A released app keeps running beside newer servers for months, so changes here keep three rules:
+# - A server limit never drops below what a released app sends. To raise a limit, raise the server's first and release
+#   it, then the apps'.
+# - Id and clock formats only get wider, so the server still takes every id and clock a released app makes.
+# - Retention, in each file in env/, never lets the server purge what an older app could push back.
+
+sync:
+  # Changes in one request. One transaction writes them and the user's counter, and DynamoDB takes 100 actions.
+  maxChanges: 99
+  # A record's fields as JSON, as a device sends them: 100 KiB.
+  maxRecordBytes: 102400
+  # How far a merge may take a stored record past maxRecordBytes, so a record at the limit can still take deleted_at:
+  # 1 KiB.
+  mergedRoomBytes: 1024
+  # Where a device stops filling a request: 4 MiB. A batch can pass it by one record.
+  clientBatchBytes: 4194304
+  # The largest request the API reads: 5 MiB. It holds a full batch, one more record and its merged room, and stays
+  # under the 6 MB Lambda takes, so the API answers a bigger request itself.
+  maxBodyBytes: 5242880
+  # How far ahead of the server's time a clock may be, so a device with a bad clock can't win every future conflict.
+  maxClockAheadHours: 24
+
+# Go and JavaScript both read these patterns, so they keep to what both read alike: character classes, \d, \x escapes,
+# counts, groups and anchors.
+records:
+  # Record ids and field names: printable ASCII, 1 to 200 characters.
+  idPattern: '^[\x21-\x7e]{1,200}$'
+
+clock:
+  # A field's clock: its wall time in milliseconds, in 13 digits, a counter in 6, then the device's id. Clocks compare
+  # as text, so the widths are fixed. The groups are those three parts.
+  pattern: '^(\d{13})-(\d{6})-([\x21-\x7e]+)$'
+  # The highest counter 6 digits hold. A device past it moves its wall time on a millisecond.
+  maxCounter: 999999
+
+telemetry:
+  # Events in one POST /v1/logs. The app queues no more than this between sends, and the server keeps no more.
+  maxBatchEvents: 200

@@ -25,16 +25,37 @@ export function isHashed(app: 'electron' | 'ios', path: string): boolean {
   return SHELL_SOURCES[app].paths.some((p) => path === p || path.startsWith(`${p}/`)) && !NOT_SHIPPED.test(path);
 }
 
-/** files: path to contents. versions: installed package name to version. */
-export function shellHash(files: Record<string, string | Buffer>, versions: Record<string, string>): string {
+/** What the Mac app's main process is built with besides its files: its __BUILD__, without the devUrl only a dev run has. */
+export interface MacBuild {
+  name: string;
+  scheme: string;
+  backendOrigins: string[];
+}
+
+/**
+ * The Mac build for a config and the app's name and scheme. The main process bakes the backend origins into the page's
+ * content security policy, so a bundle built for other origins can only run on an app built for them too.
+ */
+export function macBuild(config: { apiUrl: string; authUrl: string; releaseUrl?: string }, identity: { name: string; scheme: string }): MacBuild {
+  return {
+    name: identity.name,
+    scheme: identity.scheme,
+    // The page reaches these: the API, sign-in, and where updates come from.
+    backendOrigins: [...new Set([config.apiUrl, config.authUrl, config.releaseUrl].filter((url): url is string => Boolean(url)).map((url) => new URL(url).origin))],
+  };
+}
+
+/** files: path to contents. versions: installed package name to version. build: the Mac build, for the Mac app. */
+export function shellHash(files: Record<string, string | Buffer>, versions: Record<string, string>, build?: MacBuild): string {
   const hash = createHash('sha256');
   for (const path of Object.keys(files).filter((p) => !NOT_SHIPPED.test(p)).sort()) hash.update(`${path}\0${files[path]}\0`);
   for (const name of Object.keys(versions).sort()) hash.update(`${name}@${versions[name]}\0`);
+  if (build) hash.update(`__BUILD__\0${JSON.stringify(build)}\0`);
   return hash.digest('hex').slice(0, 16);
 }
 
-/** Both apps' hashes for the frontend folder at root, from what git tracks there and the lockfile. */
-export function shellHashes(root: string): Record<'electron' | 'ios', string> {
+/** Both apps' hashes for the frontend folder at root, from what git tracks there, the lockfile and the Mac build. */
+export function shellHashes(root: string, build: MacBuild): Record<'electron' | 'ios', string> {
   const lock = (JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as { packages: Record<string, { version: string }> }).packages;
   const result = { electron: '', ios: '' };
   for (const app of ['electron', 'ios'] as const) {
@@ -46,7 +67,7 @@ export function shellHashes(root: string): Record<'electron' | 'ios', string> {
         .filter(([key]) => key.startsWith('node_modules/') && packages(key.slice('node_modules/'.length)))
         .map(([key, value]) => [key.slice('node_modules/'.length), value.version]),
     );
-    result[app] = shellHash(files, versions);
+    result[app] = shellHash(files, versions, app === 'electron' ? build : undefined);
   }
   return result;
 }

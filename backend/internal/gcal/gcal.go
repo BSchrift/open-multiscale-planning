@@ -50,11 +50,12 @@ const (
 	fallbackTitle = "Time block"
 	// Titles come from devices with limits far above what Google takes.
 	maxTitleRunes = 1000
-	// Leaves room for the other fields under the store's limit on a record.
-	maxEventBytes = sync.MaxRecordBytes * 4 / 5
 	clockDevice   = "calendar"
 	instantFormat = "2006-01-02T15:04:05Z"
 )
+
+// Leaves room for the other fields under the store's limit on a record.
+var maxEventBytes = sync.MaxRecordBytes * 4 / 5
 
 // Records is the part of the sync store the worker uses.
 type Records interface {

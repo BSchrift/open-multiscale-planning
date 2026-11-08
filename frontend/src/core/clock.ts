@@ -5,6 +5,8 @@
 // as plain strings orders them: time, then counter, with the device id breaking ties. The server uses the
 // same format and comparison, and device ids must be printable ASCII with no space.
 
+import { protocol } from '@multiscale/config';
+
 export interface Clock {
   /** Epoch milliseconds. */
   now(): number;
@@ -35,8 +37,9 @@ export interface Hlc {
   device: string;
 }
 
-const COUNTER_LIMIT = 999_999;
-const CLOCK_RE = /^(\d{13})-(\d{6})-([\x21-\x7e]+)$/;
+// The server checks clocks against the same format, from config/protocol.yaml.
+const COUNTER_LIMIT = protocol.clock.maxCounter;
+const CLOCK_RE = new RegExp(protocol.clock.pattern);
 
 export function formatClock({ wall, counter, device }: Hlc): string {
   return `${String(wall).padStart(13, '0')}-${String(counter).padStart(6, '0')}-${device}`;

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	msync "github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
+	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 func TestUnknownRoutesAndMethodsAreNotFound(t *testing.T) {
@@ -70,7 +70,7 @@ func nested(depth int) string {
 func TestSyncRefusesBadRequests(t *testing.T) {
 	needs(t)
 	a := signIn(t)
-	future := clockAt(time.Now().Add(25*time.Hour), 0, "device")
+	future := clockAt(time.Now().Add(maxClockAhead+time.Hour), 0, "device")
 	longID := strings.Repeat("x", 201)
 	tooMany := make([]string, 100)
 	for i := range tooMany {
@@ -116,7 +116,7 @@ func TestSyncRefusesBadRequests(t *testing.T) {
 		{"number too long", changeBody("task", fresh("r"), titled(strings.Repeat("1", 39))), 400, "invalid_value"},
 		{"value nested too deep", changeBody("task", fresh("r"), titled(nested(26))), 400, "invalid_value"},
 		{"empty key in a value", changeBody("task", fresh("r"), titled(`{"":1}`)), 400, "invalid_value"},
-		{"record too large", changeBody("task", fresh("r"), titled(`"`+strings.Repeat("x", 100*1024)+`"`)), 413, "record_too_large"},
+		{"record too large", changeBody("task", fresh("r"), titled(`"`+strings.Repeat("x", maxRecordBytes)+`"`)), 413, "record_too_large"},
 	}
 	before := a.startCursor()
 	for _, c := range cases {
@@ -129,7 +129,7 @@ func TestSyncRefusesBadRequests(t *testing.T) {
 	}
 	t.Run("body over the limit", func(t *testing.T) {
 		// Just over the limit, and under the 6 MB Lambda takes, so the app answers on a deployment too.
-		body := `{"cursor":0,"changes":[],"padding":"` + strings.Repeat("x", msync.MaxBodyBytes) + `"}`
+		body := `{"cursor":0,"changes":[],"padding":"` + strings.Repeat("x", appconfig.Protocol.Sync.MaxBodyBytes) + `"}`
 		if res := a.sendRaw([]byte(body)); res.status != 413 {
 			t.Fatalf("%d %s", res.status, truncated(res.body))
 		}

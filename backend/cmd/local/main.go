@@ -22,6 +22,7 @@ import (
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/fakes"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
+	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 type config struct {
@@ -67,6 +68,9 @@ func envOr(name, fallback string) string {
 }
 
 func build(cfg config, logs io.Writer) (http.Handler, error) {
+	if _, err := appconfig.ForEnv(cfg.Env); err != nil {
+		return nil, err
+	}
 	client := dynamodb.New(dynamodb.Options{
 		Region:       "us-west-2",
 		BaseEndpoint: aws.String(cfg.Endpoint),

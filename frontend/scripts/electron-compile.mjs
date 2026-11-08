@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { appIdentity } from '../electron/identity.ts';
 import { loadAppConfig, loadBundleId } from '../src/core/appConfig.ts';
-import { isHashed } from './shell-hash.ts';
+import { isHashed, macBuild } from './shell-hash.ts';
 
 const root = join(import.meta.dirname, '..');
 const out = join(root, 'dist-electron');
@@ -41,15 +41,8 @@ export async function compile(env, devUrl) {
     ...common,
     entryPoints: [join(root, 'electron/main.ts')],
     external: ['electron', 'better-sqlite3'],
-    define: {
-      __BUILD__: JSON.stringify({
-        name: identity.name,
-        scheme: identity.scheme,
-        // The page reaches these: the API, sign-in, and where updates come from.
-        backendOrigins: [...new Set([config.apiUrl, config.authUrl, config.releaseUrl].filter(Boolean).map((url) => new URL(url).origin))],
-        devUrl: devUrl ?? null,
-      }),
-    },
+    // The web build hashes the same macBuild into the Mac app's shell hash.
+    define: { __BUILD__: JSON.stringify({ ...macBuild(config, identity), devUrl: devUrl ?? null }) },
   }));
   // Sandboxed preloads get only what Electron gives them, so nothing else can be required at runtime.
   bundles.push(await build({ ...common, entryPoints: [join(root, 'electron/preload.ts'), join(root, 'electron/capture-preload.ts')], external: ['electron'] }));

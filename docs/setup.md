@@ -105,7 +105,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
 
-   No password or secret goes in these files. Test-user passwords go to SSM in step 8.
+   No password or secret goes in these files. Test-user passwords go to SSM in step 8. The app's own settings, its limits and what differs between staging and prod for everyone, aren't copied here: they're public, in `config/protocol.yaml` and `config/env/`, as [config.md](config.md) explains.
 
 3. Commit them. `make deploy` adds `<env>.outputs.json`, the stack's outputs, and `<env>.deployed`, the commit it deployed and when. Commit after each deploy, and the repository records what is live with which config.
 
@@ -421,7 +421,7 @@ The first release makes the signing key, `<env>.release-key.pem`, in your config
 How the apps update:
 
 - **Most releases change only the web bundle**, which both apps download by themselves: soon after starting, every six hours, and on coming back after an hour away. The Mac app switches to it when its window closes or at its next launch. The phone switches at its next launch, or on returning after half an hour in the background. **Settings > Updates** shows the version, checks on request, and has **Restart now** for a downloaded update.
-- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again.
+- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. For the Mac app that includes the API, sign-in and release addresses its main process allows the page to reach, so moving any of them also needs a new Mac app. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again.
 - **A bundle that doesn't start** within 20 seconds is rolled back to the one before it and never tried again.
 
 Releases are only as safe as the key: the apps check every bundle's signature and every file's hash before installing it, so someone who got into the bucket still couldn't change what runs.

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { before, describe, it } from 'node:test';
 import { App } from 'aws-cdk-lib';
 import { Annotations, Match, Template } from 'aws-cdk-lib/assertions';
+import { forEnv } from '@multiscale/config';
 import { MultiscaleStack } from '../lib/stack.ts';
 import type { Config, ControlConfig } from '../lib/config.ts';
 
@@ -376,6 +377,12 @@ describe('observability', () => {
 });
 
 describe('environments', () => {
+  it("takes each stack's settings from config/env", () => {
+    assert.equal(forEnv('prod').stack.terminationProtection, true);
+    assert.equal(build('staging').terminationProtection, forEnv('staging').stack.terminationProtection);
+    assert.throws(() => forEnv('dev'), /No environment "dev" in config\/env/);
+  });
+
   it('prod has its own namespace, secrets path and termination protection', () => {
     const stack = build('prod');
     assert.equal(stack.terminationProtection, true);

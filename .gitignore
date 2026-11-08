@@ -45,6 +45,9 @@ infrastructure/config/
 # The default config dir: per-environment YAML, deploy records and stack outputs stay local
 /config/*.yaml
 !/config/*.example.yaml
+# The app's own settings, which are public: see docs/config.md.
+!/config/protocol.yaml
+!/config/env/
 /config/*.deployed
 /config/*.outputs.json
 frontend/app.config.*

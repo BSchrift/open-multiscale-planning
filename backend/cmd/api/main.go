@@ -23,9 +23,14 @@ import (
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/gcal"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
+	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 func main() {
+	// A wrong ENV_NAME stops the function as it starts, not at the first request that needs its settings.
+	if _, err := appconfig.ForEnv(os.Getenv("ENV_NAME")); err != nil {
+		log.Fatal(err)
+	}
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		log.Fatal(err)

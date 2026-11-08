@@ -17,7 +17,7 @@ It is local-first: everything lives in SQLite on the device and syncs through a 
 | `backend/` | Go: `cmd/api` (sync and Google connect Lambda), `cmd/calendar` (the Google Calendar worker), `cmd/local` (both, plus stand-in sign-in and Google, for local use) |
 | `backend/integration` | The black-box API suite, run against local, staging or prod |
 | `infrastructure/` | AWS CDK: one stack per environment, `Multiscale-staging` and `Multiscale-prod`, plus `Multiscale-control` for an optional domain |
-| `config/` | The Go module that loads each environment's YAML, and an example of each file |
+| `config/` | The app's own settings, `protocol.yaml` and `env/`, which Go checks and exports to TypeScript as `@multiscale/config`; the Go module that loads each deployment's YAML, with an example of each file. [docs/config.md](docs/config.md) says what goes where. |
 | `site/` | The public page at `www.` your domain, deployed with the control stack |
 | `scripts/`, `Makefile` | Deploy, test and local stack entry points |
 
@@ -70,7 +70,7 @@ These read your config folder, `$MULTISCALE_CONFIG_DIR` or else `config/`: `<env
 
 ## Deploying
 
-Each deployment is your own: AWS accounts (three under AWS Organizations, or one), a Google OAuth client and, for iPhone, an Apple ID. Your config lives in a folder of your own, one YAML file per environment copied from `config/*.example.yaml`. [docs/setup.md](docs/setup.md) goes from a new AWS account to the app on your phone. In short, `make deploy ENV=control` lets staging and prod add their zones under your domain if you have one, `make deploy` deploys staging and `make deploy ENV=prod` deploys prod.
+Each deployment is your own: AWS accounts (three under AWS Organizations, or one), a Google OAuth client and, for iPhone, an Apple ID. Your config lives in a folder of your own, one YAML file per environment copied from `config/*.example.yaml`. The app's own settings, its limits and what differs between environments, are public and in `config/`, as [docs/config.md](docs/config.md) explains. [docs/setup.md](docs/setup.md) goes from a new AWS account to the app on your phone. In short, `make deploy ENV=control` lets staging and prod add their zones under your domain if you have one, `make deploy` deploys staging and `make deploy ENV=prod` deploys prod.
 
 ## License
 

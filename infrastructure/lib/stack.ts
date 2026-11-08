@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
+import { forEnv } from '@multiscale/config';
 import { AccessLogFormat } from 'aws-cdk-lib/aws-apigateway';
 import { ApiMapping, CorsHttpMethod, DomainName, HttpApi, HttpMethod, HttpNoneAuthorizer, HttpStage, LogGroupLogDestination } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -47,7 +48,7 @@ export class MultiscaleStack extends Stack {
     const { envName, config, control, backendDist, requireBinaries } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
-      terminationProtection: envName === 'prod',
+      terminationProtection: forEnv(envName).stack.terminationProtection,
     });
 
     const namespace = `Multiscale/${envName}`;

@@ -29,16 +29,7 @@ func folder(t *testing.T, files map[string]string) string {
 }
 
 func TestCommittedExamplesLoad(t *testing.T) {
-	dir := folder(t, map[string]string{
-		"control.yaml": example(t, "control"), "staging.yaml": example(t, "staging"), "prod.yaml": example(t, "prod"),
-	})
-	control, err := LoadControl(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if control.AWS.Account != "333333333333" || control.AWS.Profile != "multiscale-control" || control.DNS == nil || control.DNS.Domain != "example.com" {
-		t.Fatalf("%+v", control)
-	}
+	dir := folder(t, map[string]string{"staging.yaml": example(t, "staging"), "prod.yaml": example(t, "prod")})
 	for _, env := range []string{"staging", "prod"} {
 		got, err := Load(dir, env)
 		if err != nil {
@@ -64,21 +55,12 @@ func TestOptionalParts(t *testing.T) {
 	if got.Integration.SecondTestUser != "second-test@example.com" || got.App == nil || got.App.BundleID != "com.example.planner" || got.DNS != nil {
 		t.Fatalf("%+v", got)
 	}
-
-	control, err := LoadControl(folder(t, map[string]string{"control.yaml": withoutDNS(t)}))
-	if err != nil || control.DNS != nil {
-		t.Fatalf("%+v %v", control, err)
-	}
 }
 
 func TestMissingFileSaysWhatToCopy(t *testing.T) {
 	dir := t.TempDir()
-	for env, load := range map[string]func() error{
-		"staging": func() error { _, err := Load(dir, "staging"); return err },
-		"prod":    func() error { _, err := Load(dir, "prod"); return err },
-		"control": func() error { _, err := LoadControl(dir); return err },
-	} {
-		err := load()
+	for _, env := range []string{"staging", "prod"} {
+		_, err := Load(dir, env)
 		wantFile, wantExample := filepath.Join(dir, env+".yaml"), filepath.Join(examples, env+".example.yaml")
 		if err == nil || !strings.Contains(err.Error(), wantFile) || !strings.Contains(err.Error(), wantExample) {
 			t.Errorf("%s: %v", env, err)
@@ -98,17 +80,8 @@ func TestOnlyStagingAndProdHaveEnvironmentFiles(t *testing.T) {
 	}
 }
 
-// withoutDNS is the example control.yaml with its dns section, the last in the file, cut off.
-func withoutDNS(t *testing.T) string {
-	before, _, found := strings.Cut(example(t, "control"), "dns:\n")
-	if !found {
-		t.Fatal("the example no longer has a dns section")
-	}
-	return before
-}
-
 func TestInvalidFilesAreRefused(t *testing.T) {
-	staging, control := example(t, "staging"), example(t, "control")
+	staging := example(t, "staging")
 	edit := func(body, old, new string) string {
 		t.Helper()
 		if !strings.Contains(body, old) {
@@ -136,21 +109,11 @@ func TestInvalidFilesAreRefused(t *testing.T) {
 		{"app without a bundle id", "staging", staging + "app: {}\n", "app.bundleId"},
 		{"no test user", "staging", edit(staging, "testUser: integration-test@example.com", "testUser: ''"), "integration.testUser"},
 		{"second user without a name", "staging", edit(staging, "[googleClient]", "[googleClient, secondUser]"), "integration.secondTestUser"},
-		{"control misspelt key", "control", edit(control, "domain:", "domian:"), "domian"},
-		{"control with environment keys", "control", control + "alarmEmail: you@example.com\n", "alarmEmail"},
-		{"control unquoted account", "control", edit(control, `"333333333333"`, "333333333333"), "aws.account"},
-		{"control dns without a domain", "control", edit(control, "domain: example.com", "domain: ''"), "dns.domain"},
-		{"control dns without a zone id", "control", edit(control, "hostedZoneId: Z0123456789EXAMPLE", "hostedZoneId: ''"), "dns.hostedZoneId"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := folder(t, map[string]string{c.file + ".yaml": c.body})
-			var err error
-			if c.file == "control" {
-				_, err = LoadControl(dir)
-			} else {
-				_, err = Load(dir, c.file)
-			}
+			_, err := Load(dir, c.file)
 			if err == nil || !strings.Contains(err.Error(), c.wants) {
 				t.Fatalf("got %v, want an error about %q", err, c.wants)
 			}

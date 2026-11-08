@@ -4,9 +4,10 @@
 
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { isRepeating, setOnceDates, validateSchedule } from '../../../core/schedule';
-import type { LocalDate, Task } from '../../../core/types';
+import { isRepeating, onceWhen, setOnceDates, validateSchedule } from '../../../core/schedule';
+import type { Fields, LocalDate, Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
+import { useToast } from '../Toast';
 import './oneoff.css';
 
 interface Editing {
@@ -19,14 +20,20 @@ interface Editing {
 /** A one off's dates. It closes once they save, or on Close or Esc. */
 export function OneOffDateForm(props: {
   task: Task;
-  /** Saves new dates, null clearing them, resolving to something once saved. Defaults to writing them to the task. */
+  /** Saves new dates, null clearing them, resolving to something once saved. Defaults to writing them to the task, with Undo. */
   commit?(from: LocalDate | null, to: LocalDate | null): Promise<unknown>;
   onClose(): void;
 }) {
   const { task, onClose } = props;
   const { layout } = useApp();
-  const save = useMutation((w, from: LocalDate | null, to: LocalDate | null) => w.set('task', task.id, setOnceDates(from, to)));
-  const commit = props.commit ?? save.run;
+  const toast = useToast();
+  const write = useMutation((w, fields: Fields<'task'>) => w.set('task', task.id, fields));
+  const save = async (from: LocalDate | null, to: LocalDate | null) => {
+    const previous = await write.run(setOnceDates(from, to));
+    if (previous) toast.show(`${task.title}, ${onceWhen({ type: 'once', from, to }) || 'no date'}.`, { undo: () => write.run(previous) });
+    return previous;
+  };
+  const commit = props.commit ?? save;
   const s = task.schedule?.type === 'once' ? task.schedule : null;
   const [ed, setEd] = useState<Editing>({ from: s?.from ?? '', to: s?.to ?? '', ranged: !!s?.to, error: null });
   const phone = layout === 'phone';

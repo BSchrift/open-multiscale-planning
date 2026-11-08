@@ -198,6 +198,9 @@ describe('OneOffDates', () => {
     await waitFor(() => expect(screen.queryByLabelText('Date')).toBeNull());
     expect((await getRecord(db, 'task', 't'))?.schedule).toEqual({ type: 'once', from: '2026-11-20', to: '2026-11-25' });
     expect(toggle).toHaveFocus();
+    expect(screen.getByText('Tidy the shed, Nov 20 to Nov 25.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(db, 'task', 't'))?.schedule).toEqual({ type: 'once' }));
   });
 
   it('changes or clears a date, and Escape closes it', async () => {
@@ -211,6 +214,9 @@ describe('OneOffDates', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Change date for Tidy the shed' }));
     await userEvent.click(screen.getByRole('button', { name: 'Clear date' }));
     await waitFor(async () => expect((await getRecord(db, 'task', 't'))?.schedule).toEqual({ type: 'once', from: null, to: null }));
+    expect(screen.getByText('Tidy the shed, no date.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(db, 'task', 't'))?.schedule).toEqual({ type: 'once', from: '2026-11-03', to: '2026-11-06' }));
   });
 });
 

@@ -81,11 +81,12 @@ func TestReconnectingKeepsTheCalendar(t *testing.T) {
 	}
 }
 
-// A deployment holds one connection, so another user's consent takes it over. The first user's app is told, as a
-// disconnect would tell it, and their Google access is left alone: the account is theirs, not this user's, to revoke.
+// A deployment holds one connection, so another user's consent takes it over. The first user's app shows it unconnected,
+// and their Google is left as it is: the account is theirs, not this user's, to revoke access or remove Time blocks from.
 func TestAnotherUsersConsentDisconnectsTheFirst(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)
+	w.block("b1", "Paint the fence", at(1), at(2))
 	w.fake.AddCalendar("home@example.test", "Home")
 	w.fake.AddEvent("home@example.test", &calendar.Event{
 		Summary: "Team lunch",
@@ -94,10 +95,12 @@ func TestAnotherUsersConsentDisconnectsTheFirst(t *testing.T) {
 	})
 	w.run()
 	first := w.secrets.values[SecretRefreshToken]
+	timeBlocks := w.calendarRecord(testSub)["calendar_id"].V
 
 	w.connect("someone-else")
 	rec := w.calendarRecord(testSub)
-	if rec["connected"].V != false || rec["calendar_id"].V != nil || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
+	// Time blocks is still in their Google, so its id stays for when they connect again.
+	if rec["connected"].V != false || rec["calendar_id"].V != timeBlocks || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
 		t.Fatalf("%+v", rec)
 	}
 	if !w.refreshWorks(first) {
@@ -111,6 +114,20 @@ func TestAnotherUsersConsentDisconnectsTheFirst(t *testing.T) {
 	w.connect("someone-else")
 	if theirs := w.calendarRecord("someone-else"); theirs["connected"].V != true {
 		t.Fatalf("%+v", theirs)
+	}
+
+	// Taking it back finds the same Time blocks, not a second one whose events would come back as busy time. The other
+	// user's Time blocks belongs in their own Google account, which this fake of one account can't show, so it goes.
+	w.fake.DeleteCalendar(w.calendarRecord("someone-else")["calendar_id"].V.(string))
+	w.connect(testSub)
+	w.run()
+	if got := w.calendarRecord(testSub)["calendar_id"].V; got != timeBlocks || w.eventFor("b1") == nil {
+		t.Fatalf("Time blocks %v, was %v", got, timeBlocks)
+	}
+	for id := range w.sources() {
+		if id != "home@example.test" {
+			t.Fatalf("%s is mirrored as busy time", id)
+		}
 	}
 }
 

@@ -202,7 +202,8 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 		return err
 	}
 	// There is one connection, so another user's consent takes it over. Their app is told before it's replaced, so a
-	// failure here leaves nothing replaced unannounced. Their Google access is left alone: it's theirs to remove.
+	// failure here leaves nothing replaced unannounced. Their Google is left alone: it's theirs to remove access or Time
+	// blocks from. Time blocks is still there, so its id stays, for a later consent of theirs to find it again.
 	previous, err := g.connection(ctx)
 	if err != nil && !errors.Is(err, ErrNoSecret) {
 		return err
@@ -212,7 +213,7 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 		if err != nil {
 			return err
 		}
-		if err := g.writeCalendar(ctx, previous.Sub, theirs, disconnected()); err != nil {
+		if err := g.writeCalendar(ctx, previous.Sub, theirs, map[string]any{"connected": false, "events": []any{}, "last_error": nil}); err != nil {
 			return err
 		}
 	}
@@ -271,12 +272,7 @@ func (g *Google) Disconnect(ctx context.Context, sub string) error {
 			return err
 		}
 	}
-	return g.writeCalendar(ctx, sub, stored, disconnected())
-}
-
-// disconnected is how the calendar record shows no connection.
-func disconnected() map[string]any {
-	return map[string]any{"connected": false, "calendar_id": nil, "events": []any{}, "last_error": nil}
+	return g.writeCalendar(ctx, sub, stored, map[string]any{"connected": false, "calendar_id": nil, "events": []any{}, "last_error": nil})
 }
 
 // revoke asks Google to stop honouring a refresh token. Google answers 400 for one it already doesn't.

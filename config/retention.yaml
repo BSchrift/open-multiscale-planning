@@ -1,0 +1,32 @@
+# How long Multiscale keeps history, per environment. docs/retention.md says what each period covers and what it counts
+# from. Each value is an ISO 8601 duration in whole numbers, such as P2Y, P30D or PT10M.
+#
+#   scheduling  time blocks and their answers, week picks and plans, repeating-task completions, away dates, pinned
+#               stretches, and a project's slip log entries
+#   closed      done, cancelled and dropped tasks; finished and dropped projects with their milestones; archived goals
+#   deleted     anything deleted
+#   cleanup     only where the periods are too short to wait for DynamoDB's TTL: how often a job removes what has
+#               expired, in whole minutes, hours or days
+#
+# DynamoDB's TTL removes an expired record, usually within a few days. The app reads its environment's block when it's
+# built, the Lambdas when they start, and the deploy sets up the cleanup job from it. Edit it here only:
+# config/retention.ts and config/retention.go are its two readers.
+
+prod:
+  scheduling: P2Y
+  closed: P5Y
+  deleted: P30D
+
+# Minutes, so the deployed retention suite watches every stage in one sitting. Deleted outlasts the apps' 5-minute sync,
+# so open devices see a delete before it goes, and each period ends a few cleanup runs after the one before.
+staging:
+  scheduling: PT10M
+  closed: PT20M
+  deleted: PT5M
+  cleanup: PT1M
+
+# The same as prod. Tests move the local stack's clock and run its cleanup instead.
+local:
+  scheduling: P2Y
+  closed: P5Y
+  deleted: P30D

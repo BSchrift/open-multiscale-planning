@@ -85,9 +85,16 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 		return nil, err
 	}
 	gateway := &fakes.Gateway{Issuer: cfg.Issuer, Audience: cfg.ClientID, Keys: cognito.PublicKeys, Now: clock.Now}
+	retention, err := appconfig.LoadRetention(cfg.Env)
+	if err != nil {
+		return nil, err
+	}
 	faults := &fakes.ConflictDB{DB: client}
-	store := &sync.Store{DB: faults, Table: cfg.Table}
+	store := &sync.Store{DB: faults, Table: cfg.Table, Expiry: &sync.Expiry{Now: clock.Now, Deleted: retention.Deleted}}
 	apiServer := &api.Server{Sync: store, Log: obs.NewLogger(logs), Env: cfg.Env, Now: clock.Now}
+	// DynamoDB Local has no TTL, and tests move the clock, so the local stack removes expired records when asked, as
+	// staging's cleanup does every minute.
+	cleanup := &sync.Cleanup{DB: client, Table: cfg.Table, Now: clock.Now, Log: obs.NewLogger(logs), Env: cfg.Env}
 
 	mux := http.NewServeMux()
 	if cfg.SSMEndpoint != "" {
@@ -114,6 +121,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	mux.Handle("/cognito/", http.StripPrefix("/cognito", cognito))
 	mux.HandleFunc("POST /_local/clock", setClock(clock))
 	mux.HandleFunc("POST /_local/faults", setFaults(faults))
+	mux.HandleFunc("POST /_local/cleanup", runCleanup(cleanup))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -168,6 +176,19 @@ func setClock(clock *fakes.Clock) http.HandlerFunc {
 		}
 		clock.Set(at)
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// runCleanup removes what has expired by the clock's time, as staging's scheduled cleanup does.
+func runCleanup(job *sync.Cleanup) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stats, err := job.Run(r.Context(), "")
+		if err != nil {
+			http.Error(w, "run failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"users": stats.Users, "removed": stats.Removed, "marked": stats.Marked})
 	}
 }
 

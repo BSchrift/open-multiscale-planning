@@ -250,7 +250,9 @@ func TestMergeKeepsTheNewestWriteOfEachField(t *testing.T) {
 	needs(t)
 	a := signIn(t)
 	id := fresh("merge")
-	wall := time.Now().Add(-time.Hour)
+	// From now on, not from the past: a new record whose every clock is older than the deleted period is dropped as
+	// stale, and staging's period is minutes.
+	wall := time.Now()
 	at := func(minutes int, device string) string {
 		return clockAt(wall.Add(time.Duration(minutes)*time.Minute), 0, device)
 	}
@@ -272,7 +274,8 @@ func TestMergeKeepsTheNewestWriteOfEachField(t *testing.T) {
 func TestTiesBreakTheSameWayEveryWhere(t *testing.T) {
 	needs(t)
 	a := signIn(t)
-	wall := time.Now().Add(-time.Hour)
+	// Now, not earlier, as in TestMergeKeepsTheNewestWriteOfEachField.
+	wall := time.Now()
 	cases := []struct {
 		name         string
 		lower, upper string
@@ -299,7 +302,7 @@ func TestTiesBreakTheSameWayEveryWhere(t *testing.T) {
 }
 
 // The same cases the client's merge is tested against, here through the running API. They're written at a fixed time,
-// so each clock moves to the recent past with their order unchanged.
+// so each clock moves to now with their order unchanged: from the past, a new record would be dropped as stale.
 func TestSharedMergeCases(t *testing.T) {
 	needs(t)
 	files, err := filepath.Glob("../testdata/merge/*.json")
@@ -307,7 +310,7 @@ func TestSharedMergeCases(t *testing.T) {
 		t.Fatalf("no cases: %v", err)
 	}
 	a := signIn(t)
-	base := time.Now().Add(-time.Hour).UnixMilli()
+	base := time.Now().UnixMilli()
 	shift := func(clock string) string {
 		wall, err := strconv.ParseInt(clock[:13], 10, 64)
 		if err != nil {
@@ -534,7 +537,7 @@ func TestConcurrentDevicesLoseNothing(t *testing.T) {
 			defer wg.Done()
 			for r := 0; r < rounds; r++ {
 				clock := clockAt(wall, r, fmt.Sprintf("device-%d", d))
-				body := mustJSON(t, syncRequest{0, []record{
+				body := mustJSON(t, syncRequest{Cursor: 0, Changes: []record{
 					{"task", ids[d][r], map[string]field{"who": {d, clock}}},
 					// Each device owns a field of the shared record, so a lost update would show as a missing one.
 					{"task", shared, map[string]field{fmt.Sprintf("device_%d", d): {r, clock}}},

@@ -25,16 +25,17 @@ var testNow = time.UnixMilli(1800000000000)
 const testSub = "user-sub-1"
 
 type fakeSyncer struct {
-	sub     string
-	cursor  int64
-	changes []sync.Change
-	res     sync.Response
-	stats   sync.Stats
-	err     error
+	sub         string
+	cursor      int64
+	changes     []sync.Change
+	expiryReset bool
+	res         sync.Response
+	stats       sync.Stats
+	err         error
 }
 
-func (f *fakeSyncer) Sync(_ context.Context, sub string, cursor int64, changes []sync.Change) (sync.Response, sync.Stats, error) {
-	f.sub, f.cursor, f.changes = sub, cursor, changes
+func (f *fakeSyncer) Sync(_ context.Context, sub string, req sync.Request) (sync.Response, sync.Stats, error) {
+	f.sub, f.cursor, f.changes, f.expiryReset = sub, req.Cursor, req.Changes, req.ExpiryReset
 	return f.res, f.stats, f.err
 }
 
@@ -110,6 +111,27 @@ func TestSyncPassesTheTokenSubAndReturnsTheResponse(t *testing.T) {
 	}
 	if rec.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("headers %v", rec.Header())
+	}
+}
+
+func TestAnExpiryResetPassesThroughAndIsLogged(t *testing.T) {
+	syncer := &fakeSyncer{res: sync.Response{Changes: []sync.Change{}, Reset: sync.ResetExpired}, stats: sync.Stats{ExpiryReset: true, Dropped: 2}}
+	s, logs := newServer(syncer, nil)
+	rec := do(s, "POST", "/sync", `{"cursor":3,"changes":[],"expiry_reset":true}`, testSub)
+	if rec.Code != 200 || !syncer.expiryReset {
+		t.Fatalf("%d %+v", rec.Code, syncer)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"cursor":0,"more":false,"changes":[],"reset":"expired"}` {
+		t.Fatalf("body %s", got)
+	}
+	line := logLine(t, logs)
+	if line["reset"] != "expired" || line["dropped"] != float64(2) {
+		t.Fatalf("%v", line)
+	}
+	// An app from before retention sends no flag.
+	do(s, "POST", "/sync", goodBody, testSub)
+	if syncer.expiryReset {
+		t.Fatal("the flag was assumed")
 	}
 }
 

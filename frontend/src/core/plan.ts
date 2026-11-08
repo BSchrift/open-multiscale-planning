@@ -414,7 +414,7 @@ export interface Candidate {
 }
 
 const liveBlocks = (week: WeekInput) => week.blocks.filter((b) => !b.cancelled && !b.deleted_at);
-const livePicks = (week: WeekInput) => week.picks.filter((p) => p.week_start === week.weekStart && !p.deleted_at && !p.skipped);
+const livePicks = (week: WeekInput) => week.picks.filter((p) => p.week_start === week.weekStart && !p.deleted_at);
 
 function candidate(t: Task, week: WeekInput, ctx: PlanContext): Candidate {
   const pick = livePicks(week).find((p) => p.task_id === t.id);
@@ -516,9 +516,7 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
   };
   const fill = (rows: Candidate[], plan: ProjectPlan | null, planned: Minutes, aim: Minutes) => {
     let total = planned;
-    const offerable = rows.filter(
-      (c) => !c.picked && !c.stale && !isWaiting(c.task, week.weekStart, ctx),
-    );
+    const offerable = rows.filter((c) => !c.picked && !c.stale);
     for (const c of offerable) {
       const due = taskDue(c.task, plan, week.weekStart, ctx);
       if (due.dueDay != null) total += give(c, c.left, dueWhy(due));
@@ -542,11 +540,6 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
   const rows = oneOffCandidates(oneOffs, week, ctx).filter((c) => oneOffDueThisWeek(c, week.weekStart));
   fill(rows, null, plannedFor(oneOffs), week.aims?.[ONE_OFFS_BUCKET] ?? week.oneOffAim ?? 0);
   return out;
-}
-
-/** Only a note and a reason not to suggest the task; it never stops you adding it. */
-function isWaiting(t: Task, weekStart: LocalDate, ctx: PlanContext): boolean {
-  return !!t.waiting_until && t.waiting_until > later(weekStart, today(ctx.clock));
 }
 
 /** A task counts as planned if its milestone is in the plan, or Done is for one with no milestone. One offs don't need it. */
@@ -619,6 +612,9 @@ type NewEntry = Omit<SlipEntry, 'at' | 'undo' | 'text'> & { text: string };
 const slipLog = ({ project }: ProjectPlan) => project.slip_log ?? [];
 
 /** Only this change's fields are reversed by its Undo, so tasks ticked since then stay ticked. */
+// shortcut: the whole slip_log is one field, so two devices replanning the same project offline keep only the later
+// device's log, losing the other's entries and what Restore would put back; and it only grows, toward the 100 KB a
+// record can hold. Make each entry its own record once every installed app reads them.
 function logged(plan: ProjectPlan, ctx: PlanContext, edits: readonly Edit[], entry: NewEntry | null): PlanChange {
   const writes: RecordWrite[] = edits.map(({ type, record, fields }) => ({ type, id: record.id, fields }));
   if (!entry) return { writes };

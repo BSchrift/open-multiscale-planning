@@ -71,6 +71,9 @@ export async function capacitorSqlDriver(name: string): Promise<SqlDriver> {
     ? await sqlite.retrieveConnection(name, false)
     : await sqlite.createConnection(name, false, 'no-encryption', 1, false);
   if (!(await connection.isDBOpen()).result) await connection.open();
+  // A reload, such as a bundle rolled back, can land while the old page is mid-transaction, and the next BEGIN would
+  // then fail. Not isTransactionActive: it only knows the plugin's own transactions. With none open this fails, harmlessly.
+  if (live) await connection.execute('ROLLBACK', false).catch(() => undefined);
   return {
     exec: async (sql) => void (await connection.execute(sql, false)),
     all: async (sql, values) => ((await connection.query(sql, values)).values ?? []) as Record<string, unknown>[],

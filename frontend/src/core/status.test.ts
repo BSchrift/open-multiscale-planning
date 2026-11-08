@@ -121,7 +121,6 @@ describe('an overdue milestone asks one question', () => {
       title: 'Gather notes was due Oct 18',
       sub: '1 of 2 tasks done, 2h left.',
       doneCount: 1,
-      openMin: 120,
       markLabel: 'Mark 1 task done',
       keepLabel: 'Move to Draft chapters, due Nov 9',
       cancelLabel: 'Cancel it, 2h off the project',

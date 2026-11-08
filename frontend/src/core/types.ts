@@ -35,13 +35,6 @@ export interface Objective extends BaseRecord {
 
 export type ProjectState = 'active' | 'paused' | 'finished' | 'dropped';
 
-/** Date snapshot taken when a project starts, used to measure slip. */
-export interface ProjectBaseline {
-  start: LocalDate;
-  end: LocalDate;
-  milestones: { id: string; due: LocalDate | null }[];
-}
-
 export interface SlipEntry {
   at: Instant;
   /**
@@ -70,7 +63,6 @@ export interface Project extends BaseRecord {
   start: LocalDate;
   end: LocalDate;
   weekly_aim?: Minutes | null;
-  baseline?: ProjectBaseline | null;
   slip_log?: SlipEntry[];
   /** When Raise estimates was last pressed: tasks finished before it no longer argue for raising. */
   estimates_raised_at?: Instant | null;
@@ -113,13 +105,9 @@ export interface Task extends BaseRecord {
   project_id?: string | null;
   milestone_id?: string | null;
   title: string;
-  first_step?: string | null;
-  link?: string | null;
   estimate_min?: Minutes | null;
   remaining_min?: Minutes | null;
   order?: number;
-  /** Only a note and a reason not to suggest the task; it never stops you adding it. */
-  waiting_until?: LocalDate | null;
   schedule?: TaskSchedule | null;
   next_due?: LocalDate | null;
   done_at?: Instant | null;
@@ -148,8 +136,6 @@ export interface TimeBlock extends BaseRecord {
   tz: string;
   started_at?: Instant | null;
   ended_at?: Instant | null;
-  /** A one-week change to a practice session, which re-placing leaves alone. */
-  edited?: boolean;
   cancelled?: boolean;
 }
 
@@ -181,7 +167,6 @@ export interface WeekPick extends BaseRecord {
   week_start: LocalDate;
   task_id: string;
   minutes: Minutes;
-  skipped?: boolean;
 }
 
 /** Mutes reminders and pauses pace. */

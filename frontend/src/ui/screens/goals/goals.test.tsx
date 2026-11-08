@@ -1027,8 +1027,12 @@ describe('Goals', () => {
       expect(within(screen.getByRole('button', { name: /Run a 10k/ })).queryByText(/Still a goal/)).toBeNull();
     });
 
-    it('on phone: tapping opens its editor; add one with no goal; End practice', async () => {
-      const t = await renderScreen('goals', { layout: 'phone', seed: bread });
+    it('on phone: tapping opens its editor; add one with no goal; End practice takes its sessions ahead off, with Undo', async () => {
+      const seed = async (w: Writer) => {
+        await bread(w);
+        await w.create('time_block', { practice_id: 'pr1', start: '2026-11-04T13:00:00Z', end: '2026-11-04T13:15:00Z', tz: 'America/Chicago' }, 'later');
+      };
+      const t = await renderScreen('goals', { layout: 'phone', seed });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       const sheet = screen.getByRole('dialog', { name: 'Edit practice' });
@@ -1044,6 +1048,10 @@ describe('Goals', () => {
       await userEvent.click(within(sheet).getByRole('button', { name: 'End practice' }));
       expect(await screen.findByText('Stretch daily ended. Its history stays.')).toBeVisible();
       expect((await record(t, 'practice', 'pr1'))?.state).toBe('ended');
+      expect((await getRecord(t.db, 'time_block', 'later'))?.cancelled).toBe(true);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('active'));
+      expect((await getRecord(t.db, 'time_block', 'later'))?.cancelled).toBeNull();
 
       await userEvent.click(screen.getByRole('button', { name: '+ Practice' }));
       const form = screen.getByRole('form', { name: 'Add practice' });

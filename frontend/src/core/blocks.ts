@@ -153,10 +153,9 @@ export async function extendBlock(w: Writer, blockId: string, minutes: Minutes):
   return change(w, 'time_block', blockId, { end: toInstant(instantMs(block.end) + minutes * MINUTE_MS) });
 }
 
-/** A move or resize, written once on drop. A practice session moved is this week's only, so re-placing leaves it alone. */
-export async function moveBlock(w: Writer, blockId: string, times: { start: Instant; end: Instant }): Promise<PlanChange> {
-  const block = await readBlock(w, blockId);
-  return change(w, 'time_block', blockId, block.practice_id ? { ...times, edited: true } : times);
+/** A move or resize, written once on drop. */
+export function moveBlock(w: Writer, blockId: string, times: { start: Instant; end: Instant }): Promise<PlanChange> {
+  return change(w, 'time_block', blockId, times);
 }
 
 /** Takes a block off the week; its task keeps the time to place again. */
@@ -239,7 +238,7 @@ export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Cloc
     const fields = { practice_id: s.practice_id, ...slotInstants(s, zone), tz: zone };
     const existing = await getRecord(w.sql, 'time_block', dayId);
     if (existing?.deleted_at) {
-      reverse.unshift({ type: 'time_block', id: dayId, fields: await w.set('time_block', dayId, { ...fields, edited: false, cancelled: false, deleted_at: null }) });
+      reverse.unshift({ type: 'time_block', id: dayId, fields: await w.set('time_block', dayId, { ...fields, cancelled: false, deleted_at: null }) });
     } else {
       // A live record under this day's id is a session moved to another day or taken off, so this one gets its own id.
       // shortcut: two offline devices placing after the same move each add a session here; merge by practice and day if that shows up.
@@ -266,10 +265,10 @@ export async function unscheduleBlock(w: Writer, blockId: string, week: LocalDat
   if (!block.task_id) return removed;
   const id = weekPickId(week, block.task_id);
   const pick = await getRecord(w.sql, 'week_pick', id);
-  if (pick && !pick.deleted_at && !pick.skipped) return removed;
+  if (pick && !pick.deleted_at) return removed;
   const others = (await blocksInRange(w.sql, weekRange(week, clock.zone()))).filter((b) => b.task_id === block.task_id);
   const minutes = blockMinutes(block) + others.reduce((sum, b) => sum + blockMinutes(b), 0);
-  const fields = { week_start: week, task_id: block.task_id, minutes, skipped: false, deleted_at: null };
+  const fields = { week_start: week, task_id: block.task_id, minutes, deleted_at: null };
   const undo: RecordWrite = pick
     ? { type: 'week_pick', id, fields: await w.set('week_pick', id, fields) }
     : { type: 'week_pick', id, fields: { deleted_at: nowInstant(clock) } };

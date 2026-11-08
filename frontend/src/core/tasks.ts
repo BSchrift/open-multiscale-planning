@@ -88,6 +88,23 @@ export async function goalContents(sql: Sql, goalId: string) {
   return { projects, practices: await sql.all<{ id: string; title: string }>(under('practice', 'objective_id'), { id: goalId }) };
 }
 
+/** Takes a practice's sessions still to come off the calendar, so it keeps no time ahead. Returns the reverse. */
+async function dropSessionsAhead(w: Writer, practiceId: string, clock: Clock): Promise<PlanChange> {
+  const sessions = await ids(
+    w.sql,
+    'SELECT id FROM time_block WHERE practice_id = :id AND start > :now AND started_at IS NULL AND cancelled IS NOT 1 AND deleted_at IS NULL',
+    { id: practiceId, now: nowInstant(clock) },
+  );
+  return applyPlanChange(w, { writes: sessions.map((id): RecordWrite => ({ type: 'time_block', id, fields: { cancelled: true } })) });
+}
+
+/** Ends a practice. Its past and what's under way stay as history; its sessions still to come go. Returns the exact reverse. */
+export async function endPractice(w: Writer, practiceId: string, clock: Clock): Promise<PlanChange> {
+  const dropped = await dropSessionsAhead(w, practiceId, clock);
+  const ended = await applyPlanChange(w, { writes: [{ type: 'practice', id: practiceId, fields: { state: 'ended' } }] });
+  return { writes: [...ended.writes, ...dropped.writes] };
+}
+
 /**
  * Deletes a goal and everything goalContents lists. Tasks close through closeTask, and practices give up their
  * sessions still to come, so nothing deleted keeps time on the week. Past blocks and their answers stay, as a deleted
@@ -106,12 +123,8 @@ export async function deleteGoal(w: Writer, goalId: string, clock: Clock): Promi
     writes.push(...project.milestones.map((id) => gone('milestone', id)), gone('project', project.id));
   }
   for (const { id } of practices) {
-    const sessions = await ids(
-      w.sql,
-      'SELECT id FROM time_block WHERE practice_id = :id AND start > :now AND started_at IS NULL AND cancelled IS NOT 1 AND deleted_at IS NULL',
-      { id, now },
-    );
-    writes.push(gone('practice', id), ...sessions.map((b): RecordWrite => ({ type: 'time_block', id: b, fields: { cancelled: true } })));
+    reverses.unshift(await dropSessionsAhead(w, id, clock));
+    writes.push(gone('practice', id));
   }
   writes.push(gone('objective', goalId));
   reverses.unshift(await applyPlanChange(w, { writes }));

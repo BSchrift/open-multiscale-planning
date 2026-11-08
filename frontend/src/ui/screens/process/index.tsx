@@ -111,8 +111,9 @@ function Cards(props: ScreenProps & { data: ProcessData }) {
     const minutes = est || (dest ? 60 : 30);
     let note = '.';
     const run = async (w: Writer): Promise<PlanChange> => {
+      // Fields merge one by one, so each kind clears the other's: another device may have sent this item the other way.
       const fields: Fields<'task'> = dest
-        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: null, estimate_min: est || null }
+        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: null, schedule: null, next_due: null, estimate_min: est || null }
         : oneOffFields({ ...emptyDraft(today), title: item.title, estimate: est }, today);
       const reverse = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
       if (!s.planOn) return reverse;

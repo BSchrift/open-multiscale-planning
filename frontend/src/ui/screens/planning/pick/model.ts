@@ -74,7 +74,6 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
 
   const task = (c: Candidate): PickTask => {
     const hint = hints[c.task.id];
-    const waiting = c.task.waiting_until && c.task.waiting_until > on ? `Waiting until ${formatDate(c.task.waiting_until)}` : '';
     const reason = reasonOf.get(c.task.id) ?? '';
     const carried = c.stale ? `Still want this? ${reason}` : c.carried ? `Needs a new time: ${reason}` : '';
     const oneOff = c.task.kind === 'one_off';
@@ -85,8 +84,8 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       oneOff,
       ...(hint ? { hint } : {}),
       adds: hint?.minutes ?? c.left,
-      meta: join([c.picked ? 'In the plan' : (hint?.why ?? ''), waiting, carried, dates]),
-      note: join([c.picked ? '' : (hint?.why ?? ''), waiting, carried, dates]),
+      meta: join([c.picked ? 'In the plan' : (hint?.why ?? ''), carried, dates]),
+      note: join([c.picked ? '' : (hint?.why ?? ''), carried, dates]),
       done: !!c.task.done_at,
     };
   };

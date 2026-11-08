@@ -4,8 +4,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { applyPlanChange } from '../../../core/plan';
+import type { PlanChange } from '../../../core/plan';
+import { endPractice } from '../../../core/tasks';
 import type { Fields, Objective, Practice, Weekday } from '../../../core/types';
-import { useMutation } from '../../app/store';
+import { useApp, useMutation } from '../../app/store';
 import { Sheet } from '../Sheet';
 import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
@@ -75,6 +78,7 @@ function TargetSlider(props: { per: Practice['per']; value: number; onChange(min
 /** Edits a practice in place. Every change is saved at once; a blank name is never saved. */
 export function PracticeFields(props: { practice: Practice; goals: readonly Objective[]; onEnded?(): void }) {
   const p = props.practice;
+  const { clock } = useApp();
   const toast = useToast();
   const timeId = useId();
   const [name, setName] = useState(p.title);
@@ -91,10 +95,12 @@ export function PracticeFields(props: { practice: Practice; goals: readonly Obje
   typed.current = { time, times };
   useEffect(() => () => addTime(typed.current.time, typed.current.times), []);
 
+  const ending = useMutation((w) => endPractice(w, p.id, clock));
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const end = async () => {
-    const previous = await save.run({ state: 'ended' });
+    const reverse = await ending.run();
     props.onEnded?.();
-    if (previous) toast.show(`${p.title} ended. Its history stays.`, { undo: () => save.run(previous) });
+    if (reverse) toast.show(`${p.title} ended. Its history stays.`, { undo: () => undo.run(reverse) });
   };
 
   return (

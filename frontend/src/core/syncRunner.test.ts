@@ -77,7 +77,7 @@ describe('when it syncs', () => {
     t.runner.start();
     await flush();
     t.send.mockClear();
-    t.db.notifyChanged({ types: ['task'], source: 'remote' });
+    t.db.notifyChanged({ source: 'remote' });
     await vi.advanceTimersByTimeAsync(10 * SECOND);
     expect(t.send).not.toHaveBeenCalled();
     t.runner.stop();
@@ -570,6 +570,7 @@ describe('startAppSync', () => {
     it("Erase and sign in leaves nothing of the old account on the device, and brings the new one's", async () => {
       const t = await askedToSwitch();
       const device = await getMeta(t.db, META.deviceId);
+      await setMeta(t.db, META.minAppSchema, '4');
       await t.sync.eraseAndSignIn();
       await flush();
 
@@ -581,6 +582,8 @@ describe('startAppSync', () => {
       expect(await t.platform.notifications.scheduled()).toEqual([]);
       expect(await getMeta(t.db, META.account)).toBe('user-b');
       expect(await getMeta(t.db, META.deviceId)).toBe(device);
+      // What the schema needs of the app stays with the schema.
+      expect(await getMeta(t.db, META.minAppSchema)).toBe('4');
       expect(await syncStatus(t.db)).toEqual({ lastSyncAt: NOW, lastError: null });
       // Nothing of a's went to b, and a keeps what it had.
       expect(t.servers.b.requests.flatMap((r) => r.changes)).toEqual([]);

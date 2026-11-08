@@ -3,7 +3,7 @@ import { fixedClock } from './clock';
 import { openDb } from './db';
 import { applyPlanChange, gatherPlans, markMilestoneDone } from './plan';
 import { getRecord, listRecords, transact } from './records';
-import { closeProject, closeTask, deleteGoal, goalContents, retickOneOff, scheduledWork, tickOneOff, undoProjectChange, untickOneOff } from './tasks';
+import { closeProject, closeTask, deleteGoal, endPractice, goalContents, retickOneOff, scheduledWork, tickOneOff, undoProjectChange, untickOneOff } from './tasks';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
 
 const NOW = '2026-11-04T12:00:00Z'; // a Wednesday; its week starts 2026-11-02
@@ -214,6 +214,30 @@ describe('closeProject', () => {
       expect((await getRecord(db, 'week_pick', 'pick:2026-11-02:t'))?.deleted_at).toBeNull();
     });
   }
+});
+
+describe('endPractice', () => {
+  it('takes the sessions still to come off the week, keeps the rest as history, and undoes exactly', async () => {
+    const { clock, db } = await setup();
+    await transact(db, clock, async (w) => {
+      await w.create('practice', { title: 'Piano', target_min: 30, per: 'day', state: 'active' }, 'pr');
+      const session = (start: string, end: string, extra = {}) => ({ practice_id: 'pr', start, end, tz: 'UTC', ...extra });
+      await w.create('time_block', session('2026-11-03T07:00:00Z', '2026-11-03T07:30:00Z'), 'pr-past');
+      await w.create('time_block', session('2026-11-04T11:45:00Z', '2026-11-04T12:15:00Z', { started_at: '2026-11-04T11:45:00Z' }), 'pr-now');
+      await w.create('time_block', session('2026-11-05T07:00:00Z', '2026-11-05T07:30:00Z'), 'pr-future');
+    });
+    const undo = await transact(db, clock, (w) => endPractice(w, 'pr', clock));
+
+    expect((await getRecord(db, 'practice', 'pr'))?.state).toBe('ended');
+    expect((await getRecord(db, 'time_block', 'pr-future'))?.cancelled).toBe(true);
+    expect((await getRecord(db, 'time_block', 'pr-past'))?.cancelled).toBeUndefined();
+    expect((await getRecord(db, 'time_block', 'pr-now'))?.cancelled).toBeUndefined();
+    expect((await getRecord(db, 'time_block', 'future'))?.cancelled).toBeUndefined();
+
+    await transact(db, clock, (w) => applyPlanChange(w, undo));
+    expect((await getRecord(db, 'practice', 'pr'))?.state).toBe('active');
+    expect((await getRecord(db, 'time_block', 'pr-future'))?.cancelled).toBeNull();
+  });
 });
 
 describe('deleteGoal', () => {

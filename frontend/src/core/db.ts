@@ -10,7 +10,8 @@
 //   index on a JSON expression then can't be used. Stored ids are still text.
 // - Statistics must exist, so `PRAGMA optimize=0x10002` runs at each open.
 // - Filter a JSON field in a subquery, not a LEFT JOIN onto a view.
-// Views are read-only conveniences with one column per field. Writes go through records.ts only.
+// Views are read-only conveniences with one column per field, rebuilt at open when they differ from this code's. Writes
+// go through records.ts only.
 
 import { RECORD_TYPES } from './types';
 import type { RecordMap, RecordType } from './types';
@@ -36,7 +37,6 @@ export interface Sql {
 }
 
 export interface DbChange {
-  types: readonly string[];
   /** Local edits start a sync soon after; remote ones came from a sync. */
   source: 'local' | 'remote';
 }
@@ -135,19 +135,16 @@ export function createDb(driver: SqlDriver): Db {
 /** The fields on each record type, which become its view's columns. The checks below keep this list complete. */
 export const RECORD_FIELDS = {
   objective: ['title', 'state', 'not_now_until', 'order', 'deleted_at'],
-  project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'baseline', 'slip_log', 'estimates_raised_at', 'deleted_at'],
+  project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'slip_log', 'estimates_raised_at', 'deleted_at'],
   milestone: ['project_id', 'title', 'start', 'due', 'stretch', 'added_on', 'met_at', 'dropped_at', 'deleted_at'],
   task: [
     'kind',
     'project_id',
     'milestone_id',
     'title',
-    'first_step',
-    'link',
     'estimate_min',
     'remaining_min',
     'order',
-    'waiting_until',
     'schedule',
     'next_due',
     'done_at',
@@ -156,10 +153,10 @@ export const RECORD_FIELDS = {
     'deleted_at',
   ],
   task_completion: ['task_id', 'done_at', 'previous_next', 'undo', 'deleted_at'],
-  time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'edited', 'cancelled', 'deleted_at'],
+  time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'cancelled', 'deleted_at'],
   block_outcome: ['result', 'remaining_min', 'logged_min', 'answered_at', 'dropped_at', 'deleted_at'],
   week_plan: ['week_start', 'finished_at', 'aims', 'skipped_aims', 'skipped_practices', 'skipped_past_end', 'deleted_at'],
-  week_pick: ['week_start', 'task_id', 'minutes', 'skipped', 'deleted_at'],
+  week_pick: ['week_start', 'task_id', 'minutes', 'deleted_at'],
   away_period: ['start', 'end', 'deleted_at'],
   settings: [
     'availability',
@@ -183,27 +180,42 @@ type MissingViewField = {
 const _everyFieldHasAColumn: [MissingViewField] extends [never] ? true : MissingViewField = true;
 void _everyFieldHasAColumn;
 
+/**
+ * Fields no longer in the data model whose columns stay in the views, because a bundle a device can roll back to still
+ * selects them. They read as NULL, or as an older device wrote them.
+ * shortcut: these only serve rollbacks; drop them once no installed app can go back to a bundle from before they were
+ * retired, counting the bundle built into each app.
+ */
+const RETIRED_COLUMNS: Partial<Record<RecordType, readonly string[]>> = {
+  project: ['baseline'],
+  task: ['first_step', 'link', 'waiting_until'],
+  time_block: ['edited'],
+  week_pick: ['skipped'],
+};
+
 function viewSql(type: RecordType): string {
   const columns = ['id'];
   if (type === 'block_outcome') columns.push("substr(id, 9) AS block_id");
-  for (const field of RECORD_FIELDS[type] as readonly string[]) {
+  for (const field of [...RECORD_FIELDS[type], ...(RETIRED_COLUMNS[type] ?? [])]) {
     // ORDER is a keyword, so that field is exposed as sort_order.
     columns.push(`json_extract(data, '$.${field}') AS ${field === 'order' ? 'sort_order' : field}`);
   }
   return `CREATE VIEW ${type} AS SELECT ${columns.join(', ')} FROM records WHERE type = '${type}'`;
 }
 
-/** Statements that drop and recreate every view. A migration that adds a column runs this. */
-export function viewStatements(): string[] {
-  return RECORD_TYPES.flatMap((type) => [`DROP VIEW IF EXISTS ${type}`, viewSql(type)]);
-}
-
 export interface Migration {
   version: number;
   statements: string[];
+  /** Older apps can't read what this migration leaves, so they refuse the database rather than damage it. */
+  breaking?: true;
 }
 
-/** Append only. New record fields need no migration beyond rebuilding views: unknown JSON fields just work. */
+/**
+ * Append only. New record fields need no migration: unknown JSON fields just work, and opening rebuilds the views.
+ * A device can roll back to the bundle before, so a migration should leave a database that bundle can still use, and
+ * otherwise be marked breaking. Bundles up to c88b04d refuse any version above 4, so version 5 must wait until no
+ * device can roll back to one of them.
+ */
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -233,15 +245,13 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX milestone_project ON records (json_extract(data, '$.project_id')) WHERE type = 'milestone'",
       "CREATE INDEX pick_week ON records (json_extract(data, '$.week_start'), json_extract(data, '$.task_id')) WHERE type = 'week_pick'",
       "CREATE INDEX outcome_result ON records (json_extract(data, '$.result')) WHERE type = 'block_outcome'",
-      ...viewStatements(),
     ],
   },
-  // project.estimates_raised_at, task_completion.undo
-  { version: 2, statements: viewStatements() },
+  // Versions 2 and 4 rebuilt the views, which every open now does.
+  { version: 2, statements: [] },
   // No query looks up milestones by project any more.
   { version: 3, statements: ['DROP INDEX IF EXISTS milestone_project'] },
-  // block_outcome.dropped_at
-  { version: 4, statements: viewStatements() },
+  { version: 4, statements: [] },
 ];
 
 /** Keys in the meta table. */
@@ -254,6 +264,8 @@ export const META = {
   deviceId: 'device_id',
   clock: 'clock',
   schemaVersion: 'schema_version',
+  /** The lowest app schema version that can use this database, set by a breaking migration. */
+  minAppSchema: 'min_app_schema',
   lastSyncAt: 'last_sync_at',
   lastSyncError: 'last_sync_error',
   /** Set while a sign-in back from the browser waits for its first sync, so screens show it's under way. */
@@ -269,12 +281,28 @@ export async function setMeta(sql: Sql, key: string, value: string): Promise<voi
   await sql.run('INSERT INTO meta (key, value) VALUES (:key, :value) ON CONFLICT (key) DO UPDATE SET value = :value', { key, value });
 }
 
-async function schemaVersion(driver: SqlDriver): Promise<number> {
+/** The schema version and the lowest app version that can use it, both 0 for a new database. */
+async function schemaState(driver: SqlDriver): Promise<{ version: number; minApp: number }> {
   const tables = await driver.all("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'", []);
-  if (tables.length === 0) return 0;
-  const rows = await driver.all('SELECT value FROM meta WHERE key = ?', [META.schemaVersion]);
-  return rows[0] ? Number(rows[0].value) : 0;
+  if (tables.length === 0) return { version: 0, minApp: 0 };
+  const rows = await driver.all('SELECT key, value FROM meta WHERE key IN (?, ?)', [META.schemaVersion, META.minAppSchema]);
+  const value = (key: string) => Number(rows.find((row) => row.key === key)?.value ?? 0);
+  return { version: value(META.schemaVersion), minApp: value(META.minAppSchema) };
 }
+
+/** BEGIN stays outside the try: when it fails, no transaction is this code's to roll back, as in createDb. */
+async function inTransaction(driver: SqlDriver, work: () => Promise<void>): Promise<void> {
+  await driver.exec('BEGIN IMMEDIATE');
+  try {
+    await work();
+    await driver.exec('COMMIT');
+  } catch (err) {
+    await rollback(driver);
+    throw err;
+  }
+}
+
+const UPSERT_META = 'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value';
 
 function randomDeviceId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
@@ -282,30 +310,29 @@ function randomDeviceId(): string {
 }
 
 /**
- * Prepares a raw connection and returns the Db: applies pending migrations, each in its own transaction, makes
- * sure this device has an id, and refreshes planner statistics. Throws on a database newer than this app, rather
- * than risk damaging it.
+ * Prepares a raw connection and returns the Db: applies pending migrations, each in its own transaction, rebuilds any
+ * view that differs from this code's, makes sure this device has an id, and refreshes planner statistics. A database a
+ * newer bundle migrated still opens, since an update that fails its trial goes back to the bundle before it. Throws
+ * only when a breaking migration says this app can't use the database, rather than risk damaging it.
  */
 export async function openDb(driver: SqlDriver, migrations: readonly Migration[] = MIGRATIONS): Promise<Db> {
-  const current = await schemaVersion(driver);
+  const { version: current, minApp } = await schemaState(driver);
   const latest = Math.max(0, ...migrations.map((m) => m.version));
-  if (current > latest) throw new Error(`Database version ${current} is newer than this app (${latest})`);
+  if (minApp > latest) throw new Error(`Database version ${minApp} is newer than this app (${latest})`);
 
   for (const migration of migrations) {
     if (migration.version <= current) continue;
-    await driver.exec('BEGIN IMMEDIATE');
-    try {
+    await inTransaction(driver, async () => {
       for (const statement of migration.statements) await driver.run(statement, []);
-      await driver.run(
-        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
-        [META.schemaVersion, String(migration.version)],
-      );
-      await driver.exec('COMMIT');
-    } catch (err) {
-      await rollback(driver);
-      throw err;
-    }
+      await driver.run(UPSERT_META, [META.schemaVersion, String(migration.version)]);
+      if (migration.breaking) await driver.run(UPSERT_META, [META.minAppSchema, String(migration.version)]);
+    });
   }
+  // From this code's fields, so after a newer bundle rolls back, the one running reads the columns it expects. Only those
+  // that differ, so an ordinary open writes nothing.
+  const views = await driver.all("SELECT name, sql FROM sqlite_master WHERE type = 'view'", []);
+  const stale = RECORD_TYPES.filter((type) => views.find((v) => v.name === type)?.sql !== viewSql(type));
+  if (stale.length) await inTransaction(driver, () => driver.exec(stale.map((type) => `DROP VIEW IF EXISTS ${type}; ${viewSql(type)}`).join(';\n')));
 
   const db = createDb(driver);
   if (!(await getMeta(db, META.deviceId))) await setMeta(db, META.deviceId, randomDeviceId());

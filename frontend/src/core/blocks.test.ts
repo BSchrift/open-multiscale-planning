@@ -252,16 +252,16 @@ describe('moving through the day', () => {
 });
 
 describe('editing the week', () => {
-  it('moving a block writes its new time once and undoes exactly; a practice session is marked as this week only', async () => {
+  it('moving a block writes its new time once and undoes exactly, a practice session too', async () => {
     const t = await setup();
     const undo = await t.run((w) => moveBlock(w, 'later', { start: at('20:00'), end: at('21:30') }));
     expect(await t.block('later')).toMatchObject({ start: at('20:00'), end: at('21:30') });
-    expect((await t.block('later'))?.edited).toBeUndefined();
     await t.run((w) => applyPlanChange(w, undo));
     expect(await t.block('later')).toMatchObject({ start: at('21:00'), end: at('22:00') });
 
     await t.run((w) => moveBlock(w, 'piano', { start: at('16:00'), end: at('16:30') }));
-    expect(await t.block('piano')).toMatchObject({ start: at('16:00'), edited: true });
+    expect(await t.block('piano')).toMatchObject({ start: at('16:00'), end: at('16:30') });
+    expect(await t.block('piano')).not.toHaveProperty('edited');
   });
 
   it('removing a block takes it off the week and gives the time back, with Undo', async () => {
@@ -433,7 +433,8 @@ describe('placing and unscheduling by hand', () => {
     const undo = await t.run((w) => unscheduleBlock(w, 'later', WEEK, t.clock));
     expect(await live(t.db)).not.toContain('later');
     // 1h at 6pm stays on the calendar and 1h at 9pm comes off, so 1h is left to place.
-    expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't'))).toMatchObject({ minutes: 120, skipped: false });
+    expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't'))).toMatchObject({ minutes: 120, deleted_at: null });
+    expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't'))).not.toHaveProperty('skipped');
     await t.run((w) => applyPlanChange(w, undo));
     expect(await live(t.db)).toContain('later');
     expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't')))?.deleted_at).toBeTruthy();

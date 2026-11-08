@@ -643,20 +643,80 @@ final class SignedInUITests: XCTestCase {
 
     /// A deployment's hosted sign-in page, in the browser sheet over the app. The local stack's signs in with no page.
     private func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
-        let password = app.secureTextFields.firstMatch
-        exists(password, timeout: 60)
-        let name = app.webViews.containing(.secureTextField, identifier: nil).textFields.firstMatch
-        // Cognito's page holds a hidden copy of each field at the same spot, so a tap can focus the other copy: type
-        // into whatever has focus.
-        name.tap()
-        app.typeText(user.username)
-        // With the software keyboard up, a tap on the password field can leave focus on the email field, so the
-        // keyboard's own Next moves it. A connected Mac keyboard shows no toolbar, and there the tap works.
-        let next = app.toolbars.buttons["Next"]
-        if next.exists && next.isEnabled { next.tap() } else { password.tap() }
-        app.typeText(user.password + "\n")
+        fillHostedSignIn(app, user)
+        app.typeText("\n")
         // Safari's sheet offers to keep the password on a domain it hasn't saved one for.
         let notNow = app.buttons["Not Now"]
         if notNow.waitForExistence(timeout: 10) { notNow.tap() }
+    }
+}
+
+/// Types the test user into a deployment's hosted sign-in page, in the browser sheet over the app, and leaves it to be sent.
+private func fillHostedSignIn(_ app: XCUIApplication, _ user: Target.User) {
+    let password = app.secureTextFields.firstMatch
+    exists(password, timeout: 60)
+    let name = app.webViews.containing(.secureTextField, identifier: nil).textFields.firstMatch
+    // Cognito's page holds a hidden copy of each field at the same spot, so a tap can focus the other copy: type
+    // into whatever has focus.
+    name.tap()
+    app.typeText(user.username)
+    // With the software keyboard up, a tap on the password field can leave focus on the email field, so the
+    // keyboard's own Next moves it. A connected Mac keyboard shows no toolbar, and there the tap works.
+    let next = app.toolbars.buttons["Next"]
+    if next.exists && next.isEnabled { next.tap() } else { password.tap() }
+    app.typeText(user.password)
+}
+
+/// The history-scale test's iPhone part, which scripts/test-history.sh runs once it has seeded the five-year account: a
+/// new install signs in to it, its first sync to a usable app is timed, then Today and Week on the check page. Its
+/// numbers go out on one line starting HISTORY iphone, for the script to read.
+final class HistoryUITests: XCTestCase {
+    override func setUp() { continueAfterFailure = false }
+
+    func testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek() throws {
+        let inbox = ProcessInfo.processInfo.environment["MULTISCALE_HISTORY_INBOX"] ?? ""
+        guard let target = try Target.fromEnvironment(), !inbox.isEmpty else {
+            throw XCTSkip("needs: the seeded history. scripts/test-history.sh seeds it and runs this.")
+        }
+        let app = launchApp()
+        let signIn = app.webButton("Sign in")
+        exists(signIn)
+        // From the sign-in being sent: the local stack's sign-in has no page, so that's the tap.
+        var started = Date()
+        signIn.tap()
+        if let user = target.test_user {
+            fillHostedSignIn(app, user)
+            started = Date()
+            app.typeText("\n")
+        }
+        // Usable once Today is up with the history's Inbox count in the tab bar, which arrives with its latest records.
+        let usable = app.webButton("Inbox, \(inbox) to sort")
+        let notNow = app.buttons["Not Now"]
+        let deadline = started.addingTimeInterval(25 * 60)
+        while !usable.exists {
+            // Safari's sheet offers to keep the password on a domain it hasn't saved one for.
+            if notNow.exists { notNow.tap() }
+            guard Date() < deadline else { return XCTFail("The app wasn't usable 25 minutes after signing in. On screen:\n\(app.debugDescription)") }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        let firstSync = Int(Date().timeIntervalSince(started) * 1000)
+        XCTAssertTrue(app.webButton("Today").exists)
+
+        // Today and Week once the first sync has finished, on the check page, which opens the database the app does.
+        app.tapWeb("More")
+        app.tapWeb(startingWith: "Settings")
+        exists(app.webText("Synced"), timeout: 25 * 60)
+        app.terminate()
+        let checks = XCUIApplication()
+        checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
+        checks.launch()
+        exists(checks.webText("ready"))
+        checks.tapWeb("History")
+        let line = checks.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'history:'")).firstMatch
+        exists(line, timeout: 300)
+        var numbers = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.label.dropFirst("history:".count).utf8)) as? [String: Any])
+        numbers["first_sync_ms"] = firstSync
+        let json = try JSONSerialization.data(withJSONObject: numbers, options: [.sortedKeys])
+        print("HISTORY iphone \(String(decoding: json, as: UTF8.self))")
     }
 }

@@ -60,9 +60,12 @@ type Zone struct {
 }
 
 type Integration struct {
-	TestUser       string   `yaml:"testUser"`
-	SecondTestUser string   `yaml:"secondTestUser"`
-	Capabilities   []string `yaml:"capabilities"`
+	TestUser       string `yaml:"testUser"`
+	SecondTestUser string `yaml:"secondTestUser"`
+	// HistoryUser is the history-scale test's own user, holding a seeded five-year account. Optional: only make
+	// test-history ENV=staging reads it.
+	HistoryUser  string   `yaml:"historyUser"`
+	Capabilities []string `yaml:"capabilities"`
 }
 
 type App struct {

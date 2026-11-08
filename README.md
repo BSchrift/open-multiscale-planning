@@ -46,6 +46,7 @@ The local API listens on `localhost:8787` and signs in anyone. For iPhone, run `
 | `make test-e2e` | Playwright: screens in Chrome and WebKit at desktop and phone sizes, two signed-in browsers syncing, then the real Electron app as two devices, then `make test-compat`. Needs Docker. |
 | `make test-compat` | The last release's web bundle beside this checkout's: each opens a database the other wrote, as an update and a rollback after a failed trial do, and an old and a new device sync. `BASE` picks the old bundle's commit, by default the one prod serves when your config folder has prod, else `origin/main`. Needs Docker. |
 | `make test-ios` | XCUITest on a throwaway iPhone Simulator (`IOS_DEVICE`, default `iPhone 16`), with the share sheet and widget off and on |
+| `make test-history` | The history-scale test: a made-up five-year account, about 40,000 records, seeded through the sync API, then a new browser, Mac app and iPhone Simulator of it timed against the budgets in [docs/performance.md](docs/performance.md). Slow, so it runs on demand and before releases, not on every PR. `HISTORY_REPORT_ONLY=1` reports the numbers without failing on a missed budget, and `SKIP_IOS=1` leaves out the iPhone. Needs Docker. |
 | `make scan` | gitleaks over the working tree |
 
 Before the first `make test-e2e`, run `npx playwright install chromium webkit` in `frontend`.
@@ -62,9 +63,10 @@ make smoke                                          # fast wiring check, plus Cl
 make test-e2e ENV=staging
 make test-compat ENV=staging
 make test-ios ENV=staging
+make test-history ENV=staging                       # as a user of its own, holding the five-year account
 ```
 
-`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, its data on OPFS, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. It names any that failed. `SKIP_IOS=1` leaves out the iPhone test, much the slowest. `make release` runs it after every release.
+`make test-deployed` runs, one after another, the deployed web app as people get it (the production build from its host, its security policy, its data on OPFS, the hosted sign-in, and a journey from Capture to the calendar), two browsers syncing, the integration suite, the smoke check, the iPhone test and, on staging, prod's web bundle and this checkout's syncing through it. On staging it then runs the history-scale test. It names any that failed. `SKIP_IOS=1` leaves out the iPhone tests, much the slowest, and `SKIP_HISTORY=1` the history-scale test. `make release` runs it after every release.
 
 These read your config folder, `$MULTISCALE_CONFIG_DIR` or else `config/`: `<env>.yaml`, and the `<env>.outputs.json` that `make deploy` writes. Test-user passwords come from SSM in that environment's account. [docs/setup.md](docs/setup.md) covers creating them.
 

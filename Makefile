@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-deployed smoke deploy release scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed smoke deploy release scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -30,8 +30,15 @@ test-compat:
 test-ios:
 	@scripts/test-ios.sh
 
+# A seeded five-year account, timed on the browser, the Mac app and the iPhone Simulator against the budgets in
+# docs/performance.md. Slow, so it runs on demand and before releases. ENV=local (default) or staging.
+# HISTORY_REPORT_ONLY=1 reports the numbers without failing on a missed budget; SKIP_IOS=1 leaves out the iPhone.
+test-history:
+	@scripts/test-history.sh
+
 # Every suite that can run against a deployment: ENV=staging (default) or prod with CONFIRM_PROD=yes. make release
-# runs it after each release. SKIP_IOS=1 leaves out the iPhone test.
+# runs it after each release. SKIP_IOS=1 leaves out the iPhone tests, and SKIP_HISTORY=1 the history-scale test, which
+# runs on staging only.
 test-deployed:
 	@scripts/test-deployed.sh
 

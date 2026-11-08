@@ -1,0 +1,74 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { BUDGETS, report } from './history-report';
+
+const script = join(import.meta.dirname, 'history-report.ts');
+const within = { web: { first_sync_ms: 4000, edit_save_ms: 20, today_query_ms: 30, week_query_ms: 60 }, mac: { first_sync_ms: 8000, today_query_ms: 40, week_query_ms: 90 }, iphone: { first_sync_ms: 15000, today_query_ms: 80, week_query_ms: 99 } };
+
+function run(results: Record<string, object>, env: Record<string, string> = {}, args: string[] = []) {
+  const dir = mkdtempSync(join(tmpdir(), 'history-report-'));
+  for (const [surface, numbers] of Object.entries(results)) writeFileSync(join(dir, `${surface}.json`), JSON.stringify(numbers));
+  return spawnSync(process.execPath, [script, dir, ...args], { env: { ...process.env, HISTORY_REPORT_ONLY: '', ...env }, encoding: 'utf8' });
+}
+
+describe('history-report', () => {
+  it('has the budgets the plan sets', () => {
+    expect(BUDGETS.map((b) => `${b.measure} ${b.surface} ${b.budget}`)).toEqual([
+      'first_sync_ms web 10000',
+      'first_sync_ms mac 10000',
+      'first_sync_ms iphone 20000',
+      'edit_save_ms web 50',
+      'today_query_ms web 100',
+      'today_query_ms mac 100',
+      'today_query_ms iphone 100',
+      'week_query_ms web 100',
+      'week_query_ms mac 100',
+      'week_query_ms iphone 100',
+    ]);
+  });
+
+  it('reports each number against its budget and passes when all are within', () => {
+    const result = run(within);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('First sync to a usable app');
+    expect(result.stdout).toMatch(/web\s+4\.0 s\s+10 s\s+ok/);
+    expect(result.stdout).toMatch(/Edit saved\s+web\s+20 ms\s+50 ms\s+ok/);
+    expect(result.stdout).toContain('Every budget met.');
+  });
+
+  it('fails when a budget is missed, naming it, unless only reporting', () => {
+    const slow = { ...within, mac: { ...within.mac, first_sync_ms: 42_500 } };
+    const failed = run(slow);
+    expect(failed.status).toBe(1);
+    expect(failed.stdout).toMatch(/mac\s+42\.5 s\s+10 s\s+MISSED/);
+    expect(failed.stderr).toContain('1 budget missed');
+    const reported = run(slow, { HISTORY_REPORT_ONLY: '1' });
+    expect(reported.status).toBe(0);
+    expect(reported.stdout).toMatch(/mac\s+42\.5 s\s+10 s\s+MISSED/);
+    expect(reported.stdout).toContain('Report only: 1 budget missed');
+  });
+
+  it('fails on a surface that measured nothing, even when only reporting', () => {
+    const { iphone: _, ...rest } = within;
+    const result = run(rest, { HISTORY_REPORT_ONLY: '1' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toMatch(/iphone\s+not measured/);
+    expect(result.stderr).toContain('3 numbers were not measured');
+  });
+
+  it('leaves out the surfaces it is told were skipped', () => {
+    const { iphone: _, ...rest } = within;
+    const result = run(rest, {}, ['--skip', 'iphone']);
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('iphone');
+  });
+
+  it('formats seconds and milliseconds', () => {
+    const lines = report(within, []).lines.join('\n');
+    expect(lines).toMatch(/iphone\s+15\.0 s\s+20 s/);
+    expect(lines).toMatch(/Week query\s+iphone\s+99 ms\s+100 ms\s+ok/);
+  });
+});

@@ -1,5 +1,7 @@
 // Every area of the app, each rendered from src/ui/screens/<area>/index.tsx with a default export taking
-// ScreenProps. An area's folder belongs to it alone: navigate with useNav and share only through components/.
+// ScreenProps. Areas navigate to each other with useNav, and what several of them show lives in components/. A few
+// files are another area's own, reused as they are: Today's To schedule is Week's lane, Setup asks for hours and
+// Google Calendar as Settings does, and the Schedule step drags blocks on Week's phone day.
 
 import { lazy } from 'react';
 import type { ComponentType } from 'react';

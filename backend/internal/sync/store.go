@@ -70,6 +70,10 @@ type Stats struct {
 	counter    int64
 	generation string
 	reset      bool
+
+	// ItemCollectionGB is the most DynamoDB estimated the user's records to take after this request's writes, the upper
+	// end of its range, or 0 when it wrote nothing or DynamoDB reported no size. The by_seq index caps them at 10 GB.
+	ItemCollectionGB float64
 }
 
 // Sync pushes changes and returns the records above cursor, up to one page.
@@ -109,8 +113,9 @@ func (s *Store) Push(ctx context.Context, sub string, cursor int64, changes []Ch
 		if err != nil {
 			return stats, err
 		}
-		written, counter, err := s.write(ctx, sub, state, merged, giveUp)
+		written, counter, size, err := s.write(ctx, sub, state, merged, giveUp)
 		stats.Merged += written
+		stats.ItemCollectionGB = max(stats.ItemCollectionGB, size)
 		if err == nil {
 			stats.counter = counter
 			return stats, nil
@@ -250,9 +255,10 @@ func mergeAll(changes []Change, stored map[string]Fields) ([]mergedRecord, error
 
 // write commits records in transactions under DynamoDB's size limit. Each one is conditional on the counter, so sequence
 // numbers can't appear out of order. If a later one fails, the retry's read finds the earlier ones already merged. It
-// stops waiting out throttles at giveUp, and returns how many records it committed and the counter after them.
-func (s *Store) write(ctx context.Context, sub string, state storedState, records []mergedRecord, giveUp time.Time) (int, int64, error) {
-	counter, exists, written := state.counter, state.exists, 0
+// stops waiting out throttles at giveUp, and returns how many records it committed, the counter after them, and the
+// largest size DynamoDB reported for the user's records.
+func (s *Store) write(ctx context.Context, sub string, state storedState, records []mergedRecord, giveUp time.Time) (int, int64, float64, error) {
+	counter, exists, written, size := state.counter, state.exists, 0, 0.0
 	for len(records) > 0 {
 		n, bytes := 0, 0
 		for n < len(records) && (n == 0 || bytes+records[n].size <= maxTransactionBytes) {
@@ -265,31 +271,50 @@ func (s *Store) write(ctx context.Context, sub string, state storedState, record
 			next++
 			item, err := recordItem(s.Table, sub, record, next)
 			if err != nil {
-				return written, counter, err
+				return written, counter, size, err
 			}
 			items = append(items, item)
 		}
 		items = append(items, counterUpdate(s.Table, sub, counter, next, exists))
 		for try := 0; ; try++ {
-			_, err := s.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
+			out, err := s.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+				TransactItems:               items,
+				ReturnItemCollectionMetrics: types.ReturnItemCollectionMetricsSize,
+			})
 			if err == nil {
+				size = max(size, collectionGB(out, s.Table))
 				break
 			}
 			// A throttled transaction wrote nothing, so the same one, with the same counter condition, can go again. One the
 			// SDK found still in progress may yet land, but it has that condition too, so at most one of them commits.
 			if !isThrottled(err) || try == maxThrottleWaits || time.Now().After(giveUp) {
-				return written, counter, err
+				return written, counter, size, err
 			}
 			select {
 			case <-ctx.Done():
-				return written, counter, ctx.Err()
+				return written, counter, size, ctx.Err()
 			case <-time.After(throttleWait(try)):
 			}
 		}
 		written += n
 		counter, exists, records = next, true, records[n:]
 	}
-	return written, counter, nil
+	return written, counter, size, nil
+}
+
+// collectionGB is the upper end of DynamoDB's estimate of the user's item collection, their records and the by_seq
+// index's copies of them, or 0 when it sent none.
+func collectionGB(out *dynamodb.TransactWriteItemsOutput, table string) float64 {
+	gb := 0.0
+	if out == nil {
+		return gb
+	}
+	for _, metrics := range out.ItemCollectionMetrics[table] {
+		if bounds := metrics.SizeEstimateRangeGB; len(bounds) > 0 {
+			gb = max(gb, bounds[len(bounds)-1])
+		}
+	}
+	return gb
 }
 
 func recordItem(table, sub string, record mergedRecord, seq int64) (types.TransactWriteItem, error) {

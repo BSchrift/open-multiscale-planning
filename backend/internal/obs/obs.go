@@ -22,19 +22,29 @@ func HashSub(sub string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// GB is a metric that is a size rather than a count.
+type GB struct {
+	Name  string
+	Value float64
+}
+
 // Metrics returns log attributes in Embedded Metric Format, which CloudWatch turns into metrics with no API calls. The
 // empty dimension set keeps each one a single billed metric.
-func Metrics(env string, at time.Time, values map[string]int) []any {
+func Metrics(env string, at time.Time, values map[string]int, sizes ...GB) []any {
 	names := make([]string, 0, len(values))
 	for name := range values {
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	declared := make([]map[string]string, len(names))
-	attrs := make([]any, 0, len(names)+1)
+	declared := make([]map[string]string, len(names), len(names)+len(sizes))
+	attrs := make([]any, 0, len(names)+len(sizes)+1)
 	for i, name := range names {
 		declared[i] = map[string]string{"Name": name, "Unit": "Count"}
 		attrs = append(attrs, slog.Int(name, values[name]))
+	}
+	for _, size := range sizes {
+		declared = append(declared, map[string]string{"Name": size.Name, "Unit": "Gigabytes"})
+		attrs = append(attrs, slog.Float64(size.Name, size.Value))
 	}
 	return append(attrs, slog.Any("_aws", map[string]any{
 		"Timestamp": at.UnixMilli(),

@@ -22,13 +22,14 @@ function sandbox(awsBody = AWS_ALL_GOOD, integrationBody = 'echo "integration EN
 }
 
 describe('scripts/smoke.sh', () => {
-  it('runs the wiring subset against staging by default, then checks logs and the metric', () => {
+  it('runs the wiring subset against staging by default, then checks logs and the metrics', () => {
     const s = sandbox();
     const r = s.run();
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /integration ENV=staging SMOKE=1/);
     assert.match(s.log(), /aws logs filter-log-events .*--log-group-name apilogs/);
     assert.match(s.log(), /aws cloudwatch get-metric-statistics .*--namespace Multiscale\/staging .*--metric-name SyncRecordsMerged/);
+    assert.match(s.log(), /aws cloudwatch get-metric-statistics .*--namespace Multiscale\/staging .*--metric-name ItemCollectionSizeGB/);
     assert.match(s.log(), /--region us-east-2/);
   });
 
@@ -119,6 +120,15 @@ describe('scripts/smoke.sh', () => {
     const r = s.run();
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /SyncRecordsMerged/);
+  });
+
+  // DynamoDB Local never reports item collection sizes, so only a deployment shows that DynamoDB sends them back from a
+  // sync's transactions, without which the size alarm could never fire.
+  it('fails when the item collection size never shows up', () => {
+    const s = sandbox(`case "$*" in *ItemCollectionSizeGB*) echo 0;; *) echo 1;; esac`);
+    const r = s.run();
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /ItemCollectionSizeGB/);
   });
 
   it('only warns when the worker has not run yet, since the schedule can take 30 minutes after a first deploy', () => {

@@ -126,13 +126,18 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 		if status >= 400 && status < 500 && errorType != "conflict" {
 			rejected = 1
 		}
+		// Only a write reports the size, so its Maximum is the largest writing user's. A 0 would read as an empty one.
+		var sizes []obs.GB
+		if stats.ItemCollectionGB > 0 {
+			sizes = append(sizes, obs.GB{Name: "ItemCollectionSizeGB", Value: stats.ItemCollectionGB})
+		}
 		return outcome{status: status, errorType: errorType, attrs: append(
 			[]any{"changes", changes, "pulled", stats.Pulled},
 			obs.Metrics(s.Env, s.Now(), map[string]int{
 				"SyncRecordsMerged":    stats.Merged,
 				"SyncConflictRetries":  stats.Retries,
 				"SyncRequestsRejected": rejected,
-			})...,
+			}, sizes...)...,
 		)}
 	}
 	fail := func(err error) outcome {

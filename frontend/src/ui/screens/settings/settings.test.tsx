@@ -6,9 +6,12 @@ import { CALENDAR_ID, getSettings, listRecords, updateSettings } from '../../../
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import type { UpdateStatus, Updater } from '../../../core/updates';
+import { configureRetention } from '../../../core/retention';
 import { renderApp, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
+import { describePeriod } from './Retention';
+import { parsePeriod } from '../../../../../config/retention';
 
 afterEach(cleanup);
 
@@ -43,7 +46,7 @@ describe('Settings', () => {
     it('shows each section', async () => {
       await renderScreen('settings', { layout });
       expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-      for (const name of ['Account', 'Available hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance']) {
+      for (const name of ['Account', 'Available hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention']) {
         expect(screen.getByRole('heading', { level: 2, name })).toBeVisible();
       }
     });
@@ -493,5 +496,43 @@ describe('Capture shortcut', () => {
     await userEvent.click(within(keys).getByRole('button', { name: 'Change' }));
     await userEvent.keyboard('{Escape}');
     expect(within(keys).getByRole('button', { name: 'Change' })).toBeVisible();
+  });
+});
+
+describe('Data retention', () => {
+  afterEach(() => configureRetention(null));
+
+  it.each(['desktop', 'phone'] as const)("opens from its row on %s and says what's kept and for how long, with no controls", async (layout) => {
+    configureRetention({ scheduling: parsePeriod('P2Y'), closed: parsePeriod('P5Y'), deleted: parsePeriod('P30D') });
+    await renderApp({ layout, initial: { area: 'settings', params: {} } });
+    const row = within(await screen.findByRole('region', { name: 'Data retention' }));
+    expect(row.getByText("How long your history is kept before it's removed.")).toBeVisible();
+    await userEvent.click(row.getByRole('button', { name: 'Data retention' }));
+
+    const page = within(await screen.findByRole('region', { name: 'Settings', hidden: false }));
+    expect(await page.findByRole('heading', { level: 1, name: 'Data retention' })).toBeVisible();
+    expect(page.getByText(/removed within a few days of its period ending/)).toBeVisible();
+    expect(page.getByText('2 years after they end')).toBeVisible();
+    expect(page.getByText('5 years after they\'re closed')).toBeVisible();
+    expect(page.getByText('30 days after you delete them')).toBeVisible();
+    expect(page.getByRole('heading', { level: 2, name: 'Kept until you delete it' })).toBeVisible();
+    expect(page.queryAllByRole('button').filter((b) => !/^Back/.test(b.getAttribute('aria-label') ?? ''))).toEqual([]);
+    expect(page.queryAllByRole('textbox')).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Back to Settings' })).toBeVisible();
+  });
+
+  it("shows staging's minutes as they are", async () => {
+    configureRetention({ scheduling: parsePeriod('PT10M'), closed: parsePeriod('PT20M'), deleted: parsePeriod('PT5M'), cleanup: parsePeriod('PT1M') });
+    await renderScreen('settings', { params: { page: 'retention' } });
+    expect(await screen.findByText('10 minutes after they end')).toBeVisible();
+    expect(screen.getByText('20 minutes after they\'re closed')).toBeVisible();
+    expect(screen.getByText('5 minutes after you delete them')).toBeVisible();
+  });
+
+  it('describes a period in words', () => {
+    expect(describePeriod(parsePeriod('P1Y'))).toBe('1 year');
+    expect(describePeriod(parsePeriod('P1W'))).toBe('7 days');
+    expect(describePeriod(parsePeriod('PT1H30M'))).toBe('1 hour and 30 minutes');
+    expect(describePeriod(parsePeriod('P1Y2M3DT4H'))).toBe('1 year, 2 months, 3 days and 4 hours');
   });
 });

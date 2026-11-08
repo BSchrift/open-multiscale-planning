@@ -2,6 +2,10 @@
 // both are done. Merging is idempotent, so anything lost or repeated along the way is safe to send again. That's
 // why applying a response, clearing the outbox and storing the cursor can be separate steps: a crash between them
 // only means the next sync repeats some work.
+//
+// When this device may hold an older copy of something that has expired, which pulls leave out, the server answers
+// with a reset for expired records instead (docs/retention.md). The device then pulls everything without sending,
+// drops what didn't come back unless it made it since it last synced, and sends its outbox after.
 
 import { protocol } from '@multiscale/config';
 import { getMeta, META, setMeta } from './db';
@@ -32,6 +36,8 @@ export class SyncError extends Error {
 export interface SyncRequest {
   cursor: number;
   changes: RecordChange[];
+  /** This app takes a reset for expired records. Left off while it pulls everything after one. */
+  expiry_reset?: boolean;
 }
 
 export interface SyncResponse {
@@ -40,6 +46,8 @@ export interface SyncResponse {
   changes: RecordChange[];
   /** Absent until the server's table is first restored from a backup, and new after each restore. */
   generation?: string;
+  /** 'expired' when this device may hold an older copy of an expired record. Nothing it sent was kept. */
+  reset?: string;
 }
 
 export type SyncSend = (request: SyncRequest) => Promise<SyncResponse>;
@@ -79,6 +87,11 @@ function readBatch(db: Db) {
         const clocks = record ? (JSON.parse(record.clocks) as Record<string, unknown>) : {};
         // The latest value, so a field edited twice goes once.
         const change: RecordChange = { type: own[0]!.type, id: record_id, fields: Object.fromEntries(own.map((r) => [r.field, { v: data[r.field] ?? null, c: r.clock }])) };
+        // Its expiry goes with every change, as it stands, so the server can tell a change to a record that has expired
+        // even when it doesn't hold the record any more.
+        if (typeof data.expires_at === 'string' && !change.fields.expires_at && typeof clocks.expires_at === 'string') {
+          change.fields.expires_at = { v: data.expires_at, c: clocks.expires_at };
+        }
         // The server merges into what it holds, which is all of this, so the whole record has to fit, with its room.
         const whole = byteLength(Object.fromEntries(Object.keys(data).map((f) => [f, { v: data[f], c: clocks[f] }])));
         if (byteLength(change.fields) > RECORD_BYTES || whole > RECORD_BYTES + MERGED_ROOM) {
@@ -123,6 +136,32 @@ function resetForRestoredServer(db: Db, generation: string) {
   });
 }
 
+/**
+ * After a pull of everything that followed a reset for expired records: drops what the server didn't send, with its
+ * outbox rows, unless every field of it is still to send, which means this device made it since it last synced. Then
+ * stores the cursor. The screens never show an empty app, as they would if it emptied first.
+ */
+function finishExpiryReset(db: Db, pulled: ReadonlySet<string>, cursor: number) {
+  return db.transaction(async (tx) => {
+    const pending = new Map<string, Set<string>>();
+    for (const { record_id, field } of await tx.all<{ record_id: string; field: string }>('SELECT record_id, field FROM outbox')) {
+      pending.set(record_id, (pending.get(record_id) ?? new Set()).add(field));
+    }
+    const records = await tx.all<{ id: string; clocks: string }>('SELECT id, clocks FROM records');
+    const stale = records
+      .filter(({ id, clocks }) => !pulled.has(id) && !Object.keys(JSON.parse(clocks) as object).every((field) => pending.get(id)?.has(field)))
+      .map(({ id }) => id);
+    for (let i = 0; i < stale.length; i += BATCH_RECORDS) {
+      const ids = stale.slice(i, i + BATCH_RECORDS);
+      const list = ids.map((_, n) => `:id${n}`).join(', ');
+      const params = Object.fromEntries(ids.map((id, n) => [`id${n}`, id]));
+      await tx.run(`DELETE FROM outbox WHERE record_id IN (${list})`, params);
+      await tx.run(`DELETE FROM records WHERE id IN (${list})`, params);
+    }
+    await setMeta(tx, META.cursor, String(cursor));
+  });
+}
+
 function assertResponse(res: SyncResponse): void {
   const ok =
     res !== null &&
@@ -132,7 +171,8 @@ function assertResponse(res: SyncResponse): void {
     typeof res.more === 'boolean' &&
     Array.isArray(res.changes) &&
     res.changes.every((change) => change !== null && typeof change === 'object') &&
-    (res.generation === undefined || typeof res.generation === 'string');
+    (res.generation === undefined || typeof res.generation === 'string') &&
+    (res.reset === undefined || res.reset === 'expired');
   if (!ok) throw new SyncError('error');
 }
 
@@ -145,22 +185,48 @@ function assertResponse(res: SyncResponse): void {
 export async function runSync(db: Db, send: SyncSend): Promise<void> {
   let cursor = Number((await getMeta(db, META.cursor)) ?? 0);
   let seen = (await getMeta(db, META.generation)) ?? '';
+  // Starting from 0, nothing here can be an older copy of the server's: every id it sends goes in here, and a reset
+  // carries on from where the pull is rather than starting over.
+  let received: Set<string> | null = cursor === 0 ? new Set() : null;
+  // Set while pulling everything after a reset: the ids that came back.
+  let pulled: Set<string> | null = null;
+  let resets = 0;
   for (;;) {
-    const { rows, changes, held, more } = await readBatch(db);
-    const res = await send({ cursor, changes });
+    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db);
+    const res = await send(pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
     assertResponse(res);
     // A restore shows as a new generation. The cursor check also catches one whose generation was never written, but
     // only until other devices move the counter past this cursor.
     const generation = res.generation ?? '';
-    if (res.cursor < cursor || generation !== seen) {
+    if ((res.cursor < cursor && !res.reset) || generation !== seen) {
       await resetForRestoredServer(db, generation);
       cursor = 0;
       seen = generation;
+      received = pulled = null;
+      continue;
+    }
+    if (res.reset) {
+      // A pull sent without expiry_reset is never answered with one, and one reset leaves nothing to reset again.
+      if (pulled || resets++ > 0) throw new SyncError('error');
+      pulled = received ?? new Set();
+      if (!received) cursor = 0;
       continue;
     }
     // A server that claims more without moving the cursor would otherwise loop forever.
     if (res.more && res.cursor === cursor) throw new SyncError('error');
     await applyRemote(db, res.changes);
+    for (const change of res.changes) {
+      received?.add(change.id);
+      pulled?.add(change.id);
+    }
+    if (pulled) {
+      cursor = res.cursor;
+      if (res.more) continue;
+      await finishExpiryReset(db, pulled, cursor);
+      db.notifyChanged({ source: 'remote' });
+      received = pulled = null;
+      continue;
+    }
     await clearSent(db, rows);
     await setMeta(db, META.cursor, String(res.cursor));
     cursor = res.cursor;

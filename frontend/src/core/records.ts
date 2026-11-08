@@ -8,7 +8,8 @@
 //
 // Group everything one user action changes into one transact, so a crash can't leave half of it. Deletes set
 // deleted_at and keep the row, so a delete merges like any other field. For Undo, set returns the values it
-// replaced: write them back.
+// replaced: write them back. Each write also stores the record's expiry as expires_at, worked out from the record as it
+// then stands (retention.ts), so every writer keeps it right.
 
 import { protocol } from '@multiscale/config';
 import { nowInstant } from './dates';
@@ -16,6 +17,8 @@ import { clockWins, formatClock, isClock, nextClock, observeClock, parseClock } 
 import type { Clock } from './clock';
 import { getMeta, META, setMeta } from './db';
 import type { Db, Sql } from './db';
+import { activeRetention, expiryDiffers, expiryFor, trimmedLists } from './retention';
+import type { Retention, StoredRecord } from './retention';
 import type {
   Fields,
   LocalDate,
@@ -112,11 +115,14 @@ export interface Writer {
   set<T extends RecordType>(type: T, id: string, fields: Fields<T>): Promise<Fields<T>>;
   /** Marks a record deleted. Setting deleted_at back to null undoes it. */
   delete(type: RecordType, id: string): Promise<void>;
+  /** Writes what follows from a record as it stands, such as its expiry, if that has changed. */
+  refresh(id: string): Promise<void>;
   /** The transaction, for reads that must see this transaction's writes. */
   readonly sql: Sql;
   /**
-   * The same transaction for what the app fills in on its own, which can run before this device has pulled: a record
-   * created through it that isn't here yet gets the lowest clock, so any write to it from any device wins.
+   * The same transaction for what the app fills in on its own, which can run before this device has pulled: a field it
+   * writes that has no clock here yet, as on a record that isn't here yet, gets the lowest clock, so any write to it from
+   * any device wins.
    */
   readonly automatic: Writer;
 }
@@ -158,8 +164,9 @@ class TxWriter implements Writer {
     return {
       sql: this.sql,
       create: (type, fields, id) => this.create(type, fields, id, true),
-      set: (type, id, fields) => this.set(type, id, fields),
+      set: (type, id, fields) => this.set(type, id, fields, true),
       delete: (type, id) => this.delete(type, id),
+      refresh: (id) => this.refresh(id, true),
       get automatic() {
         return this;
       },
@@ -172,7 +179,6 @@ class TxWriter implements Writer {
 
   private async write(type: string, id: string, row: StoredRow | undefined, fields: Record<string, unknown>, automatic = false) {
     const data = row ? parse(row.data) : {};
-    const clocks = row ? parse(row.clocks) : {};
     const previous: Record<string, unknown> = {};
     const changed = Object.keys(fields).filter((f) => {
       if (f === 'id') throw new Error('A record id cannot be changed');
@@ -180,24 +186,79 @@ class TxWriter implements Writer {
       return fields[f] !== undefined && (!row || !(f in data) || !same(data[f], fields[f]));
     });
     if (changed.length === 0 && row) return previous;
+    for (const field of changed) previous[field] = data[field] ?? null;
+    await this.commit(type, id, row, Object.fromEntries(changed.map((f) => [f, fields[f]])), automatic);
+    return previous;
+  }
 
-    const clock = automatic && !row ? formatClock({ wall: 0, counter: 0, device: await this.deviceId() }) : await this.tick();
-    for (const field of changed) {
-      previous[field] = data[field] ?? null;
-      data[field] = fields[field];
-      clocks[field] = clock;
-    }
+  /**
+   * Writes changes onto a record with their clocks, then what follows from it as it now stands: its expiry, and lists
+   * trimmed. An automatic write gives a field it writes for the first time the lowest clock, so any other write to it
+   * wins, and leaves lists alone, since trimming one is a real change.
+   */
+  private async commit(type: string, id: string, row: StoredRow | undefined, changes: Record<string, unknown>, automatic: boolean) {
+    const data = row ? parse(row.data) : {};
+    const clocks = row ? parse(row.clocks) : {};
+    let ticked: string | undefined;
+    const clockFor = async (field: string) =>
+      automatic && !(field in clocks) ? formatClock({ wall: 0, counter: 0, device: await this.deviceId() }) : (ticked ??= await this.tick());
+    const written: Record<string, string> = {};
+    const apply = async (fields: Record<string, unknown>) => {
+      for (const [field, value] of Object.entries(fields)) {
+        data[field] = value;
+        clocks[field] = written[field] = await clockFor(field);
+      }
+    };
+    await apply(changes);
+    const policy = activeRetention();
+    const follows = policy ? await this.retentionChanges(type, id, data, clocks, policy, automatic) : {};
+    await apply(follows);
+
+    const names = Object.keys(written);
+    if (names.length === 0 && row) return;
     // Every changed field in one statement, rather than one each.
-    if (changed.length > 0) {
+    if (names.length > 0) {
       await this.sql.run(
-        `INSERT INTO outbox (record_id, type, field, clock) VALUES ${changed.map((_, i) => `(:id, :type, :field${i}, :clock)`).join(', ')}
+        `INSERT INTO outbox (record_id, type, field, clock) VALUES ${names.map((_, i) => `(:id, :type, :field${i}, :clock${i})`).join(', ')}
          ON CONFLICT (record_id, field) DO UPDATE SET clock = excluded.clock`,
-        { id, type, clock, ...Object.fromEntries(changed.map((field, i) => [`field${i}`, field])) },
+        { id, type, ...Object.fromEntries(names.flatMap((field, i) => [[`field${i}`, field], [`clock${i}`, written[field]!]])) },
       );
     }
     await writeRow(this.sql, id, type, data, clocks);
     this.wrote = true;
-    return previous;
+    // A milestone goes with its project, and an answer is counted from its block's end.
+    if ('expires_at' in follows && type === 'project') {
+      const milestones = await this.sql.all<{ id: string }>(
+        "SELECT id FROM records WHERE type = 'milestone' AND json_extract(data, '$.project_id') = :id",
+        { id },
+      );
+      for (const m of milestones) await this.refresh(m.id, automatic);
+    }
+    if ('expires_at' in follows && type === 'time_block') await this.refresh(outcomeId(id), automatic);
+  }
+
+  private async stored(id: string, type: string): Promise<StoredRecord | null> {
+    const row = await readRow(this.sql, id);
+    return row?.type === type ? { data: parse(row.data), clocks: parse(row.clocks) } : null;
+  }
+
+  /** The expiry and trimmed lists that follow from a record, where they differ from what it holds. */
+  private async retentionChanges(type: string, id: string, data: Record<string, unknown>, clocks: Record<string, unknown>, policy: Retention, automatic: boolean) {
+    const changes = automatic ? {} : trimmedLists(type, data, policy, this.clock.now());
+    const parent =
+      type === 'milestone' && typeof data.project_id === 'string'
+        ? await this.stored(data.project_id, 'project')
+        : type === 'block_outcome' && id.startsWith(OUTCOME_PREFIX)
+          ? await this.stored(id.slice(OUTCOME_PREFIX.length), 'time_block')
+          : null;
+    const expires = expiryFor(type, { data: { ...data, ...changes }, clocks }, policy, parent);
+    // Cleared when what it counts from clears, as when a task opens again.
+    return expiryDiffers(data.expires_at, expires) ? { ...changes, expires_at: expires } : changes;
+  }
+
+  async refresh(id: string, automatic = false): Promise<void> {
+    const row = await readRow(this.sql, id);
+    if (row) await this.commit(row.type, id, row, {}, automatic);
   }
 
   async create<T extends RecordType>(type: T, fields: Fields<T>, id?: string, automatic = false): Promise<string> {
@@ -210,11 +271,11 @@ class TxWriter implements Writer {
     return recordId;
   }
 
-  async set<T extends RecordType>(type: T, id: string, fields: Fields<T>): Promise<Fields<T>> {
+  async set<T extends RecordType>(type: T, id: string, fields: Fields<T>, automatic = false): Promise<Fields<T>> {
     const row = await readRow(this.sql, id);
     if (!row) throw new Error(`No ${type} record ${id}`);
     if (row.type !== type) throw new Error(`Record ${id} is a ${row.type}, not a ${type}`);
-    return (await this.write(type, id, row, fields)) as Fields<T>;
+    return (await this.write(type, id, row, fields, automatic)) as Fields<T>;
   }
 
   async delete(type: RecordType, id: string): Promise<void> {

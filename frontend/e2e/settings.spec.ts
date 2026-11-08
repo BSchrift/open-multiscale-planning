@@ -141,6 +141,42 @@ test('edits settings in place', async ({ page }, info) => {
   expect(errors).toEqual([]);
 });
 
+test("Data retention says what's kept and for how long, from this build's periods, and changes nothing", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await openSettings(page, phone);
+  const row = pane(page, 'Settings').getByRole('region', { name: 'Data retention' });
+  await expect(row.getByText("How long your history is kept before it's removed.")).toBeVisible();
+  const open = row.getByRole('button', { name: 'Data retention' });
+  if (phone) await expectTapTarget(open);
+  await open.click();
+
+  const p = pane(page, 'Settings');
+  await expect(p.getByRole('heading', { name: 'Data retention', level: 1 })).toBeVisible();
+  // Focus starts on the page's heading, so a screen reader starts there too.
+  await expect(p.getByRole('heading', { name: 'Data retention', level: 1 })).toBeFocused();
+  // A local build has prod's periods.
+  for (const line of ['2 years after they end', "5 years after they're closed", '30 days after you delete them']) await expect(p.getByText(line)).toBeVisible();
+  await expect(p.getByText(/removed within a few days of its period ending/)).toBeVisible();
+  await expect(p.getByRole('heading', { name: 'Kept until you delete it', level: 2 })).toBeVisible();
+  // Informational only: no control but the way back.
+  await expect(p.locator('button, input, select, textarea, a')).toHaveCount(1);
+  const back = page.getByRole('button', { name: 'Back to Settings' });
+  if (phone) await expectTapTarget(back);
+  // Nothing runs off the side at phone width.
+  expect(await p.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('retention.png'), fullPage: true });
+
+  await back.click();
+  await expect(pane(page, 'Settings').getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
+  // Nothing on the main screens mentions it.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Today' }).click();
+  await expect(pane(page, 'Today').getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(pane(page, 'Today').getByText(/retention|expire/i)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('appearance follows the system live until chosen, and a choice holds from the first paint', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const [LIGHT_PAGE, DARK_PAGE] = ['rgb(250, 250, 248)', 'rgb(20, 21, 23)'];

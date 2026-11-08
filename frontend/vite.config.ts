@@ -5,8 +5,11 @@ import { join, resolve } from 'node:path';
 import { forEnv } from '@multiscale/config';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { parse } from 'yaml';
+import { loadRetention } from '../config/retention';
 import { appIdentity } from './electron/identity';
 import { loadAppConfig } from './src/core/appConfig';
+import type { Retention } from './src/core/retention';
 import { macBuild, shellHashes } from './scripts/shell-hash';
 
 const readConfigFile = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : null);
@@ -24,7 +27,9 @@ const appConfig = loadAppConfig(process.env.ENV, readConfigFile, configDir, proc
 // The Mac app built for this environment and backend, as electron-compile.mjs builds it. Its name and scheme don't
 // depend on the bundle id, which only the Mac build reads.
 const shell = shellHashes(import.meta.dirname, macBuild(appConfig, appIdentity(appConfig.env)));
-const config = { ...appConfig, version, build, shell, settings: forEnv(appConfig.env) };
+// The repo's own retention policy, not the config folder's: it's the same for everyone who builds this code.
+const retention: Retention = loadRetention(appConfig.env, { read: (path) => readFileSync(path, 'utf8'), parse });
+const config = { ...appConfig, version, build, shell, settings: forEnv(appConfig.env), retention };
 // The public half of the key releases are signed with, made by scripts/release.sh. Without it the apps take no updates.
 const keyFile = join(configDir, `${config.env}.release-key.pem`);
 const releaseKey = existsSync(keyFile) ? createPublicKey(readFileSync(keyFile)).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64') : undefined;
@@ -40,7 +45,8 @@ export default defineConfig({
       },
     },
   ],
-  // ENV picks the backend this build talks to: local (the default), staging or prod. LOCAL_API_URL picks a local stack.
+  // ENV picks the backend this build talks to, local (the default), staging or prod, and its retention block.
+  // LOCAL_API_URL picks a local stack.
   define: { __APP_CONFIG__: JSON.stringify(config) },
   // This checkout's own config, even when node_modules is another checkout's, as the older one in make test-compat is.
   resolve: { alias: { '@multiscale/config': join(import.meta.dirname, '../config/app.gen.ts') } },

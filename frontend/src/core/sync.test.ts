@@ -30,6 +30,7 @@ describe('runSync pushing', () => {
     expect(s.requests[0]).toEqual({
       cursor: 0,
       changes: [{ type: 'task', id, fields: { kind: { v: 'inbox', c: row!.clock }, title: { v: 'Write the report', c: row!.clock } } }],
+      expiry_reset: true,
     });
     expect(await outbox(db)).toEqual([]);
     expect(await cursorOf(db)).toBe('1');
@@ -374,7 +375,7 @@ describe('runSync failures', () => {
     // Once caught up, the same generation doesn't start over again.
     s.requests.length = 0;
     await runSync(phone, s.send);
-    expect(s.requests).toEqual([{ cursor: s.counter, changes: [] }]);
+    expect(s.requests).toEqual([{ cursor: s.counter, changes: [], expiry_reset: true }]);
   });
 
   it('the reset keeps pending edits and sends more than one batch', async () => {
@@ -588,5 +589,124 @@ describe('syncStatus', () => {
     await setMeta(db, META.lastSyncAt, '2026-11-02T15:00:00Z');
     await setMeta(db, META.lastSyncError, 'clock_ahead');
     expect(await syncStatus(db)).toEqual({ lastSyncAt: '2026-11-02T15:00:00Z', lastError: 'clock_ahead' });
+  });
+});
+
+describe('runSync after records expire', () => {
+  const time = fixedClock(NOW);
+  const expiring = (s: ReturnType<typeof fakeSyncServer>) => s;
+  const at = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
+  const theirs = (fields: Record<string, unknown>) =>
+    Object.fromEntries(Object.entries(fields).map(([f, v]) => [f, { v, c: formatClock({ wall: time.now(), counter: 0, device: 'other' }) }]));
+  const ids = async (db: Db) => (await db.all<{ id: string }>('SELECT id FROM records ORDER BY id')).map((r) => r.id);
+
+  /** Two records this device synced, then an edit to each made offline and a record made offline. */
+  async function deviceWithOldCopies() {
+    time.set(NOW);
+    const s = expiring(fakeSyncServer({ now: () => time.now() }));
+    const db = await openTestDb();
+    await transact(db, time, async (w) => {
+      await w.create('task', { kind: 'inbox', title: 'Oil the hinges' }, 'gone');
+      await w.create('task', { kind: 'inbox', title: 'Paint the fence' }, 'kept');
+    });
+    await runSync(db, s.send);
+    await transact(db, time, async (w) => {
+      await w.set('task', 'gone', { title: 'Oil the gate hinges' });
+      await w.set('task', 'kept', { title: 'Paint the whole fence' });
+      await w.create('task', { kind: 'inbox', title: 'Buy brushes' }, 'made');
+    });
+    // Meanwhile another device deletes one, with an expiry an hour on.
+    await s.send({ cursor: s.counter, changes: [{ type: 'task', id: 'gone', fields: theirs({ deleted_at: at(time.now()), expires_at: at(time.now() + 3_600_000) }) }] });
+    s.requests.length = 0;
+    return { s, db };
+  }
+
+  it('resets a device behind the mark: drops its old copy and that edit, keeps the rest, then sends', async () => {
+    const { s, db } = await deviceWithOldCopies();
+    time.set(NOW + 2 * 3_600_000);
+    s.remove('gone');
+
+    await runSync(db, s.send);
+
+    expect(s.requests.map((r) => [r.cursor, r.changes.length, r.expiry_reset ?? false])).toEqual([
+      [2, 3, true],
+      [0, 0, false],
+      // The pull from 0 ends at the counter, past the removed record.
+      [3, 2, true],
+    ]);
+    expect(await ids(db)).toEqual(['kept', 'made']);
+    expect(await outbox(db)).toEqual([]);
+    expect(s.values()).toMatchObject({ kept: { title: 'Paint the whole fence' }, made: { title: 'Buy brushes' } });
+    expect(s.values().gone).toBeUndefined();
+  });
+
+  it('resets a device whose pull left out an expired record it had only an old copy of', async () => {
+    const { s, db } = await deviceWithOldCopies();
+    // Expired, and not yet removed: the server leaves it out.
+    time.set(NOW + 2 * 3_600_000);
+
+    await runSync(db, s.send);
+
+    expect(s.requests.map((r) => r.expiry_reset ?? false)).toEqual([true, false, true]);
+    expect(await ids(db)).toEqual(['kept', 'made']);
+    expect(s.values().gone).toMatchObject({ title: 'Oil the hinges', deleted_at: expect.any(String) });
+  });
+
+  it("carries on from where a first pull is when a reset comes, since nothing here is an old copy", async () => {
+    time.set(NOW);
+    const s = fakeSyncServer({ now: () => time.now(), pageSize: 2 });
+    for (let i = 0; i < 5; i++) await s.send({ cursor: s.counter, changes: [{ type: 'task', id: `t${i}`, fields: theirs({ kind: 'inbox', title: `Task ${i}` }) }] });
+    await s.send({ cursor: s.counter, changes: [{ type: 'task', id: 't3', fields: theirs({ expires_at: at(time.now() + 1000) }) }] });
+    time.set(NOW + 3_600_000);
+    s.requests.length = 0;
+    const db = await openTestDb();
+
+    await runSync(db, s.send);
+
+    expect(s.requests.map((r) => [r.cursor, r.expiry_reset ?? false])).toEqual([
+      [0, true],
+      [2, true],
+      // The page that left out the expired record was answered with a reset, and the pull carried on from there.
+      [5, true],
+      [5, false],
+      [6, true],
+    ]);
+    expect(await ids(db)).toEqual(['t0', 't1', 't2', 't4']);
+    expect(await cursorOf(db)).toBe('6');
+  });
+
+  it("keeps its cursor until a reset's pull has finished, so a failure starts it again", async () => {
+    const { s, db } = await deviceWithOldCopies();
+    time.set(NOW + 2 * 3_600_000);
+    s.remove('gone');
+    let calls = 0;
+    const failing = async (request: Parameters<typeof s.send>[0]) => {
+      if (++calls === 2) throw new SyncError('offline');
+      return s.send(request);
+    };
+    await expect(runSync(db, failing)).rejects.toMatchObject({ code: 'offline' });
+    expect(await cursorOf(db)).toBe('2');
+    expect(await ids(db)).toEqual(['gone', 'kept', 'made']);
+    await runSync(db, s.send);
+    expect(await ids(db)).toEqual(['kept', 'made']);
+  });
+
+  it('treats a reset answering a pull sent without expiry_reset as a failure', async () => {
+    const { s, db } = await deviceWithOldCopies();
+    s.remove('gone');
+    const send = vi.fn(async () => ({ cursor: 0, more: false, changes: [], reset: 'expired' }));
+    await expect(runSync(db, send)).rejects.toMatchObject({ code: 'error' });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(await cursorOf(db)).toBe('2');
+  });
+
+  it("sends a record's expiry with any change to it, as it stands", async () => {
+    time.set(NOW);
+    const s = fakeSyncServer({ now: () => time.now() });
+    const db = await openTestDb();
+    const id = await transact(db, time, (w) => w.create('task', { kind: 'one_off', title: 'x' }));
+    await applyRemote(db, [{ type: 'task', id, fields: theirs({ expires_at: '2031-01-01T00:00:00Z' }) }]);
+    await runSync(db, s.send);
+    expect(s.requests[0]!.changes[0]!.fields.expires_at).toEqual({ v: '2031-01-01T00:00:00Z', c: expect.stringContaining('-other') });
   });
 });

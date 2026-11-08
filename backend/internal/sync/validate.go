@@ -12,21 +12,26 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/BSchrift/open-multiscale-planning/config"
+)
+
+// The limits the apps share, from config/protocol.yaml, which says why each is what it is.
+var (
+	// MaxChanges leaves room for the counter in one 100-action transaction.
+	MaxChanges = config.Protocol.Sync.MaxChanges
+	// MaxRecordBytes is measured on a record's fields as JSON, for what a device sends.
+	MaxRecordBytes = config.Protocol.Sync.MaxRecordBytes
+	// mergedRoom is how far a merge may pass that, so that a record at the limit can still take deleted_at.
+	mergedRoom = config.Protocol.Sync.MergedRoomBytes
+	// MaxBodyBytes stays under the 6 MB Lambda takes, so the API answers a bigger body itself. A device's batch stops
+	// near 4 MB, plus at most one record.
+	MaxBodyBytes = config.Protocol.Sync.MaxBodyBytes
+	// maxClockAhead stops a device with a bad clock winning every future conflict.
+	maxClockAhead = time.Duration(config.Protocol.Sync.MaxClockAheadHours) * time.Hour
 )
 
 const (
-	// MaxChanges leaves room for the counter in one 100-action transaction.
-	MaxChanges = 99
-	// MaxRecordBytes is measured on a record's fields as JSON, for what a device sends.
-	MaxRecordBytes = 100 * 1024
-	// mergedRoom is how far a merge may pass that, so that a record at the limit can still take deleted_at.
-	mergedRoom = 1024
-	// MaxBodyBytes stays under the 6 MB Lambda takes, so the API answers a bigger body itself. A device's batch stops
-	// near 4 MB, plus at most one record.
-	MaxBodyBytes = 5 << 20
-	// maxClockAhead stops a device with a bad clock winning every future conflict.
-	maxClockAhead = 24 * time.Hour
-
 	// The value limits DynamoDB enforces, checked here so a bad value is a refused request and not a failed write.
 	// A record's values sit three levels down in the item, and DynamoDB allows 32.
 	maxValueDepth = 25

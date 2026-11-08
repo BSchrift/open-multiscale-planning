@@ -1,0 +1,24 @@
+# What the server and every app agree on, the same in every environment. Go embeds this file and checks it when the
+# config package loads; go generate copies it to app.gen.ts for TypeScript. See docs/config.md.
+#
+# A released app keeps running beside newer servers for months, so changes here keep three rules:
+# - A server limit never drops below what a released app sends. To raise a limit, raise the server's first and release
+#   it, then the apps'.
+# - Id and clock formats only get wider, so the server still takes every id and clock a released app makes.
+# - Retention, in each file in env/, never lets the server purge what an older app could push back.
+
+sync:
+  # Changes in one request. One transaction writes them and the user's counter, and DynamoDB takes 100 actions.
+  maxChanges: 99
+  # A record's fields as JSON, as a device sends them: 100 KiB.
+  maxRecordBytes: 102400
+  # How far a merge may take a stored record past maxRecordBytes, so a record at the limit can still take deleted_at:
+  # 1 KiB.
+  mergedRoomBytes: 1024
+  # Where a device stops filling a request: 4 MiB. A batch can pass it by one record.
+  clientBatchBytes: 4194304
+  # The largest request the API reads: 5 MiB. It holds a full batch, one more record and its merged room, and stays
+  # under the 6 MB Lambda takes, so the API answers a bigger request itself.
+  maxBodyBytes: 5242880
+  # How far ahead of the server's time a clock may be, so a device with a bad clock can't win every future conflict.
+  maxClockAheadHours: 24

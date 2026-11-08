@@ -152,7 +152,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 		return out
 	}
 
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, sync.MaxBodyBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(sync.MaxBodyBytes)))
 	if err != nil {
 		return fail(sync.RejectedBodyTooLarge)
 	}

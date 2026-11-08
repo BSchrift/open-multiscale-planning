@@ -49,6 +49,25 @@ describe('test-target', () => {
     ]);
   });
 
+  it("signs the history-scale test in as the YAML's history user, with its own password from SSM", () => {
+    const yaml = staging.replace('  capabilities:', '  historyUser: history-test@example.com\n  capabilities:');
+    const { run, awsCalls } = setup({ 'staging.yaml': yaml, 'staging.outputs.json': JSON.stringify(outputs) });
+    const result = run({ ENV: 'staging', MULTISCALE_TEST_USER: 'history' });
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout).test_user).toEqual({ username: 'history-test@example.com', password: 'test-password' });
+    expect(awsCalls()).toEqual([
+      'multiscale-staging us-west-2 ssm get-parameter --name /multiscale/staging/history-user-password --with-decryption --query Parameter.Value --output text',
+    ]);
+  });
+
+  it('names the missing history user and how to set it up', () => {
+    const { run, awsCalls } = setup({ 'staging.yaml': staging, 'staging.outputs.json': JSON.stringify(outputs) });
+    const result = run({ ENV: 'staging', MULTISCALE_TEST_USER: 'history' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('staging.yaml: integration.historyUser is missing. See docs/setup.md.');
+    expect(awsCalls()).toEqual([]);
+  });
+
   it('targets the local stack with its built-in client and no AWS', () => {
     const { run, awsCalls } = setup({});
     const result = run({ ENV: 'local', LOCAL_API_URL: 'http://127.0.0.1:55001' });

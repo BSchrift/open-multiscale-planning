@@ -14,4 +14,6 @@ dns:
   zone: staging.example.com # optional; a subdomain of control.yaml's domain
 integration:
   testUser: integration-test@example.com # its password lives in SSM at /multiscale/staging/test-user-password
+  # For make test-history ENV=staging, a user of its own; its password lives in SSM at /multiscale/staging/history-user-password.
+  # historyUser: history-test@example.com
   capabilities: [googleClient]

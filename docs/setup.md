@@ -102,6 +102,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `auth.signInCallbackUrls` | Leave as they are. iPhone returns to `multiscale://`, and a desktop install to `multiscale://` on prod and `multiscale-staging://` on staging. |
    | `dns.zone` | This environment's zone under your domain, such as `staging.example.com` and `app.example.com`. Without a domain, delete the `dns` section. |
    | `integration.testUser` | The email of a dedicated test user, created in step 8. No email is ever sent to it. |
+   | `integration.historyUser` | Optional, staging only: the email of the history-scale test's own user, created in step 8. Only `make test-history ENV=staging` reads it. |
    | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
 
@@ -194,6 +195,19 @@ unset TEST_PASSWORD
 
 With `secondUser` in `integration.capabilities`, make the user in `integration.secondTestUser` the same way, and store its password as `/multiscale/staging/second-test-user-password`. To change a stored password later, add `--overwrite`.
 
+For `make test-history ENV=staging`, make one more user. The history-scale test seeds a made-up five-year account into it, about 40,000 records that stay there, so it has a user of its own rather than sharing the test user. Put its email in `integration.historyUser` in `staging.yaml`, then:
+
+```sh
+# The history user: integration.historyUser in staging.yaml.
+HISTORY_EMAIL=history-test@example.com
+aws cognito-idp admin-create-user --user-pool-id "$POOL" --username "$HISTORY_EMAIL" \
+  --user-attributes Name=email,Value="$HISTORY_EMAIL" Name=email_verified,Value=true --message-action SUPPRESS
+HISTORY_PASSWORD=$(openssl rand -hex 16)Aa1-
+aws cognito-idp admin-set-user-password --user-pool-id "$POOL" --username "$HISTORY_EMAIL" --password "$HISTORY_PASSWORD" --permanent
+aws ssm put-parameter --type SecureString --name /multiscale/staging/history-user-password --value "$HISTORY_PASSWORD"
+unset HISTORY_PASSWORD
+```
+
 Passwords need 8 characters with upper case, lower case, a digit and a symbol.
 
 ## 9. Create the Google OAuth client
@@ -280,6 +294,22 @@ make test-ios ENV=staging
 ```
 
 This runs only the signed-in test: the app signs in from Settings as the test user, captures an item, then deletes it, and the test checks both reached staging by signing in with the test client. Against prod it also needs `CONFIRM_PROD=yes`. With the default `ENV=local`, `make test-ios` starts its own local stack for that test, or lists it as skipped where Docker isn't running.
+
+### The history-scale test
+
+`make test-history` measures how the apps hold up on a large account, against the budgets in [performance.md](performance.md): a made-up five years of one heavy user's weeks, about 40,000 records, a fifth of them deleted. It seeds them through the sync API, then signs in as a new browser, a new Mac install and a new iPhone, and times each one's first sync to a usable app, Today and Week, and on the web an edit's save. It's slow, so it runs on demand and before releases, not on every PR.
+
+```sh
+make test-history                          # a local stack it starts, seeded each run
+make test-history ENV=staging              # integration.historyUser, from step 8
+HISTORY_REPORT_ONLY=1 make test-history    # every number against its budget, without failing on a missed one
+```
+
+It fails when a budget is missed, and prints each number beside its budget either way. A part that fails measures nothing, which fails even with `HISTORY_REPORT_ONLY=1`. `SKIP_IOS=1` leaves out the iPhone, much the slowest part.
+
+On staging it signs in through the hosted sign-in page as the history user: the browser at `http://localhost:5199`, so it needs the `http://localhost:5199/auth/callback` callback the browser tests above need, and the Mac app at `multiscale-staging://auth/callback` and the iPhone at `multiscale://auth/callback`, which the example config already has. The first run seeds the account, paced to 500 write units a second, half of what one user's partition takes, so the table's throttling alarm stays quiet; `HISTORY_WRITE_UNITS` changes the pace. Every record has a fixed id and clock, so later runs write nothing, though they still send every batch. When the made-up records change, `HISTORY.version` in `frontend/src/core/history-testing.ts` goes up, so a reseed's clocks win; records the new version no longer makes stay behind, and a fresh history user starts clean.
+
+`make test-deployed` runs it on staging, and `SKIP_HISTORY=1` leaves it out. A release checks staging the same way, so while a budget is missed `make release` fails there too, unless it runs with `HISTORY_REPORT_ONLY=1` or `SKIP_HISTORY=1`.
 
 ## 12. Deploy prod
 
@@ -403,6 +433,7 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | Every suite against a deployment | `make test-deployed`, `make test-deployed ENV=prod CONFIRM_PROD=yes` |
 | Unit and integration suites, no AWS | `make test` |
 | App and iPhone tests, no AWS | `make test-e2e`, `make test-ios` |
+| A five-year account timed against its budgets | `make test-history`, `make test-history ENV=staging` |
 | This checkout's web bundle beside prod's, on one device and syncing | `make test-compat`, `make test-compat ENV=staging` |
 | Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
 

@@ -353,3 +353,26 @@ func TestWithoutExpiryNothingIsLeftOut(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestAPullThatReachesTheEndMovesPastARemovedRecord(t *testing.T) {
+	s, _, now, client := expiringStore(t)
+	c := fresh(*now, "a")
+	mustSync(t, s, "abc", 0, task("keep", title("Paint the fence", c)), task("gone", title("Oil the hinges", c)))
+	// What TTL and the Streams consumer do.
+	if _, err := client.DeleteItem(context.Background(), &dynamodb.DeleteItemInput{TableName: aws.String(s.Table), Key: map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "user#abc"}, "sk": &types.AttributeValueMemberS{Value: "rec#task#gone"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := msync.RaiseMark(context.Background(), client, s.Table, "user#abc", 2, *now); err != nil {
+		t.Fatal(err)
+	}
+	// Otherwise its cursor would stay at 1, below the mark, and every sync after would be a reset.
+	res := mustSync(t, s, "abc", 0)
+	if res.Cursor != 2 || len(res.Changes) != 1 {
+		t.Fatalf("%+v", res)
+	}
+	if res := device(t, s, "abc", res.Cursor, task("keep", title("Paint the gate", fresh(*now, "b")))); res.Reset != "" {
+		t.Fatalf("%+v", res)
+	}
+}

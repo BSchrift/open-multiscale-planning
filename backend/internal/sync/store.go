@@ -684,6 +684,11 @@ func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Re
 		}
 		res.Changes = append(res.Changes, Change{Type: recordType, ID: id, Fields: fields})
 	}
+	// The last page has read everything up to the counter. A record removed as expired leaves a gap that can sit above
+	// the last one read, and a cursor left below it would be behind the mark for good.
+	if !res.More {
+		res.Cursor = counter
+	}
 	return res, skipped, nil
 }
 

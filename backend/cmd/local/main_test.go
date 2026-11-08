@@ -126,6 +126,13 @@ func pushBody(id, title string, ms int64) string {
 	return fmt.Sprintf(`{"cursor":0,"changes":[{"type":"task","id":%q,"fields":{"title":{"v":%q,"c":"%013d-000000-a"}}}]}`, id, title, ms)
 }
 
+// The settings are local's, as a Lambda's are its ENV_NAME's, so a name with no settings stops it before anything else.
+func TestBuildRefusesAnEnvironmentWithNoSettings(t *testing.T) {
+	if _, err := build(config{Env: "dev"}, io.Discard); err == nil || !strings.Contains(err.Error(), `no environment "dev"`) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestSyncThroughTokens(t *testing.T) {
 	s := startStack(t)
 	token := s.signIn(t, "one")["access_token"].(string)

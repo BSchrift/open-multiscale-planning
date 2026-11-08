@@ -5,15 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-lambda-go/lambdacontext"
 	"github.com/aws/aws-sdk-go-v2/config"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/gcal"
+	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 func main() {
+	// A wrong ENV_NAME stops the worker as it starts, not at the first run that needs its settings.
+	if _, err := appconfig.ForEnv(os.Getenv("ENV_NAME")); err != nil {
+		log.Fatal(err)
+	}
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		log.Fatal(err)

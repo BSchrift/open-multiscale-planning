@@ -1,5 +1,5 @@
-// Generated from protocol.yaml by go generate in config/, after Go checked it. Edit that, not this: see
-// docs/config.md.
+// Generated from protocol.yaml and env/*.yaml by go generate in config/, after Go checked them. Edit those, not
+// this: see docs/config.md.
 
 export const protocol = {
   "sync": {
@@ -21,3 +21,30 @@ export const protocol = {
     "maxBatchEvents": 200
   }
 } as const;
+
+export const envs = {
+  "local": {
+    "stack": {
+      "terminationProtection": false
+    }
+  },
+  "staging": {
+    "stack": {
+      "terminationProtection": false
+    }
+  },
+  "prod": {
+    "stack": {
+      "terminationProtection": true
+    }
+  },
+} as const;
+
+export type EnvName = keyof typeof envs;
+export type EnvConfig = (typeof envs)[EnvName];
+
+/** An environment's settings, by its name. Throws on any other name, so a build can't go ahead with none. */
+export function forEnv(env: string): EnvConfig {
+  if (!Object.hasOwn(envs, env)) throw new Error(`No environment ${JSON.stringify(env)} in config/env: use local, staging or prod.`);
+  return envs[env as EnvName];
+}

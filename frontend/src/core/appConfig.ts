@@ -2,6 +2,7 @@
 // or the repo's config/: <env>.outputs.json, written by make deploy, and <env>.yaml. The local stack needs nothing
 // secret, so its details are built in.
 
+import type { EnvConfig } from '@multiscale/config';
 import { parse } from 'yaml';
 
 export type AppEnv = 'local' | 'staging' | 'prod';
@@ -22,6 +23,8 @@ export interface AppConfig {
   releaseUrl?: string;
   /** Where the Mac app's disk image is, for an update that needs the app itself replaced. */
   downloadsUrl?: string;
+  /** This environment's settings from config/env, which the build inlines. */
+  settings?: EnvConfig;
 }
 
 /** Reads a file by its full path, or gives null when there is none. */

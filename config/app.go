@@ -1,8 +1,9 @@
 package config
 
-// The app's own settings: protocol.yaml, the limits and formats the server and every app share. Unlike a
-// deployment's YAML, they're public and built in. Go embeds them and checks them as the package loads, so a binary
-// with a bad value stops at start, and go generate copies them to app.gen.ts, so TypeScript never parses them.
+// The app's own settings: protocol.yaml, the limits and formats the server and every app share, and env/<name>.yaml,
+// each environment's settings. Unlike a deployment's YAML, they're public and built in. Go embeds them and checks them
+// as the package loads, so a binary with a bad value stops at start, and go generate copies them to app.gen.ts, so
+// TypeScript never parses them.
 
 import (
 	"bytes"
@@ -12,8 +13,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -21,11 +24,34 @@ import (
 
 //go:generate go run ./cmd/gen
 
-//go:embed protocol.yaml
+//go:embed protocol.yaml env/*.yaml
 var builtIn embed.FS
 
 // Protocol is protocol.yaml.
-var Protocol = mustLoad(builtIn)
+var Protocol, envs = mustLoad(builtIn)
+
+// The environments, each with its own file in env/.
+var envNames = []string{"local", "staging", "prod"}
+
+// EnvConfig is one environment's settings.
+type EnvConfig struct {
+	Stack Stack `yaml:"stack" json:"stack"`
+}
+
+// Stack is how the environment's AWS stack is deployed.
+type Stack struct {
+	TerminationProtection bool `yaml:"terminationProtection" json:"terminationProtection"`
+}
+
+// ForEnv is an environment's settings, by its name. Any other name is an error, so a Lambda given a wrong ENV_NAME
+// stops at start.
+func ForEnv(name string) (EnvConfig, error) {
+	env, ok := envs[name]
+	if !ok {
+		return EnvConfig{}, fmt.Errorf("config: no environment %q: use local, staging or prod", name)
+	}
+	return env, nil
+}
 
 type ProtocolConfig struct {
 	Sync      Sync      `yaml:"sync" json:"sync"`
@@ -90,25 +116,49 @@ func (p ProtocolConfig) check() []string {
 	return problems
 }
 
-func mustLoad(fsys fs.FS) ProtocolConfig {
-	protocol, err := load(fsys)
+func mustLoad(fsys fs.FS) (ProtocolConfig, map[string]EnvConfig) {
+	protocol, envs, err := load(fsys)
 	if err != nil {
 		panic(fmt.Sprintf("config: %v", err))
 	}
-	return protocol
+	return protocol, envs
 }
 
-// load reads and checks every file, and lists every problem it finds.
-func load(fsys fs.FS) (ProtocolConfig, error) {
+// load reads and checks every file, and lists every problem it finds in any of them.
+func load(fsys fs.FS) (ProtocolConfig, map[string]EnvConfig, error) {
+	var problems []error
 	var protocol ProtocolConfig
 	if err := read(fsys, "protocol.yaml", &protocol); err != nil {
-		return protocol, err
+		problems = append(problems, err)
+	} else {
+		for _, problem := range append(positive(reflect.ValueOf(protocol), ""), protocol.check()...) {
+			problems = append(problems, fmt.Errorf("protocol.yaml: %s", problem))
+		}
 	}
-	var problems []error
-	for _, problem := range append(positive(reflect.ValueOf(protocol), ""), protocol.check()...) {
-		problems = append(problems, fmt.Errorf("protocol.yaml: %s", problem))
+	found, _ := fs.Glob(fsys, "env/*.yaml")
+	for _, file := range found {
+		if name := strings.TrimSuffix(path.Base(file), ".yaml"); !slices.Contains(envNames, name) {
+			problems = append(problems, fmt.Errorf("%s is not an environment: they're local, staging and prod", file))
+		}
 	}
-	return protocol, errors.Join(problems...)
+	envs := map[string]EnvConfig{}
+	for _, name := range envNames {
+		file := "env/" + name + ".yaml"
+		var env EnvConfig
+		err := read(fsys, file, &env)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			problems = append(problems, fmt.Errorf("%s is missing: every environment has a complete file", file))
+		case err != nil:
+			problems = append(problems, err)
+		default:
+			for _, problem := range positive(reflect.ValueOf(env), "") {
+				problems = append(problems, fmt.Errorf("%s: %s", file, problem))
+			}
+			envs[name] = env
+		}
+	}
+	return protocol, envs, errors.Join(problems...)
 }
 
 // read decodes one file strictly: an unknown key fails, and so does a missing one, since nothing has a default.
@@ -196,28 +246,50 @@ func positive(v reflect.Value, prefix string) []string {
 	return problems
 }
 
-const header = `// Generated from protocol.yaml by go generate in config/, after Go checked it. Edit that, not this: see
-// docs/config.md.
+const header = `// Generated from protocol.yaml and env/*.yaml by go generate in config/, after Go checked them. Edit those, not
+// this: see docs/config.md.
+`
+
+const forEnv = `
+export type EnvName = keyof typeof envs;
+export type EnvConfig = (typeof envs)[EnvName];
+
+/** An environment's settings, by its name. Throws on any other name, so a build can't go ahead with none. */
+export function forEnv(env: string): EnvConfig {
+  if (!Object.hasOwn(envs, env)) throw new Error(` + "`No environment ${JSON.stringify(env)} in config/env: use local, staging or prod.`" + `);
+  return envs[env as EnvName];
+}
 `
 
 // TypeScript is app.gen.ts, the checked files as constants for the web app, the infrastructure and scripts.
 func TypeScript() ([]byte, error) {
 	var out bytes.Buffer
 	out.WriteString(header)
-	if err := constant(&out, "protocol", Protocol); err != nil {
+	protocol, err := asJSON(Protocol, "")
+	if err != nil {
 		return nil, err
 	}
+	fmt.Fprintf(&out, "\nexport const protocol = %s as const;\n", protocol)
+	out.WriteString("\nexport const envs = {\n")
+	for _, name := range envNames {
+		env, err := asJSON(envs[name], "  ")
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(&out, "  %q: %s,\n", name, env)
+	}
+	out.WriteString("} as const;\n")
+	out.WriteString(forEnv)
 	return out.Bytes(), nil
 }
 
-func constant(out *bytes.Buffer, name string, value any) error {
-	var body bytes.Buffer
-	encoder := json.NewEncoder(&body)
+func asJSON(value any, indent string) ([]byte, error) {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
+	encoder.SetIndent(indent, "  ")
 	if err := encoder.Encode(value); err != nil {
-		return err
+		return nil, err
 	}
-	fmt.Fprintf(out, "\nexport const %s = %s as const;\n", name, bytes.TrimSuffix(body.Bytes(), []byte("\n")))
-	return nil
+	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
 }

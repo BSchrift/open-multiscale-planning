@@ -12,7 +12,7 @@ import (
 func files(t *testing.T, edits ...string) fstest.MapFS {
 	t.Helper()
 	out := fstest.MapFS{}
-	paths := []string{"protocol.yaml"}
+	paths := []string{"protocol.yaml", "env/local.yaml", "env/staging.yaml", "env/prod.yaml"}
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -38,7 +38,7 @@ func files(t *testing.T, edits ...string) fstest.MapFS {
 
 func loadProblems(t *testing.T, fsys fstest.MapFS) string {
 	t.Helper()
-	_, err := load(fsys)
+	_, _, err := load(fsys)
 	if err == nil {
 		t.Fatal("loaded")
 	}
@@ -46,11 +46,49 @@ func loadProblems(t *testing.T, fsys fstest.MapFS) string {
 }
 
 func TestBuiltInFilesLoad(t *testing.T) {
-	if _, err := load(files(t)); err != nil {
+	if _, _, err := load(files(t)); err != nil {
 		t.Fatal(err)
 	}
 	if Protocol.Sync.MaxChanges == 0 {
 		t.Fatal("Protocol is empty")
+	}
+}
+
+func TestForEnv(t *testing.T) {
+	prod, err := ForEnv("prod")
+	if err != nil || !prod.Stack.TerminationProtection {
+		t.Fatalf("prod: %+v, %v", prod, err)
+	}
+	for _, name := range []string{"", "dev", "Prod"} {
+		if _, err := ForEnv(name); err == nil || !strings.Contains(err.Error(), "use local, staging or prod") {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+func TestEveryEnvironmentHasACompleteFile(t *testing.T) {
+	missing := files(t)
+	delete(missing, "env/staging.yaml")
+	if problems := loadProblems(t, missing); !strings.Contains(problems, "env/staging.yaml is missing") {
+		t.Errorf("a missing file: %s", problems)
+	}
+	extra := files(t)
+	extra["env/dev.yaml"] = extra["env/local.yaml"]
+	if problems := loadProblems(t, extra); !strings.Contains(problems, "env/dev.yaml is not an environment") {
+		t.Errorf("an extra file: %s", problems)
+	}
+	// Nothing is inherited, so a key one file leaves out is an error, not a default.
+	if problems := loadProblems(t, files(t, "  terminationProtection: true\n", "")); !strings.Contains(problems, "env/prod.yaml is missing stack.terminationProtection") {
+		t.Errorf("a missing key: %s", problems)
+	}
+	if problems := loadProblems(t, files(t, "stack:\n", "stack:\n  removalPolicy: retain\n")); !strings.Contains(problems, "field removalPolicy not found") {
+		t.Errorf("an unknown key: %s", problems)
+	}
+	both := files(t)
+	delete(both, "env/prod.yaml")
+	both["protocol.yaml"].Data = bytes.Replace(both["protocol.yaml"].Data, []byte("maxChanges: 99"), []byte("maxChanges: 0"), 1)
+	if problems := loadProblems(t, both); !strings.Contains(problems, "env/prod.yaml is missing") || !strings.Contains(problems, "sync.maxChanges must be positive") {
+		t.Errorf("every file's problems at once: %s", problems)
 	}
 }
 

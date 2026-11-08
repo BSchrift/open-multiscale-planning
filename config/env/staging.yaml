@@ -1,0 +1,10 @@
+# Settings for staging, complete: no file in env/ inherits from another, and all three have the same keys. They're
+# public and the same for every deployment. What only one deployment has, such as its account or domain, stays in
+# the private config folder, and secrets stay in SSM. See docs/config.md.
+#
+# Retention, when it's set here, never lets the server purge what an older app could still push back. To shorten it,
+# shorten it over two releases, the server's last.
+
+stack:
+  # Whether CloudFormation refuses to delete the stack.
+  terminationProtection: false

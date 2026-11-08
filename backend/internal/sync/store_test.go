@@ -507,17 +507,19 @@ func TestARealCounterMoveIsCaughtAndRemerged(t *testing.T) {
 }
 
 // throttledDB cancels the next Remaining transactions as DynamoDB does when one partition passes its write rate, or
-// fails them with Err when it's set.
+// fails them with Err when it's set. Each takes Delay first, as the SDK's own retries do.
 type throttledDB struct {
 	msync.DB
 	Remaining atomic.Int64
 	Err       error
+	Delay     time.Duration
 }
 
 func (d *throttledDB) TransactWriteItems(ctx context.Context, in *dynamodb.TransactWriteItemsInput, opts ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
 	if d.Remaining.Add(-1) < 0 {
 		return d.DB.TransactWriteItems(ctx, in, opts...)
 	}
+	time.Sleep(d.Delay)
 	if d.Err != nil {
 		return nil, d.Err
 	}
@@ -568,6 +570,21 @@ func TestEveryFormOfThrottleWaitsAndLands(t *testing.T) {
 				t.Fatalf("err %v, stats %+v", err, stats)
 			}
 		})
+	}
+}
+
+// A throttle the SDK already retried has spent its own backoff, a few seconds, before the store waits at all, so the
+// count of waits alone could keep a push going past the API's timeout. A time budget ends it as a resend first.
+func TestThrottleWaitsStopAtATimeBudget(t *testing.T) {
+	defer msync.SetThrottleWait(time.Millisecond)()
+	defer msync.SetThrottleBudget(150 * time.Millisecond)()
+	s, client := newStore(t)
+	db := &throttledDB{DB: client, Err: sdkGaveUp(&types.ThrottlingException{}), Delay: 100 * time.Millisecond}
+	db.Remaining.Store(1000)
+	s.DB = db
+	_, err := s.Push(context.Background(), "abc", 0, []msync.Change{task("r1", title("x", clock(1, "a")))})
+	if tries := 1000 - db.Remaining.Load(); !errors.Is(err, msync.ErrConflict) || tries > 3 {
+		t.Fatalf("err %v after %d tries", err, tries)
 	}
 }
 

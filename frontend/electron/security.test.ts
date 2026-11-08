@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isSqlValues, isWebUrl } from './security';
+import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isOwnDbSql, isSqlValues, isWebUrl } from './security';
 
 describe('appFilePath', () => {
   it('maps paths inside the root, with / as the page', () => {
@@ -42,6 +42,29 @@ describe('cleanCapture', () => {
 
   it('rejects what is not a usable title', () => {
     for (const bad of ['', '   ', 42, null, undefined, {}, 'x'.repeat(2001)]) expect(cleanCapture(bad)).toBeNull();
+  });
+});
+
+describe('isOwnDbSql', () => {
+  it('lets through the SQL the app runs', () => {
+    expect(isOwnDbSql('SELECT * FROM records WHERE kind = ?')).toBe(true);
+    expect(isOwnDbSql('BEGIN IMMEDIATE')).toBe(true);
+    expect(isOwnDbSql("UPDATE records SET body = json_set(body, '$.attachments', ?)")).toBe(true);
+  });
+
+  it('refuses SQL that reaches another file, however it is written', () => {
+    for (const bad of [
+      "ATTACH DATABASE '/Users/someone/other.sqlite' AS other",
+      "attach '/tmp/x' as x",
+      'SELECT 1; DETACH other',
+      "VACUUM INTO '/tmp/copy.sqlite'",
+      "vacuum main into '/tmp/copy.sqlite'",
+      "VACUUM/**/INTO '/tmp/copy.sqlite'",
+      42,
+      null,
+    ]) {
+      expect(isOwnDbSql(bad)).toBe(false);
+    }
   });
 });
 

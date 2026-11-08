@@ -39,6 +39,12 @@ export function cleanCapture(text: unknown): string | null {
   return title && title.length <= MAX_CAPTURE_LENGTH ? title : null;
 }
 
+/** Only SQL on the app's own database: ATTACH and VACUUM INTO would let the page read or write any file the user can. */
+export function isOwnDbSql(sql: unknown): sql is string {
+  // All of VACUUM, since the schema name and comments can sit between it and INTO. The app never runs any of these.
+  return typeof sql === 'string' && !/\b(attach|detach|vacuum)\b/i.test(sql);
+}
+
 export function isSqlValues(values: unknown): values is SqlValue[] {
   return Array.isArray(values) && values.every((v) => v === null || typeof v === 'string' || typeof v === 'number');
 }

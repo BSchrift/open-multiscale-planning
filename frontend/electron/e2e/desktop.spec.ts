@@ -66,6 +66,9 @@ test('launches to first-run setup with the page isolated from Node', async () =>
   expect(new URL(page.url()).protocol).toBe('multiscale-app:');
   const csp = await page.evaluate(() => fetch(location.href).then((r) => r.headers.get('content-security-policy')));
   expect(csp).toContain("script-src 'self'");
+  // Its SQL reaches only the app's own database, not another file.
+  const attach = page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.exec("ATTACH DATABASE ':memory:' AS other"));
+  await expect(attach).rejects.toThrow(/Bad SQL call/);
   expect(errors).toEqual([]);
 });
 

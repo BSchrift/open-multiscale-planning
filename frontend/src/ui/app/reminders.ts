@@ -62,62 +62,30 @@ export function useSnoozes(): Readonly<Record<string, Instant>> {
   }, readSnoozes);
 }
 
-// What each reminder id was last scheduled for. A notification is scheduled from this device's copy of the plan, which
-// another device can change before it's answered, and this tells whether it still holds. Kept on this device across
-// restarts, since tapping a notification can launch the app; one that isn't kept opens Today rather than acting.
-const SCHEDULED_KEY = 'multiscale.scheduledReminders';
-interface Scheduled {
-  kind: Reminder['kind'];
-  start: Instant;
-  end: Instant;
-  /** The block's task or practice, which Do next block instead trades with another block's. */
-  work: string | null;
+// A notification is scheduled from this device's copy of the plan, and once delivered it stays showing whatever is
+// scheduled after it, while syncs and edits change its block. Native code hands back only the id of the one answered,
+// so the id carries the block as it was scheduled: the reminder's kind, and the block's times and work. Record ids never
+// hold a space, so spaces set these apart. A block moved, lengthened or given other work gets new ids, and its old
+// pending notifications still go, since every platform's replaceAll replaces its whole list.
+const workOf = (block: { task_id?: string | null; practice_id?: string | null }) => block.task_id ?? block.practice_id ?? '';
+const withBlock = (reminder: Reminder, block: BlockRow): Reminder => ({
+  ...reminder,
+  id: [reminder.id, reminder.kind, block.start, block.end, workOf(block)].join(' '),
+});
+
+/**
+ * Whether the block has changed since the notification with this id was scheduled: moved, lengthened or given other
+ * work, or for a start or check-in, started. One scheduled before ids carried the block can't tell, so it has.
+ */
+function changedSince(reminderId: string, block: TimeBlock): boolean {
+  const [, kind, start, end, work] = reminderId.split(' ');
+  if (work === undefined) return true;
+  return start !== block.start || end !== block.end || work !== workOf(block) || (kind !== 'block_end' && !!block.started_at);
 }
-let scheduledCache: { raw: string; value: Readonly<Record<string, Scheduled>> } = { raw: '{}', value: {} };
-
-const workOf = (block: Pick<TimeBlock, 'task_id' | 'practice_id'>) => block.task_id ?? block.practice_id ?? null;
-
-// As readSnoozes.
-function readScheduled(): Readonly<Record<string, Scheduled>> {
-  let raw = '{}';
-  try {
-    raw = localStorage.getItem(SCHEDULED_KEY) ?? '{}';
-  } catch {
-    // Storage can be blocked; what this session scheduled holds then.
-  }
-  if (raw !== scheduledCache.raw) {
-    try {
-      scheduledCache = { raw, value: JSON.parse(raw) as Record<string, Scheduled> };
-    } catch {
-      scheduledCache = { raw, value: {} };
-    }
-  }
-  return scheduledCache.value;
-}
-
-/** Adds a list just scheduled. Earlier ones stay, as their notifications can still be answered, until a day after. */
-function keepScheduled(list: readonly Reminder[], blocks: readonly BlockRow[], clock: Clock): void {
-  const byId = new Map(blocks.map((b) => [b.id, b]));
-  const cutoff = clock.now() - 86_400_000;
-  const kept = Object.entries(readScheduled()).filter(([, s]) => instantMs(s.end) > cutoff);
-  const added = list.map((r) => {
-    const b = byId.get(r.block_id)!;
-    return [r.id, { kind: r.kind, start: b.start, end: b.end, work: workOf(b) }] as const;
-  });
-  const value = Object.fromEntries([...kept, ...added]);
-  try {
-    localStorage.setItem(SCHEDULED_KEY, JSON.stringify(value));
-  } catch {
-    // It still holds for this session through the cache.
-    scheduledCache = { raw: scheduledCache.raw, value };
-  }
-}
-
-/** Moved, lengthened or given other work since, or a start or check-in for a block now started. */
-const changedSince = (was: Scheduled, block: TimeBlock) =>
-  was.start !== block.start || was.end !== block.end || was.work !== workOf(block) || (was.kind !== 'block_end' && !!block.started_at);
 
 const STALE = 'stale';
+/** How long an answer waits for a sync, which a weak network can stretch past the time iOS gives a background action. */
+const SYNC_WAIT_MS = 2000;
 
 // A notification's Partly needs the app to ask for the time left, so it asks Today to open that block's prompt.
 let promptRequest: string | null = null;
@@ -160,8 +128,8 @@ export function useReminders(): void {
   const asked = useRef(false);
   useEffect(() => {
     if (!data) return;
-    const list = remindersToSchedule(data.blocks, data.settings, data.away, clock, snoozed);
-    keepScheduled(list, data.blocks, clock);
+    const blocks = new Map(data.blocks.map((b) => [b.id, b]));
+    const list = remindersToSchedule(data.blocks, data.settings, data.away, clock, snoozed).map((r) => withBlock(r, blocks.get(r.block_id)!));
     chain.current = chain.current
       .then(async () => {
         // Asked once there's something to remind about, rather than at first launch with an empty plan.
@@ -174,9 +142,10 @@ export function useReminders(): void {
       .catch((error: unknown) => console.error('Scheduling reminders failed', error));
   }, [data, snoozed, platform, clock]);
 
-  const answer = useMutation(async (w, { block_id: id, action_id: action }: ReminderResponse, was: Scheduled | undefined) => {
+  // tap is the clock as of the answer, which a sync came between.
+  const answer = useMutation(async (w, { reminder_id, block_id: id, action_id: action }: ReminderResponse, tap: Clock) => {
     const block = await getRecord(w.sql, 'time_block', id);
-    if (!block || block.cancelled || block.deleted_at || !was || changedSince(was, block)) return STALE;
+    if (!block || block.cancelled || block.deleted_at || changedSince(reminder_id, block)) return STALE;
     // A delivered notification stays in Notification Center after the block is answered elsewhere, so it's stale.
     const outcome = await getRecord(w.sql, 'block_outcome', outcomeId(id));
     if (outcome && !outcome.deleted_at) return STALE;
@@ -184,20 +153,22 @@ export function useReminders(): void {
     switch (action) {
       case A.start:
       case A.started:
-        return startBlock(w, id, clock);
+        return startBlock(w, id, tap);
       case A.notDone:
-        return answerBlock(w, id, { result: 'not' }, clock);
+        return answerBlock(w, id, { result: 'not' }, tap);
       case A.skip:
         // Before it's over, Skip takes it off the calendar into To schedule; a practice's Skip at its end logs nothing.
-        if (instantMs(block.end) > clock.now()) return unscheduleBlock(w, id, weekStart(localDate(block.start, clock.zone())), clock);
-        return answerBlock(w, id, block.practice_id ? { result: 'not', logged_min: 0 } : { result: 'not' }, clock);
+        if (instantMs(block.end) > tap.now()) return unscheduleBlock(w, id, weekStart(localDate(block.start, tap.zone())), tap);
+        return answerBlock(w, id, block.practice_id ? { result: 'not', logged_min: 0 } : { result: 'not' }, tap);
       case A.logAll:
-        return answerBlock(w, id, { result: 'done', logged_min: blockMinutes(block) }, clock);
+        // Only a practice's notification offers it, and on a block holding a task it would finish the task.
+        if (!block.practice_id) return STALE;
+        return answerBlock(w, id, { result: 'done', logged_min: blockMinutes(block) }, tap);
       case A.stillGoing:
         return extendBlock(w, id, STILL_GOING_MIN);
       case A.nextBlock: {
-        const blocks = await blocksInRange(w.sql, dayRange(today(clock), clock.zone()));
-        const next = nextBlock(blocks.filter((b) => b.id !== id), clock);
+        const blocks = await blocksInRange(w.sql, dayRange(today(tap), tap.zone()));
+        const next = nextBlock(blocks.filter((b) => b.id !== id), tap);
         return next ? swapBlocks(w, id, next.id) : undefined;
       }
     }
@@ -212,11 +183,12 @@ export function useReminders(): void {
       if (response.action_id === REMINDER_ACTION.partly) requestPrompt(response.block_id);
       return;
     }
-    // Read before the sync, which can schedule this id again for the block as it now is.
-    const was = readScheduled()[response.reminder_id];
-    await sync?.syncNow();
+    const at = clock.now();
+    const tap: Clock = { now: () => at, zone: clock.zone };
+    // What other devices changed, if it comes quickly.
+    await Promise.race([sync?.syncNow(), new Promise((resolve) => setTimeout(resolve, SYNC_WAIT_MS))]);
     // Rather than act on a block that's no longer what the notification said, show the day as it is.
-    if ((await answer.run(response, was)) === STALE) nav.go('today');
+    if ((await answer.run(response, tap)) === STALE) nav.go('today');
   };
   const latest = useRef(respond);
   latest.current = respond;

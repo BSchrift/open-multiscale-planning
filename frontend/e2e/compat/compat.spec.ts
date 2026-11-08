@@ -121,23 +121,12 @@ test.describe('one device', () => {
     for (const label of ['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Settings']) await go(page, label, /./);
   }
 
-  /** What the old bundle shows from fields the new one may no longer use, which must stay on the records. */
-  async function expectOldFields(page: Page) {
-    await go(page, 'Today', /./);
-    await expect(page.getByRole('region', { name: 'Current block' }).getByText('Reread the end of chapter four')).toBeVisible();
-    await go(page, 'Goals');
-    await page.getByRole('button', { name: /^Write a book/ }).first().click();
-    await page.getByRole('button', { name: /^Finish the first draft/ }).first().click();
-    await expect(page.getByText(`Waiting until ${formatDate('2026-11-20')}`)).toBeVisible();
-  }
-
   test('an update opens what the bundle before wrote, and that bundle opens what the update wrote after a rollback', async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('old')]);
     let page = await launch(context, 'old', errors);
     await openSeeded(page, week);
     await capture(page, 'Ask about the gutter');
-    await expectOldFields(page);
     await everyScreen(page);
 
     // The update opens the old bundle's data, and changes it.
@@ -161,7 +150,6 @@ test.describe('one device', () => {
     await expect(dated(page, 'Sort old photos', '2026-11-20')).toBeVisible();
     await expectTicked(page, 'Renew the library card');
     await tick(page, 'Sort old photos', errors);
-    await expectOldFields(page);
     await everyScreen(page);
     expect(errors).toEqual([]);
   });

@@ -380,6 +380,53 @@ describe('Planning ahead', () => {
       expect(within(oneOffs).getByRole('button', { name: 'No date yet (1)' })).toBeVisible();
     });
 
+    it("changes a one off's date in place, refusing an end before its start, with Undo", async () => {
+      const { t } = await flow(layout, 2);
+      const oneOffs = await screen.findByRole('region', { name: 'One offs in this plan' });
+      const date = within(oneOffs).getByRole('button', { name: 'Change date for Clean the windows, Jan 10' });
+      await userEvent.click(date);
+      expect(screen.getByLabelText('Date')).toHaveValue('2027-01-10');
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('form', { name: 'Dates for Clean the windows' })).toBeNull();
+      await waitFor(() => expect(date).toHaveFocus());
+
+      await userEvent.click(date);
+      const form = screen.getByRole('form', { name: 'Dates for Clean the windows' });
+      fireEvent.change(within(form).getByLabelText('Date'), { target: { value: '2027-01-12' } });
+      await userEvent.click(within(form).getByRole('button', { name: '+ End date' }));
+      fireEvent.change(within(form).getByLabelText('End date'), { target: { value: '2027-01-11' } });
+      await userEvent.click(within(form).getByRole('button', { name: 'Set date' }));
+      expect(within(form).getByRole('alert')).toHaveTextContent('The end date is before the start date.');
+      fireEvent.change(within(form).getByLabelText('End date'), { target: { value: '2027-01-14' } });
+      await userEvent.click(within(form).getByRole('button', { name: 'Set date' }));
+      expect(await screen.findByText('Clean the windows, Jan 12 to Jan 14.', { selector: ':not(.sr)' })).toBeVisible();
+      expect((await record(t, 'task', 'o1'))?.schedule).toEqual({ type: 'once', from: '2027-01-12', to: '2027-01-14' });
+      await userEvent.click(screen.getByRole('button', { name: 'Undo: Clean the windows, Jan 12 to Jan 14.' }));
+      await waitFor(async () => expect((await record(t, 'task', 'o1'))?.schedule).toMatchObject({ type: 'once', from: '2027-01-10' }));
+    });
+
+    it('a one off given its first date leaves focus on the next with no date, then on the One offs heading', async () => {
+      await flow(layout, 2, {
+        seed: async (w) => {
+          await seed(w);
+          await w.create('task', { kind: 'one_off', title: 'Tidy the shed', schedule: { type: 'once' } }, 'o3');
+        },
+      });
+      const oneOffs = await screen.findByRole('region', { name: 'One offs in this plan' });
+      await userEvent.click(within(oneOffs).getByRole('button', { name: 'No date yet (2)' }));
+      const date = async (title: string, day: string) => {
+        await userEvent.click(within(oneOffs).getByRole('button', { name: `Add date for ${title}` }));
+        fireEvent.change(screen.getByLabelText('Date'), { target: { value: day } });
+        await userEvent.click(screen.getByRole('button', { name: 'Set date' }));
+        await waitFor(() => expect(within(oneOffs).queryByRole('button', { name: `Add date for ${title}` })).toBeNull());
+      };
+      // The row that had focus goes each time: focus moves to the next with no date, then, with none left, to the list.
+      await date('Fix the gate', '2027-02-01');
+      await waitFor(() => expect(within(oneOffs).getByRole('button', { name: 'Add date for Tidy the shed' })).toHaveFocus());
+      await date('Tidy the shed', '2027-02-02');
+      await waitFor(() => expect(within(oneOffs).getByRole('heading', { name: 'One offs' })).toHaveFocus());
+    });
+
     it('adds and takes out milestones by name, each with Undo, newest first', async () => {
       const { t } = await flow(layout, 2);
       await userEvent.click(await screen.findByRole('button', { name: 'Add milestone Share a loaf to this plan' }));

@@ -7,9 +7,10 @@ import { formatTimeOfDay } from '../../../core/dates';
 import { dropSlot, DRAWN_DAY } from '../../../core/slots';
 import type { Slot, SlotContext } from '../../../core/slots';
 
-/** On touch, a card lifts once held this long without moving, so a swipe still scrolls. As holding a block on Today. */
+/** On touch, a card lifts once held this long without moving, so a swipe still scrolls. Every hold to drag uses it. */
 export const HOLD_MS = 400;
-const SLOP_PX = 8;
+/** How far a finger can drift during a hold before it counts as a swipe instead. */
+export const SLOP_PX = 8;
 /** Near the top or bottom of the screen, where the strip and tab bar sit, a dragged card scrolls the page. */
 const EDGE_PX = 120;
 const SCROLL_PX = 12;

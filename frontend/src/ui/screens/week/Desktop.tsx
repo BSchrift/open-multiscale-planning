@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, otherOffers, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import { onceWhen } from '../../../core/schedule';
@@ -12,17 +13,16 @@ import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
 import { PlanPrompt } from '../../components/PlanPrompt';
-import { dragCard, WeekGrid } from '../../components/weekgrid';
+import { TimeUse } from '../../components/week/TimeUse';
+import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
-import { dayName, range, rowItem } from './data';
+import { rowItem } from './data';
 import type { AddRow, LaneItem } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
-
-const MAX_DRAFT_MIN = 120;
 
 export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
@@ -53,7 +53,7 @@ export function DesktopWeek(props: WeekProps) {
   // A new pick starts at its best time, which never overlaps an event or another block.
   useEffect(() => {
     if (!cur) setDraft(null);
-    else setDraft((d) => d ?? defaultSlot(Math.min(cur.left, MAX_DRAFT_MIN), cur.work, model.ctx));
+    else setDraft((d) => d ?? defaultSlot(Math.min(cur.left, FIRST_BLOCK_MIN), cur.work, model.ctx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur?.task.id]);
 
@@ -117,13 +117,6 @@ export function DesktopWeek(props: WeekProps) {
   const opened = openBlock ? data.blocks.find((b) => b.id === openBlock) : undefined;
   const lastMoved = moved ? model.blocks.find((b) => b.id === moved) : undefined;
   const anyDay = model.unscheduled.filter((x) => !x.dates);
-  const segs = [
-    { label: 'Projects', cls: 'seg-project', min: model.planned.project },
-    { label: 'Practices', cls: 'seg-practice', min: model.planned.practice },
-    { label: 'One offs', cls: 'seg-maint', min: model.planned.one_off },
-  ];
-  const scale = Math.max(1, model.open, model.planned.total);
-  const free = formatMinutes(model.free);
 
   return (
     <div className="wide stack24 week">
@@ -164,46 +157,7 @@ export function DesktopWeek(props: WeekProps) {
       {props.gated && <PlanPrompt week={data.week} />}
       {offset < 0 && <p className="small quiet">Past weeks can be viewed but not changed.</p>}
 
-      {!editing && (
-        <section className="card stack" aria-label="How this week's time is used">
-          <div className="stack8">
-            <div>
-              <span className="capnum">{free} free</span>
-              <span className="quiet"> of {formatMinutes(model.open)} available</span>
-            </div>
-            <div
-              className="capbar"
-              role="img"
-              aria-label={`${formatMinutes(model.planned.project)} projects, ${formatMinutes(model.planned.practice)} practices, ${formatMinutes(model.planned.one_off)} one offs, ${free} free`}
-            >
-              {segs.map((g) => (
-                <span key={g.cls} className={g.cls} style={{ width: `${Math.round((g.min / scale) * 100)}%` }} title={`${g.label}: ${formatMinutes(g.min)}`} />
-              ))}
-            </div>
-            <div className="legend">
-              {segs.map((g) => (
-                <span key={g.cls}>
-                  <i className={g.cls} />
-                  {g.label} {formatMinutes(g.min)}
-                </span>
-              ))}
-              <span>
-                <i className="keyfree" />
-                Free {free}
-              </span>
-            </div>
-            <p className="small quiet">Available is the time outside sleep, work and your other blocked times, minus calendar events, so it changes every week.</p>
-          </div>
-          {model.alerts.map((a) => (
-            <div key={a.title} className="warn" role="status">
-              <div>
-                <div className="strong">{a.title}</div>
-                <div>{a.text}</div>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
+      {!editing && <TimeUse open={model.open} planned={model.planned} free={model.free} alerts={model.alerts} />}
 
       <div className="planlay">
         {editing && (
@@ -220,7 +174,7 @@ export function DesktopWeek(props: WeekProps) {
             {lastMoved && !cur && (
               <div className="stack8" role="status" aria-label="Last change">
                 <div className="small strong">
-                  {lastMoved.title}, {dayName(lastMoved.date)}, {range(lastMoved)}
+                  {lastMoved.title}, {dayName(lastMoved.date)}, {slotRange(lastMoved)}
                 </div>
                 {slotNotes(lastMoved, { kind: lastMoved.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).map((n) => (
                   <div key={n} className="small wknote">
@@ -410,7 +364,7 @@ function Placing(props: { row: AddRow; draft: Slot; model: WeekProps['model']; o
     <div className="scheddetail stack8">
       <div className="small quiet">{row.context}</div>
       <div className="strong">
-        {dayName(draft.date)}, {range(draft)} ({formatMinutes(len)})
+        {dayName(draft.date)}, {slotRange(draft)} ({formatMinutes(len)})
       </div>
       {len < row.left && <div className="small">{formatMinutes(row.left - len)} more of this task stays to place</div>}
       {notes.map((n) => (

@@ -1,0 +1,26 @@
+/* The Inbox list. Shared tokens and classes come from the app styles. */
+
+[data-layout] .inboxlines {
+  min-width: 0;
+}
+
+[data-layout] .inboxlines > span {
+  display: block;
+}
+
+/* The items are rows of one card. */
+[data-layout='phone'] .inboxlist > .morerow {
+  padding: 6px var(--space-4);
+}
+
+[data-layout='desktop'] .inboxlist {
+  margin-top: var(--space-2);
+}
+
+[data-layout='desktop'] .inboxlist > .inboxrow {
+  padding: var(--space-2) var(--space-4);
+}
+
+[data-layout] .inboxlist > :first-child {
+  border-top: 0;
+}

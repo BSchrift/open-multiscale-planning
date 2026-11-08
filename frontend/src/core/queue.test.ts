@@ -128,7 +128,7 @@ describe('Still want this?', () => {
     expect(stale([{ ...plan('2026-11-09', '2026-11-08T20:00:00Z'), deleted_at: '2026-11-08T21:00:00Z' }], []).stale).toBe(false);
   });
 
-  it('Keep answers the question and the work stays in the queue', async () => {
+  it('Keep answers the question and the work stays in the queue, and its reverse asks again', async () => {
     const db = await openTestDb();
     await transact(db, clock, async (w) => {
       await w.create('task', { kind: 'project', project_id: 'p1', title: 'Write the report' }, 't1');
@@ -139,9 +139,13 @@ describe('Still want this?', () => {
     const before = queueItems(await needsNewTime(db), plans, [], clock)[0]!;
     expect(before.stale).toBe(true);
 
-    await transact(db, clock, (w) => keepWork(w, before, clock));
+    const reverse = await transact(db, clock, (w) => keepWork(w, before, clock));
     const after = queueItems(await needsNewTime(db), plans, [], clock);
     expect(after).toMatchObject([{ id: 't1', stale: false, minutes: 60 }]);
+
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect(queueItems(await needsNewTime(db), plans, [], clock)).toMatchObject([{ id: 't1', stale: true }]);
+    expect((await getRecord(db, 'block_outcome', outcomeId('b1')))?.answered_at).toBe('2026-11-02T18:00:00Z');
   });
 });
 

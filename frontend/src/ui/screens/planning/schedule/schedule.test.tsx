@@ -319,6 +319,18 @@ describe('Schedule on desktop', () => {
     expect(within(row('Collect the sources')).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
   });
 
+  it("counts what's left to place as Week's To schedule does: a block running into next week counts only its hour in this one", async () => {
+    await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 't2', start: at('2026-11-08', 23), end: at('2026-11-09', 1), tz: ZONE });
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Write chapter one/ }));
+    // 4h picked, less the hour this week: 3h, so a 2h block leaves 1h to place, as Week shows "3h of 4h left".
+    expect(within(row('Write chapter one')).getByText('1h more of this task stays to place')).toBeInTheDocument();
+  });
+
   it('with nothing picked, says so and moves on to Review', async () => {
     await open({ seed: async () => undefined });
     expect(await screen.findByRole('heading', { name: 'Nothing is picked yet' })).toBeInTheDocument();
@@ -343,6 +355,21 @@ describe('Schedule on phone', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
     await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at(WEEK, 14), at(WEEK, 16)]]));
     expect(await screen.findByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeInTheDocument();
+  });
+
+  it('says a day looked at is packed, as on Week', async () => {
+    await phone({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 't2', start: at(WEEK, 14), end: at(WEEK, 21, 30), tz: ZONE });
+      },
+    });
+    const days = within(await screen.findByRole('group', { name: 'Compare days' })).getAllByRole('button');
+    expect(days[0]).toHaveAccessibleName(/^Mon Nov 2, 30m free, packed/);
+    expect(days[0]).toHaveClass('tight');
+    await userEvent.click(days[0]!);
+    expect(await screen.findByText('Mon Nov 2 is packed')).toBeVisible();
+    expect(screen.getByText('30m free of 8h available that day.')).toBeVisible();
   });
 
   it('mid-week, a day gone by shows no free time, as on Week', async () => {

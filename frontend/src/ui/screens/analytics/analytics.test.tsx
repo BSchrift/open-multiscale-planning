@@ -142,9 +142,17 @@ describe('analytics, stretch view', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Stop suggesting them' }));
     expect(await screen.findByText('Tuesday evenings are no longer suggested.')).toBeVisible();
     expect((await getSettings(t.db)).avoided_slots).toEqual([{ day: 1, from: 1020, to: 1440 }]);
+    expect(screen.getByText('Stopped suggesting those times.')).toBeVisible();
+    // The button has gone with its row, so focus goes to Undo rather than the page.
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getSettings(t.db)).avoided_slots).toEqual([]));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop suggesting them' }));
+    expect(await screen.findByText('Tuesday evenings are no longer suggested.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Suggest them again' }));
     await waitFor(async () => expect((await getSettings(t.db)).avoided_slots).toEqual([]));
     expect(await screen.findByRole('button', { name: 'Stop suggesting them' })).toBeVisible();
+    expect(screen.getByText('Suggesting those times again.')).toBeVisible();
   });
 
   it('raises estimates on open tasks, with Undo', async () => {

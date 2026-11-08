@@ -29,6 +29,7 @@ import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
+import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import { ProjectTimeline } from './ProjectTimeline';
 
 type Editing =
@@ -38,8 +39,6 @@ type Editing =
   | { kind: 'addMilestone' };
 
 const LOOSE = 'loose';
-const HOLD_MS = 400;
-const SLOP_PX = 8;
 
 type Point = { clientX: number; clientY: number };
 

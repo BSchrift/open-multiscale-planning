@@ -67,6 +67,8 @@ describe('the planning frame', () => {
   it('on phone has tappable steps, a Continue button that names the next step, and Capture', async () => {
     const t = await openPlanning({ layout: 'phone' });
     const steps = await screen.findByRole('navigation', { name: 'Planning steps' });
+    // Named for screen readers, as on desktop, though phone has no room to show it.
+    expect(screen.getByRole('heading', { level: 1, name: 'Plan the week' })).toHaveClass('sr');
     expect(within(steps).getAllByRole('button').map((b) => b.textContent)).toEqual(['Inbox', 'Pick', 'Schedule', 'Review']);
     expect(screen.getByRole('button', { name: 'Previous step' })).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Continue to picking tasks' }));
@@ -142,6 +144,15 @@ describe('the Inbox step', () => {
     await openPlanning();
     expect(await screen.findByText('Inbox is empty.')).toBeInTheDocument();
   });
+
+  it('on phone lists rows named by what they say, as the Inbox does, each opening the cards on it', async () => {
+    const t = await openPlanning({
+      layout: 'phone',
+      seed: (w) => w.create('task', { kind: 'inbox', title: 'Return the library books', estimate_min: 30 }, 'i1'),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Return the library books/ }));
+    expect(t.nav().overlay).toEqual({ area: 'process', params: { planning: '2026-11-02', item: 'i1' } });
+  });
 });
 
 describe('the Schedule step', () => {
@@ -161,9 +172,28 @@ describe('the Review step', () => {
     expect(screen.getByText('Learn to bake bread: 0m of 2h aim')).toBeInTheDocument();
     expect(await screen.findByText("1h 30m of what you picked isn't scheduled. It stays on its project or in One offs.")).toBeInTheDocument();
     expect(screen.getByText('98h free')).toBeInTheDocument();
+    // The same card as Week's, with each part of the bar named on hover.
+    const used = screen.getByRole('region', { name: "How this week's time is used" });
+    expect(within(used).getByRole('img', { name: '0m projects, 0m practices, 0m one offs, 98h free' })).toBeInTheDocument();
+    expect(used.querySelector('.capbar .seg-project')).toHaveAttribute('title', 'Projects: 0m');
+    expect(within(used).getByText('Free 98h').querySelector('.seg-free')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Finish plan' }));
     await waitFor(() => expect(close).toHaveBeenCalled());
     expect((await getRecord(t.db, 'week_plan', weekPlanId('2026-11-02')))?.finished_at).toBe('2026-11-02T20:00:00Z');
+  });
+
+  it("counts what isn't scheduled as Week and Schedule do: a block running into next week counts only its hour in this one", async () => {
+    await openPlanning({
+      step: 3,
+      seed: async (w) => {
+        await w.create('project', { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-12-15' }, 'report');
+        await w.create('task', { kind: 'project', project_id: 'report', title: 'Write chapter one', estimate_min: 240 }, 't2');
+        await setWeekPick(w, '2026-11-02', 't2', 240);
+        // Sunday 11pm to Monday 1am in Chicago.
+        await w.create('time_block', { task_id: 't2', start: '2026-11-09T05:00:00Z', end: '2026-11-09T07:00:00Z', tz: 'America/Chicago' });
+      },
+    });
+    expect(await screen.findByText("3h of what you picked isn't scheduled. It stays on its project or in One offs.")).toBeInTheDocument();
   });
 
   it('counts placed blocks toward aims, and skipped aims do not count', async () => {

@@ -4,7 +4,7 @@
 
 import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { formatDate, formatMinutes, localDate, today } from '../../../core/dates';
+import { formatDate, formatMinutes, localDate, nowInstant, today } from '../../../core/dates';
 import { cadenceBefore, nextStretch, planningDue, restoreProject } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { status } from '../../../core/status';
@@ -166,13 +166,13 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
   const setGoal = useMutation((w, id: string, fields: Fields<'objective'>) => w.set('objective', id, fields));
   const addGoal = useMutation((w, title: string) => w.create('objective', { title, state: 'active' }));
 
-  const goals = data.objectives.filter((g) => !g.deleted_at && g.state !== 'archived');
+  const goals = data.objectives.filter((g) => g.state !== 'archived');
   goals.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.id < b.id ? -1 : 1));
   const goalIds = new Set(goals.map((g) => g.id));
   const plans = data.plans.filter(live);
-  const practices = data.practices.filter((p) => p.state !== 'ended' && !p.deleted_at);
+  const practices = data.practices.filter((p) => p.state !== 'ended');
   const homeOf = (id: string | null | undefined) => (id && goalIds.has(id) ? id : NO_GOAL);
-  const archivedGoals = data.objectives.filter((g) => !g.deleted_at && g.state === 'archived');
+  const archivedGoals = data.objectives.filter((g) => g.state === 'archived');
   const archivedProjects = data.plans.filter((p) => !live(p));
   const looseProjects = plans.filter((p) => homeOf(p.project.objective_id) === NO_GOAL);
   const loosePractices = practices.filter((p) => homeOf(p.objective_id) === NO_GOAL);
@@ -188,9 +188,11 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
     event.preventDefault();
     const title = newGoal.trim();
     if (!title) return;
-    if (await addGoal.run(title)) {
+    const id = await addGoal.run(title);
+    if (id) {
       setNewGoal('');
       setNewGoalOpen(false);
+      toast.show(`Added ${title}.`, { undo: () => setGoal.run(id, { deleted_at: nowInstant(clock) }) });
     }
   };
 
@@ -339,7 +341,11 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
           {isOpen && renaming === goal.id ? (
             <RenameGoal
               goal={goal}
-              save={(title) => setGoal.run(goal.id, { title })}
+              save={async (title) => {
+                const previous = await setGoal.run(goal.id, { title });
+                if (previous && title !== goal.title) toast.show(`Renamed to ${title}.`, { undo: () => setGoal.run(goal.id, previous) });
+                return previous;
+              }}
               onDone={() => {
                 land(() => heads.current.get(pen));
                 setRenaming(null);
@@ -505,7 +511,8 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
                       type="button"
                       aria-label={`Restore ${g.title}`}
                       onClick={async () => {
-                        if (await setGoal.run(g.id, { state: 'active', not_now_until: null })) toast.show(`${g.title} restored.`);
+                        const previous = await setGoal.run(g.id, { state: 'active', not_now_until: null });
+                        if (previous) toast.show(`${g.title} restored.`, { undo: () => setGoal.run(g.id, previous), focusUndo: true });
                       }}
                     >
                       Restore

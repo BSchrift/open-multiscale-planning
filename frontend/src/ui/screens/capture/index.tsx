@@ -44,7 +44,7 @@ export default function Screen(props: ScreenProps) {
       async (sql) =>
         where && where !== ONE_OFFS
           ? (await listRecords(sql, 'milestone'))
-              .filter((m) => m.project_id === where && !m.met_at && !m.dropped_at && !m.deleted_at)
+              .filter((m) => m.project_id === where && !m.met_at && !m.dropped_at)
               .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.title.localeCompare(b.title))
           : [],
       [where],

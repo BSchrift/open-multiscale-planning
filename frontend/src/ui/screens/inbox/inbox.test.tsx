@@ -37,6 +37,8 @@ describe('Inbox on desktop', () => {
     await renderScreen('inbox');
     expect(await screen.findByText('Inbox is empty.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Process/ })).toBeNull();
+    // No empty card under it.
+    expect(document.querySelector('.inboxlist')).toBeNull();
   });
 });
 

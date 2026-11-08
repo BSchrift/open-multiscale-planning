@@ -569,6 +569,21 @@ export function scheduleOrder(plans: readonly ProjectPlan[], oneOffs: readonly T
     .map(({ c }) => c);
 }
 
+/** What a pick with no minutes, or a one off with no estimate, counts as. */
+export const NO_ESTIMATE_MIN = 30;
+/** The longest block a task starts with. The rest stays to place. */
+export const FIRST_BLOCK_MIN = 120;
+
+/**
+ * A picked task's minutes this week, and what's left of them to place. drawn is the week's blocks as drawn on its
+ * days, so a block running into the next week counts only its part in this one, and Week and Schedule agree.
+ */
+export function pickToPlace(c: Candidate, drawn: readonly { task_id?: string | null; start: Minutes; end: Minutes }[]): { picked: Minutes; left: Minutes } {
+  const picked = c.week || NO_ESTIMATE_MIN;
+  const placed = drawn.filter((b) => b.task_id === c.task.id).reduce((sum, b) => sum + b.end - b.start, 0);
+  return { picked, left: Math.max(0, picked - placed) };
+}
+
 /** One record's new field values. */
 export interface RecordWrite {
   type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice';

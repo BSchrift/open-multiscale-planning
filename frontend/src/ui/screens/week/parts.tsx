@@ -2,7 +2,7 @@
 
 import type { Minutes } from '../../../core/types';
 import { useApp } from '../../app/store';
-import { dayName, range } from './data';
+import { dayName, slotRange } from '../../components/weekgrid';
 import type { WeekModel } from './data';
 import { useWeekActions } from './useWeekActions';
 
@@ -16,7 +16,7 @@ export function PracticeAsk(props: { ask: { blockId: string; wasMin: Minutes }; 
   return (
     <div className="panel stack8 wkask" role="status" aria-label="Make this change permanent?">
       <div>
-        {block.title} is now {dayName(block.date)}, {range(block)}.
+        {block.title} is now {dayName(block.date)}, {slotRange(block)}.
       </div>
       <div className="strong small">Make this change permanent?</div>
       <div className="row">

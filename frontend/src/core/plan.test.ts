@@ -12,6 +12,7 @@ import {
   doneOf,
   dropMilestone,
   effectiveDue,
+  FIRST_BLOCK_MIN,
   gatherPlans,
   markMilestoneDone,
   markMilestoneNotMet,
@@ -21,9 +22,11 @@ import {
   msInPlan,
   msLate,
   nextStretch,
+  NO_ESTIMATE_MIN,
   originalDue,
   parkMilestone,
   pauseProject,
+  pickToPlace,
   plannable,
   plannedIds,
   planningDue,
@@ -595,6 +598,20 @@ describe('the candidates for a week', () => {
     const blocks = [block('t5', '2026-11-03T10:00:00Z', '2026-11-03T11:00:00Z'), { ...block('one', '2026-11-03T12:00:00Z', '2026-11-03T13:00:00Z'), id: 'b2' }];
     const order = scheduleOrder([p], [off], week({ picks: [pick('t5', 60), pick('one', 60)], blocks }), ctx);
     expect(order.map((c) => [c.task.id, c.left])).toEqual([['t5', 0], ['one', 0]]);
+  });
+
+  it("counts a pick's time still to place from the week's drawn blocks, with half an hour for a pick with no minutes", () => {
+    const p = reportPlan();
+    const [t5] = scheduleOrder([p], [], week({ picks: [pick('t5', 180)] }), ctx);
+    const drawn = [
+      { task_id: 't5', start: 600, end: 660 },
+      { task_id: 't5', start: 1380, end: 1440 },
+      { task_id: 't2', start: 600, end: 720 },
+    ];
+    expect(pickToPlace(t5!, drawn)).toEqual({ picked: 180, left: 60 });
+    expect(pickToPlace({ ...t5!, week: 0 }, drawn.slice(0, 1))).toEqual({ picked: NO_ESTIMATE_MIN, left: 0 });
+    expect(pickToPlace({ ...t5!, week: 0 }, [])).toEqual({ picked: 30, left: 30 });
+    expect(FIRST_BLOCK_MIN).toBe(120);
   });
 });
 

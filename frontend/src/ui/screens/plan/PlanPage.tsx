@@ -27,7 +27,7 @@ export function Diamond(props: { cls: string; phone: boolean }) {
   );
 }
 
-export function GroupList(props: { groups: PlanGroup[]; phone: boolean }) {
+function GroupList(props: { groups: PlanGroup[]; phone: boolean }) {
   return (
     <>
       {props.groups.map((g) => (

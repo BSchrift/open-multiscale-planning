@@ -29,6 +29,8 @@ interface Alert {
   text?: string;
   warn?: boolean;
   label: string;
+  /** Phone shows its action in blue, as the one to act on. */
+  go?: boolean;
   act(): void;
   skip?(): void;
 }
@@ -76,14 +78,14 @@ function AttnRow(props: { alert: Alert }) {
   const { alert } = props;
   const row = (
     <button className={alert.skip ? 'attn grow' : 'attn'} type="button" onClick={alert.act}>
-      <span>{alert.title}</span> <span className="quiet">{alert.label}</span>
+      <span>{alert.title}</span> <span className={alert.go ? 'attngo' : 'quiet'}>{alert.label}</span>
     </button>
   );
   if (!alert.skip) return row;
   return (
     <div className="row nowrap stretchdue">
       {row}
-      <button className="icbtn" type="button" aria-label={`Skip ${alert.title} for now`} onClick={alert.skip}>
+      <button className="icbtn" type="button" aria-label={`Skip for now: ${alert.title}`} onClick={alert.skip}>
         ×
       </button>
     </div>
@@ -134,8 +136,8 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         : { key: 'queue', title: 'Needs a new time', text: `${queued} ${queued === 1 ? 'task' : 'tasks'} that didn't get done. Choose when it suits you.`, label: 'Review', act: () => setPanel('queue') },
     );
   }
-  if (stretchDue && !phone) {
-    alerts.push({ key: 'stretch', title: planText, label: 'Start', act: () => nav.openFlow('plan'), skip: () => setSkippedStretch(stretchDue.end) });
+  if (stretchDue) {
+    alerts.push({ key: 'stretch', title: planText, label: 'Start', go: true, act: () => nav.openFlow('plan'), skip: () => setSkippedStretch(stretchDue.end) });
   }
   // Connecting needs a sign-in. Skipped, it asks again the next week.
   const week = thisWeek(clock);
@@ -166,16 +168,6 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         </div>
       )}
       {phone ? alerts.map((a) => <AttnRow key={a.key} alert={a} />) : <Alerts alerts={alerts} />}
-      {phone && stretchDue && (
-        <div className="row nowrap stretchdue">
-          <button className="attn grow" type="button" onClick={() => nav.openFlow('plan')}>
-            <span>{planText}</span> <span className="attngo">Start</span>
-          </button>
-          <button className="icbtn" type="button" aria-label="Skip for now" onClick={() => setSkippedStretch(stretchDue.end)}>
-            ×
-          </button>
-        </div>
-      )}
       {panel === 'shift' && shift && <ShiftPanel plan={shift} connected={data.connected} onClose={() => setPanel(null)} />}
       {panel === 'queue' && <QueuePanel items={data.queue} onClose={() => setPanel(null)} />}
       {unplanned && data.blocks.length === 0 ? (

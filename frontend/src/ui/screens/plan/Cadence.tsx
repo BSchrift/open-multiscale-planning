@@ -2,14 +2,13 @@
 // change starts. In the flow's first step each change is saved at once.
 
 import { useId, useState } from 'react';
-import { addDays, formatDate } from '../../../core/dates';
+import { addDays, formatDate, isDay } from '../../../core/dates';
 import { cadenceLabel, changeCadence, stretchFrom } from '../../../core/plan';
 import type { Stretch } from '../../../core/plan';
 import type { CadenceUnit, Fields, LocalDate, PlanCadence, Settings } from '../../../core/types';
 import { updateSettings } from '../../../core/records';
 import { useMutation } from '../../app/store';
 import { useToast } from '../../components/Toast';
-import { isDay } from './model';
 
 const maxEvery = (unit: CadenceUnit) => (unit === 'weeks' ? 26 : 12);
 

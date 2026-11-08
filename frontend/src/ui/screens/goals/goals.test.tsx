@@ -97,6 +97,11 @@ describe('Goals', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Restore Run a 10k' }));
       expect(await screen.findByRole('button', { name: /^Run a 10k/ })).toBeVisible();
       expect((await record(t, 'objective', 'g2'))?.state).toBe('active');
+      expect(screen.getByText('Run a 10k restored.')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await record(t, 'objective', 'g2'))?.state).toBe('archived'));
+      expect(await screen.findByRole('button', { name: 'Restore Run a 10k' })).toBeVisible();
     });
 
     it('Still a goal keeps keyboard focus: not now on the goal, archive on Archived', async () => {
@@ -147,6 +152,10 @@ describe('Goals', () => {
       await waitFor(async () => expect(await title()).toBe('Bake good bread'));
       expect(await screen.findByRole('button', { name: /^Bake good bread/ })).toBeVisible();
       await waitFor(() => expect(screen.getByRole('button', { name: 'Rename Bake good bread' })).toHaveFocus());
+      expect(screen.getByText('Renamed to Bake good bread.')).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await title()).toBe('Learn to bake bread'));
+      expect(await screen.findByRole('button', { name: 'Rename Learn to bake bread' })).toBeVisible();
     });
 
     it('deletes a goal after a warning listing what goes with it, and Undo brings it all back', async () => {
@@ -399,6 +408,14 @@ describe('Goals', () => {
       await userEvent.type(screen.getByRole('textbox', { name: 'New goal' }), '   {Enter}');
       expect((await t.db.all('SELECT id FROM objective')).length).toBe(2);
       await userEvent.clear(screen.getByRole('textbox', { name: 'New goal' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'New goal' }), 'Read more{Enter}');
+      expect(await screen.findByText('Added Read more.')).toBeVisible();
+      expect(screen.getByRole('button', { name: /^Read more/ })).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: /^Read more/ })).toBeNull());
+      expect((await t.db.all('SELECT id FROM objective WHERE deleted_at IS NULL')).length).toBe(2);
+
+      if (layout === 'phone') await userEvent.click(screen.getByRole('button', { name: '+ New goal' }));
       await userEvent.type(screen.getByRole('textbox', { name: 'New goal' }), 'Write a book{Enter}');
       await userEvent.click(await screen.findByRole('button', { name: /Write a book/ }));
 

@@ -6,17 +6,20 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
 import { addDays, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
-import { closestFit, dayBaseAhead, dayFree, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes, TIGHT_SHARE } from '../../../core/slots';
-import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
+import { FIRST_BLOCK_MIN } from '../../../core/plan';
+import { closestFit, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
+import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
+import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
-import { clearLane, overLane } from '../../components/weekgrid';
-import type { GridGhost } from '../../components/weekgrid';
-import { dayName, KIND_WORD, range, rowItem } from './data';
-import type { AddRow, LaneItem, Placeable, WeekBlock, WeekModel } from './data';
+import { KIND_WORD } from '../../components/blocks/describe';
+import { clearLane, dayName, overLane, slotRange } from '../../components/weekgrid';
+import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
+import { rowItem } from './data';
+import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { WeekProps } from './index';
 import { PracticeAsk } from './parts';
@@ -25,15 +28,13 @@ import { useWeekActions } from './useWeekActions';
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
 const CELL_PX = 46;
-const MAX_LEN = 120;
 const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint' } as const;
-const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
 const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
 
 /** A block being moved, or a task being placed, before Move here or Place here. */
 type Placing =
-  | { mode: 'move'; block: WeekBlock; length: Minutes }
+  | { mode: 'move'; block: PlacedBlock; length: Minutes }
   | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean };
 
 type Open = { kind: 'block'; id: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
@@ -74,7 +75,7 @@ export function PhoneWeek(props: WeekProps) {
   useEffect(() => {
     if (!props.place) return;
     const row = model.addGroups.flatMap((g) => g.rows).find((r) => r.task.id === props.place);
-    if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, MAX_LEN), fromDrawer: false }, null);
+    if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, FIRST_BLOCK_MIN), fromDrawer: false }, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.place]);
 
@@ -88,7 +89,7 @@ export function PhoneWeek(props: WeekProps) {
     setAt({ date, start, end: start + len });
   };
 
-  const changeBlock = (b: WeekBlock, slot: Slot) => {
+  const changeBlock = (b: PlacedBlock, slot: Slot) => {
     if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return;
     void act.move(b.id, slot);
     setEdSel(b.id);
@@ -137,11 +138,6 @@ export function PhoneWeek(props: WeekProps) {
       onDrop={(slot) => void act.place(x, slot)}
     />
   );
-  // Counted from now on: a day gone by shows what happened, never free time.
-  const free = (date: LocalDate) => dayFree(date, 'project', ctx);
-  const freeText = (date: LocalDate) => (date < day0 ? '' : formatMinutes(free(date)));
-  const packed = (date: LocalDate) => free(date) < dayBaseAhead(date, 'project', ctx) * TIGHT_SHARE;
-  const weekFree = [0, 1, 2, 3, 4, 5, 6].reduce((a, i) => a + free(addDays(data.week, i)), 0);
   const dayIndex = diffDays(data.week, selDay);
   const dayTitle = dayName(selDay);
   const showDrag = !!placing || editing;
@@ -197,7 +193,7 @@ export function PhoneWeek(props: WeekProps) {
           <div className="small wkkeys">
             <span className="keyitem">
               <span className="skey" />
-              <span className="strong">{formatMinutes(weekFree)} free</span>
+              <span className="strong">{formatMinutes(weekFree(data.week, ctx))} free</span>
               <span className="quiet"> of {formatMinutes(model.open)} available</span>
             </span>
             <span className="keyitem">
@@ -210,32 +206,16 @@ export function PhoneWeek(props: WeekProps) {
             </span>
           </div>
           <div className="small quiet">{capLine}</div>
-          <div className="wstrip" role="group" aria-label="Choose a day">
-            {[0, 1, 2, 3, 4, 5, 6].map((i) => {
-              const date = addDays(data.week, i);
-              const on = date === selDay;
-              const nofit = noFit(date);
-              const cur = placing && at && at.date === date ? at : null;
-              return (
-                <button
-                  key={date}
-                  type="button"
-                  className={`wday${on ? ' on' : ''}${date === day0 ? ' today' : ''}${packed(date) ? ' tight' : ''}${nofit ? ' nofit' : ''}`}
-                  aria-pressed={on}
-                  aria-current={date === day0 ? 'date' : undefined}
-                  aria-label={`${dayName(date)}${freeText(date) && `, ${freeText(date)} free`}${packed(date) ? ', packed' : ''}${nofit ? ', no slot for this task' : ''}`}
-                  onClick={() => pickDay(date)}
-                >
-                  <span>
-                    <span>{LETTERS[i]} </span>
-                    <span className="strong">{Number(date.slice(8))}</span>
-                  </span>
-                  <DayShape ctx={ctx} placed={ctx.placed} date={date} draft={cur} />
-                  <span className="wfree">{nofit ? 'No slot' : freeText(date)}</span>
-                </button>
-              );
-            })}
-          </div>
+          <DayStrip
+            week={data.week}
+            label="Choose a day"
+            selected={selDay}
+            ctx={ctx}
+            placed={ctx.placed}
+            draft={placing ? at : null}
+            hint={(date) => ({ noFit: noFit(date) })}
+            onPick={pickDay}
+          />
         </div>
       </div>
 
@@ -247,16 +227,7 @@ export function PhoneWeek(props: WeekProps) {
           </button>
         </>
       )}
-      {packed(selDay) && (
-        <div className="warn">
-          <div>
-            <div className="strong">{dayTitle} is packed</div>
-            <div>
-              {formatMinutes(free(selDay))} free of {formatMinutes(dayBaseAhead(selDay, 'project', ctx))} available that day.
-            </div>
-          </div>
-        </div>
-      )}
+      <PackedDay date={selDay} ctx={ctx} />
       {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
 
       {offset >= 0 && !placing && (
@@ -340,7 +311,7 @@ export function PhoneWeek(props: WeekProps) {
         <div className="tray dragbar">
           <div role="status">
             <div className="strong">
-              {dayName(at.date)}, {range(at)}
+              {dayName(at.date)}, {slotRange(at)}
             </div>
             <div className="small">{placingText}</div>
             {placingNote && <div className="small">{placingNote}</div>}
@@ -359,7 +330,7 @@ export function PhoneWeek(props: WeekProps) {
           <div role="status">
             {edBlock && (
               <div className="small strong">
-                {edBlock.title}, {dayName(edBlock.date)}, {range(edBlock)}
+                {edBlock.title}, {dayName(edBlock.date)}, {slotRange(edBlock)}
               </div>
             )}
             {edBlock && <div className="small">{slotNotes(edBlock, { kind: edBlock.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ')}</div>}
@@ -505,7 +476,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
             className={cls}
             type="button"
             style={{ height: cells * CELL_PX - 2 }}
-            aria-label={`${block.title}, ${range(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}`}
+            aria-label={`${block.title}, ${slotRange(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}`}
             onClick={() => props.onOpen(block.id)}
           >
             {inner}
@@ -525,7 +496,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
         inf.start,
         <div className="tlblock c-info" style={{ height: CELL_PX - 2 }}>
           <span className="tlname">{inf.title}</span>
-          <span className="tlkind">Information, {range(inf)}</span>
+          <span className="tlkind">Information, {slotRange(inf)}</span>
         </div>,
         inf.start,
         inf.end,
@@ -534,7 +505,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       continue;
     }
     if (event) {
-      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {range(event)}</div>, m, event.end);
+      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {slotRange(event)}</div>, m, event.end);
       m = event.end;
       continue;
     }
@@ -566,51 +537,22 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
  * The drawn day behind a drag: hours, closed time, calendar events, and the blocks that move. The planning Schedule
  * step also passes suggested times, which the moving and selected blocks snap to.
  */
-/** A day in the strip, half an hour a slice: the block being placed, a suggested time, then planned, busy or closed. Open time gone by is drawn as closed. */
-export function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: LocalDate; draft?: Slot | null; suggested?: Slot | null }) {
-  const { ctx, date } = props;
-  const hit = (x: Slot | null | undefined, m: number) => !!x && x.date === date && x.start < m + 30 && m < x.end;
-  return (
-    <span className="wshape" aria-hidden="true">
-      {Array.from({ length: (DAY_TO - DAY_FROM) / 30 }, (_, k) => {
-        const m = DAY_FROM + k * 30;
-        const busy = overlaps(ctx.busy, date, m, m + 30);
-        const placed = props.placed.find((x) => hit(x, m));
-        const cls = hit(props.draft, m)
-          ? 'draft'
-          : hit(props.suggested, m)
-            ? 'sug'
-            : !isOpen(ctx.availability, date, m, 'project') && !busy
-              ? 'closed'
-              : placed
-                ? `planned${placed.kind === 'practice' ? ' practice' : placed.kind === 'one_off' ? ' maint' : ''}`
-                : busy
-                  ? 'busy'
-                  : isPast(date, m, ctx)
-                    ? 'closed'
-                    : '';
-        return <span key={m} className={`sl ${cls}`} />;
-      })}
-    </span>
-  );
-}
-
 export function DragDay(props: {
   date: LocalDate;
   ctx: SlotContext;
   info: WeekModel['info'];
   floor: number;
-  blocks: WeekBlock[];
-  moving: { title: string; kind: WeekBlock['kind']; slot: Slot } | null;
+  blocks: PlacedBlock[];
+  moving: { title: string; kind: PlacedBlock['kind']; slot: Slot } | null;
   editing: boolean;
   ghosts?: readonly GridGhost[];
   /** Drawn in full rather than calm. */
   selected?: string | null;
   onMoving(slot: Slot): void;
   onDone(): void;
-  onChange(b: WeekBlock, slot: Slot): void;
+  onChange(b: PlacedBlock, slot: Slot): void;
   /** A block let go over To schedule, which takes it off the calendar. */
-  onUnschedule?(b: WeekBlock): void;
+  onUnschedule?(b: PlacedBlock): void;
   onOpen(id: string): void;
 }) {
   const { date, ctx, floor, moving, ghosts = [] } = props;
@@ -666,7 +608,7 @@ export function DragDay(props: {
   const handle = (
     key: string,
     title: string,
-    kind: WeekBlock['kind'],
+    kind: PlacedBlock['kind'],
     slot: Slot,
     calm: boolean,
     on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
@@ -719,7 +661,7 @@ export function DragDay(props: {
         aria-valuemin={len}
         aria-valuemax={DAY_TO - floor}
         aria-valuenow={DAY_TO - shown.start}
-        aria-valuetext={`${dayName(date)}, ${range(shown)}`}
+        aria-valuetext={`${dayName(date)}, ${slotRange(shown)}`}
         style={{ top: y(shown.start), height: Math.max(24, y(shown.end) - y(shown.start)) }}
         onPointerDown={drag('move')}
         onKeyDown={step}
@@ -794,7 +736,7 @@ export function DragDay(props: {
 
 /** A tapped block: its length on a slider, Move and Remove. */
 function BlockSheet(props: {
-  block: WeekBlock;
+  block: PlacedBlock;
   model: WeekModel;
   canEdit: boolean;
   onClose(): void;
@@ -811,7 +753,7 @@ function BlockSheet(props: {
     <Sheet label={block.title} onClose={props.onClose}>
       <div>
         <div className="small quiet">
-          {dayName(block.date)}, {range(block)}
+          {dayName(block.date)}, {slotRange(block)}
         </div>
         <h2>{block.title}</h2>
       </div>
@@ -877,7 +819,7 @@ function AddDrawer(props: { model: WeekModel; onClose(): void; onPlace(row: AddR
           <h3 className={g.oneOffs ? 'mhead wkgroup' : 'wkgroup'}>{g.name}</h3>
           {g.rows.map((r) => {
             const on = selected === r.task.id;
-            const len = lengths[r.task.id] ?? Math.min(r.left, MAX_LEN);
+            const len = lengths[r.task.id] ?? Math.min(r.left, FIRST_BLOCK_MIN);
             return (
               <div key={r.task.id} className="rowline wkrow">
                 <button className="candbtn" type="button" aria-expanded={on} onClick={() => setSelected(on ? null : r.task.id)}>

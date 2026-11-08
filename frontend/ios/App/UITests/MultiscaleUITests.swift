@@ -655,5 +655,8 @@ final class SignedInUITests: XCTestCase {
         let next = app.toolbars.buttons["Next"]
         if next.exists && next.isEnabled { next.tap() } else { password.tap() }
         app.typeText(user.password + "\n")
+        // Safari's sheet offers to keep the password on a domain it hasn't saved one for.
+        let notNow = app.buttons["Not Now"]
+        if notNow.waitForExistence(timeout: 10) { notNow.tap() }
     }
 }

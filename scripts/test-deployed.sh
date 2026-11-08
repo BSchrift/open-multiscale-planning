@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every suite that can run against a deployment, run against one, as make release does after each release:
 #   web app      the deployed web app as people get it (frontend/e2e/deployed), desktop and phone sizes
-#   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack)
+#   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack); staging only
 #   integration  the black-box suite against its API and sign-in
 #   smoke        that its logs and metrics arrive
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
@@ -59,7 +59,13 @@ run() {
 }
 run "web app" npx playwright test -c e2e/deployed/playwright.config.ts
 # Off local, e2e.sh runs only the signed-in specs, against this deployment.
-run "sync" "$root/scripts/e2e.sh"
+if [ "$env_name" = prod ]; then
+  # Its devices are the app served from this Mac, and prod's sign-in returns only to the deployed app. The web app suite
+  # signs in to prod, and integration covers its sync API.
+  echo "== sync skipped: prod's sign-in doesn't return to a local app"
+else
+  run "sync" "$root/scripts/e2e.sh"
+fi
 run "integration" "$root/scripts/integration.sh"
 run "smoke" "$root/scripts/smoke.sh"
 [ "${SKIP_IOS:-}" = 1 ] || run "iPhone" "$root/scripts/test-ios.sh"

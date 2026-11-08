@@ -31,6 +31,13 @@ import (
 	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
+// The limits under test, from config/protocol.yaml, the file the server and the apps both read them from.
+var (
+	maxChanges     = appconfig.Protocol.Sync.MaxChanges
+	maxRecordBytes = appconfig.Protocol.Sync.MaxRecordBytes
+	maxClockAhead  = time.Duration(appconfig.Protocol.Sync.MaxClockAheadHours) * time.Hour
+)
+
 // What a test can declare it needs. The first group are emulator controls that a deployment never has.
 const (
 	fakeClock      = "fakeClock"
@@ -595,7 +602,7 @@ func (a *account) cleanUp() {
 			}
 		}
 		batch = append(batch, a.record(key[0], key[1], pairs...))
-		if len(batch) == 99 || size >= 200<<10 {
+		if len(batch) == maxChanges || size >= 200<<10 {
 			a.sync(a.startCursor(), batch...)
 			if size >= 200<<10 {
 				time.Sleep(500 * time.Millisecond)

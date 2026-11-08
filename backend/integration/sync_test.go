@@ -165,7 +165,7 @@ func TestPagingReturnsEverythingOnceInOrder(t *testing.T) {
 	want := map[string]bool{}
 	for batch := 0; batch < 6; batch++ {
 		var changes []record
-		for i := 0; i < 99; i++ {
+		for i := 0; i < maxChanges; i++ {
 			id := fresh("page")
 			want[id] = true
 			changes = append(changes, a.record("task", id, "n", i))
@@ -420,19 +420,19 @@ func TestLargestAllowedBatchAndRecord(t *testing.T) {
 	a := signIn(t)
 	start := a.startCursor()
 	var changes []record
-	for i := 0; i < 99; i++ {
+	for i := 0; i < maxChanges; i++ {
 		changes = append(changes, a.record("task", fresh("full"), "n", i))
 	}
 	a.sync(start, changes...)
 	all, _ := a.pullAll(start)
-	if len(all) != 99 {
+	if len(all) != maxChanges {
 		t.Fatalf("%d", len(all))
 	}
 	// As near the limit as JSON allows, with the shape that costs DynamoDB most per byte of JSON.
 	id := fresh("limit")
 	clock := a.clock()
 	overhead := len(fmt.Sprintf(`{"list":{"v":[],"c":%q}}`, clock))
-	items := (100*1024 - overhead + 1) / 3
+	items := (maxRecordBytes - overhead + 1) / 3
 	body := fmt.Sprintf(`{"cursor":0,"changes":[{"type":"task","id":%q,"fields":{"list":{"v":[%s],"c":%q}}}]}`,
 		id, strings.TrimSuffix(strings.Repeat("[],", items), ","), clock)
 	a.pushed[[2]string{"task", id}] = true
@@ -446,7 +446,8 @@ func TestMergedRecordMustFitToo(t *testing.T) {
 	needs(t)
 	a := signIn(t)
 	id := fresh("grow")
-	text := strings.Repeat("x", 60*1024)
+	// Each half fits on its own, but the two merged pass the limit and its merged room.
+	text := strings.Repeat("x", maxRecordBytes*6/10)
 	a.sync(a.startCursor(), a.record("task", id, "one", text))
 	before := a.startCursor()
 	res := a.send(before, a.record("task", id, "two", text))
@@ -471,7 +472,7 @@ func TestARecordAtTheLimitCanStillBeDeleted(t *testing.T) {
 	id := fresh("full")
 	clock := a.clock()
 	overhead := len(fmt.Sprintf(`{"body":{"v":"","c":%q}}`, clock))
-	body := fmt.Sprintf(`{"cursor":0,"changes":[{"type":"task","id":%q,"fields":{"body":{"v":"%s","c":%q}}}]}`, id, strings.Repeat("x", 100*1024-overhead), clock)
+	body := fmt.Sprintf(`{"cursor":0,"changes":[{"type":"task","id":%q,"fields":{"body":{"v":"%s","c":%q}}}]}`, id, strings.Repeat("x", maxRecordBytes-overhead), clock)
 	a.pushed[[2]string{"task", id}] = true
 	if res := a.sendRaw([]byte(body)); res.status != 200 {
 		t.Fatalf("%d %s", res.status, truncated(res.body))
@@ -658,8 +659,8 @@ func TestClockLimitIsADayAheadOfTheServer(t *testing.T) {
 	clock := holdClock(t)
 	a := signIn(t)
 	id := fresh("limit")
-	justOver := map[string]field{"title": {"x", clockAt(clock.now.Add(24*time.Hour+time.Millisecond), 0, "device")}}
-	atLimit := map[string]field{"note": {"x", clockAt(clock.now.Add(24*time.Hour), 0, "device")}}
+	justOver := map[string]field{"title": {"x", clockAt(clock.now.Add(maxClockAhead+time.Millisecond), 0, "device")}}
+	atLimit := map[string]field{"note": {"x", clockAt(clock.now.Add(maxClockAhead), 0, "device")}}
 	if res := a.send(0, record{"task", id, justOver}); res.status != 400 || res.errorCode() != "clock_ahead" {
 		t.Fatalf("%d %s", res.status, truncated(res.body))
 	}
@@ -678,7 +679,7 @@ func TestClockAheadWithinADayHoldsOnTheRealClock(t *testing.T) {
 	needs(t)
 	a := signIn(t)
 	id := fresh("ahead")
-	a.sync(a.startCursor(), record{"task", id, map[string]field{"title": {"from the future", clockAt(time.Now().Add(23*time.Hour), 0, "device")}}})
+	a.sync(a.startCursor(), record{"task", id, map[string]field{"title": {"from the future", clockAt(time.Now().Add(maxClockAhead-time.Hour), 0, "device")}}})
 	a.sync(a.startCursor(), a.record("task", id, "title", "normal"))
 	got, _ := a.get("task", id)
 	if valueOf(t, got, "title") != "from the future" {

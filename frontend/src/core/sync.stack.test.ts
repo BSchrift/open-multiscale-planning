@@ -3,6 +3,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { protocol } from '@multiscale/config';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createAuth } from './auth';
 import type { Clock } from './clock';
@@ -104,7 +105,7 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
     const a = await device(clock, send);
     const id = await transact(a.db, clock, (w) => w.create('task', { kind: 'inbox', title: '' }));
     const empty = new TextEncoder().encode(JSON.stringify(await fieldsOf(a.db, id))).length;
-    await transact(a.db, clock, (w) => w.set('task', id, { title: 'x'.repeat(100 * 1024 - empty - 10) }));
+    await transact(a.db, clock, (w) => w.set('task', id, { title: 'x'.repeat(protocol.sync.maxRecordBytes - empty - 10) }));
     await a.sync(a.db);
     await transact(a.db, clock, (w) => w.delete('task', id));
     await a.sync(a.db);

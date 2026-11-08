@@ -24,8 +24,8 @@ const (
 	// MaxBodyBytes stays under the 6 MB Lambda takes, so the API answers a bigger body itself. A device's batch stops
 	// near 4 MB, plus at most one record.
 	MaxBodyBytes = 5 << 20
-	// MaxClockAhead stops a device with a bad clock winning every future conflict.
-	MaxClockAhead = 24 * time.Hour
+	// maxClockAhead stops a device with a bad clock winning every future conflict.
+	maxClockAhead = 24 * time.Hour
 
 	// The value limits DynamoDB enforces, checked here so a bad value is a refused request and not a failed write.
 	// A record's values sit three levels down in the item, and DynamoDB allows 32.
@@ -36,13 +36,10 @@ const (
 var (
 	idPattern    = regexp.MustCompile(`^[\x21-\x7e]{1,200}$`)
 	clockPattern = regexp.MustCompile(`^\d{13}-\d{6}-[\x21-\x7e]+$`)
+	// Any type, not a list: an app with a new one may be released before the server knows it. No # either, so the
+	// sort key still splits into type and id.
+	typePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)
 )
-
-var recordTypes = map[string]bool{
-	"objective": true, "project": true, "milestone": true, "task": true, "task_completion": true, "time_block": true,
-	"block_outcome": true, "week_plan": true, "week_pick": true, "away_period": true, "settings": true,
-	"calendar": true, "calendar_source": true, "practice": true,
-}
 
 // Rejection is a request refused at the trust boundary. Code is stable for clients and safe to log.
 type Rejection struct {
@@ -89,7 +86,7 @@ func ParseRequest(body []byte, now time.Time) (Request, error) {
 	if len(req.Changes) > MaxChanges {
 		return Request{}, rejected("too_many_changes")
 	}
-	latest := now.Add(MaxClockAhead).UnixMilli()
+	latest := now.Add(maxClockAhead).UnixMilli()
 	for _, change := range req.Changes {
 		if err := validateChange(change, latest); err != nil {
 			return Request{}, err
@@ -99,7 +96,7 @@ func ParseRequest(body []byte, now time.Time) (Request, error) {
 }
 
 func validateChange(change Change, latestClock int64) error {
-	if !recordTypes[change.Type] {
+	if !typePattern.MatchString(change.Type) {
 		return rejected("unknown_type")
 	}
 	if !idPattern.MatchString(change.ID) {

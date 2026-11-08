@@ -5,10 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
@@ -168,6 +174,44 @@ func TestSyncErrors(t *testing.T) {
 			}
 			if strings.Contains(logs.String(), "secret detail") || strings.Contains(rec.Body.String(), "secret detail") {
 				t.Fatal("an error's text escaped")
+			}
+		})
+	}
+}
+
+// A 500 has to be told apart from the logs alone, so its line carries the AWS error's code, a cancelled transaction's
+// reason codes and the SDK's tries. Never the messages, which can quote the request.
+func TestAnInternalErrorLogsItsAWSCodes(t *testing.T) {
+	const marker = "MARKER-do-not-log"
+	for name, c := range map[string]struct {
+		err  error
+		want map[string]any
+	}{
+		"after the SDK's tries": {
+			fmt.Errorf("sync: write: %w", &retry.MaxAttemptsError{Attempt: 3, Err: &types.ThrottlingException{Message: aws.String(marker)}}),
+			map[string]any{"aws_error": "ThrottlingException", "aws_attempts": float64(3)},
+		},
+		"a cancelled transaction": {
+			fmt.Errorf("sync: write: %w", &types.TransactionCanceledException{Message: aws.String(marker), CancellationReasons: []types.CancellationReason{
+				{Code: aws.String("None")}, {Code: aws.String("ValidationError"), Message: aws.String(marker)},
+			}}),
+			map[string]any{"aws_error": "TransactionCanceledException", "cancellation_reasons": []any{"None", "ValidationError"}},
+		},
+		"not from AWS": {errors.New(marker), map[string]any{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, logs := newServer(&fakeSyncer{err: c.err}, nil)
+			if rec := do(s, "POST", "/sync", goodBody, testSub); rec.Code != 500 {
+				t.Fatalf("%d", rec.Code)
+			}
+			line := logLine(t, logs)
+			for _, key := range []string{"aws_error", "aws_attempts", "cancellation_reasons"} {
+				if want, ok := c.want[key]; !reflect.DeepEqual(line[key], want) || ok != (line[key] != nil) {
+					t.Errorf("%s: got %v, want %v", key, line[key], want)
+				}
+			}
+			if strings.Contains(logs.String(), marker) {
+				t.Fatalf("leak: %s", logs)
 			}
 		})
 	}

@@ -8,3 +8,10 @@ func SetThrottleWait(d time.Duration) (restore func()) {
 	throttleWait = func(int) time.Duration { return d }
 	return func() { throttleWait = old }
 }
+
+// SetThrottleBudget shortens how long a push waits out throttling for a test, and returns what puts it back.
+func SetThrottleBudget(d time.Duration) (restore func()) {
+	old := throttleBudget
+	throttleBudget = d
+	return func() { throttleBudget = old }
+}

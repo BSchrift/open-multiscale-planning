@@ -83,13 +83,16 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --ignore-scripts
         working-directory: frontend
+      # Browser builds are made per OS release, and ubuntu-latest moves between releases, so the release is in the key.
       - id: playwright
-        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+          . /etc/os-release && echo "os=$ID-$VERSION_ID" >>"$GITHUB_OUTPUT"
         working-directory: frontend
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-webkit
+          key: playwright-${{ steps.playwright.outputs.os }}-${{ steps.playwright.outputs.version }}-chromium-webkit
       # The system libraries aren't cached, so this runs either way. It skips browsers already there.
       - run: npx playwright install --with-deps chromium webkit
         working-directory: frontend
@@ -122,12 +125,14 @@ jobs:
       - run: npm ci --ignore-scripts
         working-directory: frontend
       - id: playwright
-        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+          . /etc/os-release && echo "os=$ID-$VERSION_ID" >>"$GITHUB_OUTPUT"
         working-directory: frontend
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+          key: playwright-${{ steps.playwright.outputs.os }}-${{ steps.playwright.outputs.version }}-chromium
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: scripts/e2e.sh stack

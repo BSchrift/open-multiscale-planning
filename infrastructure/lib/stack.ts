@@ -36,7 +36,7 @@ export interface MultiscaleStackProps {
   config: Config;
   /** Needed when config sets dns.zone: the zone is delegated from its domain, in its account. */
   control?: ControlConfig;
-  /** Holds api/ and calendar/, each a bootstrap and the config.yaml it loads, put there by scripts/deploy.sh. */
+  /** Holds api/ and calendar/, each a bootstrap put there by scripts/deploy.sh. */
   backendDist: string;
   /** Set when deploying, so that a missing build fails instead of shipping the stand-in. */
   requireBinaries: boolean;
@@ -55,11 +55,7 @@ export class MultiscaleStack extends Stack {
 
     const goCode = (name: string) => {
       const dir = join(backendDist, name);
-      if (existsSync(join(dir, 'bootstrap'))) {
-        // The binary fails at startup without it.
-        if (requireBinaries && !existsSync(join(dir, 'config.yaml'))) throw new Error(`${dir}/config.yaml is missing. Deploy with scripts/deploy.sh.`);
-        return Code.fromAsset(dir);
-      }
+      if (existsSync(join(dir, 'bootstrap'))) return Code.fromAsset(dir);
       if (requireBinaries) throw new Error(`${dir}/bootstrap is not built. Deploy with scripts/deploy.sh.`);
       Annotations.of(this).addWarning(`Go binary ${name} not built: synthesizing with a stand-in. Deploy with scripts/deploy.sh.`);
       return Code.fromAsset(join(import.meta.dirname, '../placeholder'));
@@ -195,21 +191,22 @@ export class MultiscaleStack extends Stack {
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
 
-    // Permissions. A sync transaction needs Put, Update and ConditionCheck: TransactWriteItems is not an IAM action.
+    // Permissions. TransactWriteItems is not an IAM action: a sync transaction needs Put and Update, the actions inside it.
+    // The consent state is a PutItem and a conditional UpdateItem.
 
     const dataAccess = new PolicyStatement({
-      actions: ['dynamodb:BatchGetItem', 'dynamodb:ConditionCheckItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+      actions: ['dynamodb:BatchGetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
       resources: [table.tableArn, `${table.tableArn}/index/by_seq`],
     });
-    // Only the Google secrets: the test users' passwords sit beside them, for the integration suite alone.
-    const readSecrets = new PolicyStatement({
+    // Only the Google secrets: the test users' passwords sit beside them, for the integration suite alone. The worker
+    // never starts a consent, so it doesn't get the key that signs them.
+    const readSecrets = (names: string[]) => new PolicyStatement({
       actions: ['ssm:GetParameter'],
-      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/*` })],
+      resources: names.map((name) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/${name}` })),
     });
-    for (const fn of [apiFunction, calendarFunction]) {
-      fn.addToRolePolicy(dataAccess);
-      fn.addToRolePolicy(readSecrets);
-    }
+    apiFunction.addToRolePolicy(readSecrets(['*']));
+    calendarFunction.addToRolePolicy(readSecrets(['client-id', 'client-secret', 'refresh-token']));
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(dataAccess);
     apiFunction.addToRolePolicy(new PolicyStatement({
       actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
@@ -223,8 +220,11 @@ export class MultiscaleStack extends Stack {
       batchSize: 100,
       maxBatchingWindow: Duration.seconds(60),
       retryAttempts: 2,
-      // Only its inputs. Waking on the calendar record it writes itself would loop forever.
-      filters: [FilterCriteria.filter({ dynamodb: { Keys: { sk: { S: [{ prefix: 'rec#time_block#' }, { prefix: 'rec#calendar_source#' }] } } } })],
+      // Only its inputs: blocks, the tasks and practices their events take titles from, and calendar modes. Waking on the
+      // calendar record it writes itself would loop forever. cmd/local's wakesWorker keeps the same list.
+      filters: [FilterCriteria.filter({ dynamodb: { Keys: { sk: { S: [
+        { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
+      ] } } } })],
     }));
     new Schedule(this, 'CalendarSchedule', {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),

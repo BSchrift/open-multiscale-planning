@@ -179,18 +179,19 @@ func TestCalendarThroughTheLocalStack(t *testing.T) {
 		t.Fatalf("%+v", fields)
 	}
 	eventsClock := fields["events"].(map[string]any)["c"]
+	if fieldValue(fields, "synced_at") != instantOf(c.now) {
+		t.Fatalf("synced_at %v", fieldValue(fields, "synced_at"))
+	}
+	syncedAt := fieldValue(fields, "synced_at")
 
-	// The schedule runs on the same clock, and a run with no differences leaves events alone.
+	// The schedule runs on the same clock, and a run with no differences leaves the record alone.
 	c.advance(31 * time.Minute)
 	if ran := c.tick(); ran == "" {
 		t.Fatal("nothing ran after 30 minutes")
 	}
 	fields = c.calendarFields()
-	if fields["events"].(map[string]any)["c"] != eventsClock {
-		t.Fatal("unchanged events rewritten")
-	}
-	if fieldValue(fields, "synced_at") != instantOf(c.now) {
-		t.Fatalf("synced_at %v", fieldValue(fields, "synced_at"))
+	if fields["events"].(map[string]any)["c"] != eventsClock || fieldValue(fields, "synced_at") != syncedAt {
+		t.Fatalf("unchanged record rewritten: %+v", fields)
 	}
 
 	// Failure modes reach the app through the record.

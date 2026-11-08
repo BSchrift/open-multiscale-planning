@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -23,8 +24,9 @@ const (
 	// costs two per KB, so a transaction far above this is refused however long it waits.
 	maxTransactionBytes = 256 << 10
 	maxReadTries        = 5
-	// maxThrottleWaits waits out the partition's write rate for about 15 seconds, inside the API's 25. Past it the device
-	// tries again later, and what landed stays.
+	// maxThrottleWaits waits out the partition's write rate for about 15 seconds when each throttle comes straight back.
+	// A throttle the SDK retried first has spent its own backoff too, so throttleBudget also stops the waits. Past
+	// either the device tries again later, and what landed stays.
 	maxThrottleWaits = 20
 )
 
@@ -34,6 +36,9 @@ var ErrConflict = errors.New("sync: counter kept moving")
 
 // throttleWait is how long to wait before sending a throttled transaction again for the try-th time.
 var throttleWait = func(try int) time.Duration { return min(time.Duration(try+1)*100*time.Millisecond, time.Second) }
+
+// throttleBudget is how long one push waits out throttling, to stop inside the API's 25 seconds.
+var throttleBudget = 15 * time.Second
 
 // DB is the part of DynamoDB the store uses, so tests can inject what DynamoDB Local never does.
 type DB interface {
@@ -88,6 +93,8 @@ func (s *Store) Sync(ctx context.Context, sub string, cursor int64, changes []Ch
 func (s *Store) Push(ctx context.Context, sub string, cursor int64, changes []Change) (Stats, error) {
 	changes = combine(changes)
 	var stats Stats
+	// One budget across every attempt, so a conflict between throttles doesn't start it again.
+	giveUp := time.Now().Add(throttleBudget)
 	for attempt := 1; ; attempt++ {
 		state, err := s.read(ctx, sub, changes)
 		if err != nil {
@@ -102,7 +109,7 @@ func (s *Store) Push(ctx context.Context, sub string, cursor int64, changes []Ch
 		if err != nil {
 			return stats, err
 		}
-		written, counter, err := s.write(ctx, sub, state, merged)
+		written, counter, err := s.write(ctx, sub, state, merged, giveUp)
 		stats.Merged += written
 		if err == nil {
 			stats.counter = counter
@@ -243,8 +250,8 @@ func mergeAll(changes []Change, stored map[string]Fields) ([]mergedRecord, error
 
 // write commits records in transactions under DynamoDB's size limit. Each one is conditional on the counter, so sequence
 // numbers can't appear out of order. If a later one fails, the retry's read finds the earlier ones already merged. It
-// returns how many records it committed and the counter after them.
-func (s *Store) write(ctx context.Context, sub string, state storedState, records []mergedRecord) (int, int64, error) {
+// stops waiting out throttles at giveUp, and returns how many records it committed and the counter after them.
+func (s *Store) write(ctx context.Context, sub string, state storedState, records []mergedRecord, giveUp time.Time) (int, int64, error) {
 	counter, exists, written := state.counter, state.exists, 0
 	for len(records) > 0 {
 		n, bytes := 0, 0
@@ -268,8 +275,9 @@ func (s *Store) write(ctx context.Context, sub string, state storedState, record
 			if err == nil {
 				break
 			}
-			// A throttled transaction wrote nothing, so the same one, with the same counter condition, can go again.
-			if !isThrottled(err) || try == maxThrottleWaits {
+			// A throttled transaction wrote nothing, so the same one, with the same counter condition, can go again. One the
+			// SDK found still in progress may yet land, but it has that condition too, so at most one of them commits.
+			if !isThrottled(err) || try == maxThrottleWaits || time.Now().After(giveUp) {
 				return written, counter, err
 			}
 			select {
@@ -326,6 +334,16 @@ func counterUpdate(table, sub string, old, next int64, exists bool) types.Transa
 	return types.TransactWriteItem{Update: update}
 }
 
+// throttleCodes are the throttles that come back as an exception rather than as a cancelled transaction. The SDK retries
+// each of these itself first, and hands the last one back wrapped in its retry error.
+var throttleCodes = map[string]bool{
+	"ProvisionedThroughputExceededException": true,
+	"ThrottlingException":                    true,
+	"RequestLimitExceeded":                   true,
+	// The SDK resent the request with the same token while its first try was still landing.
+	"TransactionInProgressException": true,
+}
+
 func isThrottled(err error) bool {
 	var canceled *types.TransactionCanceledException
 	if errors.As(err, &canceled) {
@@ -334,8 +352,31 @@ func isThrottled(err error) bool {
 			return code == "ThrottlingError" || code == "ProvisionedThroughputExceeded"
 		})
 	}
-	var throughput *types.ProvisionedThroughputExceededException
-	return errors.As(err, &throughput)
+	var coded interface{ ErrorCode() string }
+	return errors.As(err, &coded) && throttleCodes[coded.ErrorCode()]
+}
+
+// ErrorAttrs names an AWS error for a log line: its code, a cancelled transaction's reason codes in item order, and how
+// many tries the SDK made before giving up. Only codes and counts, since a message can quote the request.
+func ErrorAttrs(err error) []any {
+	var attrs []any
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		attrs = append(attrs, "aws_error", coded.ErrorCode())
+	}
+	var canceled *types.TransactionCanceledException
+	if errors.As(err, &canceled) {
+		reasons := make([]string, len(canceled.CancellationReasons))
+		for i, reason := range canceled.CancellationReasons {
+			reasons[i] = aws.ToString(reason.Code)
+		}
+		attrs = append(attrs, "cancellation_reasons", reasons)
+	}
+	var attempts *retry.MaxAttemptsError
+	if errors.As(err, &attempts) {
+		attrs = append(attrs, "aws_attempts", attempts.Attempt)
+	}
+	return attrs
 }
 
 func isConflict(err error) bool {

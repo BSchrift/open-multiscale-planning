@@ -54,8 +54,9 @@ func TestEveryRecordTypeRoundTrips(t *testing.T) {
 	a := signIn(t)
 	start := a.startCursor()
 	var changes []record
+	// The last is a type no app has yet: an app that adds one can be released before the server.
 	for _, recordType := range []string{"objective", "project", "milestone", "task", "task_completion", "time_block", "block_outcome",
-		"week_plan", "week_pick", "away_period", "settings", "calendar", "calendar_source", "practice"} {
+		"week_plan", "week_pick", "away_period", "settings", "calendar", "calendar_source", "practice", "a_type_no_app_has_yet"} {
 		changes = append(changes, a.record(recordType, fresh("r"), "note", recordType))
 	}
 	a.sync(start, changes...)
@@ -494,7 +495,7 @@ func TestABadRecordRefusesTheWholeBatch(t *testing.T) {
 	a := signIn(t)
 	good := fresh("good")
 	before := a.startCursor()
-	res := a.send(before, a.record("task", good, "title", "fine"), record{"nonsense", fresh("bad"), map[string]field{"x": {1, a.clock()}}})
+	res := a.send(before, a.record("task", good, "title", "fine"), record{"Not a type", fresh("bad"), map[string]field{"x": {1, a.clock()}}})
 	if res.status != 400 {
 		t.Fatalf("%d", res.status)
 	}

@@ -1,5 +1,5 @@
-// Command check loads staging.yaml or prod.yaml from the config folder with the same strict loader the Lambdas run at
-// startup, so make deploy stops on a file they would refuse instead of shipping it.
+// Command check loads staging.yaml or prod.yaml from the config folder with the strict loader the integration suite
+// reads it with, so make deploy stops on a file the suite would refuse instead of deploying from it.
 // Usage: go run ./cmd/check <staging|prod>
 package main
 

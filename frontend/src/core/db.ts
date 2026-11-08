@@ -10,7 +10,8 @@
 //   index on a JSON expression then can't be used. Stored ids are still text.
 // - Statistics must exist, so `PRAGMA optimize=0x10002` runs at each open.
 // - Filter a JSON field in a subquery, not a LEFT JOIN onto a view.
-// Views are read-only conveniences with one column per field, rebuilt at every open. Writes go through records.ts only.
+// Views are read-only conveniences with one column per field, rebuilt at open when they differ from this code's. Writes
+// go through records.ts only.
 
 import { RECORD_TYPES } from './types';
 import type { RecordMap, RecordType } from './types';
@@ -210,7 +211,7 @@ export interface Migration {
 }
 
 /**
- * Append only. New record fields need no migration: unknown JSON fields just work, and every open rebuilds the views.
+ * Append only. New record fields need no migration: unknown JSON fields just work, and opening rebuilds the views.
  * A device can roll back to the bundle before, so a migration should leave a database that bundle can still use, and
  * otherwise be marked breaking. Bundles up to c88b04d refuse any version above 4, so version 5 must wait until no
  * device can roll back to one of them.
@@ -309,10 +310,10 @@ function randomDeviceId(): string {
 }
 
 /**
- * Prepares a raw connection and returns the Db: applies pending migrations, each in its own transaction, rebuilds the
- * views, makes sure this device has an id, and refreshes planner statistics. A database a newer bundle migrated still
- * opens, since an update that fails its trial goes back to the bundle before it. Throws only when a breaking
- * migration says this app can't use the database, rather than risk damaging it.
+ * Prepares a raw connection and returns the Db: applies pending migrations, each in its own transaction, rebuilds any
+ * view that differs from this code's, makes sure this device has an id, and refreshes planner statistics. A database a
+ * newer bundle migrated still opens, since an update that fails its trial goes back to the bundle before it. Throws
+ * only when a breaking migration says this app can't use the database, rather than risk damaging it.
  */
 export async function openDb(driver: SqlDriver, migrations: readonly Migration[] = MIGRATIONS): Promise<Db> {
   const { version: current, minApp } = await schemaState(driver);
@@ -327,8 +328,11 @@ export async function openDb(driver: SqlDriver, migrations: readonly Migration[]
       if (migration.breaking) await driver.run(UPSERT_META, [META.minAppSchema, String(migration.version)]);
     });
   }
-  // From this code's fields, so after a newer bundle rolls back, the one running reads the columns it expects.
-  await inTransaction(driver, () => driver.exec(RECORD_TYPES.map((type) => `DROP VIEW IF EXISTS ${type}; ${viewSql(type)}`).join(';\n')));
+  // From this code's fields, so after a newer bundle rolls back, the one running reads the columns it expects. Only those
+  // that differ, so an ordinary open writes nothing.
+  const views = await driver.all("SELECT name, sql FROM sqlite_master WHERE type = 'view'", []);
+  const stale = RECORD_TYPES.filter((type) => views.find((v) => v.name === type)?.sql !== viewSql(type));
+  if (stale.length) await inTransaction(driver, () => driver.exec(stale.map((type) => `DROP VIEW IF EXISTS ${type}; ${viewSql(type)}`).join(';\n')));
 
   const db = createDb(driver);
   if (!(await getMeta(db, META.deviceId))) await setMeta(db, META.deviceId, randomDeviceId());

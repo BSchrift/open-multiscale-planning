@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import initSqlJs from 'sql.js';
 import { describe, expect, it, vi } from 'vitest';
 import { clockWins, fixedClock, formatClock, nextClock, observeClock, parseClock } from './clock';
 import {
@@ -25,7 +26,7 @@ import {
 } from './dates';
 import { createDb, getMeta, META, MIGRATIONS, openDb, RECORD_FIELDS, setMeta, toPositional } from './db';
 import { QUERY_INDEX } from './queries';
-import type { DbChange, Migration } from './db';
+import type { DbChange, Migration, SqlDriver } from './db';
 import {
   applyRemote,
   getRecord,
@@ -43,6 +44,7 @@ import {
 import { RECORD_TYPES } from './types';
 import type { RecordChange } from './types';
 import { nodeSqliteDriver, openTestDb } from '../platform/node-sqlite';
+import { sqlJsDriver } from '../platform/sqljs-driver';
 
 const clock = fixedClock('2026-11-02T15:00:00Z', 'America/Chicago');
 
@@ -277,6 +279,35 @@ describe('db', () => {
       const names = (await db.all<{ name: string }>(`PRAGMA table_info(${type})`)).map((c) => c.name);
       expect(names, type).toEqual(expect.arrayContaining(columns));
     }
+  });
+
+  // SQLite keeps a view's text as given, so it compares the same in each build the app uses.
+  it.each([
+    ['this platform', async () => nodeSqliteDriver()],
+    ['sql.js', async () => sqlJsDriver(new (await initSqlJs()).Database())],
+  ])('writes nothing on an open that finds the views as this code makes them, on %s', async (_, make) => {
+    const inner = await make();
+    await openDb(inner);
+    const writes: string[] = [];
+    const driver: SqlDriver = {
+      ...inner,
+      exec: async (sql) => {
+        writes.push(sql);
+        await inner.exec(sql);
+      },
+      run: async (sql, values) => {
+        writes.push(sql);
+        await inner.run(sql, values);
+      },
+    };
+    await openDb(driver);
+    expect(writes).toEqual([]);
+
+    // One view gone: only that one is made again.
+    await inner.exec('DROP VIEW week_pick');
+    await openDb(driver);
+    expect(writes.join('\n')).toMatch(/CREATE VIEW week_pick /);
+    expect(writes.join('\n')).not.toMatch(/CREATE VIEW task /);
   });
 
   it('opens a database a newer bundle left behind, with views rebuilt from this code', async () => {

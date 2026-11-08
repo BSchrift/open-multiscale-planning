@@ -867,6 +867,61 @@ func TestRunEmitsEMFAndNoValues(t *testing.T) {
 	}
 }
 
+// hookedRecords calls before ahead of each List, so a test can act at a set point inside a run.
+type hookedRecords struct {
+	*memRecords
+	before func(recordType string)
+}
+
+func (h hookedRecords) List(ctx context.Context, sub, recordType string) ([]sync.Change, error) {
+	h.before(recordType)
+	return h.memRecords.List(ctx, sub, recordType)
+}
+
+// A run reads the connection when it starts. Another user's consent can take it over before the run's last writes, or
+// this user disconnect, and either has already shown this user unconnected. Writing on would show them connected again,
+// with events the app counts as busy time, or an error to fix.
+func TestARunWritesNothingMoreOnceItsConnectionIsGone(t *testing.T) {
+	for name, c := range map[string]struct {
+		during string
+		gone   func(w *world)
+	}{
+		"taken over":                  {"calendar_source", func(w *world) { w.connect("someone-else") }},
+		"taken over before a failure": {"time_block", func(w *world) { w.connect("someone-else"); w.fake.RateLimit(1) }},
+		"disconnected": {"calendar_source", func(w *world) {
+			if err := w.g.Disconnect(context.Background(), testSub); err != nil {
+				w.t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			w.connect(testSub)
+			w.fake.AddCalendar("home@example.test", "Home")
+			w.run()
+			w.fake.AddEvent("home@example.test", &calendar.Event{
+				Summary: "Team lunch",
+				Start:   &calendar.EventDateTime{DateTime: at(1).Format(time.RFC3339)},
+				End:     &calendar.EventDateTime{DateTime: at(2).Format(time.RFC3339)},
+			})
+			happened := false
+			w.g.Records = hookedRecords{w.records, func(recordType string) {
+				if recordType == c.during && !happened {
+					happened = true
+					c.gone(w)
+				}
+			}}
+			w.now = w.now.Add(time.Minute)
+			if err := w.g.Run(context.Background(), "schedule", "r"); err != nil || !happened {
+				t.Fatalf("%v, happened %v", err, happened)
+			}
+			if rec := w.calendarRecord(testSub); rec["connected"].V != false || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
+				t.Fatalf("%+v", rec)
+			}
+		})
+	}
+}
+
 func TestStoreFailureThatCannotBeRecordedIsReturned(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)

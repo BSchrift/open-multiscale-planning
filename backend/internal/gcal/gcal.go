@@ -120,9 +120,29 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 		})...)...)
 		return nil
 	}
+	if errors.Is(err, errConnectionGone) {
+		// A success: a disconnect or another user's consent ended it, and has already said so in the record.
+		finish(append([]any{"outcome", "connection_gone"}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarEventsChanged": counts.changed(), "CalendarRunFailures": 0,
+		})...)...)
+		return nil
+	}
 	code := errorCode(err)
 	finish(failed(code)...)
-	return g.recordFailure(ctx, conn.Sub, code)
+	return g.recordFailure(ctx, conn, code)
+}
+
+// errConnectionGone stops a run whose connection ended while it ran.
+var errConnectionGone = errors.New("gcal: the connection ended during the run")
+
+// stillConnected reports whether conn is still the connection. A disconnect or another user's consent can end it while a
+// run is under way, and either has already shown this user unconnected, which the run's own writes would undo.
+func (g *Google) stillConnected(ctx context.Context, conn connection) (bool, error) {
+	current, err := g.connection(ctx)
+	if errors.Is(err, ErrNoSecret) {
+		return false, nil
+	}
+	return err == nil && current.Sub == conn.Sub, err
 }
 
 func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
@@ -164,6 +184,13 @@ func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
 	events, sourceChanges, err := g.readSources(ctx, svc, conn.Sub, ensured, from, to, &counts)
 	if err != nil {
 		return counts, err
+	}
+	still, err := g.stillConnected(ctx, conn)
+	if err != nil {
+		return counts, err
+	}
+	if !still {
+		return counts, errConnectionGone
 	}
 	if len(sourceChanges) > 0 {
 		if _, err := g.Records.Push(ctx, conn.Sub, 0, sourceChanges); err != nil {
@@ -570,8 +597,11 @@ func (g *Google) change(recordType, id string, stored sync.Fields, values map[st
 	return sync.Change{Type: recordType, ID: id, Fields: fields}
 }
 
-func (g *Google) recordFailure(ctx context.Context, sub, code string) error {
-	stored, err := g.calendarRecord(ctx, sub)
+func (g *Google) recordFailure(ctx context.Context, conn connection, code string) error {
+	if still, err := g.stillConnected(ctx, conn); err != nil || !still {
+		return err
+	}
+	stored, err := g.calendarRecord(ctx, conn.Sub)
 	if err != nil {
 		return err
 	}
@@ -579,7 +609,7 @@ func (g *Google) recordFailure(ctx context.Context, sub, code string) error {
 	if code == ErrorRevoked {
 		values["connected"] = false
 	}
-	return g.writeCalendar(ctx, sub, stored, values)
+	return g.writeCalendar(ctx, conn.Sub, stored, values)
 }
 
 func errorCode(err error) string {

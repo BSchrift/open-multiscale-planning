@@ -1,6 +1,7 @@
 // The checks a person would make by hand after a release, against the deployment itself: it serves the version
 // released, behind its security policy; the test user signs in through the hosted page and stays signed in; a second
-// tab is refused; and on desktop, work goes from Capture to the calendar and back. scripts/test-deployed.sh runs it.
+// tab is refused; and on desktop, the data is on OPFS, and work goes from Capture to the calendar and back.
+// scripts/test-deployed.sh runs it.
 
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
@@ -75,10 +76,22 @@ test('signs in through the hosted page as the test user, and stays signed in aft
     }
   }
   await expect(nav).toBeVisible(NETWORK);
-  // The browser build saves 200ms after a change, and a reload sooner loses it.
+  // Without OPFS, as in phone's WebKit here, the browser build saves 200ms after a change, and a reload sooner loses it.
   await page.waitForTimeout(1000);
   await page.reload();
   await expect(nav).toBeVisible(NETWORK);
+});
+
+test('keeps its data on OPFS, through a worker and WebAssembly the security policy allows', async ({}, info) => {
+  test.skip(info.project.name !== 'desktop', 'Phone runs WebKit, which has no OPFS in an ephemeral context, as Safari has none in a private window');
+  const pool = await page.evaluate(async () => {
+    try {
+      return !!(await (await navigator.storage.getDirectory()).getDirectoryHandle('.opfs-sahpool'));
+    } catch {
+      return false;
+    }
+  });
+  expect(pool).toBe(true);
 });
 
 test('a second tab is refused while the first holds the database', async () => {

@@ -1,6 +1,8 @@
+import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import initSqlJs from 'sql.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
+import { sqliteWasmDriver } from '../platform/sqlite-wasm-driver';
 import { sqlJsDriver } from '../platform/sqljs-driver';
 import { openDb, refreshStatistics } from './db';
 import type { Db } from './db';
@@ -180,6 +182,10 @@ describe('query answers on sql.js', () => {
   answers(async () => openDb(sqlJsDriver(new (await initSqlJs()).Database())));
 });
 
+describe('query answers on SQLite Wasm', () => {
+  answers(async () => openDb(sqliteWasmDriver(new (await sqlite3InitModule()).oo1.DB(':memory:'))));
+});
+
 function plans(open: () => Promise<Db>) {
   let db: Db;
   beforeAll(async () => {
@@ -199,4 +205,8 @@ describe('query plans on node:sqlite', () => {
 
 describe('query plans on sql.js', () => {
   plans(async () => openDb(sqlJsDriver(new (await initSqlJs()).Database())));
+});
+
+describe('query plans on SQLite Wasm', () => {
+  plans(async () => openDb(sqliteWasmDriver(new (await sqlite3InitModule()).oo1.DB(':memory:'))));
 });

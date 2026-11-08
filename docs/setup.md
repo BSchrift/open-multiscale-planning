@@ -447,6 +447,13 @@ Then it runs `make test-deployed` against what it just released, checking the we
 
 The web app keeps its data in the browser and syncs like the apps. It opens in one tab at a time, and it doesn't send reminders.
 
+Where the browser keeps it:
+
+- **In SQLite on the browser's private file system (OPFS)**, run in a worker, in browsers released since March 2023, Safari 16.4 or later among them. Each change is on disk once it's saved, so a reload straight after an edit keeps it, and an edit takes the same time however long the history is.
+- **In memory, saved whole to IndexedDB** 200 ms after each change, where OPFS isn't available, such as a private window in Safari. A reload within those 200 ms loses the last change. This is how every browser kept it before OPFS.
+- **Moving to OPFS** happens the first time a browser opens a bundle with OPFS: it copies the database file from IndexedDB, and leaves that file where it is.
+- **For one release, the file in IndexedDB stays current.** The OPFS bundle copies its whole database there 200 ms after each change, in its worker once the change is saved, so a rollback to the bundle before still finds every change but the last 200 ms. If that older bundle then changes the file, the OPFS bundle takes it back the next time it opens. Once no one can go back to a bundle from before OPFS, a later release drops this copy, as the `shortcut:` in `frontend/src/platform/opfs.worker.ts` says. It keeps the first move from IndexedDB, for browsers that skip a release.
+
 The first release makes the signing key, `<env>.release-key.pem`, in your config folder. Apps built after that carry its public half and install only bundles it signed, so keep it backed up. A lost key means building and installing the apps again with a new one.
 
 How the apps update:

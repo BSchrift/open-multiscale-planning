@@ -102,7 +102,8 @@ test.describe('one device', () => {
 
   /** Quits the app once its last change is saved, and opens it on the other bundle, as an update or a rollback does. */
   async function relaunch(page: Page, name: Bundle, errors: string[]): Promise<Page> {
-    // The browser build saves 200ms after the last change, and a tab closed sooner loses it (platform/web.ts).
+    // The bundle before OPFS saves 200ms after the last change, and this one copies its database to IndexedDB for that
+    // bundle as late, so a tab closed sooner loses it (platform/opfs.worker.ts).
     await page.waitForTimeout(600);
     const context = page.context();
     await page.close();

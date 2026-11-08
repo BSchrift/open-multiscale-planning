@@ -48,4 +48,8 @@ export default defineConfig({
   // capacitor:// on iPhone serve the bundle at their root too.
   base: '/',
   build: { outDir: 'dist', sourcemap: true },
+  // The OPFS database worker (platform/opfs.worker.ts) is a module, as SQLite's WebAssembly build is.
+  worker: { format: 'es' },
+  // As SQLite's WebAssembly build asks. Only the worker imports it, so prebundling would find it late and reload the page.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
 });

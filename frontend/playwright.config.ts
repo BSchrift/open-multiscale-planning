@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Screens run against the browser build with its in-memory database.
+// Screens run against the browser build: its database is on OPFS in desktop Chromium, and in memory and IndexedDB in
+// phone WebKit, whose ephemeral contexts have no OPFS. storage.spec.ts opens a profile on disk to reach OPFS in both.
 // Each test gets a fresh browser context, so it starts from an empty, first-run app.
 // E2E_PORT gives a run its own dev server, so runs side by side don't share one.
 const port = Number(process.env.E2E_PORT) || 5183;

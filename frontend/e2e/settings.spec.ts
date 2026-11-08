@@ -85,7 +85,8 @@ test('edits settings in place', async ({ page }, info) => {
   const lunch = hours.getByRole('group', { name: 'Unavailable, 12pm to 1pm' });
   await lunch.getByRole('combobox', { name: 'Days' }).selectOption('weekdays');
   await expect(hours.getByText(/^100h a week for projects and 100h for one offs/)).toBeVisible();
-  await lunch.getByRole('checkbox', { name: 'One offs' }).uncheck();
+  // A click, as uncheck() wants the box changed at once, and it shows what was saved, a moment later.
+  await lunch.getByRole('checkbox', { name: 'One offs' }).click();
   await expect(hours.getByText(/^100h a week for projects and 105h for one offs/)).toBeVisible();
   await lunch.getByRole('button', { name: 'Remove 12pm to 1pm' }).click();
   await expect(hours.getByRole('group', { name: /^Unavailable, / })).toHaveCount(1);
@@ -112,7 +113,7 @@ test('edits settings in place', async ({ page }, info) => {
   const rem = p.getByRole('region', { name: 'Reminders' });
   await rem.getByRole('slider', { name: 'After' }).fill('15');
   await expect(rem.getByText('15 minutes')).toBeVisible();
-  await rem.getByRole('checkbox', { name: "Ask if I've started, unless I already tapped Start" }).uncheck();
+  await rem.getByRole('checkbox', { name: "Ask if I've started, unless I already tapped Start" }).click();
   await expect(rem.getByRole('slider', { name: 'After' })).toHaveCount(0);
 
   if (phone) await expectTargets(p.locator('button, select, input:not([type=checkbox]), label.taskrow'));

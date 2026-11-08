@@ -117,6 +117,8 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await jumpTo(page, chicago('2026-11-02', '18:17'));
   await check.getByRole('button', { name: 'Yes, started' }).click();
   await expect(now.getByRole('heading', { name: 'Write the opening scene' })).toBeVisible();
+  // Saved before the clock moves on, or the block would have started at the later time.
+  await expect(now.getByText('In progress, time left')).toBeVisible();
 
   // The second block ends: Partly, with the time left on the estimate slider.
   await jumpTo(page, chicago('2026-11-02', '19:31'));
@@ -129,7 +131,8 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
 
   // Needs a new time: give it one.
-  await page.getByRole('button', { name: phone ? '1 task needs a new time Review' : 'Review' }).click();
+  // The queue's own Review: until Today reads the answer back, the alert in its place reviews the missed block.
+  await (phone ? page.getByRole('button', { name: '1 task needs a new time Review' }) : page.getByRole('status').filter({ hasText: 'Needs a new time' }).getByRole('button', { name: 'Review' })).click();
   const queue = phone ? page.getByRole('dialog', { name: 'Needs a new time' }) : page.getByRole('region', { name: 'Needs a new time' });
   await expect(queue.getByText('Partly done today, 45m left')).toBeVisible();
   if (phone) {

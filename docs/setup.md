@@ -149,7 +149,7 @@ To add a zone to staging or prod later, set its `dns.zone`, run `make deploy ENV
 make deploy
 ```
 
-`ENV=staging` is the default. This checks `staging.yaml`, builds both Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`ENV=staging` is the default. This checks `staging.yaml`, builds the three Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 
@@ -266,9 +266,15 @@ make smoke
 
 Both read `staging.yaml` and `staging.outputs.json` from your config folder, and the test-user passwords from SSM with the file's profile and region. The suite signs in with the stack's test client, which allows password sign-in; the app's client doesn't.
 
-The suite signs in as the test user, uses unique ids per run and cleans up. Its records stay behind as deleted rows in the test user's data, since sync never removes a row. Run one suite at a time against a deployment. Tests that need a fake clock or injected failures are listed as skipped. Google checks skip unless `testCalendar` is set. `make smoke` is the fast subset, and also confirms that a log line and the `SyncRecordsMerged` and `ItemCollectionSizeGB` metrics arrive in CloudWatch, which can take a few minutes. The second shows DynamoDB reporting each user's size, which the alarm in [sync.md](sync.md) watches. It warns if the calendar worker hasn't run yet, which is normal within 30 minutes of a first deploy.
+The suite signs in as the test user, uses unique ids per run and cleans up. Its records stay behind as deleted rows in the test user's data until the deleted period ends, minutes on staging and 30 days on prod, as [retention.md](retention.md) describes. Run one suite at a time against a deployment. Tests that need a fake clock or injected failures are listed as skipped. Google checks skip unless `testCalendar` is set. `make smoke` is the fast subset, and also confirms that a log line and the `SyncRecordsMerged` and `ItemCollectionSizeGB` metrics arrive in CloudWatch, which can take a few minutes. The second shows DynamoDB reporting each user's size, which the alarm in [sync.md](sync.md) watches. It warns if the calendar worker hasn't run yet, which is normal within 30 minutes of a first deploy.
 
 Check the `Multiscale-staging` dashboard under **CloudWatch > Dashboards**. Nothing should be red.
+
+Then the retention suite, which writes one record of each kind as the test user and waits out staging's periods, minutes long, while staging's cleanup removes what expires. It takes about 25 minutes, and `make test-deployed` runs it too:
+
+```sh
+make test-retention
+```
 
 The browser tests can also sign in to staging, as two devices of the same test user. They run the app at `http://localhost:5199`, so Cognito has to allow that as a sign-in callback. Add `http://localhost:5199/auth/callback` to `auth.signInCallbackUrls` in `staging.yaml`, run `make deploy` again, then:
 
@@ -431,6 +437,7 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | Let staging and prod delegate from the domain | `make deploy ENV=control` |
 | Check a deployment's wiring | `make smoke` |
 | Every suite against a deployment | `make test-deployed`, `make test-deployed ENV=prod CONFIRM_PROD=yes` |
+| Watch records expire on staging | `make test-retention` |
 | Unit and integration suites, no AWS | `make test` |
 | App and iPhone tests, no AWS | `make test-e2e`, `make test-ios` |
 | A five-year account timed against its budgets | `make test-history`, `make test-history ENV=staging` |
@@ -486,3 +493,5 @@ export AWS_PROFILE=multiscale-prod AWS_REGION=us-west-2
 aws dynamodb put-item --table-name "$(out prod TableName)" \
   --item "{\"pk\":{\"S\":\"meta\"},\"sk\":{\"S\":\"generation\"},\"value\":{\"S\":\"$(uuidgen)\"}}"
 ```
+
+Restored items keep their `expires_at`, so TTL removes any that expired since the backup, as [retention.md](retention.md) describes.

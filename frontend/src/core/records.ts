@@ -30,7 +30,7 @@ export const CALENDAR_ID = 'calendar';
 const OUTCOME_PREFIX = 'outcome:';
 
 /** Ids are printable ASCII. The server enforces the same rule. */
-export const ID_PATTERN = /^[\x21-\x7e]{1,200}$/;
+export const ID_PATTERN = new RegExp(protocol.records.idPattern);
 
 let lastIdMs = 0;
 let idSequence = 0;

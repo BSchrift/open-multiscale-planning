@@ -4,6 +4,7 @@
 // person wrote. The server drops anything else too. The app loads this file after it starts, so the SDK never slows
 // startup or capture.
 
+import { protocol } from '@multiscale/config';
 import type { AnyValueMap } from '@opentelemetry/api-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -33,7 +34,8 @@ export interface Diagnostics {
 }
 
 const FLUSH_MS = 60_000;
-const MAX_QUEUED = 200;
+/** The most the server keeps from one send, from config/protocol.yaml. */
+const MAX_QUEUED = protocol.telemetry.maxBatchEvents;
 
 /** Where an error was thrown, as a path in the app's files, never its message. */
 function errorPlace(event: ErrorEvent): Attributes {

@@ -39,8 +39,8 @@ const (
 )
 
 var (
-	idPattern    = regexp.MustCompile(`^[\x21-\x7e]{1,200}$`)
-	clockPattern = regexp.MustCompile(`^\d{13}-\d{6}-[\x21-\x7e]+$`)
+	idPattern    = regexp.MustCompile(config.Protocol.Records.IDPattern)
+	clockPattern = regexp.MustCompile(config.Protocol.Clock.Pattern)
 	// Any type, not a list: an app with a new one may be released before the server knows it. No # either, so the
 	// sort key still splits into type and id.
 	typePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)

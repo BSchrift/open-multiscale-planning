@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -27,7 +28,10 @@ var builtIn embed.FS
 var Protocol = mustLoad(builtIn)
 
 type ProtocolConfig struct {
-	Sync Sync `yaml:"sync" json:"sync"`
+	Sync      Sync      `yaml:"sync" json:"sync"`
+	Records   Records   `yaml:"records" json:"records"`
+	Clock     Clock     `yaml:"clock" json:"clock"`
+	Telemetry Telemetry `yaml:"telemetry" json:"telemetry"`
 }
 
 // Sync is the sync API's limits.
@@ -38,6 +42,20 @@ type Sync struct {
 	ClientBatchBytes   int `yaml:"clientBatchBytes" json:"clientBatchBytes"`
 	MaxBodyBytes       int `yaml:"maxBodyBytes" json:"maxBodyBytes"`
 	MaxClockAheadHours int `yaml:"maxClockAheadHours" json:"maxClockAheadHours"`
+}
+
+type Records struct {
+	IDPattern string `yaml:"idPattern" json:"idPattern"`
+}
+
+// Clock is the format of a field's clock.
+type Clock struct {
+	Pattern    string `yaml:"pattern" json:"pattern"`
+	MaxCounter int    `yaml:"maxCounter" json:"maxCounter"`
+}
+
+type Telemetry struct {
+	MaxBatchEvents int `yaml:"maxBatchEvents" json:"maxBatchEvents"`
 }
 
 const (
@@ -59,6 +77,15 @@ func (p ProtocolConfig) check() []string {
 	}
 	if s.MaxBodyBytes > lambdaRequestBytes-eventRoomBytes {
 		problems = append(problems, fmt.Sprintf("sync.maxBodyBytes is %d, leaving the request no room under Lambda's %d", s.MaxBodyBytes, lambdaRequestBytes))
+	}
+	if _, err := regexp.Compile(p.Records.IDPattern); err != nil {
+		problems = append(problems, fmt.Sprintf("records.idPattern doesn't compile: %v", err))
+	}
+	// The apps read a clock's wall time, counter and device from its groups.
+	if clock, err := regexp.Compile(p.Clock.Pattern); err != nil {
+		problems = append(problems, fmt.Sprintf("clock.pattern doesn't compile: %v", err))
+	} else if clock.NumSubexp() != 3 {
+		problems = append(problems, fmt.Sprintf("clock.pattern has %d groups, not the 3 for wall time, counter and device", clock.NumSubexp()))
 	}
 	return problems
 }
@@ -148,7 +175,7 @@ func fields(t reflect.Type, prefix string) []string {
 	return out
 }
 
-// positive names every number that isn't above zero. Every limit and count here needs to be.
+// positive names every number that isn't above zero and every empty string. Every limit and count here needs a value.
 func positive(v reflect.Value, prefix string) []string {
 	var problems []string
 	for i := range v.NumField() {
@@ -159,6 +186,10 @@ func positive(v reflect.Value, prefix string) []string {
 		case reflect.Int:
 			if field.Int() <= 0 {
 				problems = append(problems, name+" must be positive")
+			}
+		case reflect.String:
+			if field.String() == "" {
+				problems = append(problems, name+" must be set")
 			}
 		}
 	}

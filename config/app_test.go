@@ -74,6 +74,10 @@ func TestRules(t *testing.T) {
 		{"a change past the transaction", []string{"maxChanges: 99", "maxChanges: 100"}, []string{"sync.maxChanges is 100"}},
 		{"a batch past the body", []string{"clientBatchBytes: 4194304", "clientBatchBytes: 5242880"}, []string{"sync.maxBodyBytes is 5242880"}},
 		{"a body past Lambda's", []string{"maxBodyBytes: 5242880", "maxBodyBytes: 6291456"}, []string{"sync.maxBodyBytes is 6291456"}},
+		{"an id pattern Go can't read", []string{`idPattern: '^[\x21-\x7e]{1,200}$'`, `idPattern: '^[\x21-\x7e{1,200}$'`}, []string{"records.idPattern doesn't compile"}},
+		{"an empty pattern", []string{`idPattern: '^[\x21-\x7e]{1,200}$'`, `idPattern: ''`}, []string{"records.idPattern must be set"}},
+		{"a clock without its parts", []string{`pattern: '^(\d{13})-(\d{6})-([\x21-\x7e]+)$'`, `pattern: '^\d{13}-\d{6}-[\x21-\x7e]+$'`}, []string{"clock.pattern has 0 groups"}},
+		{"no telemetry", []string{"maxBatchEvents: 200", "maxBatchEvents: 0"}, []string{"telemetry.maxBatchEvents must be positive"}},
 		{
 			"every problem at once",
 			[]string{"maxChanges: 99", "maxChanges: 0", "maxRecordBytes: 102400", "maxRecordBytes: 2097152"},

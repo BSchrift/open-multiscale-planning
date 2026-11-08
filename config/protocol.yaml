@@ -22,3 +22,20 @@ sync:
   maxBodyBytes: 5242880
   # How far ahead of the server's time a clock may be, so a device with a bad clock can't win every future conflict.
   maxClockAheadHours: 24
+
+# Go and JavaScript both read these patterns, so they keep to what both read alike: character classes, \d, \x escapes,
+# counts, groups and anchors.
+records:
+  # Record ids and field names: printable ASCII, 1 to 200 characters.
+  idPattern: '^[\x21-\x7e]{1,200}$'
+
+clock:
+  # A field's clock: its wall time in milliseconds, in 13 digits, a counter in 6, then the device's id. Clocks compare
+  # as text, so the widths are fixed. The groups are those three parts.
+  pattern: '^(\d{13})-(\d{6})-([\x21-\x7e]+)$'
+  # The highest counter 6 digits hold. A device past it moves its wall time on a millisecond.
+  maxCounter: 999999
+
+telemetry:
+  # Events in one POST /v1/logs. The app queues no more than this between sends, and the server keeps no more.
+  maxBatchEvents: 200

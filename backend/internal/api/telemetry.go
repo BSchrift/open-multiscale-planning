@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
+	"github.com/BSchrift/open-multiscale-planning/config"
 )
 
 // POST /v1/logs takes OpenTelemetry events in OTLP/HTTP JSON, the standard path and wire format, so the app could
@@ -18,10 +19,10 @@ import (
 // Only what a device says about how it runs is kept, never what a person wrote: listed events and attributes, numbers,
 // and strings that look like identifiers, so free text can't ride along in an allowed field.
 
-const (
-	maxTelemetryBytes   = 64 << 10
-	maxTelemetryRecords = 200
-)
+const maxTelemetryBytes = 64 << 10
+
+// The most the app sends at once, from config/protocol.yaml.
+var maxTelemetryRecords = config.Protocol.Telemetry.MaxBatchEvents
 
 var (
 	telemetryEvents = set("app.start", "app.last_session", "app.heartbeat", "app.hidden", "device.memory_warning", "exception",

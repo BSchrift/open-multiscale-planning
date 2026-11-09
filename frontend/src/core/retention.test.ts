@@ -22,7 +22,9 @@ describe('the committed policy', () => {
     const prod = loadRetention('prod', io);
     expect([prod.scheduling.iso, prod.closed.iso, prod.deleted.iso, prod.cleanup]).toEqual(['P2Y', 'P5Y', 'P30D', undefined]);
     const staging = loadRetention('staging', io);
-    expect([staging.deleted.minutes, staging.scheduling.minutes, staging.closed.minutes, staging.cleanup?.minutes]).toEqual([5, 10, 20, 1]);
+    // Each period ends more than two cleanup runs after the one before, so the deployed suite sees every stage apart.
+    expect([staging.deleted.minutes, staging.scheduling.minutes, staging.closed.minutes, staging.cleanup?.minutes]).toEqual([5, 20, 35, 5]);
+    expect(staging.cleanupReadUnitsPerSecond).toBe(500);
     expect(loadRetention('local', io)).toEqual(prod);
     expect(() => loadRetention('test', io)).toThrow(/prod, staging and local/);
   });
@@ -35,7 +37,11 @@ describe('the committed policy', () => {
     expect(() => loadRetention('prod', file(`${good}\n  cleanup: PT30S`))).toThrow(/cleanup must be whole minutes/);
     expect(() => loadRetention('prod', file(`${good}\n  keep: P1D`))).toThrow(/unknown key keep/);
     expect(() => loadRetention('prod', file('scheduling: P2Y\n  closed: P5Y'))).toThrow(/deleted is required/);
-    expect(loadRetention('staging', file(`${good}\n  cleanup: PT1M`)).cleanup?.minutes).toBe(1);
+    expect(loadRetention('staging', file(`${good}\n  cleanup: PT1M\n  cleanupReadUnitsPerSecond: 200`)).cleanup?.minutes).toBe(1);
+    // The cleanup reads the whole table, so it needs a budget, which a partition's 3,000 a second bounds.
+    expect(() => loadRetention('prod', file(`${good}\n  cleanup: PT1M`))).toThrow(/cleanupReadUnitsPerSecond is required/);
+    expect(() => loadRetention('prod', file(`${good}\n  cleanupReadUnitsPerSecond: 200`))).toThrow(/only with cleanup/);
+    expect(() => loadRetention('prod', file(`${good}\n  cleanup: PT1M\n  cleanupReadUnitsPerSecond: 3001`))).toThrow(/1 to 3000/);
   });
 
   it('reads ISO 8601 durations of whole numbers only', () => {

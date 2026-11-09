@@ -96,6 +96,8 @@ describe('the stack CloudFormation would deploy', () => {
       it(`has no dependency loop, for ${envName}${canary ? ' skipping the canary' : ''}`, () => {
         const stack = new MultiscaleStack(new App(), `Multiscale-${envName}`, {
           envName, config: shaped(envName, zone), control, backendDist: '/nonexistent', requireBinaries: false, canary,
+          // With the release pipeline set up, so its release role is in the walk too.
+          pipelineAccount: control.aws.account,
         });
         assert.deepEqual(cycles(Template.fromStack(stack).toJSON().Resources as Resources), []);
       });

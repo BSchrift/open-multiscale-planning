@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # The retention suite against staging (frontend/src/core/retention.stack.test.ts). The app's own client writes one record
 # of each kind as the test user, then waits out staging's periods from config/retention.yaml, minutes there, while
-# staging's cleanup runs each minute. At each period it checks that a new device doesn't get what expired, that devices
+# staging's cleanup runs every 5 minutes. At each period it checks that a new device doesn't get what expired, that devices
 # which had it removed it, that a device holding an old copy is reset, and that an old copy pushed late is dropped; at
-# the end, that the server holds none of it. About 25 minutes.
+# the end, that the server holds none of it. About 50 minutes.
 #   Staging only: ENV, if set, must be staging. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 set -euo pipefail
 

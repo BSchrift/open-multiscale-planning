@@ -20,7 +20,7 @@ import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
-import { PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -34,23 +34,26 @@ import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { loadRetention } from '../../config/retention.ts';
 import type { Config, ControlConfig, EnvName } from './config.ts';
 import { DELEGATION_ROLE_NAME } from './control-stack.ts';
+import { PIPELINE_ROLE_NAME, RELEASE_ROLE_NAME } from './pipeline-stack.ts';
 
 export interface MultiscaleStackProps {
   envName: EnvName;
   config: Config;
   /** Needed when config sets dns.zone: the zone is delegated from its domain, in its account. */
   control?: ControlConfig;
-  /** Holds api/, calendar/ and retention/, each a bootstrap put there by scripts/deploy.sh. */
+  /** Holds api/, calendar/, retention/ and canary/, each a bootstrap put there by scripts/deploy.sh. */
   backendDist: string;
   /** Set when deploying, so that a missing build fails instead of shipping the stand-in. */
   requireBinaries: boolean;
   /** 'skip' sends a new backend version all traffic at once, rather than by config/env's canary. The alarms still roll it back. */
   canary?: 'skip';
+  /** The control account, when control.yaml sets up the release pipeline there: it tests and publishes as this stack's release role. */
+  pipelineAccount?: string;
 }
 
 export class MultiscaleStack extends Stack {
   constructor(scope: Construct, id: string, props: MultiscaleStackProps) {
-    const { envName, config, control, backendDist, requireBinaries, canary } = props;
+    const { envName, config, control, backendDist, requireBinaries, canary, pipelineAccount } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
       terminationProtection: forEnv(envName).stack.terminationProtection,
@@ -114,7 +117,8 @@ export class MultiscaleStack extends Stack {
     //   - a job would read the whole table each run, or need an index that every write pays for, and pay for each delete;
     //   - late removal is safe: pulls leave out what has expired as soon as it has, the apps remove theirs by expires_at
     //     and the API drops changes to it, so only what was really removed needs the mark (internal/sync/expiry.go);
-    //   - staging's periods are minutes, so there alone a cleanup removes what TTL hasn't reached yet, every minute.
+    //   - staging's periods are minutes, so there alone a cleanup removes what TTL hasn't reached yet, every few minutes
+    //     (config/retention.yaml), paced to a read budget so its scan doesn't throttle the table.
     // The stream carries the old image because the mark is the removed item's sequence number.
     const table = new Table(this, 'Table', {
       partitionKey: { name: 'pk', type: AttributeType.STRING },
@@ -139,6 +143,7 @@ export class MultiscaleStack extends Stack {
     const apiLogs = functionLogs('ApiLogs');
     const calendarLogs = functionLogs('CalendarLogs');
     const retentionLogs = functionLogs('RetentionLogs');
+    const canaryLogs = functionLogs('CanaryLogs');
     const accessLogs = functionLogs('AccessLogs');
 
     const httpApi = new HttpApi(this, 'HttpApi', {
@@ -181,8 +186,9 @@ export class MultiscaleStack extends Stack {
       },
     });
 
-    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>) =>
+    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string) =>
       new LambdaFunction(this, functionId, {
+        functionName,
         runtime: Runtime.PROVIDED_AL2023,
         architecture: Architecture.ARM_64,
         handler: 'bootstrap',
@@ -296,6 +302,32 @@ export class MultiscaleStack extends Stack {
       });
     }
 
+    // The release canary (cmd/canary): a sync round trip, invoking the API directly as a made-up user of its own. Before
+    // a new API version takes traffic, CodeDeploy runs it against that version alone (Deployments, below). Every 5
+    // minutes a schedule runs it against the live alias, so a new version's share of traffic sees real requests even
+    // with one real user. It isn't split by a canary itself: it's what judges one.
+    // The alias by its ARN rather than the resource: the alias waits for the canary to be updated (Deployments, below).
+    const apiAliasArn = `${apiFunction.functionArn}:${apiAlias.aliasName}`;
+    // Named, so its alarm can name it too: the API's deployment group lists the alarm, and the canary may report to the
+    // group, so an alarm that referred to the function would make a loop. CodeDeployHook_ because the deployment
+    // group's role may invoke a hook only by that name, through its managed policy, AWSCodeDeployRoleForLambdaLimited.
+    // A grant of its own, made in the deploy that adds the hook, would race IAM, as the first staging deploy found.
+    const canaryName = `CodeDeployHook_multiscale-${envName}-canary`;
+    // Each of its three calls may wait out the API's 25 seconds.
+    const canaryFunction = goFunction('CanaryFunction', 'canary', canaryLogs, Duration.minutes(2), {
+      API_VERSION: apiFunction.currentVersion.functionArn,
+      API_ALIAS: apiAliasArn,
+    }, canaryName);
+    // Any version or alias of the API, by one pattern, so the grant is the same each release: one that named the new
+    // version would change in the deploy that runs the hook, and IAM takes a while to apply a change.
+    canaryFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [`${apiFunction.functionArn}:*`] }));
+    // A run retried would most likely reach the old version and pass, and its first failure is already counted.
+    canaryFunction.configureAsyncInvoke({ retryAttempts: 0 });
+    new Schedule(this, 'CanarySchedule', {
+      schedule: ScheduleExpression.rate(Duration.minutes(5)),
+      target: new LambdaInvoke(canaryFunction),
+    });
+
     // Alarms
 
     const topic = new Topic(this, 'AlarmTopic');
@@ -352,6 +384,10 @@ export class MultiscaleStack extends Stack {
       anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures')),
       // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
       anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
+      // One failed run is enough: a new version gets about 1 run in 20, so two in a row would almost never come.
+      anyFailure('CanaryFailures', "The release canary's sync round trip failed", new Metric({
+        namespace: 'AWS/Lambda', metricName: 'Errors', dimensionsMap: { FunctionName: canaryName }, statistic: 'Sum', period: fiveMinutes,
+      })),
     ];
     // The worker emits CalendarEventsChanged once per successful run, including runs that change nothing, so the
     // sample count is the number of successes.
@@ -386,15 +422,25 @@ export class MultiscaleStack extends Stack {
       trafficRouting: new TimeBasedCanaryTrafficRouting({ percentage: settings.canaryPercent, interval: Duration.minutes(settings.canaryMinutes) }),
     });
     const deploymentConfig = canary === 'skip' ? LambdaDeploymentConfig.ALL_AT_ONCE : canaryConfig;
-    for (const [id, alias] of [['Api', apiAlias], ['Calendar', calendarAlias], ['Retention', retentionAlias]] as const) {
-      new LambdaDeploymentGroup(this, `${id}Deployment`, {
+    const deployment = (id: string, alias: Alias) => {
+      const group = new LambdaDeploymentGroup(this, `${id}Deployment`, {
         application,
         alias,
         deploymentConfig,
         alarms: releaseAlarms,
         autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
       });
-    }
+      // The alias's update runs the deployment as this role, so it waits for the role and every policy on it.
+      alias.node.addDependency(group.role);
+      return group;
+    };
+    // Only the API has a check before traffic: the worker and retention can't be run on a made-up input without side
+    // effects, so their new versions are judged by the alarms alone.
+    deployment('Api', apiAlias).addPreHook(canaryFunction);
+    // The hook names the new version in its environment, so it has to be updated before the alias moves.
+    apiAlias.node.addDependency(canaryFunction);
+    deployment('Calendar', calendarAlias);
+    deployment('Retention', retentionAlias);
 
     // Dashboard
 
@@ -580,6 +626,29 @@ export class MultiscaleStack extends Stack {
         });
         new ARecord(this, `${id}Record`, { zone, recordName: host, target: RecordTarget.fromAlias(new CloudFrontTarget(distribution)) });
       }
+    }
+
+    // What the release pipeline (lib/pipeline-stack.ts) signs in as to test this environment and publish to it: the
+    // deployed suites' reads, and the release bucket. It deploys through CDK's bootstrap roles instead.
+    if (pipelineAccount && releaseBucket) {
+      const release = new Role(this, 'ReleaseRole', {
+        roleName: RELEASE_ROLE_NAME,
+        // By account and name rather than by the role itself, which IAM would need to exist before this.
+        assumedBy: new AccountPrincipal(pipelineAccount).withConditions({
+          ArnEquals: { 'aws:PrincipalArn': `arn:${this.partition}:iam::${pipelineAccount}:role/${PIPELINE_ROLE_NAME}` },
+        }),
+      });
+      // The test users' passwords, beside the Google secrets the Lambdas read.
+      release.addToPolicy(new PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/*-user-password` })],
+      }));
+      // Smoke: that logs and metrics arrive. GetMetricStatistics has no resource to scope it to.
+      release.addToPolicy(new PolicyStatement({ actions: ['logs:FilterLogEvents'], resources: [apiLogs.logGroupArn, calendarLogs.logGroupArn] }));
+      release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:GetMetricStatistics'], resources: ['*'] }));
+      // The outputs the app builds and suites read.
+      release.addToPolicy(new PolicyStatement({ actions: ['cloudformation:DescribeStacks'], resources: [this.stackId] }));
+      releaseBucket.grantReadWrite(release);
     }
 
     // Read by scripts/deploy.sh, scripts/smoke.sh and the setup guide.

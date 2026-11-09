@@ -19,8 +19,9 @@ func TestTheCommittedRetentionLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if staging.Deleted.Clock != 5*time.Minute || staging.Scheduling.Clock != 10*time.Minute || staging.Closed.Clock != 20*time.Minute ||
-		staging.Cleanup == nil || staging.Cleanup.Clock != time.Minute {
+	// Each period ends more than two cleanup runs after the one before, so the deployed suite sees every stage apart.
+	if staging.Deleted.Clock != 5*time.Minute || staging.Scheduling.Clock != 20*time.Minute || staging.Closed.Clock != 35*time.Minute ||
+		staging.Cleanup == nil || staging.Cleanup.Clock != 5*time.Minute || staging.CleanupReadUnitsPerSecond != 500 {
 		t.Fatalf("%+v", staging)
 	}
 	if local, err := LoadRetention("local"); err != nil || local.Scheduling.String() != "P2Y" || local.Cleanup != nil {
@@ -61,7 +62,7 @@ func TestPeriods(t *testing.T) {
 }
 
 func TestABadRetentionFileFailsWhereverItIs(t *testing.T) {
-	good := "  scheduling: P2Y\n  closed: P5Y\n  deleted: P30D\n  cleanup: P1D\n"
+	good := "  scheduling: P2Y\n  closed: P5Y\n  deleted: P30D\n  cleanup: P1D\n  cleanupReadUnitsPerSecond: 500\n"
 	for name, body := range map[string]string{
 		"a bad period in another block": "prod:\n" + good + "staging:\n" + strings.Replace(good, "PT", "", 1) + "  extra: P1D\nlocal:\n" + good,
 		"a period missing":              "prod:\n" + good + "staging:\n  scheduling: P2Y\n  closed: P5Y\nlocal:\n" + good,
@@ -69,6 +70,11 @@ func TestABadRetentionFileFailsWhereverItIs(t *testing.T) {
 		"a cleanup in months":           "prod:\n" + good + "staging:\n" + strings.Replace(good, "cleanup: P1D", "cleanup: P1M", 1) + "local:\n" + good,
 		"a cleanup in seconds":          "prod:\n" + good + "staging:\n" + strings.Replace(good, "cleanup: P1D", "cleanup: PT90S", 1) + "local:\n" + good,
 		"a block missing":               "prod:\n" + good + "staging:\n" + good,
+		// The cleanup reads the whole table, so it needs a budget, which a partition's 3,000 a second bounds.
+		"a cleanup with no read budget":  "prod:\n" + good + "staging:\n" + strings.Replace(good, "  cleanupReadUnitsPerSecond: 500\n", "", 1) + "local:\n" + good,
+		"a read budget with no cleanup":  "prod:\n" + good + "staging:\n" + strings.Replace(good, "  cleanup: P1D\n", "", 1) + "local:\n" + good,
+		"a read budget of none":          "prod:\n" + good + "staging:\n" + strings.Replace(good, ": 500", ": 0", 1) + "local:\n" + good,
+		"a read budget past a partition": "prod:\n" + good + "staging:\n" + strings.Replace(good, ": 500", ": 3001", 1) + "local:\n" + good,
 	} {
 		if _, err := parseRetention([]byte(body), "prod"); err == nil {
 			t.Errorf("%s: loaded", name)

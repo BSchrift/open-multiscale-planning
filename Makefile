@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release promote release-tag pipeline-config pipeline-pause pipeline-resume scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -44,11 +44,12 @@ test-deployed:
 	@scripts/test-deployed.sh
 
 # Staging only: writes one record of each kind with the app's own client, then waits out staging's retention periods
-# while its cleanup runs, about 25 minutes. make test-deployed runs it too, on staging.
+# while its cleanup runs, about 50 minutes. make test-deployed runs it too, on staging.
 test-retention:
 	@scripts/test-retention.sh
 
-# Defaults to staging. Prod takes an explicit ENV=prod, and ENV=control deploys the domain's DNS. Both deploy and smoke
+# Defaults to staging. Prod takes an explicit ENV=prod, ENV=control deploys the domain's DNS, and ENV=pipeline the
+# release pipeline. Both deploy and smoke
 # read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile. A backend change takes
 # traffic by config/env's canary, a day on prod; CANARY=skip sends it all at once, and the alarms still roll it back.
 deploy:
@@ -58,8 +59,27 @@ smoke:
 	@scripts/smoke.sh
 
 # Builds the Mac app and the web bundle on this Mac, signs the bundle and uploads both: ENV=staging (default) or prod.
+# With the release pipeline, this is the signed Mac app's step, from a release tag: docs/releasing.md.
 release:
 	@scripts/release.sh
+
+# The release pipeline, from this Mac with control.yaml's profile: docs/releasing.md. promote starts a run by hand,
+# COMMIT=<sha> (default: the branch's latest) and CANARY=skip to send prod all traffic at once, which an agent uses only
+# with the owner's go-ahead, each time. It still waits for approval. release-tag tags what prod last released.
+promote:
+	@scripts/pipeline.sh run
+
+release-tag:
+	@scripts/pipeline.sh tag
+
+pipeline-config:
+	@scripts/pipeline.sh config
+
+pipeline-pause:
+	@scripts/pipeline.sh pause
+
+pipeline-resume:
+	@scripts/pipeline.sh resume
 
 # Updates the agent skills in .claude/skills to their latest releases, as .claude/skills/sources.tsv lists them.
 update-skills:

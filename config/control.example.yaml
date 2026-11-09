@@ -14,3 +14,11 @@ dns:
   # Optional: TXT values on the domain itself, such as the one Google Search Console gives to prove you own it.
   # txt:
   #   - google-site-verification=...
+# Optional: the release pipeline, which runs in this account and deploys staging and prod (docs/releasing.md). Deploy
+# it with make deploy ENV=pipeline. Without this section there is no pipeline, and releases run from make as before.
+pipeline:
+  # The GitHub repository and branch it releases, through a connection you authorise once in the console.
+  repository: your-github-user/open-multiscale-planning
+  branch: main
+  # Where requests to approve a release, and failed runs, are emailed.
+  email: you@example.com

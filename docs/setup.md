@@ -149,7 +149,7 @@ To add a zone to staging or prod later, set its `dns.zone`, run `make deploy ENV
 make deploy
 ```
 
-`ENV=staging` is the default. This checks `staging.yaml`, builds the three Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`ENV=staging` is the default. This checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 
@@ -270,7 +270,7 @@ The suite signs in as the test user, uses unique ids per run and cleans up. Its 
 
 Check the `Multiscale-staging` dashboard under **CloudWatch > Dashboards**. Nothing should be red.
 
-Then the retention suite, which writes one record of each kind as the test user and waits out staging's periods, minutes long, while staging's cleanup removes what expires. It takes about 25 minutes, and `make test-deployed` runs it too:
+Then the retention suite, which writes one record of each kind as the test user and waits out staging's periods, minutes long, while staging's cleanup removes what expires. It takes about 50 minutes, and `make test-deployed` runs it too:
 
 ```sh
 make test-retention
@@ -447,6 +447,8 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
 
 ### Releasing updates
+
+Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md).
 
 `make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
 

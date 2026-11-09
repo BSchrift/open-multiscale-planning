@@ -93,7 +93,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	store := &sync.Store{DB: faults, Table: cfg.Table, Expiry: &sync.Expiry{Now: clock.Now, Deleted: retention.Deleted}}
 	apiServer := &api.Server{Sync: store, Log: obs.NewLogger(logs), Env: cfg.Env, Now: clock.Now}
 	// DynamoDB Local has no TTL, and tests move the clock, so the local stack removes expired records when asked, as
-	// staging's cleanup does every minute.
+	// staging's cleanup does every few minutes. Unpaced: DynamoDB Local has no partitions to throttle.
 	cleanup := &sync.Cleanup{DB: client, Table: cfg.Table, Now: clock.Now, Log: obs.NewLogger(logs), Env: cfg.Env}
 
 	mux := http.NewServeMux()

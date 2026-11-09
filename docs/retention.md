@@ -8,15 +8,15 @@ retention** tells people the same in plain words, from the periods the app was b
 
 | What | Counted from | Prod | Staging |
 | --- | --- | --- | --- |
-| Time blocks (`time_block`) and their answers (`block_outcome`) | The block's end | 2 years | 10 minutes |
-| Week picks and week plans | The end of that week | 2 years | 10 minutes |
-| Finishes of repeating tasks (`task_completion`) | `done_at` | 2 years | 10 minutes |
-| Away dates | Their end | 2 years | 10 minutes |
-| Stretches pinned in `settings.plan_stretch.one_offs` | The stretch's end | 2 years | 10 minutes |
-| Entries in a project's `slip_log` | The entry's `at` | 2 years | 10 minutes |
-| Done, cancelled and dropped tasks, one offs included | `done_at` or `cancelled_at`, whichever is later | 5 years | 20 minutes |
-| Finished and dropped projects, with their milestones | When the project's state was set | 5 years | 20 minutes |
-| Archived goals | When the goal's state was set | 5 years | 20 minutes |
+| Time blocks (`time_block`) and their answers (`block_outcome`) | The block's end | 2 years | 20 minutes |
+| Week picks and week plans | The end of that week | 2 years | 20 minutes |
+| Finishes of repeating tasks (`task_completion`) | `done_at` | 2 years | 20 minutes |
+| Away dates | Their end | 2 years | 20 minutes |
+| Stretches pinned in `settings.plan_stretch.one_offs` | The stretch's end | 2 years | 20 minutes |
+| Entries in a project's `slip_log` | The entry's `at` | 2 years | 20 minutes |
+| Done, cancelled and dropped tasks, one offs included | `done_at` or `cancelled_at`, whichever is later | 5 years | 35 minutes |
+| Finished and dropped projects, with their milestones | When the project's state was set | 5 years | 35 minutes |
+| Archived goals | When the goal's state was set | 5 years | 35 minutes |
 | Anything deleted | `deleted_at` | 30 days | 5 minutes |
 
 A deletion beats everything else: a deleted record goes 30 days after `deleted_at`, whatever else it holds.
@@ -44,9 +44,9 @@ job runs. It has two readers, which check the same rules and fail on any bad val
 
 `local` matches prod. Tests move a clock instead of waiting.
 
-Staging's periods are minutes so that `make test-retention` can watch every stage in one sitting, about 25 minutes.
+Staging's periods are minutes so that `make test-retention` can watch every stage in one sitting, about 50 minutes.
 Deleted is 5 minutes, longer than the 5 minutes between an open app's syncs, so an open device sees a delete before it
-goes; each later period ends a few cleanup runs after the one before. The cost is that a device closed for more than a
+goes; each later period ends more than two cleanup runs after the one before, so the suite sees each stage apart. The cost is that a device closed for more than a
 few minutes across a change that then expires is reset when it next syncs, which on staging is often.
 
 ## How it fits together
@@ -84,9 +84,12 @@ few minutes across a change that then expires is reset when it next syncs, which
 - **The Streams consumer keeps the expiry mark.** `cmd/retention` reads TTL's removals from the table's stream, which
   carries the old image for this, and stores the highest removed sequence number as that user's mark (`meta#expired`).
   Its event source passes only TTL's removals, `userIdentity` `Service` from `dynamodb.amazonaws.com`.
-- **Staging's cleanup** runs every minute in the same Lambda, because staging can't wait days for TTL. It raises the mark
-  for what has expired first, and removes it on a run at least 30 seconds later, by which time every sync that could
-  miss it has read the mark. Prod relies on TTL alone, and the local stack runs the cleanup when a test asks.
+- **Staging's cleanup** runs every 5 minutes in the same Lambda, because staging can't wait days for TTL. It reads the
+  whole table, so its scan goes a page at a time, paced to `cleanupReadUnitsPerSecond` in `config/retention.yaml`. A
+  table staging's size is one partition, which serves 3,000 read units a second, and each user's records stay in one
+  however large the table grows. An unpaced scan throttled the table and set off the release alarm that stops deploys.
+  It raises the mark for what has expired first, and removes it on a run at least 30 seconds later, by which time every
+  sync that could miss it has read the mark. Prod relies on TTL alone, and the local stack runs the cleanup when a test asks.
 
 Why TTL and Streams rather than a job: TTL deletes cost no write units, and Lambda reads Streams at no charge, where a job
 would read the whole table each run, or need an index that every write pays for, and pay for each delete. Late removal
@@ -148,5 +151,5 @@ has already passed, reach TTL.
 | --- | --- |
 | Unit | `expiryFor` for every type and state, list trimming, the write path, filling in, device expiry and resets (`frontend/src/core/retention.test.ts`, `expiry.test.ts`, `sync.test.ts`); the store, TTL, the guard, drops, fills, expiries cleared by older writers and cleanup (`backend/internal/sync/expiry_test.go`); the Streams consumer (`backend/cmd/retention`); the config readers |
 | Local integration | `backend/integration/retention_test.go` moves the local clock past each period, and `frontend/src/core/retention.stack.test.ts` does the same with the app's own client, in `make test-integration` |
-| Staging | `make test-retention`, also part of `make test-deployed` on staging: the same app-client suite in real time, about 25 minutes |
+| Staging | `make test-retention`, also part of `make test-deployed` on staging: the same app-client suite in real time, about 50 minutes |
 | End to end | `frontend/e2e/settings.spec.ts` opens the Data retention page at desktop and phone sizes |

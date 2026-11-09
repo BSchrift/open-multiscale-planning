@@ -4,7 +4,8 @@
 //
 // Against cmd/local, from scripts/integration.sh, it moves the stack's clock and runs its cleanup. Against staging, from
 // scripts/test-retention.sh (make test-retention, and make test-deployed), it waits out staging's minutes in real time
-// while its cleanup runs every minute: about 25 minutes. It signs in as the deployment's test user.
+// while its cleanup runs, every few minutes as config/retention.yaml says: about 50 minutes. It signs in as the
+// deployment's test user.
 
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -80,6 +81,9 @@ const local = async (path: string, body?: unknown) => {
 describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
   const env = DEPLOYED ? DEPLOYED.env : 'local';
   const policy: Retention = loadRetention(env, { read: (path) => readFileSync(path, 'utf8'), parse });
+  // How often the deployment's cleanup runs, which its waits are made of. Local runs it when asked.
+  const minutes = (p: Period) => (p.days * 24 + p.hours) * 60 + p.minutes;
+  const cleanupEvery = policy.cleanup ? minutes(policy.cleanup) * MINUTE : MINUTE;
   const start = Math.floor(Date.now() / 1000) * 1000;
   const clock: Clock & { set?(at: number): void } = DEPLOYED ? systemClock : fixedClock(start);
   const run = crypto.randomUUID().slice(0, 8);
@@ -108,12 +112,12 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
   const counter = async () => (await send({ cursor: Number.MAX_SAFE_INTEGER, changes: [] })).cursor;
 
   /**
-   * Moves time on past at. Locally that's the stack's clock and every device's, with its cleanup run twice, as its minute
+   * Moves time on past at. Locally that's the stack's clock and every device's, with its cleanup run twice, as staging's
    * runs would: one marks, one removes. On staging it waits, for the cleanup's two runs too.
    */
   async function until(at: number) {
     if (DEPLOYED) {
-      const ready = at + 2 * MINUTE + 15_000;
+      const ready = at + 2 * cleanupEvery + 15_000;
       while (Date.now() < ready) await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, ready - Date.now())));
       return;
     }
@@ -150,7 +154,9 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
     if (LOCAL) await local('/_local/clock', { now: '' });
   });
 
-  it('writes one record of each kind as the app does, then waits out each period', { timeout: 40 * MINUTE }, async () => {
+  // The longest period, its two cleanup runs, and a third for the server to have let go of everything, with room to spare.
+  const timeout = DEPLOYED ? minutes(policy.closed) * MINUTE + 3 * cleanupEvery + 10 * MINUTE : 40 * MINUTE;
+  it('writes one record of each kind as the app does, then waits out each period', { timeout }, async () => {
     const now = nowInstant(clock);
     const day = (offset: number) => new Date(Date.parse(`${now.slice(0, 10)}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
     const add = (key: string, type: string, s: Stage) => kinds.set(id(key), { type, stage: s });
@@ -258,7 +264,7 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
     }
 
     // Everything expired has gone from the server too, which on staging is the cleanup's work.
-    const deadline = Date.now() + (DEPLOYED ? 4 * MINUTE : 0);
+    const deadline = Date.now() + (DEPLOYED ? cleanupEvery : 0);
     let left = [...gone];
     for (;;) {
       const out = new Set(await removed(left));

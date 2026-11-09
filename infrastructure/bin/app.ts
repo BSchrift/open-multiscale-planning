@@ -11,6 +11,9 @@ const app = new App();
 const deploying = app.node.tryGetContext('deploy') as string | undefined;
 const names = ['control', 'staging', 'prod'] as const;
 if (deploying && !names.some((name) => name === deploying)) throw new Error('deploy must be control, staging or prod');
+// scripts/deploy.sh sets canary=skip for CANARY=skip: a new backend version takes all traffic at once.
+const canary = app.node.tryGetContext('canary') as string | undefined;
+if (canary !== undefined && canary !== 'skip') throw new Error('canary must be skip or unset');
 
 const dir = configDir();
 for (const name of names.filter((n) => !deploying || n === deploying)) {
@@ -32,6 +35,7 @@ for (const name of names.filter((n) => !deploying || n === deploying)) {
       control,
       backendDist: join(import.meta.dirname, '../../backend/dist'),
       requireBinaries: real,
+      canary,
     });
   }
 }

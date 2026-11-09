@@ -115,6 +115,18 @@ for extensions in $runs; do
     if [ "$group" = NO ]; then echo "App has no App Group with extensions on"; exit 1; fi
   fi
   xcrun simctl bootstatus "$device" >/dev/null
+  # A new Simulator's first web view takes 5 to 30 s to start WebKit and draw its page, against about a second for
+  # later ones, and the first test would wait that out. So the app opens its test page once here, before the tests.
+  bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+  xcrun simctl install "$device" "$app"
+  SIMCTL_CHILD_MULTISCALE_START_PAGE=native-checks/index.html xcrun simctl launch --console-pty "$device" "$bundle" >"$work/warmup.log" 2>&1 &
+  warmup=$!
+  started=$SECONDS
+  until grep -q 'native-checks ready' "$work/warmup.log" || [ $((SECONDS - started)) -ge 120 ]; do sleep 0.5; done
+  echo "The app's test page was ready $((SECONDS - started)) s after its first launch"
+  xcrun simctl terminate "$device" "$bundle" 2>/dev/null || true
+  kill "$warmup" 2>/dev/null || true
+  wait "$warmup" 2>/dev/null || true
 
   # Only CI sets IOS_RESULTS: against a deployment the bundle would keep what XCTest typed, the password included.
   results=()

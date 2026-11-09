@@ -2,6 +2,10 @@ import CryptoKit
 import XCTest
 
 private let patience: TimeInterval = 30
+/// For the first page after a launch, when the web view starts WebKit's processes. CI's Simulator now and then holds
+/// every process it starts for 25 to 32 s (its logs show them all waiting, then starting together), on top of the page's
+/// own second or two.
+private let launchPatience: TimeInterval = 60
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
 private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
@@ -41,7 +45,7 @@ private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIAppl
     let checks = XCUIApplication()
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launch()
-    exists(checks.webText("ready"))
+    exists(checks.webText("ready"), timeout: launchPatience)
     checks.tapWeb("Erase")
     exists(checks.webText("erased"))
     if let seed {
@@ -86,6 +90,21 @@ final class SeedTimeTests: XCTestCase {
     }
 }
 
+/**
+ * Waits for something on Today. On iOS 26.2, under Xcode 16.4 and 26.3 alike, when XCUITest first reads Today before
+ * its content has arrived, the tree keeps that part of Today as it was, while the screen shows the rest: CI's screen
+ * recordings show Today drawn, its countdown ticking, as the tree reports Today's region empty for a minute. Waiting
+ * longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or screen changes didn't bring
+ * the content in reliably. Hiding Today and showing it again did, every time: so the test goes to Week and back.
+ */
+private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+    if element.waitForExistence(timeout: 10) { return }
+    app.tapWeb("Week", file: file, line: line)
+    exists(app.webButton("Previous week"), file: file, line: line)
+    app.tapWeb("Today", file: file, line: line)
+    exists(element, file: file, line: line)
+}
+
 /// The app asks once there's a block to remind about. Whichever test gets there first answers.
 private func allowNotificationsIfAsked() {
     let allow = springboard.alerts.buttons["Allow"]
@@ -119,7 +138,7 @@ final class ShellUITests: XCTestCase {
         // Setup finished in the plugin's database, so a new process goes straight to the shell, goal and all.
         app.terminate()
         app.launch()
-        exists(app.webButton("Goals"))
+        exists(app.webButton("Goals"), timeout: launchPatience)
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
         exists(app.webButton(startingWith: "Learn to bake bread"))
@@ -170,6 +189,7 @@ final class ShellUITests: XCTestCase {
         XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
         openLinkPrompt()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        exists(app.page.textFields["Capture to Inbox"], timeout: launchPatience)
         captureAboveTheKeyboard(app, saving: "Buy rye flour")
 
         app.tapWeb("Capture a task")
@@ -204,30 +224,10 @@ final class ShellUITests: XCTestCase {
         // for the half hour and the test skips; run it at any hour once a test can set the Simulator's clock.
         let late = Calendar.current.date(bySettingHour: 22, minute: 15, second: 0, of: Date())!
         try XCTSkipIf(Date() > late, "after 10:15pm today has no room left for the half hour")
-        // shortcut: on iOS 26 this fails about half the time, as the accessibility tree stops following the page, so
-        // there it reports without failing the run; make it strict again once the screenshots below show the cause.
-        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
-            let options = XCTExpectedFailure.Options()
-            options.isStrict = false
-            XCTExpectFailure("iOS 26's accessibility tree can stop following the page", options: options)
-        }
         let app = launchApp(seed: "Seed to schedule")
         // Its own label, since the block it becomes is a button too once it's under way.
         let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
-        // shortcut: on CI's iOS 26.2 Simulator Today's content often reaches the screen but not the accessibility tree,
-        // which shows Today empty until the page changes, so the test goes to Week and back; drop the detour once
-        // WebKit's tree keeps up on its own there.
-        if !card.waitForExistence(timeout: 10) {
-            // Whether the card is on screen while the tree says it isn't: a stale tree, or a stale page.
-            let shot = XCTAttachment(screenshot: app.screenshot())
-            shot.name = "Today while its tree shows no card"
-            shot.lifetime = .keepAlways
-            add(shot)
-            app.tapWeb("Week")
-            exists(app.page.otherElements["Week"])
-            app.tapWeb("Today")
-        }
-        exists(card)
+        onToday(card, in: app)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)
 
@@ -270,7 +270,7 @@ final class ShellUITests: XCTestCase {
     func testABlocksNotificationActionAnswersItInToday() {
         let app = launchApp(seed: "Seed soon", reach: 20 * 60)
         allowNotificationsIfAsked()
-        exists(app.webText("In progress, time left"))
+        onToday(app.webText("In progress, time left"), in: app)
 
         XCUIDevice.shared.press(.home)
         let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
@@ -287,7 +287,7 @@ final class ShellUITests: XCTestCase {
 
         app.activate()
         let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
-        exists(answered)
+        onToday(answered, in: app)
     }
 
     /// A select opens as a menu of the app's own options, whatever element type this iOS gives its items.
@@ -299,7 +299,10 @@ final class ShellUITests: XCTestCase {
         let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND elementType IN %@", option, types)).firstMatch
         exists(item)
         item.tap()
-        XCTAssertEqual(select.value as? String, option)
+        // The select shows what's saved, so it goes back to the old value until the save lands, which on CI's Simulator
+        // can take longer than the tap does.
+        let chosen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", option), object: select)
+        XCTAssertEqual(XCTWaiter.wait(for: [chosen], timeout: patience), .completed, "\(label) shows \(select.value ?? "nothing"), not \(option)")
     }
 }
 
@@ -312,7 +315,7 @@ final class NativeUITests: XCTestCase {
         app = XCUIApplication()
         app.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
         app.launch()
-        exists(app.webText("ready"))
+        exists(app.webText("ready"), timeout: launchPatience)
     }
 
     private func run(_ button: String, expect result: String, timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
@@ -328,7 +331,7 @@ final class NativeUITests: XCTestCase {
         // Killed while open, as iOS does at a memory limit: the next run reports it once.
         app.terminate()
         app.launch()
-        exists(app.webText("ready"))
+        exists(app.webText("ready"), timeout: launchPatience)
         run("Diagnostics", expect: "previous:active")
     }
 
@@ -441,7 +444,13 @@ final class NativeUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         openControlCenter()
         addCaptureControl()
-        springboard.buttons["Capture"].firstMatch.tap()
+        // Opened again, as a person would use it: tapped a moment after Control Center left editing, the control now and
+        // then didn't open the app.
+        XCUIDevice.shared.press(.home)
+        openControlCenter()
+        let capture = springboard.buttons["Capture"].firstMatch
+        exists(capture, in: springboard)
+        capture.tap()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
         exists(app.webText("capture"))
     }
@@ -740,7 +749,7 @@ final class HistoryUITests: XCTestCase {
         let checks = XCUIApplication()
         checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
         checks.launch()
-        exists(checks.webText("ready"))
+        exists(checks.webText("ready"), timeout: launchPatience)
         checks.tapWeb("History")
         let line = checks.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'history:'")).firstMatch
         exists(line, timeout: 300)

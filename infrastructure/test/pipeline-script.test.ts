@@ -23,6 +23,8 @@ function sandbox() {
 case "$*" in
   *get-parameter*) name="$(echo "$*" | sed -E 's/.*--name ([^ ]+).*/\\1/' | tr / _)"; [ -f "$PARAMS/$name" ] && cat "$PARAMS/$name" || exit 254;;
   *start-pipeline-execution*) echo exec-1;;
+  *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
+  *get-pipeline-execution*) echo abc1234;;
   *describe-stacks*) echo '${stackOutputs}';;
   *"s3 cp s3://"*) [ -f "$PARAMS/feed" ] && cat "$PARAMS/feed" || exit 1;;
 esac`);
@@ -61,6 +63,26 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     const skip = sandbox();
     assert.equal(skip.run(['run'], { COMMIT: 'abc123', CANARY: 'skip', ENV: 'prod' }).status, 0);
     assert.match(skip.log(), /name=CANARY,value=skip name=ALARMS,value=on --source-revisions actionName=GitHub,revisionType=COMMIT_ID,revisionValue=abc123/);
+  });
+
+  it('stops the run waiting in its window before prod, and says which commit', () => {
+    const s = sandbox();
+    writeFileSync(join(s.params, 'promote'), 'exec-7\tInProgress\n');
+    const r = s.run(['stop']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-control codepipeline stop-pipeline-execution --pipeline-name Multiscale --pipeline-execution-id exec-7 --abandon/);
+    assert.match(r.stdout, /Stopped run exec-7, at abc1234, before prod/);
+  });
+
+  it('stops nothing when no run is waiting before prod', () => {
+    for (const promote of [null, 'exec-7\tSucceeded\n']) {
+      const s = sandbox();
+      if (promote) writeFileSync(join(s.params, 'promote'), promote);
+      const r = s.run(['stop']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /No run is waiting to go to prod/);
+      assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
+    }
   });
 
   it('starts a run with the release alarms off when asked', () => {

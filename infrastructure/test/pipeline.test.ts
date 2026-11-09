@@ -36,7 +36,7 @@ describe('the release pipeline', () => {
   it('is a V2 pipeline named Multiscale, in the control account', () => {
     assert.equal(pipeline.Properties.PipelineType, 'V2');
     assert.equal(pipeline.Properties.Name, 'Multiscale');
-    assert.deepEqual(stages.map((s) => s.Name), ['Source', 'Build', 'Staging', 'Approve', 'Prod']);
+    assert.deepEqual(stages.map((s) => s.Name), ['Source', 'Build', 'Staging', 'Promote', 'Prod']);
   });
 
   it("starts from the configured branch, through a GitHub connection, as a clone the builds can read git from", () => {
@@ -56,12 +56,13 @@ describe('the release pipeline', () => {
     for (const namespace of namespaces) assert.ok(!artifacts.has(namespace), `namespace ${namespace} is also an artifact`);
   });
 
-  it('builds once, then deploys and tests staging, waits for a person, and promotes the same build to prod', () => {
+  it('builds once, then deploys and tests staging, waits out the window, and promotes the same build to prod', () => {
     assert.deepEqual(actions('Build').map(step), ['build']);
     assert.deepEqual(actions('Staging').map(step), ['deploy-staging', 'Sign', 'release-staging']);
-    const [approve] = actions('Approve');
-    assert.equal(approve.ActionTypeId.Category, 'Approval');
-    assert.ok(approve.Configuration.NotificationArn);
+    // No person needs to approve: a state machine emails and waits, and the owner may stop the run in that time.
+    assert.ok(!stages.some((s) => s.Actions.some((a) => a.ActionTypeId.Category === 'Approval')));
+    const [wait] = actions('Promote');
+    assert.equal(wait.ActionTypeId.Provider, 'StepFunctions');
     const prod = actions('Prod');
     assert.deepEqual(prod.map((a) => a.Name), ['PublishAssets', 'Prepare', 'Deploy', 'Test', 'Sign', 'Release']);
     assert.deepEqual([prod[0], prod[3], prod[5]].map(step), ['prod-assets', 'test-prod', 'release-prod']);
@@ -95,9 +96,10 @@ describe('the release pipeline', () => {
     assert.deepEqual(vars.find((v: any) => v.name === 'CANARY').value, '#{variables.CANARY}');
     assert.deepEqual(vars.find((v: any) => v.name === 'RUN').value, '#{variables.RUN}');
     assert.deepEqual(vars.find((v: any) => v.name === 'ALARMS').value, '#{variables.ALARMS}');
-    // Whoever approves sees whether the run skips the canary or turns the release alarms off.
-    const [approve] = actions('Approve');
-    assert.match(approve.Configuration.CustomData, /Canary: #\{variables\.CANARY\}\. Release alarms: #\{variables\.ALARMS\}\./);
+    // The email before prod says whether the run skips the canary or turns the release alarms off.
+    const input = JSON.parse(actions('Promote')[0].Configuration.Input);
+    assert.equal(input.canary, '#{variables.CANARY}');
+    assert.equal(input.alarms, '#{variables.ALARMS}');
   });
 
   it('builds may assume only CDK\'s bootstrap roles and the release role in staging and prod', () => {
@@ -170,7 +172,53 @@ describe('the release pipeline', () => {
     assert.ok(![...signerActions].some((a) => a.startsWith('sts:') || a === 'ssm:PutParameter'));
   });
 
-  it('emails approval requests and failed runs to the configured address', () => {
+  const promotion = () => {
+    const [[id, machine]] = ofType('AWS::StepFunctions::StateMachine');
+    const body = machine.Properties.DefinitionString;
+    // The definition is a Fn::Join of strings and references; the states are what matter here.
+    const text = typeof body === 'string' ? body : body['Fn::Join'][1].map((part: unknown) => (typeof part === 'string' ? part : JSON.stringify(part))).join('');
+    return { id, machine, text };
+  };
+
+  it('emails when staging passes, saying when the run goes to prod and how to stop it, then waits that long', () => {
+    const [wait] = actions('Promote');
+    const { id, text } = promotion();
+    assert.ok(JSON.stringify(wait.Configuration.StateMachineArn).includes(id));
+    // The commit, from the source, and the window, from control.yaml: two hours unless it says otherwise.
+    const input = JSON.parse(wait.Configuration.Input);
+    assert.equal(input.commit, '#{GitHub.CommitId}');
+    assert.equal(input.seconds, 7200);
+    assert.match(text, /"QueryLanguage":"JSONata"/);
+    assert.match(text, /"Notify":\{"Next":"Window","Type":"Task"/);
+    assert.ok(text.includes(`"Resource":"arn:{"Ref":"AWS::Partition"}:states:::sns:publish"`), text);
+    const [[topicId]] = ofType('AWS::SNS::Topic');
+    assert.ok(text.includes(`"TopicArn":"{"Ref":"${topicId}"}"`), text);
+    assert.match(text, /passed staging/);
+    assert.match(text, /make pipeline-stop/);
+    // Both the email and the wait count from when the window starts, the state machine's start.
+    const until = '$fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000)';
+    assert.ok(text.includes(`"Type":"Wait","Timestamp":"{% ${until} %}"`), text);
+    assert.ok(text.includes('$toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000'), text);
+  });
+
+  it('waits on Step Functions, so the window costs no build minutes, and only it may publish to the topic', () => {
+    const { machine } = promotion();
+    const roleId = machine.Properties.RoleArn['Fn::GetAtt'][0];
+    const actionsOf = policiesOf(roleId).flatMap((st) => [st.Action].flat());
+    assert.deepEqual([...new Set(actionsOf)].sort(), ['sns:Publish']);
+    // Nothing of the manual approval is left: no action role that may publish.
+    const publishers = ofType('AWS::IAM::Role').filter(([rid]) => policiesOf(rid).some((st) => [st.Action].flat().includes('sns:Publish'))).map(([rid]) => rid);
+    assert.deepEqual(publishers, [roleId]);
+  });
+
+  it('takes the window from control.yaml, and none at all with PT0S', () => {
+    const none = Template.fromStack(new PipelineStack(new App(), 'P', { control: { ...control, pipeline: { ...control.pipeline, promoteAfter: 'PT0S' } }, environments }));
+    const [p] = Object.values(none.toJSON().Resources as Record<string, any>).filter((r) => r.Type === 'AWS::CodePipeline::Pipeline');
+    const promote = p.Properties.Stages.find((st: any) => st.Name === 'Promote').Actions[0];
+    assert.equal(JSON.parse(promote.Configuration.Input).seconds, 0);
+  });
+
+  it('emails the notice before prod and failed runs to the configured address', () => {
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'releases@example.net' });
     const rules = ofType('AWS::Events::Rule').map(([, r]) => r.Properties.EventPattern);
     assert.deepEqual(rules.map((p) => p.source).sort(), [['aws.codebuild'], ['aws.codepipeline']]);

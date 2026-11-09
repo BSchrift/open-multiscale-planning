@@ -20,5 +20,8 @@ pipeline:
   # The GitHub repository and branch it releases, through a connection you authorise once in the console.
   repository: your-github-user/open-multiscale-planning
   branch: main
-  # Where requests to approve a release, and failed runs, are emailed.
+  # Where the notice that a release is going to prod, and failed runs, are emailed.
   email: you@example.com
+  # How long after staging passes a release goes to prod, unless you stop it with make pipeline-stop: an ISO 8601
+  # duration, PT2H if left out, or PT0S to go at once. Prod's canary still guards it.
+  promoteAfter: PT2H

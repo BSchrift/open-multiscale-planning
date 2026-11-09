@@ -1,13 +1,15 @@
 // The release pipeline, in the control account: each main commit is built once, deployed to staging and tested there,
-// and after a person approves it, promoted to prod by the backend's canary, tested, and published. docs/releasing.md
-// describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild; deploy rights stay in AWS.
+// and after a window in which the owner can stop it, promoted to prod by the backend's canary, tested, and published.
+// No one approves it. docs/releasing.md describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild;
+// deploy rights stay in AWS.
 
 import { CfnCapabilities, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
 import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import {
-  CloudFormationCreateReplaceChangeSetAction, CloudFormationExecuteChangeSetAction, CodeBuildAction, CodeStarConnectionsSourceAction, ManualApprovalAction,
+  CloudFormationCreateReplaceChangeSetAction, CloudFormationExecuteChangeSetAction, CodeBuildAction, CodeStarConnectionsSourceAction, StateMachineInput,
+  StepFunctionInvokeAction,
 } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { CfnConnection } from 'aws-cdk-lib/aws-codestarconnections';
 import { Rule, RuleTargetInput, EventField } from 'aws-cdk-lib/aws-events';
@@ -18,7 +20,10 @@ import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { CodeBuildStartBuild } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
+import { DefinitionBody, QueryLanguage, StateMachine, TaskInput, Wait, WaitTime } from 'aws-cdk-lib/aws-stepfunctions';
+import { SnsPublish } from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
+import { DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
 import type { Config, ControlConfig, EnvName, PipelineConfig } from './config.ts';
 
 /** The pipeline's CodeBuild role. Each environment's release role trusts it by this name. */
@@ -51,7 +56,7 @@ export class PipelineStack extends Stack {
     // Pending until someone authorises it once in the console: docs/releasing.md.
     const connection = new CfnConnection(this, 'GitHub', { connectionName: 'multiscale-github', providerType: 'GitHub' });
 
-    // Approval requests, failed runs and failed nightly runs.
+    // Each release's notice before prod, failed runs and failed nightly runs.
     const topic = new Topic(this, 'ReleaseTopic');
     topic.addSubscription(new EmailSubscription(email));
 
@@ -177,6 +182,22 @@ export class PipelineStack extends Stack {
       },
     });
 
+    // The window before prod, on Step Functions, whose wait costs nothing: a standard workflow pays per state, and this
+    // has two. It emails the time the run goes to prod, counted from its own start, and waits until then.
+    const promoteAt = '$fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000)';
+    const notify = SnsPublish.jsonata(this, 'Notify', {
+      topic,
+      subject: 'A release is on its way to prod',
+      message: TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '.' %}`),
+      outputs: '{% $states.input %}',
+    });
+    const window = Wait.jsonata(this, 'Window', { time: WaitTime.timestamp(`{% ${promoteAt} %}`) });
+    const promotion = new StateMachine(this, 'Promotion', {
+      definitionBody: DefinitionBody.fromChainable(notify.next(window)),
+      queryLanguage: QueryLanguage.JSONATA,
+      timeout: Duration.days(7),
+    });
+
     const prod = environments.prod.aws;
     const prodRole = (kind: string) => Role.fromRoleArn(this, `Prod${kind}Role`, `arn:${this.partition}:iam::${prod.account}:role/cdk-hnb659fds-${kind}-role-${prod.account}-${prod.region}`, { mutable: false });
     const deployRole = prodRole('deploy');
@@ -201,13 +222,18 @@ export class PipelineStack extends Stack {
           ],
         },
         {
-          stageName: 'Approve',
-          actions: [new ManualApprovalAction({
-            actionName: 'Approve',
-            notificationTopic: topic,
-            // The approver sees whether this run skips the canary or turns the release alarms off.
-            additionalInformation: `Staging passed for ${sourceAction.variables.commitId}: ${sourceAction.variables.commitMessage}. Approving promotes it to prod. Canary: ${canary.reference()}. Release alarms: ${alarms.reference()}.`,
-            externalEntityLink: `https://github.com/${repository}/commit/${sourceAction.variables.commitId}`,
+          // No approval: staging's pass is emailed, and the run goes to prod when the window ends unless the owner
+          // stops it (make pipeline-stop). Prod's canary and its alarms still guard it.
+          stageName: 'Promote',
+          actions: [new StepFunctionInvokeAction({
+            actionName: 'Wait',
+            stateMachine: promotion,
+            stateMachineInput: StateMachineInput.literal({
+              commit: sourceAction.variables.commitId,
+              seconds: promoteAfterSeconds(control.pipeline.promoteAfter ?? DEFAULT_PROMOTE_AFTER),
+              canary: canary.reference(),
+              alarms: alarms.reference(),
+            }),
           })],
         },
         {

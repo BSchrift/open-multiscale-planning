@@ -145,6 +145,7 @@ export class PipelineStack extends Stack {
 
     // A run started by hand sets these: scripts/pipeline.sh run.
     const canary = new Variable({ variableName: 'CANARY', defaultValue: 'on', description: "skip sends prod's new backend all traffic at once" });
+    const alarms = new Variable({ variableName: 'ALARMS', defaultValue: 'on', description: 'off ships a release while a release alarm fires, with the alarms off for it' });
     const run = new Variable({ variableName: 'RUN', defaultValue: 'auto', description: 'hand when started by hand, which the pause switch lets through' });
 
     const sourceAction = new CodeStarConnectionsSourceAction({
@@ -169,6 +170,7 @@ export class PipelineStack extends Stack {
       environmentVariables: {
         STEP: { value: name },
         CANARY: { value: canary.reference() },
+        ALARMS: { value: alarms.reference() },
         RUN: { value: run.reference() },
         EXECUTION_ID: { value: GlobalVariables.executionId },
         COMMIT: { value: sourceAction.variables.commitId },
@@ -185,7 +187,7 @@ export class PipelineStack extends Stack {
       pipelineType: PipelineType.V2,
       // Prod's CloudFormation actions run in prod's account and read the template from here.
       crossAccountKeys: true,
-      variables: [canary, run],
+      variables: [canary, alarms, run],
       stages: [
         { stageName: 'Source', actions: [sourceAction] },
         { stageName: 'Build', actions: [step('Build', 'build', 1, [built])] },
@@ -203,7 +205,8 @@ export class PipelineStack extends Stack {
           actions: [new ManualApprovalAction({
             actionName: 'Approve',
             notificationTopic: topic,
-            additionalInformation: `Staging passed for ${sourceAction.variables.commitId}: ${sourceAction.variables.commitMessage}. Approving promotes it to prod by the canary.`,
+            // The approver sees whether this run skips the canary or turns the release alarms off.
+            additionalInformation: `Staging passed for ${sourceAction.variables.commitId}: ${sourceAction.variables.commitMessage}. Approving promotes it to prod. Canary: ${canary.reference()}. Release alarms: ${alarms.reference()}.`,
             externalEntityLink: `https://github.com/${repository}/commit/${sourceAction.variables.commitId}`,
           })],
         },

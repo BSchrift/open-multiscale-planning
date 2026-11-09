@@ -17,7 +17,7 @@ import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ResponseHea
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
-import { LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
+import { CfnDeploymentGroup, LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
@@ -47,13 +47,19 @@ export interface MultiscaleStackProps {
   requireBinaries: boolean;
   /** 'skip' sends a new backend version all traffic at once, rather than by config/env's canary. The alarms still roll it back. */
   canary?: 'skip';
+  /**
+   * 'off' turns the deployment groups' alarms off for this deploy, so CodeDeploy starts while a release alarm is already
+   * firing, to ship the fix for it. Rollback on a failed deployment or pre-traffic check stays, and the next deploy
+   * without it turns them on again.
+   */
+  alarms?: 'off';
   /** The control account, when control.yaml sets up the release pipeline there: it tests and publishes as this stack's release role. */
   pipelineAccount?: string;
 }
 
 export class MultiscaleStack extends Stack {
   constructor(scope: Construct, id: string, props: MultiscaleStackProps) {
-    const { envName, config, control, backendDist, requireBinaries, canary, pipelineAccount } = props;
+    const { envName, config, control, backendDist, requireBinaries, canary, alarms, pipelineAccount } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
       terminationProtection: forEnv(envName).stack.terminationProtection,
@@ -335,8 +341,16 @@ export class MultiscaleStack extends Stack {
     const alarmAction = new SnsAction(topic);
     const fiveMinutes = Duration.minutes(5);
     const custom = (metricName: string, statistic = 'Sum', period = fiveMinutes) => new Metric({ namespace, metricName, statistic, period });
-    const throttles = (metricName: string) =>
-      new Metric({ namespace: 'AWS/DynamoDB', metricName, dimensionsMap: { TableName: table.tableName }, statistic: 'Sum', period: fiveMinutes });
+    // Throttled requests by operation: those the API and the worker make through the store (internal/sync), and the
+    // consent state's put and update. Not the staging cleanup's scan and deletes, which page themselves to a budget.
+    const throttled = (operation: string) => new Metric({
+      namespace: 'AWS/DynamoDB',
+      metricName: 'ThrottledRequests',
+      dimensionsMap: { TableName: table.tableName, Operation: operation },
+      statistic: 'Sum',
+      period: fiveMinutes,
+    });
+    const apiOperations = { query: 'Query', batchGet: 'BatchGetItem', transact: 'TransactWriteItems', put: 'PutItem', update: 'UpdateItem' };
 
     const apiErrorRate = new MathExpression({
       label: '5xx %',
@@ -355,9 +369,9 @@ export class MultiscaleStack extends Stack {
       period: fiveMinutes,
     });
     const dynamoThrottles = new MathExpression({
-      label: 'DynamoDB throttles',
-      expression: 'FILL(reads, 0) + FILL(writes, 0)',
-      usingMetrics: { reads: throttles('ReadThrottleEvents'), writes: throttles('WriteThrottleEvents') },
+      label: "DynamoDB throttles of the API's requests",
+      expression: Object.keys(apiOperations).map((id) => `FILL(${id}, 0)`).join(' + '),
+      usingMetrics: Object.fromEntries(Object.entries(apiOperations).map(([id, operation]) => [id, throttled(operation)])),
       period: fiveMinutes,
     });
 
@@ -374,13 +388,16 @@ export class MultiscaleStack extends Stack {
       return alarm;
     };
 
-    // These also roll a new backend version back while it takes traffic. They watch both versions together.
+    const settings = forEnv(envName).stack;
+    const throttleAlarm = anyFailure('DynamoThrottles', "DynamoDB throttled the API's requests", dynamoThrottles);
+    // These also roll a new backend version back while it takes traffic. They watch both versions together. Throttles
+    // only where config/env says, prod: staging's test load goes through the API and can throttle at any time.
     const releaseAlarms = [
       anyFailure('Api5xxRate', 'At least 10% of API requests failed with a 5xx', apiErrorRate, 10),
       // Over two periods, since with one user a single slow push is the whole p99.
       anyFailure('ApiLatency', 'API p99 latency was 10 seconds or more for 10 minutes', httpApi.metricLatency({ statistic: 'p99', period: fiveMinutes }), 10_000, 2),
       anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors),
-      anyFailure('DynamoThrottles', 'DynamoDB throttled a request', dynamoThrottles),
+      ...(settings.throttleReleaseAlarm ? [throttleAlarm] : []),
       anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures')),
       // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
       anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
@@ -415,21 +432,24 @@ export class MultiscaleStack extends Stack {
     // the rest after a wait, and moves it back if a release alarm fires on the way. Only code is split like this: the
     // table, IAM, schedules and config change all at once, so they follow the compatibility rules in AGENTS.md.
 
-    const settings = forEnv(envName).stack;
     const application = new LambdaApplication(this, 'Deployments');
     // Always made, so a release that skips the canary doesn't remove it and the next one finds it again.
     const canaryConfig = new LambdaDeploymentConfig(this, 'Canary', {
       trafficRouting: new TimeBasedCanaryTrafficRouting({ percentage: settings.canaryPercent, interval: Duration.minutes(settings.canaryMinutes) }),
     });
     const deploymentConfig = canary === 'skip' ? LambdaDeploymentConfig.ALL_AT_ONCE : canaryConfig;
+    // ALARMS=off, for one release that has to ship while a release alarm fires: CodeDeploy refuses to start while any of
+    // its alarms is in ALARM, however old. Set explicitly both ways, so the next release turns them on again.
+    const alarmsOff = alarms === 'off';
     const deployment = (id: string, alias: Alias) => {
       const group = new LambdaDeploymentGroup(this, `${id}Deployment`, {
         application,
         alias,
         deploymentConfig,
-        alarms: releaseAlarms,
-        autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
+        alarms: alarmsOff ? [] : releaseAlarms,
+        autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: !alarmsOff },
       });
+      if (alarmsOff) (group.node.defaultChild as CfnDeploymentGroup).alarmConfiguration = { enabled: false, alarms: [] };
       // The alias's update runs the deployment as this role, so it waits for the role and every policy on it.
       alias.node.addDependency(group.role);
       return group;

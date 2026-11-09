@@ -41,8 +41,20 @@ it. A deploy that changes a Lambda publishes a new version, and CodeDeploy moves
 3. **All of it,** once no release alarm has fired.
 
 Any release alarm on the way moves the alias back at once, with no one watching. The alarms are API 5xx rate, API p99
-latency, Lambda errors, DynamoDB throttles, calendar run failures, the retention consumer falling behind, and a failed
-canary run. They watch both versions together.
+latency, Lambda errors, calendar run failures, the retention consumer falling behind, a failed canary run, and on prod,
+DynamoDB throttling the API's own requests. They watch both versions together.
+
+**Throttles stop releases on prod only.** The throttle alarm counts the operations the API and the worker make
+(`Query`, `BatchGetItem`, `TransactWriteItems`, `PutItem`, `UpdateItem`), by DynamoDB's `ThrottledRequests` for each,
+and not staging's cleanup, whose scan and deletes pace themselves. On staging it still emails, but it doesn't stop a
+release: staging's test load, such as the history seed and the integration suite's largest pushes, goes through the API
+and can throttle at any time, so a throttle there says nothing about the release. `stack.throttleReleaseAlarm` in
+`config/env/<env>.yaml` sets it.
+
+**An alarm already firing stops a release before it starts.** CodeDeploy checks the release alarms as a deployment
+begins, not only during it, and refuses to start while any is in ALARM, however long it has been. Usually that's right:
+the environment is already unhealthy, and a canary can't judge a new version against it. For the fix to what is firing,
+see [Shipping while a release alarm fires](#shipping-while-a-release-alarm-fires).
 
 With one real user, 5% of a day's requests is a few dozen and might miss what breaks. So a schedule also runs the
 release canary every 5 minutes against the alias. That is about 288 runs a day, about 14 of them on a new version at
@@ -69,6 +81,25 @@ PR or the release notes.
 
 `make deploy ENV=prod CANARY=skip` does the same for a deploy from the Mac.
 
+## Shipping while a release alarm fires
+
+`make promote ALARMS=off` starts a run whose deploys turn the release alarms off, on staging and prod, so CodeDeploy
+starts while one is firing. It's for the fix to what is firing, which would otherwise be refused like any release.
+
+- **What stays:** staging's tests, the approval, prod's check before traffic, the canary unless it's skipped too,
+  rollback when a deployment or that check fails, the suites, and the alarms themselves, which still email.
+- **What goes, for that release only:** CodeDeploy reading the alarms, so none stops or rolls back the new version.
+  Watch the alarms by hand until the release has all its traffic.
+- **The next release turns them on again:** every deploy sets the deployment groups' alarms explicitly from its own
+  switches, so a deploy without `ALARMS=off` restores them.
+
+**An agent turns the alarms off only with the owner's explicit go-ahead, for that release, each time.** Say which alarm
+is firing and why the release fixes it, in the PR or the release notes.
+
+The release records it: the approval email shows the run's canary and alarm settings, the release tag's note says
+"Release alarms off.", and a deploy from the Mac writes `alarms: off` to `<env>.deployed`.
+`make deploy ENV=<env> ALARMS=off` does the same for a deploy from the Mac.
+
 ## Rolling back
 
 - **During a canary:** an alarm moves the alias back by itself. To stop one by hand, choose **Stop and roll back
@@ -79,7 +110,8 @@ PR or the release notes.
 - **The web app and the feed:** release the commit before the bad one: `make promote COMMIT=<sha>`. The apps keep
   the bundle they have until a newer one is published.
 
-When a release alarm is already firing as a deploy starts, CodeDeploy is expected to stop the new version at once.
+When a release alarm is already firing as a deploy starts, CodeDeploy refuses the deploy, and CloudFormation rolls it
+back. To ship the fix for it, see [Shipping while a release alarm fires](#shipping-while-a-release-alarm-fires).
 
 ## Steering it
 
@@ -89,8 +121,8 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | --- | --- |
 | `make pipeline-pause` | Main commits stop at Build: each run they start stops itself. The switch is the SSM parameter `/multiscale/pipeline/paused` |
 | `make pipeline-resume` | Each main commit releases to staging again |
-| `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip` is above |
-| `make release-tag` | Tags the commit prod last released as `release-<date>`, and pushes the tag |
+| `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip` and `ALARMS=off` are above |
+| `make release-tag` | Tags the commit prod last released as `release-<date>`, noting a skipped canary or the alarms off, and pushes the tag |
 | `make pipeline-config` | Uploads the config folder's files the pipeline reads: `control.yaml`, `staging.yaml`, `prod.yaml`, and each release key's public half. Each key itself goes where only the signing step reads it |
 | `make deploy ENV=pipeline` | Deploys the pipeline itself |
 

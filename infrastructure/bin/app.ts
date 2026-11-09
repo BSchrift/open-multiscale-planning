@@ -15,6 +15,9 @@ if (deploying && !names.some((name) => name === deploying)) throw new Error('dep
 // scripts/deploy.sh sets canary=skip for CANARY=skip: a new backend version takes all traffic at once.
 const canary = app.node.tryGetContext('canary') as string | undefined;
 if (canary !== undefined && canary !== 'skip') throw new Error('canary must be skip or unset');
+// And alarms=off for ALARMS=off: one release ships while a release alarm is firing.
+const alarms = app.node.tryGetContext('alarms') as string | undefined;
+if (alarms !== undefined && alarms !== 'off') throw new Error('alarms must be off or unset');
 
 const dir = configDir();
 for (const name of names.filter((n) => !deploying || n === deploying)) {
@@ -46,6 +49,7 @@ for (const name of names.filter((n) => !deploying || n === deploying)) {
       backendDist: join(import.meta.dirname, '../../backend/dist'),
       requireBinaries: real,
       canary,
+      alarms,
       pipelineAccount: control?.pipeline ? control.aws.account : undefined,
     });
   }

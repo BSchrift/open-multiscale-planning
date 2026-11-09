@@ -90,10 +90,14 @@ describe('the release pipeline', () => {
   });
 
   it('lets a run started by hand skip the pause switch and prod\'s canary', () => {
-    assert.deepEqual(pipeline.Properties.Variables.map((v: any) => [v.Name, v.DefaultValue]), [['CANARY', 'on'], ['RUN', 'auto']]);
+    assert.deepEqual(pipeline.Properties.Variables.map((v: any) => [v.Name, v.DefaultValue]), [['CANARY', 'on'], ['ALARMS', 'on'], ['RUN', 'auto']]);
     const vars = JSON.parse(actions('Build')[0].Configuration.EnvironmentVariables);
     assert.deepEqual(vars.find((v: any) => v.name === 'CANARY').value, '#{variables.CANARY}');
     assert.deepEqual(vars.find((v: any) => v.name === 'RUN').value, '#{variables.RUN}');
+    assert.deepEqual(vars.find((v: any) => v.name === 'ALARMS').value, '#{variables.ALARMS}');
+    // Whoever approves sees whether the run skips the canary or turns the release alarms off.
+    const [approve] = actions('Approve');
+    assert.match(approve.Configuration.CustomData, /Canary: #\{variables\.CANARY\}\. Release alarms: #\{variables\.ALARMS\}\./);
   });
 
   it('builds may assume only CDK\'s bootstrap roles and the release role in staging and prod', () => {

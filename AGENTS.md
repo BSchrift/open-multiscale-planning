@@ -47,6 +47,57 @@ nothing from the package.
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it
 to the right layer in the same change, or say why it can't be automated.
 
+## Before you open a PR
+
+For contributors and agents alike. None of this needs a deployment or AWS access: everything here runs locally.
+
+**1. Test first, at the lowest layer that can show it.**
+
+- Write the test that fails. See it fail for the reason you expect, then make it pass, then tidy up.
+- Use the lowest layer that can show the behaviour: a core unit test before a component test, and a component test
+  before an e2e test. Add a higher layer only for what the lower one can't see.
+- While working, run just that test:
+  - `npx vitest run <file>` and `npx tsc --noEmit -p .` in `frontend`;
+  - `go test ./internal/<package>` in `backend`.
+
+**2. Run the suites for what you changed.** Run every row that applies, so it's green before CI sees it.
+
+| You changed | Run |
+| --- | --- |
+| Anything in `frontend/src` | `make test-frontend`; `scripts/e2e.sh browser` (desktop and phone) |
+| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration` |
+| Storage or platform adapters, Electron main or preload | The above, plus `scripts/e2e.sh electron` |
+| The Go backend | `make test-backend`; `make test-integration` (the Docker stack, with stand-ins for DynamoDB, SSM, sign-in and Google) |
+| Infrastructure | `make test-infra` (tests and `cdk synth`) |
+| Anything the iPhone draws or does differently: phone CSS, Capacitor, native iOS | `make test-ios` |
+| Sync, queries or storage speed | `HISTORY_REPORT_ONLY=1 make test-history`, and note the numbers in the PR |
+| A large refactor | `make test`, `make test-e2e` and `make test-ios` |
+
+**3. Smoke test it as a person.**
+
+- Run the app with `make dev`, the Mac app, or the iPhone Simulator.
+- Use the change at desktop and phone size.
+- Look at screenshots of anything visual.
+- If you checked something by hand, add it to a test layer in the same PR, or say why it can't be automated.
+
+**4. Open the PR with:**
+
+- the tests you added, and that they failed first;
+- the commands you ran, with their results;
+- screenshots of UI changes;
+- compatibility notes for older app versions and stored data;
+- what you didn't verify.
+
+Then wait for CI. A PR merges only with every check green.
+
+**For agents in particular:**
+
+- The Mac is shared, so keep test workers at 3 or fewer: `--maxWorkers=3` for Vitest, `--workers=3` for Playwright.
+- Don't run the iOS Simulator while another agent is using it.
+- Rebase on main and run the suites again before opening the PR.
+- Never install into a shared `node_modules`.
+- Never merge with a red check that main doesn't share.
+
 ## The product's rules
 
 - **Nothing happens to someone's plan without them.** Time is placed, and tasks are finished, only by an explicit action.

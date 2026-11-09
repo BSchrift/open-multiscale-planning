@@ -1,7 +1,8 @@
 # Performance
 
 How fast Multiscale has to stay as an account's history grows, how that's measured, and where it stands. A new device's
-first sync downloads every record, and Today and Week read more of it, so both slow down as history grows. `make test-history` measures them on a made-up five-year account and fails when a budget is missed.
+first sync downloads every record, and Today and Week read more of it, so both slow down as history grows. `make test-history` measures them on a made-up five-year account and fails when a budget is missed, unless it only
+reports, as `make test-deployed` does on staging.
 
 ## Budgets
 

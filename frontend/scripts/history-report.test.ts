@@ -8,9 +8,12 @@ import { BUDGETS, report } from './history-report';
 const script = join(import.meta.dirname, 'history-report.ts');
 const within = { web: { first_sync_ms: 4000, edit_save_ms: 20, today_query_ms: 30, week_query_ms: 60 }, mac: { first_sync_ms: 8000, today_query_ms: 40, week_query_ms: 90 }, iphone: { first_sync_ms: 15000, today_query_ms: 80, week_query_ms: 99 } };
 
-function run(results: Record<string, object>, env: Record<string, string> = {}, args: string[] = []) {
+const facts = { records: 38836 };
+
+/** With what was seeded, unless results gives facts of its own, or none as undefined. */
+function run(results: Record<string, object | undefined>, env: Record<string, string> = {}, args: string[] = []) {
   const dir = mkdtempSync(join(tmpdir(), 'history-report-'));
-  for (const [surface, numbers] of Object.entries(results)) writeFileSync(join(dir, `${surface}.json`), JSON.stringify(numbers));
+  for (const [name, numbers] of Object.entries({ facts, ...results })) if (numbers) writeFileSync(join(dir, `${name}.json`), JSON.stringify(numbers));
   return spawnSync(process.execPath, [script, dir, ...args], { env: { ...process.env, HISTORY_REPORT_ONLY: '', ...env }, encoding: 'utf8' });
 }
 
@@ -51,12 +54,31 @@ describe('history-report', () => {
     expect(reported.stdout).toContain('Report only: 1 budget missed');
   });
 
-  it('fails on a surface that measured nothing, even when only reporting', () => {
+  it('fails on a surface that measured nothing, such as an iPhone not usable in time, unless only reporting', () => {
     const { iphone: _, ...rest } = within;
-    const result = run(rest, { HISTORY_REPORT_ONLY: '1' });
+    const failed = run(rest);
+    expect(failed.status).toBe(1);
+    expect(failed.stdout).toMatch(/iphone\s+not measured/);
+    expect(failed.stderr).toContain('3 numbers were not measured');
+    const reported = run(rest, { HISTORY_REPORT_ONLY: '1' });
+    expect(reported.status).toBe(0);
+    expect(reported.stdout).toMatch(/iphone\s+not measured/);
+    expect(reported.stdout).toContain('Report only: 3 numbers were not measured');
+  });
+
+  it('fails on a device holding fewer records than were seeded, even when only reporting', () => {
+    const short = { ...within, web: { ...within.web, records: 37000 }, mac: { ...within.mac, records: 38836 }, iphone: { ...within.iphone, records: 40000 } };
+    const result = run(short, { HISTORY_REPORT_ONLY: '1' });
     expect(result.status).toBe(1);
-    expect(result.stdout).toMatch(/iphone\s+not measured/);
-    expect(result.stderr).toContain('3 numbers were not measured');
+    expect(result.stderr).toContain('web holds 37000 of the 38836 records seeded.');
+    expect(result.stderr).not.toContain('mac holds');
+    expect(result.stderr).not.toContain('iphone holds');
+  });
+
+  it("fails when the history wasn't seeded, even when only reporting", () => {
+    const result = run({ ...within, facts: undefined }, { HISTORY_REPORT_ONLY: '1' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("The history wasn't seeded");
   });
 
   it('leaves out the surfaces it is told were skipped', () => {

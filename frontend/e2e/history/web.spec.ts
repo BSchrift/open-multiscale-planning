@@ -111,6 +111,8 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   await expect(account(page).getByText('Synced', { exact: true })).toBeVisible(NETWORK);
   await quiet(page);
   const queries = await timeQueries(page, 'web');
+  // Recorded before the count is checked, so the report sees a short count even when only reporting.
+  record('web', { first_sync_ms: firstSync, ...queries });
   expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
 
   // A setting turned off and on twice, so the account ends as it began.
@@ -124,6 +126,6 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   edits.sort((a, b) => a - b);
   const editSave = Math.round(((edits[1]! + edits[2]!) / 2) * 10) / 10;
 
-  record('web', { first_sync_ms: firstSync, edit_save_ms: editSave, ...queries });
+  record('web', { edit_save_ms: editSave });
   expect(errors).toEqual([]);
 });

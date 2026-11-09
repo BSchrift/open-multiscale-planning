@@ -69,8 +69,9 @@ test('a new install of the five-year account: first sync, then Today and Week', 
     await go(page, 'Settings');
     await expect(account(page).getByText('Synced', { exact: true })).toBeVisible(NETWORK);
     const queries = await timeQueries(page, 'electron');
-    expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
+    // Recorded before the count is checked, so the report sees a short count even when only reporting.
     record('mac', { first_sync_ms: firstSync, ...queries });
+    expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
     expect(errors).toEqual([]);
   } finally {
     await app.close();

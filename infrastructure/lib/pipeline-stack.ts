@@ -2,7 +2,7 @@
 // and after a person approves it, promoted to prod by the backend's canary, tested, and published. docs/releasing.md
 // describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild; deploy rights stay in AWS.
 
-import { Duration, Stack } from 'aws-cdk-lib';
+import { CfnCapabilities, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
 import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
@@ -216,6 +216,8 @@ export class PipelineStack extends Stack {
               ...changeSet,
               templatePath: built.atPath('infrastructure/cdk.out/prod/Multiscale-prod.template.json'),
               adminPermissions: false,
+              // Prod's stack names IAM roles, such as multiscale-release.
+              cfnCapabilities: [CfnCapabilities.NAMED_IAM],
               role: deployRole,
               deploymentRole: prodRole('cfn-exec'),
               runOrder: 2,

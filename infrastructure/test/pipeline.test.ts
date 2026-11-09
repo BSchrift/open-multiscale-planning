@@ -77,6 +77,8 @@ describe('the release pipeline', () => {
     assert.equal(prepare.Configuration.ActionMode, 'CHANGE_SET_REPLACE');
     assert.equal(prepare.Configuration.StackName, 'Multiscale-prod');
     assert.equal(prepare.Configuration.TemplatePath, 'Built::infrastructure/cdk.out/prod/Multiscale-prod.template.json');
+    // Prod's stack names its IAM roles (multiscale-release), which CloudFormation refuses to change without this.
+    assert.equal(prepare.Configuration.Capabilities, 'CAPABILITY_NAMED_IAM');
     assert.deepEqual(prepare.RoleArn, bootstrapRole('222222222222', 'deploy'));
     assert.deepEqual(prepare.Configuration.RoleArn, bootstrapRole('222222222222', 'cfn-exec'));
     assert.equal(deploy.Configuration.ActionMode, 'CHANGE_SET_EXECUTE');

@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
-import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { Annotations, CfnOutput, Duration, Names, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { forEnv } from '@multiscale/config';
 import { AccessLogFormat } from 'aws-cdk-lib/aws-apigateway';
@@ -17,11 +17,12 @@ import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ResponseHea
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
+import { LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
-import { Architecture, Code, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
-import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
+import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
+import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { ApiGatewayv2DomainProperties, CloudFrontTarget, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
@@ -43,11 +44,13 @@ export interface MultiscaleStackProps {
   backendDist: string;
   /** Set when deploying, so that a missing build fails instead of shipping the stand-in. */
   requireBinaries: boolean;
+  /** 'skip' sends a new backend version all traffic at once, rather than by config/env's canary. The alarms still roll it back. */
+  canary?: 'skip';
 }
 
 export class MultiscaleStack extends Stack {
   constructor(scope: Construct, id: string, props: MultiscaleStackProps) {
-    const { envName, config, control, backendDist, requireBinaries } = props;
+    const { envName, config, control, backendDist, requireBinaries, canary } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
       terminationProtection: forEnv(envName).stack.terminationProtection,
@@ -190,14 +193,21 @@ export class MultiscaleStack extends Stack {
         environment: { TABLE_NAME: table.tableName, ENV_NAME: envName, SSM_PREFIX: ssmPrefix, ...environment },
       });
 
+    // Everything invokes a function's live alias, never $LATEST, so that CodeDeploy can move traffic to a new version in
+    // steps (Deployments, below). A deploy that changes a function publishes a new version.
+    const live = (fn: LambdaFunction) => new Alias(this, `${fn.node.id.replace(/Function$/, '')}Live`, { aliasName: 'live', version: fn.currentVersion });
+
     const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, Duration.minutes(5), {});
+    const calendarAlias = live(calendarFunction);
     const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
+    const retentionAlias = live(retentionFunction);
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
-      CALENDAR_FUNCTION_NAME: calendarFunction.functionName,
+      CALENDAR_FUNCTION_NAME: calendarAlias.functionArn,
     });
+    const apiAlias = live(apiFunction);
 
-    const integration = new HttpLambdaIntegration('ApiIntegration', apiFunction);
+    const integration = new HttpLambdaIntegration('ApiIntegration', apiAlias);
     httpApi.addRoutes({ path: '/sync', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/connect', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/calendar/refresh', methods: [HttpMethod.POST], integration });
@@ -227,11 +237,23 @@ export class MultiscaleStack extends Stack {
       actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
     }));
-    calendarFunction.grantInvoke(apiFunction);
+    calendarAlias.grantInvoke(apiFunction);
 
     // What runs the worker
 
-    calendarFunction.addEventSource(new DynamoEventSource(table, {
+    // A mapping from the stream to an alias. Made here rather than by DynamoEventSource on the alias: under the function,
+    // with DynamoEventSource's own id, the mapping each function already had moves to its alias in place. A new mapping
+    // would read retention's stream from its start again, and both would run while the old one went.
+    const fromStream = (fn: LambdaFunction, alias: Alias, options: Omit<EventSourceMappingOptions, 'eventSourceArn'>) => {
+      table.grantStreamRead(alias);
+      return new EventSourceMapping(fn, `DynamoDBEventSource:${Names.nodeUniqueId(table.node)}`, {
+        target: alias,
+        eventSourceArn: table.tableStreamArn!,
+        ...options,
+      });
+    };
+
+    fromStream(calendarFunction, calendarAlias, {
       startingPosition: StartingPosition.LATEST,
       batchSize: 100,
       maxBatchingWindow: Duration.seconds(60),
@@ -241,22 +263,22 @@ export class MultiscaleStack extends Stack {
       filters: [FilterCriteria.filter({ dynamodb: { Keys: { sk: { S: [
         { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
       ] } } } })],
-    }));
+    });
     new Schedule(this, 'CalendarSchedule', {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),
-      target: new LambdaInvoke(calendarFunction),
+      target: new LambdaInvoke(calendarAlias),
     });
 
     // What keeps the expiry mark: TTL's removals only. A delete from anyone else, staging's cleanup included, isn't
     // expiry, and cleanup raises the mark itself before it removes anything.
-    retentionFunction.addEventSource(new DynamoEventSource(table, {
+    fromStream(retentionFunction, retentionAlias, {
       startingPosition: StartingPosition.TRIM_HORIZON,
       batchSize: 100,
       filters: [FilterCriteria.filter({
         eventName: FilterRule.isEqual('REMOVE'),
         userIdentity: { type: FilterRule.isEqual('Service'), principalId: FilterRule.isEqual('dynamodb.amazonaws.com') },
       })],
-    }));
+    });
     // Raising a mark is an UpdateItem. Cleanup also reads the table and removes what has expired.
     retentionFunction.addToRolePolicy(new PolicyStatement({
       actions: ['dynamodb:UpdateItem', ...(retention.cleanup ? ['dynamodb:Scan', 'dynamodb:DeleteItem'] : [])],
@@ -266,7 +288,7 @@ export class MultiscaleStack extends Stack {
       const { days, hours, minutes } = retention.cleanup;
       new Schedule(this, 'CleanupSchedule', {
         schedule: ScheduleExpression.rate(Duration.minutes((days * 24 + hours) * 60 + minutes)),
-        target: new LambdaInvoke(retentionFunction),
+        target: new LambdaInvoke(retentionAlias),
       });
     }
 
@@ -303,20 +325,30 @@ export class MultiscaleStack extends Stack {
       period: fiveMinutes,
     });
 
-    const anyFailure = (alarmId: string, description: string, metric: Metric | MathExpression, threshold = 1) =>
-      new Alarm(this, alarmId, {
+    const anyFailure = (alarmId: string, description: string, metric: Metric | MathExpression, threshold = 1, evaluationPeriods = 1) => {
+      const alarm = new Alarm(this, alarmId, {
         alarmDescription: description,
         metric,
         threshold,
-        evaluationPeriods: 1,
+        evaluationPeriods,
         comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         treatMissingData: TreatMissingData.NOT_BREACHING,
-      }).addAlarmAction(alarmAction);
+      });
+      alarm.addAlarmAction(alarmAction);
+      return alarm;
+    };
 
-    anyFailure('Api5xxRate', 'At least 10% of API requests failed with a 5xx', apiErrorRate, 10);
-    anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors);
-    anyFailure('DynamoThrottles', 'DynamoDB throttled a request', dynamoThrottles);
-    anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures'));
+    // These also roll a new backend version back while it takes traffic. They watch both versions together.
+    const releaseAlarms = [
+      anyFailure('Api5xxRate', 'At least 10% of API requests failed with a 5xx', apiErrorRate, 10),
+      // Over two periods, since with one user a single slow push is the whole p99.
+      anyFailure('ApiLatency', 'API p99 latency was 10 seconds or more for 10 minutes', httpApi.metricLatency({ statistic: 'p99', period: fiveMinutes }), 10_000, 2),
+      anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors),
+      anyFailure('DynamoThrottles', 'DynamoDB throttled a request', dynamoThrottles),
+      anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures')),
+      // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
+      anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
+    ];
     // The worker emits CalendarEventsChanged once per successful run, including runs that change nothing, so the
     // sample count is the number of successes.
     new Alarm(this, 'CalendarSilent', {
@@ -338,6 +370,27 @@ export class MultiscaleStack extends Stack {
       comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: TreatMissingData.IGNORE,
     }).addAlarmAction(alarmAction);
+
+    // Deployments: CodeDeploy moves each alias to a new version by config/env's canary, a share of invocations first and
+    // the rest after a wait, and moves it back if a release alarm fires on the way. Only code is split like this: the
+    // table, IAM, schedules and config change all at once, so they follow the compatibility rules in AGENTS.md.
+
+    const settings = forEnv(envName).stack;
+    const application = new LambdaApplication(this, 'Deployments');
+    // Always made, so a release that skips the canary doesn't remove it and the next one finds it again.
+    const canaryConfig = new LambdaDeploymentConfig(this, 'Canary', {
+      trafficRouting: new TimeBasedCanaryTrafficRouting({ percentage: settings.canaryPercent, interval: Duration.minutes(settings.canaryMinutes) }),
+    });
+    const deploymentConfig = canary === 'skip' ? LambdaDeploymentConfig.ALL_AT_ONCE : canaryConfig;
+    for (const [id, alias] of [['Api', apiAlias], ['Calendar', calendarAlias], ['Retention', retentionAlias]] as const) {
+      new LambdaDeploymentGroup(this, `${id}Deployment`, {
+        application,
+        alias,
+        deploymentConfig,
+        alarms: releaseAlarms,
+        autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
+      });
+    }
 
     // Dashboard
 

@@ -16,8 +16,8 @@ const config: Config = {
 };
 const control: ControlConfig = { aws: { account: '333333333333', region: 'us-west-2', profile: 'control' }, dns: { domain: 'example.net', hostedZoneId: 'Z0PARENTZONE' } };
 
-function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config) {
-  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries });
+function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip') {
+  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary });
 }
 
 type Resource = { Type: string; Properties: Record<string, any>; DeletionPolicy?: string };
@@ -37,6 +37,13 @@ const policyFor = (functionPrefix: string) => {
   return statements.map((s) => ({ ...s, Action: [s.Action].flat() as string[] }));
 };
 const actions = (functionPrefix: string) => policyFor(functionPrefix).flatMap((s) => s.Action);
+// A stream mapping names its function as <name>:<alias>, from the alias's ARN.
+const mappedTo = (mapping: Resource) => JSON.stringify(mapping.Properties.FunctionName).match(/"Ref":"(\w+)"/)?.[1];
+const aliasOf = (functionPrefix: string) => {
+  const hit = Object.keys(all).find((id) => id.startsWith(`${functionPrefix}Live`) && all[id].Type === 'AWS::Lambda::Alias');
+  assert.ok(hit, `no alias for ${functionPrefix}`);
+  return hit;
+};
 
 before(() => {
   t = Template.fromStack(build());
@@ -198,14 +205,13 @@ describe('calendar triggers', () => {
   it('runs every 30 minutes from EventBridge Scheduler', () => {
     t.hasResourceProperties('AWS::Scheduler::Schedule', {
       ScheduleExpression: 'rate(30 minutes)',
-      Target: Match.objectLike({ Arn: { 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] } }),
+      Target: Match.objectLike({ Arn: { Ref: aliasOf('Calendar') } }),
     });
   });
 
   it('runs from the stream with a 60 second window, for its inputs only and not the record it writes itself', () => {
-    const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => m.Properties.FunctionName.Ref === logicalId('Calendar'))!;
+    const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => mappedTo(m) === aliasOf('Calendar'))!;
     assert.equal(mapping.Properties.MaximumBatchingWindowInSeconds, 60);
-    assert.deepEqual(mapping.Properties.FunctionName, { Ref: logicalId('Calendar') });
     const pattern = JSON.parse(mapping.Properties.FilterCriteria.Filters[0].Pattern);
     // Events take their titles from tasks and practices, so renaming one is an input too.
     assert.deepEqual(pattern.dynamodb.Keys.sk.S, [
@@ -217,8 +223,8 @@ describe('calendar triggers', () => {
 
 describe('retention', () => {
   const mapping = (template: Template) => {
-    const id = Object.entries(template.toJSON().Resources as Record<string, Resource>).find(([k, r]) => k.startsWith('Retention') && r.Type === 'AWS::Lambda::Function')![0];
-    return Object.values(template.toJSON().Resources as Record<string, Resource>).find((r) => r.Type === 'AWS::Lambda::EventSourceMapping' && r.Properties.FunctionName.Ref === id)!;
+    const id = Object.entries(template.toJSON().Resources as Record<string, Resource>).find(([k, r]) => k.startsWith('RetentionLive') && r.Type === 'AWS::Lambda::Alias')![0];
+    return Object.values(template.toJSON().Resources as Record<string, Resource>).find((r) => r.Type === 'AWS::Lambda::EventSourceMapping' && mappedTo(r) === id)!;
   };
 
   it("reads only TTL's removals from the stream, from as far back as it holds", () => {
@@ -233,7 +239,7 @@ describe('retention', () => {
   it("runs staging's cleanup every minute, from retention.yaml, and prod has none", () => {
     t.hasResourceProperties('AWS::Scheduler::Schedule', {
       ScheduleExpression: 'rate(1 minute)',
-      Target: Match.objectLike({ Arn: { 'Fn::GetAtt': [logicalId('Retention'), 'Arn'] } }),
+      Target: Match.objectLike({ Arn: { Ref: aliasOf('Retention') } }),
     });
     const prod = Template.fromStack(build('prod'));
     assert.equal(Object.values(prod.toJSON().Resources as Record<string, Resource>).filter((r) => r.Type === 'AWS::Scheduler::Schedule').length, 1);
@@ -318,6 +324,110 @@ describe('least privilege', () => {
   });
 });
 
+describe('the backend canary', () => {
+  const functions = ['Api', 'Calendar', 'Retention'];
+  const releaseAlarms = ['Api5xxRate', 'ApiLatency', 'LambdaErrors', 'DynamoThrottles', 'CalendarFailures', 'RetentionBehind'];
+  const resources = (template: Template) => template.toJSON().Resources as Record<string, Resource & { UpdatePolicy?: any }>;
+  const groups = (template: Template) => Object.values(resources(template)).filter((r) => r.Type === 'AWS::CodeDeploy::DeploymentGroup');
+
+  it('gives each function a live alias on its published version', () => {
+    for (const fn of functions) {
+      const alias = all[aliasOf(fn)];
+      assert.equal(alias.Properties.Name, 'live');
+      assert.deepEqual(alias.Properties.FunctionName, { Ref: logicalId(fn) });
+      const version = alias.Properties.FunctionVersion['Fn::GetAtt'][0];
+      assert.equal(all[version].Type, 'AWS::Lambda::Version');
+    }
+  });
+
+  it('invokes every function through its alias, never $LATEST', () => {
+    const [, integration] = ofType('AWS::ApiGatewayV2::Integration')[0];
+    assert.deepEqual(integration.Properties.IntegrationUri, { Ref: aliasOf('Api') });
+    for (const [, schedule] of ofType('AWS::Scheduler::Schedule')) {
+      assert.ok([aliasOf('Calendar'), aliasOf('Retention')].includes(schedule.Properties.Target.Arn.Ref), JSON.stringify(schedule.Properties.Target));
+    }
+    const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m)).sort();
+    assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention')].sort());
+    // The API starts the worker by this name, and may invoke only the alias.
+    assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, { Ref: aliasOf('Calendar') });
+    const invoke = policyFor('Api').filter((s) => s.Action.includes('lambda:InvokeFunction'));
+    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [{ Ref: aliasOf('Calendar') }]);
+  });
+
+  it('keeps the stream mappings where they are, so they move to the alias in place rather than start over', () => {
+    // A new mapping would read retention's stream from its start again, and both would run while the old one went.
+    // Their ids from before the aliases.
+    const ids = ofType('AWS::Lambda::EventSourceMapping').map(([id]) => id).sort();
+    assert.deepEqual(ids, ['CalendarFunctionDynamoDBEventSourceMultiscalestagingTable7176ACF0553642AA', 'RetentionFunctionDynamoDBEventSourceMultiscalestagingTable7176ACF049B960A6']);
+  });
+
+  it('shifts each alias with CodeDeploy, and any release alarm rolls it back', () => {
+    const found = groups(t);
+    assert.equal(found.length, 3);
+    const alarmIds = (group: Resource) => group.Properties.AlarmConfiguration.Alarms.map((a: any) => a.Name.Ref.replace(/[0-9A-F]{8}$/, '')).sort();
+    for (const group of found) {
+      assert.equal(group.Properties.AlarmConfiguration.Enabled, true);
+      assert.deepEqual(alarmIds(group), [...releaseAlarms].sort());
+      assert.equal(group.Properties.AutoRollbackConfiguration.Enabled, true);
+      assert.deepEqual([...group.Properties.AutoRollbackConfiguration.Events].sort(), ['DEPLOYMENT_FAILURE', 'DEPLOYMENT_STOP_ON_ALARM', 'DEPLOYMENT_STOP_ON_REQUEST']);
+    }
+    for (const fn of functions) {
+      const policy = (all[aliasOf(fn)] as any).UpdatePolicy.CodeDeployLambdaAliasUpdate;
+      assert.ok(policy.DeploymentGroupName.Ref.startsWith(`${fn}Deployment`), JSON.stringify(policy));
+    }
+  });
+
+  const canaryOf = (template: Template) => {
+    const configs = Object.entries(resources(template)).filter(([, r]) => r.Type === 'AWS::CodeDeploy::DeploymentConfig');
+    assert.equal(configs.length, 1);
+    const [[id, config]] = configs;
+    return { id, routing: config.Properties.TrafficRoutingConfig };
+  };
+
+  it("canaries 5% for 10 minutes on staging, so a release there is quick to test", () => {
+    const { id, routing } = canaryOf(t);
+    assert.deepEqual(routing, { Type: 'TimeBasedCanary', TimeBasedCanary: { CanaryPercentage: 5, CanaryInterval: 10 } });
+    for (const group of groups(t)) assert.deepEqual(group.Properties.DeploymentConfigName, { Ref: id });
+  });
+
+  it('canaries 5% for a day on prod', () => {
+    const prod = Template.fromStack(build('prod'));
+    const { id, routing } = canaryOf(prod);
+    assert.deepEqual(routing, { Type: 'TimeBasedCanary', TimeBasedCanary: { CanaryPercentage: 5, CanaryInterval: 1440 } });
+    for (const group of groups(prod)) assert.deepEqual(group.Properties.DeploymentConfigName, { Ref: id });
+  });
+
+  it('skips the canary when asked, sending all traffic at once, and keeps the alarms and rollback', () => {
+    const skipped = Template.fromStack(build('prod', '/nonexistent', false, config, 'skip'));
+    // The canary's config stays, so the next release goes back to it without making a new one.
+    canaryOf(skipped);
+    for (const group of groups(skipped)) {
+      assert.equal(group.Properties.DeploymentConfigName, 'CodeDeployDefault.LambdaAllAtOnce');
+      assert.equal(group.Properties.AlarmConfiguration.Alarms.length, releaseAlarms.length);
+      assert.equal(group.Properties.AutoRollbackConfiguration.Enabled, true);
+    }
+  });
+
+  const alarmProps = (name: string) => ofType('AWS::CloudWatch::Alarm').find(([id]) => id.startsWith(name))![1].Properties;
+
+  it("alarms when the API's p99 latency stays at 10 seconds or more for 10 minutes", () => {
+    const latency = alarmProps('ApiLatency');
+    assert.equal(latency.ExtendedStatistic, 'p99');
+    assert.equal(latency.MetricName, 'Latency');
+    assert.equal(latency.Threshold, 10_000);
+    assert.equal(latency.EvaluationPeriods, 2);
+    assert.equal(latency.Period, 300);
+  });
+
+  it('alarms when the retention consumer falls an hour behind the stream', () => {
+    const behind = alarmProps('RetentionBehind');
+    assert.equal(behind.MetricName, 'IteratorAge');
+    assert.equal(behind.Statistic, 'Maximum');
+    assert.equal(behind.Threshold, 3_600_000);
+    assert.deepEqual(behind.Dimensions, [{ Name: 'FunctionName', Value: { Ref: logicalId('Retention') } }]);
+  });
+});
+
 describe('observability', () => {
   it('sets 30-day retention on all four log groups, and every function uses its own', () => {
     const groups = ofType('AWS::Logs::LogGroup');
@@ -326,9 +436,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly six alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly eight alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 6);
+    assert.equal(alarms.length, 8);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });

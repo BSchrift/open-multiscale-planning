@@ -64,6 +64,23 @@ describe('scripts/deploy.sh', () => {
     assert.ok(!existsSync(s.file('staging.outputs.json')));
   });
 
+  it('keeps the canary unless asked to skip it, and then sends the new backend all traffic at once', () => {
+    const s = sandbox();
+    assert.equal(s.run({ ENV: 'prod' }).status, 0);
+    assert.doesNotMatch(s.log(), /canary=/);
+    const skip = sandbox();
+    assert.equal(skip.run({ ENV: 'prod', CANARY: 'skip' }).status, 0);
+    assert.match(skip.log(), /npx cdk deploy Multiscale-prod -c deploy=prod -c canary=skip /);
+  });
+
+  it('refuses any other CANARY before doing anything', () => {
+    const s = sandbox();
+    const r = s.run({ ENV: 'prod', CANARY: 'off' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /CANARY must be skip or unset, not off/);
+    assert.equal(s.log(), '');
+  });
+
   it('deploys control without building the Lambdas', () => {
     const s = sandbox();
     const r = s.run({ ENV: 'control', OUTPUTS: '{}' });

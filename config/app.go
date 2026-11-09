@@ -41,6 +41,20 @@ type EnvConfig struct {
 // Stack is how the environment's AWS stack is deployed.
 type Stack struct {
 	TerminationProtection bool `yaml:"terminationProtection" json:"terminationProtection"`
+	CanaryPercent         int  `yaml:"canaryPercent" json:"canaryPercent"`
+	CanaryMinutes         int  `yaml:"canaryMinutes" json:"canaryMinutes"`
+}
+
+// check is what positive can't see: the limits CodeDeploy puts on a Lambda canary.
+func (s Stack) check() []string {
+	var problems []string
+	if s.CanaryPercent > maxCanaryPercent {
+		problems = append(problems, fmt.Sprintf("stack.canaryPercent is %d, but CodeDeploy shifts at most %d%% in one step", s.CanaryPercent, maxCanaryPercent))
+	}
+	if s.CanaryMinutes > maxCanaryMinutes {
+		problems = append(problems, fmt.Sprintf("stack.canaryMinutes is %d, but CodeDeploy waits at most %d minutes between the first and last shift", s.CanaryMinutes, maxCanaryMinutes))
+	}
+	return problems
 }
 
 // ForEnv is an environment's settings, by its name. Any other name is an error, so a Lambda given a wrong ENV_NAME
@@ -90,6 +104,9 @@ const (
 	// Lambda refuses a request over 6 MB before any code runs, and the event around the body takes some of that.
 	lambdaRequestBytes = 6 << 20
 	eventRoomBytes     = 256 << 10
+	// CodeDeploy's quotas for a Lambda deployment.
+	maxCanaryPercent = 99
+	maxCanaryMinutes = 2880
 )
 
 func (p ProtocolConfig) check() []string {
@@ -152,7 +169,7 @@ func load(fsys fs.FS) (ProtocolConfig, map[string]EnvConfig, error) {
 		case err != nil:
 			problems = append(problems, err)
 		default:
-			for _, problem := range positive(reflect.ValueOf(env), "") {
+			for _, problem := range append(positive(reflect.ValueOf(env), ""), env.Stack.check()...) {
 				problems = append(problems, fmt.Errorf("%s: %s", file, problem))
 			}
 			envs[name] = env

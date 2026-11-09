@@ -251,10 +251,11 @@ func TestMergeKeepsTheNewestWriteOfEachField(t *testing.T) {
 	a := signIn(t)
 	id := fresh("merge")
 	// From now on, not from the past: a new record whose every clock is older than the deleted period is dropped as
-	// stale, and staging's period is minutes.
+	// stale, and staging's period is minutes. Seconds ahead, not minutes, since the harness refuses to send a
+	// deployment a clock more than a minute ahead.
 	wall := time.Now()
-	at := func(minutes int, device string) string {
-		return clockAt(wall.Add(time.Duration(minutes)*time.Minute), 0, device)
+	at := func(seconds int, device string) string {
+		return clockAt(wall.Add(time.Duration(seconds)*time.Second), 0, device)
 	}
 	push := func(fields map[string]field) { a.sync(a.startCursor(), record{"task", id, fields}) }
 

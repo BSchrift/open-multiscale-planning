@@ -92,10 +92,10 @@ const shaped = (envName: EnvName, zone: string): Config => ({
 
 describe('the stack CloudFormation would deploy', () => {
   for (const [envName, zone] of [['staging', 'staging.example.net'], ['prod', 'app.example.net']] as const) {
-    for (const canary of [undefined, 'skip'] as const) {
-      it(`has no dependency loop, for ${envName}${canary ? ' skipping the canary' : ''}`, () => {
+    for (const [canary, alarms] of [[undefined, undefined], ['skip', undefined], [undefined, 'off'], ['skip', 'off']] as const) {
+      it(`has no dependency loop, for ${envName}${canary ? ' skipping the canary' : ''}${alarms ? ' with the alarms off' : ''}`, () => {
         const stack = new MultiscaleStack(new App(), `Multiscale-${envName}`, {
-          envName, config: shaped(envName, zone), control, backendDist: '/nonexistent', requireBinaries: false, canary,
+          envName, config: shaped(envName, zone), control, backendDist: '/nonexistent', requireBinaries: false, canary, alarms,
           // With the release pipeline set up, so its release role is in the walk too.
           pipelineAccount: control.aws.account,
         });

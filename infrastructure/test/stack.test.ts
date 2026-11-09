@@ -16,8 +16,8 @@ const config: Config = {
 };
 const control: ControlConfig = { aws: { account: '333333333333', region: 'us-west-2', profile: 'control' }, dns: { domain: 'example.net', hostedZoneId: 'Z0PARENTZONE' } };
 
-function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip') {
-  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary });
+function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip', alarms?: 'off') {
+  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary, alarms });
 }
 
 type Resource = { Type: string; Properties: Record<string, any>; DeletionPolicy?: string };
@@ -328,7 +328,9 @@ describe('least privilege', () => {
 
 describe('the backend canary', () => {
   const functions = ['Api', 'Calendar', 'Retention'];
-  const releaseAlarms = ['Api5xxRate', 'ApiLatency', 'LambdaErrors', 'DynamoThrottles', 'CalendarFailures', 'RetentionBehind', 'CanaryFailures'];
+  // Staging's: its test load goes through the API, so a throttle there isn't a release's doing. Prod adds DynamoThrottles.
+  const releaseAlarms = ['Api5xxRate', 'ApiLatency', 'LambdaErrors', 'CalendarFailures', 'RetentionBehind', 'CanaryFailures'];
+  const prodReleaseAlarms = [...releaseAlarms, 'DynamoThrottles'];
   const resources = (template: Template) => template.toJSON().Resources as Record<string, Resource & { UpdatePolicy?: any }>;
   const groups = (template: Template) => Object.values(resources(template)).filter((r) => r.Type === 'AWS::CodeDeploy::DeploymentGroup');
 
@@ -407,8 +409,42 @@ describe('the backend canary', () => {
     canaryOf(skipped);
     for (const group of groups(skipped)) {
       assert.equal(group.Properties.DeploymentConfigName, 'CodeDeployDefault.LambdaAllAtOnce');
-      assert.equal(group.Properties.AlarmConfiguration.Alarms.length, releaseAlarms.length);
+      assert.equal(group.Properties.AlarmConfiguration.Alarms.length, prodReleaseAlarms.length);
       assert.equal(group.Properties.AutoRollbackConfiguration.Enabled, true);
+    }
+  });
+
+  const alarmNames = (group: Resource) => (group.Properties.AlarmConfiguration?.Alarms ?? []).map((a: any) => a.Name.Ref.replace(/[0-9A-F]{8}$/, '')).sort();
+
+  it('counts DynamoDB throttles as a release alarm on prod, and not on staging, where test load can throttle', () => {
+    for (const group of groups(Template.fromStack(build('prod')))) assert.deepEqual(alarmNames(group), [...prodReleaseAlarms].sort());
+    for (const group of groups(t)) assert.ok(!alarmNames(group).includes('DynamoThrottles'));
+    // Staging still emails it.
+    const [, throttles] = ofType('AWS::CloudWatch::Alarm').find(([id]) => id.startsWith('DynamoThrottles'))!;
+    const [[topicId]] = ofType('AWS::SNS::Topic');
+    assert.deepEqual(throttles.Properties.AlarmActions, [{ Ref: topicId }]);
+  });
+
+  it('turns the release alarms off for one release when asked, keeping rollback on a failed deployment or check', () => {
+    for (const envName of ['staging', 'prod'] as const) {
+      const off = Template.fromStack(build(envName, '/nonexistent', false, config, undefined, 'off'));
+      for (const group of groups(off)) {
+        // CodeDeploy then doesn't refuse to start for an alarm already firing, nor stop on one.
+        assert.equal(group.Properties.AlarmConfiguration.Enabled, false);
+        assert.deepEqual(group.Properties.AlarmConfiguration.Alarms, []);
+        assert.equal(group.Properties.AutoRollbackConfiguration.Enabled, true);
+        assert.deepEqual([...group.Properties.AutoRollbackConfiguration.Events].sort(), ['DEPLOYMENT_FAILURE', 'DEPLOYMENT_STOP_ON_REQUEST']);
+      }
+      // The pre-traffic check stays, and the alarms themselves still email.
+      assert.ok((Object.values(resources(off)).find((r) => r.Type === 'AWS::Lambda::Alias' && (r as any).UpdatePolicy?.CodeDeployLambdaAliasUpdate?.BeforeAllowTrafficHook)));
+      assert.equal(Object.values(resources(off)).filter((r) => r.Type === 'AWS::CloudWatch::Alarm').length, ofType('AWS::CloudWatch::Alarm').length);
+      // The next release without the switch sets them back, explicitly, so CloudFormation turns them on again.
+      const next = Template.fromStack(build(envName));
+      for (const group of groups(next)) {
+        assert.equal(group.Properties.AlarmConfiguration.Enabled, true);
+        assert.deepEqual(alarmNames(group), envName === 'prod' ? [...prodReleaseAlarms].sort() : [...releaseAlarms].sort());
+        assert.ok(group.Properties.AutoRollbackConfiguration.Events.includes('DEPLOYMENT_STOP_ON_ALARM'));
+      }
     }
   });
 
@@ -542,9 +578,16 @@ describe('observability', () => {
     for (const fn of ['Api', 'Calendar', 'Retention']) assert.ok(body.includes(logicalId(fn)), fn);
   });
 
-  it('throttle alarm covers reads and writes', () => {
-    const body = JSON.stringify(alarm('DynamoThrottles').Metrics);
-    assert.ok(body.includes('ReadThrottleEvents') && body.includes('WriteThrottleEvents'));
+  it("throttle alarm counts only the API's own operations, not the cleanup's scan and deletes", () => {
+    const metrics = alarm('DynamoThrottles').Metrics as any[];
+    const operations = metrics.filter((m) => m.MetricStat).map((m) => {
+      assert.equal(m.MetricStat.Metric.MetricName, 'ThrottledRequests');
+      return m.MetricStat.Metric.Dimensions.find((d: any) => d.Name === 'Operation').Value;
+    });
+    // What the API and the worker call, through the store: the sync's reads and its transaction, and the consent state.
+    assert.deepEqual(operations.sort(), ['BatchGetItem', 'PutItem', 'Query', 'TransactWriteItems', 'UpdateItem']);
+    const [expression] = metrics.filter((m) => m.Expression);
+    for (const m of metrics.filter((x) => x.MetricStat)) assert.ok(expression.Expression.includes(`FILL(${m.Id}, 0)`), expression.Expression);
   });
 
   it('worker failure alarm reads the custom metric', () => {

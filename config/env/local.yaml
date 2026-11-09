@@ -13,3 +13,6 @@ stack:
   # Local runs no stack, so nothing reads these there either.
   canaryPercent: 5
   canaryMinutes: 10
+  # Whether DynamoDB throttling the API's requests stops a release and rolls it back.
+  # Local runs no stack, so nothing reads this there either.
+  throttleReleaseAlarm: false

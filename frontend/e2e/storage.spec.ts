@@ -82,28 +82,24 @@ test('an edit survives a reload straight after it', async ({ playwright, browser
   await context.close();
 });
 
-test('an edit saves in under 50 ms with a few thousand records', async ({ playwright, browserName }, info) => {
+// How long an edit takes is the history-scale test's to time, against the budget in docs/performance.md: on a known
+// machine, a five-year account, the database quiet before each edit. These edits take 2 to 35 ms on an M4 Mac, but on a
+// shared CI machine, beside other workers, the same code took 25 to 156 ms in one run, so a time here failed with
+// nothing changed.
+test('edits save straight away with a few thousand records', async ({ playwright, browserName }, info) => {
   const context = await profile(playwright, browserName, info);
   const page = await context.newPage();
   const many: Seed[] = Array.from({ length: 3000 }, (_, i) => ({ type: 'task', fields: { kind: 'one_off', title: `One off ${i}`, estimate_min: 30, schedule: { type: 'once' } } }));
   await openSeeded(page, many);
-  // Each through the app's own write path, the one every screen's edits take. The median, on a shared machine.
-  const times = await page.evaluate(async () => {
+  // Each through the app's own write path, the one every screen's edits take.
+  await page.evaluate(async () => {
     const write = (window as unknown as { multiscaleSeed(r: readonly Seed[]): Promise<void> }).multiscaleSeed;
-    const out: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      const start = performance.now();
-      await write([{ type: 'task', fields: { kind: 'inbox', title: `Timed ${i}` } }]);
-      out.push(performance.now() - start);
-    }
-    return out;
+    for (let i = 0; i < 7; i++) await write([{ type: 'task', fields: { kind: 'inbox', title: `Saved ${i}` } }]);
   });
   // Saved, not only applied: a reload straight after keeps every one.
   await page.reload();
-  await launch(page, ['Timed 0', 'Timed 6']);
-  const median = [...times].sort((a, b) => a - b)[3]!;
-  info.annotations.push({ type: 'edit times', description: `${times.map((t) => t.toFixed(1)).join(', ')} ms` });
-  expect(median, `edits took ${times.map((t) => t.toFixed(1)).join(', ')} ms`).toBeLessThan(50);
+  await launch(page, ['Saved 0', 'Saved 6']);
+  expect(await onOpfs(page)).toBe(true);
   await context.close();
 });
 

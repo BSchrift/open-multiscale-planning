@@ -13,3 +13,7 @@ stack:
   # to test.
   canaryPercent: 5
   canaryMinutes: 10
+  # Whether DynamoDB throttling the API's requests stops a release and rolls it back. Off here: staging's test load,
+  # such as the history seed and the integration suite's largest pushes, goes through the API and can throttle at any
+  # time, so a throttle is no sign of a bad release. It still emails.
+  throttleReleaseAlarm: false

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   answerBlock,
+  answerBlocks,
   currentBlock,
   extendBlock,
   keepPracticeChange,
@@ -191,6 +192,100 @@ describe('answering a block', () => {
     await t.run((w) => applyPlanChange(w, undo));
     await t.run((w) => answerBlock(w, 'now', { result: 'not' }, t.clock));
     expect((await t.rows()).find((b) => b.id === 'now')?.result).toBe('not');
+  });
+});
+
+describe('answering several missed blocks at once', () => {
+  // Earlier today: two missed blocks of the report, then one of the fence. 'now' is still running.
+  const missed = async (w: Writer) => {
+    await w.create('time_block', { task_id: 't', start: at('10:00'), end: at('11:00'), tz: 'UTC' }, 'm1');
+    await w.create('time_block', { task_id: 'o', start: at('12:00'), end: at('12:30'), tz: 'UTC' }, 'm2');
+    await w.create('time_block', { task_id: 't', start: at('14:00'), end: at('15:00'), tz: 'UTC' }, 'm3');
+  };
+  const outcome = (t: Awaited<ReturnType<typeof setup>>, id: string) => getRecord(t.db, 'block_outcome', outcomeId(id));
+
+  it('answers each in one transaction, and one reverse undoes them all', async () => {
+    const t = await setup(missed);
+    const undo = await t.run((w) =>
+      answerBlocks(
+        w,
+        [
+          { blockId: 'm2', answer: { result: 'not' } },
+          { blockId: 'm3', answer: { result: 'partly', remaining_min: 45 } },
+          { blockId: 'piano', answer: { result: 'done', logged_min: 20 } },
+        ],
+        t.clock,
+      ),
+    );
+    expect(await outcome(t, 'm2')).toMatchObject({ result: 'not' });
+    expect(await outcome(t, 'm3')).toMatchObject({ result: 'partly', remaining_min: 45 });
+    expect(await outcome(t, 'piano')).toMatchObject({ result: 'done', logged_min: 20 });
+    expect((await getRecord(t.db, 'task', 't'))?.remaining_min).toBe(45);
+    expect(undo.freed).toEqual([]);
+
+    await t.run((w) => applyPlanChange(w, undo));
+    const rows = await t.rows();
+    expect(['m2', 'm3', 'piano'].map((id) => rows.find((b) => b.id === id)?.result)).toEqual([null, null, null]);
+    expect((await getRecord(t.db, 'task', 't'))?.remaining_min).toBe(180);
+  });
+
+  it('a Done that closes a task takes its later missed blocks with it, and Undo brings them back', async () => {
+    const t = await setup(missed);
+    const undo = await t.run((w) => answerBlocks(w, [{ blockId: 'm1', answer: { result: 'done' } }], t.clock));
+    expect((await getRecord(t.db, 'task', 't'))?.done_at).toBe(at('11:00'));
+    expect(undo.freed).toEqual(['m3']);
+    expect((await t.block('m3'))?.cancelled).toBe(true);
+    // The block running now isn't missed, and another task's block stays.
+    expect((await t.block('now'))?.cancelled).toBeUndefined();
+    expect((await t.block('m2'))?.cancelled).toBeUndefined();
+
+    await t.run((w) => applyPlanChange(w, undo));
+    expect((await getRecord(t.db, 'task', 't'))?.done_at).toBeNull();
+    expect((await t.block('m3'))?.cancelled).toBeNull();
+    expect((await t.rows()).find((b) => b.id === 'm1')?.result).toBeNull();
+  });
+
+  it('keeps a later block that is answered in the same batch, started, or earlier than the finish', async () => {
+    const t = await setup(async (w) => {
+      await missed(w);
+      await w.create('time_block', { task_id: 't', start: at('08:00'), end: at('09:00'), tz: 'UTC' }, 'm0');
+      await w.create('time_block', { task_id: 't', start: at('16:00'), end: at('17:00'), tz: 'UTC', started_at: at('16:05') }, 'm4');
+    });
+    const undo = await t.run((w) =>
+      answerBlocks(
+        w,
+        [
+          { blockId: 'm1', answer: { result: 'done' } },
+          { blockId: 'm3', answer: { result: 'not' } },
+        ],
+        t.clock,
+      ),
+    );
+    expect(undo.freed).toEqual([]);
+    expect(await outcome(t, 'm3')).toMatchObject({ result: 'not' });
+    for (const id of ['m0', 'm3', 'm4']) expect((await t.block(id))?.cancelled).toBeUndefined();
+  });
+
+  it('Partly, Not done, and a Done that leaves the task open take nothing else', async () => {
+    const t = await setup(async (w) => {
+      await missed(w);
+      await w.create('task', { kind: 'one_off', title: 'Water the plants', schedule: { type: 'float', every: 1, unit: 'day' }, next_due: '2026-11-02' }, 'r');
+      await w.create('time_block', { task_id: 'r', start: at('07:00'), end: at('07:30'), tz: 'UTC' }, 'r1');
+      await w.create('time_block', { task_id: 'r', start: at('15:00'), end: at('15:30'), tz: 'UTC' }, 'r2');
+    });
+    const undo = await t.run((w) =>
+      answerBlocks(
+        w,
+        [
+          { blockId: 'r1', answer: { result: 'done' } },
+          { blockId: 'm1', answer: { result: 'partly', remaining_min: 60 } },
+        ],
+        t.clock,
+      ),
+    );
+    expect(undo.freed).toEqual([]);
+    expect((await t.block('r2'))?.cancelled).toBeUndefined();
+    expect((await t.block('m3'))?.cancelled).toBeUndefined();
   });
 });
 

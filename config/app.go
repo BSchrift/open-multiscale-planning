@@ -43,6 +43,8 @@ type Stack struct {
 	TerminationProtection bool `yaml:"terminationProtection" json:"terminationProtection"`
 	CanaryPercent         int  `yaml:"canaryPercent" json:"canaryPercent"`
 	CanaryMinutes         int  `yaml:"canaryMinutes" json:"canaryMinutes"`
+	// ThrottleReleaseAlarm is whether DynamoDB throttling the API's requests stops and rolls back a release.
+	ThrottleReleaseAlarm bool `yaml:"throttleReleaseAlarm" json:"throttleReleaseAlarm"`
 }
 
 // check is what positive can't see: the limits CodeDeploy puts on a Lambda canary.

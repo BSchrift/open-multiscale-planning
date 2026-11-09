@@ -7,7 +7,9 @@
 #                                    each release key to where only the signing step reads it
 #   pause    make pipeline-pause     main commits stop releasing; a run started by hand still goes
 #   resume   make pipeline-resume    they release again
-#   run      make promote            starts a run by hand: COMMIT=<sha> (default: the branch's latest), CANARY=skip
+#   run      make promote            starts a run by hand: COMMIT=<sha> (default: the branch's latest), CANARY=skip,
+#                                    ALARMS=off
+#   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # In CodeBuild: install, build, deploy-staging, release-staging, prod-assets, test-prod, release-prod and nightly. The
 # signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
@@ -136,18 +138,34 @@ case "$command" in
     ;;
   run)
     case "${CANARY:-}" in "" | skip) ;; *) echo "CANARY must be skip or unset, not $CANARY" >&2; exit 1 ;; esac
+    case "${ALARMS:-}" in "" | off) ;; *) echo "ALARMS must be off or unset, not $ALARMS" >&2; exit 1 ;; esac
     case "${ENV:-prod}" in prod) ;; *) echo "A run promotes to prod, so ENV can only be prod, not $ENV" >&2; exit 1 ;; esac
     control
-    args=(--name "$pipeline" --variables "name=RUN,value=hand" "name=CANARY,value=${CANARY:-on}")
+    args=(--name "$pipeline" --variables "name=RUN,value=hand" "name=CANARY,value=${CANARY:-on}" "name=ALARMS,value=${ALARMS:-on}")
     [ -z "${COMMIT:-}" ] || args+=(--source-revisions "actionName=GitHub,revisionType=COMMIT_ID,revisionValue=$COMMIT")
     id="$(aws codepipeline start-pipeline-execution "${args[@]}" --query pipelineExecutionId --output text)"
     skipping=""
     [ -z "${CANARY:-}" ] || skipping=", sending prod all traffic at once"
-    echo "Started run $id${COMMIT:+ at $COMMIT}$skipping. It still waits for your approval before prod."
+    [ -z "${ALARMS:-}" ] || skipping="$skipping, with the release alarms off"
+    echo "Started run $id${COMMIT:+ at $COMMIT}$skipping. After staging it waits out its window before prod: make pipeline-stop stops it."
+    ;;
+  stop)
+    control
+    # The run in the Promote stage, if one is waiting there. Stopping abandons it: its window's wait ends, and nothing
+    # after it runs.
+    read -r id status <<<"$(aws codepipeline get-pipeline-state --name "$pipeline" --query "stageStates[?stageName=='Promote'].latestExecution.[pipelineExecutionId,status] | [0]" --output text)"
+    if [ "${status:-}" != InProgress ]; then
+      echo "No run is waiting to go to prod."
+      exit 0
+    fi
+    commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
+    aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped before prod by make pipeline-stop" >/dev/null
+    echo "Stopped run $id, at $commit, before prod. Staging keeps it; prod doesn't get it."
     ;;
   tag)
     control
-    commit="$(aws ssm get-parameter --name "$parameters/released" --query Parameter.Value --output text)"
+    # The commit, then what the run noted: a skipped canary, or the release alarms off.
+    read -r commit notes <<<"$(aws ssm get-parameter --name "$parameters/released" --query Parameter.Value --output text)"
     git -C "$root" fetch --quiet origin "$commit"
     tag="release-$(date -u +%Y-%m-%d)"
     n=1
@@ -155,7 +173,7 @@ case "$command" in
       n=$((n + 1))
       tag="release-$(date -u +%Y-%m-%d)-$n"
     done
-    git -C "$root" tag -a "$tag" -m "Released to prod by the pipeline" "$commit"
+    git -C "$root" tag -a "$tag" -m "Released to prod by the pipeline.${notes:+ $notes}" "$commit"
     git -C "$root" push --quiet origin "$tag"
     echo "Tagged $commit as $tag. Build the signed apps from it: git checkout $tag && make release ENV=prod"
     ;;
@@ -181,12 +199,16 @@ case "$command" in
       (cd "$root/backend" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags='-s -w -buildid=' \
         -o "$root/backend/dist/$name/bootstrap" "./cmd/$name")
     done
+    # The canary skip is prod's alone, since staging's is short. The alarms switch is the whole run's: the fix it ships
+    # goes through staging, which may be alarming too.
     skip=()
     [ "${CANARY:-on}" != skip ] || skip=(-c canary=skip)
+    alarms=()
+    [ "${ALARMS:-on}" != off ] || alarms=(-c alarms=off)
     (
       cd "$root/infrastructure"
-      npx cdk synth --quiet -c deploy=staging -o cdk.out/staging Multiscale-staging
-      npx cdk synth --quiet -c deploy=prod ${skip[@]+"${skip[@]}"} -o cdk.out/prod Multiscale-prod
+      npx cdk synth --quiet -c deploy=staging ${alarms[@]+"${alarms[@]}"} -o cdk.out/staging Multiscale-staging
+      npx cdk synth --quiet -c deploy=prod ${skip[@]+"${skip[@]}"} ${alarms[@]+"${alarms[@]}"} -o cdk.out/prod Multiscale-prod
     )
     # Each environment's web build, from this commit, carrying its key's public half, and the script that signs them.
     profiles
@@ -236,7 +258,11 @@ case "$command" in
     version="$(publish prod "${CODEBUILD_SRC_DIR_SignedProd:?}")"
     ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" SKIP_IOS=1 "$root/scripts/test-deployed.sh"
     # For make release-tag, and the signed apps built from that tag.
-    aws ssm put-parameter --name "$parameters/released" --type String --overwrite --value "${COMMIT:?}" >/dev/null
+    # With the release's notes: whether it skipped the canary or ran without the release alarms.
+    notes=""
+    [ "${CANARY:-on}" != skip ] || notes="Canary skipped."
+    [ "${ALARMS:-on}" != off ] || notes="${notes:+$notes }Release alarms off."
+    aws ssm put-parameter --name "$parameters/released" --type String --overwrite --value "${COMMIT:?}${notes:+ $notes}" >/dev/null
     ;;
   nightly)
     commit="$(git -C "$root" rev-parse HEAD)"
@@ -256,7 +282,7 @@ case "$command" in
     aws ssm put-parameter --name "$parameters/nightly" --type String --overwrite --value "$commit" >/dev/null
     ;;
   *)
-    echo "Use: scripts/pipeline.sh config | pause | resume | run | tag, or a CodeBuild step. See docs/releasing.md." >&2
+    echo "Use: scripts/pipeline.sh config | pause | resume | run | stop | tag, or a CodeBuild step. See docs/releasing.md." >&2
     exit 1
     ;;
 esac

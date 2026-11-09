@@ -25,17 +25,23 @@ export const protocol = {
 export const envs = {
   "local": {
     "stack": {
-      "terminationProtection": false
+      "terminationProtection": false,
+      "canaryPercent": 5,
+      "canaryMinutes": 10
     }
   },
   "staging": {
     "stack": {
-      "terminationProtection": false
+      "terminationProtection": false,
+      "canaryPercent": 5,
+      "canaryMinutes": 10
     }
   },
   "prod": {
     "stack": {
-      "terminationProtection": true
+      "terminationProtection": true,
+      "canaryPercent": 5,
+      "canaryMinutes": 1440
     }
   },
 } as const;

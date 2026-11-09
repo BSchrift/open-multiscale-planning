@@ -8,3 +8,8 @@
 stack:
   # Whether CloudFormation refuses to delete the stack.
   terminationProtection: false
+  # How a new backend version takes traffic: this share of invocations first, for this many minutes, then all of it.
+  # A release alarm in that time moves the traffic back. Prod's is a day; staging's is short, so a release is quick
+  # to test.
+  canaryPercent: 5
+  canaryMinutes: 10

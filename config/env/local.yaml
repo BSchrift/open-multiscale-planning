@@ -9,3 +9,7 @@ stack:
   # Whether CloudFormation refuses to delete the stack.
   # Local runs no stack, so nothing reads this one there.
   terminationProtection: false
+  # How a new backend version takes traffic: this share of invocations first, for this many minutes, then all of it.
+  # Local runs no stack, so nothing reads these there either.
+  canaryPercent: 5
+  canaryMinutes: 10

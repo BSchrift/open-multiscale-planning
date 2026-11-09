@@ -49,7 +49,8 @@ test-retention:
 	@scripts/test-retention.sh
 
 # Defaults to staging. Prod takes an explicit ENV=prod, and ENV=control deploys the domain's DNS. Both deploy and smoke
-# read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile.
+# read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile. A backend change takes
+# traffic by config/env's canary, a day on prod; CANARY=skip sends it all at once, and the alarms still roll it back.
 deploy:
 	@scripts/deploy.sh
 

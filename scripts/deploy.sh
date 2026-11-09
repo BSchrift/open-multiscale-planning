@@ -2,6 +2,9 @@
 # Deploys one environment from its YAML in the config folder, then writes its stack outputs and a record of what was
 # deployed (<env>.outputs.json and <env>.deployed) next to it.
 #   ENV=staging (default), ENV=prod or ENV=control. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
+#   CANARY=skip sends a new backend version all its traffic at once, rather than by config/env's canary: on prod, 5%
+#   for a day. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
+# A backend change waits out its canary, so a prod deploy runs a day. CloudFormation carries on if this stops early.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,6 +13,12 @@ env_name="${ENV:-staging}"
 case "$env_name" in
   control | staging | prod) ;;
   *) echo "ENV must be control, staging or prod, not $env_name" >&2; exit 1 ;;
+esac
+canary=()
+case "${CANARY:-}" in
+  "") ;;
+  skip) canary=(-c canary=skip) ;;
+  *) echo "CANARY must be skip or unset, not $CANARY" >&2; exit 1 ;;
 esac
 
 config_dir="${MULTISCALE_CONFIG_DIR:-$root/config}"
@@ -53,7 +62,7 @@ outputs="$(mktemp)"
 trap 'rm -f "$outputs"' EXIT
 
 echo "Deploying Multiscale-$env_name"
-npx cdk deploy "Multiscale-$env_name" -c "deploy=$env_name" --outputs-file "$outputs"
+npx cdk deploy "Multiscale-$env_name" -c "deploy=$env_name" ${canary[@]+"${canary[@]}"} --outputs-file "$outputs"
 
 node bin/write-outputs.ts "$env_name" "$outputs"
 printf 'commit: %s\ndirty: %s\ntime: %s\n' "$commit" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$config_dir/$env_name.deployed"

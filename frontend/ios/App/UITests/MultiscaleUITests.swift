@@ -645,10 +645,19 @@ final class SignedInUITests: XCTestCase {
     private func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
         fillHostedSignIn(app, user)
         app.typeText("\n")
-        // Safari's sheet offers to keep the password on a domain it hasn't saved one for.
-        let notNow = app.buttons["Not Now"]
-        if notNow.waitForExistence(timeout: 10) { notNow.tap() }
+        dismissSavePassword(app, within: 10)
     }
+}
+
+/**
+ * Safari's sheet that offers to keep the password, on a domain it hasn't saved one for, answered Not Now. It can also
+ * show just as the sign-in returns to the app, and close a moment later with the browser it's in, and a tap on a sheet
+ * that has gone fails. So that moment passes first, and only a sheet still there, waiting for an answer, gets the tap.
+ */
+private func dismissSavePassword(_ app: XCUIApplication, within timeout: TimeInterval) {
+    let notNow = app.buttons["Not Now"]
+    guard notNow.waitForExistence(timeout: timeout), !notNow.waitForNonExistence(timeout: 2) else { return }
+    if notNow.exists && notNow.isHittable { notNow.tap() }
 }
 
 /// Types the test user into a deployment's hosted sign-in page, in the browser sheet over the app, and leaves it to be sent.
@@ -691,11 +700,20 @@ final class HistoryUITests: XCTestCase {
         }
         // Usable once Today is up with the history's Inbox count in the tab bar, which arrives with its latest records.
         let usable = app.webButton("Inbox, \(inbox) to sort")
-        let notNow = app.buttons["Not Now"]
+        let refused = app.staticTexts["Incorrect username or password."]
+        var tries = 1
         let deadline = started.addingTimeInterval(25 * 60)
         while !usable.exists {
-            // Safari's sheet offers to keep the password on a domain it hasn't saved one for.
-            if notNow.exists { notNow.tap() }
+            dismissSavePassword(app, within: 0)
+            // The browser and the Mac app sign in with the same password, so a refusal here is the typing into the page,
+            // which gets one more go. A second fails now, rather than after the 25 minutes a first sync is allowed.
+            if let user = target.test_user, refused.exists {
+                guard tries < 2 else { return XCTFail("The sign-in page refused the history user twice. On screen:\n\(app.debugDescription)") }
+                tries += 1
+                fillHostedSignIn(app, user)
+                started = Date()
+                app.typeText("\n")
+            }
             guard Date() < deadline else { return XCTFail("The app wasn't usable 25 minutes after signing in. On screen:\n\(app.debugDescription)") }
             Thread.sleep(forTimeInterval: 0.2)
         }

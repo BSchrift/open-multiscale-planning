@@ -103,6 +103,11 @@ test('a second tab is refused while the first holds the database', async () => {
 
 test('work goes from Capture to this week, onto the calendar by suggestion and by drag, back off, and done', async ({}, info) => {
   test.skip(info.project.name !== 'desktop', 'The mouse journey is the desktop layout; phone is covered by the local suites');
+  // shortcut: suggestions stay in this week and out of the default closed hours from 10pm, so after 9:30pm on Sunday
+  // there's no room for the half hour and the test skips; run it at any hour once a deployed test can move the
+  // page's clock without writing future clocks to the shared test user.
+  const now = new Date();
+  test.skip(now.getDay() === 0 && now.getHours() * 60 + now.getMinutes() >= 21 * 60 + 30, "late on Sunday this week has no room left");
   const nav = page.getByRole('navigation', { name: 'Main' });
   const title = `Deployed check ${new Date().toISOString().slice(11, 19)}`;
 

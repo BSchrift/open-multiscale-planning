@@ -13,7 +13,7 @@
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
-#   slowest, and SKIP_RETENTION=1 the retention suite's 25 minutes: the release pipeline leaves both to its nightly run.
+#   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 set -uo pipefail
 

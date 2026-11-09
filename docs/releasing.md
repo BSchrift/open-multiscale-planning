@@ -177,4 +177,4 @@ install the new app on every device.
 | Two KMS keys: the artifacts', which prod's account reads them with, and the release keys' | $2 |
 | Ten or so more CloudWatch alarms | About $1 |
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
-| The nightly suites, about 45 small build minutes on each day main moved | About $0.25 a night |
+| The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite | About $0.45 a night |

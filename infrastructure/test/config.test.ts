@@ -183,6 +183,12 @@ describe('loadControl', () => {
 
   const withPipeline = { ...goodControl, pipeline: { repository: 'someone/open-multiscale-planning', branch: 'main', email: 'releases@example.net' } };
 
+  it("reads the pipeline's window before prod, two hours unless it says, and none with PT0S", () => {
+    assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.promoteAfter, 'PT2H');
+    assert.equal(loadControl(dirWith({ control: withField(withPipeline, 'pipeline.promoteAfter', 'PT0S') }), true).pipeline?.promoteAfter, 'PT0S');
+    assert.equal(loadControl(dirWith({ control: withField(withPipeline, 'pipeline.promoteAfter', 'P1DT30M') }), true).pipeline?.promoteAfter, 'P1DT30M');
+  });
+
   it('reads the optional pipeline section', () => {
     assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.repository, 'someone/open-multiscale-planning');
     assert.equal(loadControl(dirWith({ control: goodControl }), true).pipeline, undefined);
@@ -198,6 +204,12 @@ describe('loadControl', () => {
     ['pipeline.branch', ''],
     ['pipeline.branch', 'two words'],
     ['pipeline.email', 'releases'],
+    // Whole days, hours, minutes and seconds, up to 6 days: the pipeline waits on Step Functions for at most 7.
+    ['pipeline.promoteAfter', '2h'],
+    ['pipeline.promoteAfter', 'P1M'],
+    ['pipeline.promoteAfter', 'PT'],
+    ['pipeline.promoteAfter', 'P7D'],
+    ['pipeline.promoteAfter', 7200],
   ] as const) {
     it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
       assert.throws(() => loadControl(dirWith({ control: withField(withPipeline, path, bad) }), false), new RegExp(path.replace('.', '\\.')));

@@ -27,21 +27,24 @@ export const envs = {
     "stack": {
       "terminationProtection": false,
       "canaryPercent": 5,
-      "canaryMinutes": 10
+      "canaryMinutes": 10,
+      "throttleReleaseAlarm": false
     }
   },
   "staging": {
     "stack": {
       "terminationProtection": false,
       "canaryPercent": 5,
-      "canaryMinutes": 10
+      "canaryMinutes": 10,
+      "throttleReleaseAlarm": false
     }
   },
   "prod": {
     "stack": {
       "terminationProtection": true,
       "canaryPercent": 5,
-      "canaryMinutes": 1440
+      "canaryMinutes": 1440,
+      "throttleReleaseAlarm": true
     }
   },
 } as const;

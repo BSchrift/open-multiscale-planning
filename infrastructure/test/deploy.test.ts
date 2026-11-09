@@ -81,6 +81,26 @@ describe('scripts/deploy.sh', () => {
     assert.equal(s.log(), '');
   });
 
+  it('turns the release alarms off for one deploy when asked, and records it, and the next deploy turns them on', () => {
+    const s = sandbox();
+    assert.equal(s.run({ ENV: 'prod', ALARMS: 'off', CANARY: 'skip' }).status, 0);
+    assert.match(s.log(), /npx cdk deploy Multiscale-prod -c deploy=prod -c canary=skip -c alarms=off /);
+    const record = readFileSync(s.file('prod.deployed'), 'utf8');
+    assert.match(record, /^canary: skip$/m);
+    assert.match(record, /^alarms: off$/m);
+    assert.equal(s.run({ ENV: 'prod' }).status, 0);
+    assert.doesNotMatch(s.log().split('\n').filter((l) => l.startsWith('npx cdk deploy')).at(-1)!, /alarms=|canary=/);
+    assert.match(readFileSync(s.file('prod.deployed'), 'utf8'), /^alarms: on$/m);
+  });
+
+  it('refuses any other ALARMS before doing anything', () => {
+    const s = sandbox();
+    const r = s.run({ ENV: 'prod', ALARMS: 'no' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /ALARMS must be off or unset, not no/);
+    assert.equal(s.log(), '');
+  });
+
   it('deploys the pipeline, in the control account, without building the Lambdas', () => {
     const files = configFiles();
     const s = sandbox({}, { ...files, control: { ...files.control, pipeline: { repository: 'someone/repo', branch: 'main', email: 'me@example.net' } } } as any);
@@ -222,6 +242,8 @@ describe('scripts/deploy.sh', () => {
     assert.match(record, /^commit: abc123$/m);
     assert.match(record, /^dirty: false$/m);
     assert.match(record, /^time: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/m);
+    assert.match(record, /^canary: on$/m);
+    assert.match(record, /^alarms: on$/m);
     assert.equal(s.run({ DIRTY: ' M backend/main.go' }).status, 0);
     assert.match(readFileSync(s.file('staging.deployed'), 'utf8'), /^dirty: true$/m);
   });

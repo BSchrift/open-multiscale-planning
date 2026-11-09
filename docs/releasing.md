@@ -13,10 +13,10 @@ steps are `scripts/pipeline.sh`. Deploy rights stay in AWS: GitHub's CI holds no
 | Stage | Runs against | What happens | Stops the release when |
 | --- | --- | --- | --- |
 | **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, iOS | A check fails. Every check must pass before a merge |
-| **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them | A build or config check fails |
-| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Publishes the web app and the feed, then runs the web app, sync, cross-version, integration and smoke suites | A suite fails, or a release alarm rolls the canary back |
+| **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app from the same commit | A build or config check fails |
+| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Signs staging's feed in the signing step. Publishes the web app and the feed, then runs the web app, sync, cross-version, integration and smoke suites | A suite fails, or a release alarm rolls the canary back |
 | **Approve** | A person | An email with a link: read the staging results, then approve or reject | It's rejected, or nobody answers in 7 days |
-| **Prod** | Prod | Deploys the backend by prod's canary, 5% for a day. Runs the web app, integration and smoke suites against the apps people already have. Then publishes the web app and the feed, and checks them | A release alarm rolls the canary back, or a suite fails |
+| **Prod** | Prod | Deploys the backend by prod's canary, 5% for a day. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, publishes the web app and the feed, and checks them | A release alarm rolls the canary back, or a suite fails |
 | **Nightly** | Staging | The full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed Mac and iPhone builds from that tag | — |
 
@@ -25,6 +25,9 @@ because it sets off prod's throttle alarm. The iPhone's signed-in test needs a M
 or `make test-deployed`.
 
 The history-scale budgets only report for now (`HISTORY_REPORT_ONLY=1`). A missed budget never stops a release.
+
+Each web build carries its environment's backend addresses, from its stack's outputs as Build finds them. A release
+that changes one of those outputs, such as a new sign-in client, reaches the web app with the run after it.
 
 ## The backend canary
 
@@ -88,7 +91,7 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | `make pipeline-resume` | Each main commit releases to staging again |
 | `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip` is above |
 | `make release-tag` | Tags the commit prod last released as `release-<date>`, and pushes the tag |
-| `make pipeline-config` | Uploads the config folder's files the pipeline reads: `control.yaml`, `staging.yaml`, `prod.yaml` and both release keys |
+| `make pipeline-config` | Uploads the config folder's files the pipeline reads: `control.yaml`, `staging.yaml`, `prod.yaml`, and each release key's public half. Each key itself goes where only the signing step reads it |
 | `make deploy ENV=pipeline` | Deploys the pipeline itself |
 
 Approval is CodePipeline's manual approval: an email with a link to the run, which shows staging's results. Failed runs
@@ -119,8 +122,8 @@ Once. The steps marked **by hand** need the AWS console or your own credentials.
    ```
 3. **Each environment's release role.** `make deploy ENV=staging`, then `make deploy ENV=prod`. With the `pipeline`
    section in place, each gets the `multiscale-release` role the pipeline tests and publishes as.
-4. **The pipeline's config.** `make pipeline-config`.
-5. **The pipeline.** `make deploy ENV=pipeline`.
+4. **The pipeline.** `make deploy ENV=pipeline`. It makes the KMS key the release keys are uploaded with.
+5. **The pipeline's config.** `make pipeline-config`.
 6. **Authorise GitHub (by hand).** In the control account, open Developer Tools > Settings > Connections. Choose
    `multiscale-github`, which is Pending, then **Update pending connection**. Sign in to GitHub and install the AWS
    Connector app on the repository only.
@@ -128,9 +131,42 @@ Once. The steps marked **by hand** need the AWS console or your own credentials.
    approval requests won't reach you.
 8. **The first run.** `make promote`, and approve it when staging passes.
 
-Keep the release keys' only copies backed up as before. The pipeline signs the feed with the copies in SSM, so whoever
-can read `/multiscale/pipeline/config/*.release-key.pem`, or change what the pipeline runs, can sign a release. Only the
-pipeline's build role may read them.
+## The release keys
+
+The apps install only bundles signed with their environment's release key. On the Mac it is `<env>.release-key.pem` in
+the config folder, made by the first `make release`. Keep it backed up.
+
+The pipeline signs with a copy in SSM in the control account: the SecureString
+`/multiscale/pipeline/signing/<env>.release-key.pem`, encrypted with the KMS key `alias/multiscale-release-signing`.
+Only the signing step may read it:
+
+- **The signing step has its own CodeBuild project and role,** `multiscale-pipeline-signer`. That role may read only
+  the two key parameters and decrypt with only their KMS key, besides reading and writing its artifacts. No other
+  role in the pipeline may do either, and an infrastructure test checks that.
+- **It runs as little as it can.** It installs nothing, and checks out nothing. It runs `sign-release.mjs`, which uses
+  Node's standard library alone, on the image's own Node. The script comes from the tested Build output, beside the web
+  builds it signs. CodeBuild hands it the key in an environment variable and keeps it out of the log. Its output, the
+  feed's `release.json` and files, is all the publishing step gets.
+- **The steps that build, deploy and test never see a key.** The web build only needs a key's public half, uploaded as
+  `/multiscale/pipeline/config/<env>.release-key.pub`.
+
+**Every read is in CloudTrail.** CloudTrail records each read of a key in the control account: the `GetParameters` call
+when the signing step starts, and the KMS `Decrypt` that goes with it. CloudTrail's event history keeps them for 90 days.
+Any principal there but the signer role is worth looking into. So is a read when no release was running.
+
+**Rotating a key.** The apps check updates against the key their own build carries, so a new key reaches a device only
+with a new Mac or iPhone app:
+
+1. On the Mac, move `<env>.release-key.pem` out of the config folder, keeping it.
+2. Run `make release ENV=<env>`. It makes a new key, builds the Mac app carrying its public half, and publishes the app
+   and a feed signed with it. Apps already installed won't take that feed: each keeps its bundle until it gets the new
+   app, from the downloads page on the Mac and from Xcode or TestFlight on the iPhone.
+3. Run `make pipeline-config`. It replaces the key in SSM, deleting the old parameter first so its history keeps no copy,
+   and replaces the public half.
+4. Back up the new key. Destroy the old one once every device runs the new app.
+
+If a key may have leaked, rotate it at once. A leaked key can still sign updates that apps carrying it will install, so
+install the new app on every device.
 
 ## Costs
 
@@ -138,7 +174,7 @@ pipeline's build role may read them.
 | --- | --- |
 | CodeDeploy for Lambda | $0 |
 | CodePipeline V2, and CodeBuild for releases | About $1–3 |
-| The artifacts' KMS key, which prod's account reads them with | $1 |
+| Two KMS keys: the artifacts', which prod's account reads them with, and the release keys' | $2 |
 | Ten or so more CloudWatch alarms | About $1 |
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
 | The nightly suites, about 45 small build minutes on each day main moved | About $0.25 a night |

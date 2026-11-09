@@ -6,9 +6,6 @@
 # Then it runs every suite that can run against that deployment (scripts/test-deployed.sh), and fails if one does.
 # The first release makes the key, <env>.release-key.pem, beside the config. Keep it backed up: apps built with it take
 # updates signed by it and nothing else.
-# SKIP_MAC_APP=1 builds and uploads only the web app and the feed, as the release pipeline does on Linux: the Mac app
-# needs this Mac. It never makes a key. When the build needs a newer Mac or iPhone app than the feed's (its shell
-# differs), it leaves the feed alone, for a release from this Mac, which uploads the app first.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -49,43 +46,19 @@ fi
 
 cd "$root/frontend"
 key="$config_dir/$env_name.release-key.pem"
-mac_app=true
-[ "${SKIP_MAC_APP:-}" != 1 ] || mac_app=false
-# Before building, since the apps carry the key's public half. A new key would sign a feed no installed app takes.
-if [ "$mac_app" = true ]; then
-  node scripts/release-files.ts key "$key"
-elif [ ! -f "$key" ]; then
-  echo "Missing $key, which signs $env_name's feed. Only a release from the Mac makes one." >&2
-  exit 1
-fi
-if [ "$mac_app" = true ]; then
-  ENV="$env_name" npm run electron:build
-  dmg="$(ls -t "release/$env_name"/*.dmg | head -n 1)"
-else
-  ENV="$env_name" npx vite build
-fi
+# Before building, since the apps carry the key's public half.
+node scripts/release-files.ts key "$key"
+ENV="$env_name" npm run electron:build
+dmg="$(ls -t "release/$env_name"/*.dmg | head -n 1)"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 node scripts/release-files.ts pack dist "$key" "$out"
 
-feed=true
-if [ "$mac_app" = false ]; then
-  shell_of() { node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const r = JSON.parse(s); console.log(JSON.stringify((r.manifest ? JSON.parse(r.manifest) : r).shell)); } catch { console.log("none"); } });'; }
-  live="$(aws s3 cp "s3://$bucket/release/release.json" - 2>/dev/null | shell_of || true)"
-  if [ "$live" != "$(shell_of <dist/version.json)" ]; then
-    feed=false
-    echo "This build needs a newer Mac or iPhone app than the feed's, so the feed stays as it is. Release from the Mac," >&2
-    echo "at this commit, to upload the app and then the feed: make release ENV=$env_name." >&2
-  fi
-fi
-
 # Files are named by their contents, so each uploads once and caches for good. The disk image goes before the feed, so
 # an update that needs the new app can already link to it.
-if [ "$feed" = true ]; then
-  aws s3 sync "$out/files" "s3://$bucket/release/files" --size-only --cache-control 'public, max-age=31536000, immutable' --content-type application/octet-stream
-  [ "$mac_app" = false ] || aws s3 cp "$dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
-  aws s3 cp "$out/release.json" "s3://$bucket/release/release.json" --cache-control 'public, max-age=60' --content-type application/json
-fi
+aws s3 sync "$out/files" "s3://$bucket/release/files" --size-only --cache-control 'public, max-age=31536000, immutable' --content-type application/octet-stream
+aws s3 cp "$dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
+aws s3 cp "$out/release.json" "s3://$bucket/release/release.json" --cache-control 'public, max-age=60' --content-type application/json
 
 # The web app is the same build. Its named-by-content assets go first and cache for good, then the page that loads them.
 # shortcut: old assets stay, so a tab still on the last page can load what it needs; prune them if the folder grows.

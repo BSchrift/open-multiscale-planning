@@ -3,20 +3,24 @@
 # and the steps its CodeBuild projects run.
 #
 # From a Mac, signed in with control.yaml's profile, through make:
-#   config   make pipeline-config    uploads the config folder's files the pipeline reads to SSM in the control account
+#   config   make pipeline-config    uploads the config folder's files the pipeline reads to SSM in the control account,
+#                                    each release key to where only the signing step reads it
 #   pause    make pipeline-pause     main commits stop releasing; a run started by hand still goes
 #   resume   make pipeline-resume    they release again
 #   run      make promote            starts a run by hand: COMMIT=<sha> (default: the branch's latest), CANARY=skip
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
-# In CodeBuild: install, build, deploy-staging, release-staging, prod-assets, test-prod, release-prod and nightly.
+# In CodeBuild: install, build, deploy-staging, release-staging, prod-assets, test-prod, release-prod and nightly. The
+# signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 command="${1:-}"
 pipeline=Multiscale
 parameters=/multiscale/pipeline
-# Everything a step reads from the config folder. The release keys sign each environment's feed.
-files=(control.yaml staging.yaml prod.yaml staging.release-key.pem prod.release-key.pem)
+# What the steps read from the config folder, under config/: each environment's file, and the public half of its release
+# key, which its web build carries. The keys themselves go under signing/, which only the signing step may read.
+configs=(control.yaml staging.yaml prod.yaml)
+environments=(staging prod)
 
 # Signs in as control.yaml's profile, after checking the config folder, as deploy.sh does.
 control() {
@@ -30,23 +34,24 @@ control() {
   export AWS_PROFILE="$profile" AWS_REGION="$region"
 }
 
-# In CodeBuild: the config folder from SSM, outside the checkout.
+# In CodeBuild: the config folder from SSM, outside the checkout. It holds no release key.
 fetch_config() {
   export MULTISCALE_CONFIG_DIR="$HOME/multiscale-config"
   mkdir -p "$MULTISCALE_CONFIG_DIR"
-  for file in "${files[@]}"; do
+  local file env_name
+  for file in "${configs[@]}" $(for env_name in "${environments[@]}"; do echo "$env_name.release-key.pub"; done); do
     aws ssm get-parameter --name "$parameters/config/$file" --with-decryption --query Parameter.Value --output text \
       >"$MULTISCALE_CONFIG_DIR/$file"
   done
 }
 
 # In CodeBuild: each environment's profile, named as its YAML names it, signs in as that account's release role, so the
-# suites and release.sh run as they do on a Mac. CDK uses the build's own role, and CDK's bootstrap roles from there.
+# suites run as they do on a Mac. CDK uses the build's own role, and CDK's bootstrap roles from there.
 profiles() {
   mkdir -p "$HOME/.aws"
   : >"$HOME/.aws/config"
   local env_name account region profile
-  for env_name in staging prod; do
+  for env_name in "${environments[@]}"; do
     read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
     printf '[profile %s]\nrole_arn = arn:aws:iam::%s:role/multiscale-release\ncredential_source = EcsContainer\nregion = %s\n' \
       "$profile" "$account" "$region" >>"$HOME/.aws/config"
@@ -63,18 +68,63 @@ outputs() {
   (cd "$root/infrastructure" && node bin/write-outputs.ts "$env_name" "$raw")
 }
 
-# The assemblies the Build step synthesized, beside the checkout.
+# The Build step's output beside the checkout: the stacks' assemblies, and web/<env>, each environment's web build.
 built() { echo "${CODEBUILD_SRC_DIR_Built:?the Built artifact is missing}"; }
+
+frontend_deps() { (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund); }
+browsers() { (cd "$root/frontend" && npx playwright install --with-deps chromium webkit); }
+
+# The shell (native code) a build or a feed's manifest needs, from stdin.
+shell_of() {
+  node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const r = JSON.parse(s); console.log(JSON.stringify((r.manifest ? JSON.parse(r.manifest) : r).shell)); } catch { console.log("none"); } });'
+}
+
+# Publishes one environment's web build from the Build output and its feed from the signing step's, as release.sh does
+# on a Mac, and prints the version. The web app goes as it is. The feed waits when the build needs newer native code
+# than the feed's: a release from the Mac uploads the app first, then the feed.
+publish() {
+  local env_name="$1" signed="$2" web account region profile bucket live
+  web="$(built)/web/$env_name"
+  read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
+  bucket="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseBucket ?? "")' "$MULTISCALE_CONFIG_DIR/$env_name.outputs.json")"
+  [ -n "$bucket" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
+  (
+    export AWS_PROFILE="$profile"
+    live="$(aws s3 cp "s3://$bucket/release/release.json" - 2>/dev/null | shell_of || true)"
+    if [ "$live" = "$(shell_of <"$web/version.json")" ]; then
+      # Files are named by their contents, so each uploads once and caches for good.
+      aws s3 sync "$signed/files" "s3://$bucket/release/files" --size-only --cache-control 'public, max-age=31536000, immutable' --content-type application/octet-stream >&2
+      aws s3 cp "$signed/release.json" "s3://$bucket/release/release.json" --cache-control 'public, max-age=60' --content-type application/json >&2
+    else
+      echo "This build needs a newer Mac or iPhone app than $env_name's feed, so the feed stays as it is. Release from the Mac," >&2
+      echo "at this commit, to upload the app and then the feed: make release ENV=$env_name." >&2
+    fi
+    # Its named-by-content assets first, then the page that loads them. Old assets stay, as release.sh leaves them.
+    aws s3 sync "$web/assets" "s3://$bucket/web/assets" --size-only --cache-control 'public, max-age=31536000, immutable' >&2
+    aws s3 sync "$web" "s3://$bucket/web" --exclude 'assets/*' --cache-control 'no-cache' >&2
+  )
+  node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$web/version.json"
+}
 
 case "$command" in
   config)
     control
-    for file in "${files[@]}"; do
+    for file in "${configs[@]}" $(for env_name in "${environments[@]}"; do echo "$env_name.release-key.pem"; done); do
       [ -f "$MULTISCALE_CONFIG_DIR/$file" ] || { echo "Missing $MULTISCALE_CONFIG_DIR/$file. Release from the Mac first if it's a key." >&2; exit 1; }
     done
-    for file in "${files[@]}"; do
+    for file in "${configs[@]}"; do
       aws ssm put-parameter --name "$parameters/config/$file" --type SecureString --overwrite --value "file://$MULTISCALE_CONFIG_DIR/$file" >/dev/null
       echo "Uploaded $file"
+    done
+    for env_name in "${environments[@]}"; do
+      key="$MULTISCALE_CONFIG_DIR/$env_name.release-key.pem"
+      public="$(node -e 'const c = require("crypto"); console.log(c.createPublicKey(require("fs").readFileSync(process.argv[1])).export({ format: "der", type: "spki" }).subarray(-32).toString("base64"))' "$key")"
+      aws ssm put-parameter --name "$parameters/config/$env_name.release-key.pub" --type String --overwrite --value "$public" >/dev/null
+      # Deleted first, so the parameter's history keeps no earlier key.
+      aws ssm delete-parameter --name "$parameters/signing/$env_name.release-key.pem" >/dev/null 2>&1 || true
+      aws ssm put-parameter --name "$parameters/signing/$env_name.release-key.pem" --type SecureString \
+        --key-id alias/multiscale-release-signing --value "file://$key" >/dev/null
+      echo "Uploaded $env_name's release key, for the signing step only, and its public half"
     done
     ;;
   pause | resume)
@@ -125,7 +175,7 @@ case "$command" in
       exit 1
     fi
     fetch_config
-    for env_name in staging prod; do (cd "$root/config" && go run ./cmd/check "$env_name"); done
+    for env_name in "${environments[@]}"; do (cd "$root/config" && go run ./cmd/check "$env_name"); done
     # Built once: both environments deploy these binaries, from these assemblies.
     for name in api calendar retention canary; do
       (cd "$root/backend" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags='-s -w -buildid=' \
@@ -133,9 +183,20 @@ case "$command" in
     done
     skip=()
     [ "${CANARY:-on}" != skip ] || skip=(-c canary=skip)
-    cd "$root/infrastructure"
-    npx cdk synth --quiet -c deploy=staging -o cdk.out/staging Multiscale-staging
-    npx cdk synth --quiet -c deploy=prod ${skip[@]+"${skip[@]}"} -o cdk.out/prod Multiscale-prod
+    (
+      cd "$root/infrastructure"
+      npx cdk synth --quiet -c deploy=staging -o cdk.out/staging Multiscale-staging
+      npx cdk synth --quiet -c deploy=prod ${skip[@]+"${skip[@]}"} -o cdk.out/prod Multiscale-prod
+    )
+    # Each environment's web build, from this commit, carrying its key's public half, and the script that signs them.
+    profiles
+    frontend_deps
+    for env_name in "${environments[@]}"; do
+      outputs "$env_name"
+      (cd "$root/frontend" && ENV="$env_name" npx vite build --outDir "$root/web/$env_name" --emptyOutDir)
+    done
+    mkdir -p "$root/web"
+    cp "$root/frontend/scripts/sign-release.mjs" "$root/web/sign-release.mjs"
     ;;
   deploy-staging)
     # Waits out staging's short canary.
@@ -147,9 +208,11 @@ case "$command" in
     outputs staging
     # The cross-version suite tests against the bundle prod serves.
     outputs prod
-    (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund && npx playwright install --with-deps chromium webkit)
-    # Its web app and feed, then the suites against them. Retention and the history-scale test are left to the nightly run.
-    SKIP_MAC_APP=1 SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 ENV=staging "$root/scripts/release.sh"
+    frontend_deps
+    browsers
+    version="$(publish staging "${CODEBUILD_SRC_DIR_SignedStaging:?}")"
+    # Retention and the history-scale test are left to the nightly run.
+    ENV=staging EXPECT_VERSION="$version" SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.
@@ -159,16 +222,19 @@ case "$command" in
     fetch_config
     profiles
     outputs prod
-    (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund && npx playwright install --with-deps chromium webkit)
-    # The released apps against the promoted backend, before anything new is published.
+    frontend_deps
+    browsers
+    # The released apps against the promoted backend, before anything new is signed or published.
     ENV=prod CONFIRM_PROD=yes SKIP_IOS=1 "$root/scripts/test-deployed.sh"
     ;;
   release-prod)
     fetch_config
     profiles
     outputs prod
-    (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund && npx playwright install --with-deps chromium webkit)
-    SKIP_MAC_APP=1 SKIP_IOS=1 ENV=prod "$root/scripts/release.sh"
+    frontend_deps
+    browsers
+    version="$(publish prod "${CODEBUILD_SRC_DIR_SignedProd:?}")"
+    ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" SKIP_IOS=1 "$root/scripts/test-deployed.sh"
     # For make release-tag, and the signed apps built from that tag.
     aws ssm put-parameter --name "$parameters/released" --type String --overwrite --value "${COMMIT:?}" >/dev/null
     ;;
@@ -181,12 +247,12 @@ case "$command" in
     fetch_config
     profiles
     outputs staging
-    # The cross-version suite tests against the bundle prod serves.
     outputs prod
-    (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund && npx playwright install --with-deps chromium webkit)
+    frontend_deps
+    browsers
     apt-get update -qq && apt-get install -y -qq xvfb >/dev/null
-    # Every suite but the iPhone's, which needs a Mac. The history-scale budgets only report for now.
-    xvfb-run -a env ENV=staging SKIP_IOS=1 HISTORY_REPORT_ONLY=1 "$root/scripts/test-deployed.sh"
+    # Every suite but the iPhone's, which needs a Mac. The history-scale test only reports its numbers.
+    xvfb-run -a env ENV=staging SKIP_IOS=1 "$root/scripts/test-deployed.sh"
     aws ssm put-parameter --name "$parameters/nightly" --type String --overwrite --value "$commit" >/dev/null
     ;;
   *)

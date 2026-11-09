@@ -4,7 +4,7 @@
 
 import { Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
+import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
 import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import {
   CloudFormationCreateReplaceChangeSetAction, CloudFormationExecuteChangeSetAction, CodeBuildAction, CodeStarConnectionsSourceAction, ManualApprovalAction,
@@ -13,6 +13,7 @@ import { CfnConnection } from 'aws-cdk-lib/aws-codestarconnections';
 import { Rule, RuleTargetInput, EventField } from 'aws-cdk-lib/aws-events';
 import { SnsTopic } from 'aws-cdk-lib/aws-events-targets';
 import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { Key } from 'aws-cdk-lib/aws-kms';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { CodeBuildStartBuild } from 'aws-cdk-lib/aws-scheduler-targets';
@@ -22,6 +23,10 @@ import type { Config, ControlConfig, EnvName, PipelineConfig } from './config.ts
 
 /** The pipeline's CodeBuild role. Each environment's release role trusts it by this name. */
 export const PIPELINE_ROLE_NAME = 'multiscale-pipeline';
+/** The signing step's role: the only one that may read the release keys. */
+export const SIGNER_ROLE_NAME = 'multiscale-pipeline-signer';
+/** The KMS key the release keys' SecureStrings are encrypted with. scripts/pipeline.sh config uploads them with it. */
+export const SIGNING_KEY_ALIAS = 'alias/multiscale-release-signing';
 /** In each environment's account: what the pipeline's tests and publishing sign in as (MultiscaleStack). */
 export const RELEASE_ROLE_NAME = 'multiscale-release';
 export const PIPELINE_NAME = 'Multiscale';
@@ -61,8 +66,12 @@ export class PipelineStack extends Stack {
       ]),
     }));
     const parameter = (name: string) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `${PIPELINE_PARAMETERS.slice(1)}/${name}` });
-    // The config folder's files, the pause switch, and the commits the last release and nightly run had.
-    role.addToPolicy(new PolicyStatement({ actions: ['ssm:GetParameter'], resources: [parameter('*')] }));
+    // The config folder's files with the keys' public halves, the pause switch, and the commits the last release and
+    // nightly run had. Never the keys themselves, under signing/.
+    role.addToPolicy(new PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [parameter('config/*'), parameter('paused'), parameter('released'), parameter('nightly')],
+    }));
     role.addToPolicy(new PolicyStatement({ actions: ['ssm:PutParameter'], resources: [parameter('released'), parameter('nightly')] }));
     // A run that the pause switch holds back stops itself.
     role.addToPolicy(new PolicyStatement({
@@ -71,6 +80,10 @@ export class PipelineStack extends Stack {
     }));
 
     const logGroup = new LogGroup(this, 'Logs', { retention: RetentionDays.ONE_MONTH });
+    const source = new Artifact('Source');
+    const built = new Artifact('Built');
+    const signedStaging = new Artifact('SignedStaging');
+    const signedProd = new Artifact('SignedProd');
     const environment = { buildImage: LinuxBuildImage.STANDARD_7_0, computeType: ComputeType.MEDIUM };
     const install = ['scripts/pipeline.sh install'];
     // Each step's work is scripts/pipeline.sh $STEP, so the steps are read and reviewed in one file.
@@ -86,16 +99,54 @@ export class PipelineStack extends Stack {
         ...(artifacts ? { artifacts } : {}),
       }),
     });
-    // The assemblies hold copies of the Lambdas' binaries, so staging and prod deploy the same files.
-    const builder = project('Build', { files: ['infrastructure/cdk.out/**/*'] });
+    // The assemblies hold copies of the Lambdas' binaries, so staging and prod deploy the same files. web/ holds each
+    // environment's web build and the script that signs it.
+    const builder = project('Build', { files: ['infrastructure/cdk.out/**/*', 'web/**/*'] });
     const releaser = project('Release');
+
+    // Signing. Only this step reads a release key: its own project and role, which may read the keys and nothing else
+    // but its artifacts. It installs nothing and runs nothing from the repo but the signing script, taken with the web
+    // build from the tested Build output, on the image's own Node. CodeBuild hands it the key from SSM in RELEASE_KEY.
+    // CloudTrail records each read.
+    const signingKey = new Key(this, 'SigningKey', {
+      alias: SIGNING_KEY_ALIAS,
+      description: "Encrypts the release keys' SecureStrings, which only the pipeline's signing step may read",
+      enableKeyRotation: true,
+    });
+    const signerRole = new Role(this, 'SignerRole', { roleName: SIGNER_ROLE_NAME, assumedBy: new ServicePrincipal('codebuild.amazonaws.com') });
+    const keyParameter = (envName: EnvName) => `${PIPELINE_PARAMETERS}/signing/${envName}.release-key.pem`;
+    signerRole.addToPolicy(new PolicyStatement({
+      actions: ['ssm:GetParameter', 'ssm:GetParameters'],
+      resources: (['staging', 'prod'] as const).map((envName) => parameter(`signing/${envName}.release-key.pem`)),
+    }));
+    signingKey.grantDecrypt(signerRole);
+    const signer = new PipelineProject(this, 'Sign', {
+      role: signerRole,
+      environment: { buildImage: LinuxBuildImage.STANDARD_7_0, computeType: ComputeType.SMALL },
+      timeout: Duration.minutes(15),
+      logging: { cloudWatch: { logGroup } },
+      buildSpec: BuildSpec.fromObject({
+        version: '0.2',
+        phases: { build: { commands: ['node web/sign-release.mjs "web/$ENV_NAME" signed'] } },
+        artifacts: { 'base-directory': 'signed', files: ['**/*'] },
+      }),
+    });
+    const sign = (envName: EnvName, signed: Artifact, runOrder: number) => new CodeBuildAction({
+      actionName: 'Sign',
+      project: signer,
+      input: built,
+      outputs: [signed],
+      runOrder,
+      environmentVariables: {
+        ENV_NAME: { value: envName },
+        RELEASE_KEY: { type: BuildEnvironmentVariableType.PARAMETER_STORE, value: keyParameter(envName) },
+      },
+    });
 
     // A run started by hand sets these: scripts/pipeline.sh run.
     const canary = new Variable({ variableName: 'CANARY', defaultValue: 'on', description: "skip sends prod's new backend all traffic at once" });
     const run = new Variable({ variableName: 'RUN', defaultValue: 'auto', description: 'hand when started by hand, which the pause switch lets through' });
 
-    const source = new Artifact('Source');
-    const built = new Artifact('Built');
     const sourceAction = new CodeStarConnectionsSourceAction({
       actionName: 'GitHub',
       owner,
@@ -107,11 +158,11 @@ export class PipelineStack extends Stack {
       codeBuildCloneOutput: true,
       variablesNamespace: 'Source',
     });
-    const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = []) => new CodeBuildAction({
+    const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = [], signed?: Artifact) => new CodeBuildAction({
       actionName,
       project: outputs.length > 0 ? builder : releaser,
       input: source,
-      extraInputs: name === 'build' ? [] : [built],
+      extraInputs: name === 'build' ? [] : [built, ...(signed ? [signed] : [])],
       outputs,
       runOrder,
       environmentVariables: {
@@ -141,8 +192,9 @@ export class PipelineStack extends Stack {
           stageName: 'Staging',
           actions: [
             step('Deploy', 'deploy-staging', 1),
-            // Publishes staging's web app and feed, then runs staging's suites against them.
-            step('ReleaseAndTest', 'release-staging', 2),
+            sign('staging', signedStaging, 2),
+            // Publishes staging's web app and its signed feed, then runs staging's suites against them.
+            step('ReleaseAndTest', 'release-staging', 3, [], signedStaging),
           ],
         },
         {
@@ -170,8 +222,10 @@ export class PipelineStack extends Stack {
             // CloudFormation waits out the canary here, a day on prod, which this action may take up to 3 days for.
             new CloudFormationExecuteChangeSetAction({ actionName: 'Deploy', ...changeSet, role: deployRole, runOrder: 3 }),
             step('Test', 'test-prod', 4),
-            // Publishes the web app and feed, then checks them.
-            step('Release', 'release-prod', 5),
+            // Only once prod's suites pass.
+            sign('prod', signedProd, 5),
+            // Publishes the web app and its signed feed, then checks them.
+            step('Release', 'release-prod', 6, [], signedProd),
           ],
         },
       ],

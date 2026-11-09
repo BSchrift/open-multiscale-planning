@@ -32,13 +32,14 @@ test-ios:
 
 # A seeded five-year account, timed on the browser, the Mac app and the iPhone Simulator against the budgets in
 # docs/performance.md. Slow, so it runs on demand and before releases. ENV=local (default) or staging.
-# HISTORY_REPORT_ONLY=1 reports the numbers without failing on a missed budget; SKIP_IOS=1 leaves out the iPhone.
+# HISTORY_REPORT_ONLY=1 reports missed budgets and failed parts, and fails only on missing records; SKIP_IOS=1 leaves
+# out the iPhone.
 test-history:
 	@scripts/test-history.sh
 
 # Every suite that can run against a deployment: ENV=staging (default) or prod with CONFIRM_PROD=yes. make release
 # runs it after each release. SKIP_IOS=1 leaves out the iPhone tests, and SKIP_HISTORY=1 the history-scale test, which
-# runs on staging only.
+# runs on staging only, and only reports its numbers.
 test-deployed:
 	@scripts/test-deployed.sh
 

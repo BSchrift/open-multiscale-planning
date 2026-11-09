@@ -77,23 +77,42 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
   let generation = 0;
   let subscribers = 0;
   let stale = true;
+  let reading = false;
+  let again = false;
   const notifiers = new Set<() => void>();
   const publish = (next: QueryResult<T>) => {
     snapshot = next;
     for (const notify of notifiers) notify();
   };
+  // One read at a time, and changes made while it runs share the next one. A read is many statements, which on the web
+  // app's database, in a worker (platform/web.ts), each wait their turn, so a read for every change in a burst would
+  // queue behind the others and leave the screen seconds behind. A read a change landed in may mix before and after,
+  // so only the next one is shown.
   const refresh = () => {
-    const mine = ++generation;
     stale = false;
-    run().then(
-      (data) => {
-        if (mine === generation) publish({ data, error: undefined });
-      },
-      (error: unknown) => {
-        console.error('Query failed', error);
-        if (mine === generation) publish({ data: snapshot.data, error });
-      },
-    );
+    if (reading) {
+      again = true;
+      return;
+    }
+    reading = true;
+    again = false;
+    const mine = generation;
+    const current = () => mine === generation && !again;
+    // A query that throws before its first await still ends its read, as a rejection.
+    new Promise<T>((resolve) => resolve(run()))
+      .then(
+        (data) => {
+          if (current()) publish({ data, error: undefined });
+        },
+        (error: unknown) => {
+          console.error('Query failed', error);
+          if (current()) publish({ data: snapshot.data, error });
+        },
+      )
+      .finally(() => {
+        reading = false;
+        if (again) refresh();
+      });
   };
   return {
     getSnapshot: () => snapshot,
@@ -108,6 +127,7 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
         subscribers--;
         if (subscribers === 0) {
           stale = true;
+          again = false;
           generation++;
         }
       };

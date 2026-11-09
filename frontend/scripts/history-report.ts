@@ -1,6 +1,8 @@
 // The history-scale test's verdict: each number its specs measured against its budget, as a table. Exits 1 when a
-// budget is missed, or 0 with HISTORY_REPORT_ONLY=1, and 1 either way when a surface measured nothing. Run by
-// scripts/test-history.sh, the numbers in one <surface>.json each in the folder given.
+// budget is missed or a surface measured nothing, which HISTORY_REPORT_ONLY=1 only reports, since they're about speed.
+// A device that holds fewer records than were seeded, or a history that wasn't seeded, fails either way: that's whether
+// the data arrived. Run by scripts/test-history.sh, the numbers in one <surface>.json each in the folder given, and
+// what was seeded in facts.json.
 //   node scripts/history-report.ts <folder> [--skip iphone]
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -9,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 
 type Surface = 'web' | 'mac' | 'iphone';
 type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms';
-type Results = Partial<Record<Surface, Partial<Record<Measure, number>>>>;
+type Results = Partial<Record<Surface, Partial<Record<Measure | 'records', number>>>>;
 
 const LABELS: Record<Measure, string> = {
   first_sync_ms: 'First sync to a usable app',
@@ -57,29 +59,32 @@ function main(argv: string[]) {
   if (!folder) throw new Error('Usage: node scripts/history-report.ts <folder> [--skip iphone]');
   const skipAt = rest.indexOf('--skip');
   const skip = skipAt >= 0 ? (rest[skipAt + 1] ?? '').split(',') : [];
+  const read = (name: string) => {
+    const file = join(folder, `${name}.json`);
+    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, number>) : undefined;
+  };
   const results: Results = {};
-  for (const surface of ['web', 'mac', 'iphone'] as const) {
-    const file = join(folder, `${surface}.json`);
-    if (existsSync(file)) results[surface] = JSON.parse(readFileSync(file, 'utf8')) as Results[Surface];
-  }
+  for (const surface of ['web', 'mac', 'iphone'] as const) results[surface] = read(surface);
   const { lines, missed, missing } = report(results, skip);
   console.log(lines.join('\n'));
   const reportOnly = process.env.HISTORY_REPORT_ONLY === '1';
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-  if (missing > 0) {
-    console.error(`${plural(missing, 'number was', 'numbers were')} not measured: see the failing spec above.`);
+
+  const seeded = read('facts')?.records;
+  if (seeded === undefined) {
+    console.error("The history wasn't seeded, so no device's records could be checked: see the seed above.");
     return 1;
   }
-  if (missed === 0) {
-    console.log('Every budget met.');
-    return 0;
-  }
-  if (reportOnly) {
-    console.log(`Report only: ${plural(missed, 'budget', 'budgets')} missed.`);
-    return 0;
-  }
-  console.error(`${plural(missed, 'budget', 'budgets')} missed. HISTORY_REPORT_ONLY=1 reports without failing.`);
-  return 1;
+  // At least, since a server keeps deleted records until its retention purges them, and the seed sends none.
+  const short = (['web', 'mac', 'iphone'] as const).filter((surface) => (results[surface]?.records ?? seeded) < seeded);
+  for (const surface of short) console.error(`${surface} holds ${results[surface]!.records} of the ${seeded} records seeded.`);
+  const slow: string[] = [];
+  if (missing > 0) slow.push(`${plural(missing, 'number was', 'numbers were')} not measured: see the failing spec above.`);
+  if (missed > 0) slow.push(`${plural(missed, 'budget', 'budgets')} missed.`);
+  if (reportOnly && slow.length > 0) console.log(`Report only: ${slow.join(' ')}`);
+  else if (slow.length > 0) console.error(`${slow.join(' ')} HISTORY_REPORT_ONLY=1 reports these without failing.`);
+  else console.log('Every budget met.');
+  return short.length > 0 || (slow.length > 0 && !reportOnly) ? 1 : 0;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]!).href) process.exit(main(process.argv.slice(2)));

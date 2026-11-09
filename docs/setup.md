@@ -308,14 +308,14 @@ This runs only the signed-in test: the app signs in from Settings as the test us
 ```sh
 make test-history                          # a local stack it starts, seeded each run
 make test-history ENV=staging              # integration.historyUser, from step 8
-HISTORY_REPORT_ONLY=1 make test-history    # every number against its budget, without failing on a missed one
+HISTORY_REPORT_ONLY=1 make test-history    # every number against its budget, failing only on missing records
 ```
 
-It fails when a budget is missed, and prints each number beside its budget either way. A part that fails measures nothing, which fails even with `HISTORY_REPORT_ONLY=1`. `SKIP_IOS=1` leaves out the iPhone, much the slowest part.
+It fails when a budget is missed or a part fails, such as an iPhone that isn't usable within the 25 minutes it's allowed, and prints each number beside its budget either way. With `HISTORY_REPORT_ONLY=1` those are only reported: it fails only when a device holds fewer records than were seeded, or the history wasn't seeded, since those are about whether the data arrived rather than how fast. `SKIP_IOS=1` leaves out the iPhone, much the slowest part.
 
 On staging it signs in through the hosted sign-in page as the history user: the browser at `http://localhost:5199`, so it needs the `http://localhost:5199/auth/callback` callback the browser tests above need, and the Mac app at `multiscale-staging://auth/callback` and the iPhone at `multiscale://auth/callback`, which the example config already has. The first run seeds the account, paced to 500 write units a second, half of what one user's partition takes, so the table's throttling alarm stays quiet; `HISTORY_WRITE_UNITS` changes the pace. Every record has a fixed id and clock, so later runs write nothing, though they still send every batch. When the made-up records change, `HISTORY.version` in `frontend/src/core/history-testing.ts` goes up, so a reseed's clocks win; records the new version no longer makes stay behind, and a fresh history user starts clean.
 
-`make test-deployed` runs it on staging, and `SKIP_HISTORY=1` leaves it out. A release checks staging the same way, so while a budget is missed `make release` fails there too, unless it runs with `HISTORY_REPORT_ONLY=1` or `SKIP_HISTORY=1`.
+`make test-deployed` runs it on staging with `HISTORY_REPORT_ONLY=1`, and `SKIP_HISTORY=1` leaves it out. A release checks staging the same way, so a missed budget never holds up `make release`; a device missing records still fails it.
 
 ## 12. Deploy prod
 

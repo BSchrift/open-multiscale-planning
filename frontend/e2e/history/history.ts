@@ -128,10 +128,7 @@ export async function timeQueries(page: Page, surface: 'web' | 'electron'): Prom
   });
   // Evaluated rather than added as a script, which a page's content security policy could refuse.
   await page.evaluate(bundle.outputFiles[0]!.text);
-  if (surface === 'electron') return page.evaluate(() => (globalThis as unknown as HistoryPage).multiscaleHistory.electron());
-  // The web app's sql.js, opened on what it saved: the page keeps its own copy out of reach.
-  const wasm = readFileSync(join(import.meta.dirname, '../../node_modules/sql.js/dist/sql-wasm.wasm')).toString('base64');
-  return page.evaluate((w) => (globalThis as unknown as HistoryPage).multiscaleHistory.web(w), wasm);
+  return page.evaluate((s) => (globalThis as unknown as HistoryPage).multiscaleHistory[s](), surface);
 }
 
 export interface HistoryTimes {
@@ -142,7 +139,7 @@ export interface HistoryTimes {
 
 export interface HistoryPage {
   multiscaleHistory: {
-    web(wasmBase64: string): Promise<HistoryTimes>;
+    web(): Promise<HistoryTimes>;
     electron(): Promise<HistoryTimes>;
   };
 }

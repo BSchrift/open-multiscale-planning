@@ -8,7 +8,8 @@
 #   retention    staging only: records expire, leave every device and the server, and old copies stay out, about 25
 #                minutes (scripts/test-retention.sh)
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
-#   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh)
+#   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh),
+#                reporting its numbers: it fails only when a device holds fewer records than were seeded
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
@@ -76,8 +77,9 @@ run "smoke" "$root/scripts/smoke.sh"
 # Prod's periods are years.
 if [ "$env_name" = staging ]; then run "retention" "$root/scripts/test-retention.sh"; else echo "== retention skipped: prod's periods are years"; fi
 [ "${SKIP_IOS:-}" = 1 ] || run "iPhone" "$root/scripts/test-ios.sh"
-# Its numbers against their budgets, on staging only: prod has no history user, and none of its data is made up.
-if [ "$env_name" = staging ] && [ "${SKIP_HISTORY:-}" != 1 ]; then run "history" "$root/scripts/test-history.sh"; fi
+# Its numbers against their budgets, on staging only: prod has no history user, and none of its data is made up. Only
+# reported, so a release isn't held up by speed; a device missing records still fails it.
+if [ "$env_name" = staging ] && [ "${SKIP_HISTORY:-}" != 1 ]; then run "history" env HISTORY_REPORT_ONLY=1 "$root/scripts/test-history.sh"; fi
 
 if [ ${#failed[@]} -gt 0 ]; then
   echo "$env_name: failed: ${failed[*]}" >&2

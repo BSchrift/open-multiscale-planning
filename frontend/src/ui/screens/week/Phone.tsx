@@ -170,14 +170,14 @@ export function PhoneWeek(props: WeekProps) {
     <div className="stack8 week">
       <div className="weektop stack8">
         <div className="between">
-          <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing} onClick={() => props.goWeek(addDays(data.week, -7))}>
+          <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing} onClick={() => props.goWeek(addDays(props.week, -7))}>
             ‹
           </button>
           <div className="wktitle">
             <div className="small quiet">{props.label}</div>
             <h2>{props.title}</h2>
           </div>
-          <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing} onClick={() => props.goWeek(addDays(data.week, 7))}>
+          <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing} onClick={() => props.goWeek(addDays(props.week, 7))}>
             ›
           </button>
         </div>

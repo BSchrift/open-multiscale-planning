@@ -1,8 +1,8 @@
 # Performance
 
 How fast Multiscale has to stay as an account's history grows, how that's measured, and where it stands. A new device's
-first sync downloads every record, and on the web every edit writes the whole database to IndexedDB, so both slow down
-as history grows. `make test-history` measures them on a made-up five-year account and fails when a budget is missed.
+first sync downloads every record, and Today and Week read more of it, so both slow down as history grows. `make test-history` measures them on a made-up five-year account and fails when a budget is missed, unless it only
+reports, as `make test-deployed` does on staging.
 
 ## Budgets
 
@@ -85,10 +85,10 @@ in. The web app is the production build, served from this Mac in a new browser; 
 iPhone app is erased first.
 
 **An edit saved** is Notify at block start in Settings, turned off and on twice, the median of the four: from the click
-to the save being set off, which covers the edit's own transaction, plus from the save starting to IndexedDB finishing
-the write. The web app waits 200 ms for more edits before it saves, and that wait is left out, since it's not work.
+until the edit's transaction has committed in the web app's database worker, which keeps the database on the browser's
+private file system (OPFS), so a committed change is on disk.
 
 **Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. Each is the median
-of five runs as of the account's end, in the app's own page through the app's own driver: the web app's sql.js, on the
-database it saved; the Mac app's bridge to SQLite in the main process; and on iPhone the Capacitor SQLite plugin, from
+of five runs as of the account's end, in the app's own page through the app's own driver: the web app's worker, with
+SQLite on OPFS; the Mac app's bridge to SQLite in the main process; and on iPhone the Capacitor SQLite plugin, from
 the test page the app's test copy carries.

@@ -13,7 +13,10 @@ test.describe.configure({ mode: 'default' });
 
 const phone = (info: TestInfo) => info.project.name === 'phone';
 
-/** A new browser profile on disk, with the project's device, and no page open. */
+/**
+ * A new browser profile on disk, with the project's device, and only a blank page open. That page stays open: WebKit on
+ * Linux crashes when a profile's last page has closed and another opens.
+ */
 async function profile(playwright: PlaywrightWorkerArgs['playwright'], browserName: PlaywrightWorkerOptions['browserName'], info: TestInfo): Promise<BrowserContext> {
   const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL } = info.project.use;
   const context = await playwright[browserName].launchPersistentContext(info.outputPath('profile'), { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL });
@@ -24,7 +27,7 @@ async function profile(playwright: PlaywrightWorkerArgs['playwright'], browserNa
     const root = await navigator.storage.getDirectory();
     for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
   });
-  await page.close();
+  await page.goto('about:blank');
   return context;
 }
 

@@ -66,6 +66,24 @@ describe('useQuery', () => {
     await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe('B'));
   });
 
+  it('reads once more for a burst of changes, not once for each, and ends on the last of them', async () => {
+    let reads = 0;
+    function Counted() {
+      const { data } = useQuery(async (sql) => {
+        reads++;
+        return (await listRecords(sql, 'task')).map((t) => t.title).join(',');
+      }, []);
+      return <div data-testid="titles">{data ?? 'none yet'}</div>;
+    }
+    const platform = await setup(<Counted />);
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe(''));
+    const before = reads;
+    const titles = ['A', 'B', 'C', 'D', 'E'];
+    await act(() => Promise.all(titles.map((title) => transact(platform.db, clock, (w) => w.create('task', { kind: 'inbox', title })))));
+    await waitFor(() => expect(screen.getByTestId('titles').textContent!.split(',').sort()).toEqual(titles));
+    expect(reads - before).toBeLessThanOrEqual(2);
+  });
+
   it('reports a failed query instead of throwing, and stops listening when unmounted', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     let calls = 0;

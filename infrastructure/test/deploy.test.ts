@@ -81,6 +81,16 @@ describe('scripts/deploy.sh', () => {
     assert.equal(s.log(), '');
   });
 
+  it('deploys the pipeline, in the control account, without building the Lambdas', () => {
+    const files = configFiles();
+    const s = sandbox({}, { ...files, control: { ...files.control, pipeline: { repository: 'someone/repo', branch: 'main', email: 'me@example.net' } } } as any);
+    const r = s.run({ ENV: 'pipeline' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /npx cdk deploy Multiscale-pipeline -c deploy=pipeline /);
+    assert.match(s.log(), /npx with AWS_PROFILE=ms-control /);
+    assert.doesNotMatch(s.log(), /go build/);
+  });
+
   it('deploys control without building the Lambdas', () => {
     const s = sandbox();
     const r = s.run({ ENV: 'control', OUTPUTS: '{}' });
@@ -95,7 +105,7 @@ describe('scripts/deploy.sh', () => {
     const s = sandbox();
     const r = s.run({ ENV: 'dev' });
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /control, staging or prod/);
+    assert.match(r.stderr, /control, staging, prod or pipeline/);
     assert.equal(s.log(), '');
   });
 

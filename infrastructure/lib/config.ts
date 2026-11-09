@@ -15,6 +15,14 @@ export interface ControlConfig {
   aws: Aws;
   /** hostedZoneId is the zone Route 53 made when the domain was registered. txt is the domain's own TXT values, such as a site verification. */
   dns?: { domain: string; hostedZoneId: string; txt?: string[] };
+  /** The release pipeline, which runs in this account: the GitHub repository and branch it releases, and who it emails. */
+  pipeline?: PipelineConfig;
+}
+
+export interface PipelineConfig {
+  repository: string;
+  branch: string;
+  email: string;
 }
 
 export interface Config {
@@ -30,6 +38,7 @@ export const configDir = () => process.env.MULTISCALE_CONFIG_DIR || exampleDir;
 
 const EXAMPLE_ACCOUNTS = ['111111111111', '222222222222', '333333333333'];
 const domainName = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const email = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const matches = (re: RegExp, value: unknown) => typeof value === 'string' && re.test(value);
 
 function checkCallback(url: unknown): boolean {
@@ -72,7 +81,12 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
   if (c.dns?.txt != null && !(Array.isArray(c.dns.txt) && c.dns.txt.every((v: unknown) => typeof v === 'string' && v !== ''))) {
     problems.push('dns.txt must be a list of TXT values');
   }
-  if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain))) {
+  if (c.pipeline != null) {
+    if (!matches(/^[\w.-]+\/[\w.-]+$/, c.pipeline.repository)) problems.push('pipeline.repository must be a GitHub owner/name');
+    if (!matches(/^[\w.\/-]+$/, c.pipeline.branch)) problems.push('pipeline.branch must be a branch name');
+    if (!matches(email, c.pipeline.email)) problems.push('pipeline.email must be an email address');
+  }
+  if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain) || matches(/@example\.com$/i, c.pipeline?.email))) {
     problems.push('still has example values');
   }
   return done(path, problems, c);
@@ -85,7 +99,7 @@ export function loadConfig(envName: EnvName, dir: string, deploying: boolean): {
   const path = locate(dir, envName, deploying);
   const c = read(path);
   const problems = awsProblems(c.aws);
-  if (!matches(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, c.alarmEmail)) problems.push('alarmEmail must be an email address');
+  if (!matches(email, c.alarmEmail)) problems.push('alarmEmail must be an email address');
   const { cognitoDomainPrefix, signInCallbackUrls } = c.auth ?? {};
   // Cognito reserves these words in hosted UI prefixes.
   if (!matches(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, cognitoDomainPrefix) || /aws|amazon|cognito/.test(cognitoDomainPrefix)) {

@@ -13,7 +13,8 @@
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
-#   slowest. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
+#   slowest, and SKIP_RETENTION=1 the retention suite's 25 minutes: the release pipeline leaves both to its nightly run.
+#   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -75,7 +76,8 @@ fi
 run "integration" "$root/scripts/integration.sh"
 run "smoke" "$root/scripts/smoke.sh"
 # Prod's periods are years.
-if [ "$env_name" = staging ]; then run "retention" "$root/scripts/test-retention.sh"; else echo "== retention skipped: prod's periods are years"; fi
+if [ "$env_name" != staging ]; then echo "== retention skipped: prod's periods are years"
+elif [ "${SKIP_RETENTION:-}" != 1 ]; then run "retention" "$root/scripts/test-retention.sh"; fi
 [ "${SKIP_IOS:-}" = 1 ] || run "iPhone" "$root/scripts/test-ios.sh"
 # Its numbers against their budgets, on staging only: prod has no history user, and none of its data is made up. Only
 # reported, so a release isn't held up by speed; a device missing records still fails it.
@@ -88,4 +90,5 @@ fi
 left_out=()
 [ "${SKIP_IOS:-}" != 1 ] || left_out+=("the iPhone tests")
 [ "$env_name" != staging ] || [ "${SKIP_HISTORY:-}" != 1 ] || left_out+=("the history-scale test")
+[ "$env_name" != staging ] || [ "${SKIP_RETENTION:-}" != 1 ] || left_out+=("the retention suite")
 if [ ${#left_out[@]} -gt 0 ]; then echo "$env_name: every deployed suite passed; left out: ${left_out[*]}."; else echo "$env_name: every deployed suite passed."; fi

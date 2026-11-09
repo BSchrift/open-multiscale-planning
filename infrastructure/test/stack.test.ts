@@ -793,3 +793,43 @@ describe('DNS', () => {
     t.resourceCountIs('AWS::CloudFront::Distribution', 0);
   });
 });
+
+describe('release role', () => {
+  const withPipeline = (envName: 'staging' | 'prod', zone?: string) => {
+    const app = new App();
+    const stack = new MultiscaleStack(app, `Multiscale-${envName}`, {
+      envName, config: { ...config, ...(zone ? { dns: { zone } } : {}) }, control, backendDist: '/nonexistent', requireBinaries: false, pipelineAccount: '333333333333',
+    });
+    return Template.fromStack(stack).toJSON().Resources as Record<string, Resource>;
+  };
+  const roleOf = (resources: Record<string, Resource>) => Object.entries(resources).find(([, r]) => r.Type === 'AWS::IAM::Role' && r.Properties.RoleName === 'multiscale-release');
+
+  it("is there only when control.yaml sets up the pipeline, and the environment has somewhere to release to", () => {
+    assert.equal(roleOf(all), undefined);
+    assert.equal(roleOf(withPipeline('staging')), undefined);
+    assert.ok(roleOf(withPipeline('staging', 'staging.example.net')));
+  });
+
+  it("trusts only the pipeline's build role, in the control account", () => {
+    const [, role] = roleOf(withPipeline('prod', 'app.example.net'))!;
+    const [statement] = role.Properties.AssumeRolePolicyDocument.Statement;
+    assert.equal(statement.Action, 'sts:AssumeRole');
+    assert.deepEqual(statement.Principal, { AWS: { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::333333333333:root']] } });
+    assert.deepEqual(statement.Condition, { ArnEquals: { 'aws:PrincipalArn': { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::333333333333:role/multiscale-pipeline']] } } });
+  });
+
+  it("may read the test users' passwords, logs, metrics and outputs, and write the release bucket, and nothing else", () => {
+    const resources = withPipeline('prod', 'app.example.net');
+    const [roleId] = roleOf(resources)!;
+    const statements = Object.values(resources)
+      .filter((r) => r.Type === 'AWS::IAM::Policy' && r.Properties.Roles.some((x: any) => x.Ref === roleId))
+      .flatMap((p) => p.Properties.PolicyDocument.Statement as any[]);
+    const actionsOf = statements.flatMap((s) => [s.Action].flat()).sort();
+    assert.deepEqual(actionsOf.filter((a) => !a.startsWith('s3:')), ['cloudformation:DescribeStacks', 'cloudwatch:GetMetricStatistics', 'logs:FilterLogEvents', 'ssm:GetParameter']);
+    const ssm = statements.find((s) => s.Action === 'ssm:GetParameter');
+    assert.match(JSON.stringify(ssm.Resource), /parameter\/multiscale\/prod\/\*-user-password"/);
+    assert.ok(!actionsOf.some((a) => a.startsWith('dynamodb:') || a.startsWith('lambda:') || a === '*'));
+    const bucket = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith('s3:'))).flatMap((s) => [s.Resource].flat());
+    assert.ok(bucket.every((r: any) => JSON.stringify(r).includes('Releases')), JSON.stringify(bucket));
+  });
+});

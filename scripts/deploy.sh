@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploys one environment from its YAML in the config folder, then writes its stack outputs and a record of what was
 # deployed (<env>.outputs.json and <env>.deployed) next to it.
-#   ENV=staging (default), ENV=prod or ENV=control. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
+#   ENV=staging (default), ENV=prod, ENV=control, or ENV=pipeline for the release pipeline in the control account
+#   (docs/releasing.md). The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 #   CANARY=skip sends a new backend version all its traffic at once, rather than by config/env's canary: on prod, 5%
 #   for a day. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
 # A backend change waits out its canary, so a prod deploy runs a day. CloudFormation carries on if this stops early.
@@ -11,8 +12,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 env_name="${ENV:-staging}"
 case "$env_name" in
-  control | staging | prod) ;;
-  *) echo "ENV must be control, staging or prod, not $env_name" >&2; exit 1 ;;
+  control | staging | prod | pipeline) ;;
+  *) echo "ENV must be control, staging, prod or pipeline, not $env_name" >&2; exit 1 ;;
 esac
 canary=()
 case "${CANARY:-}" in
@@ -45,7 +46,7 @@ commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
 dirty=false
 [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ] && dirty=true
 
-if [ "$env_name" != control ]; then
+if [ "$env_name" = staging ] || [ "$env_name" = prod ]; then
   # The integration suite reads this file with the strict Go loader, so stop on a file it would refuse.
   (cd "$root/config" && go run ./cmd/check "$env_name")
   echo "Building Lambdas"

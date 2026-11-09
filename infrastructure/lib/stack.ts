@@ -20,7 +20,7 @@ import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
-import { PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -34,6 +34,7 @@ import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { loadRetention } from '../../config/retention.ts';
 import type { Config, ControlConfig, EnvName } from './config.ts';
 import { DELEGATION_ROLE_NAME } from './control-stack.ts';
+import { PIPELINE_ROLE_NAME, RELEASE_ROLE_NAME } from './pipeline-stack.ts';
 
 export interface MultiscaleStackProps {
   envName: EnvName;
@@ -46,11 +47,13 @@ export interface MultiscaleStackProps {
   requireBinaries: boolean;
   /** 'skip' sends a new backend version all traffic at once, rather than by config/env's canary. The alarms still roll it back. */
   canary?: 'skip';
+  /** The control account, when control.yaml sets up the release pipeline there: it tests and publishes as this stack's release role. */
+  pipelineAccount?: string;
 }
 
 export class MultiscaleStack extends Stack {
   constructor(scope: Construct, id: string, props: MultiscaleStackProps) {
-    const { envName, config, control, backendDist, requireBinaries, canary } = props;
+    const { envName, config, control, backendDist, requireBinaries, canary, pipelineAccount } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
       terminationProtection: forEnv(envName).stack.terminationProtection,
@@ -623,6 +626,29 @@ export class MultiscaleStack extends Stack {
         });
         new ARecord(this, `${id}Record`, { zone, recordName: host, target: RecordTarget.fromAlias(new CloudFrontTarget(distribution)) });
       }
+    }
+
+    // What the release pipeline (lib/pipeline-stack.ts) signs in as to test this environment and publish to it: the
+    // deployed suites' reads, and the release bucket. It deploys through CDK's bootstrap roles instead.
+    if (pipelineAccount && releaseBucket) {
+      const release = new Role(this, 'ReleaseRole', {
+        roleName: RELEASE_ROLE_NAME,
+        // By account and name rather than by the role itself, which IAM would need to exist before this.
+        assumedBy: new AccountPrincipal(pipelineAccount).withConditions({
+          ArnEquals: { 'aws:PrincipalArn': `arn:${this.partition}:iam::${pipelineAccount}:role/${PIPELINE_ROLE_NAME}` },
+        }),
+      });
+      // The test users' passwords, beside the Google secrets the Lambdas read.
+      release.addToPolicy(new PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/*-user-password` })],
+      }));
+      // Smoke: that logs and metrics arrive. GetMetricStatistics has no resource to scope it to.
+      release.addToPolicy(new PolicyStatement({ actions: ['logs:FilterLogEvents'], resources: [apiLogs.logGroupArn, calendarLogs.logGroupArn] }));
+      release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:GetMetricStatistics'], resources: ['*'] }));
+      // The outputs the app builds and suites read.
+      release.addToPolicy(new PolicyStatement({ actions: ['cloudformation:DescribeStacks'], resources: [this.stackId] }));
+      releaseBucket.grantReadWrite(release);
     }
 
     // Read by scripts/deploy.sh, scripts/smoke.sh and the setup guide.

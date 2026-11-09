@@ -448,6 +448,8 @@ Each signs in with the profile in its environment's file. After a deploy, commit
 
 ### Releasing updates
 
+Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md).
+
 `make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
 
 Then it runs `make test-deployed` against what it just released, checking the web app serves that version, and fails if any suite does. The release is live by then, so to go back, revert the bad commit and release that. Releasing an older commit would only roll back the web app: its build number is its commit's time, and the apps skip any release whose build isn't newer than the one they run. `SKIP_TESTS=1` leaves the tests out, for a fix that can't wait; run `make test-deployed` after.

@@ -9,6 +9,7 @@
 #   resume   make pipeline-resume    they release again
 #   run      make promote            starts a run by hand: COMMIT=<sha> (default: the branch's latest), CANARY=skip,
 #                                    ALARMS=off
+#   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # In CodeBuild: install, build, deploy-staging, release-staging, prod-assets, test-prod, release-prod and nightly. The
 # signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
@@ -146,7 +147,20 @@ case "$command" in
     skipping=""
     [ -z "${CANARY:-}" ] || skipping=", sending prod all traffic at once"
     [ -z "${ALARMS:-}" ] || skipping="$skipping, with the release alarms off"
-    echo "Started run $id${COMMIT:+ at $COMMIT}$skipping. It still waits for your approval before prod."
+    echo "Started run $id${COMMIT:+ at $COMMIT}$skipping. After staging it waits out its window before prod: make pipeline-stop stops it."
+    ;;
+  stop)
+    control
+    # The run in the Promote stage, if one is waiting there. Stopping abandons it: its window's wait ends, and nothing
+    # after it runs.
+    read -r id status <<<"$(aws codepipeline get-pipeline-state --name "$pipeline" --query "stageStates[?stageName=='Promote'].latestExecution.[pipelineExecutionId,status] | [0]" --output text)"
+    if [ "${status:-}" != InProgress ]; then
+      echo "No run is waiting to go to prod."
+      exit 0
+    fi
+    commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
+    aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped before prod by make pipeline-stop" >/dev/null
+    echo "Stopped run $id, at $commit, before prod. Staging keeps it; prod doesn't get it."
     ;;
   tag)
     control
@@ -268,7 +282,7 @@ case "$command" in
     aws ssm put-parameter --name "$parameters/nightly" --type String --overwrite --value "$commit" >/dev/null
     ;;
   *)
-    echo "Use: scripts/pipeline.sh config | pause | resume | run | tag, or a CodeBuild step. See docs/releasing.md." >&2
+    echo "Use: scripts/pipeline.sh config | pause | resume | run | stop | tag, or a CodeBuild step. See docs/releasing.md." >&2
     exit 1
     ;;
 esac

@@ -23,6 +23,22 @@ export interface PipelineConfig {
   repository: string;
   branch: string;
   email: string;
+  /** How long after staging passes a run goes to prod, as an ISO 8601 duration: PT2H unless set, PT0S for no wait. */
+  promoteAfter?: string;
+}
+
+/** The window before prod when control.yaml doesn't set one: time to read the email and stop the run, the same day. */
+export const DEFAULT_PROMOTE_AFTER = 'PT2H';
+// The pipeline waits on Step Functions, which CodePipeline allows 7 days, and prod's canary takes another.
+const MAX_PROMOTE_AFTER_SECONDS = 6 * 24 * 3600;
+
+/** A window in seconds: whole days, hours, minutes and seconds, such as PT2H, P1DT30M or PT0S. Undefined if it isn't one. */
+export function promoteAfterSeconds(text: unknown): number | undefined {
+  const m = typeof text === 'string' ? /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(text) : null;
+  if (!m || text === 'P' || (text as string).endsWith('T')) return undefined;
+  const [days, hours, minutes, seconds] = m.slice(1).map((part) => Number(part ?? 0));
+  const total = ((days! * 24 + hours!) * 60 + minutes!) * 60 + seconds!;
+  return total <= MAX_PROMOTE_AFTER_SECONDS ? total : undefined;
 }
 
 export interface Config {
@@ -85,6 +101,10 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
     if (!matches(/^[\w.-]+\/[\w.-]+$/, c.pipeline.repository)) problems.push('pipeline.repository must be a GitHub owner/name');
     if (!matches(/^[\w.\/-]+$/, c.pipeline.branch)) problems.push('pipeline.branch must be a branch name');
     if (!matches(email, c.pipeline.email)) problems.push('pipeline.email must be an email address');
+    c.pipeline.promoteAfter ??= DEFAULT_PROMOTE_AFTER;
+    if (promoteAfterSeconds(c.pipeline.promoteAfter) === undefined) {
+      problems.push('pipeline.promoteAfter must be whole days, hours, minutes or seconds up to 6 days, such as PT2H, or PT0S for no wait');
+    }
   }
   if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain) || matches(/@example\.com$/i, c.pipeline?.email))) {
     problems.push('still has example values');

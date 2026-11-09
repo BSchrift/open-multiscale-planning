@@ -48,6 +48,14 @@ describe('the release pipeline', () => {
     t.hasResourceProperties('AWS::CodeStarConnections::Connection', { ProviderType: 'GitHub' });
   });
 
+  it('names no variable namespace after an artifact, which CodePipeline refuses on create', () => {
+    const all = stages.flatMap((s) => s.Actions);
+    const artifacts = new Set(all.flatMap((a: any) => (a.OutputArtifacts ?? []).map((o: any) => o.Name)));
+    const namespaces = all.map((a: any) => a.Namespace).filter(Boolean);
+    assert.ok(namespaces.length > 0);
+    for (const namespace of namespaces) assert.ok(!artifacts.has(namespace), `namespace ${namespace} is also an artifact`);
+  });
+
   it('builds once, then deploys and tests staging, waits for a person, and promotes the same build to prod', () => {
     assert.deepEqual(actions('Build').map(step), ['build']);
     assert.deepEqual(actions('Staging').map(step), ['deploy-staging', 'Sign', 'release-staging']);

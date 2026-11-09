@@ -194,3 +194,5 @@ button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -2
 // Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
 button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');
+// On the app's console too, where scripts/test-ios.sh waits for it as it warms up a new Simulator.
+console.info('native-checks ready');

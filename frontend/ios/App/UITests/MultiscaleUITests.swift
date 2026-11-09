@@ -2,6 +2,10 @@ import CryptoKit
 import XCTest
 
 private let patience: TimeInterval = 30
+/// For the first page after a launch, when the web view starts WebKit's processes. CI's Simulator now and then holds
+/// every process it starts for 25 to 32 s (its logs show them all waiting, then starting together), on top of the page's
+/// own second or two.
+private let launchPatience: TimeInterval = 60
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
 private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
@@ -41,7 +45,7 @@ private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIAppl
     let checks = XCUIApplication()
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launch()
-    exists(checks.webText("ready"))
+    exists(checks.webText("ready"), timeout: launchPatience)
     checks.tapWeb("Erase")
     exists(checks.webText("erased"))
     if let seed {
@@ -56,6 +60,9 @@ private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIAppl
     checks.terminate()
     let app = XCUIApplication()
     app.launch()
+    // Up once its page has drawn anything. What that is, setup, the tabs or a question over them, is each test's to wait
+    // for.
+    exists(app.page.staticTexts.firstMatch, timeout: launchPatience)
     return app
 }
 
@@ -119,7 +126,7 @@ final class ShellUITests: XCTestCase {
         // Setup finished in the plugin's database, so a new process goes straight to the shell, goal and all.
         app.terminate()
         app.launch()
-        exists(app.webButton("Goals"))
+        exists(app.webButton("Goals"), timeout: launchPatience)
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
         exists(app.webButton(startingWith: "Learn to bake bread"))
@@ -170,6 +177,7 @@ final class ShellUITests: XCTestCase {
         XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
         openLinkPrompt()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        exists(app.page.textFields["Capture to Inbox"], timeout: launchPatience)
         captureAboveTheKeyboard(app, saving: "Buy rye flour")
 
         app.tapWeb("Capture a task")
@@ -299,7 +307,10 @@ final class ShellUITests: XCTestCase {
         let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND elementType IN %@", option, types)).firstMatch
         exists(item)
         item.tap()
-        XCTAssertEqual(select.value as? String, option)
+        // The select shows what's saved, so it goes back to the old value until the save lands, which on CI's Simulator
+        // can take longer than the tap does.
+        let chosen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", option), object: select)
+        XCTAssertEqual(XCTWaiter.wait(for: [chosen], timeout: patience), .completed, "\(label) shows \(select.value ?? "nothing"), not \(option)")
     }
 }
 
@@ -312,7 +323,7 @@ final class NativeUITests: XCTestCase {
         app = XCUIApplication()
         app.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
         app.launch()
-        exists(app.webText("ready"))
+        exists(app.webText("ready"), timeout: launchPatience)
     }
 
     private func run(_ button: String, expect result: String, timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
@@ -328,7 +339,7 @@ final class NativeUITests: XCTestCase {
         // Killed while open, as iOS does at a memory limit: the next run reports it once.
         app.terminate()
         app.launch()
-        exists(app.webText("ready"))
+        exists(app.webText("ready"), timeout: launchPatience)
         run("Diagnostics", expect: "previous:active")
     }
 
@@ -441,7 +452,13 @@ final class NativeUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         openControlCenter()
         addCaptureControl()
-        springboard.buttons["Capture"].firstMatch.tap()
+        // Opened again, as a person would use it: tapped a moment after Control Center left editing, the control now and
+        // then didn't open the app.
+        XCUIDevice.shared.press(.home)
+        openControlCenter()
+        let capture = springboard.buttons["Capture"].firstMatch
+        exists(capture, in: springboard)
+        capture.tap()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
         exists(app.webText("capture"))
     }
@@ -740,7 +757,7 @@ final class HistoryUITests: XCTestCase {
         let checks = XCUIApplication()
         checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
         checks.launch()
-        exists(checks.webText("ready"))
+        exists(checks.webText("ready"), timeout: launchPatience)
         checks.tapWeb("History")
         let line = checks.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'history:'")).firstMatch
         exists(line, timeout: 300)

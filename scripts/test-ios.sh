@@ -116,9 +116,13 @@ for extensions in $runs; do
   fi
   xcrun simctl bootstatus "$device" >/dev/null
 
+  # Only CI sets IOS_RESULTS: against a deployment the bundle would keep what XCTest typed, the password included.
+  results=()
+  [ -z "${IOS_RESULTS:-}" ] || results=(-resultBundlePath "$IOS_RESULTS/extensions-$extensions.xcresult")
+
   # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password.
   TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
-    TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} 2>&1 |
+    TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} ${results[@]+"${results[@]}"} 2>&1 |
     sed -E "s/Type '[^']*'/Type '…'/"
 
   xcrun simctl delete "$device"

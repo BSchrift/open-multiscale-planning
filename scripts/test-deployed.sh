@@ -5,7 +5,7 @@
 #   compat       on staging, prod's web bundle and this checkout's sharing a database and syncing (scripts/test-compat.sh)
 #   integration  the black-box suite against its API and sign-in
 #   smoke        that its logs and metrics arrive
-#   retention    staging only: records expire, leave every device and the server, and old copies stay out, about 25
+#   retention    staging only: records expire, leave every device and the server, and old copies stay out, about 50
 #                minutes (scripts/test-retention.sh)
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
 #   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh),

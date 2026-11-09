@@ -12,7 +12,7 @@ import (
 // Retention through the running API, as docs/retention.md describes it: once a record's expiry passes, pulls leave it
 // out and the cleanup removes it, so a new device never gets it; a late change can't bring it back; and a device that may
 // hold an older copy is reset. It moves the local stack's clock past each period and runs its cleanup, as staging's runs
-// every minute. frontend/src/core/retention.stack.test.ts is the deployed suite, with the app's own client.
+// every few minutes. frontend/src/core/retention.stack.test.ts is the deployed suite, with the app's own client.
 
 type expiringRecord struct {
 	// deleted, scheduling, closed, or never.

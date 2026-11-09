@@ -236,9 +236,9 @@ describe('retention', () => {
     });
   });
 
-  it("runs staging's cleanup every minute, from retention.yaml, and prod has none", () => {
+  it("runs staging's cleanup every 5 minutes, from retention.yaml, and prod has none", () => {
     t.hasResourceProperties('AWS::Scheduler::Schedule', {
-      ScheduleExpression: 'rate(1 minute)',
+      ScheduleExpression: 'rate(5 minutes)',
       Target: Match.objectLike({ Arn: { Ref: aliasOf('Retention') } }),
     });
     const prod = Template.fromStack(build('prod'));

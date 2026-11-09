@@ -44,7 +44,7 @@ test-deployed:
 	@scripts/test-deployed.sh
 
 # Staging only: writes one record of each kind with the app's own client, then waits out staging's retention periods
-# while its cleanup runs, about 25 minutes. make test-deployed runs it too, on staging.
+# while its cleanup runs, about 50 minutes. make test-deployed runs it too, on staging.
 test-retention:
 	@scripts/test-retention.sh
 

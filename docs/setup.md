@@ -270,7 +270,7 @@ The suite signs in as the test user, uses unique ids per run and cleans up. Its 
 
 Check the `Multiscale-staging` dashboard under **CloudWatch > Dashboards**. Nothing should be red.
 
-Then the retention suite, which writes one record of each kind as the test user and waits out staging's periods, minutes long, while staging's cleanup removes what expires. It takes about 25 minutes, and `make test-deployed` runs it too:
+Then the retention suite, which writes one record of each kind as the test user and waits out staging's periods, minutes long, while staging's cleanup removes what expires. It takes about 50 minutes, and `make test-deployed` runs it too:
 
 ```sh
 make test-retention

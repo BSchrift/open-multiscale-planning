@@ -40,7 +40,7 @@ export interface MultiscaleStackProps {
   config: Config;
   /** Needed when config sets dns.zone: the zone is delegated from its domain, in its account. */
   control?: ControlConfig;
-  /** Holds api/, calendar/ and retention/, each a bootstrap put there by scripts/deploy.sh. */
+  /** Holds api/, calendar/, retention/ and canary/, each a bootstrap put there by scripts/deploy.sh. */
   backendDist: string;
   /** Set when deploying, so that a missing build fails instead of shipping the stand-in. */
   requireBinaries: boolean;
@@ -139,6 +139,7 @@ export class MultiscaleStack extends Stack {
     const apiLogs = functionLogs('ApiLogs');
     const calendarLogs = functionLogs('CalendarLogs');
     const retentionLogs = functionLogs('RetentionLogs');
+    const canaryLogs = functionLogs('CanaryLogs');
     const accessLogs = functionLogs('AccessLogs');
 
     const httpApi = new HttpApi(this, 'HttpApi', {
@@ -181,8 +182,9 @@ export class MultiscaleStack extends Stack {
       },
     });
 
-    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>) =>
+    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string) =>
       new LambdaFunction(this, functionId, {
+        functionName,
         runtime: Runtime.PROVIDED_AL2023,
         architecture: Architecture.ARM_64,
         handler: 'bootstrap',
@@ -296,6 +298,28 @@ export class MultiscaleStack extends Stack {
       });
     }
 
+    // The release canary (cmd/canary): a sync round trip, invoking the API directly as a made-up user of its own. Before
+    // a new API version takes traffic, CodeDeploy runs it against that version alone (Deployments, below). Every 5
+    // minutes a schedule runs it against the live alias, so a new version's share of traffic sees real requests even
+    // with one real user. It isn't split by a canary itself: it's what judges one.
+    // The alias by its ARN rather than the resource: the alias waits for the canary to be updated (Deployments, below).
+    const apiAliasArn = `${apiFunction.functionArn}:${apiAlias.aliasName}`;
+    // Named, so its alarm can name it too: the API's deployment group lists the alarm, and the canary may report to the
+    // group, so an alarm that referred to the function would make a loop.
+    const canaryName = `multiscale-${envName}-canary`;
+    // Each of its three calls may wait out the API's 25 seconds.
+    const canaryFunction = goFunction('CanaryFunction', 'canary', canaryLogs, Duration.minutes(2), {
+      API_VERSION: apiFunction.currentVersion.functionArn,
+      API_ALIAS: apiAliasArn,
+    }, canaryName);
+    canaryFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [apiFunction.currentVersion.functionArn, apiAliasArn] }));
+    // A run retried would most likely reach the old version and pass, and its first failure is already counted.
+    canaryFunction.configureAsyncInvoke({ retryAttempts: 0 });
+    new Schedule(this, 'CanarySchedule', {
+      schedule: ScheduleExpression.rate(Duration.minutes(5)),
+      target: new LambdaInvoke(canaryFunction),
+    });
+
     // Alarms
 
     const topic = new Topic(this, 'AlarmTopic');
@@ -352,6 +376,10 @@ export class MultiscaleStack extends Stack {
       anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures')),
       // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
       anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
+      // One failed run is enough: a new version gets about 1 run in 20, so two in a row would almost never come.
+      anyFailure('CanaryFailures', "The release canary's sync round trip failed", new Metric({
+        namespace: 'AWS/Lambda', metricName: 'Errors', dimensionsMap: { FunctionName: canaryName }, statistic: 'Sum', period: fiveMinutes,
+      })),
     ];
     // The worker emits CalendarEventsChanged once per successful run, including runs that change nothing, so the
     // sample count is the number of successes.
@@ -386,15 +414,20 @@ export class MultiscaleStack extends Stack {
       trafficRouting: new TimeBasedCanaryTrafficRouting({ percentage: settings.canaryPercent, interval: Duration.minutes(settings.canaryMinutes) }),
     });
     const deploymentConfig = canary === 'skip' ? LambdaDeploymentConfig.ALL_AT_ONCE : canaryConfig;
-    for (const [id, alias] of [['Api', apiAlias], ['Calendar', calendarAlias], ['Retention', retentionAlias]] as const) {
-      new LambdaDeploymentGroup(this, `${id}Deployment`, {
-        application,
-        alias,
-        deploymentConfig,
-        alarms: releaseAlarms,
-        autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
-      });
-    }
+    const deployment = (id: string, alias: Alias) => new LambdaDeploymentGroup(this, `${id}Deployment`, {
+      application,
+      alias,
+      deploymentConfig,
+      alarms: releaseAlarms,
+      autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
+    });
+    // Only the API has a check before traffic: the worker and retention can't be run on a made-up input without side
+    // effects, so their new versions are judged by the alarms alone.
+    deployment('Api', apiAlias).addPreHook(canaryFunction);
+    // The hook names the new version in its environment, so it has to be updated before the alias moves.
+    apiAlias.node.addDependency(canaryFunction);
+    deployment('Calendar', calendarAlias);
+    deployment('Retention', retentionAlias);
 
     // Dashboard
 

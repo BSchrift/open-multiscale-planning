@@ -149,7 +149,7 @@ To add a zone to staging or prod later, set its `dns.zone`, run `make deploy ENV
 make deploy
 ```
 
-`ENV=staging` is the default. This checks `staging.yaml`, builds the three Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`ENV=staging` is the default. This checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 

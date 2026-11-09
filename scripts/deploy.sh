@@ -49,7 +49,7 @@ if [ "$env_name" != control ]; then
   # The integration suite reads this file with the strict Go loader, so stop on a file it would refuse.
   (cd "$root/config" && go run ./cmd/check "$env_name")
   echo "Building Lambdas"
-  for name in api calendar retention; do
+  for name in api calendar retention canary; do
     # Each folder is the Lambda's whole package, so only the binary may be in it: an earlier deploy put config.yaml here.
     rm -rf "$root/backend/dist/$name"
     # -trimpath and an empty build id keep the binary identical when the code is, so an unchanged Lambda doesn't redeploy.

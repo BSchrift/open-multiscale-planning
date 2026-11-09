@@ -60,9 +60,6 @@ private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIAppl
     checks.terminate()
     let app = XCUIApplication()
     app.launch()
-    // Up once its page has drawn anything. What that is, setup, the tabs or a question over them, is each test's to wait
-    // for.
-    exists(app.page.staticTexts.firstMatch, timeout: launchPatience)
     return app
 }
 

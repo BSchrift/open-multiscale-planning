@@ -1,7 +1,7 @@
 // Over-the-air updates of the web bundle. The page checks release.json and downloads the files it lists; native code
 // checks the signature and every file before installing, and picks when the app switches over.
 
-/** release.json's manifest. scripts/release-files.mjs writes it and the native installers read it. */
+/** release.json's manifest. scripts/sign-release.mjs writes it and the native installers read it. */
 export interface Manifest {
   version: string;
   build: number;

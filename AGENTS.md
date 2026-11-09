@@ -42,7 +42,7 @@ nothing from the package.
 | Against a deployment | The deployed web app, sync, on staging the last release's web bundle beside this one, the integration suite, smoke, the iPhone signed-in test | `make test-deployed` (staging), `ENV=prod CONFIRM_PROD=yes` |
 | CI | Everything in the local layer, on every PR and every push to main | `.github/workflows/ci.yml` |
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |
-| Release | `make release` runs `make test-deployed` against what it just released | `scripts/release.sh` |
+| Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
 
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it
 to the right layer in the same change, or say why it can't be automated.
@@ -117,6 +117,20 @@ Then wait for CI. A PR merges only with every check green.
   keys are never committed.
 - **Work on a branch and open a PR.** Never push or merge to `main`, deploy or release to prod, or create repositories
   unless the owner has said to.
+- **Releases go through the pipeline,** as [docs/releasing.md](docs/releasing.md) explains:
+
+  | Step | What happens | Who |
+  | --- | --- | --- |
+  | Merge to main | Only with every CI check green | Owner |
+  | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
+  | Approve | Read staging's results, then approve or reject the email's link | Owner |
+  | Prod | The same build, by a canary of 5% for a day. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
+  | Signed apps | `make release-tag`, then `make release ENV=prod` from the tag | Owner, on the Mac |
+
+  To roll back, revert on main and let it release. `make pipeline-pause` holds main's commits back, and `make promote`
+  starts a run by hand.
+- **Skip the canary only with the owner's explicit go-ahead, each time.** `CANARY=skip` sends prod's new backend all its
+  traffic at once. Ask for each release, say why, and note it in the PR or release notes.
 - **Commit messages and PRs are plain prose:** a summary line, then what changed for the person using the app, and why.
 
 ## Working with the owner

@@ -1,5 +1,4 @@
 import { execSync } from 'node:child_process';
-import { createPublicKey } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { forEnv } from '@multiscale/config';
@@ -11,6 +10,7 @@ import { appIdentity } from './electron/identity';
 import { loadAppConfig } from './src/core/appConfig';
 import type { Retention } from './src/core/retention';
 import { macBuild, shellHashes } from './scripts/shell-hash';
+import { releaseKeyIn } from './scripts/sign-release.mjs';
 
 const readConfigFile = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : null);
 const configDir = resolve(process.env.MULTISCALE_CONFIG_DIR || join(import.meta.dirname, '../config'));
@@ -31,8 +31,7 @@ const shell = shellHashes(import.meta.dirname, macBuild(appConfig, appIdentity(a
 const retention: Retention = loadRetention(appConfig.env, { read: (path) => readFileSync(path, 'utf8'), parse });
 const config = { ...appConfig, version, build, shell, settings: forEnv(appConfig.env), retention };
 // The public half of the key releases are signed with, made by scripts/release.sh. Without it the apps take no updates.
-const keyFile = join(configDir, `${config.env}.release-key.pem`);
-const releaseKey = existsSync(keyFile) ? createPublicKey(readFileSync(keyFile)).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64') : undefined;
+const releaseKey = releaseKeyIn(configDir, config.env);
 
 export default defineConfig({
   plugins: [

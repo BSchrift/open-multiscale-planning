@@ -180,6 +180,29 @@ describe('loadControl', () => {
       assert.throws(() => loadControl(dirWith({ control: withField(goodControl, path, bad) }), false), new RegExp(path.replace('.', '\\.')));
     });
   }
+
+  const withPipeline = { ...goodControl, pipeline: { repository: 'someone/open-multiscale-planning', branch: 'main', email: 'releases@example.net' } };
+
+  it('reads the optional pipeline section', () => {
+    assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.repository, 'someone/open-multiscale-planning');
+    assert.equal(loadControl(dirWith({ control: goodControl }), true).pipeline, undefined);
+  });
+
+  it("refuses to deploy the example's pipeline email", () => {
+    assert.throws(() => loadControl(dirWith({ control: withField(withPipeline, 'pipeline.email', 'you@example.com') }), true), /example/);
+  });
+
+  for (const [path, bad] of [
+    ['pipeline.repository', 'open-multiscale-planning'],
+    ['pipeline.repository', 'https://github.com/someone/open-multiscale-planning'],
+    ['pipeline.branch', ''],
+    ['pipeline.branch', 'two words'],
+    ['pipeline.email', 'releases'],
+  ] as const) {
+    it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
+      assert.throws(() => loadControl(dirWith({ control: withField(withPipeline, path, bad) }), false), new RegExp(path.replace('.', '\\.')));
+    });
+  }
 });
 
 describe('configDir', () => {
@@ -235,12 +258,26 @@ describe('bin/app.ts', () => {
     assert.ok(r.template('Multiscale-prod').includes('Multiscale/prod'));
     assert.ok(r.template('Multiscale-control').includes('multiscale-dns-delegation'));
     assert.ok(r.template('Multiscale-site').includes('www.example.com'));
+    assert.ok(r.template('Multiscale-pipeline').includes('your-github-user/open-multiscale-planning'));
+    // Each environment's release role trusts the pipeline's account.
+    assert.ok(r.template('Multiscale-staging').includes('multiscale-release'));
+  });
+
+  it('deploys the pipeline only when control.yaml sets it up', () => {
+    const without = run(dirWith(real), 'deploy=pipeline');
+    assert.notEqual(without.status, 0);
+    assert.match(without.stderr, /no pipeline section/);
+    const pipeline = { repository: 'someone/open-multiscale-planning', branch: 'main', email: 'releases@example.net' };
+    const r = run(dirWith({ ...real, control: { ...goodControl, pipeline } }), 'deploy=pipeline');
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(r.template('Multiscale-pipeline').includes('someone/open-multiscale-planning'));
+    assert.ok(!existsSync(join(r.out, 'Multiscale-prod.template.json')));
   });
 
   it('rejects an unknown deploy target', () => {
     const r = run(dirWith({}), 'deploy=dev');
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /control, staging or prod/);
+    assert.match(r.stderr, /control, staging, prod or pipeline/);
   });
 
   it('deploys only the stack asked for, from the real files', () => {

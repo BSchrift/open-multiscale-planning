@@ -84,6 +84,15 @@ func TestCanaryIsOneCodeDeployAccepts(t *testing.T) {
 	}
 }
 
+func TestThrottlesStopReleasesOnlyOnProd(t *testing.T) {
+	// Staging's test load goes through the API, so its throttles can come from a test rather than a release.
+	for name, want := range map[string]bool{"local": false, "staging": false, "prod": true} {
+		if env, _ := ForEnv(name); env.Stack.ThrottleReleaseAlarm != want {
+			t.Errorf("%s: throttleReleaseAlarm %v", name, env.Stack.ThrottleReleaseAlarm)
+		}
+	}
+}
+
 func TestEveryEnvironmentHasACompleteFile(t *testing.T) {
 	missing := files(t)
 	delete(missing, "env/staging.yaml")

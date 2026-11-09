@@ -131,6 +131,9 @@ Then wait for CI. A PR merges only with every check green.
   starts a run by hand.
 - **Skip the canary only with the owner's explicit go-ahead, each time.** `CANARY=skip` sends prod's new backend all its
   traffic at once. Ask for each release, say why, and note it in the PR or release notes.
+- **Turn the release alarms off only with the owner's explicit go-ahead, each time.** `ALARMS=off` lets a release start
+  while a release alarm is firing, to ship the fix for it; nothing then rolls it back on an alarm. Ask for each release,
+  say which alarm fires and why the release fixes it, and note it in the PR or release notes.
 - **Commit messages and PRs are plain prose:** a summary line, then what changed for the person using the app, and why.
 
 ## Working with the owner

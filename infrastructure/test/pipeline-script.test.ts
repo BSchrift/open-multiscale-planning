@@ -57,14 +57,22 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     const s = sandbox();
     const r = s.run(['run']);
     assert.equal(r.status, 0, r.stderr);
-    assert.match(s.log(), /codepipeline start-pipeline-execution --name Multiscale --variables name=RUN,value=hand name=CANARY,value=on --query/);
+    assert.match(s.log(), /codepipeline start-pipeline-execution --name Multiscale --variables name=RUN,value=hand name=CANARY,value=on name=ALARMS,value=on --query/);
     const skip = sandbox();
     assert.equal(skip.run(['run'], { COMMIT: 'abc123', CANARY: 'skip', ENV: 'prod' }).status, 0);
-    assert.match(skip.log(), /name=CANARY,value=skip --source-revisions actionName=GitHub,revisionType=COMMIT_ID,revisionValue=abc123/);
+    assert.match(skip.log(), /name=CANARY,value=skip name=ALARMS,value=on --source-revisions actionName=GitHub,revisionType=COMMIT_ID,revisionValue=abc123/);
   });
 
-  it('refuses any other CANARY or ENV before calling AWS', () => {
-    for (const env of [{ CANARY: 'off' }, { ENV: 'staging' }] as Record<string, string>[]) {
+  it('starts a run with the release alarms off when asked', () => {
+    const s = sandbox();
+    const r = s.run(['run'], { ALARMS: 'off' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /--variables name=RUN,value=hand name=CANARY,value=on name=ALARMS,value=off/);
+    assert.match(r.stdout, /with the release alarms off/);
+  });
+
+  it('refuses any other CANARY, ALARMS or ENV before calling AWS', () => {
+    for (const env of [{ CANARY: 'off' }, { ALARMS: 'no' }, { ENV: 'staging' }] as Record<string, string>[]) {
       const s = sandbox();
       assert.notEqual(s.run(['run'], env).status, 0);
       assert.doesNotMatch(s.log(), /^aws /m);
@@ -171,6 +179,36 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
       assert.match(s.log(), /s3:\/\/bucket\/web/);
     });
   }
+
+  it('turns the release alarms off for both environments when the run asks, and only then', () => {
+    const s = configured();
+    assert.equal(s.run(['build'], { RUN: 'hand', ALARMS: 'off' }).status, 0);
+    assert.match(s.log(), /cdk synth --quiet -c deploy=staging -c alarms=off -o cdk.out\/staging/);
+    assert.match(s.log(), /cdk synth --quiet -c deploy=prod -c alarms=off -o cdk.out\/prod/);
+    const next = configured();
+    assert.equal(next.run(['build'], { RUN: 'hand' }).status, 0);
+    assert.doesNotMatch(next.log(), /alarms=off/);
+  });
+
+  it("records what a prod release skipped beside its commit, for the release tag's note", () => {
+    const s = configured();
+    const builtDir = join(s.root, 'built');
+    mkdirSync(join(builtDir, 'web/prod/assets'), { recursive: true });
+    writeFileSync(join(builtDir, 'web/prod/version.json'), JSON.stringify({ version: '0.1.0-abc', build: 1, shell }));
+    const signed = join(s.root, 'signed');
+    mkdirSync(join(signed, 'files'), { recursive: true });
+    writeFileSync(join(signed, 'release.json'), '{}');
+    const env = { CODEBUILD_SRC_DIR_Built: builtDir, CODEBUILD_SRC_DIR_SignedProd: signed, COMMIT: 'abc123' };
+    assert.equal(s.run(['release-prod'], { ...env, CANARY: 'skip', ALARMS: 'off' }).status, 0);
+    assert.match(s.log(), /put-parameter --name \/multiscale\/pipeline\/released --type String --overwrite --value abc123 Canary skipped\. Release alarms off\./);
+    const plain = configured();
+    mkdirSync(join(plain.root, 'built/web/prod/assets'), { recursive: true });
+    writeFileSync(join(plain.root, 'built/web/prod/version.json'), JSON.stringify({ version: '0.1.0-abc', build: 1, shell }));
+    mkdirSync(join(plain.root, 'signed/files'), { recursive: true });
+    writeFileSync(join(plain.root, 'signed/release.json'), '{}');
+    assert.equal(plain.run(['release-prod'], { CODEBUILD_SRC_DIR_Built: join(plain.root, 'built'), CODEBUILD_SRC_DIR_SignedProd: join(plain.root, 'signed'), COMMIT: 'abc123' }).status, 0);
+    assert.match(plain.log(), /--name \/multiscale\/pipeline\/released --type String --overwrite --value abc123\n/);
+  });
 
   it('runs no nightly suites when main has not moved since the last one passed', () => {
     const s = configured();

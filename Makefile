@@ -52,6 +52,7 @@ test-retention:
 # release pipeline. Both deploy and smoke
 # read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile. A backend change takes
 # traffic by config/env's canary, a day on prod; CANARY=skip sends it all at once, and the alarms still roll it back.
+# ALARMS=off deploys while a release alarm fires, for the fix to it; the next deploy turns the alarms back on.
 deploy:
 	@scripts/deploy.sh
 
@@ -64,8 +65,9 @@ release:
 	@scripts/release.sh
 
 # The release pipeline, from this Mac with control.yaml's profile: docs/releasing.md. promote starts a run by hand,
-# COMMIT=<sha> (default: the branch's latest) and CANARY=skip to send prod all traffic at once, which an agent uses only
-# with the owner's go-ahead, each time. It still waits for approval. release-tag tags what prod last released.
+# COMMIT=<sha> (default: the branch's latest), CANARY=skip to send prod all traffic at once, and ALARMS=off to ship
+# while a release alarm fires. An agent uses either only with the owner's go-ahead, each time. It still waits for
+# approval. release-tag tags what prod last released, with what the run skipped.
 promote:
 	@scripts/pipeline.sh run
 

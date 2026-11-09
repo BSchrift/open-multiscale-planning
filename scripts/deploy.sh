@@ -5,6 +5,9 @@
 #   (docs/releasing.md). The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 #   CANARY=skip sends a new backend version all its traffic at once, rather than by config/env's canary: on prod, 5%
 #   for a day. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
+#   ALARMS=off turns the release alarms off for this deploy, which CodeDeploy otherwise refuses to start while one is
+#   firing: for the fix to what fires. A failed deployment or pre-traffic check still rolls back, and the next deploy
+#   turns them on again. An agent uses it only with the owner's go-ahead, each time.
 # A backend change waits out its canary, so a prod deploy runs a day. CloudFormation carries on if this stops early.
 set -euo pipefail
 
@@ -15,11 +18,16 @@ case "$env_name" in
   control | staging | prod | pipeline) ;;
   *) echo "ENV must be control, staging, prod or pipeline, not $env_name" >&2; exit 1 ;;
 esac
-canary=()
+switches=()
 case "${CANARY:-}" in
   "") ;;
-  skip) canary=(-c canary=skip) ;;
+  skip) switches=(-c canary=skip) ;;
   *) echo "CANARY must be skip or unset, not $CANARY" >&2; exit 1 ;;
+esac
+case "${ALARMS:-}" in
+  "") ;;
+  off) switches+=(-c alarms=off) ;;
+  *) echo "ALARMS must be off or unset, not $ALARMS" >&2; exit 1 ;;
 esac
 
 config_dir="${MULTISCALE_CONFIG_DIR:-$root/config}"
@@ -63,8 +71,10 @@ outputs="$(mktemp)"
 trap 'rm -f "$outputs"' EXIT
 
 echo "Deploying Multiscale-$env_name"
-npx cdk deploy "Multiscale-$env_name" -c "deploy=$env_name" ${canary[@]+"${canary[@]}"} --outputs-file "$outputs"
+npx cdk deploy "Multiscale-$env_name" -c "deploy=$env_name" ${switches[@]+"${switches[@]}"} --outputs-file "$outputs"
 
 node bin/write-outputs.ts "$env_name" "$outputs"
-printf 'commit: %s\ndirty: %s\ntime: %s\n' "$commit" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$config_dir/$env_name.deployed"
+# The record is the release's note too: whether it skipped the canary or ran without the release alarms.
+printf 'commit: %s\ndirty: %s\ntime: %s\ncanary: %s\nalarms: %s\n' "$commit" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "${CANARY:-on}" "${ALARMS:-on}" >"$config_dir/$env_name.deployed"
 echo "Wrote $config_dir/$env_name.outputs.json and $env_name.deployed"

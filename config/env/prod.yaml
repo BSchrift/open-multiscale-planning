@@ -12,3 +12,6 @@ stack:
   # A release alarm in that time moves the traffic back. A day, so a release sees a day's real use before it has all.
   canaryPercent: 5
   canaryMinutes: 1440
+  # Whether DynamoDB throttling the API's requests stops a release and rolls it back. On prod nothing but people and
+  # the release canary use the API, so a throttle there is real.
+  throttleReleaseAlarm: true

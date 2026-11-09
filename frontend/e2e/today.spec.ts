@@ -138,6 +138,9 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '16:00', '17:00'), block('b2', 't2', '17:30', '18:00')]);
   // On phone it's a slider, as on Week, so VoiceOver's swipes move it too.
   const role = phone ? 'slider' : 'button';
+  // To schedule, above the day, reads the week on its own, and changes height once it has. Measured before that, the
+  // block had moved down 80px by the time the mouse pressed, which then missed it.
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
   const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;

@@ -118,7 +118,13 @@ const button = (label: string, run: () => Promise<string>) => {
 
 /** The environment the app copy was built for, so Erase clears the database the app itself opens. */
 declare const __CHECKS_ENV__: AppEnv;
-const platform = await createCapacitorPlatform(__CHECKS_ENV__);
+// So a test that gives up waiting for ready shows a page that never ran apart from one still opening the database, and
+// an open that failed says why.
+log('opening');
+const platform = await createCapacitorPlatform(__CHECKS_ENV__).catch((err: unknown) => {
+  log(`open failed: ${String(err)}`);
+  throw err;
+});
 platform.onDeepLink((url) => log(`link:${url}`));
 platform.hotkey?.onCapture(() => log('capture'));
 platform.lifecycle.onForeground(() => log('foreground'));

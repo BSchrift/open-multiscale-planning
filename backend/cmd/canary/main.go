@@ -28,6 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codedeploytypes "github.com/aws/aws-sdk-go-v2/service/codedeploy/types"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/smithy-go"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	appconfig "github.com/BSchrift/open-multiscale-planning/config"
@@ -41,6 +42,10 @@ const (
 	device     = "canary"
 	// A 409 means other writers moved the user's counter, and a device sends again. Only this function writes as it.
 	conflictTries = 5
+	// IAM takes a few seconds to apply a grant, and the deploy that first adds this function grants it what it calls.
+	// So a refusal for permission is tried again, for a minute, before it counts.
+	deniedTries = 13
+	deniedWait  = 5 * time.Second
 )
 
 func main() {
@@ -84,12 +89,14 @@ func handler(c canary, deploy hookReporter, version, alias string) func(context.
 				logger.Info("canary passed before traffic", "target", version, "versions", versions)
 			}
 			// The deploy waits on this status, and a failure here is CodeDeploy's to report, not an alarm's.
-			_, err = deploy.PutLifecycleEventHookExecutionStatus(ctx, &codedeploy.PutLifecycleEventHookExecutionStatusInput{
-				DeploymentId:                  aws.String(hook.DeploymentID),
-				LifecycleEventHookExecutionId: aws.String(hook.LifecycleEventHookExecutionID),
-				Status:                        status,
+			return c.permitted(func() error {
+				_, err := deploy.PutLifecycleEventHookExecutionStatus(ctx, &codedeploy.PutLifecycleEventHookExecutionStatusInput{
+					DeploymentId:                  aws.String(hook.DeploymentID),
+					LifecycleEventHookExecutionId: aws.String(hook.LifecycleEventHookExecutionID),
+					Status:                        status,
+				})
+				return err
 			})
-			return err
 		}
 		versions, err := c.roundTrip(ctx, alias)
 		if err != nil {
@@ -225,7 +232,11 @@ func (c canary) call(ctx context.Context, target, sub string, req syncRequest) (
 	if err != nil {
 		return 0, "", "", err
 	}
-	out, err := c.API.Invoke(ctx, &lambdasdk.InvokeInput{FunctionName: aws.String(target), Payload: payload})
+	var out *lambdasdk.InvokeOutput
+	err = c.permitted(func() (err error) {
+		out, err = c.API.Invoke(ctx, &lambdasdk.InvokeInput{FunctionName: aws.String(target), Payload: payload})
+		return err
+	})
 	if err != nil {
 		return 0, "", "", fmt.Errorf("invoking %s: %w", target, err)
 	}
@@ -238,4 +249,16 @@ func (c canary) call(ctx context.Context, target, sub string, req syncRequest) (
 		return 0, "", version, errors.Join(fmt.Errorf("version %s answered %.200q", version, out.Payload), err)
 	}
 	return res.StatusCode, res.Body, version, nil
+}
+
+// permitted runs call, and runs it again while AWS refuses it for permission, for up to deniedTries.
+func (c canary) permitted(call func() error) error {
+	for try := 1; ; try++ {
+		err := call()
+		var api smithy.APIError
+		if try >= deniedTries || !errors.As(err, &api) || api.ErrorCode() != "AccessDeniedException" {
+			return err
+		}
+		c.Wait(deniedWait)
+	}
 }

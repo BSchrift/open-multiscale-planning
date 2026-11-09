@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codedeploytypes "github.com/aws/aws-sdk-go-v2/service/codedeploy/types"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/smithy-go"
 )
 
 // fakeAPI answers like the API Lambda: 401 with no user, and a sync that echoes what was pushed since the cursor.
@@ -202,4 +203,53 @@ type failingInvoker struct{}
 
 func (failingInvoker) Invoke(context.Context, *lambdasdk.InvokeInput, ...func(*lambdasdk.Options)) (*lambdasdk.InvokeOutput, error) {
 	return nil, errors.New("AccessDenied")
+}
+
+// deniedAPI refuses for permission a few times, as IAM does until it has applied a grant made in the same deploy, then
+// answers as the API does.
+type deniedAPI struct {
+	*fakeAPI
+	denials int
+}
+
+func (d *deniedAPI) Invoke(ctx context.Context, in *lambdasdk.InvokeInput, opts ...func(*lambdasdk.Options)) (*lambdasdk.InvokeOutput, error) {
+	if d.denials > 0 {
+		d.denials--
+		return nil, &smithy.GenericAPIError{Code: "AccessDeniedException", Message: "not authorized to perform lambda:InvokeFunction"}
+	}
+	return d.fakeAPI.Invoke(ctx, in, opts...)
+}
+
+type deniedDeploy struct {
+	fakeDeploy
+	denials int
+}
+
+func (d *deniedDeploy) PutLifecycleEventHookExecutionStatus(ctx context.Context, in *codedeploy.PutLifecycleEventHookExecutionStatusInput, opts ...func(*codedeploy.Options)) (*codedeploy.PutLifecycleEventHookExecutionStatusOutput, error) {
+	if d.denials > 0 {
+		d.denials--
+		return nil, &smithy.GenericAPIError{Code: "AccessDeniedException", Message: "not authorized"}
+	}
+	return d.fakeDeploy.PutLifecycleEventHookExecutionStatus(ctx, in, opts...)
+}
+
+func TestAGrantIAMHasNotAppliedYetIsWaitedForAMinute(t *testing.T) {
+	var waited time.Duration
+	c := canary{API: &deniedAPI{fakeAPI: &fakeAPI{t: t, version: "8"}, denials: 3}, Now: func() time.Time { return time.UnixMilli(1_700_000_000_000) }, Wait: func(d time.Duration) { waited += d }}
+	deploy := &deniedDeploy{denials: 2}
+	if err := handler(c, deploy, newVersion, liveAlias)(context.Background(), json.RawMessage(hook)); err != nil {
+		t.Fatal(err)
+	}
+	if len(deploy.got) != 1 || deploy.got[0].Status != codedeploytypes.LifecycleEventStatusSucceeded {
+		t.Fatalf("%+v", deploy.got)
+	}
+	if waited != 5*deniedWait {
+		t.Fatalf("waited %v for 5 refusals", waited)
+	}
+
+	// Past a minute it's a real refusal, and the check fails.
+	stuck := canary{API: &deniedAPI{fakeAPI: &fakeAPI{t: t, version: "8"}, denials: 100}, Now: time.Now, Wait: func(time.Duration) {}}
+	if _, err := stuck.roundTrip(context.Background(), newVersion); err == nil || !strings.Contains(err.Error(), "AccessDeniedException") {
+		t.Fatalf("got %v", err)
+	}
 }

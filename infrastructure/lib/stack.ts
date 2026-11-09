@@ -306,14 +306,18 @@ export class MultiscaleStack extends Stack {
     // The alias by its ARN rather than the resource: the alias waits for the canary to be updated (Deployments, below).
     const apiAliasArn = `${apiFunction.functionArn}:${apiAlias.aliasName}`;
     // Named, so its alarm can name it too: the API's deployment group lists the alarm, and the canary may report to the
-    // group, so an alarm that referred to the function would make a loop.
-    const canaryName = `multiscale-${envName}-canary`;
+    // group, so an alarm that referred to the function would make a loop. CodeDeployHook_ because the deployment
+    // group's role may invoke a hook only by that name, through its managed policy, AWSCodeDeployRoleForLambdaLimited.
+    // A grant of its own, made in the deploy that adds the hook, would race IAM, as the first staging deploy found.
+    const canaryName = `CodeDeployHook_multiscale-${envName}-canary`;
     // Each of its three calls may wait out the API's 25 seconds.
     const canaryFunction = goFunction('CanaryFunction', 'canary', canaryLogs, Duration.minutes(2), {
       API_VERSION: apiFunction.currentVersion.functionArn,
       API_ALIAS: apiAliasArn,
     }, canaryName);
-    canaryFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [apiFunction.currentVersion.functionArn, apiAliasArn] }));
+    // Any version or alias of the API, by one pattern, so the grant is the same each release: one that named the new
+    // version would change in the deploy that runs the hook, and IAM takes a while to apply a change.
+    canaryFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [`${apiFunction.functionArn}:*`] }));
     // A run retried would most likely reach the old version and pass, and its first failure is already counted.
     canaryFunction.configureAsyncInvoke({ retryAttempts: 0 });
     new Schedule(this, 'CanarySchedule', {
@@ -415,13 +419,18 @@ export class MultiscaleStack extends Stack {
       trafficRouting: new TimeBasedCanaryTrafficRouting({ percentage: settings.canaryPercent, interval: Duration.minutes(settings.canaryMinutes) }),
     });
     const deploymentConfig = canary === 'skip' ? LambdaDeploymentConfig.ALL_AT_ONCE : canaryConfig;
-    const deployment = (id: string, alias: Alias) => new LambdaDeploymentGroup(this, `${id}Deployment`, {
-      application,
-      alias,
-      deploymentConfig,
-      alarms: releaseAlarms,
-      autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
-    });
+    const deployment = (id: string, alias: Alias) => {
+      const group = new LambdaDeploymentGroup(this, `${id}Deployment`, {
+        application,
+        alias,
+        deploymentConfig,
+        alarms: releaseAlarms,
+        autoRollback: { failedDeployment: true, stoppedDeployment: true, deploymentInAlarm: true },
+      });
+      // The alias's update runs the deployment as this role, so it waits for the role and every policy on it.
+      alias.node.addDependency(group.role);
+      return group;
+    };
     // Only the API has a check before traffic: the worker and retention can't be run on a made-up input without side
     // effects, so their new versions are judged by the alarms alone.
     deployment('Api', apiAlias).addPreHook(canaryFunction);

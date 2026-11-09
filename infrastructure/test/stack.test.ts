@@ -447,21 +447,56 @@ describe('the backend canary', () => {
     t.hasResourceProperties('AWS::Lambda::EventInvokeConfig', { FunctionName: { Ref: logicalId('Canary') }, MaximumRetryAttempts: 0 });
   });
 
-  it('lets the canary invoke only the API, its new version and its alias, and tell CodeDeploy how the check went', () => {
+  it('lets the canary invoke only the API, any version or alias of it, and tell CodeDeploy how the check went', () => {
     const statements = policyFor('Canary');
     const invoke = statements.filter((s) => s.Action.includes('lambda:InvokeFunction')).flatMap((s) => [s.Resource].flat());
-    const version = all[aliasOf('Api')].Properties.FunctionVersion['Fn::GetAtt'][0];
-    assert.deepEqual(invoke.map((r) => JSON.stringify(r)).sort(), [JSON.stringify(aliasArn), JSON.stringify({ Ref: version })].sort());
+    // Every version by one pattern, so the grant is the same each release and no deploy changes it just before the
+    // hook runs: IAM takes a while to apply a change.
+    assert.deepEqual(invoke, [{ 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Api'), 'Arn'] }, ':*']] }]);
+    const prod = Template.fromStack(build('prod')).toJSON().Resources as Record<string, Resource>;
+    const canaryPolicyOf = (resources: Record<string, Resource>) => JSON.stringify(Object.entries(resources)
+      .filter(([id, r]) => r.Type === 'AWS::IAM::Policy' && id.startsWith('CanaryFunctionServiceRoleDefaultPolicy'))
+      .map(([, r]) => r.Properties.PolicyDocument));
+    // The same with another build of the API, as a release has.
+    const built = mkdtempSync(join(tmpdir(), 'dist-'));
+    for (const name of ['api', 'calendar', 'retention', 'canary']) {
+      mkdirSync(join(built, name));
+      writeFileSync(join(built, name, 'bootstrap'), `${name} as released`);
+    }
+    const released = Template.fromStack(build('staging', built, true)).toJSON().Resources as Record<string, Resource>;
+    assert.notDeepEqual(released[aliasOf('Api')].Properties.FunctionVersion, all[aliasOf('Api')].Properties.FunctionVersion);
+    assert.equal(canaryPolicyOf(released), canaryPolicyOf(all));
+    assert.ok(canaryPolicyOf(prod).includes(':*'));
     assert.deepEqual(statements.flatMap((s) => s.Action).filter((a) => !a.startsWith('lambda:') && !a.startsWith('logs:')).sort(), ['codedeploy:PutLifecycleEventHookExecutionStatus']);
     assert.ok(!statements.some((s) => s.Action.some((a: string) => a.startsWith('dynamodb:') || a.startsWith('ssm:'))));
+  });
+
+  it("names the API's hook so CodeDeploy's managed policy already lets its role invoke it", () => {
+    // AWSCodeDeployRoleForLambdaLimited allows lambda:InvokeFunction on function:CodeDeployHook_* and nothing else, so a
+    // grant made in the same deploy as the hook would race IAM.
+    const hook = (all[aliasOf('Api')] as any).UpdatePolicy.CodeDeployLambdaAliasUpdate.BeforeAllowTrafficHook;
+    assert.match(all[hook.Ref].Properties.FunctionName, /^CodeDeployHook_/);
+    const [group] = ofType('AWS::CodeDeploy::DeploymentGroup').filter(([id]) => id.startsWith('ApiDeployment'));
+    const role = all[group[1].Properties.ServiceRoleArn['Fn::GetAtt'][0]];
+    assert.deepEqual(role.Properties.ManagedPolicyArns, [{ 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::aws:policy/service-role/AWSCodeDeployRoleForLambdaLimited']] }]);
+  });
+
+  it("moves each alias only once its deployment group's role and that role's policies are in place", () => {
+    for (const fn of functions) {
+      const [, group] = ofType('AWS::CodeDeploy::DeploymentGroup').find(([id]) => id.startsWith(`${fn}Deployment`))!;
+      const roleId = group.Properties.ServiceRoleArn['Fn::GetAtt'][0];
+      const policies = ofType('AWS::IAM::Policy').filter(([, p]) => p.Properties.Roles.some((r: any) => r.Ref === roleId)).map(([id]) => id);
+      const dependsOn = [(all[aliasOf(fn)] as any).DependsOn ?? []].flat();
+      for (const id of [roleId, ...policies]) assert.ok(dependsOn.includes(id), `${fn}'s alias doesn't wait for ${id}: ${dependsOn}`);
+    }
   });
 
   it('alarms on one failed canary run, since a new version gets about one run in 20', () => {
     const failures = alarmProps('CanaryFailures');
     assert.equal(failures.Threshold, 1);
     assert.equal(failures.EvaluationPeriods, 1);
-    assert.deepEqual(failures.Dimensions, [{ Name: 'FunctionName', Value: 'multiscale-staging-canary' }]);
-    assert.equal(all[logicalId('Canary')].Properties.FunctionName, 'multiscale-staging-canary');
+    assert.deepEqual(failures.Dimensions, [{ Name: 'FunctionName', Value: 'CodeDeployHook_multiscale-staging-canary' }]);
+    assert.equal(all[logicalId('Canary')].Properties.FunctionName, 'CodeDeployHook_multiscale-staging-canary');
   });
 
   it('alarms when the retention consumer falls an hour behind the stream', () => {

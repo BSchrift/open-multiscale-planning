@@ -37,6 +37,8 @@ describe('closeTask', () => {
       const undo = await transact(db, clock, async (w) => closeTask(w, 't', how, clock));
 
       expect((await getRecord(db, 'task', 't'))?.[field]).toBe(NOW);
+      // Only a project's close marks what it cancelled, so Restore leaves the person's own cancels alone.
+      expect((await getRecord(db, 'task', 't'))?.cancelled_by).toBeUndefined();
       expect((await getRecord(db, 'time_block', 'future'))?.cancelled).toBe(true);
       expect((await getRecord(db, 'time_block', 'past'))?.cancelled).toBeUndefined();
       expect((await getRecord(db, 'time_block', 'started'))?.cancelled).toBeUndefined();
@@ -201,19 +203,30 @@ describe('closeProject', () => {
       const undo = await transact(db, clock, (w) => closeProject(w, 'p', state, clock));
 
       expect((await getRecord(db, 'project', 'p'))?.state).toBe(state);
-      expect((await getRecord(db, 'task', 't'))?.cancelled_at).toBe(NOW);
-      expect((await getRecord(db, 'task', 'other'))?.cancelled_at).toBe(NOW);
+      for (const id of ['t', 'other']) expect(await getRecord(db, 'task', id)).toMatchObject({ cancelled_at: NOW, cancelled_by: 'p' });
+      expect(await getRecord(db, 'task', 'done')).not.toHaveProperty('cancelled_by');
       expect((await getRecord(db, 'task', 'done'))?.cancelled_at).toBeUndefined();
       expect((await getRecord(db, 'time_block', 'future'))?.cancelled).toBe(true);
       expect((await getRecord(db, 'week_pick', 'pick:2026-11-02:t'))?.deleted_at).toBe(NOW);
 
       await transact(db, clock, (w) => applyPlanChange(w, undo));
       expect((await getRecord(db, 'project', 'p'))?.state).toBe('active');
-      expect((await getRecord(db, 'task', 't'))?.cancelled_at).toBeNull();
+      for (const id of ['t', 'other']) expect(await getRecord(db, 'task', id)).toMatchObject({ cancelled_at: null, cancelled_by: null });
       expect((await getRecord(db, 'time_block', 'future'))?.cancelled).toBeNull();
       expect((await getRecord(db, 'week_pick', 'pick:2026-11-02:t'))?.deleted_at).toBeNull();
     });
   }
+
+  it("logs the close with an undo that clears the marks too, so an older app's Restore leaves none behind", async () => {
+    const { clock, db } = await setup();
+    await transact(db, clock, (w) => w.create('project', { title: 'Write the report', state: 'paused', start: '2026-10-01', end: '2026-10-31' }, 'p'));
+    await transact(db, clock, (w) => closeProject(w, 'p', 'finished', clock));
+    expect((await getRecord(db, 'project', 'p'))?.slip_log?.at(-1)?.undo).toEqual([
+      { type: 'project', id: 'p', fields: { state: 'paused' } },
+      { type: 'task', id: 't', fields: { cancelled_at: null, cancelled_by: null } },
+      { type: 'task', id: 'other', fields: { cancelled_at: null, cancelled_by: null } },
+    ]);
+  });
 });
 
 describe('endPractice', () => {

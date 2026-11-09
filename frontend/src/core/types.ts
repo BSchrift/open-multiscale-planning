@@ -42,7 +42,8 @@ export interface SlipEntry {
   at: Instant;
   /**
    * end moves the project's end, pause and resume cover the whole project, and close finishes or drops it, so those
-   * have no milestone. A close's undo is what Restore puts back.
+   * have no milestone. A close's undo is what Restore puts back for a project closed before tasks carried
+   * cancelled_by.
    */
   kind: 'move' | 'drop' | 'met' | 'end' | 'pause' | 'resume' | 'close';
   milestone_id?: string;
@@ -66,7 +67,14 @@ export interface Project extends BaseRecord {
   start: LocalDate;
   end: LocalDate;
   weekly_aim?: Minutes | null;
+  /**
+   * History only: what was replanned, for its lines, slip figures and Undo. Sync keeps one device's whole array, so an
+   * entry can be lost, and what a feature needs to read back is kept on the records instead, as paused_on and
+   * cancelled_by are.
+   */
   slip_log?: SlipEntry[];
+  /** The day it was last paused, which Resume moves open dates by and clears. */
+  paused_on?: LocalDate | null;
   /** When Raise estimates was last pressed: tasks finished before it no longer argue for raising. */
   estimates_raised_at?: Instant | null;
 }
@@ -115,6 +123,11 @@ export interface Task extends BaseRecord {
   next_due?: LocalDate | null;
   done_at?: Instant | null;
   cancelled_at?: Instant | null;
+  /**
+   * The project whose finish or drop cancelled it, set and cleared with cancelled_at, so Restore knows what to reopen
+   * and the milestone still counts it. Never set when the person cancels it.
+   */
+  cancelled_by?: string | null;
   /** The milestone a dropped milestone's open task came from. */
   moved_from?: string | null;
 }

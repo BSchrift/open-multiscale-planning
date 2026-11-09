@@ -227,7 +227,8 @@ export function msLate(m: Milestone, ctx: PlanContext): boolean {
 
 /**
  * The tasks a milestone is reached by: all but cancelled ones. Those that finishing or dropping the project cancelled
- * still count, since they were never done.
+ * still count, since they were never done: they carry its mark, or for a close from before the marks, its log entry
+ * lists them.
  */
 export function msTasks({ project, tasks }: { project: Project; tasks: readonly Task[] }, m: Milestone): Task[] {
   const closed = new Set(
@@ -235,7 +236,7 @@ export function msTasks({ project, tasks }: { project: Project; tasks: readonly 
       .filter((e) => e.kind === 'close' && Array.isArray(e.undo))
       .flatMap((e) => (e.undo as RecordWrite[]).filter((w) => w.type === 'task').map((w) => w.id)),
   );
-  return tasks.filter((t) => t.milestone_id === m.id && (!t.cancelled_at || closed.has(t.id)));
+  return tasks.filter((t) => t.milestone_id === m.id && (!t.cancelled_at || t.cancelled_by === project.id || closed.has(t.id)));
 }
 
 export function msDone(plan: ProjectPlan, m: Milestone): boolean {
@@ -628,8 +629,9 @@ const slipLog = ({ project }: ProjectPlan) => project.slip_log ?? [];
 
 /** Only this change's fields are reversed by its Undo, so tasks ticked since then stay ticked. */
 // shortcut: the whole slip_log is one field, so two devices replanning the same project offline keep only the later
-// device's log, losing the other's entries and what Restore would put back; and it only grows, toward the 100 KB a
-// record can hold. Make each entry its own record once every installed app reads them.
+// device's log, losing the other's entries; and it only grows, toward the 100 KB a record can hold. It's history only,
+// since what Restore and Resume read back is kept on the records, so a rare lost entry costs a line or a slip figure,
+// not a feature. Make each entry its own record if those losses show up.
 function logged(plan: ProjectPlan, ctx: PlanContext, edits: readonly Edit[], entry: NewEntry | null): PlanChange {
   const writes: RecordWrite[] = edits.map(({ type, record, fields }) => ({ type, id: record.id, fields }));
   if (!entry) return { writes };
@@ -890,15 +892,21 @@ export function moveDone(plan: ProjectPlan, end: LocalDate, ctx: PlanContext, st
 }
 
 export function pauseProject(plan: ProjectPlan, ctx: PlanContext): PlanChange {
-  return logged(plan, ctx, [{ type: 'project', record: plan.project, fields: { state: 'paused' } }], { kind: 'pause', text: 'Paused.' });
+  const fields = { state: 'paused', paused_on: today(ctx.clock) };
+  return logged(plan, ctx, [{ type: 'project', record: plan.project, fields }], { kind: 'pause', text: 'Paused.' });
 }
 
-/** Resuming moves open dates by the days it was paused, and that counts as slip. */
+/**
+ * Resuming moves open dates by the days it was paused, and that counts as slip. The pause is dated by paused_on, or by
+ * the log's last pause if that's later: an older app logs its pause there, and resumes without clearing paused_on.
+ */
 export function resumeProject(plan: ProjectPlan, ctx: PlanContext): PlanChange {
   const { project } = plan;
-  const paused = slipLog(plan).filter((e) => e.kind === 'pause').at(-1);
-  const days = paused ? Math.max(0, diffDays(localDate(paused.at, ctx.clock.zone()), today(ctx.clock))) : 0;
-  const edits: Edit[] = [{ type: 'project', record: project, fields: { state: 'active', ...(days ? { end: addDays(project.end, days) } : {}) } }];
+  const entry = slipLog(plan).filter((e) => e.kind === 'pause').at(-1);
+  const since = later(project.paused_on ?? '', entry ? localDate(entry.at, ctx.clock.zone()) : '');
+  const days = since ? Math.max(0, diffDays(since, today(ctx.clock))) : 0;
+  const fields = { state: 'active', paused_on: null, ...(days ? { end: addDays(project.end, days) } : {}) };
+  const edits: Edit[] = [{ type: 'project', record: project, fields }];
   if (days) {
     for (const record of plan.milestones) {
       if (record.due && !record.met_at && !record.dropped_at) edits.push({ type: 'milestone', record, fields: { due: addDays(record.due, days) } });
@@ -924,10 +932,18 @@ export function undoLastChange(plan: ProjectPlan): PlanChange | null {
   };
 }
 
-/** Brings back a finished or dropped project as it was, reopening the tasks closing it cancelled. Their freed time stays free. */
+/**
+ * Brings back a finished or dropped project, reopening the tasks closing it cancelled. Their freed time stays free.
+ * Those tasks carry its mark, which a sync can't lose as it can the log. A close still the newest in the log is undone
+ * as well, as before the marks, which puts back a paused state and reopens what a close from before them cancelled.
+ */
 export function restoreProject(plan: ProjectPlan): PlanChange {
-  if (slipLog(plan).at(-1)?.kind === 'close') return undoLastChange(plan)!;
-  return { writes: [{ type: 'project', id: plan.project.id, fields: { state: 'active' } }] };
+  const { project } = plan;
+  const base: RecordWrite[] =
+    slipLog(plan).at(-1)?.kind === 'close' ? undoLastChange(plan)!.writes : [{ type: 'project', id: project.id, fields: { state: 'active' } }];
+  const listed = new Set(base.filter((w) => w.type === 'task').map((w) => w.id));
+  const marked = plan.tasks.filter((t) => t.cancelled_by === project.id && t.cancelled_at && !listed.has(t.id));
+  return { writes: [...base, ...marked.map((t): RecordWrite => ({ type: 'task', id: t.id, fields: { cancelled_at: null, cancelled_by: null } }))] };
 }
 
 /** Real days later and milestones dropped, or null when nothing has been replanned. */

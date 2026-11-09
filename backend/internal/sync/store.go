@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	gosync "sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -179,14 +181,10 @@ func (s *Store) push(ctx context.Context, sub string, cursor int64, changes []Ch
 			return stats, nil
 		}
 		fills, rest, orphans := s.fills(changes, state)
-		for _, f := range fills {
-			filled, err := s.fill(ctx, sub, f, state.seqs[f.sk])
-			if err != nil {
-				return stats, err
-			}
-			if filled {
-				stats.Filled++
-			}
+		filled, err := s.fillAll(ctx, sub, fills, state.seqs)
+		stats.Filled += filled
+		if err != nil {
+			return stats, err
 		}
 		merged, dropped, err := s.mergeAll(rest, state.records, who)
 		if err != nil {
@@ -433,6 +431,34 @@ func (s *Store) fills(changes []Change, state storedState) ([]fillChange, []Chan
 		}
 	}
 	return fills, rest, orphans
+}
+
+// fillsAtOnce is how many fills go to DynamoDB side by side. Each is a write of its own, about 5ms, so one at a time the
+// 99 in a request took half a second, and a device filling in thousands at its first launch synced for minutes. Four keep
+// a request under the partition's 1,000 write units a second.
+const fillsAtOnce = 4
+
+// fillAll writes fills side by side, and returns how many went in and the first error.
+func (s *Store) fillAll(ctx context.Context, sub string, fills []fillChange, seqs map[string]int64) (int, error) {
+	var (
+		wg     gosync.WaitGroup
+		filled atomic.Int64
+		slots  = make(chan struct{}, fillsAtOnce)
+		errs   = make([]error, len(fills))
+	)
+	for i, f := range fills {
+		slots <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-slots }()
+			ok, err := s.fill(ctx, sub, f, seqs[f.sk])
+			if ok {
+				filled.Add(1)
+			}
+			errs[i] = err
+		})
+	}
+	wg.Wait()
+	return int(filled.Load()), errors.Join(errs...)
 }
 
 // fill writes one fill unless the record changed since it was read, and reports whether it did.
@@ -683,9 +709,9 @@ func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Re
 	if err != nil {
 		return Response{}, 0, fmt.Errorf("sync: pull: %w", err)
 	}
-	var now int64
+	var now time.Time
 	if s.Expiry != nil {
-		now = s.Expiry.Now().Unix()
+		now = s.Expiry.Now()
 	}
 	skipped := 0
 	res := Response{Cursor: cursor, More: len(out.LastEvaluatedKey) > 0, Changes: make([]Change, 0, len(out.Items))}
@@ -701,13 +727,15 @@ func (s *Store) pull(ctx context.Context, sub string, cursor, counter int64) (Re
 		if res.Cursor, err = numberAttr(item["seq"]); err != nil {
 			return Response{}, 0, err
 		}
-		if expires, err := numberAttr(item[ttlAttribute]); s.Expiry != nil && err == nil && expires < now {
-			skipped++
-			continue
-		}
 		fields, err := fieldsFromItem(item)
 		if err != nil {
 			return Response{}, 0, err
+		}
+		// By the record, not the TTL attribute, which a record deleted before expiry lacks: one that went out of its
+		// deleted period then would otherwise go to every new device, which would then fill in an expiry for it.
+		if expires, ok := s.expiry(fields); s.Expiry != nil && ok && expires.Before(now) {
+			skipped++
+			continue
 		}
 		res.Changes = append(res.Changes, Change{Type: recordType, ID: id, Fields: fields})
 	}

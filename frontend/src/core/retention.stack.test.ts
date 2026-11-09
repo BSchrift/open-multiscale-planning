@@ -12,7 +12,7 @@ import { parse } from 'yaml';
 import { loadRetention } from '../../../config/retention';
 import { createAuth } from './auth';
 import type { Clock } from './clock';
-import { fixedClock, formatClock, systemClock } from './clock';
+import { fixedClock, formatClock, parseClock, systemClock } from './clock';
 import { nowInstant, toInstant } from './dates';
 import { expireLocal } from './expiry';
 import { outcomeId, transact } from './records';
@@ -197,6 +197,13 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
       expiry.set(key, row?.at ? Date.parse(row.at) : null);
     }
     const after = (period: Period, from = start) => addPeriod(from, period);
+    // A project's and a goal's close counts from their state's clock, which runs ahead of real time once this device has
+    // pulled a clock from the future: on a deployment the test user is every suite's, and the server takes clocks up to a
+    // day ahead. The closes would then expire that much later than the checks below allow.
+    for (const key of [id('project'), id('goal')]) {
+      const row = await writer.db.get<{ c: string }>("SELECT json_extract(clocks, '$.state') AS c FROM records WHERE id = :id", { id: key });
+      expect(parseClock(row!.c).wall, `${key}: closed at a clock ahead of real time, from one in the account`).toBeLessThanOrEqual(clock.now() + MINUTE);
+    }
     for (const [key, k] of kinds) {
       const at = expiry.get(key)!;
       if (k.stage === 'never') expect(at, key).toBeNull();

@@ -486,6 +486,17 @@ func (a *account) sendAs(req syncRequest) response {
 	if req.Changes == nil {
 		req.Changes = []record{}
 	}
+	// Every suite on a deployment syncs as its one test user, and a device that pulls a clock ahead of real time writes
+	// at that clock from then on. One far ahead would stamp a day of every suite's writes late, closing times among them.
+	if !target.local() {
+		for _, change := range req.Changes {
+			for name, f := range change.Fields {
+				if wall, err := strconv.ParseInt(f.C[:min(13, len(f.C))], 10, 64); err == nil && wall > time.Now().Add(time.Minute).UnixMilli() {
+					a.t.Fatalf("%s %s: %s is more than a minute ahead, which would carry into the test user's devices", change.ID, name, f.C)
+				}
+			}
+		}
+	}
 	res := a.sendRaw(mustJSON(a.t, req))
 	// A refused request wrote nothing. Anything else may have, in part.
 	if res.status < 400 || res.status >= 500 {

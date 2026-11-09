@@ -139,6 +139,8 @@ has already passed, reach TTL.
   that project or moves that block.
 - A record deleted before retention that no device still holds never gets a TTL, so it stays in the table, left out of
   every pull.
+- A project's or a goal's close counts from its state's clock, which a device that has pulled a clock from the future
+  sets that far ahead, up to the day ahead the server takes. Its expiry is then that much later.
 
 ## Tests
 

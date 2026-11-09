@@ -437,12 +437,15 @@ type record struct {
 type syncRequest struct {
 	Cursor  int64    `json:"cursor"`
 	Changes []record `json:"changes"`
+	// Sent by apps that take a reset for expired records, as appSync does. The rest of the suite is an app from before.
+	ExpiryReset bool `json:"expiry_reset,omitempty"`
 }
 
 type syncResponse struct {
 	Cursor  int64    `json:"cursor"`
 	More    bool     `json:"more"`
 	Changes []record `json:"changes"`
+	Reset   string   `json:"reset"`
 }
 
 func clockAt(wall time.Time, counter int, device string) string {
@@ -475,13 +478,18 @@ func (a *account) record(recordType, id string, pairs ...any) record {
 // send posts a sync and returns the raw response, for tests that expect it to fail.
 func (a *account) send(cursor int64, changes ...record) response {
 	a.t.Helper()
-	if changes == nil {
-		changes = []record{}
+	return a.sendAs(syncRequest{Cursor: cursor, Changes: changes})
+}
+
+func (a *account) sendAs(req syncRequest) response {
+	a.t.Helper()
+	if req.Changes == nil {
+		req.Changes = []record{}
 	}
-	res := a.sendRaw(mustJSON(a.t, syncRequest{cursor, changes}))
+	res := a.sendRaw(mustJSON(a.t, req))
 	// A refused request wrote nothing. Anything else may have, in part.
 	if res.status < 400 || res.status >= 500 {
-		for _, change := range changes {
+		for _, change := range req.Changes {
 			a.pushed[[2]string{change.Type, change.ID}] = true
 		}
 	}
@@ -496,8 +504,19 @@ func (a *account) sendRaw(body []byte) response {
 // sync posts a sync that must work. A 409 means another writer kept moving the counter, so it resends as a device does.
 func (a *account) sync(cursor int64, changes ...record) syncResponse {
 	a.t.Helper()
+	return a.syncAs(syncRequest{Cursor: cursor, Changes: changes})
+}
+
+// appSync is sync from an app that takes a reset for expired records.
+func (a *account) appSync(cursor int64, changes ...record) syncResponse {
+	a.t.Helper()
+	return a.syncAs(syncRequest{Cursor: cursor, Changes: changes, ExpiryReset: true})
+}
+
+func (a *account) syncAs(req syncRequest) syncResponse {
+	a.t.Helper()
 	for try := 0; ; try++ {
-		res := a.send(cursor, changes...)
+		res := a.sendAs(req)
 		if res.status == 409 && try < 20 {
 			time.Sleep(time.Duration(try+1) * 20 * time.Millisecond)
 			continue

@@ -72,7 +72,11 @@ the order they were last written, oldest first and settings last, so a first syn
 
 **Seeding** goes through the sync API as a device does, in batches of up to 99 records and 4 MB, paced on a deployment
 to 500 write units a second, half of what one user's partition takes. Every record has a fixed id and fixed clocks, so a
-rerun writes nothing and the account never grows. Locally the stack starts empty and is seeded each run, unpaced.
+rerun writes nothing and the account never grows. Locally the stack starts empty and is seeded each run, unpaced. It
+sends as an up-to-date app does, and leaves out the deleted records whose deleted period has passed, since the server
+drops those ([retention.md](retention.md)). That leaves about 31,000 records with few or none deleted: locally only
+those deleted in the last 30 days, and on staging, whose period is minutes, none. The rest carry no expiry, as records
+from before retention do, so the account still spans five years.
 
 **First sync to a usable app** is timed on a new device of that user, from the sign-in being sent (the hosted page's
 submit on a deployment, or the Sign in tap on the local stack, whose sign-in has no page) until the app shows Today with

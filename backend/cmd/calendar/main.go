@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-lambda-go/lambdacontext"
 	"github.com/aws/aws-sdk-go-v2/config"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/gcal"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
 	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
@@ -20,11 +22,15 @@ func main() {
 	if _, err := appconfig.ForEnv(os.Getenv("ENV_NAME")); err != nil {
 		log.Fatal(err)
 	}
+	retention, err := appconfig.LoadRetention(os.Getenv("ENV_NAME"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
-	worker := gcal.FromEnvironment(cfg, nil)
+	worker := gcal.FromEnvironment(cfg, &sync.Expiry{Now: time.Now, Deleted: retention.Deleted}, nil)
 	lambda.Start(func(ctx context.Context, payload json.RawMessage) error {
 		requestID := ""
 		if lc, ok := lambdacontext.FromContext(ctx); ok {

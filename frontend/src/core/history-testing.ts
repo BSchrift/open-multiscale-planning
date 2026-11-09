@@ -6,6 +6,8 @@ import { protocol } from '@multiscale/config';
 import { formatClock } from './clock';
 import { addDays, localDate, localToMs, toInstant, weekStart } from './dates';
 import { occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
+import { addPeriod } from './retention';
+import type { Period } from './retention';
 import type { BlockResult, LocalDate, RecordChange, RecordMap, RecordType, TaskSchedule, Weekday } from './types';
 
 export const HISTORY = {
@@ -307,6 +309,18 @@ export function historyChanges(): RecordChange[] {
 
 const byteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
+/**
+ * The history as a server with retention keeps it at `at`: without the deleted records whose deleted period has passed,
+ * which the API drops (docs/retention.md). The rest carry no expiry, as records from before retention do, so the account
+ * still spans five years. Pass a time a little after the seed, so nothing counted goes while it runs.
+ */
+export function keptHistory(deleted: Period, at: number, changes = historyChanges()): RecordChange[] {
+  return changes.filter((c) => {
+    const when = c.fields.deleted_at?.v;
+    return typeof when !== 'string' || addPeriod(Date.parse(when), deleted) > at;
+  });
+}
+
 /** What the tests check the apps against. */
 export function historyFacts(changes = historyChanges()) {
   const v = (c: RecordChange, field: string) => c.fields[field]?.v ?? null;
@@ -353,10 +367,12 @@ const TRIES = 5;
 /**
  * Pushes the history in order, in batches the sync API takes, pacing them to the write units one user's partition can
  * take (about 1,000 a second). Each record merges by its fixed id and clocks, so a rerun writes nothing, and only
- * what was written is paced. A failed request is sent again after a wait, up to five tries.
+ * what was written is paced. A failed request is sent again after a wait, up to five tries. It sends as an up-to-date
+ * app does, so the API takes each record's old clocks as they are: from an app before retention, it drops a record it
+ * doesn't hold whose clocks are all older than the deleted period.
  */
 export async function seedHistory(
-  send: (request: { cursor: number; changes: RecordChange[] }) => Promise<{ cursor: number; more: boolean }>,
+  send: (request: { cursor: number; changes: RecordChange[]; expiry_reset?: boolean }) => Promise<{ cursor: number; more: boolean }>,
   options: {
     changes?: readonly RecordChange[];
     unitsPerSecond: number;
@@ -370,7 +386,7 @@ export async function seedHistory(
   const call = async (request: { cursor: number; changes: RecordChange[] }) => {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await send(request);
+        return await send({ ...request, expiry_reset: true });
       } catch (err) {
         if (attempt === TRIES) throw err;
         await sleep(1000 * 2 ** (attempt - 1));

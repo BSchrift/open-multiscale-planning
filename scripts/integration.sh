@@ -96,9 +96,10 @@ if [ "$env_name" = local ] && [ -z "${SMOKE:-}" ]; then
   echo
   echo "Backend packages against the local stand-ins"
   (cd "$root/backend" && DYNAMODB_ENDPOINT="$dynamodb" SSM_ENDPOINT="$moto" go test -count=1 ./internal/... ./cmd/...) || status=1
-  # The app's own sync client and sign-in against cmd/local, so both languages agree on the wire.
+  # The app's own sync client and sign-in against cmd/local, so both languages agree on the wire. One file at a time,
+  # since both move the stack's clock.
   echo
   echo "TypeScript client against cmd/local"
-  (cd "$root/frontend" && npx vitest run --project node src/core/sync.stack.test.ts) || status=1
+  (cd "$root/frontend" && npx vitest run --maxWorkers=1 --project node src/core/sync.stack.test.ts src/core/retention.stack.test.ts) || status=1
 fi
 exit "$status"

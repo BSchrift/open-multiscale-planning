@@ -1,8 +1,9 @@
 // Everything one environment runs on AWS. Cost is meant to stay under $1 a month, so secrets are SSM SecureString
 // parameters under the AWS-managed key rather than Secrets Manager or a customer-managed key.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { forEnv } from '@multiscale/config';
@@ -19,7 +20,7 @@ import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
-import { Architecture, Code, FilterCriteria, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
+import { Architecture, Code, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
@@ -29,6 +30,7 @@ import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
+import { loadRetention } from '../../config/retention.ts';
 import type { Config, ControlConfig, EnvName } from './config.ts';
 import { DELEGATION_ROLE_NAME } from './control-stack.ts';
 
@@ -37,7 +39,7 @@ export interface MultiscaleStackProps {
   config: Config;
   /** Needed when config sets dns.zone: the zone is delegated from its domain, in its account. */
   control?: ControlConfig;
-  /** Holds api/ and calendar/, each a bootstrap put there by scripts/deploy.sh. */
+  /** Holds api/, calendar/ and retention/, each a bootstrap put there by scripts/deploy.sh. */
   backendDist: string;
   /** Set when deploying, so that a missing build fails instead of shipping the stand-in. */
   requireBinaries: boolean;
@@ -53,6 +55,8 @@ export class MultiscaleStack extends Stack {
 
     const namespace = `Multiscale/${envName}`;
     const ssmPrefix = `/multiscale/${envName}`;
+    // The Lambdas read the same file, built into them, by ENV_NAME.
+    const retention = loadRetention(envName, { read: (path) => readFileSync(path, 'utf8'), parse });
 
     const goCode = (name: string) => {
       const dir = join(backendDist, name);
@@ -101,11 +105,20 @@ export class MultiscaleStack extends Stack {
 
     // Data
 
+    // Expired records go by DynamoDB's TTL, on each item's expires_at, and the retention function reads TTL's removals
+    // from the stream to keep each user's expiry mark. Not a job that removes them, because:
+    //   - TTL deletes cost no write units, and Lambda reads the stream at no charge;
+    //   - a job would read the whole table each run, or need an index that every write pays for, and pay for each delete;
+    //   - late removal is safe: pulls leave out what has expired as soon as it has, the apps remove theirs by expires_at
+    //     and the API drops changes to it, so only what was really removed needs the mark (internal/sync/expiry.go);
+    //   - staging's periods are minutes, so there alone a cleanup removes what TTL hasn't reached yet, every minute.
+    // The stream carries the old image because the mark is the removed item's sequence number.
     const table = new Table(this, 'Table', {
       partitionKey: { name: 'pk', type: AttributeType.STRING },
       sortKey: { name: 'sk', type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
-      stream: StreamViewType.KEYS_ONLY,
+      stream: StreamViewType.OLD_IMAGE,
+      timeToLiveAttribute: 'expires_at',
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
@@ -122,6 +135,7 @@ export class MultiscaleStack extends Stack {
     const functionLogs = (logId: string) => new LogGroup(this, logId, { retention: RetentionDays.ONE_MONTH });
     const apiLogs = functionLogs('ApiLogs');
     const calendarLogs = functionLogs('CalendarLogs');
+    const retentionLogs = functionLogs('RetentionLogs');
     const accessLogs = functionLogs('AccessLogs');
 
     const httpApi = new HttpApi(this, 'HttpApi', {
@@ -177,6 +191,7 @@ export class MultiscaleStack extends Stack {
       });
 
     const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, Duration.minutes(5), {});
+    const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
       CALENDAR_FUNCTION_NAME: calendarFunction.functionName,
@@ -232,6 +247,29 @@ export class MultiscaleStack extends Stack {
       target: new LambdaInvoke(calendarFunction),
     });
 
+    // What keeps the expiry mark: TTL's removals only. A delete from anyone else, staging's cleanup included, isn't
+    // expiry, and cleanup raises the mark itself before it removes anything.
+    retentionFunction.addEventSource(new DynamoEventSource(table, {
+      startingPosition: StartingPosition.TRIM_HORIZON,
+      batchSize: 100,
+      filters: [FilterCriteria.filter({
+        eventName: FilterRule.isEqual('REMOVE'),
+        userIdentity: { type: FilterRule.isEqual('Service'), principalId: FilterRule.isEqual('dynamodb.amazonaws.com') },
+      })],
+    }));
+    // Raising a mark is an UpdateItem. Cleanup also reads the table and removes what has expired.
+    retentionFunction.addToRolePolicy(new PolicyStatement({
+      actions: ['dynamodb:UpdateItem', ...(retention.cleanup ? ['dynamodb:Scan', 'dynamodb:DeleteItem'] : [])],
+      resources: [table.tableArn],
+    }));
+    if (retention.cleanup) {
+      const { days, hours, minutes } = retention.cleanup;
+      new Schedule(this, 'CleanupSchedule', {
+        schedule: ScheduleExpression.rate(Duration.minutes((days * 24 + hours) * 60 + minutes)),
+        target: new LambdaInvoke(retentionFunction),
+      });
+    }
+
     // Alarms
 
     const topic = new Topic(this, 'AlarmTopic');
@@ -250,8 +288,12 @@ export class MultiscaleStack extends Stack {
     });
     const lambdaErrors = new MathExpression({
       label: 'Lambda errors',
-      expression: 'FILL(api, 0) + FILL(calendar, 0)',
-      usingMetrics: { api: apiFunction.metricErrors({ period: fiveMinutes }), calendar: calendarFunction.metricErrors({ period: fiveMinutes }) },
+      expression: 'FILL(api, 0) + FILL(calendar, 0) + FILL(retention, 0)',
+      usingMetrics: {
+        api: apiFunction.metricErrors({ period: fiveMinutes }),
+        calendar: calendarFunction.metricErrors({ period: fiveMinutes }),
+        retention: retentionFunction.metricErrors({ period: fiveMinutes }),
+      },
       period: fiveMinutes,
     });
     const dynamoThrottles = new MathExpression({

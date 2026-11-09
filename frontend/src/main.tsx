@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { AppConfig } from './core/appConfig';
 import { systemClock } from './core/clock';
 import { transact } from './core/records';
+import { configureRetention } from './core/retention';
 import type { Fields, RecordType } from './core/types';
 import { startAppSync } from './core/syncRunner';
 import { createUpdater } from './core/updates';
@@ -14,6 +15,8 @@ import './ui/styles/index.css';
 declare const __APP_CONFIG__: AppConfig;
 
 const root = createRoot(document.getElementById('root')!);
+// Before anything writes: every write works out the record's expiry from it.
+configureRetention(__APP_CONFIG__.retention ?? null);
 
 createPlatform(__APP_CONFIG__.env).then(
   (platform) => {

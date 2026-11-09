@@ -22,6 +22,7 @@ import { Pill } from '../../components/Pill';
 import type { PillTone } from '../../components/Pill';
 import { useToast } from '../../components/Toast';
 import { UnavailableList } from './Availability';
+import { RetentionPage } from './Retention';
 import { useCalendarCall } from './useCalendarCall';
 import './settings.css';
 
@@ -402,6 +403,21 @@ function Appearance(props: { layout: Layout }) {
   );
 }
 
+/** Opens the Data retention page, which says what's kept and for how long. */
+function DataRetention(props: { layout: Layout }) {
+  const nav = useNav();
+  return (
+    <Section title="Data retention">
+      <div className={props.layout === 'phone' ? 'stack8' : 'setrow'}>
+        <span className={props.layout === 'phone' ? 'small' : undefined}>How long your history is kept before it's removed.</span>
+        <button className={props.layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => nav.go('settings', { page: 'retention' })}>
+          Data retention
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 const UPDATE_LINE: Record<UpdateStatus['state'], string | null> = {
   idle: null,
   checking: 'Checking…',
@@ -507,6 +523,7 @@ function Updates(props: { layout: Layout; updates: Updater }) {
 export default function Screen(props: ScreenProps) {
   const { layout } = props;
   const { updates } = useApp();
+  if (props.params.page === 'retention') return <RetentionPage layout={layout} />;
   return (
     <div className={layout === 'phone' ? 'stack settings' : 'wrap stack32 settings'}>
       <h1>Settings</h1>
@@ -519,6 +536,7 @@ export default function Screen(props: ScreenProps) {
       <Appearance layout={layout} />
       <CaptureKeys />
       {updates && <Updates layout={layout} updates={updates} />}
+      <DataRetention layout={layout} />
       {/* AGPL-3.0: the app shows where its source is. A target="_blank" link opens in the system browser on Electron and iOS too. */}
       <a className="small source" href="https://github.com/BSchrift/open-multiscale-planning" target="_blank" rel="noreferrer">
         Source code

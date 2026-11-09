@@ -242,3 +242,41 @@ func TestLogLinesCarryNoTokenOrValue(t *testing.T) {
 		t.Fatalf("leak: %s", logged)
 	}
 }
+
+func TestCleanupRemovesWhatHasExpired(t *testing.T) {
+	s := startStack(t)
+	const marker = "MARKER-do-not-log"
+	token := s.signIn(t, "one")["access_token"].(string)
+	now := time.Now().UTC().Truncate(time.Second)
+	// Deleted by an app from before expiry, so its deleted_at alone sets when it goes: 30 days on, in the local block.
+	body := fmt.Sprintf(`{"cursor":0,"changes":[{"type":"task","id":"r1","fields":{"title":{"v":%q,"c":"%013d-000000-a"},"deleted_at":{"v":%q,"c":"%013d-000000-a"}}}]}`,
+		marker, now.UnixMilli(), now.Format(time.RFC3339), now.UnixMilli())
+	if status, res := s.post(t, "/sync", token, body); status != 200 {
+		t.Fatalf("%d %v", status, res)
+	}
+	setClock := func(at time.Time) {
+		t.Helper()
+		if status, _ := s.post(t, "/_local/clock", "", fmt.Sprintf(`{"now":%q}`, at.Format(time.RFC3339))); status != 204 {
+			t.Fatalf("set clock: %d", status)
+		}
+	}
+	if status, res := s.post(t, "/_local/cleanup", "", ""); status != 200 || res["marked"] != float64(0) {
+		t.Fatalf("%d %v", status, res)
+	}
+	setClock(now.AddDate(0, 0, 31))
+	if status, res := s.post(t, "/_local/cleanup", "", ""); status != 200 || res["marked"] != float64(1) || res["removed"] != float64(0) {
+		t.Fatalf("%d %v", status, res)
+	}
+	// A run removes only what a mark covered at least 30 seconds before.
+	setClock(now.AddDate(0, 0, 31).Add(time.Minute))
+	if status, res := s.post(t, "/_local/cleanup", "", ""); status != 200 || res["removed"] != float64(1) {
+		t.Fatalf("%d %v", status, res)
+	}
+	if status, res := s.post(t, "/sync", s.signIn(t, "one")["access_token"].(string), `{}`); status != 200 || len(res["changes"].([]any)) != 0 {
+		t.Fatalf("%d %v", status, res)
+	}
+	logged := s.logs.String()
+	if !strings.Contains(logged, `"msg":"cleanup_run"`) || !strings.Contains(logged, `"CleanupRecordsRemoved":1`) || strings.Contains(logged, marker) {
+		t.Fatalf("%s", logged)
+	}
+}

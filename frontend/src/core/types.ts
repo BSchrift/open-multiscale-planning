@@ -17,7 +17,10 @@ export type Minutes = number;
 export type TimeOfDay = number;
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-/** Fields every record can have. deleted_at is the tombstone, so a delete merges like any other field. */
+/**
+ * Fields every record can have. deleted_at is the tombstone, so a delete merges like any other field. Beside these the
+ * write path keeps expires_at, when the record expires (retention.ts), which nothing reads but expiry.ts.
+ */
 export interface BaseRecord {
   id: string;
   deleted_at?: Instant | null;

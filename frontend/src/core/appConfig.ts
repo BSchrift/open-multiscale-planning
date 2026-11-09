@@ -4,6 +4,7 @@
 
 import type { EnvConfig } from '@multiscale/config';
 import { parse } from 'yaml';
+import type { Retention } from './retention';
 
 export type AppEnv = 'local' | 'staging' | 'prod';
 
@@ -25,6 +26,8 @@ export interface AppConfig {
   downloadsUrl?: string;
   /** This environment's settings from config/env, which the build inlines. */
   settings?: EnvConfig;
+  /** This environment's block of config/retention.yaml, which the build adds. */
+  retention?: Retention;
 }
 
 /** Reads a file by its full path, or gives null when there is none. */

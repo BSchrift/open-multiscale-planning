@@ -361,8 +361,10 @@ test("a reminder for a block near now is scheduled, and its Not done writes what
   await expect.poll(() => record(a, outcomeId(ending.block))).toMatchObject({ result: 'not' });
 
   const answer = async (ids: typeof ended) => {
-    const { answered_at, ...outcome } = (await record(a, outcomeId(ids.block)))!;
+    // Each answer's expiry counts from its own block's end, so only that it has one is compared.
+    const { answered_at, expires_at, ...outcome } = (await record(a, outcomeId(ids.block)))!;
     expect(answered_at).toEqual(expect.any(String));
+    expect(expires_at).toEqual(expect.any(String));
     const task = (await record(a, ids.task))!;
     const completions = await a.page.evaluate(
       (id) => (window.multiscaleElectron as ElectronBridge).db.all('SELECT count(*) AS n FROM task_completion WHERE task_id = ? AND deleted_at IS NULL', [id]),

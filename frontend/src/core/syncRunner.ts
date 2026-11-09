@@ -4,6 +4,9 @@
 //
 // There's no paused state to manage. Once a sign-in has expired the tokens are gone, so each trigger fails at once
 // without any network traffic, and the next sync after signing in again carries on from the outbox.
+//
+// Before the first sync it fills in missing expiries and removes what has expired here, and after each sync it removes
+// what has expired again (expiry.ts).
 
 import type { AppConfig } from './appConfig';
 import { createAuth, tokenSubject } from './auth';
@@ -11,6 +14,7 @@ import type { Clock } from './clock';
 import { nowInstant } from './dates';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
+import { backfillExpiry, expireLocal } from './expiry';
 import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
 import type { Diagnostics } from './telemetry';
 import { apiPost, createHttpSend, runSync, SyncError } from './sync';
@@ -46,8 +50,19 @@ export function createSyncRunner(deps: {
   let running: Promise<void> | null = null;
   let again = false;
   let cleanup: (() => void) | null = null;
+  let launched = false;
+
+  /** Expiry never stops a sync: what it misses now, it does next time. */
+  const expire = (work: () => Promise<unknown>) => work().catch((err: unknown) => console.error('Expiry failed', err));
 
   async function syncOnce(): Promise<void> {
+    if (!launched) {
+      launched = true;
+      await expire(async () => {
+        await backfillExpiry(db, clock);
+        await expireLocal(db, clock);
+      });
+    }
     try {
       await rebaseClocks(db, clock);
       await runSync(db, send);
@@ -59,7 +74,9 @@ export function createSyncRunner(deps: {
     } catch (err) {
       if (!(err instanceof SyncError)) console.error('Sync failed', err);
       await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
+      return;
     }
+    await expire(() => expireLocal(db, clock));
   }
 
   /** Runs a sync, or one more after the current one, so an edit made during a sync isn't left waiting. Never rejects. */

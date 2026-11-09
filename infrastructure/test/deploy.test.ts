@@ -127,11 +127,12 @@ describe('scripts/deploy.sh', () => {
     }
   });
 
-  it('builds both Lambdas for arm64 Linux with no cgo, from cmd/api and cmd/calendar', () => {
+  it('builds every Lambda for arm64 Linux with no cgo, from cmd/api, cmd/calendar and cmd/retention', () => {
     const s = sandbox();
     s.run();
-    assert.match(s.log(), /go GOOS=linux GOARCH=arm64 CGO=0 build .*-o \S*backend\/dist\/api\/bootstrap \.\/cmd\/api/);
-    assert.match(s.log(), /go GOOS=linux GOARCH=arm64 CGO=0 build .*-o \S*backend\/dist\/calendar\/bootstrap \.\/cmd\/calendar/);
+    for (const name of ['api', 'calendar', 'retention']) {
+      assert.match(s.log(), new RegExp(`go GOOS=linux GOARCH=arm64 CGO=0 build .*-o \\S*backend/dist/${name}/bootstrap \\./cmd/${name}`));
+    }
   });
 
   it('ships each Lambda as its binary alone, clearing what an earlier deploy left beside it', () => {

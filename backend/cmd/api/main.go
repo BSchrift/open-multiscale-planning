@@ -31,13 +31,21 @@ func main() {
 	if _, err := appconfig.ForEnv(os.Getenv("ENV_NAME")); err != nil {
 		log.Fatal(err)
 	}
+	retention, err := appconfig.LoadRetention(os.Getenv("ENV_NAME"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
+	store := &sync.Store{
+		DB: dynamodb.NewFromConfig(cfg), Table: os.Getenv("TABLE_NAME"),
+		Expiry: &sync.Expiry{Now: time.Now, Deleted: retention.Deleted},
+	}
 	server := &api.Server{
-		Sync:     &sync.Store{DB: dynamodb.NewFromConfig(cfg), Table: os.Getenv("TABLE_NAME")},
-		Calendar: gcal.FromEnvironment(cfg, startWorker(lambdasdk.NewFromConfig(cfg), os.Getenv("CALENDAR_FUNCTION_NAME"))),
+		Sync:     store,
+		Calendar: gcal.FromEnvironment(cfg, store.Expiry, startWorker(lambdasdk.NewFromConfig(cfg), os.Getenv("CALENDAR_FUNCTION_NAME"))),
 		Log:      obs.NewLogger(os.Stdout),
 		Env:      os.Getenv("ENV_NAME"),
 		Now:      time.Now,

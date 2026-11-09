@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed smoke deploy release scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -41,6 +41,11 @@ test-history:
 # runs on staging only.
 test-deployed:
 	@scripts/test-deployed.sh
+
+# Staging only: writes one record of each kind with the app's own client, then waits out staging's retention periods
+# while its cleanup runs, about 25 minutes. make test-deployed runs it too, on staging.
+test-retention:
+	@scripts/test-retention.sh
 
 # Defaults to staging. Prod takes an explicit ENV=prod, and ENV=control deploys the domain's DNS. Both deploy and smoke
 # read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile.

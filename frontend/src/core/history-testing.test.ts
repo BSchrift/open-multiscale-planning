@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isClock, parseClock } from './clock';
 import { RECORD_FIELDS } from './db';
-import { historyBatches, historyChanges, historyFacts, HISTORY, seedHistory } from './history-testing';
+import { historyBatches, historyChanges, historyFacts, HISTORY, keptHistory, seedHistory } from './history-testing';
+import { parsePeriod } from '../../../config/retention';
 import { ID_PATTERN, outcomeId } from './records';
 import { fakeSyncServer } from './sync-testing';
 import type { RecordChange, RecordType } from './types';
@@ -96,6 +97,20 @@ describe('the history', () => {
   });
 });
 
+describe('keptHistory', () => {
+  it('leaves out only the deleted records whose deleted period has passed, which the server would drop', () => {
+    const kept = keptHistory(parsePeriod('P30D'), nowMs, changes);
+    const gone = changes.filter((c) => !kept.includes(c));
+    expect(gone.length).toBeGreaterThan(0);
+    for (const c of gone) expect(Date.parse(value(c, 'deleted_at') as string)).toBeLessThanOrEqual(nowMs - 30 * 86_400_000);
+    expect(kept.filter((c) => value(c, 'deleted_at') == null)).toHaveLength(changes.filter((c) => value(c, 'deleted_at') == null).length);
+    // Deleted within the period, still kept.
+    expect(kept.some((c) => typeof value(c, 'deleted_at') === 'string')).toBe(true);
+    // An hour on, staging's minutes leave none deleted.
+    expect(keptHistory(parsePeriod('PT5M'), nowMs + 3_600_000, changes).filter((c) => value(c, 'deleted_at') != null)).toEqual([]);
+  });
+});
+
 describe('historyBatches', () => {
   it('splits into batches of at most 99 records and 4 MB, in order', () => {
     const batches = historyBatches(changes);
@@ -137,6 +152,8 @@ describe('seedHistory', () => {
     expect(server.counter).toBe(1000);
     expect(Object.keys(server.values())).toHaveLength(1000);
     for (const request of server.requests) expect(request.changes.length).toBeLessThanOrEqual(99);
+    // As an up-to-date app, so the server takes the history's old clocks as they are.
+    expect(server.requests.every((request) => request.expiry_reset === true)).toBe(true);
 
     const again = run(server, 500);
     expect(await again.done).toEqual({ batches: 11, written: 0 });

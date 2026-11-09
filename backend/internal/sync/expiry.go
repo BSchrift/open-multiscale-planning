@@ -8,8 +8,8 @@ package sync
 //   - Late removal is safe. TTL can take days, but pulls leave out an expired record as soon as its expires_at passes, the
 //     apps remove theirs by expires_at, and Push drops changes to one. So nothing waits on the item being gone: the
 //     mark only has to cover what was really removed, which is all a device can no longer be told about.
-//   - Staging's periods are minutes, so there Cleanup below runs every minute to remove what TTL hasn't reached yet,
-//     raising the mark itself before it removes anything. Prod relies on TTL alone.
+//   - Staging's periods are minutes, so there Cleanup below runs every few minutes to remove what TTL hasn't reached
+//     yet, raising the mark itself before it removes anything. Prod relies on TTL alone.
 
 import (
 	"context"
@@ -30,6 +30,9 @@ import (
 // request, which the API stops at 25 seconds, so every sync that could still carry a device past one of them has read the
 // mark that covers it.
 const markSettles = 30 * time.Second
+
+// scanPageItems bounds each page of the cleanup's scan, so no one request takes a large share of a partition's reads.
+const scanPageItems = 1000
 
 // MarkDB is the part of DynamoDB that raising a mark uses.
 type MarkDB interface {
@@ -69,6 +72,12 @@ type Cleanup struct {
 	Now   func() time.Time
 	Log   *slog.Logger
 	Env   string
+	// ReadUnitsPerSecond paces the scan, which reads the whole table: after each page it waits until the page's read
+	// units fit this budget. A partition serves 3,000 a second, and a small table is one partition, so an unpaced scan
+	// throttles and sets off the throttle alarm. Zero doesn't pace, as on the local stack.
+	ReadUnitsPerSecond int
+	// Wait waits between pages. Nil waits on a timer, and stops early if ctx ends.
+	Wait func(ctx context.Context, d time.Duration) error
 }
 
 // CleanupStats is what one run did, for its log line.
@@ -145,8 +154,8 @@ func (c *Cleanup) pass(ctx context.Context, now time.Time) (CleanupStats, error)
 	return stats, nil
 }
 
-// scan finds every record past its TTL and every mark, by user. Staging holds a few test users, so reading it whole each
-// minute costs next to nothing.
+// scan finds every record past its TTL and every mark, by user. It reads the whole table, a page at a time, paced to the
+// read budget.
 func (c *Cleanup) scan(ctx context.Context, now time.Time) (map[string]*expiring, error) {
 	users := map[string]*expiring{}
 	user := func(pk string) *expiring {
@@ -161,6 +170,8 @@ func (c *Cleanup) scan(ctx context.Context, now time.Time) (map[string]*expiring
 			TableName:                aws.String(c.Table),
 			ConsistentRead:           aws.Bool(true),
 			ExclusiveStartKey:        start,
+			Limit:                    aws.Int32(scanPageItems),
+			ReturnConsumedCapacity:   types.ReturnConsumedCapacityTotal,
 			FilterExpression:         aws.String("sk = :mark OR (begins_with(sk, :rec) AND #expires < :now)"),
 			ProjectionExpression:     aws.String("pk, sk, seq, #value, raised_at"),
 			ExpressionAttributeNames: map[string]string{"#expires": ttlAttribute, "#value": "value"},
@@ -199,6 +210,28 @@ func (c *Cleanup) scan(ctx context.Context, now time.Time) (map[string]*expiring
 			return users, nil
 		}
 		start = out.LastEvaluatedKey
+		if err := c.pace(ctx, out.ConsumedCapacity); err != nil {
+			return nil, fmt.Errorf("cleanup: scan: %w", err)
+		}
+	}
+}
+
+// pace waits as long as a page's read units take at the budget, before the next page.
+func (c *Cleanup) pace(ctx context.Context, used *types.ConsumedCapacity) error {
+	if c.ReadUnitsPerSecond <= 0 || used == nil || used.CapacityUnits == nil {
+		return nil
+	}
+	d := time.Duration(*used.CapacityUnits / float64(c.ReadUnitsPerSecond) * float64(time.Second))
+	if c.Wait != nil {
+		return c.Wait(ctx, d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

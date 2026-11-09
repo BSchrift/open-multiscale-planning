@@ -114,7 +114,8 @@ export class MultiscaleStack extends Stack {
     //   - a job would read the whole table each run, or need an index that every write pays for, and pay for each delete;
     //   - late removal is safe: pulls leave out what has expired as soon as it has, the apps remove theirs by expires_at
     //     and the API drops changes to it, so only what was really removed needs the mark (internal/sync/expiry.go);
-    //   - staging's periods are minutes, so there alone a cleanup removes what TTL hasn't reached yet, every minute.
+    //   - staging's periods are minutes, so there alone a cleanup removes what TTL hasn't reached yet, every few minutes
+    //     (config/retention.yaml), paced to a read budget so its scan doesn't throttle the table.
     // The stream carries the old image because the mark is the removed item's sequence number.
     const table = new Table(this, 'Table', {
       partitionKey: { name: 'pk', type: AttributeType.STRING },

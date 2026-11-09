@@ -39,7 +39,7 @@ func main() {
 	table, logger := os.Getenv("TABLE_NAME"), obs.NewLogger(os.Stdout)
 	var cleanup *sync.Cleanup
 	if retention.Cleanup != nil {
-		cleanup = &sync.Cleanup{DB: db, Table: table, Now: time.Now, Log: logger, Env: env}
+		cleanup = &sync.Cleanup{DB: db, Table: table, Now: time.Now, Log: logger, Env: env, ReadUnitsPerSecond: retention.CleanupReadUnitsPerSecond}
 	}
 	lambda.Start(func(ctx context.Context, payload json.RawMessage) error {
 		requestID := ""

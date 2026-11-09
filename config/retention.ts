@@ -22,6 +22,8 @@ export interface Retention {
   deleted: Period;
   /** How often staging's cleanup job runs. Absent where DynamoDB's TTL alone removes what has expired. */
   cleanup?: Period;
+  /** The read units a second the cleanup's scan of the whole table may use. Set exactly when cleanup is. */
+  cleanupReadUnitsPerSecond?: number;
 }
 
 const ENVS: readonly RetentionEnv[] = ['prod', 'staging', 'local'];
@@ -42,7 +44,7 @@ export function parsePeriod(text: unknown): Period {
 
 function parseBlock(block: unknown): Retention {
   if (!block || typeof block !== 'object' || Array.isArray(block)) throw new Error('must be a mapping');
-  const extra = Object.keys(block).find((key) => key !== 'cleanup' && !(PERIODS as readonly string[]).includes(key));
+  const extra = Object.keys(block).find((key) => key !== 'cleanup' && key !== 'cleanupReadUnitsPerSecond' && !(PERIODS as readonly string[]).includes(key));
   if (extra) throw new Error(`unknown key ${extra}`);
   const values = block as Record<string, unknown>;
   const read = (key: (typeof PERIODS)[number]) => {
@@ -54,7 +56,11 @@ function parseBlock(block: unknown): Retention {
     }
   };
   const retention: Retention = { scheduling: read('scheduling'), closed: read('closed'), deleted: read('deleted') };
-  if (values.cleanup === undefined) return retention;
+  const units = values.cleanupReadUnitsPerSecond;
+  if (values.cleanup === undefined) {
+    if (units !== undefined) throw new Error('cleanupReadUnitsPerSecond goes only with cleanup');
+    return retention;
+  }
   // EventBridge Scheduler runs a rate in whole minutes, hours or days.
   const wrong = new Error('cleanup must be whole minutes, hours or days, such as PT1M or P1D');
   let cleanup: Period;
@@ -64,7 +70,12 @@ function parseBlock(block: unknown): Retention {
     throw wrong;
   }
   if (cleanup.years || cleanup.months || cleanup.seconds) throw wrong;
-  return { ...retention, cleanup };
+  if (units === undefined) throw new Error('cleanupReadUnitsPerSecond is required with cleanup, since it reads the whole table');
+  // What one DynamoDB partition serves. A small table is one partition.
+  if (!Number.isInteger(units) || (units as number) < 1 || (units as number) > 3000) {
+    throw new Error('cleanupReadUnitsPerSecond must be 1 to 3000, what a partition serves');
+  }
+  return { ...retention, cleanup, cleanupReadUnitsPerSecond: units as number };
 }
 
 /**

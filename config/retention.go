@@ -42,7 +42,12 @@ type Retention struct {
 	Scheduling, Closed, Deleted Period
 	// Cleanup is how often staging's cleanup job runs, or nil where TTL alone removes what has expired.
 	Cleanup *Period
+	// CleanupReadUnitsPerSecond paces the cleanup's scan of the whole table. Set exactly when Cleanup is.
+	CleanupReadUnitsPerSecond int
 }
+
+// partitionReadUnitsPerSecond is what one DynamoDB partition serves. A small table is one partition.
+const partitionReadUnitsPerSecond = 3000
 
 var periodPattern = regexp.MustCompile(`^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$`)
 
@@ -79,6 +84,8 @@ type retentionBlock struct {
 	Closed     string  `yaml:"closed"`
 	Deleted    string  `yaml:"deleted"`
 	Cleanup    *string `yaml:"cleanup"`
+	// The read units a second the cleanup's scan may use.
+	CleanupReadUnitsPerSecond *int `yaml:"cleanupReadUnitsPerSecond"`
 }
 
 func (b retentionBlock) parse() (Retention, error) {
@@ -101,6 +108,9 @@ func (b retentionBlock) parse() (Retention, error) {
 		*f.into = p
 	}
 	if b.Cleanup == nil {
+		if b.CleanupReadUnitsPerSecond != nil {
+			return r, errors.New("cleanupReadUnitsPerSecond goes only with cleanup")
+		}
 		return r, nil
 	}
 	cleanup, err := ParsePeriod(*b.Cleanup)
@@ -108,6 +118,13 @@ func (b retentionBlock) parse() (Retention, error) {
 	if err != nil || cleanup.Years != 0 || cleanup.Months != 0 || cleanup.Clock%time.Minute != 0 {
 		return r, errors.New("cleanup must be whole minutes, hours or days, such as PT1M or P1D")
 	}
+	if b.CleanupReadUnitsPerSecond == nil {
+		return r, errors.New("cleanupReadUnitsPerSecond is required with cleanup, since it reads the whole table")
+	}
+	if units := *b.CleanupReadUnitsPerSecond; units < 1 || units > partitionReadUnitsPerSecond {
+		return r, fmt.Errorf("cleanupReadUnitsPerSecond must be 1 to %d, what a partition serves", partitionReadUnitsPerSecond)
+	}
+	r.CleanupReadUnitsPerSecond = *b.CleanupReadUnitsPerSecond
 	r.Cleanup = &cleanup
 	return r, nil
 }

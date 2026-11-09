@@ -78,7 +78,9 @@ few minutes across a change that then expires is reset when it next syncs, which
   record, the API clears `expires_at` in the same write, so the old expiry can't remove the record early. A deleted
   record then goes by `deleted_at`, and the next up-to-date app to launch works the expiry out again.
 - **Pulls leave out what has expired** as soon as it has, so nothing waits on DynamoDB. The cursor still moves past it,
-  and a pull that reaches the end moves the cursor to the counter, past any record already removed.
+  and a pull that reaches the end moves the cursor to the counter, past any record already removed. They go by the
+  record, as the checks on changes do, not by the TTL attribute, so a record deleted before retention, which has none,
+  is left out once its deleted period has passed. A new device never takes one on, so never fills it in.
 - **The Streams consumer keeps the expiry mark.** `cmd/retention` reads TTL's removals from the table's stream, which
   carries the old image for this, and stores the highest removed sequence number as that user's mark (`meta#expired`).
   Its event source passes only TTL's removals, `userIdentity` `Service` from `dynamodb.amazonaws.com`.
@@ -113,7 +115,9 @@ The API also drops a change that would bring an expired record back:
 
 An app filling in expiries for records it held from before sends each as an expiry alone with the lowest clock. The API
 writes those in place, keeping the record's sequence number, since every device fills in the same value and none needs
-to pull the record again. This is also how records deleted before retention, whose expiry has already passed, reach TTL.
+to pull the record again. Each is a write of its own, so it makes four at a time: one at a time, a device filling in
+thousands at its first launch would sync for minutes. This is also how records deleted before retention, whose expiry
+has already passed, reach TTL.
 
 ## Compatibility
 
@@ -133,6 +137,10 @@ to pull the record again. This is also how records deleted before retention, who
   record with only the fields it changed.
 - A milestone, or a block's answer, keeps the expiry it took from its project or block when an app from before reopens
   that project or moves that block.
+- A record deleted before retention that no device still holds never gets a TTL, so it stays in the table, left out of
+  every pull.
+- A project's or a goal's close counts from its state's clock, which a device that has pulled a clock from the future
+  sets that far ahead, up to the day ahead the server takes. Its expiry is then that much later.
 
 ## Tests
 

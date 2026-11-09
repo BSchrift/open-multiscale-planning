@@ -2,10 +2,12 @@ package sync_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -143,6 +145,76 @@ func TestPullsLeaveOutWhatHasExpiredAndResetADeviceThatMayHoldIt(t *testing.T) {
 	// An app from before can't take a reset, and just doesn't get it.
 	if res := mustSync(t, s, "abc", 1); res.Reset != "" || !slices.Equal(ids(res.Changes), []string{"later"}) || res.Cursor != 3 {
 		t.Fatalf("%+v", res)
+	}
+}
+
+func TestPullsLeaveOutWhatWasDeletedBeforeExpiryOnceItsPeriodHasPassed(t *testing.T) {
+	s, _, now, client := expiringStore(t)
+	expiry := s.Expiry
+	// Written before the store had expiry, so with no TTL attribute.
+	s.Expiry = nil
+	c := fresh(*now, "a")
+	mustSync(t, s, "abc", 0,
+		task("long ago", msync.Fields{"title": {V: "Oil the hinges", C: c}, "deleted_at": {V: at(now.AddDate(0, 0, -31)), C: c}}),
+		task("lately", msync.Fields{"title": {V: "Paint the fence", C: c}, "deleted_at": {V: at(now.AddDate(0, 0, -29)), C: c}}),
+		task("open", title("Sand the boards", c)),
+	)
+	if _, ok := item(t, client, s.Table, "abc", "rec#task#long ago")["expires_at"]; ok {
+		t.Fatal("a delete from before expiry has a TTL")
+	}
+	s.Expiry = expiry
+	// It has expired by the same rule that drops changes to it, so a new device never takes it on, or fills it in.
+	res := device(t, s, "abc", 0)
+	if got := ids(res.Changes); !slices.Equal(got, []string{"lately", "open"}) || res.Cursor != 3 {
+		t.Fatalf("%+v", res)
+	}
+	if res := mustSync(t, s, "abc", 0); !slices.Equal(ids(res.Changes), []string{"lately", "open"}) {
+		t.Fatalf("an app from before: %+v", res)
+	}
+	// A device that synced before it may hold it, and is reset as for any expired record.
+	if res := device(t, s, "abc", 0, task("open", title("Sand the gate", fresh(*now, "b")))); res.Reset != msync.ResetExpired {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// slowUpdatesDB holds each UpdateItem for a moment, counting how many are in flight at once.
+type slowUpdatesDB struct {
+	msync.DB
+	inFlight, most atomic.Int64
+}
+
+func (d *slowUpdatesDB) UpdateItem(ctx context.Context, in *dynamodb.UpdateItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	n := d.inFlight.Add(1)
+	defer d.inFlight.Add(-1)
+	for m := d.most.Load(); n > m && !d.most.CompareAndSwap(m, n); m = d.most.Load() {
+	}
+	time.Sleep(20 * time.Millisecond)
+	return d.DB.UpdateItem(ctx, in, opts...)
+}
+
+func TestFillsGoInSideBySide(t *testing.T) {
+	s, _, now, client := expiringStore(t)
+	c := fresh(*now, "a")
+	var made, fills []msync.Change
+	for i := range 40 {
+		id := fmt.Sprintf("t%02d", i)
+		made = append(made, task(id, msync.Fields{"title": {V: "Paint the fence", C: c}, "done_at": {V: at(*now), C: c}}))
+		fills = append(fills, task(id, msync.Fields{"expires_at": {V: at(now.AddDate(5, 0, 0)), C: lowest("a")}}))
+	}
+	mustSync(t, s, "abc", 0, made...)
+	db := &slowUpdatesDB{DB: s.DB}
+	s.DB = db
+	// One at a time, the 99 a device sends in a request take DynamoDB half a second, so one filling in thousands at its
+	// first launch would sync for minutes.
+	_, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 40, ExpiryReset: true, Changes: fills})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Filled != 40 || db.most.Load() < 2 {
+		t.Fatalf("filled %d, at most %d at once", stats.Filled, db.most.Load())
+	}
+	if num(t, item(t, client, s.Table, "abc", "rec#task#t39")["expires_at"]) != now.AddDate(5, 0, 0).Unix() {
+		t.Fatal("a fill didn't go in")
 	}
 }
 
@@ -369,6 +441,31 @@ func TestCleanupMarksFirstThenRemovesOnceTheMarkHasSettled(t *testing.T) {
 	}
 	if got := num(t, item(t, client, s.Table, "abc", "meta#expired")["value"]); got != 3 {
 		t.Fatalf("the mark is the highest sequence number removed: %d", got)
+	}
+}
+
+func TestADeviceThatHasSeenEverythingIsNeverResetAsTheMarkRises(t *testing.T) {
+	s, cleanup, now, _ := expiringStore(t)
+	current := device(t, s, "abc", 0, task("open", title("Paint the fence", fresh(*now, "a")))).Cursor
+	behind := current
+	// As on staging, where something expires every few minutes and the cleanup raises the mark each time.
+	for i := range 5 {
+		other := fresh(*now, "b")
+		mustSync(t, s, "abc", 0, task(fmt.Sprintf("short%d", i), msync.Fields{"title": {V: "Oil the hinges", C: other}, "expires_at": {V: at(now.Add(time.Minute)), C: other}}))
+		current = device(t, s, "abc", current).Cursor
+		*now = now.Add(2 * time.Minute)
+		cleanUp(t, cleanup)
+		*now = now.Add(time.Minute)
+		cleanUp(t, cleanup)
+		res := device(t, s, "abc", current, task("open", title(fmt.Sprintf("Paint the fence again %d", i), fresh(*now, "a"))))
+		if res.Reset != "" || res.Cursor != current+1 {
+			t.Fatalf("round %d: %+v", i, res)
+		}
+		current = res.Cursor
+	}
+	// One that stopped syncing before the first went is reset.
+	if res := device(t, s, "abc", behind, task("open", title("Paint the gate", fresh(*now, "c")))); res.Reset != msync.ResetExpired {
+		t.Fatalf("%+v", res)
 	}
 }
 

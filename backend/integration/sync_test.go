@@ -687,7 +687,13 @@ func TestClockAheadWithinADayHoldsOnTheRealClock(t *testing.T) {
 	needs(t)
 	a := signIn(t)
 	id := fresh("ahead")
-	a.sync(a.startCursor(), record{"task", id, map[string]field{"title": {"from the future", clockAt(time.Now().Add(maxClockAhead-time.Hour), 0, "device")}}})
+	// Near the limit locally, where each test signs in as someone new. A deployment's test user is every suite's, so
+	// there it stays within the minute the harness allows; TestClockLimitIsADayAheadOfTheServer has the limit itself.
+	lead := maxClockAhead - time.Hour
+	if !target.local() {
+		lead = 30 * time.Second
+	}
+	a.sync(a.startCursor(), record{"task", id, map[string]field{"title": {"from the future", clockAt(time.Now().Add(lead), 0, "device")}}})
 	a.sync(a.startCursor(), a.record("task", id, "title", "normal"))
 	got, _ := a.get("task", id)
 	if valueOf(t, got, "title") != "from the future" {

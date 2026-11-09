@@ -90,6 +90,21 @@ final class SeedTimeTests: XCTestCase {
     }
 }
 
+/**
+ * Waits for something on Today. On iOS 26.2, under Xcode 16.4 and 26.3 alike, when XCUITest first reads Today before
+ * its content has arrived, the tree keeps that part of Today as it was, while the screen shows the rest: CI's screen
+ * recordings show Today drawn, its countdown ticking, as the tree reports Today's region empty for a minute. Waiting
+ * longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or screen changes didn't bring
+ * the content in reliably. Hiding Today and showing it again did, every time: so the test goes to Week and back.
+ */
+private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+    if element.waitForExistence(timeout: 10) { return }
+    app.tapWeb("Week", file: file, line: line)
+    exists(app.webButton("Previous week"), file: file, line: line)
+    app.tapWeb("Today", file: file, line: line)
+    exists(element, file: file, line: line)
+}
+
 /// The app asks once there's a block to remind about. Whichever test gets there first answers.
 private func allowNotificationsIfAsked() {
     let allow = springboard.alerts.buttons["Allow"]
@@ -209,30 +224,10 @@ final class ShellUITests: XCTestCase {
         // for the half hour and the test skips; run it at any hour once a test can set the Simulator's clock.
         let late = Calendar.current.date(bySettingHour: 22, minute: 15, second: 0, of: Date())!
         try XCTSkipIf(Date() > late, "after 10:15pm today has no room left for the half hour")
-        // shortcut: on iOS 26 this fails about half the time, as the accessibility tree stops following the page, so
-        // there it reports without failing the run; make it strict again once the screenshots below show the cause.
-        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
-            let options = XCTExpectedFailure.Options()
-            options.isStrict = false
-            XCTExpectFailure("iOS 26's accessibility tree can stop following the page", options: options)
-        }
         let app = launchApp(seed: "Seed to schedule")
         // Its own label, since the block it becomes is a button too once it's under way.
         let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
-        // shortcut: on CI's iOS 26.2 Simulator Today's content often reaches the screen but not the accessibility tree,
-        // which shows Today empty until the page changes, so the test goes to Week and back; drop the detour once
-        // WebKit's tree keeps up on its own there.
-        if !card.waitForExistence(timeout: 10) {
-            // Whether the card is on screen while the tree says it isn't: a stale tree, or a stale page.
-            let shot = XCTAttachment(screenshot: app.screenshot())
-            shot.name = "Today while its tree shows no card"
-            shot.lifetime = .keepAlways
-            add(shot)
-            app.tapWeb("Week")
-            exists(app.page.otherElements["Week"])
-            app.tapWeb("Today")
-        }
-        exists(card)
+        onToday(card, in: app)
         let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
         exists(day)
 
@@ -275,7 +270,7 @@ final class ShellUITests: XCTestCase {
     func testABlocksNotificationActionAnswersItInToday() {
         let app = launchApp(seed: "Seed soon", reach: 20 * 60)
         allowNotificationsIfAsked()
-        exists(app.webText("In progress, time left"))
+        onToday(app.webText("In progress, time left"), in: app)
 
         XCUIDevice.shared.press(.home)
         let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
@@ -292,7 +287,7 @@ final class ShellUITests: XCTestCase {
 
         app.activate()
         let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
-        exists(answered)
+        onToday(answered, in: app)
     }
 
     /// A select opens as a menu of the app's own options, whatever element type this iOS gives its items.

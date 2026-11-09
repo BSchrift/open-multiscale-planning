@@ -214,16 +214,21 @@ test.describe('one device', () => {
     await finishFence(page, titles);
     await pauseShed(page, titles, 'Pause');
 
-    // Two weeks on, the update brings both back, moving the shed's end by the two weeks.
-    page = await relaunch(page, 'new', errors, 14);
+    // The fence comes back on the same day each time: a finished project is removed once the closed period has passed,
+    // which on a staging build is minutes.
+    page = await relaunch(page, 'new', errors);
     await restoreFence(page, titles);
-    await pauseShed(page, titles, 'Resume', '2027-01-14');
     await finishFence(page, titles);
+    page = await relaunch(page, 'old', errors);
+    await restoreFence(page, titles);
+
+    // Two weeks on, the update resumes the shed, moving its end by the two weeks.
+    page = await relaunch(page, 'new', errors, 14);
+    await pauseShed(page, titles, 'Resume', '2027-01-14');
     await pauseShed(page, titles, 'Pause');
 
-    // It fails its trial two weeks later, and the old bundle brings back what the update closed and paused.
+    // It fails its trial two weeks later, and the old bundle resumes what the update paused.
     page = await relaunch(page, 'old', errors, 28);
-    await restoreFence(page, titles);
     await pauseShed(page, titles, 'Resume', '2027-01-28');
     await pauseShed(page, titles, 'Pause');
 

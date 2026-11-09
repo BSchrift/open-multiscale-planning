@@ -144,9 +144,9 @@ describe('API', () => {
 });
 
 describe('Lambdas', () => {
-  it('are exactly three arm64 Go functions', () => {
+  it('are exactly four arm64 Go functions', () => {
     const fns = ofType('AWS::Lambda::Function');
-    assert.equal(fns.length, 3);
+    assert.equal(fns.length, 4);
     for (const [, f] of fns) {
       assert.deepEqual(f.Properties.Architectures, ['arm64']);
       assert.equal(f.Properties.Runtime, 'provided.al2023');
@@ -156,7 +156,7 @@ describe('Lambdas', () => {
 
   it('each has its own role', () => {
     const roles = new Set(ofType('AWS::Lambda::Function').map(([, f]) => f.Properties.Role['Fn::GetAtt'][0]));
-    assert.equal(roles.size, 3);
+    assert.equal(roles.size, 4);
   });
 
   it('get what they need through the environment', () => {
@@ -242,7 +242,9 @@ describe('retention', () => {
       Target: Match.objectLike({ Arn: { Ref: aliasOf('Retention') } }),
     });
     const prod = Template.fromStack(build('prod'));
-    assert.equal(Object.values(prod.toJSON().Resources as Record<string, Resource>).filter((r) => r.Type === 'AWS::Scheduler::Schedule').length, 1);
+    const prodSchedules = Object.values(prod.toJSON().Resources as Record<string, Resource>).filter((r) => r.Type === 'AWS::Scheduler::Schedule');
+    // The worker's and the canary's.
+    assert.deepEqual(prodSchedules.map((r) => r.Properties.ScheduleExpression).sort(), ['rate(30 minutes)', 'rate(5 minutes)']);
     assert.ok(mapping(prod));
   });
 
@@ -326,7 +328,7 @@ describe('least privilege', () => {
 
 describe('the backend canary', () => {
   const functions = ['Api', 'Calendar', 'Retention'];
-  const releaseAlarms = ['Api5xxRate', 'ApiLatency', 'LambdaErrors', 'DynamoThrottles', 'CalendarFailures', 'RetentionBehind'];
+  const releaseAlarms = ['Api5xxRate', 'ApiLatency', 'LambdaErrors', 'DynamoThrottles', 'CalendarFailures', 'RetentionBehind', 'CanaryFailures'];
   const resources = (template: Template) => template.toJSON().Resources as Record<string, Resource & { UpdatePolicy?: any }>;
   const groups = (template: Template) => Object.values(resources(template)).filter((r) => r.Type === 'AWS::CodeDeploy::DeploymentGroup');
 
@@ -343,8 +345,8 @@ describe('the backend canary', () => {
   it('invokes every function through its alias, never $LATEST', () => {
     const [, integration] = ofType('AWS::ApiGatewayV2::Integration')[0];
     assert.deepEqual(integration.Properties.IntegrationUri, { Ref: aliasOf('Api') });
-    for (const [, schedule] of ofType('AWS::Scheduler::Schedule')) {
-      assert.ok([aliasOf('Calendar'), aliasOf('Retention')].includes(schedule.Properties.Target.Arn.Ref), JSON.stringify(schedule.Properties.Target));
+    for (const [id, schedule] of ofType('AWS::Scheduler::Schedule').filter(([id]) => !id.startsWith('CanarySchedule'))) {
+      assert.ok([aliasOf('Calendar'), aliasOf('Retention')].includes(schedule.Properties.Target.Arn.Ref), `${id}: ${JSON.stringify(schedule.Properties.Target)}`);
     }
     const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m)).sort();
     assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention')].sort());
@@ -421,6 +423,47 @@ describe('the backend canary', () => {
     assert.equal(latency.Period, 300);
   });
 
+  // The canary names the API's alias by its ARN, since the alias waits for the canary to be updated.
+  const aliasArn = { 'Fn::Join': ['', [{ 'Fn::GetAtt': ['ApiFunctionCE271BD4', 'Arn'] }, ':live']] };
+
+  it('checks a new API version alone before it takes traffic, and only the API', () => {
+    const hooks = Object.fromEntries(functions.map((fn) => [fn, (all[aliasOf(fn)] as any).UpdatePolicy.CodeDeployLambdaAliasUpdate.BeforeAllowTrafficHook]));
+    assert.deepEqual(hooks.Api, { Ref: logicalId('Canary') });
+    assert.equal(hooks.Calendar, undefined);
+    assert.equal(hooks.Retention, undefined);
+    // It names the version being deployed, so CloudFormation updates it before moving the alias.
+    const env = all[logicalId('Canary')].Properties.Environment.Variables;
+    const version = all[aliasOf('Api')].Properties.FunctionVersion['Fn::GetAtt'][0];
+    assert.deepEqual(env.API_VERSION, { Ref: version });
+    assert.deepEqual(env.API_ALIAS, aliasArn);
+    assert.ok([(all[aliasOf('Api')] as any).DependsOn].flat().includes(logicalId('Canary')));
+  });
+
+  it('runs the canary against the live alias every 5 minutes, once each, since a retry would likely reach the old version', () => {
+    t.hasResourceProperties('AWS::Scheduler::Schedule', {
+      ScheduleExpression: 'rate(5 minutes)',
+      Target: Match.objectLike({ Arn: { 'Fn::GetAtt': [logicalId('Canary'), 'Arn'] } }),
+    });
+    t.hasResourceProperties('AWS::Lambda::EventInvokeConfig', { FunctionName: { Ref: logicalId('Canary') }, MaximumRetryAttempts: 0 });
+  });
+
+  it('lets the canary invoke only the API, its new version and its alias, and tell CodeDeploy how the check went', () => {
+    const statements = policyFor('Canary');
+    const invoke = statements.filter((s) => s.Action.includes('lambda:InvokeFunction')).flatMap((s) => [s.Resource].flat());
+    const version = all[aliasOf('Api')].Properties.FunctionVersion['Fn::GetAtt'][0];
+    assert.deepEqual(invoke.map((r) => JSON.stringify(r)).sort(), [JSON.stringify(aliasArn), JSON.stringify({ Ref: version })].sort());
+    assert.deepEqual(statements.flatMap((s) => s.Action).filter((a) => !a.startsWith('lambda:') && !a.startsWith('logs:')).sort(), ['codedeploy:PutLifecycleEventHookExecutionStatus']);
+    assert.ok(!statements.some((s) => s.Action.some((a: string) => a.startsWith('dynamodb:') || a.startsWith('ssm:'))));
+  });
+
+  it('alarms on one failed canary run, since a new version gets about one run in 20', () => {
+    const failures = alarmProps('CanaryFailures');
+    assert.equal(failures.Threshold, 1);
+    assert.equal(failures.EvaluationPeriods, 1);
+    assert.deepEqual(failures.Dimensions, [{ Name: 'FunctionName', Value: 'multiscale-staging-canary' }]);
+    assert.equal(all[logicalId('Canary')].Properties.FunctionName, 'multiscale-staging-canary');
+  });
+
   it('alarms when the retention consumer falls an hour behind the stream', () => {
     const behind = alarmProps('RetentionBehind');
     assert.equal(behind.MetricName, 'IteratorAge');
@@ -431,16 +474,16 @@ describe('the backend canary', () => {
 });
 
 describe('observability', () => {
-  it('sets 30-day retention on all four log groups, and every function uses its own', () => {
+  it('sets 30-day retention on all five log groups, and every function uses its own', () => {
     const groups = ofType('AWS::Logs::LogGroup');
-    assert.equal(groups.length, 4);
+    assert.equal(groups.length, 5);
     for (const [, g] of groups) assert.equal(g.Properties.RetentionInDays, 30);
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly eight alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly nine alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 8);
+    assert.equal(alarms.length, 9);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -576,7 +619,7 @@ describe('Go binaries', () => {
 
   const dist = (files: string[]) => {
     const dir = mkdtempSync(join(tmpdir(), 'dist-'));
-    for (const name of ['api', 'calendar', 'retention']) {
+    for (const name of ['api', 'calendar', 'retention', 'canary']) {
       mkdirSync(join(dir, name));
       for (const file of files) writeFileSync(join(dir, name, file), name);
     }

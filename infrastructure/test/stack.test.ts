@@ -349,9 +349,11 @@ describe('the backend canary', () => {
     const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m)).sort();
     assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention')].sort());
     // The API starts the worker by this name, and may invoke only the alias.
-    assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, { Ref: aliasOf('Calendar') });
+    // By ARN, not the alias resource, which would make a loop through the alias's deployment group (cycles.test.ts).
+    const calendarLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] };
+    assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, calendarLive);
     const invoke = policyFor('Api').filter((s) => s.Action.includes('lambda:InvokeFunction'));
-    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [{ Ref: aliasOf('Calendar') }]);
+    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [calendarLive]);
   });
 
   it('keeps the stream mappings where they are, so they move to the alias in place rather than start over', () => {

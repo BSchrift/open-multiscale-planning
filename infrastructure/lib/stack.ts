@@ -199,11 +199,15 @@ export class MultiscaleStack extends Stack {
 
     const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, Duration.minutes(5), {});
     const calendarAlias = live(calendarFunction);
+    // The API starts the worker through its alias, named by ARN rather than by the alias resource: CloudFormation counts
+    // the alias's UpdatePolicy, so the alias waits on its deployment group, whose alarms watch the API. Referring to the
+    // alias resource from the API would make a loop CloudFormation refuses (test/cycles.test.ts).
+    const calendarLiveArn = `${calendarFunction.functionArn}:${calendarAlias.aliasName}`;
     const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
     const retentionAlias = live(retentionFunction);
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
-      CALENDAR_FUNCTION_NAME: calendarAlias.functionArn,
+      CALENDAR_FUNCTION_NAME: calendarLiveArn,
     });
     const apiAlias = live(apiFunction);
 
@@ -237,7 +241,7 @@ export class MultiscaleStack extends Stack {
       actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
     }));
-    calendarAlias.grantInvoke(apiFunction);
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
 
     // What runs the worker
 

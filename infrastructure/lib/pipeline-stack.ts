@@ -156,7 +156,8 @@ export class PipelineStack extends Stack {
       output: source,
       // A clone rather than a zip: builds read the commit from git, and the cross-version suite builds an older one.
       codeBuildCloneOutput: true,
-      variablesNamespace: 'Source',
+      // Not 'Source': CodePipeline refuses a namespace named like an artifact.
+      variablesNamespace: 'GitHub',
     });
     const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = [], signed?: Artifact) => new CodeBuildAction({
       actionName,

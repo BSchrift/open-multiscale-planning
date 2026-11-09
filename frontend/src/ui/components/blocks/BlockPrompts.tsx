@@ -1,7 +1,7 @@
 // The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Task finished, Partly with the
-// time left, Not done), a practice's time logged, and one check-in for several missed blocks. On desktop they sit in
-// the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they close. One
-// that opens while you're typing or in another dialog waits until you're done.
+// time left, Not done) and a practice's time logged. Several missed blocks share one sheet, MissedSheet. On desktop
+// these sit in the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they
+// close. One that opens while you're typing or in another dialog waits until you're done.
 
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -15,7 +15,6 @@ import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
 import { Sheet } from '../Sheet';
 import { useDialogFocus } from '../useDialogFocus';
-import { formatRange } from './describe';
 import { useBlockActions } from './useBlockActions';
 
 function DesktopPrompt(props: { label: string; onClose(): void; children: ReactNode }) {
@@ -31,8 +30,11 @@ function DesktopPrompt(props: { label: string; onClose(): void; children: ReactN
 const busy = () =>
   !!document.querySelector('[aria-modal="true"]') || !!document.activeElement?.closest('input, textarea, select, [role="dialog"]');
 
-/** The corner panel on desktop, a sheet on phone. It waits while you're busy, looking again each time it re-renders. */
-function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
+/**
+ * The corner panel on desktop, a sheet on phone, or with `sheet` a sheet on both, with that class. It waits while you're
+ * busy, looking again each time it re-renders.
+ */
+export function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; sheet?: string; children: ReactNode }) {
   const { layout } = useApp();
   const [ready, setReady] = useState(false);
   // Read only to render again when Capture or Process closes, which renders nothing else here.
@@ -42,9 +44,9 @@ function PromptFrame(props: { label: string; onClose(): void; tall?: boolean; ch
     if (!ready && !busy()) setReady(true);
   });
   if (!ready) return null;
-  if (layout === 'phone') {
+  if (layout === 'phone' || props.sheet) {
     return (
-      <Sheet label={props.label} onClose={props.onClose} {...(props.tall ? { tall: true } : {})}>
+      <Sheet label={props.label} onClose={props.onClose} {...(props.tall ? { tall: true } : {})} {...(props.sheet ? { className: props.sheet } : {})}>
         {props.children}
       </Sheet>
     );
@@ -206,48 +208,6 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
           </button>
         </div>
       </div>
-    </PromptFrame>
-  );
-}
-
-/** One check-in in place of a string of prompts. Partly hands back to the caller to ask for the time left. */
-export function CheckIn(props: { blocks: readonly BlockRow[]; onPartly(block: BlockRow): void; onClose(): void }) {
-  const { blocks } = props;
-  const { clock, layout } = useApp();
-  const actions = useBlockActions();
-  const title = `Check in on ${blocks.length} missed ${blocks.length === 1 ? 'block' : 'blocks'}`;
-  return (
-    <PromptFrame label="Check-in" onClose={props.onClose} tall>
-      <div className="between">
-        <h2>{title}</h2>
-        {layout === 'phone' && (
-          <button className="btn" type="button" onClick={props.onClose}>
-            Later
-          </button>
-        )}
-      </div>
-      {blocks.map((b) => (
-        <div key={b.id} className="stack8" role="group" aria-label={b.title ?? 'Time block'}>
-          <div>
-            <div>{b.title}</div>
-            <div className="small quiet">{formatRange(b.start, b.end, clock.zone())}</div>
-          </div>
-          <div className="row">
-            <button className="btn sm" type="button" disabled={actions.pending} onClick={() => void actions.answer(b, { result: 'done' })}>
-              Task finished
-            </button>
-            <button className="btn sm" type="button" onClick={() => props.onPartly(b)}>
-              Partly
-            </button>
-            <button className="btn sm" type="button" disabled={actions.pending} onClick={() => void actions.answer(b, { result: 'not' })}>
-              Not done
-            </button>
-          </div>
-        </div>
-      ))}
-      <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.noneDone(blocks).then(props.onClose)}>
-        None of them, I'll choose new times later
-      </button>
     </PromptFrame>
   );
 }

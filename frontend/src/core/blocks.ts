@@ -1,6 +1,6 @@
-// A day's blocks as they happen: which one is now, the end-of-block answers, Mark done now, Start, Start early,
-// Do next block instead and Still going, plus the week's edits: move, remove, place, take off the calendar, keeping a
-// practice change, skipping a practice and placing the week's practices when asked.
+// A day's blocks as they happen: which one is now, the end-of-block answers (one, or several at once), Mark done now,
+// Start, Start early, Do next block instead and Still going, plus the week's edits: move, remove, place, take off the
+// calendar, keeping a practice change, skipping a practice and placing the week's practices when asked.
 // The in-app prompts and notification actions both write through here.
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
 
@@ -96,6 +96,49 @@ export async function answerBlock(w: Writer, blockId: string, answer: BlockAnswe
     reverse.unshift(...(await change(w, 'task', block.task_id, { remaining_min: answer.remaining_min })).writes);
   }
   return { writes: reverse };
+}
+
+export interface BlockAnswerFor {
+  blockId: string;
+  answer: BlockAnswer;
+}
+
+export interface AnsweredBlocks extends PlanChange {
+  /** Later missed blocks that went with a task their batch finished. */
+  freed: string[];
+}
+
+const isOpen = async (w: Writer, taskId: string) => {
+  const task = await getRecord(w.sql, 'task', taskId);
+  return !!task && !task.done_at && !task.cancelled_at && !task.deleted_at;
+};
+
+/**
+ * Answers several blocks in one transaction, in the order given, and returns one reverse for them all. A Done that
+ * closes its task also takes that task's later missed blocks off, as closeTask frees the time still to come: the work
+ * was finished before they began. One that was started, or is answered in this batch, stays.
+ */
+export async function answerBlocks(w: Writer, answers: readonly BlockAnswerFor[], clock: Clock): Promise<AnsweredBlocks> {
+  const reverse: RecordWrite[] = [];
+  const finishedFrom = new Map<string, number>();
+  for (const { blockId, answer } of answers) {
+    const block = await readBlock(w, blockId);
+    const closing = !!block.task_id && answer.result === 'done' && (await isOpen(w, block.task_id));
+    reverse.unshift(...(await answerBlock(w, blockId, answer, clock)).writes);
+    if (closing && !(await isOpen(w, block.task_id!))) finishedFrom.set(block.task_id!, instantMs(block.start));
+  }
+  const now = clock.now();
+  const freed: string[] = [];
+  for (const [taskId, from] of finishedFrom) {
+    const later = (await blocksInRange(w.sql, { from_utc: toInstant(from), to_utc: nowInstant(clock) })).filter(
+      (b) => b.task_id === taskId && instantMs(b.start) > from && instantMs(b.end) <= now && unanswered(b) && !b.started_at,
+    );
+    if (later.length === 0) continue;
+    const writes = later.map(({ id }): RecordWrite => ({ type: 'time_block', id, fields: { cancelled: true } }));
+    reverse.unshift(...(await applyPlanChange(w, { writes })).writes);
+    freed.push(...later.map((b) => b.id));
+  }
+  return { writes: reverse, freed };
 }
 
 /** Ends the block in progress now and answers Done, so the rest of its time is free again. */

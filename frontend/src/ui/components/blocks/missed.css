@@ -1,0 +1,68 @@
+/* The missed blocks sheet (MissedSheet.tsx). One column: the top and the bar stay put, and the rows between scroll once
+   the sheet reaches its height. On phone it rises from the bottom; on desktop it's a small dialog in the middle. */
+[data-layout] .sheet.missed { display: flex; flex-direction: column; gap: 0; overflow: visible; }
+[data-layout] .missed .misstop { position: relative; flex: none; }
+[data-layout] .missed .misshead { display: flex; align-items: center; gap: var(--space-1); min-height: 44px; }
+[data-layout] .missed .misshead h2 { margin: 0; }
+[data-layout] .missed .misscount { flex: 1; text-align: center; font-weight: 600; }
+[data-layout] .missed .missinfo { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--blue); }
+[data-layout] .missed svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+[data-layout] .missed svg .solid { fill: currentColor; stroke: none; }
+[data-layout] .missed .missinfo svg { width: 20px; height: 20px; stroke-width: 1.75; }
+
+[data-layout] .missed .misslist { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+[data-layout] .missed .missrow { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; padding: 6px 2px; border-bottom: 1px solid var(--line-soft); }
+[data-layout] .missed .missrow:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 6px; }
+[data-layout] .missed .missname { overflow-wrap: anywhere; }
+[data-layout] .missed .missans { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--white); color: var(--ink); }
+[data-layout] .missed .missans:hover:not(:disabled) { background: var(--hover); }
+[data-layout] .missed .missans svg { width: 18px; height: 18px; }
+[data-layout] .missed .misstick { display: flex; align-items: center; gap: var(--space-3); flex: 1; min-width: 0; min-height: 44px; cursor: pointer; }
+[data-layout] .missed .misstick input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--blue); }
+[data-layout] .missed .misstick .quiet { flex: none; }
+
+/* The key behind the ⓘ: under the title on desktop, above the sheet on phone, where the rows stay in sight. */
+[data-layout] .missed .misskey { position: absolute; z-index: 2; left: 0; top: calc(100% + 4px); display: grid; gap: 6px; padding: 10px 14px; border: 1.5px solid var(--blue); border-radius: 10px; background: var(--white); box-shadow: 0 8px 24px rgba(var(--ink-rgb), 0.16); }
+[data-layout] .missed .misskeyrow { display: flex; align-items: center; gap: 8px; }
+[data-layout] .missed .misskey svg { flex: none; width: 16px; height: 16px; }
+
+/* The Partly step: a stepper for each row. */
+[data-layout] .missed .missstep { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+[data-layout] .missed .missstep + p { margin: 10px 0 0; }
+[data-layout] .missed .missstepper { justify-self: start; display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: 999px; }
+[data-layout] .missed .missstepper button { width: 44px; height: 40px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font-size: 20px; line-height: 1; }
+[data-layout] .missed .missstepper button:disabled { color: var(--muted); }
+[data-layout] .missed .missstepper span { min-width: 104px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+[data-layout] .missed .missbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-3); }
+[data-layout] .missed .missbar .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+[data-layout] .missed .missbar .btn svg { flex: none; width: 16px; height: 16px; }
+[data-layout] .missed .missnote { flex: 1 1 100%; margin: 0; }
+
+[data-layout='desktop'] .overlay:has(> .sheet.missed) { align-items: center; padding: 24px; }
+[data-layout='desktop'] .sheet.missed { width: min(440px, calc(100vw - 48px)); max-width: none; max-height: 70vh; animation: missed-in 0.16s ease-out; }
+/* Its answers' toasts, with Undo, sit over the dimmed page rather than under it. */
+[data-layout='desktop']:has(.sheet.missed) .toast { z-index: 41; }
+
+/* On phone, as tall as its rows up to about 60% of the screen, above the keyboard; the top strip takes the swipe. */
+[data-layout='phone'] .sheet.missed {
+  max-height: calc(60vh - var(--keyboard, 0px));
+  max-height: calc(60dvh - var(--keyboard, 0px));
+  padding-top: 0;
+  animation: missed-up 0.24s ease-out;
+}
+[data-layout='phone'] .missed .misstop { touch-action: none; }
+[data-layout='phone'] .missed .missgrab { width: 36px; height: 5px; margin: 8px auto 2px; border-radius: 3px; background: var(--line-strong); }
+[data-layout='phone'] .missed .missans,
+[data-layout='phone'] .missed .missinfo { width: 44px; height: 44px; }
+[data-layout='phone'] .missed .missstepper button { height: 44px; }
+/* Three answers with their words across a phone's width, each on one line. */
+[data-layout='phone'] .missed .missbar .btn { flex: 1 1 0; padding-left: 6px; padding-right: 6px; white-space: nowrap; }
+[data-layout='phone'] .missed .missbar .btn.pri { flex-grow: 3; }
+[data-layout='phone'] .missed .misskey { top: auto; bottom: calc(100% + 8px); }
+
+@keyframes missed-up { from { transform: translateY(100%); } }
+@keyframes missed-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .sheet.missed { animation: none; }
+}

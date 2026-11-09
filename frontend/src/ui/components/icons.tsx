@@ -16,6 +16,32 @@ export function PenIcon() {
   );
 }
 
+/** An answer to a missed block: Finished (a tick), Partly (half a circle, filled) or Not done (a cross). */
+export function AnswerIcon(props: { answer: 'done' | 'partly' | 'not' }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {props.answer === 'done' && <path d="M5.5 12.5l4.25 4.25L18.5 8" />}
+      {props.answer === 'partly' && (
+        <>
+          <circle cx="12" cy="12" r="7" />
+          <path className="solid" d="M12 5a7 7 0 0 0 0 14z" />
+        </>
+      )}
+      {props.answer === 'not' && <path d="M7 7l10 10M17 7L7 17" />}
+    </svg>
+  );
+}
+
+/** An i in a circle, for a button that explains what's around it. */
+export function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v6M12 7.5v.5" />
+    </svg>
+  );
+}
+
 /** A phone tab's icon, drawn in the tab's text colour. */
 export function TabIcon(props: { tab: string }) {
   return (

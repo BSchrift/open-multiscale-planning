@@ -5,13 +5,21 @@ import type { ReactNode } from 'react';
 import { useApp } from '../app/store';
 import { useDialogFocus } from './useDialogFocus';
 
-export function Sheet(props: { label: string; describedBy?: string; onClose(): void; tall?: boolean; children: ReactNode }) {
+export function Sheet(props: {
+  label: string;
+  describedBy?: string;
+  onClose(): void;
+  tall?: boolean;
+  /** Another class for the sheet, for one that sizes itself. */
+  className?: string;
+  children: ReactNode;
+}) {
   const { layout } = useApp();
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);
   const sheet = (
     <div
       ref={ref}
-      className={`sheet stack8${props.tall ? ' tall' : ''}`}
+      className={`sheet stack8${props.tall ? ' tall' : ''}${props.className ? ` ${props.className}` : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={props.label}

@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release promote release-tag pipeline-config pipeline-pause pipeline-resume scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release promote release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -52,6 +52,7 @@ test-retention:
 # release pipeline. Both deploy and smoke
 # read <env>.yaml from MULTISCALE_CONFIG_DIR, else config/, and sign in with its aws.profile. A backend change takes
 # traffic by config/env's canary, a day on prod; CANARY=skip sends it all at once, and the alarms still roll it back.
+# ALARMS=off deploys while a release alarm fires, for the fix to it; the next deploy turns the alarms back on.
 deploy:
 	@scripts/deploy.sh
 
@@ -64,8 +65,9 @@ release:
 	@scripts/release.sh
 
 # The release pipeline, from this Mac with control.yaml's profile: docs/releasing.md. promote starts a run by hand,
-# COMMIT=<sha> (default: the branch's latest) and CANARY=skip to send prod all traffic at once, which an agent uses only
-# with the owner's go-ahead, each time. It still waits for approval. release-tag tags what prod last released.
+# COMMIT=<sha> (default: the branch's latest), CANARY=skip to send prod all traffic at once, and ALARMS=off to ship
+# while a release alarm fires. An agent uses either only with the owner's go-ahead, each time. It still waits out its
+# window before prod. release-tag tags what prod last released, with what the run skipped.
 promote:
 	@scripts/pipeline.sh run
 
@@ -80,6 +82,10 @@ pipeline-pause:
 
 pipeline-resume:
 	@scripts/pipeline.sh resume
+
+# Stops the run waiting in its window before prod, after staging passed, so it never reaches prod.
+pipeline-stop:
+	@scripts/pipeline.sh stop
 
 # Updates the agent skills in .claude/skills to their latest releases, as .claude/skills/sources.tsv lists them.
 update-skills:

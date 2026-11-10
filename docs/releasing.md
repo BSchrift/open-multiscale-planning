@@ -146,7 +146,9 @@ older app that can't take the new bundle is offered the new app instead
 ([Mac apps from GitHub Actions](#mac-apps-from-github-actions)). When the iPhone app's changed, or the Mac app's
 without the Mac release set up, the pipeline leaves the feed alone and says so. Then, after the release reaches prod,
 run `make release-tag`, then `git checkout <tag>` and `make release ENV=prod`. That builds and signs the Mac app on the
-Mac and uploads it, then the feed; the iPhone app goes through Xcode or TestFlight.
+Mac and uploads it, then the feed. Once its tests pass, it uploads the iPhone app from the same commit to TestFlight,
+so testers' builds take the same updates; `SKIP_TESTFLIGHT=1` leaves that out, and GitHub Actions can upload it instead,
+as [setup.md](setup.md#testflight) explains.
 
 ## Setting it up
 

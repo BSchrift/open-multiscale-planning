@@ -131,19 +131,35 @@ describe('the Now card', () => {
       expect(within(now).getByRole('timer')).toHaveTextContent('1:00:00');
     });
 
-    it('Resume moves the end later by the pause, says so with Undo, and Undo pauses it again', async () => {
+    it('Resume moves the end later by the pause, with no toast, and a tap on the ring within 30 seconds takes it back exactly', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await within(now).findByRole('button', { name: /^Resume, / });
       later(t, 9);
       await userEvent.click(within(now).getByRole('button', { name: /^Resume, / }));
-      expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+      expect(await within(now).findByText('Now, 1pm to 3:09pm')).toBeVisible();
       expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') });
-      expect(within(now).getByText('Now, 1pm to 3:09pm')).toBeVisible();
       expect(await within(now).findByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }, { timeout: 2000 })).toBeVisible();
-      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_min ?? null).toBeNull();
+    });
+
+    it('a tap more than 30 seconds after Resume is a new pause', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      later(t, 9);
+      await userEvent.click(await within(now).findByRole('button', { name: /^Resume, / }));
+      await within(now).findByText('Now, 1pm to 3:09pm');
+      later(t, 20);
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await waitFor(async () =>
+        expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: at('14:20'), paused_min: 9, end: at('15:09') }),
+      );
     });
 
     it('a quick second tap leaves no trace and no toast', async () => {
@@ -233,10 +249,14 @@ describe('the end-of-block prompt', () => {
     expect(within(prompt).getByText('22m spent. Paused at 1:22pm.')).toBeVisible();
     expect(within(prompt).queryByRole('button', { name: /Still going/ })).toBeNull();
     await userEvent.click(within(prompt).getByRole('button', { name: 'Resume, 28m left' }));
-    expect(await screen.findByText('Resumed. It now ends at 2:28pm.')).toBeVisible();
-    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 38, end: at('14:28') });
     const now = screen.getByRole('region', { name: 'Current block' });
-    expect(await within(now).findByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
+    const ring = await within(now).findByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' });
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 38, end: at('14:28') });
+    expect(screen.queryByText(/^Resumed/)).toBeNull();
+    // Pressed by mistake, a tap on the ring takes it back: paused from the same moment, and the block missed again.
+    await userEvent.click(ring);
+    await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: at('13:22'), end: at('13:50') }));
+    expect(await screen.findByRole('button', { name: 'Review' })).toBeVisible();
   });
 
   it('Partly sets the time left on a slider that starts at what is left', async () => {

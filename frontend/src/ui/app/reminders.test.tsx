@@ -107,6 +107,34 @@ describe('reminders', () => {
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 43, end: at(16, 43) }));
     });
 
+    it('Resume on the reminder that the block is still paused resumes it', async () => {
+      const t = await open();
+      await t.write(paused);
+      let still: Reminder | undefined;
+      await waitFor(async () => {
+        still = (await t.scheduled()).find((r) => r.kind === 'still_paused');
+        expect(still?.title).toBe('Still paused: Write the report');
+      });
+      act(() => t.clock.set(at(15, 40)));
+      await act(() => t.platform.notifications.respond({ reminder_id: still!.id, block_id: 'b1', action_id: REMINDER_ACTION.resume }));
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 18, end: at(16, 18) }));
+      await waitFor(async () => expect((await t.scheduled()).some((r) => r.kind === 'still_paused')).toBe(false));
+    });
+
+    it('a still-paused reminder left showing after the block was resumed changes nothing', async () => {
+      const t = await open();
+      await t.write(paused);
+      let still: Reminder | undefined;
+      await waitFor(async () => {
+        still = (await t.scheduled()).find((r) => r.kind === 'still_paused');
+        expect(still).toBeDefined();
+      });
+      // Resumed on this device inside 30 seconds, so the end didn't move.
+      await t.write((w) => w.set('time_block', 'b1', { paused_at: null }));
+      await act(() => t.platform.notifications.respond({ reminder_id: still!.id, block_id: 'b1', action_id: REMINDER_ACTION.resume }));
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, end: at(16) }));
+    });
+
     it('Still going on a notification shown before the pause resumes it rather than adding 30 minutes', async () => {
       const t = await open();
       await t.write(paused);

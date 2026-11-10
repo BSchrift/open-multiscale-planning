@@ -19,6 +19,7 @@ import { formatMinutes, formatTime, localDate, weekStart } from '../../../core/d
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
+import type { Db } from '../../../core/db';
 import type { Writer } from '../../../core/records';
 import { snoozeUntil } from '../../../core/reminders';
 import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
@@ -27,8 +28,16 @@ import { useToast } from '../Toast';
 
 const QUEUED = 'Added to Needs a new time. No need to decide now.';
 
+/** As long as a pause takes to leave a trace, a Resume can be taken back. */
+const TAKE_BACK_MS = 30_000;
+/**
+ * The last Resume, from the ring or the end question, which a tap on the ring soon after takes back exactly, since
+ * neither shows a toast to undo it from. Held only in this session; past the window, the tap is a new pause.
+ */
+let lastResume: { db: Db; blockId: string; at: number; reverse: PlanChange } | null = null;
+
 export function useBlockActions() {
-  const { clock } = useApp();
+  const { clock, db } = useApp();
   const toast = useToast();
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange | void>) => fn(w));
   const { run } = write;
@@ -75,17 +84,20 @@ export function useBlockActions() {
         true,
       );
     },
-    /** No toast: tapping the ring again is Pause's undo, and a pause under 30 seconds leaves no trace. */
-    pause: (block: BlockRow) => run((w) => pauseBlock(w, block.id, clock)),
-    /** Resume says where the end moved, with Undo, unless the pause was too short to move it. */
+    /**
+     * No toasts: each is the other's undo. Resume undoes a Pause, which under 30 seconds leaves no trace, and a Pause
+     * soon after a Resume takes it back exactly, paused again from the same moment with the end where it was.
+     */
+    pause: (block: BlockRow) => {
+      const last = lastResume;
+      lastResume = null;
+      const since = last ? clock.now() - last.at : -1;
+      const takeBack = last && last.db === db && last.blockId === block.id && since >= 0 && since < TAKE_BACK_MS ? last.reverse : null;
+      return run((w) => (takeBack ? applyPlanChange(w, takeBack) : pauseBlock(w, block.id, clock)));
+    },
     resume: async (block: BlockRow) => {
-      let end = '';
-      const reverse = await run(async (w) => {
-        const resumed = await resumeBlock(w, block.id, clock);
-        if (resumed.minutes) end = resumed.end;
-        return resumed;
-      });
-      if (reverse && end) toast.show(`Resumed. It now ends at ${formatTime(end, clock.zone())}.`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
+      const reverse = await run((w) => resumeBlock(w, block.id, clock));
+      lastResume = reverse?.writes.length ? { db, blockId: block.id, at: clock.now(), reverse } : null;
     },
     /** Skip, choose a new time later: off the calendar and into To schedule, still in its week. */
     skip: (block: BlockRow) =>

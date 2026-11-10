@@ -75,12 +75,14 @@ const withBlock = (reminder: Reminder, block: BlockRow): Reminder => ({
 
 /**
  * Whether the block has changed since the notification with this id was scheduled: moved, lengthened or given other
- * work, or for a start or check-in, started. One scheduled before ids carried the block can't tell, so it has.
+ * work, for a start or check-in, started, and for a pause, resumed. One scheduled before ids carried the block can't
+ * tell, so it has.
  */
 function changedSince(reminderId: string, block: TimeBlock): boolean {
   const [, kind, start, end, work] = reminderId.split(' ');
   if (work === undefined) return true;
-  return start !== block.start || end !== block.end || work !== workOf(block) || (kind !== 'block_end' && !!block.started_at);
+  const moved = start !== block.start || end !== block.end || work !== workOf(block);
+  return moved || (kind === 'still_paused' ? !block.paused_at : kind !== 'block_end' && !!block.started_at);
 }
 
 const STALE = 'stale';

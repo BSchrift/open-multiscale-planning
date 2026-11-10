@@ -346,7 +346,7 @@ export interface RecordChange {
   fields: Record<string, FieldChange>;
 }
 
-export type ReminderKind = 'block_start' | 'check_in' | 'block_end';
+export type ReminderKind = 'block_start' | 'check_in' | 'block_end' | 'still_paused';
 
 export interface ReminderAction {
   id: string;

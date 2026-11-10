@@ -54,7 +54,7 @@ test('the Now card: Start counts down, Mark done now frees the time, and Undo pu
   expect(errors).toEqual([]);
 });
 
-test('the time-spent ring pauses and resumes the block under way, and Resume moves its end, with Undo', async ({ page }, info) => {
+test('the time-spent ring pauses and resumes the block under way, and a tap soon after Resume takes it back', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') }), block('b2', 't2', '16:00', '17:00')]);
@@ -87,14 +87,15 @@ test('the time-spent ring pauses and resumes the block under way, and Resume mov
   await expect(now.getByRole('timer')).toHaveText('38:00');
   await shot('ring-paused');
 
+  // Resume moves the end on by the pause, with no toast: a tap on the ring straight after takes it back.
   await now.getByRole('button', { name: /^Resume, / }).click();
-  await expect(page.getByText('Resumed. It now ends at 2:44pm.')).toBeVisible();
   await expect(now.getByText('Now, 1:38pm to 2:44pm')).toBeVisible();
   await expect(now.getByRole('button', { name: /^Pause, 22 minutes spent/ })).toBeVisible();
+  await expect(page.locator('.toast')).toHaveCount(0);
   await shot('ring-resumed');
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await now.getByRole('button', { name: /^Pause, / }).click();
   await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
-  await expect(now.getByRole('button', { name: /^Resume, / })).toBeVisible();
+  await expect(now.getByText('Paused for 6 min')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -121,8 +122,8 @@ test('a pause running to the end asks the end question, whose Resume runs into t
   await expect(prompt.getByRole('button', { name: /Still going/ })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`end-paused-${info.project.name}.png`) });
   await prompt.getByRole('button', { name: 'Resume, 28m left' }).click();
-  await expect(page.getByText('Resumed. It now ends at 2:28pm.')).toBeVisible();
   const now = page.getByRole('region', { name: 'Current block' });
+  await expect(now.getByText('Now, 1pm to 2:28pm')).toBeVisible();
   await expect(now.getByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
 
   await expect(page.getByText('Paint the fence conflicts with Write the report.')).toBeVisible();

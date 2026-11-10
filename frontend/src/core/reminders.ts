@@ -2,7 +2,7 @@
 // answering on another device clears the prompt here at this device's next sync.
 
 import { isPaused, spentLine, timeLeftMs, workMinutes } from './blocks';
-import { formatMinutes, instantMs, localDate, toInstant } from './dates';
+import { formatMinutes, formatTime, instantMs, localDate, toInstant } from './dates';
 import type { UtcRange } from './dates';
 import type { Clock } from './clock';
 import type { BlockRow } from './queries';
@@ -13,6 +13,8 @@ import type { AwayPeriod, Instant, Reminder, ReminderAction, ReminderSettings } 
 export const REMINDER_LIMIT = 64;
 
 const SNOOZE_MIN = 10;
+/** How long a pause runs before one reminder that the block is still paused. */
+export const PAUSE_REMINDER_MIN = 15;
 const MINUTE_MS = 60_000;
 const DAY_MS = 1440 * MINUTE_MS;
 /** Comfortably more than 64 reminders' worth of a normal plan, and the list is rebuilt at every open and sync. */
@@ -54,6 +56,7 @@ const END_ACTIONS: ReminderAction[] = [
 const startId = (blockId: string) => `reminder:${blockId}:start`;
 const checkInId = (blockId: string) => `reminder:${blockId}:check_in`;
 const endId = (blockId: string) => `reminder:${blockId}:end`;
+const pausedId = (blockId: string) => `reminder:${blockId}:still_paused`;
 
 /** The blocks to pass to remindersToSchedule, through blocksInRange. Starts in the past to catch a running block. */
 export function reminderRange(clock: Clock): UtcRange {
@@ -107,6 +110,21 @@ function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: In
       if (instantMs(at) < end) {
         out.push({ id: checkInId(block.id), kind: 'check_in', block_id: block.id, at, title: 'Have you started?', body: name, actions: CHECK_IN_ACTIONS });
       }
+    }
+  }
+  // A check-in on a pause: once, partway through it, unless the block's end, which asks anyway, comes first.
+  if (settings.check_in && isPaused(block)) {
+    const at = instantMs(block.paused_at!) + PAUSE_REMINDER_MIN * MINUTE_MS;
+    if (at < end) {
+      out.push({
+        id: pausedId(block.id),
+        kind: 'still_paused',
+        block_id: block.id,
+        at: toInstant(at),
+        title: `Still paused: ${name}`,
+        body: `Paused since ${formatTime(block.paused_at!, zone)}. It ends at ${formatTime(end, zone)} unless you resume.`,
+        actions: [{ id: A.resume, title: 'Resume' }],
+      });
     }
   }
   if (settings.block_end) {

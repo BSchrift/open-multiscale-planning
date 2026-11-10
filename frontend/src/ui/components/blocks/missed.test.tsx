@@ -54,6 +54,32 @@ describe('the missed blocks sheet', () => {
     expect(within(dialog).getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('says the time spent and the pauses on a row that was started', async () => {
+    await renderScreen('today', {
+      now: at(14),
+      zone: ZONE,
+      seed: async (w) => {
+        await morning(w);
+        await w.set('time_block', 'b3', { started_at: at(12), end: at(13, 9), paused_min: 9 });
+      },
+    });
+    const row = within(await sheet()).getAllByRole('group')[3]!;
+    expect(within(row).getByText('1h spent, 9 min paused.')).toBeVisible();
+  });
+
+  it('a practice paused and resumed logs its time less the pause', async () => {
+    const t = await renderScreen('today', {
+      now: at(14),
+      zone: ZONE,
+      seed: async (w) => {
+        await morning(w);
+        await w.set('time_block', 'pb', { started_at: at(11), end: at(11, 39), paused_min: 9 });
+      },
+    });
+    await userEvent.click(within(await sheet()).getByRole('button', { name: 'Did it: Piano' }));
+    await waitFor(async () => expect((await outcome(t, 'pb'))?.logged_min).toBe(30));
+  });
+
   it('Finished saves at once with Undo, and the task takes its later missed block with it', async () => {
     const t = await open();
     await userEvent.click(within(await sheet()).getAllByRole('button', { name: 'Finished: Draft chapter five' })[0]!);

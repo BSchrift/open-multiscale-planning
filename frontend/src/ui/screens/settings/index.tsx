@@ -6,6 +6,7 @@ import { addWeeks, formatDate, formatMinutes, formatTime, localDate, nowInstant,
 import type { Sql } from '../../../core/db';
 import { cadenceLabel } from '../../../core/plan';
 import { CALENDAR_ID, getRecord, getSettings, listRecords, updateSettings } from '../../../core/records';
+import { PAUSE_REMINDER_MIN } from '../../../core/reminders';
 import { slotContext } from '../../../core/slots';
 import { syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
@@ -349,6 +350,7 @@ function Reminders(props: { layout: Layout }) {
       <div className={row}>{toggle('block_start', 'Notify at block start')}</div>
       <div className={row}>
         {toggle('check_in', "Ask if I've started, unless I already tapped Start")}
+        {r.check_in && <p className="small quiet">A paused block also gets one reminder after {PAUSE_REMINDER_MIN} minutes.</p>}
         {r.check_in && (
           <div className="stack8 delay">
             <div className="between">

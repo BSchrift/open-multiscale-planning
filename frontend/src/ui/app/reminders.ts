@@ -5,9 +5,9 @@
 // block is still the one the notification was about.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { answerBlock, extendBlock, nextBlock, startBlock, swapBlocks, unscheduleBlock } from '../../core/blocks';
+import { answerBlock, extendBlock, nextBlock, resumeBlock, startBlock, swapBlocks, unscheduleBlock, workMinutes } from '../../core/blocks';
 import type { Clock } from '../../core/clock';
-import { blockMinutes, dayRange, instantMs, localDate, today, weekStart } from '../../core/dates';
+import { dayRange, instantMs, localDate, today, weekStart } from '../../core/dates';
 import { blocksInRange } from '../../core/queries';
 import type { BlockRow } from '../../core/queries';
 import { getRecord, getSettings, listRecords, outcomeId } from '../../core/records';
@@ -75,12 +75,14 @@ const withBlock = (reminder: Reminder, block: BlockRow): Reminder => ({
 
 /**
  * Whether the block has changed since the notification with this id was scheduled: moved, lengthened or given other
- * work, or for a start or check-in, started. One scheduled before ids carried the block can't tell, so it has.
+ * work, for a start or check-in, started, and for a pause, resumed. One scheduled before ids carried the block can't
+ * tell, so it has.
  */
 function changedSince(reminderId: string, block: TimeBlock): boolean {
   const [, kind, start, end, work] = reminderId.split(' ');
   if (work === undefined) return true;
-  return start !== block.start || end !== block.end || work !== workOf(block) || (kind !== 'block_end' && !!block.started_at);
+  const moved = start !== block.start || end !== block.end || work !== workOf(block);
+  return moved || (kind === 'still_paused' ? !block.paused_at : kind !== 'block_end' && !!block.started_at);
 }
 
 const STALE = 'stale';
@@ -163,9 +165,12 @@ export function useReminders(): void {
       case A.logAll:
         // Only a practice's notification offers it, and on a block holding a task it would finish the task.
         if (!block.practice_id) return STALE;
-        return answerBlock(w, id, { result: 'done', logged_min: blockMinutes(block) }, tap);
+        return answerBlock(w, id, { result: 'done', logged_min: workMinutes(block) }, tap);
+      case A.resume:
+        return resumeBlock(w, id, tap);
       case A.stillGoing:
-        return extendBlock(w, id, STILL_GOING_MIN);
+        // Shown before a pause that ran to the end, it resumes, keeping the time left, as the end question does now.
+        return block.paused_at ? resumeBlock(w, id, tap) : extendBlock(w, id, STILL_GOING_MIN);
       case A.nextBlock: {
         const blocks = await blocksInRange(w.sql, dayRange(today(tap), tap.zone()));
         const next = nextBlock(blocks.filter((b) => b.id !== id), tap);

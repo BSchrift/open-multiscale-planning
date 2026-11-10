@@ -2,6 +2,7 @@
 // the stretch view adds patterns, milestones met and estimate drift. Everything returned is numbers for the UI to
 // format, except pattern text, which is built here because its wording depends on the counts.
 
+import { timeSpentMs } from './blocks';
 import type { Clock } from './clock';
 import { addWeeks, instantMs, localDate, localMinutes, thisWeek, today, weekday, weekStart } from './dates';
 import type { Sql } from './db';
@@ -170,8 +171,8 @@ const cappedPct = (part: number, whole: number) => (whole > 0 ? Math.min(100, Ma
 function deliveredMinutes(block: TimeBlock, outcome: BlockOutcome | undefined, planned: Minutes): Minutes {
   if (!outcome || outcome.result === 'not') return 0;
   if (outcome.logged_min != null) return outcome.logged_min;
-  // shortcut: a Partly with no logged minutes counts the whole span, upgrade if the prompt stops logging them.
-  const span = minutesBetween(block.started_at ?? block.start, block.ended_at ?? block.end);
+  // shortcut: a Partly with no logged minutes counts the whole time spent, upgrade if the prompt stops logging them.
+  const span = Math.round(timeSpentMs(block, Infinity) / 60_000);
   return span > 0 ? span : planned;
 }
 
@@ -198,7 +199,8 @@ function blockFacts(data: AnalyticsData, zone: string): Fact[] {
     const date = localDate(block.start, block.tz || zone);
     const away = isAway(date, data.away);
     if (away && !outcome) continue;
-    const planned = minutesBetween(block.start, block.end);
+    // Resume moved the end later by each pause, which wasn't planned work.
+    const planned = minutesBetween(block.start, block.end) - (block.paused_min ?? 0);
     facts.push({
       block,
       week: weekStart(localDate(block.start, zone)),

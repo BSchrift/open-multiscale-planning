@@ -4,21 +4,29 @@ import {
   answerBlocks,
   currentBlock,
   extendBlock,
+  isPaused,
   keepPracticeChange,
   markDoneNow,
   moveBlock,
   nextBlock,
   partlyLeft,
+  pauseBlock,
   placeBlock,
   placeSession,
   placeWeekPractices,
   removeBlock,
+  resumeBlock,
+  ringFill,
   skipPractice,
+  spentLine,
   startBlock,
   startEarly,
   startTaskNow,
   swapBlocks,
+  timeLeftMs,
+  timeSpentMs,
   unscheduleBlock,
+  workMinutes,
 } from './blocks';
 import { fixedClock } from './clock';
 import { openDb } from './db';
@@ -27,6 +35,7 @@ import type { BlockRow } from './queries';
 import { blocksInRange } from './queries';
 import { getRecord, listRecords, outcomeId, setWeekPick, transact, weekPickId, weekPlanId } from './records';
 import type { Writer } from './records';
+import { missedBlocks } from './reminders';
 import { runSync } from './sync';
 import { fakeSyncServer } from './sync-testing';
 import { tickOneOff } from './tasks';
@@ -542,5 +551,202 @@ describe('placing and unscheduling by hand', () => {
     const undo = await t.run((w) => unscheduleBlock(w, 'piano', WEEK, t.clock));
     expect(undo.writes).toHaveLength(1);
     expect(await live(t.db)).not.toContain('piano');
+  });
+});
+
+describe('pausing work on a block', () => {
+  // The block 'now' runs 6pm to 7pm and was started on time; it's 6:30pm.
+  const MIN = 60_000;
+  const started = (w: Writer) => w.set('time_block', 'now', { started_at: at('18:00') });
+  const sec = (time: string) => `2026-11-02T${time}Z`;
+  const row = async (t: Awaited<ReturnType<typeof setup>>) => (await t.rows()).find((b) => b.id === 'now')!;
+
+  it('Pause stops the clock where it is, and its reverse clears it as if it never paused', async () => {
+    const t = await setup(started);
+    const undo = await t.run((w) => pauseBlock(w, 'now', t.clock));
+    expect(await t.block('now')).toMatchObject({ paused_at: NOW, end: at('19:00') });
+    t.clock.set(at('18:40'));
+    const paused = await row(t);
+    expect(isPaused(paused)).toBe(true);
+    expect(timeSpentMs(paused, t.clock.now())).toBe(30 * MIN);
+    expect(timeLeftMs(paused, t.clock.now())).toBe(30 * MIN);
+    expect(currentBlock(await t.rows(), t.clock)?.id).toBe('now');
+    expect(undo.writes).toEqual([{ type: 'time_block', id: 'now', fields: { paused_at: null } }]);
+    await t.run((w) => applyPlanChange(w, undo));
+    expect(isPaused(await row(t))).toBe(false);
+  });
+
+  it('Resume sets the end and paused_min later by the pause in whole minutes, and its reverse pauses again from the same moment', async () => {
+    const t = await setup(started);
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(sec('18:39:20'));
+    const resumed = await t.run((w) => resumeBlock(w, 'now', t.clock));
+    expect(resumed).toMatchObject({ minutes: 9, end: at('19:09') });
+    expect(await t.block('now')).toMatchObject({ paused_at: null, paused_min: 9, end: at('19:09') });
+
+    // A second pause adds to the first, written as values rather than increments.
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(sec('18:45:50'));
+    const again = await t.run((w) => resumeBlock(w, 'now', t.clock));
+    expect(again.writes).toEqual([{ type: 'time_block', id: 'now', fields: { paused_at: sec('18:39:20'), paused_min: 9, end: at('19:09') } }]);
+    expect(await t.block('now')).toMatchObject({ paused_at: null, paused_min: 16, end: at('19:16') });
+    await t.run((w) => applyPlanChange(w, again));
+    expect(await t.block('now')).toMatchObject({ paused_at: sec('18:39:20'), paused_min: 9, end: at('19:09') });
+  });
+
+  it('a pause under 30 seconds leaves no trace', async () => {
+    const t = await setup(started);
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(sec('18:30:29'));
+    const resumed = await t.run((w) => resumeBlock(w, 'now', t.clock));
+    expect(resumed.minutes).toBe(0);
+    const block = await t.block('now');
+    expect(block).toMatchObject({ paused_at: null, end: at('19:00') });
+    expect(block?.paused_min ?? null).toBeNull();
+  });
+
+  it('time spent leaves out pauses, and the ring fills by time spent against time spent plus time left', async () => {
+    const t = await setup(started);
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(at('18:39'));
+    await t.run((w) => resumeBlock(w, 'now', t.clock));
+    t.clock.set(at('18:51'));
+    const b = await row(t);
+    expect(timeSpentMs(b, t.clock.now())).toBe(42 * MIN);
+    expect(timeLeftMs(b, t.clock.now())).toBe(18 * MIN);
+    expect(ringFill(b, t.clock.now())).toBeCloseTo(42 / 60);
+    // Still going makes the ring drop back as the countdown grows.
+    await t.run((w) => extendBlock(w, 'now', 30));
+    expect(ringFill(await row(t), t.clock.now())).toBeCloseTo(42 / 90);
+  });
+
+  it('Mark done now while paused resumes first, so the time spent stops at the pause, and undoes to paused', async () => {
+    const t = await setup(started);
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(at('18:40'));
+    const undo = await t.run((w) => markDoneNow(w, 'now', t.clock));
+    const done = await t.block('now');
+    expect(done).toMatchObject({ paused_at: null, paused_min: 10, end: at('19:10'), ended_at: at('18:40') });
+    expect(timeSpentMs(done!, t.clock.now())).toBe(30 * MIN);
+    await t.run((w) => applyPlanChange(w, undo));
+    expect(await t.block('now')).toMatchObject({ paused_at: NOW, end: at('19:00'), ended_at: null });
+    expect((await getRecord(t.db, 'task', 't'))?.done_at).toBeNull();
+  });
+
+  it('a pause still running at the end lands in the end question, and Resume there keeps the time left', async () => {
+    const t = await setup(started);
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(at('19:05'));
+    expect(currentBlock(await t.rows(), t.clock)).toBeUndefined();
+    expect(missedBlocks(await t.rows(), [], t.clock).map((b) => b.id)).toContain('now');
+    expect(timeLeftMs(await row(t), t.clock.now())).toBe(30 * MIN);
+    await t.run((w) => resumeBlock(w, 'now', t.clock));
+    expect(await t.block('now')).toMatchObject({ paused_at: null, paused_min: 35, end: at('19:35') });
+    expect(currentBlock(await t.rows(), t.clock)?.id).toBe('now');
+  });
+
+  it('Pause does nothing to a block not started, already paused, ended, answered or over, and Resume nothing to one not paused', async () => {
+    const t = await setup();
+    expect((await t.run((w) => pauseBlock(w, 'now', t.clock))).writes).toEqual([]);
+    await t.run(started);
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(at('18:35'));
+    expect((await t.run((w) => pauseBlock(w, 'now', t.clock))).writes).toEqual([]);
+    expect((await t.block('now'))?.paused_at).toBe(NOW);
+    await t.run((w) => resumeBlock(w, 'now', t.clock));
+    await t.run((w) => answerBlock(w, 'now', { result: 'partly', remaining_min: 60 }, t.clock));
+    expect((await t.run((w) => pauseBlock(w, 'now', t.clock))).writes).toEqual([]);
+    expect((await t.run((w) => resumeBlock(w, 'now', t.clock))).writes).toEqual([]);
+    await t.run((w) => w.set('time_block', 'piano', { started_at: at('17:00') }));
+    expect((await t.run((w) => pauseBlock(w, 'piano', t.clock))).writes).toEqual([]);
+  });
+
+  it('the end question says the time spent and the pauses', async () => {
+    const t = await setup(started);
+    t.clock.set(at('19:05'));
+    expect(spentLine(await row(t), 'UTC', t.clock.now())).toBe('1h spent.');
+    t.clock.set(at('18:30'));
+    await t.run((w) => pauseBlock(w, 'now', t.clock));
+    t.clock.set(at('18:39'));
+    expect(spentLine(await row(t), 'UTC', t.clock.now())).toBe('30m spent. Paused at 6:30pm.');
+    await t.run((w) => resumeBlock(w, 'now', t.clock));
+    t.clock.set(at('19:10'));
+    expect(spentLine(await row(t), 'UTC', t.clock.now())).toBe('1h spent, 9 min paused.');
+    expect(spentLine((await t.rows()).find((b) => b.id === 'next')!, 'UTC', t.clock.now())).toBeNull();
+  });
+
+  it('a practice logs its length less its pauses', async () => {
+    const t = await setup((w) => w.set('time_block', 'piano', { started_at: at('17:00'), end: at('17:39'), paused_min: 9 }));
+    const piano = async () => (await t.rows()).find((b) => b.id === 'piano')!;
+    expect(workMinutes(await piano())).toBe(30);
+    await t.run((w) => w.set('time_block', 'piano', { end: at('17:30'), paused_min: null, paused_at: at('17:20') }));
+    expect(workMinutes(await piano())).toBe(20);
+    await t.run((w) => w.set('time_block', 'piano', { started_at: null, paused_at: null }));
+    expect(workMinutes(await piano())).toBe(30);
+  });
+
+  describe('across devices', () => {
+    async function two() {
+      const clock = fixedClock(NOW);
+      const server = fakeSyncServer({ now: () => clock.now() });
+      const [phone, desk] = [await openTestDb(), await openTestDb()];
+      await transact(phone, clock, async (w) => {
+        await w.create('task', { kind: 'project', project_id: 'p', title: 'Write the report', estimate_min: 180 }, 't');
+        await w.create('time_block', { task_id: 't', start: at('18:00'), end: at('19:00'), tz: 'UTC', started_at: at('18:00') }, 'b');
+      });
+      await runSync(phone, server.send);
+      await runSync(desk, server.send);
+      const both = async () => {
+        for (const db of [phone, desk, phone]) await runSync(db, server.send);
+      };
+      const rowOn = async (db: typeof phone) => (await blocksInRange(db, { from_utc: at('00:00'), to_utc: '2026-11-03T00:00:00Z' }))[0]!;
+      return { clock, phone, desk, both, rowOn };
+    }
+
+    it('one device pausing while another ends the block: ended wins, and the time spent stops at whichever came first', async () => {
+      const d = await two();
+      await transact(d.phone, d.clock, (w) => pauseBlock(w, 'b', d.clock));
+      d.clock.set(at('18:35'));
+      await transact(d.desk, d.clock, (w) => markDoneNow(w, 'b', d.clock));
+      await d.both();
+      for (const db of [d.phone, d.desk]) {
+        const b = await d.rowOn(db);
+        expect(b).toMatchObject({ paused_at: NOW, ended_at: at('18:35'), result: 'done' });
+        expect(isPaused(b)).toBe(false);
+        expect(timeSpentMs(b, d.clock.now())).toBe(30 * MIN);
+      }
+    });
+
+    it('a pause after another device ended the block is never shown, and changes nothing', async () => {
+      const d = await two();
+      await transact(d.desk, d.clock, (w) => markDoneNow(w, 'b', d.clock));
+      d.clock.set(at('18:35'));
+      // The phone hasn't heard, so its Now card still offers Pause.
+      await transact(d.phone, d.clock, (w) => pauseBlock(w, 'b', d.clock));
+      await d.both();
+      const b = await d.rowOn(d.phone);
+      expect(isPaused(b)).toBe(false);
+      expect(timeSpentMs(b, d.clock.now())).toBe(30 * MIN);
+    });
+
+    it('Resume on two devices for the same pause: the later wins each field, so the end and paused_min agree', async () => {
+      const d = await two();
+      await transact(d.phone, d.clock, (w) => pauseBlock(w, 'b', d.clock));
+      await d.both();
+      d.clock.set(sec('18:39:20'));
+      await transact(d.desk, d.clock, (w) => resumeBlock(w, 'b', d.clock));
+      d.clock.set(sec('18:39:50'));
+      await transact(d.phone, d.clock, (w) => resumeBlock(w, 'b', d.clock));
+      await d.both();
+      for (const db of [d.phone, d.desk]) expect(await d.rowOn(db)).toMatchObject({ paused_at: null, paused_min: 10, end: at('19:10') });
+    });
+
+    it('a pause on one device and a drag of the end on another both keep', async () => {
+      const d = await two();
+      await transact(d.phone, d.clock, (w) => pauseBlock(w, 'b', d.clock));
+      await transact(d.desk, d.clock, (w) => moveBlock(w, 'b', { start: at('18:00'), end: at('19:30') }));
+      await d.both();
+      for (const db of [d.phone, d.desk]) expect(await d.rowOn(db)).toMatchObject({ paused_at: NOW, end: at('19:30') });
+    });
   });
 });

@@ -6,9 +6,9 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { partlyLeft } from '../../../core/blocks';
+import { partlyLeft, spentLine, workMinutes } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
-import { blockMinutes, formatMinutes, formatTime, formatWeekday, localDate } from '../../../core/dates';
+import { formatMinutes, formatTime, formatWeekday, localDate } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import type { Minutes } from '../../../core/types';
@@ -40,13 +40,13 @@ const andLater = (freed: number) => (freed ? `, and ${freed} later ${freed === 1
 /** Time left moves through the estimate's steps; a practice's minutes done move in 5s up to its length. */
 function stepsFor(b: BlockRow): readonly Minutes[] {
   if (!b.practice_id) return EST_STEPS.filter((m) => m > 0);
-  return Array.from({ length: Math.max(1, Math.floor(blockMinutes(b) / 5)) }, (_, i) => (i + 1) * 5);
+  return Array.from({ length: Math.max(1, Math.floor(workMinutes(b) / 5)) }, (_, i) => (i + 1) * 5);
 }
 
 function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
   if (b.practice_id) {
     if (choice === 'not') return { result: 'not', logged_min: 0 };
-    return { result: 'done', logged_min: choice === 'done' ? blockMinutes(b) : minutes };
+    return { result: 'done', logged_min: choice === 'done' ? workMinutes(b) : minutes };
   }
   return choice === 'partly' ? { result: 'partly', remaining_min: minutes } : { result: choice };
 }
@@ -117,12 +117,13 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
   const today = localDate(clock.now(), zone);
   const day = (b: BlockRow) => (localDate(b.start, zone) === today ? 'Today' : formatWeekday(localDate(b.start, zone)));
   const practice = (b: BlockRow) => (b.practice_id ? ' · practice' : '');
+  const spent = (b: BlockRow) => spentLine(b, zone, clock.now());
 
   /** Where Partly starts: what was left before, or for a practice half its length. */
   const startOf = (b: BlockRow): Minutes => {
-    if (b.practice_id) return Math.max(5, Math.round(blockMinutes(b) / 10) * 5);
+    if (b.practice_id) return Math.max(5, Math.round(workMinutes(b) / 10) * 5);
     const task = tasks?.find((t) => t?.id === b.task_id);
-    return task ? partlyLeft(task, b) : blockMinutes(b);
+    return task ? partlyLeft(task, b) : workMinutes(b);
   };
   const valueOf = (b: BlockRow) => minutes[b.id] ?? startOf(b);
 
@@ -376,6 +377,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
                       {day(b)} {formatRange(b.start, b.end, zone)}
                       {practice(b)}
                     </div>
+                    {spent(b) && <div className="small quiet">{spent(b)}</div>}
                   </div>
                   {CHOICES.map((c) => (
                     <button

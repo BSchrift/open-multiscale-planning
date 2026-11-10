@@ -52,8 +52,32 @@ func TestOptionalParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Integration.SecondTestUser != "second-test@example.com" || got.Integration.HistoryUser != "history-test@example.com" || got.App == nil || got.App.BundleID != "com.example.planner" || got.DNS != nil {
+	if got.Integration.SecondTestUser != "second-test@example.com" || got.Integration.HistoryUser != "history-test@example.com" || got.App == nil || got.App.BundleID != "com.example.planner" || got.DNS != nil || got.Files != nil {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// The files section is make files-key's: the public halves of the keys download links may be signed with, and the one
+// the API signs with. Its values are PEM text, which the infrastructure checks; here only the shape.
+func TestFilesKeys(t *testing.T) {
+	files := "files:\n  keys:\n    k20261109: public key one\n    k20270101: public key two\n  signWith: k20270101\n"
+	got, err := Load(folder(t, map[string]string{"staging.yaml": example(t, "staging") + files}), "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Files == nil || len(got.Files.Keys) != 2 || got.Files.Keys["k20261109"] != "public key one" || got.Files.SignWith != "k20270101" {
+		t.Fatalf("%+v", got.Files)
+	}
+	for name, section := range map[string]string{
+		"no keys":             "files:\n  keys: {}\n  signWith: k1\n",
+		"signing with no key": "files:\n  keys:\n    k1: public key\n  signWith: k2\n",
+		"no signing key":      "files:\n  keys:\n    k1: public key\n",
+		"an empty key":        "files:\n  keys:\n    k1: ''\n  signWith: k1\n",
+		"an unknown key":      "files:\n  keys:\n    k1: public key\n  signWith: k1\n  privateKey: x\n",
+	} {
+		if _, err := Load(folder(t, map[string]string{"staging.yaml": example(t, "staging") + section}), "staging"); err == nil || !strings.Contains(err.Error(), "files") && !strings.Contains(err.Error(), "privateKey") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 

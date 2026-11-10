@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -515,5 +516,50 @@ func TestAPullThatReachesTheEndMovesPastARemovedRecord(t *testing.T) {
 	}
 	if res := device(t, s, "abc", res.Cursor, task("keep", title("Paint the gate", fresh(*now, "b")))); res.Reset != "" {
 		t.Fatalf("%+v", res)
+	}
+}
+
+// What hangs off a record, an attachment's file, goes with it: the cleanup tells Removing of each record it removes, and
+// of nothing it only marks or leaves.
+func TestCleanupTellsWhatItRemoves(t *testing.T) {
+	s, cleanup, now, client := expiringStore(t)
+	var removed []string
+	cleanup.Removing = func(_ context.Context, pk, sk string) error {
+		removed = append(removed, pk+" "+sk)
+		return nil
+	}
+	c := fresh(*now, "a")
+	device(t, s, "abc", 0,
+		msync.Change{Type: "attachment", ID: "a1", Fields: msync.Fields{"task_id": {V: "t1", C: c}, "deleted_at": {V: at(*now), C: c}, "expires_at": {V: at(now.Add(time.Minute)), C: c}}},
+		msync.Change{Type: "attachment", ID: "a2", Fields: msync.Fields{"task_id": {V: "t1", C: c}}},
+	)
+	*now = now.Add(time.Hour)
+	cleanUp(t, cleanup)
+	if len(removed) != 0 {
+		t.Fatalf("a run that only marks removes nothing: %v", removed)
+	}
+	*now = now.Add(time.Minute)
+	cleanUp(t, cleanup)
+	if !slices.Equal(removed, []string{"user#abc rec#attachment#a1"}) {
+		t.Fatalf("%v", removed)
+	}
+
+	// A failure stops the run before the record goes, so the next run tries both again.
+	working := cleanup.Removing
+	cleanup.Removing = func(context.Context, string, string) error { return errors.New("no bucket") }
+	c = fresh(*now, "a")
+	device(t, s, "abc", 2, msync.Change{Type: "attachment", ID: "a3", Fields: msync.Fields{"task_id": {V: "t1", C: c}, "expires_at": {V: at(now.Add(time.Minute)), C: c}}})
+	*now = now.Add(time.Hour)
+	cleanUp(t, cleanup)
+	*now = now.Add(time.Minute)
+	if _, err := cleanup.Run(context.Background(), ""); err == nil {
+		t.Fatal("a failed removal passed")
+	}
+	if item(t, client, s.Table, "abc", "rec#attachment#a3") == nil {
+		t.Fatal("the record went without what hangs off it")
+	}
+	cleanup.Removing = working
+	if stats := cleanUp(t, cleanup); stats.Removed != 1 || removed[len(removed)-1] != "user#abc rec#attachment#a3" {
+		t.Fatalf("%+v %v", stats, removed)
 	}
 }

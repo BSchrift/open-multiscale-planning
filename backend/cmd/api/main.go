@@ -20,6 +20,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/gcal"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
@@ -28,7 +29,8 @@ import (
 
 func main() {
 	// A wrong ENV_NAME stops the function as it starts, not at the first request that needs its settings.
-	if _, err := appconfig.ForEnv(os.Getenv("ENV_NAME")); err != nil {
+	env, err := appconfig.ForEnv(os.Getenv("ENV_NAME"))
+	if err != nil {
 		log.Fatal(err)
 	}
 	retention, err := appconfig.LoadRetention(os.Getenv("ENV_NAME"))
@@ -49,6 +51,10 @@ func main() {
 		Log:      obs.NewLogger(os.Stdout),
 		Env:      os.Getenv("ENV_NAME"),
 		Now:      time.Now,
+	}
+	// Nil where the environment stores no files, so the routes say so.
+	if service := files.FromEnvironment(cfg, store, files.LimitsFor(env)); service != nil {
+		server.Files = service
 	}
 	lambda.Start(adapter(server.Handler()))
 }

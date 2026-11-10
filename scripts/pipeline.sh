@@ -11,8 +11,8 @@
 #                                    ALARMS=off
 #   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
-# In CodeBuild: install, build, deploy-staging, release-staging, prod-assets, test-prod, release-prod and nightly. The
-# signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
+# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod and nightly.
+# The signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -81,30 +81,74 @@ shell_of() {
   node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const r = JSON.parse(s); console.log(JSON.stringify((r.manifest ? JSON.parse(r.manifest) : r).shell)); } catch { console.log("none"); } });'
 }
 
+# Whether two shells, as shell_of prints them, differ for one app: electron or ios. No feed differs from any build.
+differs() {
+  node -e 'const [a, b, app] = process.argv.slice(1); const of = (s) => { try { return JSON.parse(s)[app]; } catch { return undefined; } }; process.exit(of(a) !== undefined && of(a) === of(b) ? 1 : 0);' "$1" "$2" "$3"
+}
+
+# The shell of the feed an environment's apps update from now, signed in as its release role.
+live_shell() {
+  local env_name="$1" account region profile bucket
+  read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
+  bucket="$(release_bucket "$env_name")"
+  AWS_PROFILE="$profile" aws s3 cp "s3://$bucket/release/release.json" - 2>/dev/null | shell_of || true
+}
+
+release_bucket() {
+  node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseBucket ?? "")' "$MULTISCALE_CONFIG_DIR/$1.outputs.json"
+}
+
+# 7-Zip, which reads a disk image's HFS+ volume on Linux, pinned by its hash. Ubuntu's p7zip is from 2016.
+seven_zip() {
+  if [ -n "${SEVENZIP:-}" ]; then echo "$SEVENZIP"; return; fi
+  local dir=/tmp/7zip
+  mkdir -p "$dir"
+  curl -fsSL --retry 3 -o "$dir/7z.tar.xz" https://github.com/ip7z/7zip/releases/download/26.04/7z2604-linux-x64.tar.xz
+  echo "fc0327ba27e89bd086cf426dff17d77de582953cdbbc10a6576540a06853ffcd  $dir/7z.tar.xz" | sha256sum -c --quiet >&2
+  tar -xJf "$dir/7z.tar.xz" -C "$dir"
+  echo "$dir/7zz"
+}
+
 # Publishes one environment's web build from the Build output and its feed from the signing step's, as release.sh does
-# on a Mac, and prints the version. The web app goes as it is. The feed waits when the build needs newer native code
-# than the feed's: a release from the Mac uploads the app first, then the feed.
+# on a Mac, and prints the version. The web app goes as it is. When the build needs newer native code than the feed's,
+# the feed waits for the apps that can take it: a Mac app the MacApp step checked is published first, as a release from
+# the Mac uploads the app before the feed. An iPhone app is still released from the Mac.
 publish() {
-  local env_name="$1" signed="$2" web account region profile bucket live
+  local env_name="$1" signed="$2" web account region profile bucket live build mac="${CODEBUILD_SRC_DIR_MacApps:-}" waiting=""
   web="$(built)/web/$env_name"
   read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
-  bucket="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseBucket ?? "")' "$MULTISCALE_CONFIG_DIR/$env_name.outputs.json")"
+  bucket="$(release_bucket "$env_name")"
   [ -n "$bucket" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
+  live="$(live_shell "$env_name")"
+  build="$(shell_of <"$web/version.json")"
   (
     export AWS_PROFILE="$profile"
-    live="$(aws s3 cp "s3://$bucket/release/release.json" - 2>/dev/null | shell_of || true)"
-    if [ "$live" = "$(shell_of <"$web/version.json")" ]; then
+    if differs "$live" "$build" electron; then
+      if [ -z "$mac" ]; then
+        waiting="Mac"
+      elif [ -f "$mac/$env_name/Multiscale.dmg" ]; then
+        # Before the feed, which then links apps that can't take it to this app.
+        aws s3 cp "$mac/$env_name/Multiscale.dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage >&2 || exit 1
+        echo "Published the Mac app GitHub Actions built, which the MacApp step checked." >&2
+      else
+        echo "This build needs a newer Mac app than $env_name's feed, but this run checked none for $env_name, so nothing is published." >&2
+        echo "Run the Mac release workflow for this commit (docs/releasing.md), then run the pipeline again." >&2
+        exit 1
+      fi
+    fi
+    if differs "$live" "$build" ios; then waiting="${waiting:+$waiting and }iPhone"; fi
+    if [ -z "$waiting" ]; then
       # Files are named by their contents, so each uploads once and caches for good.
       aws s3 sync "$signed/files" "s3://$bucket/release/files" --size-only --cache-control 'public, max-age=31536000, immutable' --content-type application/octet-stream >&2
       aws s3 cp "$signed/release.json" "s3://$bucket/release/release.json" --cache-control 'public, max-age=60' --content-type application/json >&2
     else
-      echo "This build needs a newer Mac or iPhone app than $env_name's feed, so the feed stays as it is. Release from the Mac," >&2
+      echo "This build needs a newer $waiting app than $env_name's feed, so the feed stays as it is. Release from the Mac," >&2
       echo "at this commit, to upload the app and then the feed: make release ENV=$env_name." >&2
     fi
     # Its named-by-content assets first, then the page that loads them. Old assets stay, as release.sh leaves them.
     aws s3 sync "$web/assets" "s3://$bucket/web/assets" --size-only --cache-control 'public, max-age=31536000, immutable' >&2
     aws s3 sync "$web" "s3://$bucket/web" --exclude 'assets/*' --cache-control 'no-cache' >&2
-  )
+  ) || exit 1
   node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$web/version.json"
 }
 
@@ -216,6 +260,8 @@ case "$command" in
     for env_name in "${environments[@]}"; do
       outputs "$env_name"
       (cd "$root/frontend" && ENV="$env_name" npx vite build --outDir "$root/web/$env_name" --emptyOutDir)
+      # And its Mac app's main process, which a Mac app GitHub Actions built must hold exactly.
+      (cd "$root/frontend" && ENV="$env_name" node scripts/electron-compile.mjs && mkdir -p "$root/mac/$env_name" && cp -R dist-electron "$root/mac/$env_name/")
     done
     mkdir -p "$root/web"
     cp "$root/frontend/scripts/sign-release.mjs" "$root/web/sign-release.mjs"
@@ -223,6 +269,43 @@ case "$command" in
   deploy-staging)
     # Waits out staging's short canary.
     (cd "$root/infrastructure" && npx cdk deploy --app "$(built)/infrastructure/cdk.out/staging" Multiscale-staging --require-approval never)
+    ;;
+  mac)
+    # For each environment whose feed needs a newer Mac app than this build's, the Mac app GitHub Actions built from
+    # this commit: waited for in the inbox, checked, and handed to the releases (frontend/scripts/mac-inbox.ts).
+    fetch_config
+    profiles
+    frontend_deps
+    checked="$root/mac-checked"
+    sevenzip=""
+    mkdir -p "$checked"
+    for env_name in "${environments[@]}"; do
+      outputs "$env_name"
+      if ! differs "$(live_shell "$env_name")" "$(shell_of <"$(built)/web/$env_name/version.json")" electron; then
+        echo "$env_name's feed can take this build as its Mac app is, so it needs no new one."
+        echo "$env_name: no new Mac app needed" >>"$checked/checked.txt"
+        continue
+      fi
+      key="inbox/${COMMIT:?}/$env_name"
+      echo "$env_name needs a new Mac app. Waiting up to $((MAC_WAIT_SECONDS / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
+      deadline=$((SECONDS + MAC_WAIT_SECONDS))
+      until aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "$key/manifest.json" >/dev/null 2>&1; do
+        if [ "$SECONDS" -ge "$deadline" ]; then
+          echo "No Mac app for $env_name at $COMMIT reached the inbox in time, so this run stops before publishing anything." >&2
+          echo "Approve the Mac release workflow's run for this commit, or start one: gh workflow run mac-release.yml -f commit=$COMMIT" >&2
+          echo "Then run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
+          exit 1
+        fi
+        sleep 30
+      done
+      inbox="$(mktemp -d)"
+      aws s3 cp "s3://$MAC_INBOX_BUCKET/$key/" "$inbox" --recursive --no-progress
+      sevenzip="${sevenzip:-$(seven_zip)}"
+      SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$COMMIT" "$inbox" "$(built)/web/$env_name" "$(built)/mac/$env_name/dist-electron"
+      mkdir -p "$checked/$env_name"
+      cp "$inbox/Multiscale.dmg" "$inbox/manifest.json" "$checked/$env_name/"
+      echo "$env_name: checked $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).files["Multiscale.dmg"].sha256)' "$inbox/manifest.json")" >>"$checked/checked.txt"
+    done
     ;;
   release-staging)
     fetch_config

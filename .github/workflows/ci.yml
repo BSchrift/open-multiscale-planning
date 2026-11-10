@@ -289,6 +289,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The workflows themselves, with shellcheck on their scripts.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:

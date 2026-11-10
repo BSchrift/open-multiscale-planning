@@ -11,7 +11,8 @@ export const protocol = {
     "maxClockAheadHours": 24
   },
   "records": {
-    "idPattern": "^[\\x21-\\x7e]{1,200}$"
+    "idPattern": "^[\\x21-\\x7e]{1,200}$",
+    "maxNotesChars": 20000
   },
   "clock": {
     "pattern": "^(\\d{13})-(\\d{6})-([\\x21-\\x7e]+)$",

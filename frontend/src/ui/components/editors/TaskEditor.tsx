@@ -1,5 +1,6 @@
 // Adds or edits a project task: a popover on desktop, a sheet on phone. Adding stays open with the last one named,
-// so a few can go in together. Moving it to another milestone and deleting it both offer Undo.
+// so a few can go in together. Moving it to another milestone and deleting it both offer Undo. Its description is
+// saved with the rest, and an empty one is none.
 
 import { useState } from 'react';
 import type { FormEvent } from 'react';
@@ -8,6 +9,7 @@ import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { closeTask } from '../../../core/tasks';
 import { useApp, useMutation } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
+import { NotesField } from '../notes/NotesField';
 import { Popover } from '../Popover';
 import { useToast } from '../Toast';
 import { usePlanChange } from './usePlanChange';
@@ -33,12 +35,23 @@ export function TaskEditor(props: {
   const [title, setTitle] = useState(task?.title ?? '');
   const [estimate, setEstimate] = useState(task ? (task.estimate_min ?? 0) : 60);
   const [milestone, setMilestone] = useState(task ? (task.milestone_id ?? '') : (props.milestoneId ?? ''));
+  const [notes, setNotes] = useState(task?.notes ?? '');
+  // The key starts the field afresh after each add, so it opens empty for the next task.
+  const [added, setAdded] = useState(0);
+  const notesValue = notes.trim() ? notes : null;
   const [error, setError] = useState('');
   const [last, setLast] = useState('');
   const options = sortedMilestones(plan, ctx).filter((m) => !m.dropped_at);
 
   const add = useMutation((w, name: string) =>
-    w.create('task', { kind: 'project', project_id: plan.project.id, milestone_id: milestone || null, title: name, estimate_min: estimate || null }),
+    w.create('task', {
+      kind: 'project',
+      project_id: plan.project.id,
+      milestone_id: milestone || null,
+      title: name,
+      estimate_min: estimate || null,
+      ...(notesValue ? { notes: notesValue } : {}),
+    }),
   );
   const remove = useMutation((w, id: string) => closeTask(w, id, 'deleted', clock));
 
@@ -51,6 +64,8 @@ export function TaskEditor(props: {
       if (id) {
         props.onAdded?.(id, milestone || null);
         setTitle('');
+        setNotes('');
+        setAdded((n) => n + 1);
         setLast(name);
       }
       return;
@@ -64,7 +79,12 @@ export function TaskEditor(props: {
           {
             type: 'task',
             id: task.id,
-            fields: { title: name, estimate_min: estimate || null, ...(moved ? { milestone_id: milestone || null, moved_from: null } : {}) },
+            fields: {
+              title: name,
+              estimate_min: estimate || null,
+              ...(moved ? { milestone_id: milestone || null, moved_from: null } : {}),
+              ...(notesValue !== (task.notes || null) ? { notes: notesValue } : {}),
+            },
           },
         ],
       }),
@@ -112,6 +132,7 @@ export function TaskEditor(props: {
             ))}
           </select>
         </label>
+        <NotesField key={added} value={notes} onChange={setNotes} />
         {error && (
           <div className="fielderr" role="alert">
             {error}

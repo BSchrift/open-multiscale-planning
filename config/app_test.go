@@ -143,6 +143,7 @@ func TestRules(t *testing.T) {
 		{"an empty pattern", []string{`idPattern: '^[\x21-\x7e]{1,200}$'`, `idPattern: ''`}, []string{"records.idPattern must be set"}},
 		{"a clock without its parts", []string{`pattern: '^(\d{13})-(\d{6})-([\x21-\x7e]+)$'`, `pattern: '^\d{13}-\d{6}-[\x21-\x7e]+$'`}, []string{"clock.pattern has 0 groups"}},
 		{"no telemetry", []string{"maxBatchEvents: 200", "maxBatchEvents: 0"}, []string{"telemetry.maxBatchEvents must be positive"}},
+		{"notes past a record", []string{"maxNotesChars: 20000", "maxNotesChars: 25600"}, []string{"records.maxNotesChars is 25600"}},
 		{
 			"every problem at once",
 			[]string{"maxChanges: 99", "maxChanges: 0", "maxRecordBytes: 102400", "maxRecordBytes: 2097152"},

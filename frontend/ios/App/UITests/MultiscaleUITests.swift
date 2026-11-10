@@ -181,6 +181,32 @@ final class ShellUITests: XCTestCase {
         exists(app.webElement("Return the library books done"))
     }
 
+    func testADescriptionTakesBoldFromTheBarWithTheKeyboardStillUpThenShowsFormatted() {
+        let app = launchApp(seed: "Seed to schedule")
+        app.tapWeb("Goals")
+        app.tapWeb(startingWith: "Learn to bake bread")
+        app.tapWeb(startingWith: "Bake a sourdough loaf")
+        app.tapWeb(startingWith: "Edit task Mix the dough")
+        let field = app.page.textViews["Description"]
+        exists(field)
+        field.tap()
+        let keyboard = app.keyboards.element
+        XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(app.debugDescription)")
+        field.typeText("Use ")
+        // The bar's buttons leave the field focused, so the keyboard stays up and typing goes on between the marks.
+        app.tapWeb("Bold")
+        XCTAssertTrue(keyboard.exists, "Bold put the keyboard away")
+        field.typeText("rye")
+        XCTAssertEqual(field.value as? String, "Use **rye**")
+        app.tapWeb("Save")
+        XCTAssertTrue(field.waitForNonExistence(timeout: patience), "the editor is still open")
+
+        app.tapWeb(startingWith: "Edit task Mix the dough")
+        exists(app.webButton("Edit description"))
+        exists(app.webText("rye"))
+        XCTAssertFalse(app.page.textViews["Description"].exists)
+    }
+
     func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
         let app = launchApp(seed: "Seed plan")
         exists(app.webButton("Capture a task"))

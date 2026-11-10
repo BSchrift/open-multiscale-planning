@@ -42,6 +42,8 @@ export interface OneOffDraft {
   ruleDay: RuleDay;
   ruleOf: RuleOf;
   estimate: Minutes;
+  /** The description, once the form has one: without it the fields leave a task's description alone. */
+  notes?: string;
 }
 
 export function emptyDraft(today: LocalDate): OneOffDraft {
@@ -71,7 +73,7 @@ export function emptyDraft(today: LocalDate): OneOffDraft {
  * controls to the form if such schedules start coming from somewhere.
  */
 export function draftOf(task: Task, today: LocalDate): OneOffDraft {
-  const d: OneOffDraft = { ...emptyDraft(today), title: task.title, estimate: task.estimate_min ?? 0 };
+  const d: OneOffDraft = { ...emptyDraft(today), title: task.title, estimate: task.estimate_min ?? 0, notes: task.notes ?? '' };
   const s = task.schedule ?? { type: 'once' };
   switch (s.type) {
     case 'once':
@@ -150,5 +152,6 @@ export function oneOffFields(d: OneOffDraft, today: LocalDate): Fields<'task'> {
     schedule,
     next_due: firstDue(schedule, today),
     estimate_min: d.estimate || null,
+    ...(d.notes === undefined ? {} : { notes: d.notes.trim() ? d.notes : null }),
   };
 }

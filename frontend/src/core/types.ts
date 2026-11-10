@@ -130,6 +130,8 @@ export interface Task extends BaseRecord {
   cancelled_by?: string | null;
   /** The milestone a dropped milestone's open task came from. */
   moved_from?: string | null;
+  /** Its description: plain text with a little Markdown (notes.ts), up to MAX_NOTES. */
+  notes?: string | null;
 }
 
 /** One per finish of a one off. */

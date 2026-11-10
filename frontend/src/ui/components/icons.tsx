@@ -94,3 +94,22 @@ export function CloseIcon() {
     </svg>
   );
 }
+
+/** An arrow out, for a link. */
+export function LinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 16L16 8M9 8h7v7" />
+    </svg>
+  );
+}
+
+/** A landscape in a frame, for a photo. */
+export function PhotoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M4 16l5-5 4 4 2-2 5 5" />
+    </svg>
+  );
+}

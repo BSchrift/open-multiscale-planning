@@ -13,6 +13,7 @@ import { openDb } from '../core/db';
 import type { SqlDriver } from '../core/db';
 import type { DiagnosticsSnapshot } from '../core/telemetry';
 import type { Reminder, ReminderAction } from '../core/types';
+import { indexedDbFiles } from './attachment-files';
 import type { Appearance, Notifications, Platform, ReminderResponse, SecureTokens } from './types';
 
 const CAPTURE_LINK = 'multiscale://capture';
@@ -175,6 +176,7 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
     notifications: capacitorNotifications(),
     tokens: await keychainTokens(),
     lifecycle: { onForeground: foreground.on, onBackground: background.on },
+    files: indexedDbFiles,
     openExternal: (url) => Browser.open({ url }),
     signInRedirectUri: 'multiscale://auth/callback',
     onDeepLink: links.on,

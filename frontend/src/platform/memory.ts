@@ -2,7 +2,7 @@
 // The extra methods on each let a test act as the OS.
 
 import type { Reminder } from '../core/types';
-import type { Lifecycle, Notifications, ReminderResponse, SecureTokens } from './types';
+import type { FileStore, Lifecycle, Notifications, ReminderResponse, SecureTokens } from './types';
 
 function listeners<T extends unknown[]>() {
   const set = new Set<(...args: T) => void>();
@@ -35,6 +35,18 @@ export function memoryNotifications(): MemoryNotifications {
     scheduled: async () => [...current],
     onResponse: responses.add,
     respond: responses.emit,
+  };
+}
+
+/** Attachments' bytes, in memory: the fake for tests. */
+export function memoryFiles(): FileStore & { readonly kept: Map<string, Blob> } {
+  const kept = new Map<string, Blob>();
+  return {
+    kept,
+    get: async (id) => kept.get(id) ?? null,
+    put: async (id, file) => void kept.set(id, file),
+    remove: async (id) => void kept.delete(id),
+    clear: async () => kept.clear(),
   };
 }
 

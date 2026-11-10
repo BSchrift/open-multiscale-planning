@@ -10,6 +10,7 @@ import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
 import { renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
+import { noFiles } from '../../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -658,6 +659,7 @@ describe('Google Calendar', () => {
       stop: vi.fn(),
       email: vi.fn(async () => null),
       eraseAndSignIn: vi.fn(async () => undefined),
+      files: noFiles(),
     }) satisfies AppSync;
   const signIn = (t: Harness) =>
     act(async () => {

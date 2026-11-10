@@ -249,12 +249,16 @@ test('a sign-in return reaches the page, a foreign link does not, and links open
     shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
   });
   await expect(page.evaluate(() => (window.multiscaleElectron as ElectronBridge).openExternal('file:///etc/passwd'))).rejects.toThrow();
-  // A window.open goes to the browser, and a navigation goes nowhere.
+  // A window.open goes to the browser, or to mail from a description's mailto: link, and a navigation goes nowhere.
   await page.evaluate(() => void window.open('https://example.com/'));
+  await page.evaluate(() => void window.open('mailto:sam@example.com'));
+  await page.evaluate(() => void window.open('file:///etc/passwd'));
   await page.evaluate(() => void (location.href = 'https://example.com/'));
   await page.waitForTimeout(300);
   expect(new URL(page.url()).protocol).toBe('multiscale-app:');
-  expect(await running.evaluate(() => globalThis.browserUrls)).toEqual(['https://example.com/']);
+  expect(await running.evaluate(() => globalThis.browserUrls)).toEqual(['https://example.com/', 'mailto:sam@example.com']);
+  // This app's policy reaches attachments' storage, so the page offers photos.
+  expect(await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).attachments)).toBe(true);
   // The app's window and its hidden capture window, and nothing else.
   expect(running.windows().map((w) => new URL(w.url()).pathname.split('/').pop()).sort()).toEqual(['', 'capture.html']);
 });

@@ -16,6 +16,17 @@ export function appFilePath(root: string, pathname: string): string | null {
   return path.startsWith(root + sep) ? path : null;
 }
 
+/** What a link in the page may open outside the app: web pages, and mail from a description's mailto: link. */
+export function isExternalUrl(url: unknown): url is string {
+  if (isWebUrl(url)) return true;
+  if (typeof url !== 'string') return false;
+  try {
+    return new URL(url).protocol === 'mailto:';
+  } catch {
+    return false;
+  }
+}
+
 /** Only web links go to the system browser: the OS would run a file: or custom-scheme URL. */
 export function isWebUrl(url: unknown): url is string {
   if (typeof url !== 'string') return false;
@@ -51,7 +62,8 @@ export function contentSecurityPolicy(backendOrigins: readonly string[]): string
     "default-src 'none'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    // Attachments' photos show from this device's copy, as blob: URLs.
+    "img-src 'self' data: blob:",
     "font-src 'self'",
     `connect-src 'self' ${backendOrigins.join(' ')}`,
     "base-uri 'none'",

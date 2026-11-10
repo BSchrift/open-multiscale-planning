@@ -1,0 +1,123 @@
+/* A description, formatted and as a field with its bar. */
+
+[data-layout] .notes {
+  color: var(--ink);
+  line-height: 1.45;
+  /* A pasted link or a word with no spaces wraps rather than pushing the layout wide. */
+  overflow-wrap: anywhere;
+}
+
+[data-layout] .notes p,
+[data-layout] .notes ul,
+[data-layout] .notes ol {
+  margin: 0 0 var(--space-1);
+}
+
+[data-layout] .notes ul,
+[data-layout] .notes ol {
+  padding-left: 1.25em;
+}
+
+[data-layout] .notes a {
+  color: var(--blue);
+  text-underline-offset: 2px;
+}
+
+[data-layout] .notesname {
+  color: var(--quiet);
+  font-size: var(--text-sm);
+}
+
+[data-layout] .notesbox {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+
+[data-layout] .notesbox:focus-within {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-layout] .notesbar {
+  display: flex;
+  gap: var(--space-1);
+  padding: 2px var(--space-1);
+  border-bottom: 1px solid var(--line);
+}
+
+[data-layout] .notestool {
+  min-width: 36px;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+}
+
+@media (hover: hover) {
+  [data-layout] .notestool:hover {
+    background: var(--hover);
+  }
+}
+
+[data-layout] .notestool.b {
+  font-weight: 700;
+}
+
+[data-layout] .notestool.i {
+  font-style: italic;
+}
+
+[data-layout] .notestool.l {
+  font-size: 1.25em;
+}
+
+[data-layout='phone'] .notestool {
+  min-width: var(--tap);
+  min-height: var(--tap);
+}
+
+[data-layout] .notesarea {
+  display: block;
+  width: 100%;
+  min-height: 5.5em;
+  max-height: 40vh;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: transparent;
+  line-height: 1.45;
+  resize: vertical;
+  overflow-wrap: anywhere;
+  /* Grows with what's typed, where the browser can, up to the max height. */
+  field-sizing: content;
+}
+
+[data-layout] .notesarea:focus-visible {
+  outline: none;
+}
+
+[data-layout='phone'] .notesedit {
+  min-width: var(--tap);
+}
+
+/* The mark a task with details carries in its rows. */
+[data-layout] .notemark {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 6px;
+  color: var(--quiet);
+}
+
+[data-layout] .notemark svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}

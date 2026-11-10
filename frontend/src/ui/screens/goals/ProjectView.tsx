@@ -28,6 +28,7 @@ import { EstimateSlider } from '../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
+import { NoteMark } from '../../components/notes/NoteMark';
 import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
 import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import { ProjectTimeline } from './ProjectTimeline';
@@ -172,11 +173,14 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
           <button
             className="rowbtn"
             type="button"
-            aria-label={`Edit task ${t.title}, ${meta}`}
+            aria-label={`Edit task ${t.title}, ${meta}${t.notes ? ', has details' : ''}`}
             onPointerDown={phone ? press(t.id, t.title) : undefined}
             onClick={() => !justDropped() && setEditing({ kind: 'task', id: t.id })}
           >
-            <span className="grow">{t.title}</span>
+            <span className="grow">
+              {t.title}
+              {t.notes && <NoteMark />}
+            </span>
             <span className="small quiet">{meta}</span>
             <span className="editcue" aria-hidden="true">
               Edit

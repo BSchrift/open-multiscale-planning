@@ -6,12 +6,14 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -492,5 +494,38 @@ func TestClockFollowsSystemTimeUntilSet(t *testing.T) {
 	clock.Set(time.Time{})
 	if d := time.Since(clock.Now()); d < 0 || d > time.Minute {
 		t.Fatalf("reset clock is %v off", d)
+	}
+}
+
+// make storage-quota finds a person's sub by email with the CLI's ListUsers. Here every email is a user, as every
+// username signs in, with the sub its tokens carry.
+func TestListUsersFindsTheSubByEmail(t *testing.T) {
+	_, srv, _ := newCognito(t)
+	list := func(target, body string) (int, map[string]any) {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/", strings.NewReader(body))
+		req.Header.Set("X-Amz-Target", target)
+		req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	status, out := list("AWSCognitoIdentityProviderService.ListUsers", `{"UserPoolId":"local","Filter":"email = \"one@example.com\""}`)
+	sum := sha256.Sum256([]byte("one@example.com"))
+	want := []any{map[string]any{"Username": "one@example.com", "Enabled": true, "UserStatus": "CONFIRMED", "Attributes": []any{
+		map[string]any{"Name": "sub", "Value": hex.EncodeToString(sum[:16])}, map[string]any{"Name": "email", "Value": "one@example.com"},
+	}}}
+	if status != 200 || !reflect.DeepEqual(out["Users"], want) {
+		t.Fatalf("%d %v", status, out)
+	}
+	if status, _ := list("AWSCognitoIdentityProviderService.ListUsers", `{"UserPoolId":"local","Filter":"name = \"x\""}`); status != 400 {
+		t.Errorf("another filter: %d", status)
+	}
+	if status, _ := list("AWSCognitoIdentityProviderService.AdminDeleteUser", `{}`); status != 400 {
+		t.Errorf("another action: %d", status)
 	}
 }

@@ -13,7 +13,7 @@ import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
-import { CacheHeaderBehavior, CachePolicy, Distribution, PriceClass, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
+import { AllowedMethods, CacheHeaderBehavior, CachePolicy, Distribution, KeyGroup, PriceClass, PublicKey, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
@@ -230,6 +230,11 @@ export class MultiscaleStack extends Stack {
     httpApi.addRoutes({ path: '/calendar/disconnect', methods: [HttpMethod.POST], integration });
     // OpenTelemetry events from the app, in OTLP/HTTP JSON at OTLP's own path.
     httpApi.addRoutes({ path: '/v1/logs', methods: [HttpMethod.POST], integration });
+    // Attachments: an upload's presigned PUT, download links and the person's usage. Routed whether or not the
+    // environment stores files, since the API answers them as not configured until it does.
+    httpApi.addRoutes({ path: '/files/upload', methods: [HttpMethod.POST], integration });
+    httpApi.addRoutes({ path: '/files/download', methods: [HttpMethod.POST], integration });
+    httpApi.addRoutes({ path: '/files/usage', methods: [HttpMethod.GET], integration });
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
 
@@ -295,9 +300,15 @@ export class MultiscaleStack extends Stack {
         userIdentity: { type: FilterRule.isEqual('Service'), principalId: FilterRule.isEqual('dynamodb.amazonaws.com') },
       })],
     });
-    // Raising a mark is an UpdateItem. Cleanup also reads the table and removes what has expired.
+    // Raising a mark is an UpdateItem. Cleanup also reads the table and removes what has expired. With attachments, a
+    // removed attachment's file goes too: it reads the file# item, then deletes it and takes its bytes off meta#storage
+    // in one transaction.
     retentionFunction.addToRolePolicy(new PolicyStatement({
-      actions: ['dynamodb:UpdateItem', ...(retention.cleanup ? ['dynamodb:Scan', 'dynamodb:DeleteItem'] : [])],
+      actions: [...new Set([
+        'dynamodb:UpdateItem',
+        ...(retention.cleanup ? ['dynamodb:Scan', 'dynamodb:DeleteItem'] : []),
+        ...(config.files ? ['dynamodb:GetItem', 'dynamodb:DeleteItem'] : []),
+      ])],
       resources: [table.tableArn],
     }));
     if (retention.cleanup) {
@@ -536,16 +547,55 @@ export class MultiscaleStack extends Stack {
       }],
     });
 
+    // Attachments, once make files-key has put a signing key in the environment's config (docs/setup.md). A file goes
+    // from the device straight to a private bucket, by a PUT the API presigns after checking its size, type, the hourly
+    // limit and the quota, and comes back through CloudFront, which serves only links the API signed: one file for 5
+    // minutes each. Nothing runs at the edge and no WAF sits there: CloudFront checks the signature itself, and the API
+    // counts downloads as it hands the links out.
+    const files = config.files;
+    // The apps' pages: the web app on the zone, the Mac app's own scheme (frontend/electron/main.ts), the iPhone's web
+    // view, and wherever browser tests sign in to this environment from.
+    const appOrigins = [...new Set([
+      ...(webUrl ? [webUrl] : []),
+      'multiscale-app://app',
+      'capacitor://localhost',
+      ...config.auth.signInCallbackUrls.filter((url) => url.startsWith('http://localhost')).map((url) => new URL(url).origin),
+    ])];
+    const filesBucket = files ? new Bucket(this, 'Files', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      // So a delete is final: a file goes when its record does (docs/retention.md).
+      versioned: false,
+      // A guard only, since an upload is one PUT. No expiry, since the record decides when its file goes, and no move to
+      // Infrequent Access, whose 128 KB minimum and retrieval fees cost more than they save at these sizes.
+      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(1) }],
+      // PUT for the presigned uploads, which go straight from the apps. GET and HEAD for downloads: CloudFront forwards
+      // Origin, which is in its cache key, and S3 answers CORS, as for the release feed, since CloudFront's own CORS
+      // headers turned out to be missing from some cached copies.
+      cors: [{
+        allowedMethods: [HttpMethods.PUT, HttpMethods.GET, HttpMethods.HEAD],
+        allowedOrigins: appOrigins,
+        allowedHeaders: ['content-type', 'content-disposition', 'x-amz-checksum-sha256'],
+        maxAge: Duration.days(1).toSeconds(),
+      }],
+    }) : undefined;
+    const filesHost = files && config.dns?.zone ? `files.${config.dns.zone}` : undefined;
+    const filesUploadUrl = filesBucket ? `https://${filesBucket.bucketRegionalDomainName}` : undefined;
+    let filesUrl: string | undefined;
+
     let releaseBucket: Bucket | undefined;
+    let zone: PublicHostedZone | undefined;
+    let delegation: CrossAccountZoneDelegationRecord | undefined;
 
     // DNS: this environment's own zone, delegated from the domain in the control account, serving the API on api.<zone>
     // and sign-in on auth.<zone>.
 
     if (config.dns?.zone) {
-      const zone = new PublicHostedZone(this, 'Zone', { zoneName: config.dns.zone });
+      zone = new PublicHostedZone(this, 'Zone', { zoneName: config.dns.zone });
       // shortcut: the delegation handler's log group keeps CloudWatch's default retention, since CDK offers no setting and it
       // logs a few lines per deploy; give it 30 days if it ever logs more.
-      const delegation = new CrossAccountZoneDelegationRecord(this, 'ZoneDelegation', {
+      delegation = new CrossAccountZoneDelegationRecord(this, 'ZoneDelegation', {
         delegatedZone: zone,
         // loadConfig only allows a zone together with control.yaml's dns section. By id, so no other zone with the
         // domain's name can be picked.
@@ -578,6 +628,7 @@ export class MultiscaleStack extends Stack {
       // The web app: the build the apps run, on the zone's own name. Sign-in comes back to /auth/callback, which only the
       // app's page answers. Sign-in sits in the browser's storage, so the page runs only its own scripts: the Mac app's
       // policy (electron/security.ts), plus WebAssembly for SQLite and no framing. SQLite's worker falls under script-src.
+      // With attachments it also uploads to the bucket, fetches from the files host and shows images from blob: URLs.
       const webCertificate = new DnsValidatedCertificate(this, 'WebCertificate', { domainName: config.dns.zone, hostedZone: zone, region: 'us-east-1' });
       webCertificate.node.addDependency(delegation);
       const webDistribution = new Distribution(this, 'WebDistribution', {
@@ -591,9 +642,9 @@ export class MultiscaleStack extends Stack {
                   "default-src 'none'",
                   "script-src 'self' 'wasm-unsafe-eval'",
                   "style-src 'self' 'unsafe-inline'",
-                  "img-src 'self' data:",
+                  `img-src 'self' data:${files ? ' blob:' : ''}`,
                   "font-src 'self'",
-                  `connect-src 'self' https://${apiHost} https://${authHost}`,
+                  `connect-src 'self' https://${apiHost} https://${authHost}${files ? ` https://${filesHost} ${filesUploadUrl}` : ''}`,
                   "base-uri 'none'",
                   "form-action 'none'",
                   "frame-ancestors 'none'",
@@ -648,6 +699,51 @@ export class MultiscaleStack extends Stack {
       }
     }
 
+    if (files && filesBucket) {
+      // Every configured key is trusted, so a rotation adds the new one, moves the API to it, then drops the old.
+      const publicKeys = Object.fromEntries(Object.entries(files.keys).map(([name, encodedKey]) => [name, new PublicKey(this, `FilesKey${name}`, { encodedKey })]));
+      // Same certificate reasoning as auth.
+      const filesCertificate = zone && filesHost ? new DnsValidatedCertificate(this, 'FilesCertificate', { domainName: filesHost, hostedZone: zone, region: 'us-east-1' }) : undefined;
+      if (filesCertificate) filesCertificate.node.addDependency(delegation!);
+      const filesDistribution = new Distribution(this, 'FilesDistribution', {
+        defaultBehavior: {
+          origin: S3BucketOrigin.withOriginAccessControl(filesBucket),
+          viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
+          trustedKeyGroups: [new KeyGroup(this, 'FilesKeys', { items: Object.values(publicKeys) })],
+          cachePolicy: new CachePolicy(this, 'FilesCachePolicy', { headerBehavior: CacheHeaderBehavior.allowList('Origin') }),
+          // Nothing a file holds runs on this host: no sniffing a type it wasn't given, and a page that loads nothing and
+          // runs no script. The API also uploads anything but a JPEG or PNG as an attachment to save.
+          responseHeadersPolicy: new ResponseHeadersPolicy(this, 'FilesHeaders', {
+            securityHeadersBehavior: {
+              contentTypeOptions: { override: true },
+              contentSecurityPolicy: { contentSecurityPolicy: "default-src 'none'; sandbox", override: true },
+            },
+          }),
+        },
+        ...(filesCertificate ? { domainNames: [filesHost!], certificate: filesCertificate } : {}),
+        priceClass: PriceClass.PRICE_CLASS_100,
+      });
+      if (zone && filesHost) new ARecord(this, 'FilesRecord', { zone, recordName: filesHost, target: RecordTarget.fromAlias(new CloudFrontTarget(filesDistribution)) });
+      filesUrl = filesHost ? `https://${filesHost}` : `https://${filesDistribution.distributionDomainName}`;
+
+      const signingKey = `${ssmPrefix}/files/${files.signWith}`;
+      apiFunction.addEnvironment('FILES_UPLOAD_URL', filesUploadUrl!);
+      apiFunction.addEnvironment('FILES_URL', filesUrl);
+      apiFunction.addEnvironment('FILES_KEY_ID', publicKeys[files.signWith]!.publicKeyId);
+      apiFunction.addEnvironment('FILES_KEY_PARAM', signingKey);
+      retentionFunction.addEnvironment('FILES_BUCKET', filesBucket.bucketName);
+      // The presigned PUTs are signed with the API's own role, so it may put objects, and only under u/.
+      apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:PutObject'], resources: [filesBucket.arnForObjects('u/*')] }));
+      // Only the key it signs with, beside the Google secrets: not one being rotated in or out.
+      apiFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: signingKey.slice(1) })],
+      }));
+      // A file goes when its record does.
+      retentionFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:DeleteObject'], resources: [filesBucket.arnForObjects('u/*')] }));
+    }
+
     // What the release pipeline (lib/pipeline-stack.ts) signs in as to test this environment and publish to it: the
     // deployed suites' reads, and the release bucket. It deploys through CDK's bootstrap roles instead.
     if (pipelineAccount && releaseBucket) {
@@ -687,6 +783,8 @@ export class MultiscaleStack extends Stack {
       AlarmTopicArn: topic.topicArn,
       TableName: table.tableName,
       ...(releaseBucket ? { ReleaseBucket: releaseBucket.bucketName, ReleaseUrl: `https://${releaseHost}`, DownloadsUrl: `https://${downloadsHost}`, WebUrl: webUrl! } : {}),
+      // Where the app fetches and uploads files, which its content policy names.
+      ...(filesUrl ? { FilesUrl: filesUrl, FilesUploadUrl: filesUploadUrl! } : {}),
     };
     for (const [name, value] of Object.entries(outputs)) new CfnOutput(this, name, { value });
   }

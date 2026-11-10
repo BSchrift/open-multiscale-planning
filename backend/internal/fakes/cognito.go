@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"regexp"
 	stdsync "sync"
 	"time"
 )
@@ -46,6 +47,7 @@ func (c *Clock) Set(at time.Time) {
 
 // Cognito stands in for a user pool's hosted endpoints: authorization code with PKCE, refresh, revoke, sign-out and signing keys. Sign-up
 // is off in the real pool, so any username here is an existing user; authorize signs them straight in, with no page.
+// Of the pool's own API it has ListUsers by email, which make storage-quota uses to find a person's sub.
 type Cognito struct {
 	issuer, clientID string
 	now              func() time.Time
@@ -86,6 +88,8 @@ func (c *Cognito) PublicKeys() map[string]*rsa.PublicKey {
 
 func (c *Cognito) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method + " " + r.URL.Path {
+	case "POST /":
+		c.listUsers(w, r)
 	case "GET /oauth2/authorize":
 		c.authorize(w, r)
 	case "POST /oauth2/token":
@@ -203,12 +207,39 @@ func (c *Cognito) useRefreshToken(w http.ResponseWriter, form url.Values) {
 	c.writeTokens(w, grant.username, "")
 }
 
+// emailFilter is the one ListUsers filter the stand-in takes: an exact email.
+var emailFilter = regexp.MustCompile(`^email\s*=\s*"([^"]+)"$`)
+
+// listUsers answers ListUsers for one email with the user it stands for, as the AWS CLI calls it.
+func (c *Cognito) listUsers(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Filter string }
+	if r.Header.Get("X-Amz-Target") != "AWSCognitoIdentityProviderService.ListUsers" || json.NewDecoder(r.Body).Decode(&body) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"__type": "InvalidParameterException"})
+		return
+	}
+	match := emailFilter.FindStringSubmatch(body.Filter)
+	if match == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"__type": "InvalidParameterException"})
+		return
+	}
+	email := match[1]
+	writeJSON(w, http.StatusOK, map[string]any{"Users": []any{map[string]any{
+		"Username": email, "Enabled": true, "UserStatus": "CONFIRMED",
+		"Attributes": []any{map[string]string{"Name": "sub", "Value": subOf(email)}, map[string]string{"Name": "email", "Value": email}},
+	}}})
+}
+
+// subOf is the sub a username's tokens carry.
+func subOf(username string) string {
+	sum := sha256.Sum256([]byte(username))
+	return hex.EncodeToString(sum[:16])
+}
+
 // writeTokens sends a new pair. A refresh response carries no refresh token, like a pool without rotation.
 func (c *Cognito) writeTokens(w http.ResponseWriter, username, refresh string) {
 	now := c.now()
-	sum := sha256.Sum256([]byte(username))
 	common := map[string]any{
-		"iss": c.issuer, "sub": hex.EncodeToString(sum[:16]), "iat": now.Unix(), "exp": now.Add(accessTokenTTL).Unix(),
+		"iss": c.issuer, "sub": subOf(username), "iat": now.Unix(), "exp": now.Add(accessTokenTTL).Unix(),
 		"jti": randomToken(), "username": username,
 	}
 	access, err := c.sign(common, map[string]any{"token_use": "access", "client_id": c.clientID, "scope": "openid"})

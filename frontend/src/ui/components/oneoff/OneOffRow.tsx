@@ -56,7 +56,7 @@ export function useOneOffTick() {
 export function OneOffRow(props: { row: Row; onToggle(row: Row, box: HTMLInputElement): void }) {
   const { row } = props;
   return (
-    <TaskRow title={row.task.title} checked={row.checked} line={rowLine(row)} onToggle={(_, box) => props.onToggle(row, box)}>
+    <TaskRow title={row.task.title} checked={row.checked} line={rowLine(row)} details={!!row.task.notes} onToggle={(_, box) => props.onToggle(row, box)}>
       <OneOffDates task={row.task} />
       <OneOffRepeat task={row.task} />
     </TaskRow>

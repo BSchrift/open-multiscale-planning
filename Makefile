@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release promote release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -59,10 +59,36 @@ deploy:
 smoke:
 	@scripts/smoke.sh
 
+# The key pair CloudFront checks download links against: ENV=staging (default) or prod. Writes the private key to SSM
+# and its public half to <env>.yaml in the config folder; deploy afterwards. Run again to rotate: docs/setup.md.
+files-key:
+	@scripts/files-key.sh
+
+# One person's storage for attachments, found by EMAIL, with the profile in <env>.yaml: ENV=staging (default) or prod.
+# GB=5 raises their quota to 5 GiB, GB=default removes the raise, and without GB it prints their usage and quota.
+storage-quota:
+	@scripts/storage-quota.sh
+
 # Builds the Mac app and the web bundle on this Mac, signs the bundle and uploads both: ENV=staging (default) or prod.
+# A prod release then uploads the iPhone app to TestFlight: make testflight.
 # With the release pipeline, this is the signed Mac app's step, from a release tag: docs/releasing.md.
 release:
 	@scripts/release.sh
+
+# Uploads a prod build of this commit's iPhone app to TestFlight, signing in to Apple with the App Store Connect key in
+# the config folder. make release ENV=prod runs it last, unless SKIP_TESTFLIGHT=1, which instead warns when testers'
+# build is over 60 days old. EXPORT_ONLY=1 archives and exports it without uploading. It needs Xcode 26 or later; without
+# it, gh workflow run testflight.yml --ref main uploads from GitHub Actions (docs/setup.md, TestFlight).
+testflight:
+	@scripts/testflight.sh
+
+# An account for a TestFlight tester, EMAIL=<their email>, on prod unless ENV=staging. Cognito emails them a temporary
+# password. review-user makes prod's account for Beta App Review, EMAIL=<its email>, its password in SSM.
+tester:
+	@scripts/accounts.sh tester
+
+review-user:
+	@scripts/accounts.sh review
 
 # The release pipeline, from this Mac with control.yaml's profile: docs/releasing.md. promote starts a run by hand,
 # COMMIT=<sha> (default: the branch's latest), CANARY=skip to send prod all traffic at once, and ALARMS=off to ship

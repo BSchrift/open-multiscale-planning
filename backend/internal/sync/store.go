@@ -873,6 +873,20 @@ func fieldsFromItem(item map[string]types.AttributeValue) (Fields, error) {
 	return fields, nil
 }
 
+// Record reads one record as it stands in the user's own partition, and whether it's there. It reads what synced, so a
+// caller checks the stored values rather than a copy someone sends.
+func (s *Store) Record(ctx context.Context, sub, recordType, id string) (Fields, bool, error) {
+	state := storedState{records: map[string]Fields{}, seqs: map[string]int64{}}
+	key := map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: userKey(sub)}, "sk": &types.AttributeValueMemberS{Value: recordKey(recordType, id)},
+	}
+	if err := s.readKeys(ctx, []map[string]types.AttributeValue{key}, &state); err != nil {
+		return nil, false, err
+	}
+	fields, found := state.records[recordKey(recordType, id)]
+	return fields, found, nil
+}
+
 // List returns every record of one type for one user, following pages.
 func (s *Store) List(ctx context.Context, sub, recordType string) ([]Change, error) {
 	var (

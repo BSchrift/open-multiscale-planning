@@ -160,10 +160,26 @@ func TestLocalUsesBuiltInDefaults(t *testing.T) {
 	if cfg.APIURL != "http://127.0.0.1:9" || cfg.ClientID != "local-client" || len(ssm.read) != 0 {
 		t.Fatalf("%+v read %v", cfg, ssm.read)
 	}
-	for _, capability := range capabilities {
+	for _, capability := range append(slices.Clone(capabilities), filesStored) {
 		if !cfg.has(capability) {
 			t.Errorf("local is missing %s", capability)
 		}
+	}
+}
+
+// A deployment stores files once make files-key has written its files section, and only then are the files tests run
+// against it. The section decides, so the capability can't be listed by hand.
+func TestFilesAreTestedWhereTheDeploymentStoresThem(t *testing.T) {
+	stored := goodStaging + "files: {keys: {k1: a public key}, signWith: k1}\n"
+	for file, want := range map[string]bool{goodStaging: false, stored: true} {
+		cfg, err := loadConfig("staging", "", configFolder(t, "staging", file, goodOutputs), "", passwords("staging").get)
+		if err != nil || cfg.has(filesStored) != want {
+			t.Errorf("files section %v: %v %v", want, cfg, err)
+		}
+	}
+	listed := strings.Replace(goodStaging, "[googleClient]", "[googleClient, filesStored]", 1)
+	if _, err := loadConfig("staging", "", configFolder(t, "staging", listed, goodOutputs), "", passwords("staging").get); err == nil || !strings.Contains(err.Error(), "unknown capability") {
+		t.Errorf("listed by hand: %v", err)
 	}
 }
 

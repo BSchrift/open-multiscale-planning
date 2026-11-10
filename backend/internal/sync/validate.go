@@ -49,6 +49,9 @@ var (
 	typePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)
 )
 
+// ValidID is whether id is one a record may have, so an id from elsewhere, such as a files request, is checked as sync's are.
+func ValidID(id string) bool { return idPattern.MatchString(id) }
+
 // Rejection is a request refused at the trust boundary. Code is stable for clients and safe to log.
 type Rejection struct {
 	Status int

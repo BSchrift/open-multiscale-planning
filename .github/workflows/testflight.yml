@@ -1,0 +1,114 @@
+# Uploads the iPhone app to TestFlight from a GitHub-hosted Mac with Xcode 26, the oldest App Store Connect takes, by
+# running scripts/testflight.sh as make testflight does on a Mac (docs/setup.md, TestFlight). By hand, for main's latest
+# commit or a main commit named by its full hash:
+#   gh workflow run testflight.yml --ref main [-f commit=<full commit hash>]
+# The job runs in the release environment, which needs the owner's approval and holds the App Store Connect key. Xcode
+# signs with the team's cloud-managed distribution certificate, so no certificate is stored here.
+name: TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The main commit to upload, as a full commit hash. Empty uploads main's latest.
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      # Pinned, so the image's default Xcode moving on doesn't change the build unseen. The macos-26 image's list:
+      # https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      # Before any of the commit's code runs.
+      - name: Check the commit is on main
+        env:
+          INPUT_COMMIT: ${{ inputs.commit }}
+        run: |
+          if [ -n "$INPUT_COMMIT" ] && { ! [[ "$INPUT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || ! git merge-base --is-ancestor "$INPUT_COMMIT" origin/main; }; then
+            echo "::error::Only a commit on main is uploaded, named by its full hash."
+            exit 1
+          fi
+          echo "Uploading $(git rev-parse HEAD) with $(xcodebuild -version | head -n 1)"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+      # From the lockfile, running no package's install script. Not cached: nothing another workflow wrote goes in.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: frontend
+
+      # The prod build's config, the App Store Connect key as testflight.sh reads them from a config folder, and the team
+      # and share sheet that Config.local.xcconfig gives the iPhone app on a Mac. The key id, issuer id and team id may
+      # be secrets or variables. As secrets they stay out of this public log.
+      - id: config
+        name: Write the build's config, the key and the team
+        env:
+          MAC_BUILD_CONFIG: ${{ secrets.MAC_BUILD_CONFIG }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID || vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || vars.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for name in MAC_BUILD_CONFIG ASC_API_KEY ASC_KEY_ID ASC_ISSUER_ID APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The release environment lacks$missing. See docs/setup.md, TestFlight."
+            exit 1
+          fi
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
+          echo "::add-mask::$APPLE_TEAM_ID"
+          if ! [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::APPLE_TEAM_ID must be the team id, 10 letters and digits, as in Config.local.xcconfig's DEVELOPMENT_TEAM."
+            exit 1
+          fi
+          CONFIG="$RUNNER_TEMP/config"
+          node frontend/scripts/mac-inbox.ts unpack-config "$CONFIG"
+          (umask 077 && printf '%s\n' "$ASC_API_KEY" >"$CONFIG/AuthKey_$ASC_KEY_ID.p8" && printf '%s\n' "$ASC_ISSUER_ID" >"$CONFIG/asc-issuer-id")
+          printf 'DEVELOPMENT_TEAM = %s\nMULTISCALE_EXTENSIONS = YES\n' "$APPLE_TEAM_ID" >frontend/ios/App/Config.local.xcconfig
+
+      # Capacitor's and SQLCipher's frameworks come from GitHub's release downloads, which fail now and then, so they're
+      # resolved with retries first, where the archive looks for them. Only at the versions Package.resolved records, so
+      # the checkout stays as committed for testflight.sh.
+      - name: Resolve Swift packages
+        run: |
+          for attempt in 1 2 3; do
+            xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -onlyUsePackageVersionsFromResolvedFile && exit 0
+            sleep $((attempt * 20))
+          done
+          exit 1
+        working-directory: frontend
+
+      - name: Upload to TestFlight
+        run: MULTISCALE_CONFIG_DIR="$RUNNER_TEMP/config" scripts/testflight.sh
+
+      # Xcode makes a development certificate to sign the archive, its key in this runner's keychain, which goes with the
+      # runner. Revoked, they don't pile up in the account a run at a time.
+      - name: Revoke the certificates made here
+        if: always() && steps.config.outcome == 'success'
+        run: node scripts/testflight.ts revoke-runner "$RUNNER_TEMP/config"
+        working-directory: frontend
+
+      - name: Delete the key and the team
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/config" frontend/ios/App/Config.local.xcconfig

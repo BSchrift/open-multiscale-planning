@@ -1,10 +1,13 @@
 // The API on a laptop: the same handlers as the Lambda, behind a server that checks tokens by the gateway's rules, with
 // the Cognito stand-in and test controls beside them. It only ever talks to the DynamoDB endpoint it's given, with
-// dummy credentials, so it can't reach a real account.
+// dummy credentials, so it can't reach a real account. Attachments' files go to an in-memory stand-in for the bucket at
+// /bucket/ and for the distribution at /edge/, with links signed by a key made at start; neither needs a setting.
 package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,12 +23,15 @@ import (
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/fakes"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
 	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 type config struct {
+	// URL is where this server is reached, which the stand-ins' links point at.
+	URL                                    string
 	Endpoint, Table, Issuer, ClientID, Env string
 	SSMEndpoint, SSMPrefix                 string
 	TickEvery                              time.Duration
@@ -43,6 +49,7 @@ func main() {
 	}
 	addr := listener.Addr().String()
 	handler, err := build(config{
+		URL:      "http://" + addr,
 		Endpoint: endpoint,
 		Table:    envOr("TABLE_NAME", "multiscale-local"),
 		Issuer:   envOr("LOCAL_ISSUER", "http://"+addr+"/cognito"),
@@ -68,7 +75,8 @@ func envOr(name, fallback string) string {
 }
 
 func build(cfg config, logs io.Writer) (http.Handler, error) {
-	if _, err := appconfig.ForEnv(cfg.Env); err != nil {
+	env, err := appconfig.ForEnv(cfg.Env)
+	if err != nil {
 		return nil, err
 	}
 	client := dynamodb.New(dynamodb.Options{
@@ -95,6 +103,10 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	// DynamoDB Local has no TTL, and tests move the clock, so the local stack removes expired records when asked, as
 	// staging's cleanup does every few minutes. Unpaced: DynamoDB Local has no partitions to throttle.
 	cleanup := &sync.Cleanup{DB: client, Table: cfg.Table, Now: clock.Now, Log: obs.NewLogger(logs), Env: cfg.Env}
+	bucket, err := buildFiles(cfg, client, store, clock, env, apiServer, cleanup)
+	if err != nil {
+		return nil, err
+	}
 
 	mux := http.NewServeMux()
 	if cfg.SSMEndpoint != "" {
@@ -117,6 +129,9 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	mux.Handle("POST /calendar/refresh", gateway.Require(server))
 	mux.Handle("POST /calendar/disconnect", gateway.Require(server))
 	mux.Handle("POST /v1/logs", gateway.Require(server))
+	mux.Handle("POST /files/upload", gateway.Require(server))
+	mux.Handle("POST /files/download", gateway.Require(server))
+	mux.Handle("GET /files/usage", gateway.Require(server))
 	mux.Handle("GET /calendar/callback", server)
 	mux.Handle("/cognito/", http.StripPrefix("/cognito", cognito))
 	mux.HandleFunc("POST /_local/clock", setClock(clock))
@@ -127,7 +142,32 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"message":"Not Found"}`)
 	})
-	return withCORS(withRequestID(mux)), nil
+	// Beside the API's CORS rather than behind it: the bucket and the distribution answer their own, as in AWS.
+	outer := http.NewServeMux()
+	outer.Handle("/bucket/", bucket.Uploads("/bucket/"))
+	outer.Handle("/edge/", bucket.Downloads("/edge/"))
+	outer.Handle("/", withCORS(withRequestID(mux)))
+	return outer, nil
+}
+
+// buildFiles gives the API its files service, over the stand-ins for the bucket and the distribution, and the cleanup
+// the remover that takes a file with its record. The upload credentials are dummies, like DynamoDB's.
+func buildFiles(cfg config, client *dynamodb.Client, store *sync.Store, clock *fakes.Clock, env appconfig.EnvConfig, server *api.Server, cleanup *sync.Cleanup) (*fakes.Bucket, error) {
+	const region, keyID = "us-west-2", "local-files-key"
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	creds := aws.Credentials{AccessKeyID: "dummy", SecretAccessKey: "dummy"}
+	bucket := &fakes.Bucket{Region: region, Credentials: creds, PublicKeys: map[string]*rsa.PublicKey{keyID: &key.PublicKey}, Now: clock.Now}
+	server.Files = &files.Service{
+		DB: client, Table: cfg.Table, Records: store,
+		Uploads:  &files.PutSigner{Endpoint: cfg.URL + "/bucket", Region: region, Credentials: credentials.StaticCredentialsProvider{Value: creds}},
+		FilesURL: cfg.URL + "/edge", KeyID: keyID, Key: files.StaticKey{Signer: key},
+		Limits: files.LimitsFor(env), Now: clock.Now,
+	}
+	cleanup.Removing = (&files.Remover{DB: client, Table: cfg.Table, Objects: bucket}).Removing
+	return bucket, nil
 }
 
 // withCORS does what the deployed gateway's CORS settings do: the apps load from file:// and capacitor://, so every call

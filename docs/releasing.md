@@ -3,23 +3,26 @@
 Every change reaches prod the same way: green CI before it merges to main, then a pipeline that builds that main
 commit once, deploys it to staging and tests it there, emails that it passed, and after a window in which the owner
 can stop it, promotes the same build to prod. No one needs to approve it. Prod's backend then takes the new version by
-canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. The signed Mac and iPhone apps stay a
-step on the Mac.
+canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. A commit that changes the Mac app's native
+code gets a new Mac app from GitHub Actions, which the pipeline checks and publishes, once
+[set up](#mac-apps-from-github-actions). The signed iPhone app stays a step on the Mac.
 
 The pipeline is AWS CodePipeline and CodeBuild in the control account (`infrastructure/lib/pipeline-stack.ts`), and its
-steps are `scripts/pipeline.sh`. Deploy rights stay in AWS: GitHub's CI holds no AWS credentials.
+steps are `scripts/pipeline.sh`. Deploy rights stay in AWS: GitHub's CI holds no AWS credentials. The one exception is
+the Mac release's, which may only upload to the pipeline's inbox, through GitHub's OIDC token, with no long-lived key.
 
 ## The flow
 
 | Stage | Runs against | What happens | Stops the release when |
 | --- | --- | --- | --- |
 | **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, iOS | A check fails. Every check must pass before a merge |
-| **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app from the same commit | A build or config check fails |
-| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Signs staging's feed in the signing step. Publishes the web app and the feed, then runs the web app, sync, cross-version, integration and smoke suites | A suite fails, or a release alarm rolls the canary back |
+| **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves | For a main commit that changes the Mac app's native code, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | The owner doesn't approve it, or a build or notarization fails. The pipeline then stops at Staging |
+| **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
+| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, waits for GitHub's and checks it. Signs staging's feed in the signing step. Publishes the web app, any new Mac app, then the feed, and runs the web app, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it. Then a wait until that time, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
-| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, publishes the web app and the feed, and checks them | A release alarm rolls the canary back, or a suite fails |
+| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, publishes the web app, any new Mac app the Staging stage checked, and the feed, and checks them | A release alarm rolls the canary back, or a suite fails |
 | **Nightly** | Staging | The full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
-| **On the Mac** | Prod | `make release-tag`, then the signed Mac and iPhone builds from that tag | — |
+| **On the Mac** | Prod | `make release-tag`, then the signed iPhone build from that tag, and the Mac app's too until the Mac release is set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
 because it sets off prod's throttle alarm. The iPhone's signed-in test needs a Mac, so it runs there: `make test-ios`,
@@ -137,10 +140,13 @@ minutes and seconds up to 6 days: `PT2H` when it's left out, `PT0S` to go at onc
 guard the release. Failed runs and failed nightly runs are emailed to the same address. The pause switch is unchanged:
 it holds back new runs, not one already past staging.
 
-**The signed apps.** After a release reaches prod, run `make release-tag`, then `git checkout <tag>` and `make release
-ENV=prod`. That builds and signs the Mac app on the Mac and uploads it, then the feed. When a release changes native
-code, the pipeline leaves the feed alone and says so, since the apps couldn't take it yet. The Mac's release then
-uploads the new app first and the feed after.
+**The signed apps.** Each build names the native code it needs, and the pipeline compares that with the feed's. When
+the Mac app's changed, the pipeline publishes the Mac app GitHub Actions built and checked, then the feed, so an
+older app that can't take the new bundle is offered the new app instead
+([Mac apps from GitHub Actions](#mac-apps-from-github-actions)). When the iPhone app's changed, or the Mac app's
+without the Mac release set up, the pipeline leaves the feed alone and says so. Then, after the release reaches prod,
+run `make release-tag`, then `git checkout <tag>` and `make release ENV=prod`. That builds and signs the Mac app on the
+Mac and uploads it, then the feed; the iPhone app goes through Xcode or TestFlight.
 
 ## Setting it up
 
@@ -171,6 +177,167 @@ Once. The steps marked **by hand** need the AWS console or your own credentials.
 7. **Confirm the email (by hand).** Open the email from AWS Notifications and choose **Confirm subscription**, or
    the notice before prod won't reach you.
 8. **The first run.** `make promote`. It goes to prod when its window ends, unless you stop it.
+9. **Mac apps from GitHub Actions,** if you like: [below](#setting-up-the-mac-release).
+
+## Mac apps from GitHub Actions
+
+A commit that changes the Mac app's native code, such as Electron's main process, a native package's version, or the
+backend addresses the app allows, needs a new Mac app before installed apps can take its bundle. GitHub Actions builds
+it, since signing and notarizing need macOS, and the pipeline checks it on Linux before publishing it. The pipeline
+never trusts GitHub's word for any of it.
+
+1. **GitHub Actions builds it.** `.github/workflows/mac-release.yml` runs for a push to main that changes what the Mac
+   app's shell hash covers (`frontend/scripts/shell-hash.ts`), or by hand for a main commit:
+   `gh workflow run mac-release.yml -f commit=<full commit hash>`. A first job, with no secrets, checks that the commit
+   is on main and that its native code really changed. The signing job then waits for the owner's approval in the
+   `release` environment. It installs the lockfile's packages with no install scripts, imports the Developer ID into a
+   keychain of its own, builds the staging and prod apps with `scripts/mac-app.sh` (signed, notarized, stapled, opened
+   by `spctl` and started, as `make release` does), and writes a manifest beside each disk image: the commit, the
+   versions, the shell hash, SHA-256s and the notary submissions. It uploads both to
+   `s3://<inbox bucket>/inbox/<commit>/<env>/`, the manifest last, and deletes the keychain and the notary key.
+2. **The pipeline waits for it.** The Staging stage's MacApp step, beside staging's deploy, compares each
+   environment's feed with this build. For each that needs a new Mac app, it waits for that environment's manifest in
+   the inbox, up to `pipeline.mac.waitFor` (two hours unless `control.yaml` says), then checks the upload
+   (`frontend/scripts/mac-inbox.ts verify`). If nothing arrives in time, or the check fails, the run stops before
+   anything is published, and before prod.
+3. **The releases publish it.** Staging's and prod's releases upload the checked disk image to
+   `downloads.<zone>/Multiscale.dmg`, then the feed, as `make release` does. An environment whose feed can take the
+   build as its Mac app is gets no new Mac app, and nothing changes. A build that also needs a new iPhone app still
+   leaves the feed for a release from the Mac.
+
+### What the check proves
+
+For each environment's upload, on Linux, with OpenSSL and 7-Zip:
+
+- **It's this commit's.** The manifest names the run's commit, and the disk image's SHA-256 is the manifest's.
+- **The configured team signed it, with a Developer ID.** The disk image's signature and the app's both verify: their
+  code directories match every byte of the disk image, and of the app's executable, Info.plist and resource seal.
+  OpenSSL checks each CMS signature. Its certificate must be a Developer ID Application certificate naming
+  `pipeline.mac.teamId`, issued by Apple's Developer ID CA under Apple's root, which the check knows by their SHA-256
+  fingerprints, and in date.
+- **Apple notarized it.** Apple's public ticket lookup, which Gatekeeper uses, has a ticket for the disk image's
+  cdhash and for the app's.
+- **It runs the pipeline's own code.** `app.asar` holds exactly the web build (`dist`) and main process
+  (`dist-electron`) the Build step made from the commit, byte for byte, with no file more or less, and the app's
+  resource seal covers that `app.asar`. Its `package.json` is the checkout's, as electron-builder trims it.
+  better-sqlite3's JavaScript, unpacked beside it, is the installed package's. The web build and main process come
+  out the same on macOS and Linux.
+
+`rcodesign verify` isn't used: it reads only Mach-O binaries, not disk images or the resource seal that holds
+`app.asar`, doesn't check the certificate chain, and warns that it "is known to be buggy and gives misleading results".
+
+**What it can't catch:**
+
+- **Native code.** Electron's framework and helpers and better-sqlite3's prebuilt binary are signed and notarized, but
+  compared with nothing, since signing changes them. A signing job that was tampered with, or someone holding both the
+  Developer ID and the App Store Connect key, could change them and pass.
+- **Nested signatures.** The check verifies the disk image's signature, which covers every byte of it, and the app's
+  executable's. The signatures inside the app, on its frameworks and helpers, are left to Apple's notarization.
+- **A disk image made to read differently.** The app is read from the disk image with 7-Zip, not macOS. Only someone
+  holding both keys could make an image that macOS reads differently, and Apple would have to notarize it.
+- **Revocation after the fact.** It doesn't ask whether Apple has since revoked the certificate or a ticket.
+- **The manifest's other fields.** The versions, shell hash and notary submission ids are for people reading it; only
+  the commit and hashes are checked.
+
+### The release environment
+
+The signing job runs in the GitHub environment `release`, which needs the owner's approval, takes deployments only from
+`main`, and holds the only copies of the signing secrets:
+
+| Name | Kind | Holds |
+| --- | --- | --- |
+| `MAC_CERT_P12` | Secret | The Developer ID Application certificate and its key, as a `.p12`, in base64 |
+| `MAC_CERT_PASSWORD` | Secret | The `.p12`'s password |
+| `ASC_API_KEY` | Secret | The App Store Connect API key that notarizes, the `.p8` file's contents |
+| `ASC_KEY_ID` | Secret or variable | That key's id |
+| `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
+| `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, sign-in client, bundle id and release key's public half |
+| `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
+| `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
+| `AWS_REGION` | Variable | The control account's region |
+
+The key id, issuer id and role ARN work as either, but a variable's value is printed in the run's log, which anyone can
+read on a public repository, and the role's ARN names the control account. Secrets are masked.
+
+The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
+`repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included. It may
+put objects under `inbox/` in the inbox bucket and do nothing else, for an hour at most; an infrastructure test checks
+that. The bucket is private and encrypted, and forgets each upload after 30 days. Pull requests never run the workflow,
+and a fork's runs stop before any job.
+
+### Setting up the Mac release
+
+Once, after `make release` has notarized a Mac app from your Mac ([setup, step 15](setup.md)). Run these on the Mac,
+with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
+
+1. **The config.** In `control.yaml`, under `pipeline`, add `mac` with your team id, as `config/control.example.yaml`
+   shows. If the control account already has GitHub's OIDC provider, which this lists, add
+   `githubOidcProvider: existing`:
+
+   ```sh
+   aws iam list-open-id-connect-providers --profile <control profile>
+   ```
+
+2. **The inbox.** `make deploy ENV=pipeline`, then `make pipeline-config`.
+3. **The environment.** Only you approve, and only `main` deploys:
+
+   ```sh
+   repo=<owner>/<repo>
+   gh api -X PUT "repos/$repo/environments/release" --input - <<EOF
+   {"reviewers": [{"type": "User", "id": $(gh api user --jq .id)}], "prevent_self_review": false,
+    "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+   EOF
+   gh api -X POST "repos/$repo/environments/release/deployment-branch-policies" -f name=main -f type=branch
+   ```
+
+   `prevent_self_review` stays off, since the run you approve is the one your merge started.
+4. **The Developer ID.** In **Keychain Access**, under **login > My Certificates**, select
+   **Developer ID Application: …** with its key, choose **File > Export Items**, and save it as `DeveloperID.p12` with
+   a new password. Then, typing that password when asked:
+
+   ```sh
+   base64 -i DeveloperID.p12 | gh secret set MAC_CERT_P12 --env release --repo "$repo"
+   gh secret set MAC_CERT_PASSWORD --env release --repo "$repo"
+   rm DeveloperID.p12
+   ```
+
+5. **The notary key,** from the config folder:
+
+   ```sh
+   key="$(ls "$MULTISCALE_CONFIG_DIR"/AuthKey_*.p8)"
+   key_id="$(basename "$key" .p8)" && key_id="${key_id#AuthKey_}"
+   gh secret set ASC_API_KEY --env release --repo "$repo" <"$key"
+   gh secret set ASC_KEY_ID --env release --repo "$repo" --body "$key_id"
+   gh secret set ASC_ISSUER_ID --env release --repo "$repo" <"$MULTISCALE_CONFIG_DIR/asc-issuer-id"
+   ```
+
+6. **The build's config.** Again whenever a backend address, the sign-in client, the bundle id or a release key
+   changes. Until then the check fails, saying the build's settings differ:
+
+   ```sh
+   (cd frontend && node scripts/mac-inbox.ts build-config "$MULTISCALE_CONFIG_DIR") | gh secret set MAC_BUILD_CONFIG --env release --repo "$repo"
+   ```
+
+7. **The inbox's address,** from the pipeline stack:
+
+   ```sh
+   output() { aws cloudformation describe-stacks --stack-name Multiscale-pipeline --profile <control profile> --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+   gh secret set AWS_INBOX_ROLE_ARN --env release --repo "$repo" --body "$(output MacInboxRoleArn)"
+   gh variable set AWS_INBOX_BUCKET --env release --repo "$repo" --body "$(output MacInboxBucket)"
+   gh variable set AWS_REGION --env release --repo "$repo" --body <control region>
+   ```
+
+8. **A first build.** `gh workflow run mac-release.yml -f commit="$(git rev-parse origin/main)"`, then approve it under
+   the run's **Review deployments**. It stops at once, naming anything missing from the environment.
+
+### When a run stops for the Mac app
+
+- **No Mac app in time.** The MacApp step's log says which commit. Approve the waiting workflow run, or start one for
+  that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, run the pipeline again:
+  `make promote COMMIT=<sha>`. A push whose native code didn't change starts no build, so a run for it can need one
+  when the feed is older still, such as after a failed run.
+- **The check failed.** The MacApp step's log lists every problem. Nothing was published. "The build's settings
+  differ" means `MAC_BUILD_CONFIG` is out of date: make it again (step 6 above) and build again.
 
 ## The release keys
 
@@ -220,3 +387,5 @@ install the new app on every device.
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
 | The window before prod, a two-state Step Functions run each release | Under $0.01 |
 | The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite | About $0.45 a night |
+| The Mac app's check, a small build that waits for GitHub's build, only for a commit that changes native code | Up to $0.60 a time, for a two-hour wait |
+| The Mac release's inbox, two disk images a time, kept 30 days | Under $0.05 |

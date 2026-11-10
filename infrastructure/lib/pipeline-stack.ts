@@ -3,7 +3,7 @@
 // No one approves it. docs/releasing.md describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild;
 // deploy rights stay in AWS.
 
-import { CfnCapabilities, Duration, Stack } from 'aws-cdk-lib';
+import { CfnCapabilities, CfnOutput, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
 import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
@@ -14,16 +14,17 @@ import {
 import { CfnConnection } from 'aws-cdk-lib/aws-codestarconnections';
 import { Rule, RuleTargetInput, EventField } from 'aws-cdk-lib/aws-events';
 import { SnsTopic } from 'aws-cdk-lib/aws-events-targets';
-import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { OidcProviderNative, PolicyStatement, Role, ServicePrincipal, WebIdentityPrincipal } from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { CodeBuildStartBuild } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
 import { DefinitionBody, QueryLanguage, StateMachine, TaskInput, Wait, WaitTime } from 'aws-cdk-lib/aws-stepfunctions';
 import { SnsPublish } from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
-import { DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
+import { DEFAULT_MAC_WAIT, DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
 import type { Config, ControlConfig, EnvName, PipelineConfig } from './config.ts';
 
 /** The pipeline's CodeBuild role. Each environment's release role trusts it by this name. */
@@ -37,6 +38,11 @@ export const RELEASE_ROLE_NAME = 'multiscale-release';
 export const PIPELINE_NAME = 'Multiscale';
 /** SSM parameters in the control account, under this path, that scripts/pipeline.sh reads and writes. */
 export const PIPELINE_PARAMETERS = '/multiscale/pipeline';
+/** What GitHub Actions' Mac release signs in as to upload to the inbox, and nothing else (.github/workflows/mac-release.yml). */
+export const MAC_INBOX_ROLE_NAME = 'multiscale-mac-inbox';
+/** The GitHub environment the workflow's signing job runs in, which alone may assume that role. */
+export const MAC_RELEASE_ENVIRONMENT = 'release';
+const GITHUB_OIDC = 'token.actions.githubusercontent.com';
 
 export interface PipelineStackProps {
   control: ControlConfig & { pipeline: PipelineConfig };
@@ -46,7 +52,7 @@ export interface PipelineStackProps {
 export class PipelineStack extends Stack {
   constructor(scope: Construct, id: string, { control, environments }: PipelineStackProps) {
     super(scope, id, { env: { account: control.aws.account, region: control.aws.region } });
-    const { repository, branch, email } = control.pipeline;
+    const { repository, branch, email, mac } = control.pipeline;
     const [owner, repo] = repository.split('/') as [string, string];
     for (const [name, env] of Object.entries(environments)) {
       // One region keeps the pipeline free of cross-region replication buckets.
@@ -106,7 +112,8 @@ export class PipelineStack extends Stack {
     });
     // The assemblies hold copies of the Lambdas' binaries, so staging and prod deploy the same files. web/ holds each
     // environment's web build and the script that signs it.
-    const builder = project('Build', { files: ['infrastructure/cdk.out/**/*', 'web/**/*'] });
+    // mac/ holds each environment's main process, to check a Mac app GitHub Actions built against.
+    const builder = project('Build', { files: ['infrastructure/cdk.out/**/*', 'web/**/*', 'mac/**/*'] });
     const releaser = project('Release');
 
     // Signing. Only this step reads a release key: its own project and role, which may read the keys and nothing else
@@ -165,11 +172,11 @@ export class PipelineStack extends Stack {
       // Not 'Source': CodePipeline refuses a namespace named like an artifact.
       variablesNamespace: 'GitHub',
     });
-    const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = [], signed?: Artifact) => new CodeBuildAction({
+    const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = [], more: Artifact[] = [], stepProject?: Project) => new CodeBuildAction({
       actionName,
-      project: outputs.length > 0 ? builder : releaser,
+      project: stepProject ?? (outputs.length > 0 ? builder : releaser),
       input: source,
-      extraInputs: name === 'build' ? [] : [built, ...(signed ? [signed] : [])],
+      extraInputs: name === 'build' ? [] : [built, ...more],
       outputs,
       runOrder,
       environmentVariables: {
@@ -198,6 +205,60 @@ export class PipelineStack extends Stack {
       timeout: Duration.days(7),
     });
 
+    // Mac apps from GitHub Actions. For a commit that needs a new Mac app, the workflow builds, signs and notarizes it,
+    // and uploads it to this inbox: all GitHub may do in AWS. The MacApp step checks it on Linux (scripts/pipeline.sh
+    // mac) and hands what passed to the releases, which publish the disk image before the feed.
+    const macApps: Artifact[] = [];
+    let macProject: Project | undefined;
+    if (mac) {
+      const inbox = new Bucket(this, 'MacInbox', {
+        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+        encryption: BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        // Each build is checked within hours of its upload. Prod's run reads it up to 6 days later, at most.
+        lifecycleRules: [{ expiration: Duration.days(30) }],
+      });
+      // An account has at most one provider for GitHub's tokens. control.yaml says when it has one already.
+      const providerArn = mac.githubOidcProvider === 'existing'
+        ? this.formatArn({ service: 'iam', region: '', resource: 'oidc-provider', resourceName: GITHUB_OIDC })
+        : new OidcProviderNative(this, 'GitHubOidc', { url: `https://${GITHUB_OIDC}`, clientIds: ['sts.amazonaws.com'] }).oidcProviderArn;
+      // Only a job in this repository's release environment, which needs the owner's approval and runs only from main.
+      const inboxRole = new Role(this, 'MacInboxRole', {
+        roleName: MAC_INBOX_ROLE_NAME,
+        description: "GitHub Actions' Mac release: uploads to the release pipeline's inbox, and nothing else",
+        maxSessionDuration: Duration.hours(1),
+        assumedBy: new WebIdentityPrincipal(providerArn, {
+          StringEquals: { [`${GITHUB_OIDC}:aud`]: 'sts.amazonaws.com', [`${GITHUB_OIDC}:sub`]: `repo:${repository}:environment:${MAC_RELEASE_ENVIRONMENT}` },
+        }),
+      });
+      inboxRole.addToPolicy(new PolicyStatement({ actions: ['s3:PutObject'], resources: [inbox.arnForObjects('inbox/*')] }));
+      // The pipeline only reads the inbox.
+      role.addToPolicy(new PolicyStatement({ actions: ['s3:GetObject'], resources: [inbox.arnForObjects('inbox/*')] }));
+      role.addToPolicy(new PolicyStatement({ actions: ['s3:ListBucket'], resources: [inbox.bucketArn], conditions: { StringLike: { 's3:prefix': 'inbox/*' } } }));
+      const wait = promoteAfterSeconds(mac.waitFor ?? DEFAULT_MAC_WAIT)!;
+      macProject = new PipelineProject(this, 'MacApp', {
+        role,
+        // Mostly waiting, so the smallest.
+        environment: { ...environment, computeType: ComputeType.SMALL },
+        timeout: Duration.seconds(Math.min(wait + 3600, 8 * 3600)),
+        logging: { cloudWatch: { logGroup } },
+        environmentVariables: {
+          MAC_INBOX_BUCKET: { value: inbox.bucketName },
+          MAC_TEAM_ID: { value: mac.teamId },
+          MAC_WAIT_SECONDS: { value: String(wait) },
+        },
+        buildSpec: BuildSpec.fromObject({
+          version: '0.2',
+          env: { shell: 'bash' },
+          phases: { install: { commands: install }, build: { commands: ['scripts/pipeline.sh "$STEP"'] } },
+          artifacts: { 'base-directory': 'mac-checked', files: ['**/*'] },
+        }),
+      });
+      macApps.push(new Artifact('MacApps'));
+      new CfnOutput(this, 'MacInboxBucket', { value: inbox.bucketName, description: 'AWS_INBOX_BUCKET for the release environment' });
+      new CfnOutput(this, 'MacInboxRoleArn', { value: inboxRole.roleArn, description: 'AWS_INBOX_ROLE_ARN for the release environment' });
+    }
+
     const prod = environments.prod.aws;
     const prodRole = (kind: string) => Role.fromRoleArn(this, `Prod${kind}Role`, `arn:${this.partition}:iam::${prod.account}:role/cdk-hnb659fds-${kind}-role-${prod.account}-${prod.region}`, { mutable: false });
     const deployRole = prodRole('deploy');
@@ -216,9 +277,11 @@ export class PipelineStack extends Stack {
           stageName: 'Staging',
           actions: [
             step('Deploy', 'deploy-staging', 1),
+            // Beside staging's deploy, since it may wait a while for GitHub Actions' build. A failed check stops the run.
+            ...(macProject ? [step('MacApp', 'mac', 1, macApps, [], macProject)] : []),
             sign('staging', signedStaging, 2),
             // Publishes staging's web app and its signed feed, then runs staging's suites against them.
-            step('ReleaseAndTest', 'release-staging', 3, [], signedStaging),
+            step('ReleaseAndTest', 'release-staging', 3, [], [signedStaging, ...macApps]),
           ],
         },
         {
@@ -257,7 +320,7 @@ export class PipelineStack extends Stack {
             // Only once prod's suites pass.
             sign('prod', signedProd, 5),
             // Publishes the web app and its signed feed, then checks them.
-            step('Release', 'release-prod', 6, [], signedProd),
+            step('Release', 'release-prod', 6, [], [signedProd, ...macApps]),
           ],
         },
       ],

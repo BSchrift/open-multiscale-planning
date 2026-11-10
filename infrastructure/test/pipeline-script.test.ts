@@ -11,6 +11,8 @@ const stackOutputs = JSON.stringify([
   { OutputKey: 'CognitoDomain', OutputValue: 'https://auth.example.net' },
   { OutputKey: 'AppClientId', OutputValue: 'client' },
   { OutputKey: 'ReleaseBucket', OutputValue: 'bucket' },
+  { OutputKey: 'WebUrl', OutputValue: 'https://web.example.net' },
+  { OutputKey: 'ReleaseUrl', OutputValue: 'https://release.example.net' },
 ]);
 const shell = { electron: 'e1', ios: 'i1' };
 const feedWith = (s: object) => JSON.stringify({ manifest: JSON.stringify({ version: 'old', build: 0, shell: s, files: [] }), signature: 'x' });
@@ -26,11 +28,22 @@ case "$*" in
   *start-pipeline-execution*) echo exec-1;;
   *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
   *get-pipeline-execution*) echo abc1234;;
+  *"sts get-caller-identity"*) echo "\${ACCOUNT:-210987654321}";;
   *describe-stacks*) echo '${stackOutputs}';;
   *"s3api head-object"*) [ -f "$PARAMS/s3/$(echo "$*" | sed -E 's|.*--bucket ([^ ]+) --key ([^ ]+).*|\\1/\\2|')" ] || exit 254;;
   "s3 "*) exec node ${fakeS3} "$@";;
 esac`);
-  for (const name of ['go', 'npx', 'npm', 'sleep']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
+  for (const name of ['go', 'npx', 'npm', 'sleep', 'apt-get']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
+  s.stub('xvfb-run', 'shift; exec "$@"');
+  // The hosts serve what the bucket holds: web/ on the web host and release/ on the release host, or $STALE_HOST's old copy.
+  s.stub('curl', `echo "curl $*" >> "$LOG"
+url="$(printf '%s\\n' "$@" | grep '^https://')"
+case "$url" in
+  https://web.example.net/*) key="web/\${url#https://web.example.net/}";;
+  https://release.example.net/*) key="release/\${url#https://release.example.net/}";;
+esac
+[ -n "$STALE_HOST" ] && case "$url" in "$STALE_HOST"*) echo '{"version":"stale"}'; exit 0;; esac
+cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   s.stub('git', `echo "git $*" >> "$LOG"; case "$*" in *rev-parse*) echo abc123;; esac`);
   for (const env of ['staging', 'prod']) {
     writeFileSync(join(s.config, `${env}.release-key.pem`), generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }));
@@ -57,6 +70,32 @@ esac`);
   const get = (url: string) => (existsSync(object(url)) ? readFileSync(object(url), 'utf8') : null);
   return { ...s, run, param, params, put, get };
 }
+
+// A release bucket with versions kept, each surface serving 0.1.0-ccc, and the history that got them there. 0.1.0-ios
+// needs a newer iPhone app.
+const feedOf = (version: string, build: number, s: object = shell) => JSON.stringify({ manifest: JSON.stringify({ version, build, shell: s, files: [] }), signature: 'x' });
+function kept(s: ReturnType<typeof sandbox>) {
+  const versions: [string, number, object][] = [['0.1.0-aaa', 1, shell], ['0.1.0-bbb', 2, shell], ['0.1.0-ccc', 3, shell], ['0.1.0-ios', 4, { electron: 'e1', ios: 'i2' }]];
+  for (const [version, build, sh] of versions) {
+    s.put(`s3://bucket/versions/${version}/web/version.json`, JSON.stringify({ version, build, shell: sh }));
+    s.put(`s3://bucket/versions/${version}/web/index.html`, `<html>${version}</html>`);
+    s.put(`s3://bucket/versions/${version}/release.json`, feedOf(version, build, sh));
+  }
+  s.put('s3://bucket/web/version.json', JSON.stringify({ version: '0.1.0-ccc', build: 3, shell }));
+  s.put('s3://bucket/web/index.html', '<html>0.1.0-ccc</html>');
+  for (const feed of ['desktop/release.json', 'iphone/release.json', 'release.json']) s.put(`s3://bucket/release/${feed}`, feedOf('0.1.0-ccc', 3));
+  const line = (version: string, day: number) => ({ version, build: Number(version.at(-1) === 'a' ? 1 : version.at(-1) === 'b' ? 2 : 3), at: `2026-11-0${day}T10:00:00Z` });
+  s.put('s3://bucket/state/history.json', JSON.stringify({
+    web: [line('0.1.0-aaa', 1), line('0.1.0-bbb', 2), line('0.1.0-ccc', 3)],
+    desktop: [line('0.1.0-bbb', 2), line('0.1.0-ccc', 3)],
+    iphone: [line('0.1.0-ccc', 3)],
+    shared: [line('0.1.0-bbb', 2), line('0.1.0-ccc', 3)],
+  }));
+}
+const served = (s: ReturnType<typeof sandbox>, key: string) => {
+  const r = JSON.parse(s.get(`s3://bucket/${key}`)!) as { version?: string; manifest?: string };
+  return r.manifest ? (JSON.parse(r.manifest) as { version: string }).version : r.version;
+};
 
 describe('scripts/pipeline.sh, from a Mac', () => {
   it("pauses and resumes main's releases with a parameter, signed in to the control account", () => {
@@ -111,6 +150,79 @@ describe('scripts/pipeline.sh, from a Mac', () => {
       assert.notEqual(s.run(['run'], env).status, 0);
       assert.doesNotMatch(s.log(), /^aws /m);
     }
+  });
+
+  // release-surface reads the environment's outputs, which make deploy writes on the Mac.
+  const surfaces = () => {
+    const s = sandbox();
+    writeFileSync(join(s.config, 'staging.outputs.json'), JSON.stringify(Object.fromEntries((JSON.parse(stackOutputs) as { OutputKey: string; OutputValue: string }[]).map((o) => [o.OutputKey, o.OutputValue]))));
+    kept(s);
+    return s;
+  };
+
+  it('lists what each surface serves, its last versions and the versions kept, signed in to the environment', () => {
+    const s = surfaces();
+    const r = s.run(['release-surface'], { ENV: 'staging' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging sts get-caller-identity/);
+    for (const surface of ['web', 'desktop', 'iphone', 'shared']) assert.match(r.stdout, new RegExp(`^  ${surface} +0\\.1\\.0-ccc$`, 'm'));
+    assert.match(r.stdout, /^  web +0\.1\.0-ccc 2026-11-03T10:00:00Z, 0\.1\.0-bbb 2026-11-02T10:00:00Z, 0\.1\.0-aaa 2026-11-01T10:00:00Z$/m);
+    assert.match(r.stdout, /Versions kept, newest first:\n(  0\.1\.0-(aaa|bbb|ccc|ios) +uploaded \S+ \S+\n){4}/);
+    assert.doesNotMatch(s.log(), /s3 cp s3:\/\/\S+ s3:\/\//);
+  });
+
+  it('switches web back to a version kept, and records it', () => {
+    const s = surfaces();
+    const r = s.run(['release-surface'], { ENV: 'staging', SURFACE: 'web', VERSION: '0.1.0-bbb' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>0.1.0-bbb</html>');
+    assert.equal(served(s, 'web/version.json'), '0.1.0-bbb');
+    assert.match(r.stdout, /Switched staging's web from 0\.1\.0-ccc to 0\.1\.0-bbb/);
+    assert.doesNotMatch(r.stdout, /further back/);
+    assert.deepEqual((JSON.parse(s.get('s3://bucket/state/history.json')!) as Record<string, { version: string }[]>).web!.map((l) => l.version), ['0.1.0-aaa', '0.1.0-bbb', '0.1.0-ccc', '0.1.0-bbb']);
+  });
+
+  it('says so when web goes back further than the version before, which the compatibility test does not cover', () => {
+    const s = surfaces();
+    const r = s.run(['release-surface'], { ENV: 'staging', SURFACE: 'web', VERSION: '0.1.0-aaa' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /further back than the version before/);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-aaa');
+  });
+
+  it('switches only the feed named, the shared one included', () => {
+    const s = surfaces();
+    assert.equal(s.run(['release-surface'], { ENV: 'staging', SURFACE: 'desktop', VERSION: '0.1.0-bbb' }).status, 0);
+    assert.equal(served(s, 'release/desktop/release.json'), '0.1.0-bbb');
+    assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
+    assert.equal(served(s, 'release/iphone/release.json'), '0.1.0-ccc');
+    assert.equal(s.run(['release-surface'], { ENV: 'staging', SURFACE: 'shared', VERSION: '0.1.0-bbb' }).status, 0);
+    assert.equal(served(s, 'release/release.json'), '0.1.0-bbb');
+  });
+
+  it("refuses a version not kept, or one the feed's apps couldn't take, and switches nothing", () => {
+    for (const [surface, version, why] of [['web', '0.1.0-zzz', /keeps no version 0\.1\.0-zzz/], ['iphone', '0.1.0-ios', /other native code than the apps staging's iphone feed serves/], ['shared', '0.1.0-ios', /other native code than the apps staging's shared feed serves/]] as const) {
+      const s = surfaces();
+      const r = s.run(['release-surface'], { ENV: 'staging', SURFACE: surface, VERSION: version });
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, why);
+      assert.doesNotMatch(s.log(), /s3 cp s3:\/\/\S+ s3:\/\//);
+    }
+    // The Mac's native code is the same, and web runs none.
+    for (const surface of ['desktop', 'web']) assert.equal(surfaces().run(['release-surface'], { ENV: 'staging', SURFACE: surface, VERSION: '0.1.0-ios' }).status, 0);
+  });
+
+  it('refuses another ENV or SURFACE, or a VERSION with no SURFACE, before calling AWS, and a profile signed in elsewhere', () => {
+    for (const env of [{ ENV: 'dev' }, { ENV: 'staging', SURFACE: 'watch', VERSION: '0.1.0-bbb' }, { ENV: 'staging', VERSION: '0.1.0-bbb' }] as Record<string, string>[]) {
+      const s = surfaces();
+      assert.notEqual(s.run(['release-surface'], env).status, 0);
+      assert.doesNotMatch(s.log(), /^aws /m);
+    }
+    const elsewhere = surfaces();
+    const r = elsewhere.run(['release-surface'], { ENV: 'staging', SURFACE: 'web', VERSION: '0.1.0-bbb', ACCOUNT: '123456789012' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /signed in to account 123456789012/);
+    assert.doesNotMatch(elsewhere.log(), /s3 /);
   });
 
   it("uploads the config files where the steps read them, and each release key only where the signing step does", () => {
@@ -438,5 +550,35 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Nothing new on main/);
     assert.doesNotMatch(s.log(), /npm |npx /);
+  });
+
+  it("switches each of staging's surfaces back one version and forward again each night, checking what its host serves", () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['nightly']);
+    assert.equal(r.status, 0, r.stderr);
+    for (const [surface, key, before] of [['web', 'web/version.json', '0.1.0-bbb'], ['desktop', 'release/desktop/release.json', '0.1.0-bbb']]) {
+      assert.match(r.stdout, new RegExp(`Switched staging's ${surface} from 0\\.1\\.0-ccc to ${before}\\.\\n(.*\\n)*Switched staging's ${surface} from ${before} to 0\\.1\\.0-ccc\\.`));
+      assert.equal(served(s, key), '0.1.0-ccc');
+    }
+    // As staging's release role, read back from each host.
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp s3:\/\/bucket\/versions\/0\.1\.0-bbb\/web\/ s3:\/\/bucket\/web\/ --recursive/);
+    assert.match(s.log(), /curl -fsS --max-time 20 https:\/\/web\.example\.net\/version\.json/);
+    assert.match(s.log(), /curl -fsS --max-time 20 https:\/\/release\.example\.net\/desktop\/release\.json/);
+    // The iPhone has had no version before this one.
+    assert.match(r.stdout, /iphone has no version before 0\.1\.0-ccc to go back to/);
+    assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
+    // Then the suites, against what it serves again.
+    assert.match(s.log(), /test-deployed ENV=staging/);
+  });
+
+  it('fails the nightly run when a host keeps serving the old version, after switching that surface forward again', () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['nightly'], { STALE_HOST: 'https://web.example.net' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /staging's web still doesn't serve 0\.1\.0-bbb/);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-ccc');
+    assert.doesNotMatch(s.log(), /test-deployed/);
   });
 });

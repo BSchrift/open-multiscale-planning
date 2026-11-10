@@ -10,6 +10,9 @@
 #   run      make promote            starts a run by hand: COMMIT=<sha> (default: the branch's latest), CANARY=skip,
 #                                    ALARMS=off
 #   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
+#   release-surface  make release-surface  ENV=staging|prod, signed in with that environment's profile: lists what each
+#                                    surface serves and the versions kept, or with SURFACE=web|desktop|iphone|shared and
+#                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
 # In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod and nightly.
@@ -25,17 +28,18 @@ parameters=/multiscale/pipeline
 configs=(control.yaml staging.yaml prod.yaml)
 environments=(staging prod)
 
-# Signs in as control.yaml's profile, after checking the config folder, as deploy.sh does.
-control() {
+# Signs in as the profile of control.yaml or an environment's file, after checking the config folder, as deploy.sh does.
+sign_in() {
   config_dir="${MULTISCALE_CONFIG_DIR:-$root/config}"
   case "$config_dir" in /*) ;; *) config_dir="$PWD/$config_dir" ;; esac
   export MULTISCALE_CONFIG_DIR="$config_dir"
   [ -d "$root/infrastructure/node_modules" ] || (cd "$root/infrastructure" && npm ci)
   local target
-  target="$(cd "$root/infrastructure" && node bin/target.ts control)"
-  read -r _ region profile <<<"$target"
+  target="$(cd "$root/infrastructure" && node bin/target.ts "$1")"
+  read -r account region profile <<<"$target"
   export AWS_PROFILE="$profile" AWS_REGION="$region"
 }
+control() { sign_in control; }
 
 # In CodeBuild: the config folder from SSM, outside the checkout. It holds no release key.
 fetch_config() {
@@ -102,9 +106,9 @@ live_shell() {
   echo "$shell"
 }
 
-release_bucket() {
-  node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseBucket ?? "")' "$MULTISCALE_CONFIG_DIR/$1.outputs.json"
-}
+# One of an environment's stack outputs, from <env>.outputs.json in the config folder.
+output() { node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[process.argv[2]] ?? "")' "$MULTISCALE_CONFIG_DIR/$1.outputs.json" "$2"; }
+release_bucket() { output "$1" ReleaseBucket; }
 
 # 7-Zip, which reads a disk image's HFS+ volume on Linux, pinned by its hash. Ubuntu's p7zip is from 2016.
 seven_zip() {
@@ -155,6 +159,106 @@ switch() {
   node -e 'const [history, surface, info, at] = process.argv.slice(1); const h = JSON.parse(history); const { version, build } = JSON.parse(info); (h[surface] ??= []).push({ version, build, at }); console.log(JSON.stringify(h, null, 1));' \
     "$history" "$surface" "$info" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
     aws s3 cp - "s3://$bucket/state/history.json" --content-type application/json >&2
+}
+
+# A field of a page's version.json or a feed's manifest, from stdin, or nothing.
+field_of() {
+  node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const r = JSON.parse(s); console.log((r.manifest ? JSON.parse(r.manifest) : r)[process.argv[1]] ?? ""); } catch { console.log(""); } });' "$1"
+}
+
+# The version a surface serves now, and the one it served before that, from state/history.json. Signed in: AWS_PROFILE.
+serves() {
+  local key
+  case "$2" in web) key=web/version.json ;; *) key="$(feed_key "$2")" ;; esac
+  aws s3 cp "s3://$1/$key" - 2>/dev/null | field_of version || true
+}
+served_before() {
+  aws s3 cp "s3://$1/state/history.json" - 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const [surface, now] = process.argv.slice(1); let h = {}; try { h = JSON.parse(s); } catch {} const lines = (h[surface] ?? []).map((l) => l.version); while (lines.length > 0 && lines.at(-1) === now) lines.pop(); console.log(lines.at(-1) ?? ""); });' "$2" "$3" || true
+}
+
+# Whether a feed's apps couldn't take a version, given its version.json: one built for other native code than the feed
+# serves now. Says why.
+refuses() {
+  local env_name="$1" surface="$2" info="$3" version app apps
+  case "$surface" in desktop) apps=electron ;; iphone) apps=ios ;; shared) apps="electron ios" ;; *) return 1 ;; esac
+  version="$(field_of version <<<"$info")"
+  for app in $apps; do
+    if differs "$(live_shell "$env_name" "$surface")" "$(shell_of <<<"$info")" "$app"; then
+      echo "$version was built for other native code than the apps $env_name's $surface feed serves, so they couldn't take it." >&2
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Switches one surface to a version kept, as make release-surface does, unless its apps couldn't take it. Going back
+# further than one version on web is the owner's call, which it says. Signed in: AWS_PROFILE.
+release_surface() {
+  local env_name="$1" surface="$2" version="$3" bucket info now
+  bucket="$(release_bucket "$env_name")"
+  info="$(aws s3 cp "s3://$bucket/versions/$version/web/version.json" - 2>/dev/null)" || {
+    echo "$env_name keeps no version $version. make release-surface ENV=$env_name lists the ones it keeps." >&2
+    return 1
+  }
+  if refuses "$env_name" "$surface" "$info"; then return 1; fi
+  now="$(serves "$bucket" "$surface")"
+  if [ "$surface" = web ] && [ -n "$now" ] && [ "$version" != "$now" ] && [ "$version" != "$(served_before "$bucket" web "$now")" ] &&
+    [ "$(field_of build <<<"$info")" -lt "$(aws s3 cp "s3://$bucket/web/version.json" - | field_of build)" ]; then
+    echo "This takes web further back than the version before. The compatibility test only covers going back one, so check the app by hand."
+  fi
+  switch "$env_name" "$surface" "$version"
+  echo "Switched $env_name's $surface from ${now:-nothing} to $version."
+}
+
+# What make release-surface lists without a VERSION: what each surface serves, its last versions, and the versions kept.
+list_surfaces() {
+  local env_name="$1" bucket surface
+  bucket="$(release_bucket "$env_name")"
+  echo "$env_name serves:"
+  for surface in web desktop iphone shared; do printf '  %-8s %s\n' "$surface" "$(serves "$bucket" "$surface")"; done
+  echo "Each surface's last versions, newest first:"
+  aws s3 cp "s3://$bucket/state/history.json" - 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { let h = {}; try { h = JSON.parse(s); } catch {} for (const [surface, lines] of Object.entries(h)) console.log(`  ${surface.padEnd(8)} ${lines.slice(-3).reverse().map((l) => `${l.version} ${l.at}`).join(", ")}`); });' || true
+  echo "Versions kept, newest first:"
+  aws s3 ls "s3://$bucket/versions/" --recursive 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const kept = s.split("\n").map((l) => /^(\S+ \S+) +\d+ versions\/([^/]+)\/web\/version\.json$/.exec(l)).filter(Boolean); for (const [, at, version] of kept.sort((a, b) => b[1].localeCompare(a[1]))) console.log(`  ${version.padEnd(16)} uploaded ${at}`); });' || true
+  echo "To switch one: make release-surface ENV=$env_name SURFACE=web|desktop|iphone|shared VERSION=<version>"
+}
+
+# Waits up to two minutes for a surface's host to serve a version: a feed caches for a minute at the edge.
+serving() {
+  local env_name="$1" surface="$2" version="$3" url attempt
+  case "$surface" in web) url="$(output "$env_name" WebUrl)/version.json" ;; *) url="$(output "$env_name" ReleaseUrl)/$(feed_key "$surface" | sed 's|^release/||')" ;; esac
+  for attempt in $(seq 24); do
+    [ "$(curl -fsS --max-time 20 "$url" 2>/dev/null | field_of version)" != "$version" ] || return 0
+    sleep 5
+  done
+  echo "$env_name's $surface still doesn't serve $version after two minutes, at $url." >&2
+  return 1
+}
+
+# Staging's web app and app feeds, each switched back one version and forward again with release-surface's code, and
+# read back from its host after each switch. A surface with no version before, or one its apps couldn't take, is left.
+# shortcut: a release that switches staging during the round trip may be switched back by it, though each surface
+# takes seconds; move the round trip into the pipeline's Staging stage if that ever happens.
+round_trip() {
+  local env_name=staging bucket surface now before failed=""
+  bucket="$(release_bucket "$env_name")"
+  for surface in web desktop iphone; do
+    now="$(serves "$bucket" "$surface")"
+    before="$(served_before "$bucket" "$surface" "$now")"
+    if [ -z "$now" ] || [ -z "$before" ]; then
+      echo "$surface has no version before ${now:-this} to go back to, so it stays as it is."
+      continue
+    fi
+    if refuses "$env_name" "$surface" "$(aws s3 cp "s3://$bucket/versions/$before/web/version.json" - 2>/dev/null || echo '{}')"; then continue; fi
+    release_surface "$env_name" "$surface" "$before"
+    serving "$env_name" "$surface" "$before" || failed="$failed $surface"
+    release_surface "$env_name" "$surface" "$now"
+    serving "$env_name" "$surface" "$now" || failed="$failed $surface"
+  done
+  [ -z "$failed" ] || { echo "Going back one version and forward again failed for:$failed." >&2; return 1; }
 }
 
 # Publishes one environment's build in today's single step, as release.sh does from a Mac: uploads it, then switches
@@ -255,6 +359,19 @@ case "$command" in
     commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
     aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped before prod by make pipeline-stop" >/dev/null
     echo "Stopped run $id, at $commit, before prod. Staging keeps it; prod doesn't get it."
+    ;;
+  release-surface)
+    env_name="${ENV:-staging}"
+    case "$env_name" in staging | prod) ;; *) echo "ENV must be staging or prod, not $env_name" >&2; exit 1 ;; esac
+    case "${SURFACE:-}" in "" | web | desktop | iphone | shared) ;; *) echo "SURFACE must be web, desktop, iphone or shared, not $SURFACE" >&2; exit 1 ;; esac
+    [ -z "${VERSION:-}" ] || [ -n "${SURFACE:-}" ] || { echo "Name the SURFACE to switch to $VERSION: web, desktop, iphone or shared." >&2; exit 1; }
+    sign_in "$env_name"
+    signed_in="$(aws sts get-caller-identity --query Account --output text)"
+    if [ "$signed_in" != "$account" ]; then
+      echo "Profile $AWS_PROFILE is signed in to account $signed_in, but $env_name.yaml is for $account." >&2
+      exit 1
+    fi
+    if [ -z "${VERSION:-}" ]; then list_surfaces "$env_name"; else release_surface "$env_name" "$SURFACE" "$VERSION"; fi
     ;;
   tag)
     control
@@ -419,13 +536,19 @@ case "$command" in
     outputs prod
     frontend_deps
     browsers
+    # Each surface back one version and forward again, as make release-surface would, then the suites against it.
+    (
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      export AWS_PROFILE="$profile"
+      round_trip
+    )
     apt-get update -qq && apt-get install -y -qq xvfb >/dev/null
     # Every suite but the iPhone's, which needs a Mac. The history-scale test only reports its numbers.
     xvfb-run -a env ENV=staging SKIP_IOS=1 "$root/scripts/test-deployed.sh"
     aws ssm put-parameter --name "$parameters/nightly" --type String --overwrite --value "$commit" >/dev/null
     ;;
   *)
-    echo "Use: scripts/pipeline.sh config | pause | resume | run | stop | tag, or a CodeBuild step. See docs/releasing.md." >&2
+    echo "Use: scripts/pipeline.sh config | pause | resume | run | stop | release-surface | tag, or a CodeBuild step. See docs/releasing.md." >&2
     exit 1
     ;;
 esac

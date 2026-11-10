@@ -431,6 +431,53 @@ A Simulator can't prove these, so check them once on a real phone:
 - [ ] The Control Center capture button opens Capture.
 - [ ] With a paid team: the share sheet saves into Inbox.
 
+## TestFlight
+
+With a paid membership, testers can install the iPhone app from TestFlight instead of Xcode. A TestFlight build is a prod build of one commit, so it takes prod's updates like any other prod build. `make testflight` archives it, signs it for App Store Connect and uploads it, and a prod release does the same as its last step.
+
+Once:
+
+1. **The App Store Connect key.** In App Store Connect, open **Users and Access > Integrations > App Store Connect API** and generate a team key with **Admin** access. Signing for App Store Connect uses Apple's cloud-managed distribution certificates, and a key with less access is refused them. Download the key, which you can do only once, and move it into your config folder with the name it came with, `AuthKey_<key id>.p8`. Keep only one key there. Save the **Issuer ID** shown above the keys beside it:
+
+   ```sh
+   echo '<issuer id>' > "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
+   chmod 600 "$MULTISCALE_CONFIG_DIR"/AuthKey_*.p8 "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
+   ```
+
+2. **The share sheet's App Group.** A build from the command line can't register it, so register it once in the [developer account](https://developer.apple.com/account/resources/identifiers/list/applicationGroup): add `group.<bundle id>`, where the bundle id is `MULTISCALE_BUNDLE_ID` from `frontend/ios/App/Config.xcconfig` or your `Config.local.xcconfig`. Then open the identifiers `<bundle id>` and `<bundle id>.share`, and on each, choose **Configure** beside **App Groups** and select it.
+3. **Check the signing.** `make testflight EXPORT_ONLY=1` archives and exports the app without uploading it, and says where it put it.
+4. **The app record.** In App Store Connect, choose **Apps > + > New App**: iOS, a name, your bundle id and any SKU. Then fill in the app's **TestFlight > Test Information**.
+5. **An account for Beta App Review.** External testers get a build once Beta App Review has passed it, and the reviewer has to sign in. Make a prod account for them with an address of your own choosing. It prints the email and where the password is, never the password itself:
+
+   ```sh
+   make review-user EMAIL=app-review@example.com
+   export AWS_PROFILE=multiscale-prod AWS_REGION=us-west-2
+   aws ssm get-parameter --with-decryption --name /multiscale/prod/review-user-password --query Parameter.Value --output text
+   ```
+
+   Paste the email and the password into **Test Information > Sign-in required**.
+
+Each build:
+
+- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when App Store Connect has no app record yet, or already has that build. App Store Connect then processes the build, usually within half an hour, before testers can install it.
+- `make release ENV=prod` uploads one as its last step, once its tests pass. `SKIP_TESTFLIGHT=1` leaves it out, and the release then warns if testers' build is more than 60 days old. TestFlight builds stop opening after 90 days.
+- The app declares that it uses no encryption beyond HTTPS, so uploads ask no export compliance questions.
+
+Testers need an account as well as an invitation, since self sign-up is off:
+
+```sh
+make tester EMAIL=tester@example.com
+```
+
+It makes the account in prod's pool, or staging's with `ENV=staging`, and Cognito emails the tester a temporary password, which they replace when they first sign in. It refuses an email that already has an account. A pool without its own email setup sends from Cognito's default address, which allows 50 emails a day and can land in spam. The temporary password lasts 7 days unless the pool says otherwise; to send a new one:
+
+```sh
+aws cognito-idp admin-create-user --user-pool-id "$(out prod UserPoolId)" --username tester@example.com \
+  --message-action RESEND --desired-delivery-mediums EMAIL
+```
+
+Then add them in App Store Connect under **TestFlight**: members of your App Store Connect team as internal testers, anyone else as external testers by email or a public link.
+
 ## Run it locally
 
 No AWS and no config folder needed. Start the stand-ins and the local API, which also serves a stand-in sign-in that accepts anyone:
@@ -461,6 +508,8 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | A five-year account timed against its budgets | `make test-history`, `make test-history ENV=staging` |
 | This checkout's web bundle beside prod's, on one device and syncing | `make test-compat`, `make test-compat ENV=staging` |
 | Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
+| Upload the iPhone app to TestFlight | `make testflight` |
+| Make a tester's account | `make tester EMAIL=<their email>` |
 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
 

@@ -141,7 +141,7 @@ ENV=prod`. That builds and signs the Mac app on the Mac and uploads it, then the
 code, the pipeline leaves the feed alone and says so, since the apps couldn't take it yet. The Mac's release then
 uploads the new app first and the feed after. Once its tests pass, it uploads the iPhone app from the same commit to
 TestFlight, so testers' builds take the same updates; `SKIP_TESTFLIGHT=1` leaves that out, as
-[setup.md](setup.md#16-testflight) explains.
+[setup.md](setup.md#testflight) explains.
 
 ## Setting it up
 

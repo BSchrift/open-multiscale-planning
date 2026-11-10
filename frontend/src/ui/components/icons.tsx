@@ -76,3 +76,12 @@ export function TabIcon(props: { tab: string }) {
     </svg>
   );
 }
+
+/** Lines of text, for a task that has a description. */
+export function NotesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 7h14M5 12h14M5 17h9" />
+    </svg>
+  );
+}

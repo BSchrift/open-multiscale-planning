@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -48,14 +49,14 @@ type Stack struct {
 	ThrottleReleaseAlarm bool `yaml:"throttleReleaseAlarm" json:"throttleReleaseAlarm"`
 }
 
-// check is what positive can't see: the limits CodeDeploy puts on a Lambda canary.
+// check is what positive can't see: the limits CodeDeploy and CloudFormation put on a Lambda canary.
 func (s Stack) check() []string {
 	var problems []string
 	if s.CanaryPercent > maxCanaryPercent {
 		problems = append(problems, fmt.Sprintf("stack.canaryPercent is %d, but CodeDeploy shifts at most %d%% in one step", s.CanaryPercent, maxCanaryPercent))
 	}
 	if s.CanaryMinutes > maxCanaryMinutes {
-		problems = append(problems, fmt.Sprintf("stack.canaryMinutes is %d, but CodeDeploy waits at most %d minutes between the first and last shift", s.CanaryMinutes, maxCanaryMinutes))
+		problems = append(problems, fmt.Sprintf("stack.canaryMinutes is %d, but CloudFormation stops waiting for the alias after about 2 hours, so it can be at most %d", s.CanaryMinutes, maxCanaryMinutes))
 	}
 	return problems
 }
@@ -108,7 +109,8 @@ type Sync struct {
 }
 
 type Records struct {
-	IDPattern string `yaml:"idPattern" json:"idPattern"`
+	IDPattern     string `yaml:"idPattern" json:"idPattern"`
+	MaxNotesChars int    `yaml:"maxNotesChars" json:"maxNotesChars"`
 }
 
 // Clock is the format of a field's clock.
@@ -135,9 +137,11 @@ const (
 	// Lambda refuses a request over 6 MB before any code runs, and the event around the body takes some of that.
 	lambdaRequestBytes = 6 << 20
 	eventRoomBytes     = 256 << 10
-	// CodeDeploy's quotas for a Lambda deployment.
+	// CodeDeploy shifts at most 99% in one step. It would wait 2,880 minutes, but CloudFormation stops waiting for a Lambda
+	// alias's deployment after about 2 hours and rolls the stack back: every prod release with a day's canary did, on
+	// 2026-11-09. The check before traffic and the last shift need some of those 2 hours too.
 	maxCanaryPercent = 99
-	maxCanaryMinutes = 2880
+	maxCanaryMinutes = 100
 	// The most one S3 PUT takes, and the most keys one DynamoDB batch read takes.
 	maxPutBytes   = 5 << 30
 	batchReadKeys = 100
@@ -157,6 +161,10 @@ func (p ProtocolConfig) check() []string {
 	}
 	if s.MaxBodyBytes > lambdaRequestBytes-eventRoomBytes {
 		problems = append(problems, fmt.Sprintf("sync.maxBodyBytes is %d, leaving the request no room under Lambda's %d", s.MaxBodyBytes, lambdaRequestBytes))
+	}
+	// A character takes up to 4 bytes in UTF-8, and the record's other fields need room beside a full description.
+	if notes := p.Records.MaxNotesChars * utf8.UTFMax; notes > s.MaxRecordBytes*4/5 {
+		problems = append(problems, fmt.Sprintf("records.maxNotesChars is %d, but at 4 bytes a character that leaves a record under a fifth of sync.maxRecordBytes, %d, for its other fields", p.Records.MaxNotesChars, s.MaxRecordBytes))
 	}
 	if _, err := regexp.Compile(p.Records.IDPattern); err != nil {
 		problems = append(problems, fmt.Sprintf("records.idPattern doesn't compile: %v", err))

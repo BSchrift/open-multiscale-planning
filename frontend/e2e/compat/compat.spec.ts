@@ -440,3 +440,51 @@ test('an old and a new device of one user restore and resume a project the other
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });
+
+// The last release has no descriptions. It keeps the field all the same, and its edits to the task leave it alone,
+// since each field merges on its own.
+test('an old device changing a task keeps the description a new device wrote', async ({ browser }) => {
+  test.setTimeout(180_000);
+  const run = randomUUID().slice(0, 8);
+  const id = `e2e-${run}-garage`;
+  const title = `Tidy the garage ${run}`;
+  const oldDevice = await device(browser, `e2e-${run}`, on('old'));
+  const newDevice = await device(browser, `e2e-${run}`, on('new'));
+  consoleErrors(oldDevice.page, oldDevice.errors, 'old');
+  consoleErrors(newDevice.page, newDevice.errors, 'new');
+  await seed(newDevice.page, [oneOff(id, title)]);
+  await signIn(oldDevice.page);
+  await signIn(newDevice.page);
+
+  const describeTask = async (expectShown?: string) => {
+    await go(newDevice.page, 'One offs');
+    await pane(newDevice.page, 'One offs').getByRole('button', { name: `Change repeat for ${title}` }).click();
+    const form = newDevice.page.getByRole('form', { name: `Change ${title}` });
+    if (expectShown) {
+      await expect(form.getByRole('group', { name: 'Description' }).locator('strong')).toHaveText(expectShown);
+      await form.getByRole('button', { name: 'Cancel' }).click();
+      return;
+    }
+    await form.getByLabel('Description').fill('Start with the **tools**');
+    await form.getByRole('button', { name: 'Save' }).click();
+    await expect(form).toHaveCount(0);
+  };
+  await describeTask();
+  await syncNow(newDevice.page);
+  await syncNow(oldDevice.page);
+  const date = daysAhead(10);
+  await setDate(oldDevice.page, title, date);
+  await syncNow(oldDevice.page);
+  await syncNow(newDevice.page);
+  await go(newDevice.page, 'One offs');
+  await expect(dated(newDevice.page, title, date)).toBeVisible();
+  await describeTask('tools');
+
+  // A deployment's test user keeps nothing live.
+  await seed(oldDevice.page, [{ type: 'task', id, fields: { deleted_at: new Date().toISOString() } }]);
+  await syncNow(oldDevice.page);
+  await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
+
+  expect(oldDevice.errors).toEqual([]);
+  expect(newDevice.errors).toEqual([]);
+});

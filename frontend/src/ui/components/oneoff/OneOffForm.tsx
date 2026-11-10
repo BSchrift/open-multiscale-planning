@@ -6,6 +6,7 @@ import type { FormEvent } from 'react';
 import type { Fields, RepeatUnit, Task } from '../../../core/types';
 import { useApp, useToday } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
+import { NotesField } from '../notes/NotesField';
 import { draftError, draftOf, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
 import type { OneOffDraft, RepeatType, RuleDay, RuleOf, RulePos } from './draft';
 import './oneoff.css';
@@ -84,6 +85,8 @@ export function OneOffForm(props: {
   const today = useToday();
   const [draft, setDraft] = useState(() => (props.task ? draftOf(props.task, today) : emptyDraft(today)));
   const [error, setError] = useState<string | null>(null);
+  // The key starts the description afresh after each add.
+  const [added, setAdded] = useState(0);
   const ids = { title: useId(), type: useId(), from: useId(), to: useId(), starts: useId(), months: useId() };
   const put = (patch: Partial<OneOffDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
@@ -96,7 +99,8 @@ export function OneOffForm(props: {
     const problem = draftError(draft);
     if (problem) return setError(problem);
     if ((await props.onSave(oneOffFields(draft, today))) === false) return;
-    setDraft((d) => ({ ...d, title: '', from: '', to: '', ranged: false }));
+    setDraft((d) => ({ ...d, title: '', from: '', to: '', ranged: false, notes: undefined }));
+    setAdded((n) => n + 1);
   };
 
   const toggleMonth = (m: number) => put({ months: draft.months.includes(m) ? draft.months.filter((x) => x !== m) : [...draft.months, m] });
@@ -212,6 +216,9 @@ export function OneOffForm(props: {
 
       <div className="oospan">
         <EstimateSlider label="Time" value={draft.estimate} onChange={(estimate) => put({ estimate })} />
+      </div>
+      <div className="oospan">
+        <NotesField key={added} value={draft.notes ?? ''} onChange={(notes) => put({ notes })} />
       </div>
       {error && (
         <div className="fielderr oospan" role="alert">

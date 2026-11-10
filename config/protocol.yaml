@@ -28,6 +28,10 @@ sync:
 records:
   # Record ids and field names: printable ASCII, 1 to 200 characters.
   idPattern: '^[\x21-\x7e]{1,200}$'
+  # The longest a task's description, its notes field, may be, in characters: about ten pages, formatting marks
+  # included. The server counts Unicode code points, and the apps stop at the same number of UTF-16 units, which is
+  # never fewer, so no app sends more than the server takes. At 4 bytes a character, a full one fits in maxRecordBytes.
+  maxNotesChars: 20000
 
 clock:
   # A field's clock: its wall time in milliseconds, in 13 digits, a counter in 6, then the device's id. Clocks compare

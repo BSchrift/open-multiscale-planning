@@ -1,12 +1,15 @@
 // The block in progress with its countdown and time-spent ring, or the next one with Start early. The ring is also
 // Pause and Resume: a tap stops the countdown and the ring together, and the sign inside says which a tap will do.
+// During a task's block the card also shows the first lines of its description.
 
 import { useId, useRef, useState } from 'react';
 import { currentBlock, isPaused, nextBlock, pauseWords, ringFill, timeLeftMs, timeSpentMs } from '../../../core/blocks';
 import { formatMinutes, formatTime, instantMs } from '../../../core/dates';
+import { notesLines } from '../../../core/notes';
 import type { BlockRow } from '../../../core/queries';
+import { getRecord } from '../../../core/records';
 import type { Layout } from '../../app/registry';
-import { useApp, useNow } from '../../app/store';
+import { useApp, useNow, useQuery } from '../../app/store';
 import { formatRange } from '../../components/blocks/describe';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { InfoIcon } from '../../components/icons';
@@ -129,6 +132,9 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
   const cur = currentBlock(blocks, clock);
   const next = nextBlock(blocks, clock);
   const phone = layout === 'phone';
+  const taskId = cur?.task_id ?? null;
+  const task = useQuery((sql) => (taskId ? getRecord(sql, 'task', taskId) : Promise.resolve(undefined)), [taskId]).data;
+  const glance = task?.notes ? notesLines(task.notes, 2) : [];
 
   if (cur) {
     const started = !!cur.started_at;
@@ -144,6 +150,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
         <h2 ref={head} tabIndex={-1}>
           {cur.title}
         </h2>
+        {glance.length > 0 && <p className="nownotes">{glance.join('\n')}</p>}
         {started && (
           <SpentRing block={cur} now={now} onToggle={() => void (paused ? actions.resume(cur) : actions.pause(cur))} />
         )}

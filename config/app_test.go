@@ -74,15 +74,15 @@ func TestCanaryIsOneCodeDeployAccepts(t *testing.T) {
 	if staging.Stack.CanaryPercent != 5 || staging.Stack.CanaryMinutes != 10 {
 		t.Errorf("staging's canary is short, so a release there is quick to test: %+v", staging.Stack)
 	}
-	if prod.Stack.CanaryPercent != 5 || prod.Stack.CanaryMinutes != 1440 {
-		t.Errorf("prod's canary is 5%% for a day: %+v", prod.Stack)
+	if prod.Stack.CanaryPercent != 10 || prod.Stack.CanaryMinutes != 90 {
+		t.Errorf("prod's canary is 10%% for 90 minutes: %+v", prod.Stack)
 	}
-	// CodeDeploy shifts at most 99% in one step, and waits at most 2,880 minutes between the first and last shift.
+	// CodeDeploy shifts at most 99% in one step, and CloudFormation waits about 2 hours for the whole deployment.
 	if problems := loadProblems(t, files(t, "canaryPercent: 5", "canaryPercent: 100")); !strings.Contains(problems, ".yaml: stack.canaryPercent is 100") {
 		t.Errorf("all traffic in the first step: %s", problems)
 	}
-	if problems := loadProblems(t, files(t, "canaryMinutes: 1440", "canaryMinutes: 2881")); !strings.Contains(problems, "env/prod.yaml: stack.canaryMinutes is 2881") {
-		t.Errorf("longer than CodeDeploy waits: %s", problems)
+	if problems := loadProblems(t, files(t, "canaryMinutes: 90", "canaryMinutes: 101")); !strings.Contains(problems, "env/prod.yaml: stack.canaryMinutes is 101") {
+		t.Errorf("longer than CloudFormation waits: %s", problems)
 	}
 }
 
@@ -166,6 +166,7 @@ func TestRules(t *testing.T) {
 		{"an empty pattern", []string{`idPattern: '^[\x21-\x7e]{1,200}$'`, `idPattern: ''`}, []string{"records.idPattern must be set"}},
 		{"a clock without its parts", []string{`pattern: '^(\d{13})-(\d{6})-([\x21-\x7e]+)$'`, `pattern: '^\d{13}-\d{6}-[\x21-\x7e]+$'`}, []string{"clock.pattern has 0 groups"}},
 		{"no telemetry", []string{"maxBatchEvents: 200", "maxBatchEvents: 0"}, []string{"telemetry.maxBatchEvents must be positive"}},
+		{"notes past a record", []string{"maxNotesChars: 20000", "maxNotesChars: 25600"}, []string{"records.maxNotesChars is 25600"}},
 		{"an empty content type", []string{"    - text/csv\n", "    - ''\n"}, []string{"attachments.contentTypes[", "must be set"}},
 		{"a content type with parameters", []string{"    - text/csv\n", "    - text/csv; charset=utf-8\n"}, []string{`attachments.contentTypes has "text/csv; charset=utf-8"`}},
 		{"a content type twice", []string{"    - text/csv\n", "    - text/plain\n"}, []string{`attachments.contentTypes has "text/plain" twice`}},

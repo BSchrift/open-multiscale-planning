@@ -1,5 +1,7 @@
 // Attachments' bytes kept on this device, in IndexedDB, which the page has on the web, in the Mac app and on iPhone: a
 // photo added here until it has uploaded, and any file once it has downloaded, so each is fetched once per device.
+// shortcut: a file whose attachment expires or is removed stays here until another account signs in on the device;
+// sweep out files with no live record at launch if devices start to fill up.
 
 import type { FileStore } from './types';
 

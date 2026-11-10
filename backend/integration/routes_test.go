@@ -18,6 +18,7 @@ func TestUnknownRoutesAndMethodsAreNotFound(t *testing.T) {
 		{"GET", "/"}, {"POST", "/"}, {"GET", "/nothing"}, {"POST", "/sync/extra"}, {"POST", "/calendar"},
 		{"GET", "/sync"}, {"PUT", "/sync"}, {"DELETE", "/sync"},
 		{"GET", "/calendar/connect"}, {"GET", "/calendar/refresh"}, {"GET", "/calendar/disconnect"}, {"POST", "/calendar/callback"}, {"GET", "/v1/logs"},
+		{"GET", "/files/upload"}, {"GET", "/files/download"}, {"POST", "/files/usage"}, {"PUT", "/files/upload"},
 	} {
 		for _, token := range []string{"", a.tokens.access} {
 			if res := request(t, route[0], route[1], token, nil); res.status != 404 {
@@ -117,6 +118,8 @@ func TestSyncRefusesBadRequests(t *testing.T) {
 		{"value nested too deep", changeBody("task", fresh("r"), titled(nested(26))), 400, "invalid_value"},
 		{"empty key in a value", changeBody("task", fresh("r"), titled(`{"":1}`)), 400, "invalid_value"},
 		{"record too large", changeBody("task", fresh("r"), titled(`"`+strings.Repeat("x", maxRecordBytes)+`"`)), 413, "record_too_large"},
+		{"notes too long", changeBody("task", fresh("r"), fmt.Sprintf(`{"notes":{"v":%q,"c":%q}}`, strings.Repeat("x", maxNotesChars+1), nowClock())), 400, "notes_too_long"},
+		{"notes not text", changeBody("task", fresh("r"), fmt.Sprintf(`{"notes":{"v":1,"c":%q}}`, nowClock())), 400, "invalid_value"},
 	}
 	before := a.startCursor()
 	for _, c := range cases {

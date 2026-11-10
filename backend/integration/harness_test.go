@@ -35,6 +35,7 @@ import (
 var (
 	maxChanges     = appconfig.Protocol.Sync.MaxChanges
 	maxRecordBytes = appconfig.Protocol.Sync.MaxRecordBytes
+	maxNotesChars  = appconfig.Protocol.Records.MaxNotesChars
 	maxClockAhead  = time.Duration(appconfig.Protocol.Sync.MaxClockAheadHours) * time.Hour
 )
 
@@ -45,6 +46,7 @@ const (
 	fakeGoogle     = "fakeGoogle"
 	capturedLogs   = "capturedLogs"
 	moto           = "moto"
+	localTables    = "localTables" // the local stack's DynamoDB, which make storage-quota writes to directly
 
 	secondUser   = "secondUser"   // a second test user to prove isolation
 	googleClient = "googleClient" // the deployment has its Google client secrets
@@ -52,9 +54,13 @@ const (
 )
 
 var (
-	emulatorOnly = []string{fakeClock, faultInjection, fakeGoogle, capturedLogs, moto}
+	emulatorOnly = []string{fakeClock, faultInjection, fakeGoogle, capturedLogs, moto, localTables}
 	capabilities = append([]string{secondUser, googleClient, testCalendar}, emulatorOnly...)
 )
+
+// filesStored is a deployment that stores attachments' files. It isn't listed in integration.capabilities: a deployment
+// has it when its <env>.yaml has the files section make files-key writes, as the local stack always does.
+const filesStored = "filesStored"
 
 type testUser struct{ Username, Password string }
 
@@ -90,7 +96,7 @@ func loadConfig(env, confirm, dir, localAPI string, secret secretReader) (*Confi
 	switch env {
 	case "local":
 		// cmd/local's built-in client, with every capability.
-		cfg := &Config{Env: env, ClientID: "local-client", Capabilities: capabilities}
+		cfg := &Config{Env: env, ClientID: "local-client", Capabilities: append(slices.Clone(capabilities), filesStored)}
 		return cfg, cfg.checkLocal(localAPI)
 	case "staging":
 	case "prod":
@@ -130,6 +136,9 @@ func loadConfig(env, confirm, dir, localAPI string, secret secretReader) (*Confi
 		if slices.Contains(emulatorOnly, capability) {
 			return nil, fmt.Errorf("%s: %q only exists on the local stack", filepath.Join(dir, env+".yaml"), capability)
 		}
+	}
+	if file.Files != nil {
+		cfg.Capabilities = append(cfg.Capabilities, filesStored)
 	}
 	// Passwords come last, so a wrong file never reaches AWS.
 	user := func(username, parameter string) (*testUser, error) {

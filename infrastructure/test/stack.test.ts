@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,13 +94,16 @@ describe('API', () => {
     return hit[1].Properties;
   };
 
-  it('has exactly the six routes', () => {
+  it('has exactly the nine routes, the files ones whether or not the environment stores files', () => {
     const keys = ofType('AWS::ApiGatewayV2::Route').map(([, r]) => r.Properties.RouteKey).sort();
-    assert.deepEqual(keys, ['GET /calendar/callback', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /sync', 'POST /v1/logs']);
+    assert.deepEqual(keys, [
+      'GET /calendar/callback', 'GET /files/usage', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh',
+      'POST /files/download', 'POST /files/upload', 'POST /sync', 'POST /v1/logs',
+    ]);
   });
 
   it('protects every route with the JWT authorizer except the Google callback', () => {
-    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect', 'POST /v1/logs']) {
+    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect', 'POST /v1/logs', 'POST /files/upload', 'POST /files/download', 'GET /files/usage']) {
       assert.equal(route(key).AuthorizationType, 'JWT', key);
       assert.ok(route(key).AuthorizerId, key);
     }
@@ -874,5 +878,202 @@ describe('release role', () => {
     assert.ok(!actionsOf.some((a) => a.startsWith('dynamodb:') || a.startsWith('lambda:') || a === '*'));
     const bucket = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith('s3:'))).flatMap((s) => [s.Resource].flat());
     assert.ok(bucket.every((r: any) => JSON.stringify(r).includes('Releases')), JSON.stringify(bucket));
+  });
+});
+
+describe('attachments', () => {
+  const publicKey = () => generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }) as string;
+  // Two keys, as during a rotation: both trusted, the API signing with the newer.
+  const keys = { k1: publicKey(), k2: publicKey() };
+  const zone = 'staging.example.net';
+  const withFiles = (envName: 'staging' | 'prod', zoned: boolean, pipelineAccount?: string) => {
+    const filesConfig: Config = {
+      ...config,
+      auth: { ...config.auth, signInCallbackUrls: [...config.auth.signInCallbackUrls, 'http://localhost:5199/auth/callback'] },
+      ...(zoned ? { dns: { zone } } : {}),
+      files: { keys, signWith: 'k2' },
+    };
+    const stack = new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: filesConfig, control, backendDist: '/nonexistent', requireBinaries: false, pipelineAccount });
+    return Template.fromStack(stack);
+  };
+  const resourcesOf = (template: Template) => template.toJSON().Resources as Record<string, Resource>;
+  const idOf = (resources: Record<string, Resource>, type: string, prefix: string) => {
+    const hit = Object.keys(resources).find((id) => id.startsWith(prefix) && resources[id].Type === type);
+    assert.ok(hit, `no ${type} ${prefix}`);
+    return hit;
+  };
+  const roleOf = (resources: Record<string, Resource>, functionPrefix: string) =>
+    (resources[idOf(resources, 'AWS::Lambda::Function', functionPrefix)].Properties.Role as any)['Fn::GetAtt'][0];
+  const statementsOf = (resources: Record<string, Resource>, role: string) => Object.values(resources)
+    .filter((r) => r.Type === 'AWS::IAM::Policy' && r.Properties.Roles.some((x: any) => x.Ref === role))
+    .flatMap((p) => p.Properties.PolicyDocument.Statement as any[])
+    .map((s) => ({ ...s, Action: [s.Action].flat() as string[] }));
+  const policyIn = (resources: Record<string, Resource>, functionPrefix: string) => statementsOf(resources, roleOf(resources, functionPrefix));
+  const underU = (bucket: string) => ({ 'Fn::Join': ['', [{ 'Fn::GetAtt': [bucket, 'Arn'] }, '/u/*']] });
+
+  let z: Template;
+  let zr: Record<string, Resource>;
+  let bare: Template;
+  let bucket: string;
+  let distribution: any;
+  before(() => {
+    z = withFiles('staging', true);
+    zr = resourcesOf(z);
+    bare = withFiles('staging', false);
+    bucket = idOf(zr, 'AWS::S3::Bucket', 'Files');
+    distribution = Object.values(zr)
+      .filter((r) => r.Type === 'AWS::CloudFront::Distribution')
+      .map((r) => r.Properties.DistributionConfig)
+      .find((d) => d.Aliases.includes(`files.${zone}`));
+  });
+
+  it('keeps files in a private bucket: no public access, encrypted, HTTPS only, no versions, kept with the stack gone', () => {
+    const b = zr[bucket];
+    assert.deepEqual(b.Properties.PublicAccessBlockConfiguration, { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true });
+    assert.deepEqual(b.Properties.BucketEncryption.ServerSideEncryptionConfiguration, [{ ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }]);
+    // A delete is final: the record decides when a file goes.
+    assert.equal(b.Properties.VersioningConfiguration, undefined);
+    assert.equal(b.DeletionPolicy, 'Retain');
+  });
+
+  it('has one lifecycle rule, aborting uploads left unfinished for a day, and no expiry or move to another class', () => {
+    assert.deepEqual(zr[bucket].Properties.LifecycleConfiguration.Rules, [{ AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }, Status: 'Enabled' }]);
+  });
+
+  it('lets only the files distribution read the bucket, through origin access control, and refuses plain HTTP', () => {
+    const [policy] = Object.values(zr).filter((r) => r.Type === 'AWS::S3::BucketPolicy' && r.Properties.Bucket.Ref === bucket);
+    const statements = policy.Properties.PolicyDocument.Statement as any[];
+    const allows = statements.filter((s) => s.Effect === 'Allow');
+    assert.equal(allows.length, 1, JSON.stringify(allows));
+    assert.equal(allows[0].Action, 's3:GetObject');
+    assert.deepEqual(allows[0].Principal, { Service: 'cloudfront.amazonaws.com' });
+    const filesDistribution = idOf(zr, 'AWS::CloudFront::Distribution', 'FilesDistribution');
+    assert.match(JSON.stringify(allows[0].Condition.StringEquals['AWS:SourceArn']), new RegExp(`"Ref":"${filesDistribution}"`));
+    const denies = statements.filter((s) => s.Effect === 'Deny');
+    assert.equal(denies.length, 1);
+    assert.deepEqual(denies[0].Condition, { Bool: { 'aws:SecureTransport': 'false' } });
+  });
+
+  it("takes uploads, and answers downloads' CORS, only from the apps' own origins", () => {
+    const origins = ['multiscale-app://app', 'capacitor://localhost', 'http://localhost:5199'];
+    for (const [template, expected] of [[z, [`https://${zone}`, ...origins]], [bare, origins]] as const) {
+      const [rule] = resourcesOf(template)[idOf(resourcesOf(template), 'AWS::S3::Bucket', 'Files')].Properties.CorsConfiguration.CorsRules;
+      assert.deepEqual(rule, {
+        AllowedMethods: ['PUT', 'GET', 'HEAD'],
+        AllowedOrigins: expected,
+        AllowedHeaders: ['content-type', 'content-disposition', 'x-amz-checksum-sha256'],
+        MaxAge: 86400,
+      });
+    }
+  });
+
+  it(`serves files on files.${zone} only to requests signed by a trusted key, with Origin in the cache key`, () => {
+    const behaviour = distribution.DefaultCacheBehavior;
+    assert.deepEqual(behaviour.TrustedKeyGroups, [{ Ref: idOf(zr, 'AWS::CloudFront::KeyGroup', 'FilesKeys') }]);
+    assert.equal(behaviour.ViewerProtocolPolicy, 'redirect-to-https');
+    assert.deepEqual(behaviour.AllowedMethods, ['GET', 'HEAD']);
+    assert.ok(distribution.Origins[0].OriginAccessControlId);
+    assert.ok(!distribution.Origins[0].OriginPath);
+    const policy = zr[behaviour.CachePolicyId.Ref].Properties.CachePolicyConfig;
+    assert.deepEqual(policy.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig, { HeaderBehavior: 'whitelist', Headers: ['Origin'] });
+    assert.equal(distribution.PriceClass, 'PriceClass_100');
+    // CloudFront only takes us-east-1 certificates, validated once the zone is delegated.
+    const [cert] = Object.values(z.findResources('AWS::CloudFormation::CustomResource', { Properties: { DomainName: `files.${zone}`, Region: 'us-east-1' } }));
+    const [delegation] = Object.keys(z.findResources('Custom::CrossAccountZoneDelegation'));
+    assert.ok(([] as string[]).concat(cert.DependsOn ?? []).includes(delegation));
+    z.hasResourceProperties('AWS::Route53::RecordSet', { Name: `files.${zone}.`, Type: 'A', AliasTarget: Match.objectLike({}) });
+  });
+
+  it('runs nothing at the edge: no Lambda@Edge, no functions, no WAF, and nothing a file holds can run', () => {
+    for (const template of [z, bare]) {
+      for (const d of Object.values(template.findResources('AWS::CloudFront::Distribution')).map((r) => r.Properties.DistributionConfig)) {
+        assert.equal(d.DefaultCacheBehavior.LambdaFunctionAssociations, undefined);
+        assert.equal(d.DefaultCacheBehavior.FunctionAssociations, undefined);
+        assert.equal(d.WebACLId, undefined);
+      }
+      assert.equal(Object.values(resourcesOf(template)).filter((r) => r.Type.startsWith('AWS::WAFv2::') || r.Type === 'AWS::CloudFront::Function').length, 0);
+    }
+    const headers = zr[distribution.DefaultCacheBehavior.ResponseHeadersPolicyId.Ref].Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig;
+    assert.deepEqual(headers.ContentTypeOptions, { Override: true });
+    assert.deepEqual(headers.ContentSecurityPolicy, { ContentSecurityPolicy: "default-src 'none'; sandbox", Override: true });
+  });
+
+  it('trusts every configured public key, and the API signs with the one signWith names', () => {
+    const publicKeys = Object.entries(zr).filter(([, r]) => r.Type === 'AWS::CloudFront::PublicKey');
+    assert.deepEqual(publicKeys.map(([, r]) => r.Properties.PublicKeyConfig.EncodedKey).sort(), [keys.k1, keys.k2].sort());
+    const group = zr[idOf(zr, 'AWS::CloudFront::KeyGroup', 'FilesKeys')].Properties.KeyGroupConfig;
+    assert.deepEqual(group.Items.map((item: any) => item.Ref).sort(), publicKeys.map(([id]) => id).sort());
+    const signer = publicKeys.find(([, r]) => r.Properties.PublicKeyConfig.EncodedKey === keys.k2)![0];
+    const env = zr[idOf(zr, 'AWS::Lambda::Function', 'ApiFunction')].Properties.Environment.Variables;
+    assert.deepEqual(env.FILES_KEY_ID, { Ref: signer });
+    assert.equal(env.FILES_KEY_PARAM, '/multiscale/staging/files/k2');
+  });
+
+  it('tells the API where uploads go and where files are served, and retention which bucket to delete from', () => {
+    const upload = { 'Fn::Join': ['', ['https://', { 'Fn::GetAtt': [bucket, 'RegionalDomainName'] }]] };
+    const api = zr[idOf(zr, 'AWS::Lambda::Function', 'ApiFunction')].Properties.Environment.Variables;
+    assert.deepEqual(api.FILES_UPLOAD_URL, upload);
+    assert.equal(api.FILES_URL, `https://files.${zone}`);
+    assert.deepEqual(zr[idOf(zr, 'AWS::Lambda::Function', 'RetentionFunction')].Properties.Environment.Variables.FILES_BUCKET, { Ref: bucket });
+    z.hasOutput('FilesUrl', { Value: `https://files.${zone}` });
+    z.hasOutput('FilesUploadUrl', { Value: upload });
+    // Without a zone, the distribution's own name.
+    const br = resourcesOf(bare);
+    const bareDistribution = idOf(br, 'AWS::CloudFront::Distribution', 'FilesDistribution');
+    const own = { 'Fn::Join': ['', ['https://', { 'Fn::GetAtt': [bareDistribution, 'DomainName'] }]] };
+    assert.deepEqual(br[idOf(br, 'AWS::Lambda::Function', 'ApiFunction')].Properties.Environment.Variables.FILES_URL, own);
+    bare.hasOutput('FilesUrl', { Value: own });
+    assert.equal(br[bareDistribution].Properties.DistributionConfig.Aliases, undefined);
+  });
+
+  it('lets the API presign uploads only into u/, and read only the key it signs with beside the Google secrets', () => {
+    const api = policyIn(zr, 'Api');
+    const s3 = api.filter((s) => s.Action.some((a: string) => a.startsWith('s3:')));
+    assert.deepEqual(s3.map((s) => [s.Action, s.Resource]), [[['s3:PutObject'], underU(bucket)]]);
+    const get = api.filter((s) => s.Action.includes('ssm:GetParameter'));
+    assert.equal(get.length, 2);
+    const files = get.find((s) => JSON.stringify(s.Resource).includes('/files/'))!;
+    assert.deepEqual(files.Action, ['ssm:GetParameter']);
+    assert.match(JSON.stringify(files.Resource), /:parameter\/multiscale\/staging\/files\/k2"\]\]\}$/);
+    assert.match(JSON.stringify(get.find((s) => s !== files)!.Resource), /google\/\*"/);
+  });
+
+  it('lets retention delete only files under u/, and read and remove what the API keeps about them', () => {
+    const retention = policyIn(zr, 'Retention');
+    const s3 = retention.filter((s) => s.Action.some((a: string) => a.startsWith('s3:')));
+    assert.deepEqual(s3.map((s) => [s.Action, s.Resource]), [[['s3:DeleteObject'], underU(bucket)]]);
+    const dynamo = (statements: any[]) => statements.flatMap((s) => s.Action).filter((a: string) => a.startsWith('dynamodb:') && !/Stream|Shard|GetRecords/.test(a)).sort();
+    assert.deepEqual(dynamo(retention), ['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:Scan', 'dynamodb:UpdateItem']);
+    const prod = resourcesOf(withFiles('prod', true));
+    assert.deepEqual(dynamo(policyIn(prod, 'Retention')), ['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:UpdateItem']);
+  });
+
+  it('gives no other role any access to the files bucket', () => {
+    const resources = resourcesOf(withFiles('staging', true, '333333333333'));
+    const files = idOf(resources, 'AWS::S3::Bucket', 'Files');
+    const allowed = new Set([roleOf(resources, 'Api'), roleOf(resources, 'Retention')]);
+    const naming = Object.values(resources)
+      .filter((r) => r.Type === 'AWS::IAM::Policy' && JSON.stringify(r.Properties.PolicyDocument).includes(`"${files}"`))
+      .flatMap((r) => r.Properties.Roles.map((x: any) => x.Ref));
+    assert.deepEqual(new Set(naming), allowed);
+    for (const r of Object.values(resources).filter((r) => r.Type === 'AWS::IAM::Role')) {
+      assert.doesNotMatch(JSON.stringify(r.Properties.Policies ?? []), new RegExp(`"${files}"`));
+    }
+  });
+
+  it("adds the files host and the bucket to the web app's connect-src, and blob: images", () => {
+    const web = Object.values(zr).filter((r) => r.Type === 'AWS::CloudFront::Distribution').map((r) => r.Properties.DistributionConfig).find((d) => d.Aliases.includes(zone));
+    const csp = JSON.stringify(zr[web.DefaultCacheBehavior.ResponseHeadersPolicyId.Ref].Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy);
+    assert.ok(csp.includes(`connect-src 'self' https://api.${zone} https://auth.${zone} https://files.${zone} https://"`), csp);
+    assert.ok(csp.includes(`{"Fn::GetAtt":["${bucket}","RegionalDomainName"]}`), csp);
+    assert.ok(csp.includes("img-src 'self' data: blob:"), csp);
+  });
+
+  it('has none of it until the environment sets files', () => {
+    for (const type of ['AWS::CloudFront::KeyGroup', 'AWS::CloudFront::PublicKey', 'AWS::CloudFront::Distribution', 'AWS::S3::Bucket']) t.resourceCountIs(type, 0);
+    for (const fn of ['Api', 'Retention']) assert.ok(!actions(fn).some((a) => a.startsWith('s3:')), fn);
+    const variables = ofType('AWS::Lambda::Function').flatMap(([, r]) => Object.keys(r.Properties.Environment?.Variables ?? {}));
+    assert.ok(!variables.some((name) => name.startsWith('FILES_')));
+    assert.ok(!Object.keys(t.toJSON().Outputs).some((name) => name.startsWith('Files')));
   });
 });

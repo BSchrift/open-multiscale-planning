@@ -43,3 +43,36 @@ clock:
 telemetry:
   # Events in one POST /v1/logs. The app queues no more than this between sends, and the server keeps no more.
   maxBatchEvents: 200
+
+attachments:
+  # A photo's or file's size: 10 MiB. The API signs the size into the upload, so S3 takes no more than that, and the
+  # apps check it before adding a file. At most 5 GiB, the most one PUT takes.
+  maxFileBytes: 10485760
+  # Attachments on one task. The apps count them as they're added, and each person's storage quota bounds the rest.
+  maxPerTask: 10
+  # Attachments in one POST /files/download. The API reads them and the person's rate counter in one batch read of at
+  # most 100 keys.
+  maxIdsPerDownload: 20
+  # What a photo or file may be, exactly as its record's type says it, with no parameters. Photos are saved as JPEGs;
+  # the rest are images and documents people attach to a task. Anything but a JPEG or PNG downloads as an attachment, so
+  # no file can run on the files host. Released apps send these, so the list only grows.
+  contentTypes:
+    - image/jpeg
+    - image/png
+    - image/gif
+    - image/webp
+    - image/heic
+    - application/pdf
+    - text/plain
+    - text/csv
+    - text/markdown
+    - application/rtf
+    - application/msword
+    - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+    - application/vnd.ms-excel
+    - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    - application/vnd.ms-powerpoint
+    - application/vnd.openxmlformats-officedocument.presentationml.presentation
+    - application/vnd.oasis.opendocument.text
+    - application/vnd.oasis.opendocument.spreadsheet
+    - application/vnd.oasis.opendocument.presentation

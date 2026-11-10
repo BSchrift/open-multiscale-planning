@@ -47,6 +47,7 @@ type Environment struct {
 	DNS         *Zone       `yaml:"dns"`
 	Integration Integration `yaml:"integration"`
 	App         *App        `yaml:"app"`
+	Files       *Files      `yaml:"files"`
 }
 
 type Auth struct {
@@ -72,6 +73,29 @@ type App struct {
 	BundleID string `yaml:"bundleId"`
 }
 
+// Files is what make files-key writes: the public halves of the keys CloudFront takes download links signed with, by
+// name, and the one the API signs with. Each private half is an SSM SecureString at /multiscale/<env>/files/<name>.
+// Optional: a deployment without it has no attachments.
+type Files struct {
+	Keys     map[string]string `yaml:"keys"`
+	SignWith string            `yaml:"signWith"`
+}
+
+func (f *Files) check() error {
+	if len(f.Keys) == 0 {
+		return errors.New("files.keys needs at least one key: run make files-key")
+	}
+	for name, key := range f.Keys {
+		if strings.TrimSpace(key) == "" {
+			return fmt.Errorf("files.keys.%s is empty", name)
+		}
+	}
+	if _, ok := f.Keys[f.SignWith]; !ok {
+		return errors.New("files.signWith must name one of files.keys")
+	}
+	return nil
+}
+
 func (a AWS) check() error {
 	if !accountID.MatchString(string(a.Account)) {
 		return errors.New(accountRule)
@@ -92,6 +116,11 @@ func (e *Environment) check() error {
 	}
 	if e.App != nil {
 		fields = append(fields, "app.bundleId", e.App.BundleID)
+	}
+	if e.Files != nil {
+		if err := e.Files.check(); err != nil {
+			return err
+		}
 	}
 	if slices.Contains(e.Integration.Capabilities, "secondUser") {
 		fields = append(fields, "integration.secondTestUser", e.Integration.SecondTestUser)

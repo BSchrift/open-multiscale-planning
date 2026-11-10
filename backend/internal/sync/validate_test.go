@@ -213,3 +213,11 @@ func TestNotesLimit(t *testing.T) {
 		t.Errorf("a project's notes: %v", err)
 	}
 }
+
+func TestValidID(t *testing.T) {
+	for id, want := range map[string]bool{"a1": true, "0193b2c4-attachment": true, "": false, "has space": false, strings.Repeat("x", 201): false} {
+		if got := ValidID(id); got != want {
+			t.Errorf("%q: %v", id, got)
+		}
+	}
+}

@@ -105,6 +105,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `integration.historyUser` | Optional, staging only: the email of the history-scale test's own user, created in step 8. Only `make test-history ENV=staging` reads it. |
    | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
+   | `files` | Leave it out: `make files-key` writes it in step 7. It holds the public keys CloudFront checks attachments' download links against, and `signWith`, the one the API signs with. |
 
    No password or secret goes in these files. Test-user passwords go to SSM in step 8. The app's own settings, its limits and what differs between staging and prod for everyone, aren't copied here: they're public, in `config/protocol.yaml` and `config/env/`, as [config.md](config.md) explains.
 
@@ -146,10 +147,17 @@ To add a zone to staging or prod later, set its `dns.zone`, run `make deploy ENV
 ## 7. Deploy staging
 
 ```sh
+make files-key
 make deploy
 ```
 
-`ENV=staging` is the default. This checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`ENV=staging` is the default for both.
+
+`make files-key` makes the key pair attachments' download links are signed with. The private key goes to SSM at `/multiscale/staging/files/<name>`, where only the API reads it, and the public half to `files` in `staging.yaml`, which the stack gives CloudFront to check each link against. The name is `k` and today's date unless you pass `NAME=`. Attachments stay off until it exists: a deploy without it has no files bucket or files host, and the API answers `/files/*` as not configured. Run it once; to change the key later, see [Rotating the files signing key](#rotating-the-files-signing-key).
+
+To turn attachments on for an environment that's already deployed, run `make files-key` for it, then `make pipeline-config` if the release pipeline is set up, then deploy. The pipeline deploys from its own copy of `<env>.yaml`, and a copy without `files` takes the files host away again; the bucket stays, with what's in it.
+
+`make deploy` checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 
@@ -319,9 +327,10 @@ On staging it signs in through the hosted sign-in page as the history user: the 
 
 ## 12. Deploy prod
 
-Prod always takes an explicit `ENV=prod`:
+Prod always takes an explicit `ENV=prod`, for its own files key too:
 
 ```sh
+make files-key ENV=prod
 make deploy ENV=prod
 ```
 
@@ -461,8 +470,24 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | A five-year account timed against its budgets | `make test-history`, `make test-history ENV=staging` |
 | This checkout's web bundle beside prod's, on one device and syncing | `make test-compat`, `make test-compat ENV=staging` |
 | Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
+| Show or raise one person's storage quota | `make storage-quota ENV=prod EMAIL=… GB=5` |
+| Rotate the key attachments' download links are signed with | `make files-key`, `make files-key ENV=prod`, then the steps below |
 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
+
+### Storage quotas
+
+Each person may store `attachments.defaultQuotaBytes` of attachments, from `config/env/<env>.yaml`: 1 GiB on prod. `make storage-quota ENV=prod EMAIL=… GB=5` raises one person's to 5 GiB, found by their email in Cognito, by writing `meta#quota` in their partition of the table. Without `GB` it prints their usage and quota, and `GB=default` removes the raise. It signs in with the profile in `<env>.yaml`, staging unless you say `ENV=prod`. No route writes `meta#quota` and sync writes only records, so the apps can't raise their own.
+
+### Rotating the files signing key
+
+CloudFront trusts every key in `files.keys`, and the API signs with `files.signWith`, so a new key goes in beside the old one:
+
+1. `make files-key` (with `ENV=prod` for prod) adds a new key, leaving `signWith` as it was. Run `make pipeline-config` if the release pipeline is set up, so it deploys the same `<env>.yaml`, then deploy. CloudFront now trusts both.
+2. Set `files.signWith` to the new key's name, run `make pipeline-config` again if you use it, and deploy again. The API signs with the new key from then on, and a version still taking traffic in the canary signs with the old one, which CloudFront still trusts.
+3. Once that deploy has finished, canary included, wait 5 minutes for the last link signed with the old key to expire. Then delete the old key from `files.keys`, `make pipeline-config`, deploy, and delete its private key with `aws ssm delete-parameter --name /multiscale/<env>/files/<old name>`.
+
+The script prints these steps with the names filled in.
 
 ### Releasing updates
 
@@ -502,7 +527,7 @@ aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time 
 
 Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
 
-Costs should stay under $1 a month per environment. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
+Costs should stay under $1 a month per environment. Attachments add about $0.006 a person a month at typical use, nearly all of it S3 storage. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 
 ## Restoring the table from a backup
 
@@ -514,4 +539,4 @@ aws dynamodb put-item --table-name "$(out prod TableName)" \
   --item "{\"pk\":{\"S\":\"meta\"},\"sk\":{\"S\":\"generation\"},\"value\":{\"S\":\"$(uuidgen)\"}}"
 ```
 
-Restored items keep their `expires_at`, so TTL removes any that expired since the backup, as [retention.md](retention.md) describes.
+Restored items keep their `expires_at`, so TTL removes any that expired since the backup, as [retention.md](retention.md) describes. Attachments' files aren't in the table's backup, so an attachment restored after its file was removed has no file to download.

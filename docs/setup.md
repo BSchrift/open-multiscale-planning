@@ -419,6 +419,7 @@ The Apple Developer Program costs about $99 a year; check the current price when
    ```
 
    `make release` now notarizes the Mac app and its disk image, staples Apple's ticket to both so that they open offline too, and checks them with `spctl` and `xcrun stapler validate`. The release stops if any of that fails. Without the key, it says so and releases the app signed but not notarized. To replace the key, revoke it in App Store Connect and swap both files.
+8. Optionally, let GitHub Actions build, sign and notarize the Mac app for each commit that needs a new one, which the release pipeline checks and publishes, so you no longer release it from the Mac. It needs the certificate and key from items 5 and 7 in a GitHub environment that only you can approve: see [Setting up the Mac release](releasing.md#setting-up-the-mac-release). When you replace either, set its secret again.
 
 ## Real-phone checklist
 
@@ -466,7 +467,7 @@ Each signs in with the profile in its environment's file. After a deploy, commit
 
 ### Releasing updates
 
-Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md).
+Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md). With the Mac release set up too, the pipeline publishes each new Mac app that GitHub Actions builds, and this step is only for the iPhone.
 
 `make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, signs and notarizes the Mac app when step 15 is done, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
 
@@ -486,7 +487,7 @@ The first release makes the signing key, `<env>.release-key.pem`, in your config
 How the apps update:
 
 - **Most releases change only the web bundle**, which both apps download by themselves: soon after starting, every six hours, and on coming back after an hour away. The Mac app switches to it when its window closes or at its next launch. The phone switches at its next launch, or on returning after half an hour in the background. **Settings > Updates** shows the version, checks on request, and has **Restart now** for a downloaded update.
-- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. For the Mac app that includes the API, sign-in and release addresses its main process allows the page to reach, so moving any of them also needs a new Mac app. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again. How the Mac app is signed doesn't count, since a signature changes nothing a bundle can call: apps signed ad hoc keep taking bundles released with a Developer ID.
+- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. For the Mac app that includes the API, sign-in and release addresses its main process allows the page to reach, so moving any of them also needs a new Mac app. Settings then says the update needs a new version of the app, with a download link on the Mac, which is why the disk image goes up before the feed. On the phone, run it from Xcode again. How the Mac app is signed doesn't count, since a signature changes nothing a bundle can call: apps signed ad hoc keep taking bundles released with a Developer ID.
 - **A bundle that doesn't start** within 20 seconds is rolled back to the one before it and never tried again.
 
 Releases are only as safe as the key: the apps check every bundle's signature and every file's hash before installing it, so someone who got into the bucket still couldn't change what runs.

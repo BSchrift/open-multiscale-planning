@@ -243,6 +243,29 @@ describe('loadControl', () => {
       assert.throws(() => loadControl(dirWith({ control: withField(withPipeline, path, bad) }), false), new RegExp(path.replace('.', '\\.')));
     });
   }
+
+  const withMac = { ...withPipeline, pipeline: { ...withPipeline.pipeline, mac: { teamId: 'ABCDE12345' } } };
+
+  it('reads the optional Mac release, waiting two hours for its build and making the OIDC provider unless it says', () => {
+    assert.deepEqual(loadControl(dirWith({ control: withMac }), true).pipeline?.mac, { teamId: 'ABCDE12345', waitFor: 'PT2H', githubOidcProvider: 'create' });
+    const own = withField(withField(withMac, 'pipeline.mac.waitFor', 'PT5H'), 'pipeline.mac.githubOidcProvider', 'existing');
+    assert.deepEqual(loadControl(dirWith({ control: own }), true).pipeline?.mac, { teamId: 'ABCDE12345', waitFor: 'PT5H', githubOidcProvider: 'existing' });
+    assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.mac, undefined);
+  });
+
+  for (const [path, bad] of [
+    ['pipeline.mac.teamId', 'abcde12345'],
+    ['pipeline.mac.teamId', 'ABCDE'],
+    // A build runs for at most 8 hours, and the check needs some of it.
+    ['pipeline.mac.waitFor', 'PT8H'],
+    ['pipeline.mac.waitFor', 'PT0S'],
+    ['pipeline.mac.waitFor', '2h'],
+    ['pipeline.mac.githubOidcProvider', 'yes'],
+  ] as const) {
+    it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
+      assert.throws(() => loadControl(dirWith({ control: withField(withMac, path, bad) }), false), new RegExp(path.replaceAll('.', '\\.')));
+    });
+  }
 });
 
 describe('configDir', () => {

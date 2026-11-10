@@ -1,0 +1,186 @@
+# Builds, signs and notarizes the Mac app for a main commit that needs a new one, and hands it to the release
+# pipeline's inbox, which checks it and publishes it (docs/releasing.md). It runs when a push to main changes what the
+# Mac app's shell hash covers (frontend/scripts/shell-hash.ts), or by hand for a main commit:
+#   gh workflow run mac-release.yml -f commit=<full commit hash>
+# The signing job runs in the release environment, which needs the owner's approval and holds the only copies of the
+# signing secrets. Its one AWS permission is writing to the inbox, through GitHub's OIDC token.
+name: Mac release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - frontend/electron/**
+      - frontend/scripts/electron-compile.mjs
+      - frontend/src/platform/shortcut.ts
+      - frontend/src/core/captureTitle.ts
+      - frontend/package-lock.json
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The main commit to build, as a full commit hash
+        required: true
+        type: string
+
+permissions: {}
+
+# One at a time, so a build's notary submissions are its own in notarytool's history.
+concurrency:
+  group: mac-release
+  cancel-in-progress: false
+
+jobs:
+  # Which commit, and whether it needs a new Mac app: a lockfile change that moves no native package doesn't.
+  check:
+    if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.check.outputs.commit }}
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_COMMIT: ${{ inputs.commit }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then commit="$INPUT_COMMIT"; else commit="$AFTER"; fi
+          if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::Only a commit on main is released, named by its full hash."
+            exit 1
+          fi
+          if [ "$EVENT" = workflow_dispatch ]; then build=true; else build="$(node frontend/scripts/mac-inbox.ts changed "$BEFORE" "$commit")"; fi
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+          echo "build=$build" >>"$GITHUB_OUTPUT"
+          [ "$build" = true ] || echo "Nothing the Mac app's native code is made of changed, so no new Mac app is needed."
+
+  mac:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      COMMIT: ${{ needs.check.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+      # From the lockfile, running no package's install script. Not cached: nothing another workflow wrote goes in.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: frontend
+
+      # The key id, issuer id and role ARN may be secrets or variables. As secrets they stay out of this public log.
+      - name: Write the build's config and the notary key
+        env:
+          MAC_BUILD_CONFIG: ${{ secrets.MAC_BUILD_CONFIG }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID || vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || vars.ASC_ISSUER_ID }}
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          AWS_INBOX_ROLE_ARN: ${{ secrets.AWS_INBOX_ROLE_ARN || vars.AWS_INBOX_ROLE_ARN }}
+          AWS_INBOX_BUCKET: ${{ vars.AWS_INBOX_BUCKET }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          missing=""
+          for name in MAC_BUILD_CONFIG ASC_API_KEY ASC_KEY_ID ASC_ISSUER_ID MAC_CERT_P12 MAC_CERT_PASSWORD AWS_INBOX_ROLE_ARN AWS_INBOX_BUCKET AWS_REGION; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The release environment lacks$missing. See docs/releasing.md."
+            exit 1
+          fi
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
+          CONFIG="$RUNNER_TEMP/config"
+          node frontend/scripts/mac-inbox.ts unpack-config "$CONFIG"
+          # As mac-signing.ts reads the key from a config folder, named as App Store Connect names it.
+          (umask 077 && printf '%s\n' "$ASC_API_KEY" >"$CONFIG/AuthKey_$ASC_KEY_ID.p8" && printf '%s\n' "$ASC_ISSUER_ID" >"$CONFIG/asc-issuer-id")
+
+      # A keychain of its own for the Developer ID, deleted at the end. Apple's Developer ID G2 CA beside it, checked by
+      # its hash, so the identity is valid whatever the runner's keychains hold.
+      - name: Import the Developer ID
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$password" "$KEYCHAIN"
+          curl -fsSL -o "$RUNNER_TEMP/developer-id-ca.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          echo "f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a  $RUNNER_TEMP/developer-id-ca.cer" | shasum -a 256 -c --quiet
+          security import "$RUNNER_TEMP/developer-id-ca.cer" -k "$KEYCHAIN"
+          (umask 077 && printf '%s' "$MAC_CERT_P12" | base64 --decode >"$RUNNER_TEMP/developer-id.p12")
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          # The identity names the owner and their team, which signing and its checks print: kept out of the log.
+          identity="$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)"
+          if [ -z "$identity" ]; then
+            echo "::error::MAC_CERT_P12 holds no valid Developer ID Application identity."
+            exit 1
+          fi
+          name="${identity#Developer ID Application: }"
+          team="${name##*(}"
+          echo "::add-mask::$identity"
+          echo "::add-mask::${name% (*}"
+          echo "::add-mask::${team%)}"
+
+      # Each environment's app, signed, notarized and stapled, then checked as a release from the Mac checks it.
+      - name: Build, sign and notarize the Mac apps
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID || vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || vars.ASC_ISSUER_ID }}
+        run: |
+          CONFIG="$RUNNER_TEMP/config"
+          for env_name in staging prod; do
+            since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            ENV="$env_name" MULTISCALE_CONFIG_DIR="$CONFIG" scripts/mac-app.sh
+            xcrun notarytool history --key "$CONFIG/AuthKey_$ASC_KEY_ID.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --output-format json >"$RUNNER_TEMP/history-$env_name.json"
+            (cd frontend && node scripts/mac-inbox.ts manifest "$env_name" "$COMMIT" "$since" "$RUNNER_TEMP/history-$env_name.json" "$RUNNER_TEMP/inbox/$env_name")
+          done
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_INBOX_ROLE_ARN || vars.AWS_INBOX_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+
+      # The manifest goes last: the pipeline takes a build once its manifest is there.
+      - name: Upload to the inbox
+        env:
+          BUCKET: ${{ vars.AWS_INBOX_BUCKET }}
+        run: |
+          for env_name in staging prod; do
+            aws s3 cp "$RUNNER_TEMP/inbox/$env_name/Multiscale.dmg" "s3://$BUCKET/inbox/$COMMIT/$env_name/Multiscale.dmg" --no-progress
+            aws s3 cp "$RUNNER_TEMP/inbox/$env_name/manifest.json" "s3://$BUCKET/inbox/$COMMIT/$env_name/manifest.json" --no-progress
+          done
+          echo "Uploaded the Mac apps for $COMMIT. The release pipeline checks and publishes them in its run for that commit."
+
+      - name: Delete the keychain and the notary key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/config" "$RUNNER_TEMP/developer-id.p12"

@@ -26,7 +26,23 @@ export interface PipelineConfig {
   email: string;
   /** How long after staging passes a run goes to prod, as an ISO 8601 duration: PT2H unless set, PT0S for no wait. */
   promoteAfter?: string;
+  /** Mac apps that GitHub Actions builds for commits that need them, which the pipeline checks and publishes. */
+  mac?: MacReleaseConfig;
 }
+
+export interface MacReleaseConfig {
+  /** The Developer ID's team, which every signature must name. */
+  teamId: string;
+  /** How long a run waits for GitHub Actions' build to reach the inbox, as an ISO 8601 duration: PT2H unless set. */
+  waitFor?: string;
+  /** existing when the account already has GitHub's OIDC provider, which an account can have only one of. */
+  githubOidcProvider?: 'create' | 'existing';
+}
+
+/** How long a run waits for the Mac apps when control.yaml doesn't say: time for the owner to approve the build. */
+export const DEFAULT_MAC_WAIT = 'PT2H';
+/** CodeBuild runs a build for up to 8 hours, and checking the apps takes some of it. */
+export const MAX_MAC_WAIT_SECONDS = 7 * 3600;
 
 /** The window before prod when control.yaml doesn't set one: time to read the email and stop the run, the same day. */
 export const DEFAULT_PROMOTE_AFTER = 'PT2H';
@@ -136,6 +152,15 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
     c.pipeline.promoteAfter ??= DEFAULT_PROMOTE_AFTER;
     if (promoteAfterSeconds(c.pipeline.promoteAfter) === undefined) {
       problems.push('pipeline.promoteAfter must be whole days, hours, minutes or seconds up to 6 days, such as PT2H, or PT0S for no wait');
+    }
+    const mac = c.pipeline.mac;
+    if (mac != null) {
+      if (!matches(/^[A-Z0-9]{10}$/, mac.teamId)) problems.push('pipeline.mac.teamId must be the 10-character team id the Developer ID names');
+      mac.waitFor ??= DEFAULT_MAC_WAIT;
+      const wait = promoteAfterSeconds(mac.waitFor);
+      if (wait === undefined || wait === 0 || wait > MAX_MAC_WAIT_SECONDS) problems.push('pipeline.mac.waitFor must be hours, minutes or seconds up to 7 hours, such as PT2H');
+      mac.githubOidcProvider ??= 'create';
+      if (!['create', 'existing'].includes(mac.githubOidcProvider)) problems.push('pipeline.mac.githubOidcProvider must be create or existing');
     }
   }
   if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain) || matches(/@example\.com$/i, c.pipeline?.email))) {

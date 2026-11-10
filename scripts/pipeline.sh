@@ -277,6 +277,7 @@ case "$command" in
     profiles
     frontend_deps
     checked="$root/mac-checked"
+    sevenzip=""
     mkdir -p "$checked"
     for env_name in "${environments[@]}"; do
       outputs "$env_name"
@@ -299,7 +300,8 @@ case "$command" in
       done
       inbox="$(mktemp -d)"
       aws s3 cp "s3://$MAC_INBOX_BUCKET/$key/" "$inbox" --recursive --no-progress
-      SEVENZIP="$(seven_zip)" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$COMMIT" "$inbox" "$(built)/web/$env_name" "$(built)/mac/$env_name/dist-electron"
+      sevenzip="${sevenzip:-$(seven_zip)}"
+      SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$COMMIT" "$inbox" "$(built)/web/$env_name" "$(built)/mac/$env_name/dist-electron"
       mkdir -p "$checked/$env_name"
       cp "$inbox/Multiscale.dmg" "$inbox/manifest.json" "$checked/$env_name/"
       echo "$env_name: checked $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).files["Multiscale.dmg"].sha256)' "$inbox/manifest.json")" >>"$checked/checked.txt"

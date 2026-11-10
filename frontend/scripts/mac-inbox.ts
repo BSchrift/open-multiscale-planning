@@ -204,11 +204,15 @@ export function bundleProblems(app: string, build: Build): string[] {
     if (path.startsWith('dist/') && !entry.unpacked) expected = join(build.web, path.slice('dist/'.length));
     else if (path.startsWith('dist-electron/') && !entry.unpacked) expected = join(build.electron, path.slice('dist-electron/'.length));
     else if (path === 'package.json' && !entry.unpacked) {
-      problems.push(...packageProblems(actual(), plainFile(join(build.frontend, 'package.json'))));
+      problems.push(...packageProblems(actual(), plainFile(join(build.frontend, 'package.json')), path));
       continue;
     } else if (path.startsWith('node_modules/better-sqlite3/') && entry.unpacked) {
       if (/^node_modules\/better-sqlite3\/prebuilds\/darwin-[\w-]+\.node$/.test(path)) continue;
       expected = join(build.frontend, path);
+      if (path.endsWith('/package.json') && existsSync(expected)) {
+        problems.push(...packageProblems(actual(), readFileSync(expected), path));
+        continue;
+      }
     } else {
       problems.push(`app.asar holds ${path}${entry.unpacked ? ' unpacked' : ''}, which the pipeline's build doesn't`);
       continue;
@@ -224,16 +228,22 @@ export function bundleProblems(app: string, build: Build): string[] {
   return problems;
 }
 
-/** electron-builder writes package.json with fields left out and dependencies trimmed. Nothing else may differ. */
-function packageProblems(packed: Buffer, checkout: Buffer): string[] {
+/** The fields that change how Node loads a package, which must match whether or not electron-builder keeps them. */
+const LOADING = ['main', 'exports', 'imports', 'type'];
+
+/**
+ * electron-builder writes each package.json with fields left out, such as scripts, and the app's dependencies trimmed
+ * to what it packs. Nothing else may differ from the checkout's or the installed package's.
+ */
+function packageProblems(packed: Buffer, ours: Buffer, path: string): string[] {
   const app = JSON.parse(packed.toString('utf8')) as Record<string, unknown>;
-  const ours = JSON.parse(checkout.toString('utf8')) as Record<string, unknown>;
+  const original = JSON.parse(ours.toString('utf8')) as Record<string, unknown>;
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  return Object.entries(app)
-    .filter(([key, value]) => key === 'dependencies'
-      ? !Object.entries(value as Record<string, unknown>).every(([name, range]) => same(range, (ours.dependencies as Record<string, unknown>)[name]))
-      : !same(value, ours[key]))
-    .map(([key]) => `app.asar's package.json differs from the checkout's in ${key}`);
+  return [...new Set([...Object.keys(app), ...LOADING])]
+    .filter((key) => key === 'dependencies'
+      ? !Object.entries(app.dependencies as Record<string, unknown>).every(([name, range]) => same(range, (original.dependencies as Record<string, unknown> | undefined)?.[name]))
+      : !same(app[key], original[key]))
+    .map((key) => `${path} in app.asar differs from the pipeline's in ${key}`);
 }
 
 /** Problems with the code resources seal over the files bundleProblems compares: their hashes must be the sealed ones. */

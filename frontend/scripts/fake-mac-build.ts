@@ -203,12 +203,14 @@ export function fakeBuild(identity: Identity, teamId: string, commit: string, en
   const version = JSON.stringify({ version: '0.1.0-abc1234', build: 1700000000, shell: { electron: '0123456789abcdef', ios: 'fedcba9876543210' } });
   const web = { 'index.html': '<!doctype html>', 'assets/index-abc.js': 'console.log("app")', 'assets/index-abc.js.map': '{}', 'version.json': version };
   const electron = { 'main.cjs': 'require("electron")', 'main.cjs.map': '{}', 'preload.cjs': 'void 0' };
-  const sqlite = { 'lib/index.js': 'module.exports = 1', 'package.json': '{"name":"better-sqlite3"}', 'prebuilds/darwin-arm64.node': 'native' };
+  // As electron-builder packs it, with the scripts the installed package has left out.
+  const sqlite = { 'lib/index.js': 'module.exports = 1', 'package.json': '{"name":"better-sqlite3","main":"lib/index.js"}', 'prebuilds/darwin-arm64.node': 'native' };
+  const installed = { ...sqlite, 'package.json': '{"name":"better-sqlite3","main":"lib/index.js","scripts":{"install":"prebuild-install"}}' };
   const pkg = { name: 'multiscale', version: '0.1.0', type: 'module', main: 'dist-electron/main.cjs', dependencies: { 'better-sqlite3': '^13.0.3', '@multiscale/config': 'file:../config' }, devDependencies: { vite: '1' } };
   const build = { web: join(root, 'web'), electron: join(root, 'electron'), frontend: join(root, 'frontend') };
   writeTree(build.web, web);
   writeTree(build.electron, electron);
-  writeTree(build.frontend, { 'package.json': JSON.stringify(pkg), ...Object.fromEntries(Object.entries(sqlite).map(([p, d]) => [`node_modules/better-sqlite3/${p}`, d])) });
+  writeTree(build.frontend, { 'package.json': JSON.stringify(pkg), ...Object.fromEntries(Object.entries(installed).map(([p, d]) => [`node_modules/better-sqlite3/${p}`, d])) });
 
   const files: Record<string, Buffer | null> = {
     ...Object.fromEntries(Object.entries(web).filter(([p]) => !p.endsWith('.map')).map(([p, d]) => [`dist/${p}`, Buffer.from(d)])),

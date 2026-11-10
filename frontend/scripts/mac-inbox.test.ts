@@ -98,6 +98,17 @@ describe('verifyInbox', () => {
     expect(problems).toContain("The app's code signature doesn't seal Resources/app.asar.unpacked/extra.js as it is");
   });
 
+  it("refuses a package.json that loads differently from the pipeline's, though electron-builder may trim one", async () => {
+    const b = fakeBuild(identity, TEAM, COMMIT, 'staging', (files) => {
+      files['package.json'] = Buffer.from(JSON.stringify({ name: 'multiscale', main: 'dist/assets/index-abc.js' }));
+    });
+    writeFileSync(join(b.app, 'Contents/Resources/app.asar.unpacked/node_modules/better-sqlite3/package.json'), '{"name":"better-sqlite3","main":"lib/other.js"}');
+    const problems = await verify(b);
+    expect(problems).toContain("package.json in app.asar differs from the pipeline's in main");
+    expect(problems).toContain("package.json in app.asar differs from the pipeline's in type");
+    expect(problems).toContain("node_modules/better-sqlite3/package.json in app.asar differs from the pipeline's in main");
+  });
+
   it('refuses an app changed after it was signed', async () => {
     const b = good();
     const asar = join(b.app, 'Contents/Resources/app.asar');

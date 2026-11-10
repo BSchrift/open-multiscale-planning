@@ -3,7 +3,8 @@
 #
 #   scheduling  time blocks and their answers, week picks and plans, repeating-task completions, away dates, pinned
 #               stretches, and a project's slip log entries
-#   closed      done, cancelled and dropped tasks; finished and dropped projects with their milestones; archived goals
+#   closed      done, cancelled and dropped tasks with their attachments; finished and dropped projects with their
+#               milestones; archived goals
 #   deleted     anything deleted
 #   cleanup     only where the periods are too short to wait for DynamoDB's TTL: how often a job removes what has
 #               expired, in whole minutes, hours or days

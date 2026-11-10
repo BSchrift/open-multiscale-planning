@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BSchrift/open-multiscale-planning/config"
 )
@@ -29,6 +30,8 @@ var (
 	MaxBodyBytes = config.Protocol.Sync.MaxBodyBytes
 	// maxClockAhead stops a device with a bad clock winning every future conflict.
 	maxClockAhead = time.Duration(config.Protocol.Sync.MaxClockAheadHours) * time.Hour
+	// MaxNotesChars is the longest a task's notes may be, in code points.
+	MaxNotesChars = config.Protocol.Records.MaxNotesChars
 )
 
 const (
@@ -45,6 +48,9 @@ var (
 	// sort key still splits into type and id.
 	typePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)
 )
+
+// ValidID is whether id is one a record may have, so an id from elsewhere, such as a files request, is checked as sync's are.
+func ValidID(id string) bool { return idPattern.MatchString(id) }
 
 // Rejection is a request refused at the trust boundary. Code is stable for clients and safe to log.
 type Rejection struct {
@@ -127,8 +133,28 @@ func validateChange(change Change, latestClock int64) error {
 			return rejected("invalid_value")
 		}
 	}
+	if err := validateNotes(change); err != nil {
+		return err
+	}
 	if recordBytes(change.Fields) > MaxRecordBytes {
 		return tooLarge("record_too_large")
+	}
+	return nil
+}
+
+// validateNotes checks a task's description. The app stops typing at the limit, so a change past it came from a
+// client that was changed; its code names the field, and the request's log line carries that code, never the text.
+func validateNotes(change Change) error {
+	field, ok := change.Fields["notes"]
+	if change.Type != "task" || !ok || field.V == nil {
+		return nil
+	}
+	notes, isText := field.V.(string)
+	if !isText {
+		return rejected("invalid_value")
+	}
+	if utf8.RuneCountInString(notes) > MaxNotesChars {
+		return rejected("notes_too_long")
 	}
 	return nil
 }

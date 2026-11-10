@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
 )
@@ -33,13 +34,21 @@ type Calendar interface {
 	Disconnect(ctx context.Context, sub string) error
 }
 
+// Files is the attachments' storage behind the /files routes. *files.Service implements it.
+type Files interface {
+	GrantUpload(ctx context.Context, sub, id string) (files.Upload, error)
+	GrantDownloads(ctx context.Context, sub string, ids []string) (files.Downloads, error)
+	Usage(ctx context.Context, sub string) (files.Usage, error)
+}
+
 // ErrInvalidState is what Calendar.Callback returns for a state it won't honour.
 var ErrInvalidState = errors.New("api: invalid state")
 
-// Server is every route of the API. A nil Calendar answers its routes with 501.
+// Server is every route of the API. A nil Calendar or Files answers its routes with 501.
 type Server struct {
 	Sync     Syncer
 	Calendar Calendar
+	Files    Files
 	Log      *slog.Logger
 	Env      string
 	Now      func() time.Time
@@ -101,6 +110,9 @@ func (s *Server) Handler() http.Handler {
 	route("POST /calendar/refresh", true, s.calendarRefresh)
 	route("POST /calendar/disconnect", true, s.calendarDisconnect)
 	route("POST /v1/logs", true, s.telemetry)
+	route("POST /files/upload", true, s.filesUpload)
+	route("POST /files/download", true, s.filesDownload)
+	route("GET /files/usage", true, s.filesUsage)
 	return mux
 }
 
@@ -230,6 +242,93 @@ func (s *Server) calendarDisconnect(w http.ResponseWriter, r *http.Request, sub 
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return outcome{status: http.StatusNoContent}
+}
+
+// maxFilesBodyBytes bounds a /files request, which holds at most a few ids.
+const maxFilesBodyBytes = 16 << 10
+
+// filesUpload grants an upload for an attachment the caller synced. The body names only the attachment: its size, type
+// and hash are read from the synced record.
+func (s *Server) filesUpload(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Files == nil {
+		return filesNotConfigured(w)
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if !readFilesBody(w, r, &body) {
+		return filesFailed(w, files.ErrInvalidRequest)
+	}
+	upload, err := s.Files.GrantUpload(r.Context(), sub, body.ID)
+	if err != nil {
+		return filesFailed(w, err)
+	}
+	writeJSON(w, http.StatusOK, upload)
+	return outcome{status: http.StatusOK}
+}
+
+func (s *Server) filesDownload(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Files == nil {
+		return filesNotConfigured(w)
+	}
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if !readFilesBody(w, r, &body) {
+		return filesFailed(w, files.ErrInvalidRequest)
+	}
+	downloads, err := s.Files.GrantDownloads(r.Context(), sub, body.IDs)
+	if err != nil {
+		return filesFailed(w, err)
+	}
+	writeJSON(w, http.StatusOK, downloads)
+	return outcome{status: http.StatusOK}
+}
+
+func (s *Server) filesUsage(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Files == nil {
+		return filesNotConfigured(w)
+	}
+	usage, err := s.Files.Usage(r.Context(), sub)
+	if err != nil {
+		return filesFailed(w, err)
+	}
+	writeJSON(w, http.StatusOK, usage)
+	return outcome{status: http.StatusOK}
+}
+
+func readFilesBody(w http.ResponseWriter, r *http.Request, into any) bool {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFilesBodyBytes))
+	return err == nil && json.Unmarshal(raw, into) == nil
+}
+
+// filesFailed answers a refusal with its code, and the hour it lifts or the usage that caused it. Its log line carries
+// the code alone, and an internal error's AWS codes.
+func filesFailed(w http.ResponseWriter, err error) outcome {
+	var refusal *files.Refusal
+	switch {
+	case errors.As(err, &refusal):
+		body := map[string]any{"error": refusal.Code}
+		if !refusal.RetryAt.IsZero() {
+			body["retry_at"] = refusal.RetryAt.UTC().Format(time.RFC3339)
+		}
+		if refusal.Usage != nil {
+			body["used_bytes"], body["quota_bytes"] = refusal.Usage.UsedBytes, refusal.Usage.QuotaBytes
+		}
+		writeJSON(w, refusal.Status, body)
+		return outcome{status: refusal.Status, errorType: refusal.Code}
+	case errors.Is(err, files.ErrBusy):
+		// 409, as sync's: asking again is safe, and a designed retry stays out of the 5xx alarm.
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "conflict"})
+		return outcome{status: http.StatusConflict, errorType: "conflict"}
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+	return outcome{status: http.StatusInternalServerError, errorType: "internal", attrs: sync.ErrorAttrs(err)}
+}
+
+func filesNotConfigured(w http.ResponseWriter) outcome {
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "files_not_configured"})
+	return outcome{status: http.StatusNotImplemented, errorType: "files_not_configured"}
 }
 
 func callbackPage(w http.ResponseWriter, status int, errorType, text string) outcome {

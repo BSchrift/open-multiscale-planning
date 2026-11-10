@@ -52,6 +52,8 @@ infrastructure/config/
 !/config/retention.yaml
 /config/*.deployed
 /config/*.outputs.json
+# With the App Store Connect key, AuthKey_<key id>.p8, that notarizes the Mac app.
+/config/asc-issuer-id
 frontend/app.config.*
 
 # Xcode user data and build products

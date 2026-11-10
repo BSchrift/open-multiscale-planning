@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ENTITLEMENTS, signedConfig } from '../scripts/mac-signing';
 import { appIdentity, builderConfig } from './identity';
 
 describe('appIdentity', () => {
@@ -43,6 +44,38 @@ describe('builderConfig', () => {
       enableNodeCliInspectArguments: false,
       enableEmbeddedAsarIntegrityValidation: true,
       onlyLoadAppFromAsar: true,
+    });
+  });
+
+  describe('signed on this Mac', () => {
+    const developerId = '2222222222222222222222222222222222222222';
+    const key = { APPLE_API_KEY: '/config/AuthKey_ABCDE12345.p8', APPLE_API_KEY_ID: 'ABCDE12345', APPLE_API_ISSUER: '0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d' };
+
+    it('stays ad hoc without a Developer ID, and says why it is not notarized', () => {
+      const signed = signedConfig(config, '-', {});
+      expect(signed.config).toEqual({ ...config, mac: { ...config.mac, notarize: false } });
+      expect(signed.notarize).toBe(false);
+      expect(signed.note).toMatch(/ad hoc/);
+    });
+
+    it('signs the app and its disk image with the Developer ID, keeping the hardened runtime and fuses', () => {
+      const signed = signedConfig(config, developerId, {});
+      expect(signed.config.mac).toEqual({ ...config.mac, identity: developerId, entitlements: ENTITLEMENTS, entitlementsInherit: ENTITLEMENTS, notarize: false });
+      expect(signed.config.mac.hardenedRuntime).toBe(true);
+      expect(signed.config.electronFuses).toEqual(config.electronFuses);
+      expect(signed.config).toHaveProperty('dmg', { sign: true });
+      expect(signed.note).toMatch(/Not notarizing: APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER are not set/);
+    });
+
+    it('notarizes when the environment holds the App Store Connect key', () => {
+      const signed = signedConfig(config, developerId, key);
+      expect([signed.config.mac.notarize, signed.notarize]).toEqual([true, true]);
+      expect(signed.note).not.toContain('ABCDE12345');
+    });
+
+    it('fails rather than ship an app it was asked to notarize but cannot', () => {
+      expect(() => signedConfig(config, '-', key)).toThrow(/no Developer ID Application identity/);
+      expect(() => signedConfig(config, developerId, { ...key, APPLE_API_ISSUER: '' })).toThrow(/Set all of APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER, or none/);
     });
   });
 

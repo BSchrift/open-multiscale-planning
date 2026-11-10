@@ -6,6 +6,8 @@
 # Then it runs every suite that can run against that deployment (scripts/test-deployed.sh), and fails if one does.
 # The first release makes the key, <env>.release-key.pem, beside the config. Keep it backed up: apps built with it take
 # updates signed by it and nothing else.
+# The Mac app is signed with the keychain's Developer ID, and notarized with the App Store Connect key in the config
+# folder, AuthKey_<key id>.p8 and asc-issuer-id, when it has them (docs/setup.md, step 15).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,8 +50,20 @@ cd "$root/frontend"
 key="$config_dir/$env_name.release-key.pem"
 # Before building, since the apps carry the key's public half.
 node scripts/release-files.ts key "$key"
-ENV="$env_name" npm run electron:build
+# The App Store Connect key that notarizes the Mac app, from the config folder, for the build alone. It names the key's
+# file, so the key itself is never printed.
+notarize="$(node scripts/mac-signing.ts env "$config_dir")"
+[ -n "$notarize" ] || echo "Not notarizing the Mac app: $config_dir has no App Store Connect key. See docs/setup.md, step 15."
+(eval "$notarize" && ENV="$env_name" npm run electron:build)
 dmg="$(ls -t "release/$env_name"/*.dmg | head -n 1)"
+if [ -n "$notarize" ]; then
+  # The build fails if notarizing does. This checks that macOS will open both without asking, offline too.
+  app="$(ls -td "release/$env_name"/mac*/*.app | head -n 1)"
+  spctl -a -vv -t exec "$app"
+  spctl -a -vv -t open --context context:primary-signature "$dmg"
+  xcrun stapler validate "$app"
+  xcrun stapler validate "$dmg"
+fi
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 node scripts/release-files.ts pack dist "$key" "$out"

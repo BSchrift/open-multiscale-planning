@@ -43,8 +43,8 @@ export const envs = {
   "prod": {
     "stack": {
       "terminationProtection": true,
-      "canaryPercent": 5,
-      "canaryMinutes": 1440,
+      "canaryPercent": 10,
+      "canaryMinutes": 90,
       "throttleReleaseAlarm": true
     }
   },

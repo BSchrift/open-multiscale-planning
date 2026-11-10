@@ -376,9 +376,12 @@ test('an old and a new device of one user: a block the new one paused runs on in
   await today(oldDevice);
   await expect(now(oldDevice).getByText('In progress, time left')).toBeVisible();
   await expect(now(oldDevice).getByRole('timer')).toBeVisible();
-  await oldDevice.page.getByRole('button', { name: new RegExp(`^${title}, `) }).focus();
+  // Checked by the block's times rather than a toast, which older bundles don't show for this.
+  const block = oldDevice.page.getByRole('button', { name: new RegExp(`^${title}, `) });
+  const before = await block.textContent();
+  await block.focus();
   await oldDevice.page.keyboard.press('Shift+ArrowDown');
-  await expect(oldDevice.page.getByText(`${title} is now`)).toBeVisible();
+  await expect(block).not.toHaveText(before!);
   await syncNow(oldDevice.page);
   await syncNow(newDevice.page);
 

@@ -19,12 +19,12 @@ the Mac release's, which may only upload to the pipeline's inbox, through GitHub
 | **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, iOS | A check fails. Every check must pass before a merge |
 | **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves | For a main commit that changes the Mac app's native code, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | The owner doesn't approve it, or a build or notarization fails. The pipeline then stops at Staging |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
-| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
+| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites. Then [prunes](#versions-and-feeds) what no one needs | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it. Then a wait until that time, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window. The email names the stages after it, and whether the run skips the canary or the bakes or turns the alarms off |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step and uploads the [version](#versions-and-feeds), which changes nothing anyone sees | A release alarm rolls the canary back, or a suite fails |
 | **Web** | Prod | Switches the web app to the version and runs the web app, feed, integration and smoke suites. Then [bakes](#bakes): a wait, two hours unless `control.yaml`'s `pipeline.bakeWeb` says otherwise, and a check that no release alarm is in ALARM | A suite fails, or a release alarm is in ALARM after the bake, which first switches web back |
 | **Desktop** | Prod | Publishes any new Mac app the Staging stage checked, switches the desktop feed and the shared one, checks the feeds, then bakes: `pipeline.bakeDesktop`, two hours unless it says otherwise | The feed check fails, or a release alarm is in ALARM after the bake, which first switches both feeds back |
-| **iPhone** | Prod | Switches the iPhone feed, checks the feeds, and records the commit for `make release-tag`, since every surface has it now | The feed check fails |
+| **iPhone** | Prod | Switches the iPhone feed, checks the feeds, and records the commit for `make release-tag`, since every surface has it now. Then prunes what no one needs | The feed check fails |
 | **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed iPhone build from that tag, and the Mac app's too until the Mac release is set up | — |
 
@@ -63,6 +63,15 @@ and takes the build when it's unchanged or a Mac app from GitHub Actions is publ
 the iPhone app's. The shared feed takes the build only when both do. Until an app's own feed exists, it compares with
 the shared one. Each release checks every feed it switched: the manifest checks out with the environment's release
 key, names the version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
+
+**Retention.** Each environment keeps the newest 20 versions by build, every version a surface serves, and the last
+three in each surface's history. At the end of staging's release and of prod's iPhone stage, `scripts/pipeline.sh
+prune` deletes the other version folders, then the files in `web/assets/` and `release/files/` that no kept version's
+feed lists, a source map with its file. A file goes only once it's more than 14 days old, so a tab still open on an old
+page can load its chunks, and a device in the middle of a download finishes it. It deletes nothing, and says why, when a
+surface serves a version with no folder under `versions/`, as a feed held back since before versions were kept does,
+since that version's files would go; the release goes on. The Mac's
+disk image isn't versioned: it stays one file, `downloads/Multiscale.dmg`, so rolling the Mac app back means a new app.
 
 Staging switches every surface in one step, with no bakes, and its suites test each one. Prod takes them one at a
 time, as the flow above shows. Bundles still read the shared feed.

@@ -26,6 +26,8 @@ case "$*" in
   *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
   *get-pipeline-execution*) echo abc1234;;
   *describe-stacks*) echo '${stackOutputs}';;
+  *"s3api head-object"*) [ -f "$PARAMS/inbox/manifest.json" ] || exit 254;;
+  *--recursive*) cp "$PARAMS/inbox/"* "$(echo "$*" | awk '{print $4}')/";;
   *"s3 cp s3://"*) [ -f "$PARAMS/feed" ] && cat "$PARAMS/feed" || exit 1;;
 esac`);
   for (const name of ['go', 'npx', 'npm', 'sleep']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
@@ -36,6 +38,9 @@ esac`);
   // What the steps call beyond this script.
   mkdirSync(join(s.root, 'frontend/scripts'), { recursive: true });
   writeFileSync(join(s.root, 'frontend/scripts/sign-release.mjs'), '// the signer\n');
+  const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
+  writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
+  writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
   writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   const params = join(s.root, 'params');
@@ -154,6 +159,8 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=prod -o cdk.out\/prod Multiscale-prod/);
     // Each environment's web build, from its stack's outputs and its key's public half, beside the script that signs it.
     for (const env of ['staging', 'prod']) assert.match(s.log(), new RegExp(`npx vite build --outDir ${s.root}/web/${env} --emptyOutDir`));
+    // And each one's Mac main process, which a Mac app from GitHub Actions must hold.
+    for (const env of ['staging', 'prod']) assert.equal(readFileSync(join(s.root, `mac/${env}/dist-electron/main.cjs`), 'utf8'), env);
     assert.equal(readFileSync(join(s.root, 'web/sign-release.mjs'), 'utf8'), '// the signer\n');
     assert.doesNotMatch(s.log(), /signing\//);
     assert.equal(readFileSync(join(s.root, 'multiscale-config/prod.release-key.pub'), 'utf8'), 'cHVibGlj\n');
@@ -230,6 +237,108 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     writeFileSync(join(plain.root, 'signed/release.json'), '{}');
     assert.equal(plain.run(['release-prod'], { CODEBUILD_SRC_DIR_Built: join(plain.root, 'built'), CODEBUILD_SRC_DIR_SignedProd: join(plain.root, 'signed'), COMMIT: 'abc123' }).status, 0);
     assert.match(plain.log(), /--name \/multiscale\/pipeline\/released --type String --overwrite --value abc123\n/);
+  });
+
+  // The Build output for both environments, as the MacApp step reads it, and GitHub Actions' upload in the inbox.
+  const COMMIT = 'c0ffee'.padEnd(40, '0');
+  const macStep = (s: ReturnType<typeof sandbox>, { built = { electron: 'e2', ios: 'i1' }, inbox = true } = {}) => {
+    const builtDir = join(s.root, 'built');
+    for (const env of ['staging', 'prod']) {
+      mkdirSync(join(builtDir, `web/${env}`), { recursive: true });
+      writeFileSync(join(builtDir, `web/${env}/version.json`), JSON.stringify({ version: '0.1.0-abc', build: 1, shell: built }));
+    }
+    if (inbox) {
+      mkdirSync(join(s.params, 'inbox'));
+      writeFileSync(join(s.params, 'inbox/manifest.json'), JSON.stringify({ files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
+      writeFileSync(join(s.params, 'inbox/Multiscale.dmg'), 'disk image');
+    }
+    return { CODEBUILD_SRC_DIR_Built: builtDir, COMMIT, MAC_INBOX_BUCKET: 'inbox-bucket', MAC_TEAM_ID: 'ABCDE12345', MAC_WAIT_SECONDS: '600', SEVENZIP: '/bin/true' };
+  };
+
+  it("checks no Mac app when every feed can take this build's", () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['mac'], macStep(s, { built: shell, inbox: false }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(s.log(), /head-object|mac-inbox/);
+    assert.equal(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), 'staging: no new Mac app needed\nprod: no new Mac app needed\n');
+  });
+
+  it("waits for GitHub Actions' Mac app of this commit, checks it against the Build output, and hands on what passed", () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['mac'], macStep(s));
+    assert.equal(r.status, 0, r.stderr);
+    for (const env of ['staging', 'prod']) {
+      // As the pipeline's own role, which may only read the inbox.
+      assert.match(s.log(), new RegExp(`aws AWS_PROFILE= s3api head-object --bucket inbox-bucket --key inbox/${COMMIT}/${env}/manifest\\.json`));
+      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} \\S+ ${s.root}/built/web/${env} ${s.root}/built/mac/${env}/dist-electron ENV=undefined SEVENZIP=/bin/true MAC_TEAM_ID=ABCDE12345`));
+      assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
+    }
+  });
+
+  it('stops the run, saying what to do, when no Mac app arrives in time', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['mac'], { ...macStep(s, { inbox: false }), MAC_WAIT_SECONDS: '0' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, new RegExp(`No Mac app for staging at ${COMMIT} reached the inbox in time`));
+    assert.match(r.stderr, new RegExp(`gh workflow run mac-release\\.yml -f commit=${COMMIT}`));
+    assert.doesNotMatch(s.log(), /mac-inbox/);
+  });
+
+  it('stops the run, handing on nothing, when a Mac app fails its checks', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['mac'], { ...macStep(s), VERIFY_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    assert.throws(() => readFileSync(join(s.root, 'mac-checked/staging/Multiscale.dmg')));
+  });
+
+  // A release step's artifacts, with the MacApp step's output beside them.
+  const withMac = (s: ReturnType<typeof sandbox>, built: object, dmg: boolean) => {
+    const mac = join(s.root, 'mac-apps');
+    mkdirSync(join(mac, 'staging'), { recursive: true });
+    if (dmg) writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+    return { ...artifacts(s, built), CODEBUILD_SRC_DIR_MacApps: mac };
+  };
+
+  it('publishes the checked Mac app to the downloads host, then the feed that needs it', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i1' }, true));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp \S+\/mac-apps\/staging\/Multiscale\.dmg s3:\/\/bucket\/downloads\/Multiscale\.dmg --cache-control public, max-age=300 --content-type application\/x-apple-diskimage\n(.*\n)*.*s3:\/\/bucket\/release\/release\.json/);
+  });
+
+  it('publishes nothing when the build needs a new Mac app and the run checked none', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i1' }, false));
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /needs a newer Mac app than staging's feed, but this run checked none/);
+    // Nothing uploaded: the only call to the bucket reads the live feed.
+    assert.doesNotMatch(s.log(), /(cp|sync) \/\S+ s3:\/\/bucket\//);
+    assert.doesNotMatch(s.log(), /test-deployed/);
+  });
+
+  it('still leaves the feed for the Mac when the build needs a new iPhone app, after publishing the Mac app', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i2' }, true));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /s3:\/\/bucket\/downloads\/Multiscale\.dmg/);
+    assert.match(r.stderr, /needs a newer iPhone app than staging's feed, so the feed stays as it is/);
+    assert.doesNotMatch(s.log(), /s3:\/\/bucket\/release\/(files|release\.json) --/);
+  });
+
+  it('publishes no Mac app when the feed can take the build as it is', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, shell, false));
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(s.log(), /downloads/);
+    assert.match(s.log(), /s3:\/\/bucket\/release\/release\.json/);
   });
 
   it('runs no nightly suites when main has not moved since the last one passed', () => {

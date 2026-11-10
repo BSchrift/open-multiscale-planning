@@ -25,3 +25,13 @@ pipeline:
   # How long after staging passes a release goes to prod, unless you stop it with make pipeline-stop: an ISO 8601
   # duration, PT2H if left out, or PT0S to go at once. Prod's canary still guards it.
   promoteAfter: PT2H
+  # Optional: Mac apps built, signed and notarized by GitHub Actions for each commit that needs a new one, which the
+  # pipeline checks and publishes (docs/releasing.md). Without it, such a commit leaves the feed as it is, for a release
+  # from the Mac.
+  # mac:
+  #   # The team id your Developer ID certificate names: Developer ID Application: <name> (<team id>).
+  #   teamId: ABCDE12345
+  #   # How long a run waits for GitHub Actions' build, which waits for your approval: PT2H if left out, up to PT7H.
+  #   waitFor: PT2H
+  #   # existing if the account already has GitHub's OIDC provider, token.actions.githubusercontent.com.
+  #   githubOidcProvider: create

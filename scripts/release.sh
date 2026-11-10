@@ -57,33 +57,9 @@ cd "$root/frontend"
 key="$config_dir/$env_name.release-key.pem"
 # Before building, since the apps carry the key's public half.
 node scripts/release-files.ts key "$key"
-# The App Store Connect key that notarizes the Mac app, from the config folder, for the build alone. It names the key's
-# file, so the key itself is never printed.
-notarize="$(node scripts/mac-signing.ts env "$config_dir")"
-[ -n "$notarize" ] || echo "Not notarizing the Mac app: $config_dir has no App Store Connect key. See docs/setup.md, step 15."
-(eval "$notarize" && ENV="$env_name" npm run electron:build)
+# The Mac app, signed, notarized when the config folder has the key, and checked: scripts/mac-app.sh.
+ENV="$env_name" "$root/scripts/mac-app.sh"
 dmg="$(ls -t "release/$env_name"/*.dmg | head -n 1)"
-app="$(ls -td "release/$env_name"/mac*/*.app | head -n 1)"
-if [ -n "$notarize" ]; then
-  # The build fails if notarizing does. This checks that macOS will open both without asking, offline too.
-  spctl -a -vv -t exec "$app"
-  spctl -a -vv -t open --context context:primary-signature "$dmg"
-  xcrun stapler validate "$app"
-  xcrun stapler validate "$dmg"
-fi
-# The app starts as signed, under the hardened runtime: its page sets up the database through the main process and the
-# one native library the app ships. In a data folder of its own, marked as past the first run so it adds no login item.
-data="$(mktemp -d)"
-touch "$data/login-item-set"
-"$app/Contents/MacOS/$(basename "$app" .app)" --user-data-dir="$data" --use-mock-keychain >/dev/null 2>&1 &
-started=0
-for _ in $(seq 60); do
-  [ "$(sqlite3 "$data/multiscale.sqlite" 'select count(*) from sqlite_master' 2>/dev/null || echo 0)" -gt 0 ] && started=1 && break
-  sleep 0.5
-done
-kill $! 2>/dev/null && wait $! 2>/dev/null || true
-rm -rf "$data"
-[ "$started" = 1 ] || { echo "The Mac app in $app didn't start, so it wasn't released." >&2; exit 1; }
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 node scripts/release-files.ts pack dist "$key" "$out"

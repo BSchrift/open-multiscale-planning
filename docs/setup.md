@@ -351,7 +351,9 @@ ENV=prod npm run electron:build
 cd ..
 ```
 
-Open the disk image in `frontend/release/prod/` and drag **Multiscale** to Applications. It isn't notarized, so if macOS refuses to open it, choose **Open Anyway** under **System Settings > Privacy & Security**. Sign in with the prod user from step 12.
+Open the disk image in `frontend/release/prod/` and drag **Multiscale** to Applications. Sign in with the prod user from step 12.
+
+A disk image built on this Mac opens as it is. A downloaded one opens without a warning only once it's notarized, which `make release` does when step 15's Developer ID and App Store Connect key are set up. Until then the build is signed ad hoc, and macOS refuses to open a downloaded copy until you choose **Open Anyway** under **System Settings > Privacy & Security**.
 
 With a domain, release instead, and the installed apps keep themselves up to date. See [Releasing updates](#releasing-updates).
 
@@ -401,6 +403,22 @@ The Apple Developer Program costs about $99 a year; check the current price when
 2. In `frontend/ios/App/Config.local.xcconfig`, set `DEVELOPMENT_TEAM` to the paid team's id and uncomment `MULTISCALE_EXTENSIONS = YES`. That one setting builds in the share sheet, and App Groups now provision automatically.
 3. In Xcode, press **Run** again.
 4. Installs now last a year instead of 7 days. TestFlight builds, if you prefer them, last 90 days.
+5. Sign the Mac app with your Developer ID. In Xcode, open **Settings > Accounts**, select the paid team, choose **Manage Certificates**, and add a **Developer ID Application** certificate. Only the team's Account Holder can. Check that the keychain has it:
+
+   ```sh
+   security find-identity -v -p codesigning
+   ```
+
+   Every Mac build now signs with it, and with the hardened runtime. A Mac without one, such as a contributor's, still builds the app, signed ad hoc.
+6. Let `codesign` use the certificate's key without asking, since a build can't answer a prompt: in **Keychain Access**, under **login > My Certificates**, expand the certificate, open its private key, and under **Access Control** add `/usr/bin/codesign`.
+7. Make the key that notarizes it. In App Store Connect, open **Users and Access > Integrations > App Store Connect API** and generate a team key with **Developer** access. Download it, which you can do only once, and move it into your config folder with the name it came with, `AuthKey_<key id>.p8`. Save the **Issuer ID** shown above the keys beside it:
+
+   ```sh
+   echo '<issuer id>' > "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
+   chmod 600 "$MULTISCALE_CONFIG_DIR"/AuthKey_*.p8 "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
+   ```
+
+   `make release` now notarizes the Mac app and its disk image, staples Apple's ticket to both so that they open offline too, and checks them with `spctl` and `xcrun stapler validate`. The release stops if any of that fails. Without the key, it says so and releases the app signed but not notarized. To replace the key, revoke it in App Store Connect and swap both files.
 
 ## Real-phone checklist
 
@@ -450,7 +468,7 @@ Each signs in with the profile in its environment's file. After a deploy, commit
 
 Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md).
 
-`make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
+`make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, signs and notarizes the Mac app when step 15 is done, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
 
 Then it runs `make test-deployed` against what it just released, checking the web app serves that version, and fails if any suite does. The release is live by then, so to go back, revert the bad commit and release that. Releasing an older commit would only roll back the web app: its build number is its commit's time, and the apps skip any release whose build isn't newer than the one they run. `SKIP_TESTS=1` leaves the tests out, for a fix that can't wait; run `make test-deployed` after.
 
@@ -468,7 +486,7 @@ The first release makes the signing key, `<env>.release-key.pem`, in your config
 How the apps update:
 
 - **Most releases change only the web bundle**, which both apps download by themselves: soon after starting, every six hours, and on coming back after an hour away. The Mac app switches to it when its window closes or at its next launch. The phone switches at its next launch, or on returning after half an hour in the background. **Settings > Updates** shows the version, checks on request, and has **Restart now** for a downloaded update.
-- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. For the Mac app that includes the API, sign-in and release addresses its main process allows the page to reach, so moving any of them also needs a new Mac app. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again.
+- **A release that changes native code**, such as Electron's main process, a Swift plugin or a Capacitor plugin, can't reach older apps this way. Each bundle names the native code it was built for, and an app skips a bundle that doesn't match. For the Mac app that includes the API, sign-in and release addresses its main process allows the page to reach, so moving any of them also needs a new Mac app. Settings then says the update needs a new version of the app, with a download link on the Mac. On the phone, run it from Xcode again. How the Mac app is signed doesn't count, since a signature changes nothing a bundle can call: apps signed ad hoc keep taking bundles released with a Developer ID.
 - **A bundle that doesn't start** within 20 seconds is rolled back to the one before it and never tried again.
 
 Releases are only as safe as the key: the apps check every bundle's signature and every file's hash before installing it, so someone who got into the bucket still couldn't change what runs.

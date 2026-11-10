@@ -425,6 +425,14 @@ describe('the backend canary', () => {
     assert.deepEqual(throttles.Properties.AlarmActions, [{ Ref: topicId }]);
   });
 
+  it("names the release alarms in an output for the pipeline's bake check, alarms off or not", () => {
+    for (const [envName, alarms, expected] of [['staging', undefined, releaseAlarms], ['prod', undefined, prodReleaseAlarms], ['prod', 'off', prodReleaseAlarms]] as const) {
+      const template = Template.fromStack(build(envName, '/nonexistent', false, config, undefined, alarms)).toJSON();
+      const named = [...JSON.stringify(template.Outputs.ReleaseAlarms.Value).matchAll(/"Ref":"(\w+?)[0-9A-F]{8}"/g)].map(([, id]) => id).sort();
+      assert.deepEqual(named, [...expected].sort());
+    }
+  });
+
   it('turns the release alarms off for one release when asked, keeping rollback on a failed deployment or check', () => {
     for (const envName of ['staging', 'prod'] as const) {
       const off = Template.fromStack(build(envName, '/nonexistent', false, config, undefined, 'off'));
@@ -861,14 +869,14 @@ describe('release role', () => {
     assert.deepEqual(statement.Condition, { ArnEquals: { 'aws:PrincipalArn': { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::333333333333:role/multiscale-pipeline']] } } });
   });
 
-  it("may read the test users' passwords, logs, metrics and outputs, and write the release bucket, and nothing else", () => {
+  it("may read the test users' passwords, logs, metrics, alarms and outputs, and write the release bucket, and nothing else", () => {
     const resources = withPipeline('prod', 'app.example.net');
     const [roleId] = roleOf(resources)!;
     const statements = Object.values(resources)
       .filter((r) => r.Type === 'AWS::IAM::Policy' && r.Properties.Roles.some((x: any) => x.Ref === roleId))
       .flatMap((p) => p.Properties.PolicyDocument.Statement as any[]);
     const actionsOf = statements.flatMap((s) => [s.Action].flat()).sort();
-    assert.deepEqual(actionsOf.filter((a) => !a.startsWith('s3:')), ['cloudformation:DescribeStacks', 'cloudwatch:GetMetricStatistics', 'logs:FilterLogEvents', 'ssm:GetParameter']);
+    assert.deepEqual(actionsOf.filter((a) => !a.startsWith('s3:')), ['cloudformation:DescribeStacks', 'cloudwatch:DescribeAlarms', 'cloudwatch:GetMetricStatistics', 'logs:FilterLogEvents', 'ssm:GetParameter']);
     const ssm = statements.find((s) => s.Action === 'ssm:GetParameter');
     assert.match(JSON.stringify(ssm.Resource), /parameter\/multiscale\/prod\/\*-user-password"/);
     assert.ok(!actionsOf.some((a) => a.startsWith('dynamodb:') || a.startsWith('lambda:') || a === '*'));

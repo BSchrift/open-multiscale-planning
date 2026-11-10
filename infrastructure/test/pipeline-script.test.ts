@@ -13,6 +13,7 @@ const stackOutputs = JSON.stringify([
   { OutputKey: 'ReleaseBucket', OutputValue: 'bucket' },
   { OutputKey: 'WebUrl', OutputValue: 'https://web.example.net' },
   { OutputKey: 'ReleaseUrl', OutputValue: 'https://release.example.net' },
+  { OutputKey: 'ReleaseAlarms', OutputValue: 'Api5xxRate-1,LambdaErrors-2' },
 ]);
 const shell = { electron: 'e1', ios: 'i1' };
 const feedWith = (s: object) => JSON.stringify({ manifest: JSON.stringify({ version: 'old', build: 0, shell: s, files: [] }), signature: 'x' });
@@ -29,7 +30,8 @@ case "$*" in
   *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
   *get-pipeline-execution*) echo abc1234;;
   *"sts get-caller-identity"*) echo "\${ACCOUNT:-210987654321}";;
-  *describe-stacks*) echo '${stackOutputs}';;
+  *describe-stacks*) [ -n "$OLD_STACK" ] && echo '${stackOutputs.replace(/,\s*\{[^}]*ReleaseAlarms[^}]*\}/, '')}' || echo '${stackOutputs}';;
+  *"cloudwatch describe-alarms"*) cat "$PARAMS/alarming" 2>/dev/null || true;;
   *"s3api head-object"*) [ -f "$PARAMS/s3/$(echo "$*" | sed -E 's|.*--bucket ([^ ]+) --key ([^ ]+).*|\\1/\\2|')" ] || exit 254;;
   "s3 "*) exec node ${fakeS3} "$@";;
 esac`);
@@ -541,6 +543,70 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(s.log(), /downloads/);
     assert.equal(s.get(FEEDS.shared), release);
+  });
+
+  // Prod as a run's surface stage leaves it: the surfaces named switched from 0.1.0-ccc to this run's version.
+  const released = (s: ReturnType<typeof sandbox>, surfaces: string[]) => {
+    kept(s);
+    const env = artifacts(s, shell, 'prod');
+    s.put(`s3://bucket/versions/${VERSION}/web/version.json`, JSON.stringify({ version: VERSION, build: 5, shell }));
+    s.put(`s3://bucket/versions/${VERSION}/release.json`, release);
+    const h = JSON.parse(s.get('s3://bucket/state/history.json')!) as Record<string, object[]>;
+    for (const surface of surfaces) {
+      s.put(surface === 'web' ? 's3://bucket/web/version.json' : FEEDS[surface as keyof typeof FEEDS], surface === 'web' ? JSON.stringify({ version: VERSION, build: 5, shell }) : release);
+      h[surface]!.push({ version: VERSION, build: 5, at: '2026-11-10T10:00:00Z' });
+    }
+    s.put('s3://bucket/state/history.json', JSON.stringify(h));
+    return env;
+  };
+
+  it("passes a surface's bake when no release alarm is in ALARM, reading prod's alarms as its release role", () => {
+    const s = configured();
+    const r = s.run(['bake-check', 'web'], released(s, ['web']));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-prod cloudwatch describe-alarms --alarm-names Api5xxRate-1 LambdaErrors-2 --state-value ALARM --query MetricAlarms\[\]\.AlarmName --output text/);
+    assert.match(r.stdout, /No release alarm is in ALARM after web's bake/);
+    assert.equal(served(s, 'web/version.json'), VERSION);
+  });
+
+  it('switches web back to the version it served before this run, then stops the run, when a release alarm is in ALARM', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'alarming'), 'Api5xxRate-1\n');
+    const r = s.run(['bake-check', 'web'], released(s, ['web']));
+    assert.notEqual(r.status, 0);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-ccc');
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>0.1.0-ccc</html>');
+    assert.match(r.stdout, /Switched prod's web back from 0\.1\.0-abc to 0\.1\.0-ccc/);
+    assert.match(r.stderr, /Api5xxRate-1 in ALARM after web's bake/);
+    assert.deepEqual((JSON.parse(s.get('s3://bucket/state/history.json')!) as Record<string, { version: string }[]>).web!.slice(-2).map((l) => l.version), [VERSION, '0.1.0-ccc']);
+  });
+
+  it("switches the desktop and shared feeds back each to its own version before, leaving one this run didn't switch", () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'alarming'), 'LambdaErrors-2\n');
+    const r = s.run(['bake-check', 'desktop'], released(s, ['desktop']));
+    assert.notEqual(r.status, 0);
+    assert.equal(served(s, 'release/desktop/release.json'), '0.1.0-ccc');
+    assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
+    assert.match(r.stdout, /prod's shared serves 0\.1\.0-ccc, not this run's 0\.1\.0-abc, so it stays as it is/);
+    assert.doesNotMatch(s.log(), /s3:\/\/bucket\/release\/release\.json --/);
+  });
+
+  it('only reports an alarm in ALARM when the run has the release alarms off', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'alarming'), 'Api5xxRate-1\n');
+    const r = s.run(['bake-check', 'web'], { ...released(s, ['web']), ALARMS: 'off' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Api5xxRate-1 in ALARM after web's bake, but this run has the release alarms off, so it goes on/);
+    assert.equal(served(s, 'web/version.json'), VERSION);
+  });
+
+  it("fails a bake check before prod's stack names its release alarms, and one for no surface", () => {
+    const s = configured();
+    const r = s.run(['bake-check', 'web'], { ...released(s, ['web']), OLD_STACK: '1' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /no ReleaseAlarms output/);
+    assert.notEqual(configured().run(['bake-check', 'iphone']).status, 0);
   });
 
   it('runs no nightly suites when main has not moved since the last one passed', () => {

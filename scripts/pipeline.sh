@@ -15,7 +15,8 @@
 #                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
-# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod and nightly.
+# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check
+# and nightly.
 # The signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
 set -euo pipefail
 
@@ -523,6 +524,44 @@ case "$command" in
     [ "${CANARY:-on}" != skip ] || notes="Canary skipped."
     [ "${ALARMS:-on}" != off ] || notes="${notes:+$notes }Release alarms off."
     aws ssm put-parameter --name "$parameters/released" --type String --overwrite --value "${COMMIT:?}${notes:+ $notes}" >/dev/null
+    ;;
+  bake-check)
+    # After a surface's bake on prod, web or desktop: whether a release alarm is in ALARM. If one is, the surface switches
+    # back by itself to what it served before this run switched it, and the step fails, which stops the run before the
+    # next surface and emails. Desktop is its feed and the shared one, each back to its own version before. A surface no
+    # longer on this run's version, switched since by hand, stays. A run with ALARMS=off only reports, since its release
+    # went out with the alarms off.
+    case "${2:-}" in web) surfaces=web ;; desktop) surfaces="desktop shared" ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop" >&2; exit 1 ;; esac
+    fetch_config
+    profiles
+    outputs prod
+    read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts prod)"
+    export AWS_PROFILE="$profile"
+    names="$(output prod ReleaseAlarms)"
+    [ -n "$names" ] || { echo "prod's stack has no ReleaseAlarms output yet, so its alarms can't be checked. A run that deploys it adds it." >&2; exit 1; }
+    firing="$(aws cloudwatch describe-alarms --alarm-names ${names//,/ } --state-value ALARM --query 'MetricAlarms[].AlarmName' --output text | tr -s '\t\n' ' ' | sed 's/ *$//')"
+    if [ -z "$firing" ] || [ "$firing" = None ]; then
+      echo "No release alarm is in ALARM after $2's bake."
+      exit 0
+    fi
+    if [ "${ALARMS:-on}" = off ]; then
+      echo "$firing in ALARM after $2's bake, but this run has the release alarms off, so it goes on."
+      exit 0
+    fi
+    version="$(version_of "$(built)/web/prod")"
+    bucket="$(release_bucket prod)"
+    for surface in $surfaces; do
+      now="$(serves "$bucket" "$surface")"
+      before="$(served_before "$bucket" "$surface" "$version")"
+      if [ "$now" = "$version" ] && [ -n "$before" ]; then
+        switch prod "$surface" "$before"
+        echo "Switched prod's $surface back from $version to $before."
+      else
+        echo "prod's $surface serves ${now:-nothing}, not this run's $version, so it stays as it is."
+      fi
+    done
+    echo "$firing in ALARM after $2's bake, so the run stops here. Look at the alarms in prod's account; make release-surface ENV=prod lists what each surface serves." >&2
+    exit 1
     ;;
   nightly)
     commit="$(git -C "$root" rev-parse HEAD)"

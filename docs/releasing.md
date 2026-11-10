@@ -262,7 +262,10 @@ The key id, issuer id and role ARN work as either, but a variable's value is pri
 read on a public repository, and the role's ARN names the control account. Secrets are masked.
 
 The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
-`repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included. It may
+`repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included, or the
+subject in `pipeline.mac.githubSubject`. A repository with GitHub's immutable subjects gets tokens that also name its
+owner's and its own ids, `repo:<owner>@<id>/<repo>@<id>:environment:release`, and the role refuses them until
+`githubSubject` says so: `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` shows the prefix. It may
 put objects under `inbox/` in the inbox bucket and do nothing else, for an hour at most; an infrastructure test checks
 that. The bucket is private and encrypted, and forgets each upload after 30 days. Pull requests never run the workflow,
 and a fork's runs stop before any job.
@@ -273,8 +276,9 @@ Once, after `make release` has notarized a Mac app from your Mac ([setup, step 1
 with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
 
 1. **The config.** In `control.yaml`, under `pipeline`, add `mac` with your team id, as `config/control.example.yaml`
-   shows. If the control account already has GitHub's OIDC provider, which this lists, add
-   `githubOidcProvider: existing`:
+   shows. If `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` shows `"use_immutable_subject": true`, add
+   `githubSubject:` with its `sub_claim_prefix` followed by `:environment:release`. If the control account already has
+   GitHub's OIDC provider, which this lists, add `githubOidcProvider: existing`:
 
    ```sh
    aws iam list-open-id-connect-providers --profile <control profile>

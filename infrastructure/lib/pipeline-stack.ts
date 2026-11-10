@@ -228,7 +228,7 @@ export class PipelineStack extends Stack {
         description: "GitHub Actions' Mac release: uploads to the release pipeline's inbox, and nothing else",
         maxSessionDuration: Duration.hours(1),
         assumedBy: new WebIdentityPrincipal(providerArn, {
-          StringEquals: { [`${GITHUB_OIDC}:aud`]: 'sts.amazonaws.com', [`${GITHUB_OIDC}:sub`]: `repo:${repository}:environment:${MAC_RELEASE_ENVIRONMENT}` },
+          StringEquals: { [`${GITHUB_OIDC}:aud`]: 'sts.amazonaws.com', [`${GITHUB_OIDC}:sub`]: mac.githubSubject ?? `repo:${repository}:environment:${MAC_RELEASE_ENVIRONMENT}` },
         }),
       });
       inboxRole.addToPolicy(new PolicyStatement({ actions: ['s3:PutObject'], resources: [inbox.arnForObjects('inbox/*')] }));

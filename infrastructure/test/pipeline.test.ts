@@ -275,6 +275,15 @@ describe("the Mac release's inbox", () => {
     assert.deepEqual(policy.Properties.PolicyDocument.Statement.map((s: any) => [s.Effect, s.Condition]), [['Deny', { Bool: { 'aws:SecureTransport': 'false' } }]]);
   });
 
+  it("trusts only GitHub's tokens whose subject control.yaml names, when GitHub's subjects carry the owner's and repository's ids", () => {
+    const own = new PipelineStack(new App(), 'Multiscale-pipeline', {
+      control: { ...control, pipeline: { ...control.pipeline, mac: { teamId: 'ABCDE12345', githubSubject: 'repo:someone@1/open-multiscale-planning@2:environment:release' } } },
+      environments,
+    });
+    const [, role] = Object.entries(Template.fromStack(own).toJSON().Resources as Record<string, any>).find(([, r]) => r.Properties?.RoleName === MAC_INBOX_ROLE_NAME)!;
+    assert.equal(role.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals['token.actions.githubusercontent.com:sub'], 'repo:someone@1/open-multiscale-planning@2:environment:release');
+  });
+
   it("trusts only GitHub's tokens for this repository's release environment", () => {
     m.template.hasResourceProperties('AWS::IAM::OIDCProvider', { Url: 'https://token.actions.githubusercontent.com', ClientIdList: ['sts.amazonaws.com'] });
     const [[providerId]] = m.ofType('AWS::IAM::OIDCProvider');

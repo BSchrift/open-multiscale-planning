@@ -34,12 +34,17 @@ const policiesOf = (roleId: string) => ofType('AWS::IAM::Policy')
   .filter(([, p]) => p.Properties.Roles.some((r: any) => r.Ref === roleId))
   .flatMap(([, p]) => p.Properties.PolicyDocument.Statement as any[]);
 const roleNamed = (name: string) => ofType('AWS::IAM::Role').find(([, r]) => r.Properties.RoleName === name)![0];
+// Each state machine with its definition, a Fn::Join of strings and references whose states are what matter here.
+const machines = () => ofType('AWS::StepFunctions::StateMachine').map(([id, machine]) => {
+  const body = machine.Properties.DefinitionString;
+  const text: string = typeof body === 'string' ? body : body['Fn::Join'][1].map((part: unknown) => (typeof part === 'string' ? part : JSON.stringify(part))).join('');
+  return { id, machine, text };
+});
 
 describe('the release pipeline', () => {
   it('is a V2 pipeline named Multiscale, in the control account', () => {
     assert.equal(pipeline.Properties.PipelineType, 'V2');
     assert.equal(pipeline.Properties.Name, 'Multiscale');
-    assert.deepEqual(stages.map((s) => s.Name), ['Source', 'Build', 'Staging', 'Promote', 'Prod']);
   });
 
   it("starts from the configured branch, through a GitHub connection, as a clone the builds can read git from", () => {
@@ -67,13 +72,46 @@ describe('the release pipeline', () => {
     const [wait] = actions('Promote');
     assert.equal(wait.ActionTypeId.Provider, 'StepFunctions');
     const prod = actions('Prod');
-    assert.deepEqual(prod.map((a) => a.Name), ['PublishAssets', 'Prepare', 'Deploy', 'Test', 'Sign', 'Release']);
-    assert.deepEqual([prod[0], prod[3], prod[5]].map(step), ['prod-assets', 'test-prod', 'release-prod']);
+    // Prod's stage ends by uploading the version: nothing goes live there.
+    assert.deepEqual(prod.map((a) => a.Name), ['PublishAssets', 'Prepare', 'Deploy', 'Test', 'Sign', 'Upload']);
+    assert.deepEqual([prod[0], prod[3], prod[5]].map(step), ['prod-assets', 'test-prod', 'upload-prod']);
     // Every step after the build reads its output, and each release reads what its signing step signed.
     const [deployStaging, , releaseStaging] = actions('Staging');
     for (const action of [deployStaging, prod[0], prod[3]]) assert.deepEqual(action.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built']);
     assert.deepEqual(releaseStaging.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built', 'SignedStaging']);
     assert.deepEqual(prod[5].InputArtifacts.map((a: any) => a.Name), ['Source', 'Built', 'SignedProd']);
+  });
+
+  it('then releases prod one surface at a time: web, a bake and its check, the Mac, a bake and its check, then the iPhone', () => {
+    assert.deepEqual(stages.map((s) => s.Name), ['Source', 'Build', 'Staging', 'Promote', 'Prod', 'Web', 'Desktop', 'iPhone']);
+    for (const [stage, release, surface] of [['Web', 'release-web', 'web'], ['Desktop', 'release-desktop', 'desktop']] as const) {
+      const [switchTo, bake, check] = actions(stage);
+      assert.deepEqual([switchTo.Name, bake.Name, check.Name], ['Release', 'Bake', 'Check']);
+      assert.equal(step(switchTo), release);
+      assert.deepEqual(switchTo.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built']);
+      assert.equal(bake.ActionTypeId.Provider, 'StepFunctions');
+      assert.equal(step(check), 'bake-check');
+      assert.equal(envOf(check).find((v) => v.name === 'SURFACE')!.value, surface);
+    }
+    assert.deepEqual(actions('iPhone').map(step), ['release-iphone']);
+  });
+
+  it("bakes on Step Functions for control.yaml's durations, two hours unless it says, and not at all in a run that skips them", () => {
+    for (const stage of ['Web', 'Desktop']) {
+      const input = JSON.parse(actions(stage)[1].Configuration.Input);
+      assert.deepEqual(input, { commit: '#{GitHub.CommitId}', seconds: 7200, bakes: '#{variables.BAKES}' });
+    }
+    const own = Template.fromStack(new PipelineStack(new App(), 'P', { control: { ...control, pipeline: { ...control.pipeline, bakeWeb: 'PT30M', bakeDesktop: 'PT0S' } }, environments }));
+    const [p] = Object.values(own.toJSON().Resources as Record<string, any>).filter((r) => r.Type === 'AWS::CodePipeline::Pipeline');
+    const seconds = (stage: string) => JSON.parse(p.Properties.Stages.find((st: any) => st.Name === stage).Actions.find((a: any) => a.Name === 'Bake').Configuration.Input).seconds;
+    assert.deepEqual([seconds('Web'), seconds('Desktop')], [1800, 0]);
+    const bake = machines().find((m) => m.text.includes('"Bake"'))!;
+    assert.ok(JSON.stringify(actions('Web')[1].Configuration.StateMachineArn).includes(bake.id));
+    assert.ok(bake.text.includes(`"Type":"Wait","Timestamp":"{% $fromMillis($toMillis($states.context.Execution.StartTime) + ($states.input.bakes = 'skip' ? 0 : $states.input.seconds) * 1000) %}"`), bake.text);
+  });
+
+  it('keeps one run in each stage, a newer run taking the place of an older one waiting for the same stage', () => {
+    assert.equal(pipeline.Properties.ExecutionMode, 'SUPERSEDED');
   });
 
   it("deploys prod with CloudFormation in prod's account, which waits out the day's canary without a build running", () => {
@@ -93,8 +131,9 @@ describe('the release pipeline', () => {
     assert.ok(JSON.stringify(artifactKey[1].Properties.KeyPolicy).includes('cdk-hnb659fds-deploy-role-222222222222'));
   });
 
-  it('lets a run started by hand skip the pause switch and prod\'s canary', () => {
-    assert.deepEqual(pipeline.Properties.Variables.map((v: any) => [v.Name, v.DefaultValue]), [['CANARY', 'on'], ['ALARMS', 'on'], ['RUN', 'auto']]);
+  it("lets a run started by hand skip the pause switch, prod's canary and the bakes", () => {
+    assert.deepEqual(pipeline.Properties.Variables.map((v: any) => [v.Name, v.DefaultValue]), [['CANARY', 'on'], ['ALARMS', 'on'], ['BAKES', 'on'], ['RUN', 'auto']]);
+    assert.equal(envOf(actions('iPhone')[0]).find((v) => v.name === 'BAKES')!.value, '#{variables.BAKES}');
     const vars = JSON.parse(actions('Build')[0].Configuration.EnvironmentVariables);
     assert.deepEqual(vars.find((v: any) => v.name === 'CANARY').value, '#{variables.CANARY}');
     assert.deepEqual(vars.find((v: any) => v.name === 'RUN').value, '#{variables.RUN}');
@@ -103,6 +142,7 @@ describe('the release pipeline', () => {
     const input = JSON.parse(actions('Promote')[0].Configuration.Input);
     assert.equal(input.canary, '#{variables.CANARY}');
     assert.equal(input.alarms, '#{variables.ALARMS}');
+    assert.equal(input.bakes, '#{variables.BAKES}');
   });
 
   it('builds may assume only CDK\'s bootstrap roles and the release role in staging and prod', () => {
@@ -175,13 +215,7 @@ describe('the release pipeline', () => {
     assert.ok(![...signerActions].some((a) => a.startsWith('sts:') || a === 'ssm:PutParameter'));
   });
 
-  const promotion = () => {
-    const [[id, machine]] = ofType('AWS::StepFunctions::StateMachine');
-    const body = machine.Properties.DefinitionString;
-    // The definition is a Fn::Join of strings and references; the states are what matter here.
-    const text = typeof body === 'string' ? body : body['Fn::Join'][1].map((part: unknown) => (typeof part === 'string' ? part : JSON.stringify(part))).join('');
-    return { id, machine, text };
-  };
+  const promotion = () => machines().find((m) => m.text.includes('"Notify"'))!;
 
   it('emails when staging passes, saying when the run goes to prod and how to stop it, then waits that long', () => {
     const [wait] = actions('Promote');
@@ -316,7 +350,7 @@ describe("the Mac release's inbox", () => {
     });
   });
 
-  it("checks GitHub's Mac apps beside staging's deploy, and hands them to both releases", () => {
+  it("checks GitHub's Mac apps beside staging's deploy, and hands them to staging's release and prod's Mac release", () => {
     const [[, pipe]] = m.ofType('AWS::CodePipeline::Pipeline');
     const stage = (name: string) => (pipe.Properties.Stages as { Name: string; Actions: any[] }[]).find((s) => s.Name === name)!.Actions;
     const macApp = stage('Staging').find((a) => a.Name === 'MacApp');
@@ -324,7 +358,7 @@ describe("the Mac release's inbox", () => {
     assert.deepEqual(macApp.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built']);
     assert.deepEqual(macApp.OutputArtifacts.map((a: any) => a.Name), ['MacApps']);
     assert.equal(envOf(macApp).find((v) => v.name === 'STEP')!.value, 'mac');
-    for (const [name, action] of [['Staging', 'ReleaseAndTest'], ['Prod', 'Release']]) {
+    for (const [name, action] of [['Staging', 'ReleaseAndTest'], ['Desktop', 'Release']]) {
       assert.ok(stage(name!).find((a) => a.Name === action).InputArtifacts.some((a: any) => a.Name === 'MacApps'));
     }
     const project = m.resources[macApp.Configuration.ProjectName.Ref]!;

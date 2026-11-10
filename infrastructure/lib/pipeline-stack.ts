@@ -1,12 +1,12 @@
 // The release pipeline, in the control account: each main commit is built once, deployed to staging and tested there,
-// and after a window in which the owner can stop it, promoted to prod by the backend's canary, tested, and published.
-// No one approves it. docs/releasing.md describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild;
+// and after a window in which the owner can stop it, promoted to prod by the backend's canary and tested. Then prod's
+// surfaces take it one at a time: web, a bake, the Mac, a bake, the iPhone. No one approves it. docs/releasing.md describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild;
 // deploy rights stay in AWS.
 
 import { CfnCapabilities, CfnOutput, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
-import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
+import { Artifact, ExecutionMode, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import {
   CloudFormationCreateReplaceChangeSetAction, CloudFormationExecuteChangeSetAction, CodeBuildAction, CodeStarConnectionsSourceAction, StateMachineInput,
   StepFunctionInvokeAction,
@@ -24,7 +24,7 @@ import { Topic } from 'aws-cdk-lib/aws-sns';
 import { DefinitionBody, QueryLanguage, StateMachine, TaskInput, Wait, WaitTime } from 'aws-cdk-lib/aws-stepfunctions';
 import { SnsPublish } from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
-import { DEFAULT_MAC_WAIT, DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
+import { DEFAULT_BAKE, DEFAULT_MAC_WAIT, DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
 import type { Config, ControlConfig, EnvName, PipelineConfig } from './config.ts';
 
 /** The pipeline's CodeBuild role. Each environment's release role trusts it by this name. */
@@ -158,6 +158,7 @@ export class PipelineStack extends Stack {
     // A run started by hand sets these: scripts/pipeline.sh run.
     const canary = new Variable({ variableName: 'CANARY', defaultValue: 'on', description: "skip sends prod's new backend all traffic at once" });
     const alarms = new Variable({ variableName: 'ALARMS', defaultValue: 'on', description: 'off ships a release while a release alarm fires, with the alarms off for it' });
+    const bakes = new Variable({ variableName: 'BAKES', defaultValue: 'on', description: "skip sends prod's surfaces the release one after another without waiting" });
     const run = new Variable({ variableName: 'RUN', defaultValue: 'auto', description: 'hand when started by hand, which the pause switch lets through' });
 
     const sourceAction = new CodeStarConnectionsSourceAction({
@@ -172,7 +173,7 @@ export class PipelineStack extends Stack {
       // Not 'Source': CodePipeline refuses a namespace named like an artifact.
       variablesNamespace: 'GitHub',
     });
-    const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = [], more: Artifact[] = [], stepProject?: Project) => new CodeBuildAction({
+    const step = (actionName: string, name: string, runOrder = 1, outputs: Artifact[] = [], more: Artifact[] = [], stepProject?: Project, surface?: string) => new CodeBuildAction({
       actionName,
       project: stepProject ?? (outputs.length > 0 ? builder : releaser),
       input: source,
@@ -183,9 +184,11 @@ export class PipelineStack extends Stack {
         STEP: { value: name },
         CANARY: { value: canary.reference() },
         ALARMS: { value: alarms.reference() },
+        BAKES: { value: bakes.reference() },
         RUN: { value: run.reference() },
         EXECUTION_ID: { value: GlobalVariables.executionId },
         COMMIT: { value: sourceAction.variables.commitId },
+        ...(surface ? { SURFACE: { value: surface } } : {}),
       },
     });
 
@@ -195,7 +198,7 @@ export class PipelineStack extends Stack {
     const notify = SnsPublish.jsonata(this, 'Notify', {
       topic,
       subject: 'A release is on its way to prod',
-      message: TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '.' %}`),
+      message: TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Then the backend by its canary, the web app, a bake, the Mac, a bake and the iPhone. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '. Bakes: ' & $states.input.bakes & '.' %}`),
       outputs: '{% $states.input %}',
     });
     const window = Wait.jsonata(this, 'Window', { time: WaitTime.timestamp(`{% ${promoteAt} %}`) });
@@ -203,6 +206,21 @@ export class PipelineStack extends Stack {
       definitionBody: DefinitionBody.fromChainable(notify.next(window)),
       queryLanguage: QueryLanguage.JSONATA,
       timeout: Duration.days(7),
+    });
+    // Each surface's bake after its release on prod: one wait, free like the window's, none in a run that skips them.
+    // The Check after it fails the run, and switches the surface back, if a release alarm is in ALARM by then.
+    const bakeMachine = new StateMachine(this, 'BakeMachine', {
+      definitionBody: DefinitionBody.fromChainable(Wait.jsonata(this, 'Bake', {
+        time: WaitTime.timestamp("{% $fromMillis($toMillis($states.context.Execution.StartTime) + ($states.input.bakes = 'skip' ? 0 : $states.input.seconds) * 1000) %}"),
+      })),
+      queryLanguage: QueryLanguage.JSONATA,
+      timeout: Duration.days(7),
+    });
+    const bake = (duration: string | undefined, runOrder: number) => new StepFunctionInvokeAction({
+      actionName: 'Bake',
+      stateMachine: bakeMachine,
+      stateMachineInput: StateMachineInput.literal({ commit: sourceAction.variables.commitId, seconds: promoteAfterSeconds(duration ?? DEFAULT_BAKE), bakes: bakes.reference() }),
+      runOrder,
     });
 
     // Mac apps from GitHub Actions. For a commit that needs a new Mac app, the workflow builds, signs and notarizes it,
@@ -269,7 +287,10 @@ export class PipelineStack extends Stack {
       pipelineType: PipelineType.V2,
       // Prod's CloudFormation actions run in prod's account and read the template from here.
       crossAccountKeys: true,
-      variables: [canary, alarms, run],
+      // Each stage holds one run. A run that finishes a stage waits for the next to be free, and a newer one reaching the
+      // same point takes its place, so each surface only moves forward, to the newest version that has baked.
+      executionMode: ExecutionMode.SUPERSEDED,
+      variables: [canary, alarms, bakes, run],
       stages: [
         { stageName: 'Source', actions: [sourceAction] },
         { stageName: 'Build', actions: [step('Build', 'build', 1, [built])] },
@@ -296,6 +317,7 @@ export class PipelineStack extends Stack {
               seconds: promoteAfterSeconds(control.pipeline.promoteAfter ?? DEFAULT_PROMOTE_AFTER),
               canary: canary.reference(),
               alarms: alarms.reference(),
+              bakes: bakes.reference(),
             }),
           })],
         },
@@ -319,10 +341,23 @@ export class PipelineStack extends Stack {
             step('Test', 'test-prod', 4),
             // Only once prod's suites pass.
             sign('prod', signedProd, 5),
-            // Publishes the web app and its signed feed, then checks them.
-            step('Release', 'release-prod', 6, [], [signedProd, ...macApps]),
+            // Uploads the version where no host serves it. The surfaces take it in the stages after.
+            step('Upload', 'upload-prod', 6, [], [signedProd]),
           ],
         },
+        // Each surface's release, then for web and the Mac a bake and its check, in a stage of its own: a stage holds one
+        // run, so a bake watches exactly the version its stage switched to.
+        { stageName: 'Web', actions: [step('Release', 'release-web', 1), bake(control.pipeline.bakeWeb, 2), step('Check', 'bake-check', 3, [], [], undefined, 'web')] },
+        {
+          stageName: 'Desktop',
+          actions: [
+            // Any new Mac app the Staging stage checked, then the desktop feed and the shared one.
+            step('Release', 'release-desktop', 1, [], macApps),
+            bake(control.pipeline.bakeDesktop, 2),
+            step('Check', 'bake-check', 3, [], [], undefined, 'desktop'),
+          ],
+        },
+        { stageName: 'iPhone', actions: [step('Release', 'release-iphone', 1)] },
       ],
     });
 

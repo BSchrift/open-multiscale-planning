@@ -25,6 +25,10 @@ pipeline:
   # How long after staging passes a release goes to prod, unless you stop it with make pipeline-stop: an ISO 8601
   # duration, PT2H if left out, or PT0S to go at once. Prod's canary still guards it.
   promoteAfter: PT2H
+  # How long prod's web app bakes before the Mac gets the release, and the Mac's before the iPhone gets it, in the same
+  # format: PT2H if left out, PT0S for no bake. Each bake ends with a check that no release alarm is in ALARM.
+  bakeWeb: PT2H
+  bakeDesktop: PT2H
   # Optional: Mac apps built, signed and notarized by GitHub Actions for each commit that needs a new one, which the
   # pipeline checks and publishes (docs/releasing.md). Without it, such a commit leaves the feed as it is, for a release
   # from the Mac.

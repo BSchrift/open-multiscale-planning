@@ -152,6 +152,10 @@ export interface TimeBlock extends BaseRecord {
   tz: string;
   started_at?: Instant | null;
   ended_at?: Instant | null;
+  /** When the pause under way began; null while working. An end or an answer wins over it. */
+  paused_at?: Instant | null;
+  /** The pauses already over, added up. Resume adds each one to this and to end. */
+  paused_min?: Minutes | null;
   cancelled?: boolean;
 }
 
@@ -342,7 +346,7 @@ export interface RecordChange {
   fields: Record<string, FieldChange>;
 }
 
-export type ReminderKind = 'block_start' | 'check_in' | 'block_end';
+export type ReminderKind = 'block_start' | 'check_in' | 'block_end' | 'still_paused';
 
 export interface ReminderAction {
   id: string;

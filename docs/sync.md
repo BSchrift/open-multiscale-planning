@@ -16,6 +16,11 @@ What a feature has to read back is kept on the records the change touched, where
   with its project that are still cancelled, and clears the mark with `cancelled_at`. A milestone still counts them,
   since they were never done. A task the person cancelled is never marked.
 - **`paused_on`** on a project is the day it was paused. Resume moves open dates by the days since, and clears it.
+- **`paused_at`** and **`paused_min`** on a time block are the pause under way and the pauses already over. Resume
+  writes `paused_min` and the block's `end` as values, never as increments, so two devices resuming the same pause
+  agree to within a minute rather than adding it twice. A block that has ended or been answered never shows as paused,
+  whichever device wrote last. Older apps keep both fields, as they keep any field they don't know, and show a paused
+  block as still running.
 
 Closing and pausing still log their entries, for history and for older apps, which read only the log. The app reads
 the log too, for what was closed or paused before these fields existed: Restore also undoes a close entry that is

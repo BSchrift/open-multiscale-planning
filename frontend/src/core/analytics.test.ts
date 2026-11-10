@@ -174,6 +174,18 @@ describe('time by goal', () => {
     expect(rows.find((r) => r.id === 'g2')!.pct).toBe(100);
   });
 
+  it('leaves pauses out of the time planned and the time spent', () => {
+    const d = emptyData();
+    const at = (min: number) => localToInstant(MON, min, ZONE);
+    // Paused 9 minutes and resumed, so its end moved from 10am to 10:09am.
+    block(d, { task: 't1' }, MON, 540, { mins: 69, paused_min: 9, started_at: at(540), result: 'done' });
+    // Paused at 22 minutes and never resumed: Partly, with no minutes logged.
+    block(d, { task: 't2' }, MON, 600, { started_at: at(600), paused_at: at(622), result: 'partly' });
+    const rows = weekAnalytics(d, clock, WEEK).time.rows;
+    expect([rows.find((r) => r.id === 'g1')!.delivered_min, rows.find((r) => r.id === 'g1')!.planned_min]).toEqual([60, 60]);
+    expect([rows.find((r) => r.id === 'g2')!.delivered_min, rows.find((r) => r.id === 'g2')!.planned_min]).toEqual([22, 60]);
+  });
+
   it('shows No goal only with time in it, and keeps an archived goal only while it has time', () => {
     const d = emptyData();
     expect(weekAnalytics(d, clock, WEEK).time.rows.map((r) => r.id)).toEqual(['g1', 'g2', 'one_offs']);

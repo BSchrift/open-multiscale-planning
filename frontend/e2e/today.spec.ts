@@ -15,10 +15,10 @@ const at = (time: string) => {
 const planned: Seed = { type: 'week_plan', id: 'week:2026-11-02', fields: { week_start: '2026-11-02', finished_at: at('08:00') } };
 const report: Seed = { type: 'task', id: 't1', fields: { kind: 'project', project_id: 'p', title: 'Write the report', estimate_min: 180 } };
 const fence: Seed = { type: 'task', id: 't2', fields: { kind: 'one_off', title: 'Paint the fence', estimate_min: 30 } };
-const block = (id: string, task: string, from: string, to: string): Seed => ({
+const block = (id: string, task: string, from: string, to: string, extra: Record<string, unknown> = {}): Seed => ({
   type: 'time_block',
   id,
-  fields: { task_id: task, start: at(from), end: at(to), tz: 'America/Chicago' },
+  fields: { task_id: task, start: at(from), end: at(to), tz: 'America/Chicago', ...extra },
 });
 
 async function open(page: Page, records: Seed[]) {
@@ -51,6 +51,89 @@ test('the Now card: Start counts down, Mark done now frees the time, and Undo pu
 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('the time-spent ring pauses and resumes the block under way, and a tap soon after Resume takes it back', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
+  const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') }), block('b2', 't2', '16:00', '17:00')]);
+  await page.clock.setFixedTime(NOW);
+  const now = page.getByRole('region', { name: 'Current block' });
+
+  const ring = now.getByRole('button', { name: 'Pause, 22 minutes spent, 37% of the block' });
+  await expect(ring).toBeVisible();
+  await expect(now.getByRole('timer')).toHaveText('38:00');
+  const key = now.getByRole('button', { name: 'What the ring means' });
+  if (phone) {
+    await expectTapTarget(ring);
+    await expectTapTarget(key);
+  }
+  await shot('ring-under-way');
+
+  await key.click();
+  await expect(now.getByRole('group', { name: 'Key' })).toContainText('Tap the ring to pause the countdown');
+  await shot('ring-key');
+  await key.click();
+  await expect(now.getByRole('group', { name: 'Key' })).toHaveCount(0);
+
+  await ring.click();
+  const resume = now.getByRole('button', { name: 'Resume, 22 minutes spent, 37% of the block' });
+  // Focus stays on the ring. WebKit doesn't focus a button on a tap, so there's none to keep on phone.
+  await (phone ? expect(resume).toBeVisible() : expect(resume).toBeFocused());
+  await expect(now.getByText('Ends at 2:38pm unless you resume.')).toBeVisible();
+  await page.clock.setFixedTime(NOW.getTime() + 6 * 60_000);
+  await expect(now.getByText('Paused for 6 min')).toBeVisible();
+  await expect(now.getByRole('timer')).toHaveText('38:00');
+  await shot('ring-paused');
+
+  // Resume moves the end on by the pause, with no toast: a tap on the ring straight after takes it back.
+  await now.getByRole('button', { name: /^Resume, / }).click();
+  await expect(now.getByText('Now, 1:38pm to 2:44pm')).toBeVisible();
+  await expect(now.getByRole('button', { name: /^Pause, 22 minutes spent/ })).toBeVisible();
+  await expect(page.locator('.toast')).toHaveCount(0);
+  await shot('ring-resumed');
+  await now.getByRole('button', { name: /^Pause, / }).click();
+  await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
+  await expect(now.getByText('Paused for 6 min')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('the ring changes without animating under reduced motion, and reads in dark mode', async ({ page }, info) => {
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+  const errors = await open(page, [planned, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
+  await page.clock.setFixedTime(NOW);
+  // The app's reduced-motion rule cuts every transition to a hundredth of a millisecond.
+  expect(await page.locator('.spentring .rfill').evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration))).toBeLessThan(0.001);
+  await page.screenshot({ path: info.outputPath(`ring-dark-${info.project.name}.png`) });
+  await page.getByRole('button', { name: /^Pause, / }).click();
+  await expect(page.getByRole('button', { name: /^Resume, / })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`ring-dark-paused-${info.project.name}.png`) });
+  expect(errors).toEqual([]);
+});
+
+test('a pause running to the end asks the end question, whose Resume runs into the next block and offers the shift', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const paused = block('b1', 't1', '13:00', '13:50', { started_at: at('13:00'), paused_at: at('13:22') });
+  const errors = await open(page, [planned, report, fence, paused, block('b2', 't2', '14:15', '14:45')]);
+  await page.clock.setFixedTime(NOW);
+  const prompt = page.getByRole('dialog', { name: 'Block finished' });
+  await expect(prompt.getByText('22m spent. Paused at 1:22pm.')).toBeVisible();
+  await expect(prompt.getByRole('button', { name: /Still going/ })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`end-paused-${info.project.name}.png`) });
+  await prompt.getByRole('button', { name: 'Resume, 28m left' }).click();
+  const now = page.getByRole('region', { name: 'Current block' });
+  await expect(now.getByText('Now, 1pm to 2:28pm')).toBeVisible();
+  await expect(now.getByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
+
+  await expect(page.getByText('Paint the fence conflicts with Write the report.')).toBeVisible();
+  await page.getByRole('button', { name: 'Shift rest of today' }).click();
+  const panel = page.getByRole('region', { name: 'Shift rest of today' });
+  await expect(panel.getByRole('listitem').first()).toContainText('now 2:28pm to 2:58pm');
+  await page.screenshot({ path: info.outputPath(`resume-shift-${info.project.name}.png`) });
+  await panel.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText('Rest of today shifted.')).toBeVisible();
+  await expect(page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 2:28pm to 2:58pm/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

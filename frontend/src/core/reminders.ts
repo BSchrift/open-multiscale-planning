@@ -1,7 +1,8 @@
 // Which notifications to schedule. The platform fires them; a sync or opening the app replaces the whole list, so
 // answering on another device clears the prompt here at this device's next sync.
 
-import { formatMinutes, instantMs, localDate, toInstant } from './dates';
+import { isPaused, spentLine, timeLeftMs, workMinutes } from './blocks';
+import { formatMinutes, formatTime, instantMs, localDate, toInstant } from './dates';
 import type { UtcRange } from './dates';
 import type { Clock } from './clock';
 import type { BlockRow } from './queries';
@@ -12,6 +13,8 @@ import type { AwayPeriod, Instant, Reminder, ReminderAction, ReminderSettings } 
 export const REMINDER_LIMIT = 64;
 
 const SNOOZE_MIN = 10;
+/** How long a pause runs before one reminder that the block is still paused. */
+export const PAUSE_REMINDER_MIN = 15;
 const MINUTE_MS = 60_000;
 const DAY_MS = 1440 * MINUTE_MS;
 /** Comfortably more than 64 reminders' worth of a normal plan, and the list is rebuilt at every open and sync. */
@@ -27,6 +30,7 @@ export const REMINDER_ACTION = {
   partly: 'partly',
   notDone: 'not_done',
   stillGoing: 'still_going',
+  resume: 'resume',
   logAll: 'log_all',
 } as const;
 
@@ -52,6 +56,7 @@ const END_ACTIONS: ReminderAction[] = [
 const startId = (blockId: string) => `reminder:${blockId}:start`;
 const checkInId = (blockId: string) => `reminder:${blockId}:check_in`;
 const endId = (blockId: string) => `reminder:${blockId}:end`;
+const pausedId = (blockId: string) => `reminder:${blockId}:still_paused`;
 
 /** The blocks to pass to remindersToSchedule, through blocksInRange. Starts in the past to catch a running block. */
 export function reminderRange(clock: Clock): UtcRange {
@@ -91,9 +96,8 @@ export function checkInDue(
   );
 }
 
-function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: Instant | undefined): Reminder[] {
+function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: Instant | undefined, zone: string): Reminder[] {
   const name = block.title ?? 'Time block';
-  const start = instantMs(block.start);
   const end = instantMs(block.end);
   const out: Reminder[] = [];
 
@@ -108,22 +112,42 @@ function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: In
       }
     }
   }
+  // A check-in on a pause: once, partway through it, unless the block's end, which asks anyway, comes first.
+  if (settings.check_in && isPaused(block)) {
+    const at = instantMs(block.paused_at!) + PAUSE_REMINDER_MIN * MINUTE_MS;
+    if (at < end) {
+      out.push({
+        id: pausedId(block.id),
+        kind: 'still_paused',
+        block_id: block.id,
+        at: toInstant(at),
+        title: `Still paused: ${name}`,
+        body: `Paused since ${formatTime(block.paused_at!, zone)}. It ends at ${formatTime(end, zone)} unless you resume.`,
+        actions: [{ id: A.resume, title: 'Resume' }],
+      });
+    }
+  }
   if (settings.block_end) {
     const practice = !!block.practice_id;
+    // As it will stand when it fires. Pausing reschedules it, and a pause running to the end offers Resume.
+    const spent = spentLine(block, zone, end);
+    const resume: ReminderAction = { id: A.resume, title: `Resume, ${formatMinutes(Math.round(timeLeftMs(block, end) / MINUTE_MS))} left` };
     out.push({
       id: endId(block.id),
       kind: 'block_end',
       block_id: block.id,
       at: block.end,
       title: 'Block ended',
-      body: practice ? name : `Did you finish ${name}?`,
+      body: practice ? name : [spent, `Did you finish ${name}?`].filter(Boolean).join(' '),
       // Practice time is logged rather than judged. Tapping the notification opens the slider for a part of it.
       actions: practice
         ? [
-            { id: A.logAll, title: `All ${formatMinutes(Math.round((end - start) / MINUTE_MS))}` },
+            { id: A.logAll, title: `All ${formatMinutes(workMinutes(block))}` },
             { id: A.skip, title: 'Skip' },
           ]
-        : END_ACTIONS,
+        : isPaused(block)
+          ? [resume, ...END_ACTIONS.slice(1)]
+          : END_ACTIONS,
     });
   }
   return out;
@@ -146,7 +170,7 @@ export function remindersToSchedule(
   const zone = clock.zone();
   return blocks
     .filter((b) => !b.result && !b.ended_at && !isAway(localDate(b.start, zone), away))
-    .flatMap((b) => remindersFor(b, settings, snoozed[b.id]))
+    .flatMap((b) => remindersFor(b, settings, snoozed[b.id], zone))
     .filter((r) => instantMs(r.at) > now)
     .sort((a, b) => instantMs(a.at) - instantMs(b.at))
     .slice(0, REMINDER_LIMIT);

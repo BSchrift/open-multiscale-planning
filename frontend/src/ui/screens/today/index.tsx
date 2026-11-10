@@ -114,7 +114,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   const phone = layout === 'phone';
 
   const shift = shiftRestOfToday(data.blocks, data.events, data.settings.availability, clock);
-  const clash = shift && `${shift.conflict.block.title} conflicts with ${shift.conflict.event.title}.`;
+  const clash = shift && `${shift.conflict.block.title} conflicts with ${'event' in shift.conflict ? shift.conflict.event.title : shift.conflict.running.title}.`;
   const next = planningDue(data.settings, data.date) ? planStretch(data.settings, data.date, true) : null;
   // By its end, since a first plan's start is today until planning begins.
   const stretchDue = next && skippedStretch !== next.end ? next : null;

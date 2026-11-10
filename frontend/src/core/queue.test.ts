@@ -316,13 +316,24 @@ describe('Shift rest of today', () => {
   it('cascades: later blocks keep their order and length, clear of the event', () => {
     const blocks = [block('a', day('20:00'), day('21:00')), block('b', day('21:00'), day('21:30'))];
     const result = shiftRestOfToday(blocks, [event('dinner', '19:00', '20:30')], availability, at('19:30'));
-    expect(result!.conflict.block.id).toBe('a');
-    expect(result!.conflict.event.id).toBe('dinner');
+    expect(result!.conflict).toMatchObject({ block: { id: 'a' }, event: { id: 'dinner' } });
     expect(shifted(result)).toEqual([
       ['a', day('20:30'), day('21:30')],
       ['b', day('21:30'), day('22:00')],
     ]);
     expect(result!.runs_past).toBeNull();
+  });
+
+  it('offers to move what follows when the block under way runs into the next, as after a Resume', () => {
+    const blocks = [
+      block('a', day('10:00'), day('11:09'), { started_at: day('10:00') }),
+      block('b', day('11:00'), day('11:30')),
+      block('c', day('13:00'), day('14:00')),
+    ];
+    const result = shiftRestOfToday(blocks, [], availability, at('10:40'));
+    expect(result!.conflict).toMatchObject({ block: { id: 'b' }, running: { id: 'a' } });
+    expect(shifted(result)).toEqual([['b', day('11:09'), day('11:39')]]);
+    expect(shiftRestOfToday([blocks[0]!, blocks[2]!], [], availability, at('10:40'))).toBeNull();
   });
 
   it('lists only blocks that move, leaving a later one with room alone', () => {

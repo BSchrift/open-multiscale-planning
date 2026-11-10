@@ -5,8 +5,8 @@
 
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
-import { partlyLeft } from '../../../core/blocks';
-import { blockMinutes, formatMinutes, instantMs } from '../../../core/dates';
+import { isPaused, partlyLeft, spentLine, timeLeftMs, workMinutes } from '../../../core/blocks';
+import { formatMinutes, instantMs, localDate } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import { useOverlay } from '../../app/nav';
@@ -96,7 +96,7 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
   const { block } = props;
   const actions = useBlockActions();
   const id = useId();
-  const length = Math.max(5, blockMinutes(block));
+  const length = Math.max(5, workMinutes(block));
   const [minutes, setMinutes] = useState(length);
   const answer = (logged: number) =>
     void actions.answer(block, logged ? { result: 'done', logged_min: logged } : { result: 'not', logged_min: 0 }).then(props.onClose);
@@ -139,14 +139,21 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
  */
 export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean }) {
   const { block } = props;
+  const { clock } = useApp();
   const actions = useBlockActions();
   const [partly, setPartly] = useState(!!props.partly);
   if (block.practice_id) return <PracticeLog block={block} onClose={props.onClose} />;
   if (partly) return <PartlyStep block={block} onClose={props.onClose} />;
   const answer = (result: 'done' | 'not') => void actions.answer(block, { result }).then(props.onClose);
+  const now = clock.now();
+  const spent = spentLine(block, clock.zone(), now);
+  const paused = isPaused(block);
+  // Resume would stretch an earlier day's block into today, so only the day's own block offers it.
+  const resumable = paused && localDate(block.start, clock.zone()) === localDate(now, clock.zone());
   return (
     <PromptFrame label="Block finished" onClose={props.onClose}>
       <Heading over="Block ended" title={block.title} />
+      {spent && <div className="small">{spent}</div>}
       <div className="stack8">
         <div className="row">
           <button className="btn pri" type="button" disabled={actions.pending} onClick={() => answer('done')}>
@@ -160,9 +167,17 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
           </button>
         </div>
         <div className="row">
-          <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.stillGoing(block).then(props.onClose)}>
-            Still going, add {formatMinutes(STILL_GOING_MIN)}
-          </button>
+          {resumable ? (
+            <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.resume(block).then(props.onClose)}>
+              Resume, {formatMinutes(Math.round(timeLeftMs(block, now) / 60_000))} left
+            </button>
+          ) : (
+            !paused && (
+              <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.stillGoing(block).then(props.onClose)}>
+                Still going, add {formatMinutes(STILL_GOING_MIN)}
+              </button>
+            )
+          )}
           <button className="link small" type="button" onClick={props.onClose}>
             Answer later
           </button>

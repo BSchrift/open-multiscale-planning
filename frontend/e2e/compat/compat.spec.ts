@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
@@ -19,6 +21,14 @@ test.afterEach(closeDevices);
 type Bundle = 'old' | 'new';
 const bundle = (name: Bundle) => ({ name: 'bundle', value: name, domain: 'localhost', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' as const });
 const on = (name: Bundle) => ({ storageState: { cookies: [bundle(name)], origins: [] } });
+// Whether the bundle before already pauses blocks. Without prod's outputs, as on CI, it's origin/main rather than prod's
+// release, so once pausing is on main the pause tests have no older bundle to run against. Staging's cross-version
+// suite still runs them against prod's.
+const oldPauses = () => {
+  const assets = join(process.env.COMPAT_OLD ?? '', 'assets');
+  return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('unless you resume.'));
+};
+const noOlderThanPausing = 'The bundle before already pauses blocks, so there is no older one to run against.';
 
 /** Notes what the page logs as an error, such as a query the database refused. */
 function consoleErrors(page: Page, errors: string[], name: Bundle) {
@@ -204,6 +214,32 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a block the update paused runs on in the bundle before, which keeps the pause through a change of its own', async ({ context }) => {
+    test.skip(oldPauses(), noOlderThanPausing);
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    const now = () => page.getByRole('region', { name: 'Current block' });
+    await now().getByRole('button', { name: /^Pause, / }).click();
+    await expect(now().getByText('Ends at 11:30am unless you resume.')).toBeVisible();
+
+    // It fails its trial. The bundle before knows nothing of pauses, so the block reads as still running, and it
+    // lengthens it from the timeline.
+    page = await relaunch(page, 'old', errors);
+    await expect(now().getByText('In progress, time left')).toBeVisible();
+    await expect(now().getByRole('timer')).toBeVisible();
+    await page.getByRole('button', { name: /^Draft chapter five, 10am to 11:30am/ }).focus();
+    await page.keyboard.press('Shift+ArrowDown');
+    await expect(page.getByRole('button', { name: /^Draft chapter five, 10am to 11:45am/ })).toBeVisible();
+
+    // Updated again, the block is still paused, and ends where the old bundle put it.
+    page = await relaunch(page, 'new', errors);
+    await expect(now().getByRole('button', { name: /^Resume, / })).toBeVisible();
+    await expect(now().getByText('Ends at 11:45am unless you resume.')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('a project one bundle finished or paused, the other restores with its tasks or resumes with its dates moved', async ({ context }) => {
     test.setTimeout(240_000);
     const errors: string[] = [];
@@ -293,6 +329,76 @@ test('an old and a new device of one user sync captures, dates, ticks and delete
   await syncNow(oldDevice.page);
   await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
 
+  expect(oldDevice.errors).toEqual([]);
+  expect(newDevice.errors).toEqual([]);
+});
+
+test('an old and a new device of one user: a block the new one paused runs on in the old, which keeps the pause through its own change', async ({
+  browser,
+}) => {
+  test.skip(oldPauses(), noOlderThanPausing);
+  const run = randomUUID().slice(0, 8);
+  const title = `Fix the gate ${run}`;
+  const ids = { task: `e2e-${run}-gate`, block: `e2e-${run}-gate-block` };
+  // Started on the minute, so the block is today's for the run's few minutes.
+  const start = Math.floor(Date.now() / 60_000) * 60_000;
+  const iso = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
+  const oldDevice = await device(browser, `e2e-${run}`, on('old'));
+  const newDevice = await device(browser, `e2e-${run}`, on('new'));
+  consoleErrors(oldDevice.page, oldDevice.errors, 'old');
+  consoleErrors(newDevice.page, newDevice.errors, 'new');
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  await seed(oldDevice.page, [
+    { type: 'task', id: ids.task, fields: { kind: 'one_off', title, schedule: { type: 'once' } } },
+    { type: 'time_block', id: ids.block, fields: { task_id: ids.task, start: iso(start), end: iso(start + 60 * 60_000), tz, started_at: iso(start) } },
+  ]);
+  await signIn(oldDevice.page);
+  await signIn(newDevice.page);
+  for (const d of [oldDevice, newDevice]) await syncNow(d.page);
+  const now = (d: typeof oldDevice) => d.page.getByRole('region', { name: 'Current block' });
+  // Today, past the prompt to plan the week, which only this device remembers skipping.
+  const today = async (d: typeof oldDevice) => {
+    await go(d.page, 'Today', /^(Today|Plan your week)$/);
+    const skip = pane(d.page, 'Today').getByRole('button', { name: 'Skip for now' });
+    if (await skip.count()) await skip.click();
+    await expect(pane(d.page, 'Today').getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
+  };
+
+  await today(newDevice);
+  await now(newDevice).getByRole('button', { name: /^Pause, / }).click();
+  const ends = now(newDevice).getByText(/^Ends at .* unless you resume\.$/);
+  await expect(ends).toBeVisible();
+  const endedAt = await ends.textContent();
+  await syncNow(newDevice.page);
+  await syncNow(oldDevice.page);
+
+  // The old device knows nothing of pauses: the block reads as still running, and it shortens it from the timeline.
+  // Shortens, since the block runs an hour from now, and late in the evening it couldn't be lengthened past the day's end.
+  await today(oldDevice);
+  await expect(now(oldDevice).getByText('In progress, time left')).toBeVisible();
+  await expect(now(oldDevice).getByRole('timer')).toBeVisible();
+  // Checked by the block's times rather than a toast, which older bundles don't show for this.
+  const block = oldDevice.page.getByRole('button', { name: new RegExp(`^${title}, `) });
+  const before = await block.textContent();
+  await block.focus();
+  await oldDevice.page.keyboard.press('Shift+ArrowUp');
+  await expect(block).not.toHaveText(before!);
+  await syncNow(oldDevice.page);
+  await syncNow(newDevice.page);
+
+  // The new device still has it paused, ending where the old one put it.
+  await today(newDevice);
+  await expect(now(newDevice).getByRole('button', { name: /^Resume, / })).toBeVisible();
+  await expect(ends).not.toHaveText(endedAt!);
+
+  // Nothing stays live for a deployment's test user.
+  const gone = new Date().toISOString();
+  await seed(oldDevice.page, [
+    { type: 'time_block', id: ids.block, fields: { deleted_at: gone } },
+    { type: 'task', id: ids.task, fields: { deleted_at: gone } },
+  ]);
+  await syncNow(oldDevice.page);
+  await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });

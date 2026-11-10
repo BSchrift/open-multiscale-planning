@@ -453,7 +453,7 @@ Once:
 
 Each build:
 
-- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when Xcode is older than 26, App Store Connect has no app record yet, or it already has that build. App Store Connect then processes the build, usually within half an hour, before testers can install it.
+- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when Xcode is older than 26, App Store Connect has no app record yet, or it already has that build. It then waits while App Store Connect processes the build, usually within half an hour, gives it to the external group **Testers**, describes it with its commit's subject, submits it for Beta App Review, and prints the group's public link. The first run makes the group, with the public link on and no limit. `node scripts/testflight.ts testers <config folder> <build>` in `frontend` does that step again on its own, for a build whose upload finished but whose wait ran out.
 - `make release ENV=prod` uploads one as its last step, once its tests pass, and so needs Xcode 26 too. `SKIP_TESTFLIGHT=1` leaves it out, and the release then warns if testers' build is more than 60 days old. TestFlight builds stop opening after 90 days.
 - The app declares that it uses no encryption beyond HTTPS, so uploads ask no export compliance questions.
 
@@ -470,7 +470,7 @@ aws cognito-idp admin-create-user --user-pool-id "$(out prod UserPoolId)" --user
   --message-action RESEND --desired-delivery-mediums EMAIL
 ```
 
-Then add them in App Store Connect under **TestFlight**: members of your App Store Connect team as internal testers, anyone else as external testers by email or a public link.
+Then send them the **Testers** group's public link, which each upload prints and GitHub Actions shows in its run's summary. A build reaches them once Beta App Review has passed it; later builds of the same version usually pass at once. Members of your App Store Connect team can also be internal testers, who need no review.
 
 ### TestFlight from GitHub Actions
 

@@ -6,11 +6,14 @@
 //   node scripts/testflight.ts age <config folder>            warns when the last TestFlight build is over 60 days old
 //   node scripts/testflight.ts revoke-runner <config folder>  on a GitHub Actions runner, revokes the certificates Xcode
 //                                                             made there (.github/workflows/testflight.yml)
+//   node scripts/testflight.ts testers <config folder> <build> once <build> is processed, gives it to the Testers group,
+//                                                             whose public link anyone can join, submits it for Beta App
+//                                                             Review, and prints the link
 // None of this is in ios/, so none of it is in the iPhone app's shell hash (scripts/shell-hash.ts).
 
 import { execFileSync } from 'node:child_process';
 import { createHash, sign } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -82,10 +85,13 @@ export function ascToken(key: { keyId: string; issuerId: string; pem: string }, 
 
 type Get = (path: string, query: Record<string, string>) => Promise<{ data: { id: string; attributes: Record<string, string> }[] }>;
 type Delete = (path: string) => Promise<void>;
+type Send = (method: 'POST' | 'PATCH', path: string, body: object) => Promise<{ data?: { id: string; attributes: Record<string, unknown> } }>;
 
 /** Requests from the App Store Connect API with the token. A refusal throws with Apple's own reason. */
-async function ascRequest(fetchImpl: typeof fetch, token: string, method: string, path: string, query = ''): Promise<unknown> {
-  const response = await fetchImpl(`${API}${path}${query}`, { method, headers: { authorization: `Bearer ${token}` } });
+async function ascRequest(fetchImpl: typeof fetch, token: string, method: string, path: string, query = '', send?: object): Promise<unknown> {
+  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  if (send) headers['content-type'] = 'application/json';
+  const response = await fetchImpl(`${API}${path}${query}`, { method, headers, body: send && JSON.stringify(send) });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = (body as { errors?: { code?: string; detail?: string; title?: string }[] }).errors?.[0];
@@ -100,6 +106,10 @@ export function ascGet(token: string, fetchImpl: typeof fetch = fetch): Get {
 
 export function ascDelete(token: string, fetchImpl: typeof fetch = fetch): Delete {
   return async (path) => void (await ascRequest(fetchImpl, token, 'DELETE', path));
+}
+
+export function ascSend(token: string, fetchImpl: typeof fetch = fetch): Send {
+  return (method, path, body) => ascRequest(fetchImpl, token, method, path, '', body) as ReturnType<Send>;
 }
 
 export interface TestflightState {
@@ -165,6 +175,70 @@ export async function revokeCertificates(get: Get, del: Delete, identities: stri
   return made.map((c) => c.attributes.certificateType!);
 }
 
+// The external group whose public link testers join with.
+const TESTERS = 'Testers';
+const MINUTE_MS = 60_000;
+
+interface BetaGroup {
+  id: string;
+  attributes: { name: string; isInternalGroup: boolean; publicLinkEnabled: boolean; publicLink: string | null };
+}
+
+/** Sends one, and treats App Store Connect's 409 as already done: a build already in the group, or already submitted. */
+async function once(send: Send, path: string, body: object): Promise<void> {
+  try {
+    await send('POST', path, body);
+  } catch (error) {
+    if (!/: 409 /.test((error as Error).message)) throw error;
+  }
+}
+
+/**
+ * Gives build <build> to the Testers group, making the group with its public link the first time, describes what to
+ * test, and submits the build for Beta App Review, which external testers need. Waits, a minute at a time, while App
+ * Store Connect processes the upload. Returns the public link.
+ */
+export async function publishToTesters(
+  get: Get,
+  send: Send,
+  bundleId: string,
+  build: number,
+  whatToTest: string,
+  wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  tries = 60,
+): Promise<string> {
+  const apps = await get('/v1/apps', { 'filter[bundleId]': bundleId, 'fields[apps]': 'bundleId' });
+  const app = apps.data.find((a) => a.attributes.bundleId === bundleId);
+  if (!app) throw new Error(`App Store Connect has no app with the bundle id ${bundleId}.`);
+  let buildId = '';
+  for (let tried = 1; !buildId; tried++) {
+    const builds = await get('/v1/builds', { 'filter[app]': app.id, 'filter[version]': String(build), 'fields[builds]': 'version,processingState' });
+    const state = builds.data[0]?.attributes.processingState;
+    if (state === 'VALID') buildId = builds.data[0]!.id;
+    else if (state && state !== 'PROCESSING') throw new Error(`App Store Connect couldn't process build ${build}: ${state}.`);
+    else if (tried >= tries) throw new Error(`Build ${build} still wasn't ready in App Store Connect after ${tries} minutes. Run testflight.ts testers again later.`);
+    else await wait(MINUTE_MS);
+  }
+
+  const groups = (await get(`/v1/apps/${app.id}/betaGroups`, { 'fields[betaGroups]': 'name,isInternalGroup,publicLinkEnabled,publicLink' })) as unknown as { data: BetaGroup[] };
+  let group = groups.data.find((g) => g.attributes.name === TESTERS && !g.attributes.isInternalGroup);
+  if (!group) {
+    const attributes = { name: TESTERS, publicLinkEnabled: true, publicLinkLimitEnabled: false, feedbackEnabled: true };
+    const made = await send('POST', '/v1/betaGroups', { data: { type: 'betaGroups', attributes, relationships: { app: { data: { type: 'apps', id: app.id } } } } });
+    group = made.data as unknown as BetaGroup;
+  } else if (!group.attributes.publicLinkEnabled || !group.attributes.publicLink) {
+    const turnedOn = await send('PATCH', `/v1/betaGroups/${group.id}`, { data: { type: 'betaGroups', id: group.id, attributes: { publicLinkEnabled: true } } });
+    group = turnedOn.data as unknown as BetaGroup;
+  }
+
+  const forBuild = { build: { data: { type: 'builds', id: buildId } } };
+  await once(send, `/v1/betaGroups/${group.id}/relationships/builds`, { data: [{ type: 'builds', id: buildId }] });
+  await once(send, '/v1/betaBuildLocalizations', { data: { type: 'betaBuildLocalizations', attributes: { locale: 'en-US', whatToTest }, relationships: forBuild } });
+  await once(send, '/v1/betaAppReviewSubmissions', { data: { type: 'betaAppReviewSubmissions', relationships: forBuild } });
+  if (!group.attributes.publicLink) throw new Error(`The ${TESTERS} group has no public link. Turn it on in App Store Connect > TestFlight.`);
+  return group.attributes.publicLink;
+}
+
 function tokenFor(configDir: string) {
   const key = ascKey(configDir);
   return ascToken({ ...key, pem: readFileSync(key.path, 'utf8') });
@@ -211,8 +285,15 @@ async function main([command, configDir, build]: string[]) {
     const identities = identityHashes(execFileSync('security', ['find-identity', '-p', 'codesigning'], { encoding: 'utf8' }));
     const revoked = await revokeCertificates(ascGet(token), ascDelete(token), identities);
     console.log(revoked.length > 0 ? `Revoked the certificates Xcode made on this runner: ${revoked.join(', ')}.` : 'No certificate of the team has its key on this runner.');
+  } else if (command === 'testers' && configDir && build) {
+    const token = tokenFor(configDir);
+    const subject = execFileSync('git', ['log', '-1', '--format=%s'], { encoding: 'utf8' }).trim();
+    const link = await publishToTesters(ascGet(token), ascSend(token), projectBundleId(), Number(build), `This build: ${subject}`);
+    const line = `Build ${build} is with the ${TESTERS} group and submitted for Beta App Review. Once it passes, anyone can install it from ${link}`;
+    console.log(line);
+    if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`, { flag: 'a' });
   } else {
-    throw new Error('Use: testflight.ts key <config folder> | check <config folder> <build> | age <config folder> | revoke-runner <config folder>');
+    throw new Error('Use: testflight.ts key <config folder> | check <config folder> <build> | age <config folder> | revoke-runner <config folder> | testers <config folder> <build>');
   }
 }
 

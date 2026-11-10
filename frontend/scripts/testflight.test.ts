@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ageWarning, ascDelete, ascGet, ascKey, ascToken, bundleIdFrom, identityHashes, revokeCertificates, testflightState, uploadRefusal, xcodeRefusal } from './testflight';
+import { ageWarning, ascDelete, ascGet, ascKey, ascSend, ascToken, bundleIdFrom, identityHashes, publishToTesters, revokeCertificates, testflightState, uploadRefusal, xcodeRefusal } from './testflight';
 
 const ISSUER = '01234567-89ab-cdef-0123-456789abcdef';
 const pem = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
@@ -78,20 +78,25 @@ describe('ascToken', () => {
   });
 });
 
-/** A fake App Store Connect: answers GETs by path and DELETEs by 'DELETE <path>', and records each request. */
+/**
+ * A fake App Store Connect: answers GETs by path, and other requests by '<method> <path>', and records each request. A
+ * route that's a function answers with what it returns each time, and one that returns a Response answers with that.
+ */
 function fakeApi(routes: Record<string, unknown>, status = 200) {
-  const requests: { method: string; url: string; auth: string | null }[] = [];
+  const requests: { method: string; url: string; auth: string | null; body?: unknown }[] = [];
   const fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
-    requests.push({ method, url, auth: new Headers(init?.headers).get('authorization') });
+    requests.push({ method, url, auth: new Headers(init?.headers).get('authorization'), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
     const path = decodeURIComponent(url.replace('https://api.appstoreconnect.apple.com', ''));
-    const body = routes[method === 'GET' ? path : `${method} ${path}`];
+    const route = routes[method === 'GET' ? path : `${method} ${path}`];
+    const body = typeof route === 'function' ? (route as () => unknown)() : route;
+    if (body instanceof Response) return body;
     if (body === undefined) return new Response('{"errors":[{"status":"404","detail":"not faked"}]}', { status: 404 });
     return body === null ? new Response(null, { status: 204 }) : new Response(JSON.stringify(body), { status });
   };
   const fetchImpl = fetch as typeof globalThis.fetch;
-  return { get: ascGet('the-token', fetchImpl), del: ascDelete('the-token', fetchImpl), requests };
+  return { get: ascGet('the-token', fetchImpl), del: ascDelete('the-token', fetchImpl), send: ascSend('the-token', fetchImpl), requests };
 }
 
 const BUNDLE = 'io.example.multiscale';
@@ -201,5 +206,66 @@ describe('revokeCertificates', () => {
     const output = `Policy: Code Signing\n  Matching identities\n  1) ${hash} "Apple Development: Created via API (ABCDE12345)"\n     1 identities found\n\n  Valid identities only\n  1) ${hash} "Apple Development: Created via API (ABCDE12345)"\n     1 valid identities found\n`;
     expect(identityHashes(output)).toEqual([hash]);
     expect(identityHashes('     0 identities found\n')).toEqual([]);
+  });
+});
+
+describe('publishToTesters', () => {
+  const BUILD = '/v1/builds?filter[app]=42&filter[version]=1794000000&fields[builds]=version,processingState';
+  const GROUPS = '/v1/apps/42/betaGroups?fields[betaGroups]=name,isInternalGroup,publicLinkEnabled,publicLink';
+  const LINK = 'https://testflight.apple.com/join/AbCdEf12';
+  const processed = (state: string) => ({ data: [{ id: 'b1', attributes: { version: '1794000000', processingState: state } }] });
+  const group = (attributes: object) => ({ id: 'g1', attributes: { name: 'Testers', isInternalGroup: false, publicLinkEnabled: true, publicLink: LINK, ...attributes } });
+  const conflict = () => new Response('{"errors":[{"status":"409","code":"ENTITY_ERROR","detail":"already"}]}', { status: 409 });
+  const nonGets = (api: ReturnType<typeof fakeApi>) =>
+    api.requests.filter((r) => r.method !== 'GET').map((r) => [r.method, r.url.replace('https://api.appstoreconnect.apple.com', ''), r.body]);
+
+  it('waits out processing, makes the Testers group with its public link, gives it the build, and submits it for review', async () => {
+    const states = [{ data: [] }, processed('PROCESSING'), processed('VALID')];
+    const api = fakeApi({
+      [APPS]: app,
+      [BUILD]: () => states.shift(),
+      [GROUPS]: { data: [group({ name: 'App Store Connect Users', isInternalGroup: true })] },
+      'POST /v1/betaGroups': { data: group({}) },
+      'POST /v1/betaGroups/g1/relationships/builds': null,
+      'POST /v1/betaBuildLocalizations': { data: { id: 'l1', attributes: {} } },
+      'POST /v1/betaAppReviewSubmissions': { data: { id: 's1', attributes: {} } },
+    });
+    const waits: number[] = [];
+    const link = await publishToTesters(api.get, api.send, BUNDLE, 1794000000, 'This build: Pause a block', async (ms) => void waits.push(ms));
+    expect(link).toBe(LINK);
+    expect(waits).toEqual([60_000, 60_000]);
+    const forBuild = { build: { data: { type: 'builds', id: 'b1' } } };
+    expect(nonGets(api)).toEqual([
+      ['POST', '/v1/betaGroups', { data: { type: 'betaGroups', attributes: { name: 'Testers', publicLinkEnabled: true, publicLinkLimitEnabled: false, feedbackEnabled: true }, relationships: { app: { data: { type: 'apps', id: '42' } } } } }],
+      ['POST', '/v1/betaGroups/g1/relationships/builds', { data: [{ type: 'builds', id: 'b1' }] }],
+      ['POST', '/v1/betaBuildLocalizations', { data: { type: 'betaBuildLocalizations', attributes: { locale: 'en-US', whatToTest: 'This build: Pause a block' }, relationships: forBuild } }],
+      ['POST', '/v1/betaAppReviewSubmissions', { data: { type: 'betaAppReviewSubmissions', relationships: forBuild } }],
+    ]);
+  });
+
+  it('reuses the Testers group, turns its link on, and takes a 409 as already done', async () => {
+    const api = fakeApi({
+      [APPS]: app,
+      [BUILD]: processed('VALID'),
+      [GROUPS]: { data: [group({ publicLinkEnabled: false, publicLink: null })] },
+      'PATCH /v1/betaGroups/g1': { data: group({}) },
+      'POST /v1/betaGroups/g1/relationships/builds': conflict,
+      'POST /v1/betaBuildLocalizations': conflict,
+      'POST /v1/betaAppReviewSubmissions': conflict,
+    });
+    expect(await publishToTesters(api.get, api.send, BUNDLE, 1794000000, 'x', async () => {})).toBe(LINK);
+    expect(nonGets(api)[0]).toEqual(['PATCH', '/v1/betaGroups/g1', { data: { type: 'betaGroups', id: 'g1', attributes: { publicLinkEnabled: true } } }]);
+  });
+
+  it("says when App Store Connect couldn't process the build, or took too long, and passes on other refusals", async () => {
+    const send = fakeApi({}).send;
+    await expect(publishToTesters(fakeApi({ [APPS]: app, [BUILD]: processed('INVALID') }).get, send, BUNDLE, 1794000000, 'x', async () => {})).rejects.toThrow(
+      "App Store Connect couldn't process build 1794000000: INVALID.",
+    );
+    await expect(publishToTesters(fakeApi({ [APPS]: app, [BUILD]: { data: [] } }).get, send, BUNDLE, 1794000000, 'x', async () => {}, 3)).rejects.toThrow(
+      "Build 1794000000 still wasn't ready in App Store Connect after 3 minutes.",
+    );
+    const api = fakeApi({ [APPS]: app, [BUILD]: processed('VALID'), [GROUPS]: { data: [group({})] }, 'POST /v1/betaGroups/g1/relationships/builds': null, 'POST /v1/betaBuildLocalizations': null });
+    await expect(publishToTesters(api.get, api.send, BUNDLE, 1794000000, 'x', async () => {})).rejects.toThrow('refused POST /v1/betaAppReviewSubmissions: 404');
   });
 });

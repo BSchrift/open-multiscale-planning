@@ -64,5 +64,6 @@ xcodebuild -quiet -exportArchive -archivePath "$out/Multiscale.xcarchive" -expor
 if [ "$destination" = export ]; then
   echo "Exported build $build for App Store Connect, not uploaded: $out/export"
 else
-  echo "Uploaded build $build. It reaches TestFlight once App Store Connect has processed it, usually within half an hour."
+  echo "Uploaded build $build. Waiting for App Store Connect to process it, usually within half an hour."
+  node scripts/testflight.ts testers "$config_dir" "$build"
 fi

@@ -4,6 +4,8 @@
 # feed the apps update from to release.<zone>, and the web app to the zone itself.
 #   ENV=staging (default) or ENV=prod. The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 # Then it runs every suite that can run against that deployment (scripts/test-deployed.sh), and fails if one does.
+# A prod release ends by uploading the iPhone app from the same commit to TestFlight (scripts/testflight.sh).
+#   SKIP_TESTFLIGHT=1 leaves that out, and warns instead when testers' build is over 60 days old.
 # The first release makes the key, <env>.release-key.pem, beside the config. Keep it backed up: apps built with it take
 # updates signed by it and nothing else.
 # The Mac app is signed with the keychain's Developer ID, and notarized with the App Store Connect key in the config
@@ -28,6 +30,11 @@ export MULTISCALE_CONFIG_DIR="$config_dir"
 if [ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]; then
   echo "Commit or stash your changes first: a release is built from a commit." >&2
   exit 1
+fi
+# Before anything is built: a prod release ends at TestFlight, so one that couldn't get there stops before it starts.
+if [ "$env_name" = prod ] && [ "${SKIP_TESTFLIGHT:-}" != 1 ]; then
+  node "$root/frontend/scripts/testflight.ts" check "$config_dir" "$(git -C "$root" log -1 --format=%ct)" ||
+    { echo "Or release without the TestFlight upload: SKIP_TESTFLIGHT=1." >&2; exit 1; }
 fi
 
 cd "$root/infrastructure"
@@ -99,9 +106,18 @@ echo "Released $version to $env_name"
 # SKIP_TESTS=1 leaves them out, for a fix that can't wait for them; run make test-deployed after.
 if [ "${SKIP_TESTS:-}" = 1 ]; then
   echo "Left out the deployed tests. Run make test-deployed ENV=$env_name when you can."
-  exit 0
-fi
-if ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" "$root/scripts/test-deployed.sh"; then
+elif ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" "$root/scripts/test-deployed.sh"; then
   echo "$version is live on $env_name, but its tests failed. To go back, revert the bad commit and release that." >&2
+  exit 1
+fi
+
+# Testers get prod's iPhone app from TestFlight, built from this commit so that it takes this release's updates. Last,
+# so they only get a release that passed its tests.
+[ "$env_name" = prod ] || exit 0
+if [ "${SKIP_TESTFLIGHT:-}" = 1 ]; then
+  echo "Left out the TestFlight upload. Run make testflight when you can."
+  node scripts/testflight.ts age "$config_dir"
+elif ! "$root/scripts/testflight.sh"; then
+  echo "$version is live on prod, but its TestFlight upload failed. Run make testflight to try again." >&2
   exit 1
 fi

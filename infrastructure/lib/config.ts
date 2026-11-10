@@ -1,3 +1,4 @@
+import { createPublicKey } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -68,6 +69,12 @@ export interface Config {
   alarmEmail: string;
   auth: { cognitoDomainPrefix: string; signInCallbackUrls: string[] };
   dns?: { zone: string };
+  /**
+   * Attachments' storage, written by make files-key. keys names each public key CloudFront checks download links
+   * against, an RSA 2048 PEM whose private half is the SSM SecureString /multiscale/<env>/files/<name>; signWith is the
+   * one the API signs with. Without it the environment has no attachments.
+   */
+  files?: { keys: Record<string, string>; signWith: string };
 }
 
 // Holds the committed examples, and is the config folder unless MULTISCALE_CONFIG_DIR names another.
@@ -103,6 +110,31 @@ function awsProblems(aws: any): string[] {
   if (!matches(/^\d{12}$/, aws?.account)) problems.push('aws.account must be 12 digits in quotes');
   if (!matches(/^[a-z]{2}(-[a-z]+)+-\d$/, aws?.region)) problems.push('aws.region must be like us-west-2');
   if (!matches(/^[\w.@+-]+$/, aws?.profile)) problems.push('aws.profile must name an AWS CLI profile');
+  return problems;
+}
+
+// CloudFront takes only RSA 2048 public keys for signed URLs.
+function filesProblems(files: any): string[] {
+  const keys = files?.keys;
+  if (keys === null || typeof keys !== 'object' || Array.isArray(keys) || Object.keys(keys).length === 0) {
+    return ['files.keys must name at least one public key, as make files-key writes it'];
+  }
+  const problems: string[] = [];
+  for (const [name, pem] of Object.entries(keys)) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      problems.push(`files.keys has a key named ${JSON.stringify(name)}: use letters, digits, - and _`);
+      continue;
+    }
+    let bits: number | undefined;
+    try {
+      const key = createPublicKey(String(pem));
+      if (key.asymmetricKeyType === 'rsa') bits = key.asymmetricKeyDetails?.modulusLength;
+    } catch {
+      // Reported below.
+    }
+    if (bits !== 2048) problems.push(`files.keys.${name} must be an RSA 2048 public key in PEM`);
+  }
+  if (typeof files.signWith !== 'string' || !Object.hasOwn(keys, files.signWith)) problems.push('files.signWith must name one of files.keys');
   return problems;
 }
 
@@ -165,6 +197,7 @@ export function loadConfig(envName: EnvName, dir: string, deploying: boolean): {
   if (!Array.isArray(signInCallbackUrls) || signInCallbackUrls.length === 0 || !signInCallbackUrls.every(checkCallback)) {
     problems.push('auth.signInCallbackUrls must list https, custom scheme or localhost URLs');
   }
+  if (c.files != null) problems.push(...filesProblems(c.files));
 
   let control: ControlConfig | undefined;
   const zone = c.dns?.zone;

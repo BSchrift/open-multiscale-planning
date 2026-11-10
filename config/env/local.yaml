@@ -16,3 +16,12 @@ stack:
   # Whether DynamoDB throttling the API's requests stops a release and rolls it back.
   # Local runs no stack, so nothing reads this there either.
   throttleReleaseAlarm: false
+
+attachments:
+  # What one person may store, unless make storage-quota raised theirs in meta#quota: 20 MiB, as on
+  # staging, so tests can reach it.
+  defaultQuotaBytes: 20971520
+  # Uploads one person may be granted in an hour.
+  uploadsPerHour: 60
+  # What one person may download in an hour, counted as the API hands out links: 1 GiB.
+  downloadBytesPerHour: 1073741824

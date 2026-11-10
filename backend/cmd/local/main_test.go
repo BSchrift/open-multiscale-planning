@@ -56,6 +56,7 @@ func startStack(t *testing.T) stack {
 	h, err := build(config{
 		Endpoint: endpoint,
 		Table:    fmt.Sprintf("local-test-%d-%d", os.Getpid(), time.Now().UnixNano()),
+		URL:      srv.URL,
 		Issuer:   srv.URL + "/cognito",
 		ClientID: "local-client",
 		Env:      "local",
@@ -278,5 +279,93 @@ func TestCleanupRemovesWhatHasExpired(t *testing.T) {
 	logged := s.logs.String()
 	if !strings.Contains(logged, `"msg":"cleanup_run"`) || !strings.Contains(logged, `"CleanupRecordsRemoved":1`) || strings.Contains(logged, marker) {
 		t.Fatalf("%s", logged)
+	}
+}
+
+// The stand-ins for the bucket and the distribution: an upload the API granted lands, a download link it signed fetches
+// it, from any origin the local web app runs on, and the cleanup takes the file with its record.
+func TestAttachmentsThroughTheStandIns(t *testing.T) {
+	s := startStack(t)
+	token := s.signIn(t, "one")["access_token"].(string)
+	photo := []byte("a photo")
+	sum := sha256.Sum256(photo)
+	digest := base64.StdEncoding.EncodeToString(sum[:])
+	ms := time.Now().UnixMilli()
+	body := fmt.Sprintf(`{"cursor":0,"changes":[{"type":"attachment","id":"a1","fields":{"kind":{"v":"photo","c":"%013[1]d-000000-a"},"size":{"v":%[2]d,"c":"%013[1]d-000000-a"},"type":{"v":"image/jpeg","c":"%013[1]d-000000-a"},"sha256":{"v":%[3]q,"c":"%013[1]d-000000-a"}}}]}`, ms, len(photo), digest)
+	if status, res := s.post(t, "/sync", token, body); status != 200 {
+		t.Fatalf("%d %v", status, res)
+	}
+	status, up := s.post(t, "/files/upload", token, `{"id":"a1"}`)
+	if status != 200 || up["quota_bytes"] != float64(20<<20) {
+		t.Fatalf("%d %v", status, up)
+	}
+
+	preflight, _ := http.NewRequest(http.MethodOptions, up["url"].(string), nil)
+	preflight.Header.Set("Origin", "http://localhost:5199")
+	preflight.Header.Set("Access-Control-Request-Method", "PUT")
+	preflight.Header.Set("Access-Control-Request-Headers", "content-type,x-amz-checksum-sha256")
+	res, err := http.DefaultClient.Do(preflight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 || !strings.Contains(res.Header.Get("Access-Control-Allow-Headers"), "x-amz-checksum-sha256") {
+		t.Fatalf("preflight: %d %v", res.StatusCode, res.Header)
+	}
+	req, _ := http.NewRequest(http.MethodPut, up["url"].(string), bytes.NewReader(photo))
+	for name, value := range up["headers"].(map[string]any) {
+		if name != "Content-Length" {
+			req.Header.Set(name, value.(string))
+		}
+	}
+	if res, err = http.DefaultClient.Do(req); err != nil || res.StatusCode != 200 {
+		t.Fatalf("upload: %v %v", res, err)
+	}
+	res.Body.Close()
+
+	status, down := s.post(t, "/files/download", token, `{"ids":["a1"]}`)
+	if status != 200 {
+		t.Fatalf("%d %v", status, down)
+	}
+	link := down["files"].([]any)[0].(map[string]any)["url"].(string)
+	get, _ := http.NewRequest(http.MethodGet, link, nil)
+	get.Header.Set("Origin", "http://localhost:5199")
+	res, err = http.DefaultClient.Do(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 || !bytes.Equal(got, photo) || res.Header.Get("Access-Control-Allow-Origin") == "" {
+		t.Fatalf("download: %d %q %v", res.StatusCode, got, res.Header)
+	}
+
+	// Deleted, then past its deleted period: the cleanup removes the record and its file, and frees its bytes.
+	now := time.Now().UTC()
+	deleted := fmt.Sprintf(`{"cursor":1,"changes":[{"type":"attachment","id":"a1","fields":{"deleted_at":{"v":%q,"c":"%013d-000000-a"}}}]}`, now.Format(time.RFC3339), ms+1)
+	if status, res := s.post(t, "/sync", token, deleted); status != 200 {
+		t.Fatalf("%d %v", status, res)
+	}
+	for _, at := range []time.Time{now.AddDate(0, 0, 31), now.AddDate(0, 0, 31).Add(time.Minute)} {
+		s.post(t, "/_local/clock", "", fmt.Sprintf(`{"now":%q}`, at.Format(time.RFC3339)))
+		if status, _ := s.post(t, "/_local/cleanup", "", ""); status != 200 {
+			t.Fatal(status)
+		}
+	}
+	token = s.signIn(t, "one")["access_token"].(string)
+	if status, down := s.post(t, "/files/download", token, `{"ids":["a1"]}`); status != 200 || len(down["missing"].([]any)) != 1 {
+		t.Fatalf("the file stayed: %d %v", status, down)
+	}
+	req, _ = http.NewRequest(http.MethodGet, s.srv.URL+"/files/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var usage map[string]any
+	decodeJSON(t, res.Body, &usage)
+	res.Body.Close()
+	if usage["used_bytes"] != float64(0) {
+		t.Fatalf("%v", usage)
 	}
 }

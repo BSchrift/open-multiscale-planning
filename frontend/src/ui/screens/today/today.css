@@ -73,3 +73,18 @@
 [data-layout] .nowkey svg, [data-layout] .nowkey .sign { flex: none; width: 16px; height: 16px; }
 [data-layout] .nowkey .sign { box-sizing: border-box; padding: 2px; }
 [data-layout] .nowkey svg:first-child:not(.sign) { transform: rotate(-90deg); }
+
+/* The first two lines of the block's description, without their marks. */
+[data-layout] .nownotes {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink-2);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+/* Clear of the time-spent ring in the card's corner. */
+[data-layout] .now.timed > .nownotes { padding-right: 72px; }

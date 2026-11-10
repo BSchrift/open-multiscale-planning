@@ -15,11 +15,14 @@ retention** tells people the same in plain words, from the periods the app was b
 | Stretches pinned in `settings.plan_stretch.one_offs` | The stretch's end | 2 years | 20 minutes |
 | Entries in a project's `slip_log` | The entry's `at` | 2 years | 20 minutes |
 | Done, cancelled and dropped tasks, one offs included | `done_at` or `cancelled_at`, whichever is later | 5 years | 35 minutes |
+| Attachments (`attachment`) of done, cancelled and dropped tasks, with their files | Their task's expiry, which the task's write passes on | 5 years | 35 minutes |
 | Finished and dropped projects, with their milestones | When the project's state was set | 5 years | 35 minutes |
 | Archived goals | When the goal's state was set | 5 years | 35 minutes |
 | Anything deleted | `deleted_at` | 30 days | 5 minutes |
 
-A deletion beats everything else: a deleted record goes 30 days after `deleted_at`, whatever else it holds.
+A deletion beats everything else: a deleted record goes 30 days after `deleted_at`, whatever else it holds. That
+includes a removed attachment, and a deleted task's, which takes the task's deletion: its file stays for those 30 days,
+so Undo brings back both, and counts against its owner's quota until it goes.
 
 Never removed: open tasks and Inbox items, active and paused projects and their milestones, goals that aren't archived,
 practices, settings, and the calendar records. A time block, pick or finish that expires never takes its task with it.
@@ -56,8 +59,9 @@ few minutes across a change that then expires is reset when it next syncs, which
 - **Every write works out the record's expiry.** The write path in `frontend/src/core/records.ts` calls `expiryFor`
   ([retention.ts](../frontend/src/core/retention.ts)) on the record as it stands after the write, and stores the result
   as its `expires_at` field, so every writer is covered. It clears `expires_at` when what it counts from clears, as when
-  a task opens again or a project is restored. A project's write passes its expiry on to its milestones, and a block's
-  to its answer. Lists are trimmed in the same write.
+  a task opens again or a project is restored. A project's write passes its expiry on to its milestones, a block's
+  to its answer, and a task's to its attachments, so done, cancelled and dropped tasks keep their attachments for their 5
+  years. Lists are trimmed in the same write.
 - **Filling in at launch.** Before its first sync, the app gives `expires_at` to records that lack it, and to any whose
   source an app from before changed since. It writes through the automatic writer, so a field filled for the first time
   gets the lowest clock and any real edit from any device wins.
@@ -81,6 +85,11 @@ few minutes across a change that then expires is reset when it next syncs, which
   and a pull that reaches the end moves the cursor to the counter, past any record already removed. They go by the
   record, as the checks on changes do, not by the TTL attribute, so a record deleted before retention, which has none,
   is left out once its deleted period has passed. A new device never takes one on, so never fills it in.
+- **A file follows its record.** An attachment's file sits in the environment's bucket, and the API keeps its key and
+  size in a `file#<attachment id>` item beside the record, with the bytes the person stores in `meta#storage`. When TTL
+  removes an attachment's record, the Streams consumer deletes its file from the bucket, the `file#` item and its bytes
+  from `meta#storage`; staging's cleanup does the same just before it removes the record. The file goes first, so a
+  failure leaves the `file#` item for the retry to find. The bucket has no expiry of its own: the record decides.
 - **The Streams consumer keeps the expiry mark.** `cmd/retention` reads TTL's removals from the table's stream, which
   carries the old image for this, and stores the highest removed sequence number as that user's mark (`meta#expired`).
   Its event source passes only TTL's removals, `userIdentity` `Service` from `dynamodb.amazonaws.com`.
@@ -142,6 +151,10 @@ has already passed, reach TTL.
   that project or moves that block.
 - A record deleted before retention that no device still holds never gets a TTL, so it stays in the table, left out of
   every pull.
+- Restoring the table from point-in-time recovery can bring back attachment records whose files are already gone. The
+  app shows those as no longer available.
+- Staging's cleanup removes an attachment's file just before its record, conditional on the record not having changed
+  since its scan. A record written again in that moment stays, without its file.
 - A project's or a goal's close counts from its state's clock, which a device that has pulled a clock from the future
   sets that far ahead, up to the day ahead the server takes. Its expiry is then that much later.
 
@@ -149,7 +162,7 @@ has already passed, reach TTL.
 
 | Layer | What |
 | --- | --- |
-| Unit | `expiryFor` for every type and state, list trimming, the write path, filling in, device expiry and resets (`frontend/src/core/retention.test.ts`, `expiry.test.ts`, `sync.test.ts`); the store, TTL, the guard, drops, fills, expiries cleared by older writers and cleanup (`backend/internal/sync/expiry_test.go`); the Streams consumer (`backend/cmd/retention`); the config readers |
-| Local integration | `backend/integration/retention_test.go` moves the local clock past each period, and `frontend/src/core/retention.stack.test.ts` does the same with the app's own client, in `make test-integration` |
+| Unit | `expiryFor` for every type and state, list trimming, the write path, filling in, device expiry and resets (`frontend/src/core/retention.test.ts`, `expiry.test.ts`, `sync.test.ts`); the store, TTL, the guard, drops, fills, expiries cleared by older writers and cleanup (`backend/internal/sync/expiry_test.go`); the Streams consumer (`backend/cmd/retention`); a removed attachment's file, its `file#` item and its bytes (`backend/internal/files`); the config readers |
+| Local integration | `backend/cmd/local` removes an attachment's file with its record through the cleanup; `backend/integration/retention_test.go` moves the local clock past each period, and `frontend/src/core/retention.stack.test.ts` does the same with the app's own client, in `make test-integration` |
 | Staging | `make test-retention`, also part of `make test-deployed` on staging: the same app-client suite in real time, about 50 minutes |
 | End to end | `frontend/e2e/settings.spec.ts` opens the Data retention page at desktop and phone sizes |

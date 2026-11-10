@@ -177,3 +177,47 @@ func TestBodyLimitIsUnderLambdasRequestLimit(t *testing.T) {
 		t.Fatalf("MaxBodyBytes %d leaves no room under Lambda's 6 MB", MaxBodyBytes)
 	}
 }
+
+// A task's notes stop at MaxNotesChars characters, counted as code points, so an emoji is one. Released apps never send
+// notes, and apps that do stop at the same count of UTF-16 units, which is never fewer.
+func TestNotesLimit(t *testing.T) {
+	notes := func(recordType, value string) error {
+		_, err := ParseRequest([]byte(change(recordType, "a", field("notes", value, goodClock))), testNow)
+		return err
+	}
+	text := func(s string) string { return fmt.Sprintf("%q", s) }
+	for name, value := range map[string]string{
+		"at the limit":         text(strings.Repeat("x", MaxNotesChars)),
+		"emoji at the limit":   text(strings.Repeat("🌲", MaxNotesChars)),
+		"accents at the limit": text(strings.Repeat("é", MaxNotesChars)),
+		"cleared":              `null`,
+		"empty":                `""`,
+	} {
+		if err := notes("task", value); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for name, c := range map[string]struct{ value, code string }{
+		"one over":       {text(strings.Repeat("x", MaxNotesChars+1)), "notes_too_long"},
+		"one emoji over": {text(strings.Repeat("🌲", MaxNotesChars+1)), "notes_too_long"},
+		"a number":       {`1`, "invalid_value"},
+		"a list":         {`["x"]`, "invalid_value"},
+	} {
+		var rejection *Rejection
+		if err := notes("task", c.value); !errors.As(err, &rejection) || rejection.Code != c.code {
+			t.Errorf("%s: got %v, want %s", name, err, c.code)
+		}
+	}
+	// Other record types have no notes yet, so the name means nothing there.
+	if err := notes("project", `1`); err != nil {
+		t.Errorf("a project's notes: %v", err)
+	}
+}
+
+func TestValidID(t *testing.T) {
+	for id, want := range map[string]bool{"a1": true, "0193b2c4-attachment": true, "": false, "has space": false, strings.Repeat("x", 201): false} {
+		if got := ValidID(id); got != want {
+			t.Errorf("%q: %v", id, got)
+		}
+	}
+}

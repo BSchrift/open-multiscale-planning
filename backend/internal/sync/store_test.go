@@ -932,3 +932,25 @@ func TestPullStopsAtTheCounterItRead(t *testing.T) {
 		t.Fatalf("a device never got everything: %v", seen)
 	}
 }
+
+// Record reads one record as it stands, for the API to check what synced rather than a second copy from a request.
+func TestRecordReadsOneRecordFromItsOwnersPartition(t *testing.T) {
+	s, _ := newStore(t)
+	ctx := context.Background()
+	mustSync(t, s, "abc", 0, msync.Change{Type: "attachment", ID: "a1", Fields: msync.Fields{
+		"size": {V: json.Number("1024"), C: clock(1000, "a")}, "type": {V: "image/jpeg", C: clock(1000, "a")},
+	}})
+	mustSync(t, s, "abc", 1, msync.Change{Type: "attachment", ID: "a1", Fields: msync.Fields{"size": {V: json.Number("2048"), C: clock(2000, "b")}}})
+	fields, found, err := s.Record(ctx, "abc", "attachment", "a1")
+	if err != nil || !found {
+		t.Fatalf("%v %v", found, err)
+	}
+	if fields["size"].V != json.Number("2048") || fields["type"].V != "image/jpeg" {
+		t.Fatalf("%+v", fields)
+	}
+	for _, c := range []struct{ user, recordType, id string }{{"other", "attachment", "a1"}, {"abc", "task", "a1"}, {"abc", "attachment", "a2"}} {
+		if _, found, err := s.Record(ctx, c.user, c.recordType, c.id); found || err != nil {
+			t.Errorf("%+v: %v %v", c, found, err)
+		}
+	}
+}

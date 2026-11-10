@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -93,6 +95,27 @@ func TestThrottlesStopReleasesOnlyOnProd(t *testing.T) {
 	}
 }
 
+func TestAttachmentLimits(t *testing.T) {
+	a := Protocol.Attachments
+	if a.MaxFileBytes != 10<<20 || a.MaxPerTask != 10 || a.MaxIDsPerDownload != 20 {
+		t.Errorf("protocol: %+v", a)
+	}
+	// Photos are saved as JPEGs, and the rest are documents people attach to a task.
+	for _, kind := range []string{"image/jpeg", "image/png", "application/pdf", "text/plain", "text/csv",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document"} {
+		if !slices.Contains(a.ContentTypes, kind) {
+			t.Errorf("%s isn't allowed", kind)
+		}
+	}
+	// Staging's quota is small, so its suite can reach it.
+	for name, quota := range map[string]int{"local": 20 << 20, "staging": 20 << 20, "prod": 1 << 30} {
+		env, _ := ForEnv(name)
+		if got := env.Attachments; got.DefaultQuotaBytes != quota || got.UploadsPerHour != 60 || got.DownloadBytesPerHour != 1<<30 {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+}
+
 func TestEveryEnvironmentHasACompleteFile(t *testing.T) {
 	missing := files(t)
 	delete(missing, "env/staging.yaml")
@@ -143,6 +166,14 @@ func TestRules(t *testing.T) {
 		{"an empty pattern", []string{`idPattern: '^[\x21-\x7e]{1,200}$'`, `idPattern: ''`}, []string{"records.idPattern must be set"}},
 		{"a clock without its parts", []string{`pattern: '^(\d{13})-(\d{6})-([\x21-\x7e]+)$'`, `pattern: '^\d{13}-\d{6}-[\x21-\x7e]+$'`}, []string{"clock.pattern has 0 groups"}},
 		{"no telemetry", []string{"maxBatchEvents: 200", "maxBatchEvents: 0"}, []string{"telemetry.maxBatchEvents must be positive"}},
+		{"notes past a record", []string{"maxNotesChars: 20000", "maxNotesChars: 25600"}, []string{"records.maxNotesChars is 25600"}},
+		{"an empty content type", []string{"    - text/csv\n", "    - ''\n"}, []string{"attachments.contentTypes[", "must be set"}},
+		{"a content type with parameters", []string{"    - text/csv\n", "    - text/csv; charset=utf-8\n"}, []string{`attachments.contentTypes has "text/csv; charset=utf-8"`}},
+		{"a content type twice", []string{"    - text/csv\n", "    - text/plain\n"}, []string{`attachments.contentTypes has "text/plain" twice`}},
+		{"a file past one PUT", []string{"maxFileBytes: 10485760", "maxFileBytes: 5368709121"}, []string{"attachments.maxFileBytes is 5368709121"}},
+		{"downloads past one batch read", []string{"maxIdsPerDownload: 20", "maxIdsPerDownload: 100"}, []string{"attachments.maxIdsPerDownload is 100"}},
+		{"a quota under one file", []string{"defaultQuotaBytes: 1073741824", "defaultQuotaBytes: 1048576"}, []string{"env/prod.yaml: attachments.defaultQuotaBytes is 1048576"}},
+		{"downloads under one file", []string{"downloadBytesPerHour: 1073741824", "downloadBytesPerHour: 1048576"}, []string{"attachments.downloadBytesPerHour is 1048576"}},
 		{
 			"every problem at once",
 			[]string{"maxChanges: 99", "maxChanges: 0", "maxRecordBytes: 102400", "maxRecordBytes: 2097152"},
@@ -155,6 +186,19 @@ func TestRules(t *testing.T) {
 				t.Errorf("%s: %q doesn't say %q", c.name, problems, want)
 			}
 		}
+	}
+}
+
+// A list, like attachments.contentTypes, needs at least one entry, and each entry a value.
+func TestListsAreNeverEmpty(t *testing.T) {
+	type lists struct {
+		Types []string `yaml:"types"`
+	}
+	if got := positive(reflect.ValueOf(lists{}), "attachments."); !slices.Equal(got, []string{"attachments.types must list at least one"}) {
+		t.Errorf("an empty list: %q", got)
+	}
+	if got := positive(reflect.ValueOf(lists{[]string{"text/csv", ""}}), ""); !slices.Equal(got, []string{"types[1] must be set"}) {
+		t.Errorf("an empty entry: %q", got)
 	}
 }
 

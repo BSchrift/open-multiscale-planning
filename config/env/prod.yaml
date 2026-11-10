@@ -17,3 +17,11 @@ stack:
   # Whether DynamoDB throttling the API's requests stops a release and rolls it back. On prod nothing but people and
   # the release canary use the API, so a throttle there is real.
   throttleReleaseAlarm: true
+
+attachments:
+  # What one person may store, unless make storage-quota raised theirs in meta#quota: 1 GiB.
+  defaultQuotaBytes: 1073741824
+  # Uploads one person may be granted in an hour.
+  uploadsPerHour: 60
+  # What one person may download in an hour, counted as the API hands out links: 1 GiB.
+  downloadBytesPerHour: 1073741824

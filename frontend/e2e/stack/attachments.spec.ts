@@ -3,10 +3,12 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { go, pane, seed, syncNow } from '../seed';
 import { closeDevices, device, NETWORK, oneOff, signIn } from './devices';
+import { target } from './target';
 
 // A link and a photo added to a task on one device reach another, which opens the photo from private storage. On a
 // deployment, the photo goes through its bucket and its distribution, by the links the API signs.
 
+const t = target();
 test.use({ baseURL: `http://localhost:${process.env.STACK_WEB_PORT}` });
 test.afterEach(closeDevices);
 
@@ -46,13 +48,34 @@ test('a link and a photo added on one device reach another, which opens the phot
 
   let popup = await openTask(a.page, title);
   const section = popup.getByRole('region', { name: 'Attachments' });
-  await section.getByRole('button', { name: '+ Add a link or photo' }).click();
-  await expect(section.getByText(/ of \d+ (MB|GB) used/)).toBeVisible(NETWORK);
+  await section.getByRole('button', { name: /^\+ Add a link/ }).click();
+  // A deployment whose config has no files key yet stores no photos, and offers links alone; the local stack always
+  // stores them.
+  const photos = await section
+    .getByText(/ of \d+ (KB|MB|GB) used/)
+    .waitFor(NETWORK)
+    .then(
+      () => true,
+      () => false,
+    );
+  if (!photos) expect(t.env, 'the local stack stores photos').not.toBe('local');
   await section.getByRole('button', { name: 'Paste a link' }).click();
   await section.getByRole('textbox', { name: 'Address' }).fill('https://example.com/hinges');
   await section.getByRole('textbox', { name: 'Name (optional)' }).fill('Hinges');
   await section.getByRole('button', { name: 'Add link' }).click();
   await expect(section.getByRole('link', { name: 'Hinges' })).toBeVisible();
+  if (!photos) {
+    info.annotations.push({ type: 'note', description: `${t.env} stores no files yet: only the link went across` });
+    await a.page.keyboard.press('Escape');
+    await syncNow(a.page);
+    await syncNow(b.page);
+    popup = await openTask(b.page, title);
+    await expect(popup.getByRole('link', { name: 'Hinges' })).toHaveAttribute('href', 'https://example.com/hinges');
+    await b.page.keyboard.press('Escape');
+    await seed(a.page, [{ type: 'task', id, fields: { deleted_at: new Date().toISOString() } }]);
+    await syncNow(a.page);
+    return;
+  }
   await section.getByRole('button', { name: '+ Add a link or photo' }).click();
   await section.getByLabel('Choose a photo', { exact: true }).and(a.page.locator('input')).setInputFiles({ name: 'gate.png', mimeType: 'image/png', buffer: Buffer.from(await png(a.page)) });
   await expect(section.getByRole('button', { name: 'Open gate.jpg' })).toBeVisible();

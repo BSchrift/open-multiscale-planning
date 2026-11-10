@@ -915,6 +915,29 @@ describe('moving a block on the timeline', () => {
         await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
       });
 
+      it('a step pressed while the one before is still saving counts on from it, and Undo takes them all back', async () => {
+        const t = await open(day, { layout });
+        const el = await movable();
+        el.focus();
+        // The second step's save waits, as on a slow device, so the first step's position shows while it does.
+        const transaction = t.db.transaction.bind(t.db);
+        let writes = 0;
+        let release = () => undefined as void;
+        vi.spyOn(t.db, 'transaction').mockImplementation(async (fn) => {
+          if (++writes === 2) await new Promise<void>((r) => (release = r));
+          return transaction(fn);
+        });
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        expect(await movable(/^Write the report, 4:15pm to 5:15pm/)).toBe(el);
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        release();
+        expect(await screen.findByText('Write the report is now 4:45pm to 5:45pm.')).toBeVisible();
+        expect(await saved(t)).toMatchObject({ start: at('16:45'), end: at('17:45') });
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
+      });
+
       it('a nudge after focus has left the block is a change of its own, with its own Undo', async () => {
         const t = await open(day, { layout });
         const el = await movable();

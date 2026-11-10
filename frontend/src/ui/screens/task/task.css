@@ -1,0 +1,182 @@
+/* The task popup. One column: the name and the buttons stay put, and what's between scrolls once the popup reaches 70%
+   of the window's height. On phone it rises from the bottom with a grab handle; on desktop it's a 480px dialog in the
+   middle of the dimmed window, as the missed blocks sheet is. */
+
+[data-layout] .sheet.taskpop {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+[data-layout] .taskpopform {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+[data-layout] .taskpoptop {
+  flex: none;
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+[data-layout] .taskpophead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+[data-layout] .taskpophead h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-h2);
+}
+
+[data-layout] .taskpopname {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+[data-layout] .taskpopnamefield {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-layout] .taskpopclose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--quiet);
+}
+
+[data-layout] .taskpopclose svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+[data-layout] .taskpopbody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--line-soft);
+}
+
+/* The editors' slider, at the body's full width: in a column, its desktop flex basis would be a height. */
+[data-layout] .taskpopbody > .estslider {
+  flex: none;
+  max-width: none;
+}
+
+[data-layout] .taskpopbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout] .taskpopdelete {
+  margin-right: auto;
+  color: var(--red);
+}
+
+[data-layout='desktop'] .overlay:has(> .sheet.taskpop) {
+  align-items: center;
+  padding: 24px;
+}
+
+[data-layout='desktop'] .sheet.taskpop {
+  width: min(480px, calc(100vw - 48px));
+  max-width: none;
+  max-height: 70vh;
+  animation: taskpop-in 0.16s ease-out;
+}
+
+/* Its toasts, with Undo, sit over the dimmed page rather than under it. */
+[data-layout='desktop']:has(.sheet.taskpop) .toast {
+  z-index: 41;
+}
+
+/* On phone, above the keyboard and above any sheet it opened from, such as a block's. */
+[data-layout='phone'] .sheet.taskpop {
+  z-index: 12;
+  max-height: calc(70vh - var(--keyboard, 0px));
+  max-height: calc(70dvh - var(--keyboard, 0px));
+  padding-bottom: 0;
+  animation: taskpop-up 0.24s ease-out;
+}
+
+[data-layout='phone'] .scrim:has(+ .sheet.taskpop) {
+  z-index: 11;
+}
+
+[data-layout='phone'] .taskpoptop {
+  padding-top: 0;
+}
+
+[data-layout='phone'] .taskpopgrab {
+  width: 36px;
+  height: 5px;
+  margin: 8px auto 10px;
+  border-radius: 3px;
+  background: var(--line-strong);
+}
+
+[data-layout='phone'] .taskpopname {
+  min-height: var(--tap);
+}
+
+[data-layout='phone'] .taskpopbar {
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+}
+
+[data-layout='phone'] .taskpopbar .btn {
+  min-width: 88px;
+}
+
+@keyframes taskpop-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes taskpop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .sheet.taskpop {
+    animation: none;
+  }
+}

@@ -808,11 +808,13 @@ describe('the timeline', () => {
     await open(day);
     await userEvent.click(await screen.findByRole('button', { name: 'List' }));
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
-    const row = screen.getByRole('button', { name: /Write the report/ });
-    expect(row).toHaveTextContent('4pm to 5pm');
+    const row = screen.getByRole('button', { name: /^4pm to 5pm/ });
     await userEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
     expect(await within(row.parentElement!).findByText('Write more > Finish the essay')).toBeVisible();
+    // Open task opens its popup.
+    await userEvent.click(within(row.parentElement!).getByRole('button', { name: 'Open Write the report' }));
+    expect(await screen.findByRole('dialog', { name: 'Write the report' })).toBeVisible();
   });
 
   it('zooms in and out', async () => {

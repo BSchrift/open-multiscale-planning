@@ -18,6 +18,7 @@ import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
+import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import type { TodayData } from './data';
@@ -70,6 +71,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const pinch = useRef<{ gap: number; ph: number } | null>(null);
   const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
   const toast = useToast();
+  const openTask = useOpenTask();
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
@@ -383,6 +385,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         {open.has(i.id) && (
           <div className="tldet stack8 small">
             <BlockDetailBody block={i.block} />
+            {i.block.task_id && (
+              <div>
+                <button className="link small" type="button" aria-label={`Open ${i.title}`} onClick={() => openTask(i.block!.task_id!)}>
+                  Open task
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

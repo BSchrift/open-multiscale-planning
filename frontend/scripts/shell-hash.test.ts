@@ -78,6 +78,12 @@ describe('shellHash', () => {
     expect(isHashed('ios', 'ios/App/Config.example.xcconfig')).toBe(false);
   });
 
+  // A signature changes nothing a bundle can call, so installed apps keep taking bundles from builds signed another way,
+  // such as ad hoc before a Developer ID, or on a contributor's Mac.
+  it('leaves out how the Mac app is signed and notarized', () => {
+    for (const path of ['scripts/mac-signing.ts', 'scripts/entitlements.mac.plist', 'scripts/electron-build.mjs']) expect(isHashed('electron', path), path).toBe(false);
+  });
+
   it('picks native packages for each app', () => {
     expect(SHELL_SOURCES.electron.packages('better-sqlite3')).toBe(true);
     expect(SHELL_SOURCES.electron.packages('react')).toBe(false);

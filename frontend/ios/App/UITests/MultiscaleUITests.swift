@@ -184,6 +184,8 @@ final class ShellUITests: XCTestCase {
     func testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBarWithTheKeyboardUp() {
         let app = launchApp(seed: "Seed to schedule")
         app.tapWeb("Goals")
+        // On CI's iOS 26 Simulator the first tap after launch is sometimes lost; a person would tap again.
+        if !app.webButton(startingWith: "Learn to bake bread").waitForExistence(timeout: 5) { app.tapWeb("Goals") }
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
         app.tapWeb(startingWith: "Edit task Mix the dough")

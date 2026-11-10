@@ -159,7 +159,10 @@ describe('descriptions in the editors', () => {
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.notes).toBe('Use **rye**'));
 
-      await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
+      // Its row now carries the mark for a task with details.
+      const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h, has details' });
+      expect(within(row).getByRole('img', { name: 'Has details' })).toBeInTheDocument();
+      await userEvent.click(row);
       editor = screen.getByRole('dialog', { name: 'Edit task' });
       expect(within(editor).getByText('rye').tagName).toBe('STRONG');
       await userEvent.click(within(editor).getByRole('button', { name: 'Edit description' }));
@@ -200,6 +203,7 @@ describe('descriptions in the editors', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'March' }));
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.schedule?.type).toBe('seasonal'));
+    expect(screen.getByRole('img', { name: 'Has details' })).toBeInTheDocument();
     expect((await getRecord(t.db, 'task', 't1'))?.notes).toBe('Start with the **tools**');
   });
 });

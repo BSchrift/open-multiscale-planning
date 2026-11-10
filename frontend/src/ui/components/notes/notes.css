@@ -104,3 +104,20 @@
 [data-layout='phone'] .notesedit {
   min-width: var(--tap);
 }
+
+/* The mark a task with details carries in its rows. */
+[data-layout] .notemark {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 6px;
+  color: var(--quiet);
+}
+
+[data-layout] .notemark svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}

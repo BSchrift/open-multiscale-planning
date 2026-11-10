@@ -29,8 +29,8 @@ async function openProject(page: Page, phone: boolean) {
   if (phone) await expect(page.getByRole('heading', { level: 1, name: 'Report' })).toBeVisible();
 }
 
-async function editTask(page: Page) {
-  await page.getByRole('button', { name: 'Edit task Draft the summary, 2h' }).click();
+async function editTask(page: Page, details = false) {
+  await page.getByRole('button', { name: `Edit task Draft the summary, 2h${details ? ', has details' : ''}` }).click();
   return page.getByRole('dialog', { name: 'Edit task' });
 }
 
@@ -63,7 +63,8 @@ test('writes a description with the bar, shows it formatted, and opens its links
   await editor.getByRole('button', { name: 'Save' }).click();
   await expect(editor).toHaveCount(0);
 
-  editor = await editTask(page);
+  // Once saved, the row carries the mark for a task with details.
+  editor = await editTask(page, true);
   const shown = editor.getByRole('group', { name: 'Description' });
   await expect(shown.locator('strong')).toHaveText('Q3 numbers');
   await expect(shown.locator('em')).toHaveText('Friday');

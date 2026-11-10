@@ -35,6 +35,7 @@ import (
 var (
 	maxChanges     = appconfig.Protocol.Sync.MaxChanges
 	maxRecordBytes = appconfig.Protocol.Sync.MaxRecordBytes
+	maxNotesChars  = appconfig.Protocol.Records.MaxNotesChars
 	maxClockAhead  = time.Duration(appconfig.Protocol.Sync.MaxClockAheadHours) * time.Hour
 )
 

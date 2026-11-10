@@ -182,7 +182,7 @@ test("Capture's Add details opens with Time first, takes a description, and keep
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
   if (phone) await page.getByRole('button', { name: 'Capture a task' }).click();
-  else await page.keyboard.press('Shift+Meta+Space');
+  else await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /Capture/ }).click();
   const capture = page.getByRole('dialog', { name: 'Capture' });
   const field = capture.getByRole('textbox', { name: /^Capture to/ });
   await field.fill('Draft the summary');

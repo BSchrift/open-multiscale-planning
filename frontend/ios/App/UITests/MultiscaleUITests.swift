@@ -684,7 +684,8 @@ final class SignedInUITests: XCTestCase {
         // Deleted here, deleted there, so a deployment's test user keeps nothing live.
         // Only this run's item: a deployment's Inbox can hold what other suites left.
         app.tapWeb(startingWith: "Inbox")
-        app.tapWeb(title)
+        // The item's › opens Process on it; its name opens its popup.
+        app.tapWeb("Process \(title)")
         app.tapWeb("Delete/done")
         app.tapWeb("Yes, delete")
         // Process goes on to whatever else is in the Inbox, so the server is what shows it worked.

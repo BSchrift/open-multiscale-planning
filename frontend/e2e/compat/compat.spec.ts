@@ -372,7 +372,8 @@ test('an old and a new device of one user: a block the new one paused runs on in
   await syncNow(newDevice.page);
   await syncNow(oldDevice.page);
 
-  // The old device knows nothing of pauses: the block reads as still running, and it lengthens it from the timeline.
+  // The old device knows nothing of pauses: the block reads as still running, and it shortens it from the timeline.
+  // Shortens, since the block runs an hour from now, and late in the evening it couldn't be lengthened past the day's end.
   await today(oldDevice);
   await expect(now(oldDevice).getByText('In progress, time left')).toBeVisible();
   await expect(now(oldDevice).getByRole('timer')).toBeVisible();
@@ -380,7 +381,7 @@ test('an old and a new device of one user: a block the new one paused runs on in
   const block = oldDevice.page.getByRole('button', { name: new RegExp(`^${title}, `) });
   const before = await block.textContent();
   await block.focus();
-  await oldDevice.page.keyboard.press('Shift+ArrowDown');
+  await oldDevice.page.keyboard.press('Shift+ArrowUp');
   await expect(block).not.toHaveText(before!);
   await syncNow(oldDevice.page);
   await syncNow(newDevice.page);

@@ -1,12 +1,15 @@
 // The iPhone app on TestFlight, through the App Store Connect API with the key in the config folder, the same key that
 // notarizes the Mac app. scripts/testflight.sh and scripts/release.sh run it:
 //   node scripts/testflight.ts key <config folder>            prints the key's exports for testflight.sh to eval
-//   node scripts/testflight.ts check <config folder> <build>  fails unless App Store Connect has the app, and <build> is
-//                                                             newer than every build uploaded to it
+//   node scripts/testflight.ts check <config folder> <build>  fails unless Xcode is new enough for App Store Connect, it
+//                                                             has the app, and <build> is newer than every build uploaded
 //   node scripts/testflight.ts age <config folder>            warns when the last TestFlight build is over 60 days old
+//   node scripts/testflight.ts revoke-runner <config folder>  on a GitHub Actions runner, revokes the certificates Xcode
+//                                                             made there (.github/workflows/testflight.yml)
 // None of this is in ios/, so none of it is in the iPhone app's shell hash (scripts/shell-hash.ts).
 
-import { sign } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { createHash, sign } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +19,8 @@ const DAY_MS = 86_400_000;
 // TestFlight builds stop opening 90 days after upload. Warning at 60 leaves a month to upload another.
 const EXPIRES_AFTER_DAYS = 90;
 const WARN_AFTER_DAYS = 60;
+// App Store Connect refuses builds made with an older SDK than Xcode 26's.
+const MIN_XCODE = 26;
 
 export interface AscKey {
   path: string;
@@ -76,18 +81,25 @@ export function ascToken(key: { keyId: string; issuerId: string; pem: string }, 
 }
 
 type Get = (path: string, query: Record<string, string>) => Promise<{ data: { id: string; attributes: Record<string, string> }[] }>;
+type Delete = (path: string) => Promise<void>;
 
-/** GETs from the App Store Connect API with the token. A refusal throws with Apple's own reason. */
+/** Requests from the App Store Connect API with the token. A refusal throws with Apple's own reason. */
+async function ascRequest(fetchImpl: typeof fetch, token: string, method: string, path: string, query = ''): Promise<unknown> {
+  const response = await fetchImpl(`${API}${path}${query}`, { method, headers: { authorization: `Bearer ${token}` } });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = (body as { errors?: { code?: string; detail?: string; title?: string }[] }).errors?.[0];
+    throw new Error(`App Store Connect refused ${method} ${path}: ${response.status} ${error?.code ?? ''}: ${error?.detail ?? error?.title ?? 'no reason given'}`);
+  }
+  return body;
+}
+
 export function ascGet(token: string, fetchImpl: typeof fetch = fetch): Get {
-  return async (path, query) => {
-    const response = await fetchImpl(`${API}${path}?${new URLSearchParams(query)}`, { headers: { authorization: `Bearer ${token}` } });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = (body as { errors?: { code?: string; detail?: string; title?: string }[] }).errors?.[0];
-      throw new Error(`App Store Connect refused GET ${path}: ${response.status} ${error?.code ?? ''}: ${error?.detail ?? error?.title ?? 'no reason given'}`);
-    }
-    return body;
-  };
+  return (path, query) => ascRequest(fetchImpl, token, 'GET', path, `?${new URLSearchParams(query)}`) as ReturnType<Get>;
+}
+
+export function ascDelete(token: string, fetchImpl: typeof fetch = fetch): Delete {
+  return async (path) => void (await ascRequest(fetchImpl, token, 'DELETE', path));
 }
 
 export interface TestflightState {
@@ -119,6 +131,13 @@ export function uploadRefusal(state: TestflightState, bundleId: string, build: n
   return null;
 }
 
+/** Why this Xcode can't make a build App Store Connect takes, from xcodebuild -version, or null when it can. */
+export function xcodeRefusal(version: string): string | null {
+  const found = /^Xcode (\d+)\S*/m.exec(version);
+  if (found && Number(found[1]) >= MIN_XCODE) return null;
+  return `App Store Connect takes only builds made with Xcode ${MIN_XCODE} or later, and this Mac has ${found?.[0] ?? 'no Xcode it could find'}. Update Xcode, or upload from GitHub Actions: docs/setup.md, TestFlight.`;
+}
+
 /** A warning when testers' TestFlight build is close to expiring, or they have none. Null when it's recent. */
 export function ageWarning(state: TestflightState, now = new Date()): string | null {
   if (!state.app) return 'App Store Connect has no app for the iPhone app yet, so testers have no TestFlight build.';
@@ -128,11 +147,32 @@ export function ageWarning(state: TestflightState, now = new Date()): string | n
   return `The last TestFlight build was uploaded ${days} days ago, and TestFlight builds expire after ${EXPIRES_AFTER_DAYS} days. Run make testflight.`;
 }
 
-async function state(configDir: string) {
+/** The SHA-1 fingerprints of the signing identities that security find-identity lists. */
+export function identityHashes(findIdentity: string): string[] {
+  return [...new Set(findIdentity.match(/\b[0-9A-F]{40}\b/g) ?? [])];
+}
+
+/**
+ * Revokes the team's certificates whose private keys are among the identities: on a fresh runner, those Xcode made for
+ * the run's archive, which nothing can use once the runner is gone, and which would otherwise pile up a run at a time.
+ * Returns their types.
+ */
+export async function revokeCertificates(get: Get, del: Delete, identities: string[]): Promise<string[]> {
+  const certificates = await get('/v1/certificates', { 'fields[certificates]': 'certificateContent,certificateType', limit: '200' });
+  const fingerprint = (content: string) => createHash('sha1').update(Buffer.from(content, 'base64')).digest('hex').toUpperCase();
+  const made = certificates.data.filter((c) => identities.includes(fingerprint(c.attributes.certificateContent ?? '')));
+  for (const certificate of made) await del(`/v1/certificates/${certificate.id}`);
+  return made.map((c) => c.attributes.certificateType!);
+}
+
+function tokenFor(configDir: string) {
   const key = ascKey(configDir);
-  const get = ascGet(ascToken({ ...key, pem: readFileSync(key.path, 'utf8') }));
+  return ascToken({ ...key, pem: readFileSync(key.path, 'utf8') });
+}
+
+async function state(configDir: string) {
   const bundleId = projectBundleId();
-  return { bundleId, state: await testflightState(get, bundleId) };
+  return { bundleId, state: await testflightState(ascGet(tokenFor(configDir)), bundleId) };
 }
 
 /** Shell lines exporting the key's path and ids for xcodebuild, quoted so that any folder name survives eval. */
@@ -145,6 +185,14 @@ async function main([command, configDir, build]: string[]) {
   if (command === 'key' && configDir) {
     process.stdout.write(exportLines(ascKey(configDir)));
   } else if (command === 'check' && configDir && build) {
+    let version = '';
+    try {
+      version = execFileSync('xcodebuild', ['-version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      // No Xcode, or only the command line tools: refused below.
+    }
+    const xcode = xcodeRefusal(version);
+    if (xcode) throw new Error(xcode);
     const { bundleId, state: s } = await state(configDir);
     const refusal = uploadRefusal(s, bundleId, Number(build));
     if (refusal) throw new Error(refusal);
@@ -156,8 +204,15 @@ async function main([command, configDir, build]: string[]) {
     } catch (error) {
       console.log(`Warning: couldn't check the last TestFlight build's age. ${(error as Error).message}`);
     }
+  } else if (command === 'revoke-runner' && configDir) {
+    // A runner's keychains hold only what its run made. A Mac's hold its owner's own certificates, which this would revoke.
+    if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('revoke-runner runs only on a GitHub Actions runner.');
+    const token = tokenFor(configDir);
+    const identities = identityHashes(execFileSync('security', ['find-identity', '-p', 'codesigning'], { encoding: 'utf8' }));
+    const revoked = await revokeCertificates(ascGet(token), ascDelete(token), identities);
+    console.log(revoked.length > 0 ? `Revoked the certificates Xcode made on this runner: ${revoked.join(', ')}.` : 'No certificate of the team has its key on this runner.');
   } else {
-    throw new Error('Use: testflight.ts key <config folder> | check <config folder> <build> | age <config folder>');
+    throw new Error('Use: testflight.ts key <config folder> | check <config folder> <build> | age <config folder> | revoke-runner <config folder>');
   }
 }
 

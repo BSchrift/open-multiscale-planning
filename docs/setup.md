@@ -433,7 +433,7 @@ A Simulator can't prove these, so check them once on a real phone:
 
 ## TestFlight
 
-With a paid membership, testers can install the iPhone app from TestFlight instead of Xcode. A TestFlight build is a prod build of one commit, so it takes prod's updates like any other prod build. `make testflight` archives it, signs it for App Store Connect and uploads it, and a prod release does the same as its last step.
+With a paid membership, testers can install the iPhone app from TestFlight instead of Xcode. A TestFlight build is a prod build of one commit, so it takes prod's updates like any other prod build. `make testflight` archives it, signs it for App Store Connect and uploads it, and a prod release does the same as its last step. App Store Connect takes only builds made with Xcode 26 or later, so on a Mac with an older Xcode, upload [from GitHub Actions](#testflight-from-github-actions) instead.
 
 Once:
 
@@ -453,8 +453,8 @@ Once:
 
 Each build:
 
-- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when App Store Connect has no app record yet, or already has that build. App Store Connect then processes the build, usually within half an hour, before testers can install it.
-- `make release ENV=prod` uploads one as its last step, once its tests pass. `SKIP_TESTFLIGHT=1` leaves it out, and the release then warns if testers' build is more than 60 days old. TestFlight builds stop opening after 90 days.
+- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when Xcode is older than 26, App Store Connect has no app record yet, or it already has that build. App Store Connect then processes the build, usually within half an hour, before testers can install it.
+- `make release ENV=prod` uploads one as its last step, once its tests pass, and so needs Xcode 26 too. `SKIP_TESTFLIGHT=1` leaves it out, and the release then warns if testers' build is more than 60 days old. TestFlight builds stop opening after 90 days.
 - The app declares that it uses no encryption beyond HTTPS, so uploads ask no export compliance questions.
 
 Testers need an account as well as an invitation, since self sign-up is off:
@@ -471,6 +471,30 @@ aws cognito-idp admin-create-user --user-pool-id "$(out prod UserPoolId)" --user
 ```
 
 Then add them in App Store Connect under **TestFlight**: members of your App Store Connect team as internal testers, anyone else as external testers by email or a public link.
+
+### TestFlight from GitHub Actions
+
+`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs in the `release` environment, which needs your approval and holds the App Store Connect key ([releasing.md](releasing.md#the-release-environment)).
+
+Once, after steps 1, 2 and 4 above:
+
+1. **The key and the build's config.** Setting up the Mac release puts `ASC_API_KEY`, `ASC_KEY_ID`, `ASC_ISSUER_ID` and `MAC_BUILD_CONFIG` in the environment ([releasing.md](releasing.md#setting-up-the-mac-release)), and the TestFlight upload reads the same. The key must be the Admin one, which notarizes as well.
+2. **Your team id**, which the iPhone app takes from `DEVELOPMENT_TEAM` in your `Config.local.xcconfig` on a Mac. As a secret, it stays out of the run's log, which anyone can read on a public repository:
+
+   ```sh
+   repo=<owner>/<repo>
+   gh secret set APPLE_TEAM_ID --env release --repo "$repo" \
+     --body "$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' frontend/ios/App/Config.local.xcconfig)"
+   ```
+
+Each upload:
+
+```sh
+gh workflow run testflight.yml --ref main                               # main's latest commit
+gh workflow run testflight.yml --ref main -f commit=<full commit hash>  # a commit on main, such as prod's
+```
+
+Then approve the run's deployment to `release`, in the run's page on GitHub. It builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
 
 ## Run it locally
 

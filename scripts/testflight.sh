@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Uploads the iPhone app to TestFlight from this Mac: a prod build of this commit, archived with automatic signing,
-# exported for App Store Connect and uploaded. make release ENV=prod runs it after each prod release.
+# exported for App Store Connect and uploaded. make release ENV=prod runs it after each prod release, and GitHub Actions
+# runs it on a Mac with Xcode 26 (.github/workflows/testflight.yml).
 #   EXPORT_ONLY=1 archives and exports it to a folder without uploading, which proves the signing works before the app
 #   exists in App Store Connect.
 # Apple is reached with the App Store Connect key in the config folder, AuthKey_<key id>.p8 and asc-issuer-id, and the

@@ -1,9 +1,9 @@
-import { createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
+import { createHash, createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ageWarning, ascGet, ascKey, ascToken, bundleIdFrom, testflightState, uploadRefusal } from './testflight';
+import { ageWarning, ascDelete, ascGet, ascKey, ascToken, bundleIdFrom, identityHashes, revokeCertificates, testflightState, uploadRefusal, xcodeRefusal } from './testflight';
 
 const ISSUER = '01234567-89ab-cdef-0123-456789abcdef';
 const pem = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
@@ -78,18 +78,20 @@ describe('ascToken', () => {
   });
 });
 
-/** A fake App Store Connect: answers by path, and records each request. */
+/** A fake App Store Connect: answers GETs by path and DELETEs by 'DELETE <path>', and records each request. */
 function fakeApi(routes: Record<string, unknown>, status = 200) {
-  const requests: { url: string; auth: string | null }[] = [];
+  const requests: { method: string; url: string; auth: string | null }[] = [];
   const fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    requests.push({ url, auth: new Headers(init?.headers).get('authorization') });
+    const method = init?.method ?? 'GET';
+    requests.push({ method, url, auth: new Headers(init?.headers).get('authorization') });
     const path = decodeURIComponent(url.replace('https://api.appstoreconnect.apple.com', ''));
-    const body = routes[path];
+    const body = routes[method === 'GET' ? path : `${method} ${path}`];
     if (body === undefined) return new Response('{"errors":[{"status":"404","detail":"not faked"}]}', { status: 404 });
-    return new Response(JSON.stringify(body), { status });
+    return body === null ? new Response(null, { status: 204 }) : new Response(JSON.stringify(body), { status });
   };
-  return { get: ascGet('the-token', fetch as typeof globalThis.fetch), requests };
+  const fetchImpl = fetch as typeof globalThis.fetch;
+  return { get: ascGet('the-token', fetchImpl), del: ascDelete('the-token', fetchImpl), requests };
 }
 
 const BUNDLE = 'io.example.multiscale';
@@ -154,5 +156,50 @@ describe('ageWarning', () => {
   it('warns when testers have no build at all', () => {
     expect(ageWarning({ app: true }, now)).toMatch(/TestFlight has no build/);
     expect(ageWarning({ app: false }, now)).toMatch(/no app/);
+  });
+});
+
+describe('xcodeRefusal', () => {
+  it('takes Xcode 26 and later, which build with the SDK App Store Connect requires', () => {
+    expect(xcodeRefusal('Xcode 26.6\nBuild version 17F113\n')).toBeNull();
+    expect(xcodeRefusal('Xcode 27.0\nBuild version 18A1\n')).toBeNull();
+  });
+
+  it('refuses an older one before the slow part, and says where else to upload from', () => {
+    expect(xcodeRefusal('Xcode 16.4\nBuild version 16F6\n')).toMatch(/Xcode 26 or later, and this Mac has Xcode 16\.4\..*GitHub Actions/);
+    expect(xcodeRefusal('')).toMatch(/no Xcode it could find/);
+  });
+});
+
+describe('revokeCertificates', () => {
+  const der = (name: string) => Buffer.from(`certificate ${name}`).toString('base64');
+  const sha1 = (name: string) => createHash('sha1').update(`certificate ${name}`).digest('hex').toUpperCase();
+  const CERTS = '/v1/certificates?fields[certificates]=certificateContent,certificateType&limit=200';
+  const certificates = {
+    data: [
+      { id: 'mine', attributes: { certificateContent: der('owner'), certificateType: 'DEVELOPMENT' } },
+      { id: 'runner', attributes: { certificateContent: der('runner'), certificateType: 'DEVELOPMENT' } },
+      { id: 'cloud', attributes: { certificateContent: der('cloud'), certificateType: 'DISTRIBUTION' } },
+    ],
+  };
+
+  it("revokes only the certificates whose keys are on this runner, never the owner's or the cloud-managed one", async () => {
+    const api = fakeApi({ [CERTS]: certificates, 'DELETE /v1/certificates/runner': null });
+    expect(await revokeCertificates(api.get, api.del, [sha1('runner'), sha1('not the team’s')])).toEqual(['DEVELOPMENT']);
+    expect(api.requests.map((r) => `${r.method} ${r.auth}`)).toEqual(['GET Bearer the-token', 'DELETE Bearer the-token']);
+    expect(api.requests[1]!.url).toBe('https://api.appstoreconnect.apple.com/v1/certificates/runner');
+  });
+
+  it('revokes nothing when no key is on the runner, and passes on a refusal', async () => {
+    expect(await revokeCertificates(fakeApi({ [CERTS]: certificates }).get, fakeApi({}).del, [])).toEqual([]);
+    const api = fakeApi({ [CERTS]: certificates });
+    await expect(revokeCertificates(api.get, api.del, [sha1('runner')])).rejects.toThrow('App Store Connect refused DELETE /v1/certificates/runner: 404');
+  });
+
+  it("reads security find-identity's fingerprints once each, whatever the identities are called", () => {
+    const hash = sha1('runner');
+    const output = `Policy: Code Signing\n  Matching identities\n  1) ${hash} "Apple Development: Created via API (ABCDE12345)"\n     1 identities found\n\n  Valid identities only\n  1) ${hash} "Apple Development: Created via API (ABCDE12345)"\n     1 valid identities found\n`;
+    expect(identityHashes(output)).toEqual([hash]);
+    expect(identityHashes('     0 identities found\n')).toEqual([]);
   });
 });

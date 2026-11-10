@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
@@ -19,6 +21,14 @@ test.afterEach(closeDevices);
 type Bundle = 'old' | 'new';
 const bundle = (name: Bundle) => ({ name: 'bundle', value: name, domain: 'localhost', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' as const });
 const on = (name: Bundle) => ({ storageState: { cookies: [bundle(name)], origins: [] } });
+// Whether the bundle before already pauses blocks. Without prod's outputs, as on CI, it's origin/main rather than prod's
+// release, so once pausing is on main the pause tests have no older bundle to run against. Staging's cross-version
+// suite still runs them against prod's.
+const oldPauses = () => {
+  const assets = join(process.env.COMPAT_OLD ?? '', 'assets');
+  return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('unless you resume.'));
+};
+const noOlderThanPausing = 'The bundle before already pauses blocks, so there is no older one to run against.';
 
 /** Notes what the page logs as an error, such as a query the database refused. */
 function consoleErrors(page: Page, errors: string[], name: Bundle) {
@@ -205,6 +215,7 @@ test.describe('one device', () => {
   });
 
   test('a block the update paused runs on in the bundle before, which keeps the pause through a change of its own', async ({ context }) => {
+    test.skip(oldPauses(), noOlderThanPausing);
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);
     let page = await launch(context, 'new', errors);
@@ -325,6 +336,7 @@ test('an old and a new device of one user sync captures, dates, ticks and delete
 test('an old and a new device of one user: a block the new one paused runs on in the old, which keeps the pause through its own change', async ({
   browser,
 }) => {
+  test.skip(oldPauses(), noOlderThanPausing);
   const run = randomUUID().slice(0, 8);
   const title = `Fix the gate ${run}`;
   const ids = { task: `e2e-${run}-gate`, block: `e2e-${run}-gate-block` };

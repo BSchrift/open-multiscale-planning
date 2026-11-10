@@ -16,7 +16,7 @@
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
 # In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, upload-prod, release-web,
-# bake-check, release-desktop, release-iphone and nightly.
+# bake-check, release-desktop, release-iphone and nightly; and prune, which the releases end with.
 # The signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
 set -euo pipefail
 
@@ -260,6 +260,46 @@ round_trip() {
     serving "$env_name" "$surface" "$now" || failed="$failed $surface"
   done
   [ -z "$failed" ] || { echo "Going back one version and forward again failed for:$failed." >&2; return 1; }
+}
+
+# Deletes what no one can need from an environment's release bucket: the versions infrastructure/bin/prune.ts finds no
+# reason to keep, then the files named by their contents that no kept version lists, in batches. When a surface serves
+# a version with no folder, as a feed held back since before versions were kept does, it deletes nothing and says why,
+# and the release goes on: that version's files would go. Signed in to the environment: AWS_PROFILE.
+prune() {
+  local env_name="$1" bucket dir surface live="" plan kind name store keys=()
+  bucket="$(release_bucket "$env_name")"
+  dir="$(mktemp -d)"
+  aws s3 cp "s3://$bucket/versions/" "$dir/versions" --recursive --exclude '*' --include '*/web/version.json' --include '*/release.json' --only-show-errors
+  aws s3 cp "s3://$bucket/state/history.json" "$dir/history.json" --only-show-errors 2>/dev/null || true
+  aws s3 ls "s3://$bucket/web/assets/" --recursive >"$dir/assets.txt" 2>/dev/null || true
+  aws s3 ls "s3://$bucket/release/files/" --recursive >"$dir/files.txt" 2>/dev/null || true
+  for surface in web desktop iphone shared; do live="$live $(serves "$bucket" "$surface")"; done
+  if ! plan="$(cd "$root/infrastructure" && node bin/prune.ts "$dir" $live)"; then
+    echo "So $env_name's release bucket isn't pruned this time."
+    rm -rf "$dir"
+    return 0
+  fi
+  while read -r kind name; do
+    [ "$kind" = version ] || continue
+    aws s3 rm "s3://$bucket/versions/$name/" --recursive --only-show-errors
+    echo "Pruned $env_name's version $name."
+  done <<<"$plan"
+  for store in asset:web/assets file:release/files; do
+    keys=()
+    while read -r kind name; do
+      [ "$kind" = "${store%%:*}" ] || continue
+      keys+=(--include "$name")
+      # A few hundred a call, well inside a command line.
+      if [ ${#keys[@]} -ge 400 ]; then
+        aws s3 rm "s3://$bucket/${store#*:}/" --recursive --exclude '*' "${keys[@]}" --only-show-errors
+        keys=()
+      fi
+    done <<<"$plan"
+    [ ${#keys[@]} -eq 0 ] || aws s3 rm "s3://$bucket/${store#*:}/" --recursive --exclude '*' "${keys[@]}" --only-show-errors
+    echo "Pruned $(grep -c "^${store%%:*} " <<<"$plan" || true) of $env_name's files in ${store#*:}/."
+  done
+  rm -rf "$dir"
 }
 
 # Runs a command signed in as an environment's release role.
@@ -554,6 +594,7 @@ case "$command" in
     publish staging "${CODEBUILD_SRC_DIR_SignedStaging:?}"
     # Retention and the history-scale test are left to the nightly run.
     ENV=staging EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"
+    as_release staging prune staging
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.
@@ -603,6 +644,14 @@ case "$command" in
     [ "${ALARMS:-on}" != off ] || notes="${notes:+$notes }Release alarms off."
     [ "${BAKES:-on}" != skip ] || notes="${notes:+$notes }Bakes skipped."
     aws ssm put-parameter --name "$parameters/released" --type String --overwrite --value "${COMMIT:?}${notes:+ $notes}" >/dev/null
+    as_release prod prune prod
+    ;;
+  prune)
+    # scripts/pipeline.sh prune <env>, in CodeBuild, as the releases end with.
+    fetch_config
+    profiles
+    outputs "$2"
+    as_release "$2" prune "$2"
     ;;
   bake-check)
     # After a surface's bake on prod, web or desktop: whether a release alarm is in ALARM. If one is, the surface switches

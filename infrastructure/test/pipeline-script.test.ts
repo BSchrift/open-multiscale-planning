@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { sandboxRepo } from './sandbox.ts';
@@ -704,6 +704,79 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /no ReleaseAlarms output/);
     assert.notEqual(configured().run(['bake-check', 'iphone']).status, 0);
+  });
+
+  // A bucket after many releases: 25 versions, each listing its own app chunk and a vendor chunk they share, files a
+  // month old, and an old and a new file no version lists. The iPhone serves an old version, and the desktop's history
+  // reaches back to two more.
+  const MONTH_AGO = (Date.now() - 30 * 24 * 3600 * 1000) / 1000;
+  const many = (s: ReturnType<typeof sandbox>) => {
+    const v = (n: number) => `0.1.0-v${String(n).padStart(2, '0')}`;
+    const at = (key: string, value: string, old = true) => {
+      s.put(`s3://bucket/${key}`, value);
+      if (old) utimesSync(join(s.params, 's3/bucket', key), MONTH_AGO, MONTH_AGO);
+    };
+    for (let n = 1; n <= 25; n++) {
+      const files = [{ path: `assets/app-${n}.js`, sha256: `f${n}` }, { path: 'assets/vendor.js', sha256: 'fvendor' }, { path: 'index.html', sha256: `i${n}` }];
+      at(`versions/${v(n)}/web/version.json`, JSON.stringify({ version: v(n), build: n, shell }));
+      at(`versions/${v(n)}/web/index.html`, `<html>${n}</html>`);
+      at(`versions/${v(n)}/release.json`, JSON.stringify({ manifest: JSON.stringify({ version: v(n), build: n, shell, files }), signature: 'x' }));
+      at(`web/assets/app-${n}.js`, 'app');
+      at(`web/assets/app-${n}.js.map`, 'map');
+      for (const f of files) at(`release/files/${f.sha256}`, 'file');
+    }
+    at('web/assets/vendor.js', 'vendor');
+    at('web/assets/gone.js', 'old');
+    at('web/assets/fresh.js', 'new', false);
+    at('release/files/fgone', 'old');
+    at('release/files/ffresh', 'new', false);
+    s.put('s3://bucket/web/version.json', JSON.stringify({ version: v(25), build: 25, shell }));
+    s.put(FEEDS.desktop, feedOf(v(24), 24));
+    s.put(FEEDS.shared, feedOf(v(24), 24));
+    s.put(FEEDS.iphone, feedOf(v(3), 3));
+    const line = (n: number) => ({ version: v(n), build: n, at: '2026-11-01T00:00:00Z' });
+    s.put('s3://bucket/state/history.json', JSON.stringify({ web: [23, 24, 25, 24, 25].map(line), desktop: [1, 2, 24].map(line), iphone: [3].map(line) }));
+  };
+
+  it("prunes versions no one needs, and files no kept version lists once they're two weeks old", () => {
+    const s = configured();
+    many(s);
+    const r = s.run(['prune', 'staging']);
+    assert.equal(r.status, 0, r.stderr);
+    const kept = (n: number) => s.get(`s3://bucket/versions/0.1.0-v${String(n).padStart(2, '0')}/web/version.json`) !== null;
+    // The newest 20, the iPhone's, and the last three in the desktop's history.
+    assert.deepEqual([...Array(25).keys()].map((i) => i + 1).filter((n) => !kept(n)), [4, 5]);
+    for (const gone of ['web/assets/app-4.js', 'web/assets/app-4.js.map', 'web/assets/app-5.js', 'web/assets/gone.js', 'release/files/f4', 'release/files/f5', 'release/files/fgone']) {
+      assert.equal(s.get(`s3://bucket/${gone}`), null, gone);
+    }
+    for (const stays of ['web/assets/app-3.js', 'web/assets/app-3.js.map', 'web/assets/app-25.js', 'web/assets/vendor.js', 'web/assets/fresh.js', 'release/files/f3', 'release/files/fvendor', 'release/files/ffresh']) {
+      assert.notEqual(s.get(`s3://bucket/${stays}`), null, stays);
+    }
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 rm s3:\/\/bucket\/versions\/0\.1\.0-v04\/ --recursive/);
+  });
+
+  it('prunes nothing, and goes on, when a surface serves a version with no folder, whose files would go', () => {
+    const s = configured();
+    many(s);
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['prune', 'staging']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /isn't pruned this time/);
+    assert.match(r.stderr, /serves old, which has no folder under versions\//);
+    assert.doesNotMatch(s.log(), /s3 rm/);
+    assert.notEqual(s.get('s3://bucket/web/assets/gone.js'), null);
+  });
+
+  it("prunes at the end of staging's release and of the iPhone's", () => {
+    for (const [step, env] of [['release-staging', 'staging'], ['release-iphone', 'prod']] as const) {
+      const s = configured();
+      kept(s);
+      s.put('s3://bucket/web/assets/gone.js', 'old');
+      utimesSync(join(s.params, 's3/bucket/web/assets/gone.js'), MONTH_AGO, MONTH_AGO);
+      const r = s.run([step], { ...(env === 'staging' ? artifacts(s) : released(s, ['web', 'desktop', 'shared'])), COMMIT: 'abc123' });
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(s.get('s3://bucket/web/assets/gone.js'), null, step);
+    }
   });
 
   it('runs no nightly suites when main has not moved since the last one passed', () => {

@@ -1,7 +1,7 @@
 // A stand-in for `aws s3` in the pipeline script's tests: each bucket is a folder under $PARAMS/s3, so a test sets up
 // what a bucket holds and reads what a step left there. It takes the commands and flags scripts/pipeline.sh uses: cp
-// (with - for stdin or stdout), sync, ls and rm, with --recursive and --exclude. Headers aren't kept; the tests read
-// them from the log.
+// (with - for stdin or stdout), sync, ls and rm, with --recursive, and --exclude and --include in order, the last that
+// matches winning. Headers aren't kept; the tests read them from the log.
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
@@ -10,15 +10,18 @@ const root = join(process.env.PARAMS!, 's3');
 const [command, ...args] = process.argv.slice(3);
 const flags = new Set(['--recursive', '--size-only', '--quiet', '--no-progress', '--only-show-errors']);
 const paths: string[] = [];
-const excludes: RegExp[] = [];
+const filters: { include: boolean; pattern: RegExp }[] = [];
 for (let i = 0; i < args.length; i++) {
   const arg = args[i]!;
-  if (arg === '--exclude') excludes.push(new RegExp(`^${args[++i]!.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`));
+  if (arg === '--exclude' || arg === '--include') {
+    filters.push({ include: arg === '--include', pattern: new RegExp(`^${args[++i]!.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`) });
+  }
   else if (flags.has(arg)) continue;
   else if (arg.startsWith('--')) i++;
   else paths.push(arg);
 }
 const recursive = args.includes('--recursive') || command === 'sync';
+const included = (name: string) => filters.reduce((keep, f) => (f.pattern.test(name) ? f.include : keep), true);
 const local = (path: string) => (path.startsWith('s3://') ? join(root, path.slice('s3://'.length)) : path);
 const walk = (dir: string): string[] =>
   existsSync(dir) && statSync(dir).isDirectory() ? readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])) : [];
@@ -44,7 +47,7 @@ switch (command) {
     if (recursive) {
       for (const file of walk(local(from))) {
         const name = relative(local(from), file);
-        if (!excludes.some((e) => e.test(name))) put(file, join(local(to), name));
+        if (included(name)) put(file, join(local(to), name));
       }
     } else if (to === '-') {
       if (!existsSync(local(from)) || statSync(local(from)).isDirectory()) missing(from);
@@ -70,7 +73,8 @@ switch (command) {
     break;
   }
   case 'rm':
-    rmSync(local(from), { recursive, force: true });
+    if (!recursive) rmSync(local(from), { force: true });
+    else for (const file of walk(local(from))) if (included(relative(local(from), file))) rmSync(file);
     break;
   default:
     console.error(`fake s3: ${command} isn't faked`);

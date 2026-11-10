@@ -66,8 +66,7 @@ node scripts/release-files.ts pack dist "$key" "$out"
 
 # The version first, where no host serves it, then each surface switched to it as the pipeline does
 # (scripts/pipeline.sh). The disk image goes before the feeds, so an update that needs the new app can already link to it.
-# shortcut: old assets and versions stay, so a tab still on the last page can load what it needs; prune them if the
-# bucket grows.
+# The pipeline's next release prunes what no one needs any more (scripts/pipeline.sh prune).
 version="$("$root/scripts/pipeline.sh" upload "$env_name" "$PWD/dist" "$out")"
 aws s3 cp "$dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
 for surface in web desktop iphone shared; do "$root/scripts/pipeline.sh" switch "$env_name" "$surface" "$version"; done

@@ -16,6 +16,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true
   },
   "include": ["src", "electron", "e2e", "scripts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"]

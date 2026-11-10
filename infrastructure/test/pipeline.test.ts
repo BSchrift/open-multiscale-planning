@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { parse } from 'yaml';
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { PipelineStack } from '../lib/pipeline-stack.ts';
+import { MAC_INBOX_ROLE_NAME, MAC_RELEASE_ENVIRONMENT, PipelineStack } from '../lib/pipeline-stack.ts';
 import type { Config, ControlConfig, PipelineConfig } from '../lib/config.ts';
 
 const env = (account: string, name: string): Config => ({
@@ -239,5 +242,109 @@ describe('the release pipeline', () => {
   it('needs every environment in the control account\'s region', () => {
     const elsewhere = { ...environments, prod: { ...environments.prod, aws: { ...environments.prod.aws, region: 'eu-west-1' } } };
     assert.throws(() => new PipelineStack(new App(), 'P', { control, environments: elsewhere }), /prod in us-east-2/);
+  });
+});
+
+describe("the Mac release's inbox", () => {
+  const withMac = (githubOidcProvider: 'create' | 'existing') => {
+    const stack = new PipelineStack(new App(), 'Multiscale-pipeline', { control: { ...control, pipeline: { ...control.pipeline, mac: { teamId: 'ABCDE12345', waitFor: 'PT3H', githubOidcProvider } } }, environments });
+    const template = Template.fromStack(stack);
+    const resources = template.toJSON().Resources as Record<string, { Type: string; Properties: any }>;
+    return { template, resources, ofType: (type: string) => Object.entries(resources).filter(([, r]) => r.Type === type) };
+  };
+  const m = withMac('create');
+  const [bucketId, bucket] = m.ofType('AWS::S3::Bucket').find(([id]) => id.startsWith('MacInbox'))!;
+  const [inboxRoleId, inboxRole] = m.ofType('AWS::IAM::Role').find(([, r]) => r.Properties.RoleName === MAC_INBOX_ROLE_NAME)!;
+  const inboxObjects = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [bucketId, 'Arn'] }, '/inbox/*']] };
+  const statementsOf = (roleId: string) => m.ofType('AWS::IAM::Policy')
+    .filter(([, p]) => p.Properties.Roles.some((r: any) => r.Ref === roleId))
+    .flatMap(([, p]) => p.Properties.PolicyDocument.Statement as any[]);
+
+  it('is absent unless control.yaml asks for Mac releases', () => {
+    assert.ok(!Object.keys(all).some((id) => id.startsWith('MacInbox')));
+    assert.equal(ofType('AWS::IAM::OIDCProvider').length, 0);
+    assert.ok(!ofType('AWS::IAM::Role').some(([, r]) => r.Properties.RoleName === MAC_INBOX_ROLE_NAME));
+  });
+
+  it('is a private, encrypted bucket that forgets each upload after 30 days', () => {
+    assert.deepEqual(bucket.Properties.PublicAccessBlockConfiguration, { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true });
+    assert.deepEqual(bucket.Properties.BucketEncryption.ServerSideEncryptionConfiguration, [{ ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }]);
+    assert.deepEqual(bucket.Properties.LifecycleConfiguration.Rules, [{ ExpirationInDays: 30, Status: 'Enabled' }]);
+    // Its policy only refuses requests without TLS: it grants nothing.
+    const [, policy] = m.ofType('AWS::S3::BucketPolicy').find(([, p]) => p.Properties.Bucket.Ref === bucketId)!;
+    assert.deepEqual(policy.Properties.PolicyDocument.Statement.map((s: any) => [s.Effect, s.Condition]), [['Deny', { Bool: { 'aws:SecureTransport': 'false' } }]]);
+  });
+
+  it("trusts only GitHub's tokens for this repository's release environment", () => {
+    m.template.hasResourceProperties('AWS::IAM::OIDCProvider', { Url: 'https://token.actions.githubusercontent.com', ClientIdList: ['sts.amazonaws.com'] });
+    const [[providerId]] = m.ofType('AWS::IAM::OIDCProvider');
+    assert.deepEqual(inboxRole.Properties.AssumeRolePolicyDocument.Statement, [{
+      Action: 'sts:AssumeRoleWithWebIdentity',
+      Effect: 'Allow',
+      Principal: { Federated: { Ref: providerId } },
+      Condition: {
+        StringEquals: {
+          'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+          'token.actions.githubusercontent.com:sub': `repo:someone/open-multiscale-planning:environment:${MAC_RELEASE_ENVIRONMENT}`,
+        },
+      },
+    }]);
+    assert.equal(inboxRole.Properties.MaxSessionDuration, 3600);
+  });
+
+  it('lets GitHub put objects under inbox/ in that bucket, and do nothing else', () => {
+    assert.deepEqual(statementsOf(inboxRoleId), [{ Action: 's3:PutObject', Effect: 'Allow', Resource: inboxObjects }]);
+    assert.equal(inboxRole.Properties.ManagedPolicyArns, undefined);
+    assert.equal(inboxRole.Properties.Policies, undefined);
+    assert.equal(inboxRole.Properties.PermissionsBoundary, undefined);
+    // No other role may write there: the pipeline only reads what GitHub uploaded.
+    for (const [roleId] of m.ofType('AWS::IAM::Role').filter(([id]) => id !== inboxRoleId)) {
+      for (const statement of statementsOf(roleId)) {
+        if (JSON.stringify(statement.Resource).includes(bucketId)) assert.ok(['s3:GetObject', 's3:ListBucket'].includes(statement.Action), `${roleId} may ${statement.Action}`);
+      }
+    }
+    const pipelineRole = m.ofType('AWS::IAM::Role').find(([, r]) => r.Properties.RoleName === 'multiscale-pipeline')![0];
+    assert.ok(statementsOf(pipelineRole).some((s) => s.Action === 's3:ListBucket' && JSON.stringify(s.Condition) === JSON.stringify({ StringLike: { 's3:prefix': 'inbox/*' } })));
+  });
+
+  it('uses the OIDC provider the account has already when control.yaml says so', () => {
+    const existing = withMac('existing');
+    assert.equal(existing.ofType('AWS::IAM::OIDCProvider').length, 0);
+    const [, role] = existing.ofType('AWS::IAM::Role').find(([, r]) => r.Properties.RoleName === MAC_INBOX_ROLE_NAME)!;
+    assert.deepEqual(role.Properties.AssumeRolePolicyDocument.Statement[0].Principal.Federated, {
+      'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::333333333333:oidc-provider/token.actions.githubusercontent.com']],
+    });
+  });
+
+  it("checks GitHub's Mac apps beside staging's deploy, and hands them to both releases", () => {
+    const [[, pipe]] = m.ofType('AWS::CodePipeline::Pipeline');
+    const stage = (name: string) => (pipe.Properties.Stages as { Name: string; Actions: any[] }[]).find((s) => s.Name === name)!.Actions;
+    const macApp = stage('Staging').find((a) => a.Name === 'MacApp');
+    assert.equal(macApp.RunOrder, 1);
+    assert.deepEqual(macApp.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built']);
+    assert.deepEqual(macApp.OutputArtifacts.map((a: any) => a.Name), ['MacApps']);
+    assert.equal(envOf(macApp).find((v) => v.name === 'STEP')!.value, 'mac');
+    for (const [name, action] of [['Staging', 'ReleaseAndTest'], ['Prod', 'Release']]) {
+      assert.ok(stage(name!).find((a) => a.Name === action).InputArtifacts.some((a: any) => a.Name === 'MacApps'));
+    }
+    const project = m.resources[macApp.Configuration.ProjectName.Ref]!;
+    assert.equal(project.Properties.Environment.ComputeType, 'BUILD_GENERAL1_SMALL');
+    // The wait, plus an hour to check both apps.
+    assert.equal(project.Properties.TimeoutInMinutes, 240);
+    const vars = Object.fromEntries(project.Properties.Environment.EnvironmentVariables.map((v: any) => [v.Name, v.Value]));
+    assert.deepEqual(vars, { MAC_INBOX_BUCKET: { Ref: bucketId }, MAC_TEAM_ID: 'ABCDE12345', MAC_WAIT_SECONDS: '10800' });
+    assert.match(project.Properties.Source.BuildSpec, /"base-directory": "mac-checked"/);
+  });
+
+  it('gives the role ARN and bucket the release environment needs', () => {
+    m.template.hasOutput('MacInboxBucket', { Value: { Ref: bucketId } });
+    m.template.hasOutput('MacInboxRoleArn', { Value: { 'Fn::GetAtt': [inboxRoleId, 'Arn'] } });
+  });
+
+  it("is trusted by the environment the workflow's signing job runs in", () => {
+    const workflow = parse(readFileSync(join(import.meta.dirname, '../../.github/workflows/mac-release.yml'), 'utf8')) as { jobs: Record<string, { environment?: string; permissions?: Record<string, string> }> };
+    const signing = Object.values(workflow.jobs).filter((job) => job.environment);
+    assert.deepEqual(signing.map((job) => job.environment), [MAC_RELEASE_ENVIRONMENT]);
+    assert.equal(signing[0]!.permissions!['id-token'], 'write');
   });
 });

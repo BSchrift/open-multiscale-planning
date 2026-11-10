@@ -24,7 +24,7 @@ export const SQL = {
       AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL`,
 
   blocks: `
-    SELECT b.id, b.start, b.end, b.tz, b.task_id, b.practice_id, b.started_at, b.ended_at,
+    SELECT b.id, b.start, b.end, b.tz, b.task_id, b.practice_id, b.started_at, b.ended_at, b.paused_at, b.paused_min,
            COALESCE(t.title, p.title) AS title,
            t.kind AS task_kind,
            o.result
@@ -182,6 +182,8 @@ export interface BlockRow {
   practice_id: string | null;
   started_at: Instant | null;
   ended_at: Instant | null;
+  paused_at?: Instant | null;
+  paused_min?: Minutes | null;
   title: string | null;
   task_kind: TaskKind | null;
   result: BlockResult | null;

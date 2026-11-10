@@ -154,7 +154,7 @@ export const RECORD_FIELDS = {
     'deleted_at',
   ],
   task_completion: ['task_id', 'done_at', 'previous_next', 'undo', 'deleted_at'],
-  time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'cancelled', 'deleted_at'],
+  time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'paused_at', 'paused_min', 'cancelled', 'deleted_at'],
   block_outcome: ['result', 'remaining_min', 'logged_min', 'answered_at', 'dropped_at', 'deleted_at'],
   week_plan: ['week_start', 'finished_at', 'aims', 'skipped_aims', 'skipped_practices', 'skipped_past_end', 'deleted_at'],
   week_pick: ['week_start', 'task_id', 'minutes', 'deleted_at'],

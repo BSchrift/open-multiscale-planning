@@ -130,8 +130,14 @@ export interface ShiftMove {
   end: Instant;
 }
 
+/** The block under way running into the next, as after Still going or a Resume. */
+export interface BlockOverrun {
+  block: BlockRow;
+  running: BlockRow;
+}
+
 export interface ShiftPlan {
-  conflict: BlockConflict;
+  conflict: BlockConflict | BlockOverrun;
   /** Only the blocks that move. */
   moves: ShiftMove[];
   /** When the result runs into closed hours, the time they begin: "That runs past 10pm." */
@@ -146,8 +152,9 @@ function closedToday(a: AvailabilityBlock, date: LocalDate, block: BlockRow): bo
 }
 
 /**
- * A repair to preview when work ahead conflicts with an event: later blocks keep their order and length, each
- * starting once the last one and any event are clear. Pass today's blocks and busyEvents. Null when nothing conflicts.
+ * A repair to preview when work ahead conflicts with an event, or the block under way runs into it: later blocks keep
+ * their order and length, each starting once the last one and any event are clear. Pass today's blocks and busyEvents.
+ * Null when nothing conflicts.
  */
 export function shiftRestOfToday(
   blocks: readonly BlockRow[],
@@ -160,10 +167,11 @@ export function shiftRestOfToday(
   const running = (b: BlockRow) => instantMs(b.end) > now && (instantMs(b.start) <= now || !!b.started_at);
   const rest = open.filter((b) => instantMs(b.start) > now && !b.started_at).sort((a, b) => instantMs(a.start) - instantMs(b.start));
 
-  const conflict = blockConflicts(rest, events)[0];
+  let after = Math.max(now, ...open.filter(running).map((b) => instantMs(b.end)));
+  const over = open.find((b) => running(b) && instantMs(b.end) === after);
+  const conflict = over && rest[0] && instantMs(rest[0].start) < after ? { block: rest[0], running: over } : blockConflicts(rest, events)[0];
   if (!conflict) return null;
 
-  let after = Math.max(now, ...open.filter(running).map((b) => instantMs(b.end)));
   const moves: ShiftMove[] = [];
   for (const block of rest) {
     const length = instantMs(block.end) - instantMs(block.start);

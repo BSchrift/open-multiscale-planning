@@ -80,6 +80,24 @@ describe('which reminders a block gets', () => {
     expect(rs[2]!.body).toBe('Piano practice');
   });
 
+  it('a started block says its time spent and pauses, and a pause running to the end offers Resume in place of Still going', () => {
+    const started = { started_at: day('10:00') };
+    const end = (over: Partial<BlockRow>) => remindersToSchedule([block('a', day('10:00'), day('11:00'), over)], settings, [], clock).at(-1)!;
+    expect(end(started).body).toBe('1h spent. Did you finish Paint the fence?');
+    const resumed = end({ ...started, end: day('11:09'), paused_min: 9 });
+    expect(resumed).toMatchObject({ at: day('11:09'), body: '1h spent, 9 min paused. Did you finish Paint the fence?' });
+    expect(titles(resumed)).toEqual(['Still going', 'Partly', 'Not done']);
+    const paused = end({ ...started, paused_at: day('10:22') });
+    expect(paused).toMatchObject({ at: day('11:00'), body: '22m spent. Paused at 10:22am. Did you finish Paint the fence?' });
+    expect(titles(paused)).toEqual(['Resume, 38m left', 'Partly', 'Not done']);
+    expect(paused.actions[0]!.id).toBe(REMINDER_ACTION.resume);
+  });
+
+  it('a practice logs its time less its pauses', () => {
+    const practice = block('p', day('10:00'), day('10:39'), { task_id: null, practice_id: 'pr1', task_kind: null, title: 'Piano practice', started_at: day('10:00'), paused_min: 9 });
+    expect(titles(remindersToSchedule([practice], settings, [], clock).at(-1))).toEqual(['All 30m', 'Skip']);
+  });
+
   it('still names a block whose title is gone', () => {
     const rs = remindersToSchedule([block('x', day('10:00'), day('11:00'), { title: null })], settings, [], clock);
     expect(rs[0]!.title).toBe('Time block');

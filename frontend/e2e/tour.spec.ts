@@ -175,7 +175,7 @@ test('every screen of a lived-in week renders cleanly', async ({ page }, info) =
   // A toast floats over the page in the app's own type, with Undo in reach.
   await page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Mark done now' }).click();
   const toast = page.locator('.toast');
-  await expect(toast).toContainText('Marked done.');
+  await expect(toast).toContainText('Marked done after 19m.');
   expect(await toast.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
   expect(await toast.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Instrument Sans');
   await page.screenshot({ path: info.outputPath('toast.png'), scale: 'css' });

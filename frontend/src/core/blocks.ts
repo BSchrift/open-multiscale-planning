@@ -1,11 +1,11 @@
 // A day's blocks as they happen: which one is now, the end-of-block answers (one, or several at once), Mark done now,
-// Start, Start early, Do next block instead and Still going, plus the week's edits: move, remove, place, take off the
+// Start, Start early, Do next block instead, Still going, Pause and Resume, and the time spent, plus the week's edits: move, remove, place, take off the
 // calendar, keeping a practice change, skipping a practice and placing the week's practices when asked.
 // The in-app prompts and notification actions both write through here.
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
 
 import type { Clock } from './clock';
-import { blockMinutes, instantMs, localDate, localMinutes, nowInstant, toInstant, weekRange } from './dates';
+import { blockMinutes, formatMinutes, formatTime, instantMs, localDate, localMinutes, nowInstant, toInstant, weekRange } from './dates';
 import { applyPlanChange, minutesLeft } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
 import { blocksInRange, futureBlocks, weekPractices } from './queries';
@@ -32,11 +32,65 @@ export function nextBlock(blocks: readonly BlockRow[], clock: Clock): BlockRow |
   return blocks.filter((b) => unanswered(b) && instantMs(b.start) > now).sort((a, b) => instantMs(a.start) - instantMs(b.start))[0];
 }
 
+/** A block's times and pauses, as its record or its row has them. */
+type Timed = Pick<TimeBlock, 'start' | 'end' | 'started_at' | 'ended_at' | 'paused_at' | 'paused_min'>;
+
 /** Where Partly's slider starts: the estimate less this block, or the block's own length once that's used up. */
-export function partlyLeft(task: Pick<Task, 'remaining_min' | 'estimate_min'>, block: { start: Instant; end: Instant }): Minutes {
-  const length = blockMinutes(block);
+export function partlyLeft(task: Pick<Task, 'remaining_min' | 'estimate_min'>, block: Timed): Minutes {
+  const length = workMinutes(block);
   const left = (task.remaining_min ?? task.estimate_min ?? 0) - length;
   return left > 0 ? left : length;
+}
+
+/** Paused now: a pause under way on a block not yet ended or answered, since either wins over a pause. */
+export const isPaused = (b: Timed & { result?: BlockResult | null }): boolean => !!b.paused_at && !b.ended_at && !b.result;
+
+/** A block's pauses as of a moment: those over, and one under way up to then. */
+const pausedMs = (b: Timed, at: number) => (b.paused_min ?? 0) * MINUTE_MS + (b.paused_at ? Math.max(0, at - instantMs(b.paused_at)) : 0);
+
+/**
+ * Time spent on a block, pauses left out: from Start, or its start, until work stopped, which is when it ended, else its
+ * end, and no later than now. A pause still under way stopped it earlier, even when another device's end came after.
+ */
+export function timeSpentMs(b: Timed, now: number): number {
+  const stop = Math.min(now, instantMs(b.ended_at ?? b.end));
+  return Math.max(0, stop - instantMs(b.started_at ?? b.start) - pausedMs(b, stop));
+}
+
+/** The countdown: from now to the end, or frozen where a pause under way stopped it. */
+export function timeLeftMs(b: Timed, now: number): number {
+  const from = b.paused_at && !b.ended_at ? Math.min(now, instantMs(b.paused_at)) : now;
+  return Math.max(0, instantMs(b.end) - from);
+}
+
+/** How full the time-spent ring is: time spent against time spent plus time left, so it always agrees with the countdown. */
+export function ringFill(b: Timed, now: number): number {
+  const spent = timeSpentMs(b, now);
+  const total = spent + timeLeftMs(b, now);
+  return total > 0 ? spent / total : 0;
+}
+
+/** '9 min', or '1h 10m' past an hour. */
+export const pauseWords = (minutes: Minutes) => (minutes < 60 ? `${minutes} min` : formatMinutes(minutes));
+
+/**
+ * The end question's line on a started block: '1h spent, 9 min paused.', or for a pause still under way
+ * '22m spent. Paused at 10:22am.' Null for a block never started, whose time spent nobody recorded.
+ */
+export function spentLine(b: Timed & { result?: BlockResult | null }, zone: string, now: number): string | null {
+  if (!b.started_at) return null;
+  const spent = `${formatMinutes(Math.round(timeSpentMs(b, now) / MINUTE_MS))} spent`;
+  if (isPaused(b)) return `${spent}. Paused at ${formatTime(b.paused_at!, zone)}.`;
+  return b.paused_min ? `${spent}, ${pauseWords(b.paused_min)} paused.` : `${spent}.`;
+}
+
+/**
+ * A block's length less its pauses, which is its time spent when it started on time: what a practice logs in full, and
+ * what Partly counts as done.
+ */
+export function workMinutes(b: Timed): Minutes {
+  const end = instantMs(b.end);
+  return Math.max(0, Math.round((end - instantMs(b.start) - pausedMs(b, end)) / MINUTE_MS));
 }
 
 export interface BlockAnswer {
@@ -141,11 +195,43 @@ export async function answerBlocks(w: Writer, answers: readonly BlockAnswerFor[]
   return { writes: reverse, freed };
 }
 
-/** Ends the block in progress now and answers Done, so the rest of its time is free again. */
+/**
+ * Ends the block in progress now and answers Done, so the rest of its time is free again. A paused block resumes first,
+ * so its pause is counted out of the time spent.
+ */
 export async function markDoneNow(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {
+  const resumed = await resumeBlock(w, blockId, clock);
   const ended = await change(w, 'time_block', blockId, { ended_at: nowInstant(clock) });
   const answered = await answerBlock(w, blockId, { result: 'done' }, clock);
-  return { writes: [...answered.writes, ...ended.writes] };
+  return { writes: [...answered.writes, ...ended.writes, ...resumed.writes] };
+}
+
+async function answered(w: Writer, blockId: string): Promise<boolean> {
+  const outcome = await getRecord(w.sql, 'block_outcome', outcomeId(blockId));
+  return !!outcome && !outcome.deleted_at;
+}
+
+/** Pause: the countdown and the time spent stop here. Only a started block under way that isn't paused, ended or answered. */
+export async function pauseBlock(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {
+  const block = await readBlock(w, blockId);
+  if (!block.started_at || block.ended_at || block.paused_at || clock.now() >= instantMs(block.end) || (await answered(w, blockId))) {
+    return { writes: [] };
+  }
+  return change(w, 'time_block', blockId, { paused_at: nowInstant(clock) });
+}
+
+/**
+ * Resume: the countdown picks up where it stopped, and the end and paused_min move on by the pause in whole minutes,
+ * written as values so two devices' writes never add up twice. A pause under 30 seconds moves neither. Returns the end,
+ * and the minutes it moved, for the toast.
+ */
+export async function resumeBlock(w: Writer, blockId: string, clock: Clock): Promise<PlanChange & { minutes: Minutes; end: Instant }> {
+  const block = await readBlock(w, blockId);
+  if (!block.paused_at || block.ended_at || (await answered(w, blockId))) return { writes: [], minutes: 0, end: block.end };
+  const minutes = Math.max(0, Math.round((clock.now() - instantMs(block.paused_at)) / MINUTE_MS));
+  const end = toInstant(instantMs(block.end) + minutes * MINUTE_MS);
+  const moved = minutes ? { paused_min: (block.paused_min ?? 0) + minutes, end } : {};
+  return { ...(await change(w, 'time_block', blockId, { paused_at: null, ...moved })), minutes, end };
 }
 
 export function startBlock(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {

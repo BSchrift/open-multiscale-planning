@@ -1,7 +1,19 @@
 // What a person can do to a block, as one transaction each with the message that follows. Today and Week share it.
 
 import { useCallback } from 'react';
-import { answerBlock, answerBlocks, extendBlock, markDoneNow, startBlock, startEarly, swapBlocks, unscheduleBlock } from '../../../core/blocks';
+import {
+  answerBlock,
+  answerBlocks,
+  extendBlock,
+  markDoneNow,
+  pauseBlock,
+  resumeBlock,
+  startBlock,
+  startEarly,
+  swapBlocks,
+  timeSpentMs,
+  unscheduleBlock,
+} from '../../../core/blocks';
 import type { BlockAnswer, BlockAnswerFor } from '../../../core/blocks';
 import { formatMinutes, formatTime, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
@@ -52,13 +64,29 @@ export function useBlockActions() {
       if (reverse) toast.show(message(freed), { undo: () => run((w) => applyPlanChange(w, reverse)) });
       return !!reverse;
     },
-    markDoneNow: (block: BlockRow, next: BlockRow | undefined) =>
-      withUndo(
+    /** Says the time spent, pauses left out, on a block started a minute or more ago. */
+    markDoneNow: (block: BlockRow, next: BlockRow | undefined) => {
+      const minutes = block.started_at ? Math.round(timeSpentMs(block, clock.now()) / 60_000) : 0;
+      const spent = minutes ? ` after ${formatMinutes(minutes)}` : '';
+      return withUndo(
         (w) => markDoneNow(w, block.id, clock),
-        next ? `Marked done. You're free until ${formatTime(next.start, clock.zone())}.` : 'Marked done. Nothing else planned today.',
+        `Marked done${spent}. ${next ? `You're free until ${formatTime(next.start, clock.zone())}.` : 'Nothing else planned today.'}`,
         // The Mark done now button unmounts with its block, so focus would otherwise fall to the page.
         true,
-      ),
+      );
+    },
+    /** No toast: tapping the ring again is Pause's undo, and a pause under 30 seconds leaves no trace. */
+    pause: (block: BlockRow) => run((w) => pauseBlock(w, block.id, clock)),
+    /** Resume says where the end moved, with Undo, unless the pause was too short to move it. */
+    resume: async (block: BlockRow) => {
+      let end = '';
+      const reverse = await run(async (w) => {
+        const resumed = await resumeBlock(w, block.id, clock);
+        if (resumed.minutes) end = resumed.end;
+        return resumed;
+      });
+      if (reverse && end) toast.show(`Resumed. It now ends at ${formatTime(end, clock.zone())}.`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
+    },
     /** Skip, choose a new time later: off the calendar and into To schedule, still in its week. */
     skip: (block: BlockRow) =>
       withUndo(

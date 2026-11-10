@@ -109,6 +109,85 @@ describe('the Now card', () => {
     expect(await screen.findByText('Nothing else planned today.')).toBeVisible();
   });
 
+  describe('the time-spent ring', () => {
+    const running = async (w: Writer) => {
+      await day(w);
+      await w.set('time_block', 'b1', { started_at: at('13:00') });
+    };
+    const later = (t: Harness, minutes: number) => act(() => t.clock.set(Date.parse(NOW) + minutes * 60_000));
+
+    it('shows the time spent once started, and tapping it pauses: the countdown stops and the card says when it ends', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }));
+      const ring = await within(now).findByRole('button', { name: 'Resume, 1 hour spent, 50% of the block' });
+      // Focus stays on the ring, which now resumes, and no toast: tapping it again is Pause's undo.
+      expect(ring).toHaveFocus();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at).toBe(NOW);
+      expect(within(now).getByText('Ends at 3pm unless you resume.')).toBeVisible();
+      later(t, 9);
+      expect(await within(now).findByText('Paused for 9 min', {}, { timeout: 2000 })).toBeVisible();
+      expect(within(now).getByRole('timer')).toHaveTextContent('1:00:00');
+    });
+
+    it('Resume moves the end later by the pause, says so with Undo, and Undo pauses it again', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      await userEvent.click(within(now).getByRole('button', { name: /^Resume, / }));
+      expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') });
+      expect(within(now).getByText('Now, 1pm to 3:09pm')).toBeVisible();
+      expect(await within(now).findByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }, { timeout: 2000 })).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
+    });
+
+    it('a quick second tap leaves no trace and no toast', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await userEvent.click(await within(now).findByRole('button', { name: /^Resume, / }));
+      await within(now).findByRole('button', { name: /^Pause, / });
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, end: at('15:00') });
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+
+    it('the ⓘ shows what the ring and its signs mean, and hides it again', async () => {
+      await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      const info = within(now).getByRole('button', { name: 'What the ring means' });
+      expect(info).toHaveAttribute('aria-expanded', 'false');
+      await userEvent.click(info);
+      expect(info).toHaveAttribute('aria-expanded', 'true');
+      const key = within(now).getByRole('group', { name: 'Key' });
+      expect(within(key).getByText('Time spent, filling toward the end')).toBeVisible();
+      expect(within(key).getByText('Tap the ring to pause the countdown')).toBeVisible();
+      expect(within(key).getByText('Resume, and the end moves later')).toBeVisible();
+      await userEvent.click(info);
+      expect(within(now).queryByRole('group', { name: 'Key' })).toBeNull();
+    });
+
+    it('is not there before Start', async () => {
+      await open(day);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await within(now).findByRole('button', { name: 'Start' });
+      expect(within(now).queryByRole('button', { name: /^Pause, / })).toBeNull();
+    });
+
+    it('Mark done now says the time spent, pauses left out', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      later(t, 9);
+      await userEvent.click(within(now).getByRole('button', { name: 'Mark done now' }));
+      expect(await screen.findByText("Marked done after 1h. You're free until 4pm.")).toBeVisible();
+    });
+  });
+
   it('on phone, Mark done now appears once the block is started', async () => {
     await open(day, { layout: 'phone' });
     const now = await screen.findByRole('region', { name: 'Current block' });
@@ -133,6 +212,31 @@ describe('the end-of-block prompt', () => {
     await userEvent.click(within(prompt).getByRole('button', { name: 'Task finished' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(at('13:00'));
+  });
+
+  it('says the time spent and the pauses on a block that was started', async () => {
+    await open(async (w) => {
+      await task(w, 't1', 'Write the report');
+      await block(w, 'b1', 't1', '12:00', '13:09', { started_at: at('12:00'), paused_min: 9 });
+    });
+    const prompt = await dialog('Block finished');
+    expect(within(prompt).getByText('1h spent, 9 min paused.')).toBeVisible();
+    expect(within(prompt).getByRole('button', { name: 'Still going, add 30m' })).toBeVisible();
+  });
+
+  it('a pause still running at the end offers Resume with the time left in place of Still going', async () => {
+    const t = await open(async (w) => {
+      await task(w, 't1', 'Write the report');
+      await block(w, 'b1', 't1', '13:00', '13:50', { started_at: at('13:00'), paused_at: at('13:22') });
+    });
+    const prompt = await dialog('Block finished');
+    expect(within(prompt).getByText('22m spent. Paused at 1:22pm.')).toBeVisible();
+    expect(within(prompt).queryByRole('button', { name: /Still going/ })).toBeNull();
+    await userEvent.click(within(prompt).getByRole('button', { name: 'Resume, 28m left' }));
+    expect(await screen.findByText('Resumed. It now ends at 2:28pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 38, end: at('14:28') });
+    const now = screen.getByRole('region', { name: 'Current block' });
+    expect(await within(now).findByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
   });
 
   it('Partly sets the time left on a slider that starts at what is left', async () => {

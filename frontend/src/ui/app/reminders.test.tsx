@@ -6,6 +6,7 @@ import { getRecord, outcomeId } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { REMINDER_ACTION } from '../../core/reminders';
 import type { AppSync } from '../../core/syncRunner';
+import type { Reminder } from '../../core/types';
 import type { Route } from './nav';
 import { renderApp } from './testing';
 import type { HarnessOptions } from './testing';
@@ -87,6 +88,32 @@ describe('reminders', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
     await respond(t, REMINDER_ACTION.stillGoing);
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16, 30)));
+  });
+
+  describe('a pause running to the end', () => {
+    const paused = (w: Writer) => w.set('time_block', 'b1', { started_at: at(15), paused_at: at(15, 22) });
+
+    it('the end notification offers Resume with the time left, which resumes it', async () => {
+      const t = await open();
+      await t.write(paused);
+      let end: Reminder | undefined;
+      await waitFor(async () => {
+        end = (await t.scheduled()).find((r) => r.kind === 'block_end');
+        expect(end?.actions.map((a) => a.title)).toEqual(['Resume, 38m left', 'Partly', 'Not done']);
+      });
+      expect(end!.body).toBe('22m spent. Paused at 3:22pm. Did you finish Write the report?');
+      act(() => t.clock.set(at(16, 5)));
+      await act(() => t.platform.notifications.respond({ reminder_id: end!.id, block_id: 'b1', action_id: REMINDER_ACTION.resume }));
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 43, end: at(16, 43) }));
+    });
+
+    it('Still going on a notification shown before the pause resumes it rather than adding 30 minutes', async () => {
+      const t = await open();
+      await t.write(paused);
+      act(() => t.clock.set(at(16, 5)));
+      await respond(t, REMINDER_ACTION.stillGoing);
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, end: at(16, 43) }));
+    });
   });
 
   it('never finishes a task from a notification: Done left on an old one opens Today to ask', async () => {

@@ -18,6 +18,7 @@ func TestUnknownRoutesAndMethodsAreNotFound(t *testing.T) {
 		{"GET", "/"}, {"POST", "/"}, {"GET", "/nothing"}, {"POST", "/sync/extra"}, {"POST", "/calendar"},
 		{"GET", "/sync"}, {"PUT", "/sync"}, {"DELETE", "/sync"},
 		{"GET", "/calendar/connect"}, {"GET", "/calendar/refresh"}, {"GET", "/calendar/disconnect"}, {"POST", "/calendar/callback"}, {"GET", "/v1/logs"},
+		{"GET", "/files/upload"}, {"GET", "/files/download"}, {"POST", "/files/usage"}, {"PUT", "/files/upload"},
 	} {
 		for _, token := range []string{"", a.tokens.access} {
 			if res := request(t, route[0], route[1], token, nil); res.status != 404 {

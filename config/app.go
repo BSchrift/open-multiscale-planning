@@ -35,7 +35,8 @@ var envNames = []string{"local", "staging", "prod"}
 
 // EnvConfig is one environment's settings.
 type EnvConfig struct {
-	Stack Stack `yaml:"stack" json:"stack"`
+	Stack       Stack            `yaml:"stack" json:"stack"`
+	Attachments AttachmentQuotas `yaml:"attachments" json:"attachments"`
 }
 
 // Stack is how the environment's AWS stack is deployed.
@@ -59,6 +60,25 @@ func (s Stack) check() []string {
 	return problems
 }
 
+// AttachmentQuotas is how much each person may store and move, in bytes and counts.
+type AttachmentQuotas struct {
+	DefaultQuotaBytes    int `yaml:"defaultQuotaBytes" json:"defaultQuotaBytes"`
+	UploadsPerHour       int `yaml:"uploadsPerHour" json:"uploadsPerHour"`
+	DownloadBytesPerHour int `yaml:"downloadBytesPerHour" json:"downloadBytesPerHour"`
+}
+
+// check is what positive can't see: a quota or an hour's downloads that no file fits in.
+func (q AttachmentQuotas) check(files Attachments) []string {
+	var problems []string
+	if q.DefaultQuotaBytes < files.MaxFileBytes {
+		problems = append(problems, fmt.Sprintf("attachments.defaultQuotaBytes is %d, under the %d bytes one file may take", q.DefaultQuotaBytes, files.MaxFileBytes))
+	}
+	if q.DownloadBytesPerHour < files.MaxFileBytes {
+		problems = append(problems, fmt.Sprintf("attachments.downloadBytesPerHour is %d, under the %d bytes one file may take", q.DownloadBytesPerHour, files.MaxFileBytes))
+	}
+	return problems
+}
+
 // ForEnv is an environment's settings, by its name. Any other name is an error, so a Lambda given a wrong ENV_NAME
 // stops at start.
 func ForEnv(name string) (EnvConfig, error) {
@@ -70,10 +90,11 @@ func ForEnv(name string) (EnvConfig, error) {
 }
 
 type ProtocolConfig struct {
-	Sync      Sync      `yaml:"sync" json:"sync"`
-	Records   Records   `yaml:"records" json:"records"`
-	Clock     Clock     `yaml:"clock" json:"clock"`
-	Telemetry Telemetry `yaml:"telemetry" json:"telemetry"`
+	Sync        Sync        `yaml:"sync" json:"sync"`
+	Records     Records     `yaml:"records" json:"records"`
+	Clock       Clock       `yaml:"clock" json:"clock"`
+	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
+	Attachments Attachments `yaml:"attachments" json:"attachments"`
 }
 
 // Sync is the sync API's limits.
@@ -100,6 +121,14 @@ type Telemetry struct {
 	MaxBatchEvents int `yaml:"maxBatchEvents" json:"maxBatchEvents"`
 }
 
+// Attachments is what the server and the apps agree on about photos and files on tasks.
+type Attachments struct {
+	MaxFileBytes      int      `yaml:"maxFileBytes" json:"maxFileBytes"`
+	MaxPerTask        int      `yaml:"maxPerTask" json:"maxPerTask"`
+	MaxIDsPerDownload int      `yaml:"maxIdsPerDownload" json:"maxIdsPerDownload"`
+	ContentTypes      []string `yaml:"contentTypes" json:"contentTypes"`
+}
+
 const (
 	// A sync request's changes and the user's counter are written in one DynamoDB transaction, of 100 actions at most.
 	transactionActions = 100
@@ -109,7 +138,13 @@ const (
 	// CodeDeploy's quotas for a Lambda deployment.
 	maxCanaryPercent = 99
 	maxCanaryMinutes = 2880
+	// The most one S3 PUT takes, and the most keys one DynamoDB batch read takes.
+	maxPutBytes   = 5 << 30
+	batchReadKeys = 100
 )
+
+// mediaType is a content type with no parameters, as an attachment's record names it.
+var mediaType = regexp.MustCompile(`^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$`)
 
 func (p ProtocolConfig) check() []string {
 	s := p.Sync
@@ -131,6 +166,24 @@ func (p ProtocolConfig) check() []string {
 		problems = append(problems, fmt.Sprintf("clock.pattern doesn't compile: %v", err))
 	} else if clock.NumSubexp() != 3 {
 		problems = append(problems, fmt.Sprintf("clock.pattern has %d groups, not the 3 for wall time, counter and device", clock.NumSubexp()))
+	}
+	a := p.Attachments
+	if a.MaxFileBytes > maxPutBytes {
+		problems = append(problems, fmt.Sprintf("attachments.maxFileBytes is %d, but one S3 PUT takes at most %d", a.MaxFileBytes, maxPutBytes))
+	}
+	if a.MaxIDsPerDownload > batchReadKeys-1 {
+		problems = append(problems, fmt.Sprintf("attachments.maxIdsPerDownload is %d, but the files and the rate counter share one batch read of %d keys", a.MaxIDsPerDownload, batchReadKeys))
+	}
+	seen := map[string]bool{}
+	for _, kind := range a.ContentTypes {
+		switch {
+		case kind == "":
+		case !mediaType.MatchString(kind):
+			problems = append(problems, fmt.Sprintf("attachments.contentTypes has %q, which isn't a lowercase type/subtype with no parameters", kind))
+		case seen[kind]:
+			problems = append(problems, fmt.Sprintf("attachments.contentTypes has %q twice", kind))
+		}
+		seen[kind] = true
 	}
 	return problems
 }
@@ -171,7 +224,8 @@ func load(fsys fs.FS) (ProtocolConfig, map[string]EnvConfig, error) {
 		case err != nil:
 			problems = append(problems, err)
 		default:
-			for _, problem := range append(positive(reflect.ValueOf(env), ""), env.Stack.check()...) {
+			found := append(positive(reflect.ValueOf(env), ""), env.Stack.check()...)
+			for _, problem := range append(found, env.Attachments.check(protocol.Attachments)...) {
 				problems = append(problems, fmt.Errorf("%s: %s", file, problem))
 			}
 			envs[name] = env
@@ -244,7 +298,8 @@ func fields(t reflect.Type, prefix string) []string {
 	return out
 }
 
-// positive names every number that isn't above zero and every empty string. Every limit and count here needs a value.
+// positive names every number that isn't above zero, every empty string and every empty list. Every limit and count
+// here needs a value.
 func positive(v reflect.Value, prefix string) []string {
 	var problems []string
 	for i := range v.NumField() {
@@ -259,6 +314,15 @@ func positive(v reflect.Value, prefix string) []string {
 		case reflect.String:
 			if field.String() == "" {
 				problems = append(problems, name+" must be set")
+			}
+		case reflect.Slice:
+			if field.Len() == 0 {
+				problems = append(problems, name+" must list at least one")
+			}
+			for j := range field.Len() {
+				if item := field.Index(j); item.Kind() == reflect.String && item.String() == "" {
+					problems = append(problems, fmt.Sprintf("%s[%d] must be set", name, j))
+				}
 			}
 		}
 	}

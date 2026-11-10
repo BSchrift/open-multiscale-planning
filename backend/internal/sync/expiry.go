@@ -78,6 +78,10 @@ type Cleanup struct {
 	ReadUnitsPerSecond int
 	// Wait waits between pages. Nil waits on a timer, and stops early if ctx ends.
 	Wait func(ctx context.Context, d time.Duration) error
+	// Removing, when set, runs before each record the cleanup removes, with its pk and sk, so what hangs off a record goes
+	// with it, as when TTL removes one: an attachment's file. Before, not after: an error stops the run with the record
+	// still there, so a later run tries both again.
+	Removing func(ctx context.Context, pk, sk string) error
 }
 
 // CleanupStats is what one run did, for its log line.
@@ -131,6 +135,11 @@ func (c *Cleanup) pass(ctx context.Context, now time.Time) (CleanupStats, error)
 			}
 			if !settled {
 				continue
+			}
+			if c.Removing != nil {
+				if err := c.Removing(ctx, pk, sk); err != nil {
+					return stats, err
+				}
 			}
 			ok, err := c.remove(ctx, pk, sk, seq)
 			if err != nil {

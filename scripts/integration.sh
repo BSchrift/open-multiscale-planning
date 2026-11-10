@@ -63,7 +63,7 @@ start_local_stack() {
   moto="$(stack SSM_ENDPOINT)"
   INTEGRATION_API_URL="$(stack LOCAL_API_URL)"
   INTEGRATION_LOGS="$(stack LOCAL_LOGS)"
-  export INTEGRATION_API_URL INTEGRATION_LOGS INTEGRATION_SSM_ENDPOINT="$moto"
+  export INTEGRATION_API_URL INTEGRATION_LOGS INTEGRATION_SSM_ENDPOINT="$moto" INTEGRATION_DYNAMODB_ENDPOINT="$dynamodb"
 }
 
 [ "$env_name" = local ] && start_local_stack

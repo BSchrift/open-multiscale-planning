@@ -47,14 +47,14 @@ type Stack struct {
 	ThrottleReleaseAlarm bool `yaml:"throttleReleaseAlarm" json:"throttleReleaseAlarm"`
 }
 
-// check is what positive can't see: the limits CodeDeploy puts on a Lambda canary.
+// check is what positive can't see: the limits CodeDeploy and CloudFormation put on a Lambda canary.
 func (s Stack) check() []string {
 	var problems []string
 	if s.CanaryPercent > maxCanaryPercent {
 		problems = append(problems, fmt.Sprintf("stack.canaryPercent is %d, but CodeDeploy shifts at most %d%% in one step", s.CanaryPercent, maxCanaryPercent))
 	}
 	if s.CanaryMinutes > maxCanaryMinutes {
-		problems = append(problems, fmt.Sprintf("stack.canaryMinutes is %d, but CodeDeploy waits at most %d minutes between the first and last shift", s.CanaryMinutes, maxCanaryMinutes))
+		problems = append(problems, fmt.Sprintf("stack.canaryMinutes is %d, but CloudFormation stops waiting for the alias after about 2 hours, so it can be at most %d", s.CanaryMinutes, maxCanaryMinutes))
 	}
 	return problems
 }
@@ -106,9 +106,11 @@ const (
 	// Lambda refuses a request over 6 MB before any code runs, and the event around the body takes some of that.
 	lambdaRequestBytes = 6 << 20
 	eventRoomBytes     = 256 << 10
-	// CodeDeploy's quotas for a Lambda deployment.
+	// CodeDeploy shifts at most 99% in one step. It would wait 2,880 minutes, but CloudFormation stops waiting for a Lambda
+	// alias's deployment after about 2 hours and rolls the stack back: every prod release with a day's canary did, on
+	// 2026-11-09. The check before traffic and the last shift need some of those 2 hours too.
 	maxCanaryPercent = 99
-	maxCanaryMinutes = 2880
+	maxCanaryMinutes = 100
 )
 
 func (p ProtocolConfig) check() []string {

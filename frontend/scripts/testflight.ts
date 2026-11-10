@@ -27,6 +27,8 @@ export interface AscKey {
  * The App Store Connect key in the config folder: AuthKey_<key id>.p8, as App Store Connect names it on download, and
  * its issuer id in asc-issuer-id beside it. Errors name what's wrong, never what the files hold.
  */
+// shortcut: the same rules as notarizeEnv in mac-signing.ts, copied since a script Node runs directly can only import it
+// as mac-signing.ts, which this tsconfig refuses; share one once it sets allowImportingTsExtensions.
 export function ascKey(dir: string): AscKey {
   const keys = existsSync(dir) ? readdirSync(dir).filter((name) => /^AuthKey_.*\.p8$/.test(name)) : [];
   const issuerFile = join(dir, 'asc-issuer-id');

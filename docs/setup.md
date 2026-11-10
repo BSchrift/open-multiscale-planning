@@ -411,7 +411,7 @@ The Apple Developer Program costs about $99 a year; check the current price when
 
    Every Mac build now signs with it, and with the hardened runtime. A Mac without one, such as a contributor's, still builds the app, signed ad hoc.
 6. Let `codesign` use the certificate's key without asking, since a build can't answer a prompt: in **Keychain Access**, under **login > My Certificates**, expand the certificate, open its private key, and under **Access Control** add `/usr/bin/codesign`.
-7. Make the key that notarizes it. In App Store Connect, open **Users and Access > Integrations > App Store Connect API** and generate a team key with **Developer** access. Download it, which you can do only once, and move it into your config folder with the name it came with, `AuthKey_<key id>.p8`. Save the **Issuer ID** shown above the keys beside it:
+7. Make the key that notarizes it. In App Store Connect, open **Users and Access > Integrations > App Store Connect API** and generate a team key with **Developer** access, or **Admin** to upload to TestFlight as well (see [TestFlight](#testflight)). Download it, which you can do only once, and move it into your config folder with the name it came with, `AuthKey_<key id>.p8`. Save the **Issuer ID** shown above the keys beside it:
 
    ```sh
    echo '<issuer id>' > "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
@@ -437,13 +437,7 @@ With a paid membership, testers can install the iPhone app from TestFlight inste
 
 Once:
 
-1. **The App Store Connect key.** In App Store Connect, open **Users and Access > Integrations > App Store Connect API** and generate a team key with **Admin** access. Signing for App Store Connect uses Apple's cloud-managed distribution certificates, and a key with less access is refused them. Download the key, which you can do only once, and move it into your config folder with the name it came with, `AuthKey_<key id>.p8`. Keep only one key there. Save the **Issuer ID** shown above the keys beside it:
-
-   ```sh
-   echo '<issuer id>' > "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
-   chmod 600 "$MULTISCALE_CONFIG_DIR"/AuthKey_*.p8 "$MULTISCALE_CONFIG_DIR/asc-issuer-id"
-   ```
-
+1. **The App Store Connect key** from step 15, with **Admin** access. Signing for App Store Connect uses Apple's cloud-managed distribution certificates, and keys with Developer or App Manager access are refused them. If your key has less, generate an Admin one the same way and swap it for the old one, since the config folder holds only one. The issuer id stays the same.
 2. **The share sheet's App Group.** A build from the command line can't register it, so register it once in the [developer account](https://developer.apple.com/account/resources/identifiers/list/applicationGroup): add `group.<bundle id>`, where the bundle id is `MULTISCALE_BUNDLE_ID` from `frontend/ios/App/Config.xcconfig` or your `Config.local.xcconfig`. Then open the identifiers `<bundle id>` and `<bundle id>.share`, and on each, choose **Configure** beside **App Groups** and select it.
 3. **Check the signing.** `make testflight EXPORT_ONLY=1` archives and exports the app without uploading it, and says where it put it.
 4. **The app record.** In App Store Connect, choose **Apps > + > New App**: iOS, a name, your bundle id and any SKU. Then fill in the app's **TestFlight > Test Information**.

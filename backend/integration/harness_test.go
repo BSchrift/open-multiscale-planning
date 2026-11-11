@@ -616,6 +616,12 @@ func (a *account) get(recordType, id string) (record, bool) {
 	return find(all, recordType, id)
 }
 
+// A test user's records share one partition, which DynamoDB holds to about 1,000 write units a second. A full batch
+// costs up to about 800 of them, since the by_seq index copies each record and a transaction bills twice, so writes of
+// full batches wait this long after the last one. Two back to back throttle, and prod's throttle alarm then stops the
+// next release.
+const fullBatchPause = time.Second
+
 // cleanUp tombstones what the test pushed and empties its fields. There's no hard delete in the API, so these rows stay
 // as deleted records in the test user's own partition, where unique ids keep them out of any later run's way. Emptied,
 // they stay small: every new device pulls them all, and the large-record tests alone left tens of megabytes before.
@@ -628,7 +634,7 @@ func (a *account) cleanUp() {
 	written, _ := a.pullAll(a.base)
 	var batch []record
 	// An update is billed at the size it replaces, so emptying large records goes a few at a time, paced under the
-	// partition's write rate.
+	// partition's write rate, and so do full batches, which also follow the test's own last write.
 	size := 0
 	for key := range a.pushed {
 		pairs := []any{"deleted_at", stamp}
@@ -642,10 +648,8 @@ func (a *account) cleanUp() {
 		}
 		batch = append(batch, a.record(key[0], key[1], pairs...))
 		if len(batch) == maxChanges || size >= 200<<10 {
+			time.Sleep(fullBatchPause)
 			a.sync(a.startCursor(), batch...)
-			if size >= 200<<10 {
-				time.Sleep(500 * time.Millisecond)
-			}
 			batch, size = nil, 0
 		}
 	}

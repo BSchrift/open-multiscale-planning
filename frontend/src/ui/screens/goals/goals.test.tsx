@@ -446,6 +446,19 @@ describe('Goals', () => {
       expect(within(screen.getByRole('form', { name: 'Add project' })).getByLabelText('Ends')).toHaveValue('2027-02-02');
     });
 
+    // Planning the next quarter, Jan 1 to Mar 31, opens a week before this one ends, on Dec 24.
+    it.each([
+      ['with this stretch before planning the next one opens', '2026-12-20T18:00:00Z', '2026-10-01', '2026-12-31'],
+      ['with the next stretch once its planning opens', '2026-12-26T18:00:00Z', '2026-10-01', '2027-03-31'],
+      ['with the next stretch once it has been planned', '2026-12-20T18:00:00Z', '2027-01-01', '2027-03-31'],
+    ])('ends a new project %s', async (_, now, lastPlanned, end) => {
+      const planned = async (w: Writer) => (await bread(w), updateSettings(w, { plan_stretch: { last_planned: lastPlanned } }));
+      await renderScreen('goals', { layout, now, seed: planned });
+      await userEvent.click(await screen.findByRole('button', { name: /Learn to bake bread/ }));
+      await userEvent.click(screen.getByRole('button', { name: layout === 'phone' ? '+ Project' : 'Add project' }));
+      expect(within(screen.getByRole('form', { name: 'Add project' })).getByLabelText('Ends')).toHaveValue(end);
+    });
+
     it('asks the overdue question: Move date previews the status, logs the change with Undo and a badge', async () => {
       const t = await project(layout);
       const fix = await screen.findByRole('group', { name: 'Make a starter was due Oct 25' });

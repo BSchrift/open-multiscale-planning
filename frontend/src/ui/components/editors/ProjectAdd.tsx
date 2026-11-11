@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { addMonths, formatDate, isDay, today } from '../../../core/dates';
-import { currentStretch } from '../../../core/plan';
+import { currentStretch, planStretch } from '../../../core/plan';
 import { getSettings } from '../../../core/records';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
@@ -17,9 +17,10 @@ export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: stri
   const [title, setTitle] = useState('');
   const [start, setStart] = useState(on);
   const settings = useQuery((sql) => getSettings(sql), []).data;
-  // The end of the stretch being planned, or 3 months without a cadence, until the person picks one.
+  // The end of the stretch being planned, the next one once its planning opens, or 3 months without a cadence, until the
+  // person picks one.
   const [picked, setEnd] = useState<string | null>(null);
-  const end = picked ?? (settings && currentStretch(settings, on)?.end) ?? addMonths(on, 3);
+  const end = picked ?? (settings && currentStretch(settings, on) ? planStretch(settings, on).end : addMonths(on, 3));
   const [error, setError] = useState('');
   const add = useMutation((w, name: string) =>
     w.create('project', { objective_id: props.objectiveId, title: name, state: 'active', start, end }),

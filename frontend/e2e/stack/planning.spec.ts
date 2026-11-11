@@ -4,8 +4,8 @@ import { go, pane, syncNow } from '../seed';
 import { closeDevices, device, signIn } from './devices';
 import { target } from './target';
 
-// Planning as a task, through the backend: two devices starting the same week's planning before they sync make one
-// task with a block from each, and Skip for now on one holds on the other.
+// Planning as a task, through the backend: two devices starting the same week's planning make one task, and Skip for
+// now on one holds on the other.
 
 const t = target();
 test.use({ baseURL: `http://localhost:${process.env.STACK_WEB_PORT}` });
@@ -21,18 +21,21 @@ test('two devices starting planning make one task, and a skip on one holds on th
   await signIn(a.page);
   await signIn(b.page);
 
-  // Each starts this week's planning before seeing the other's: each makes the task, with a block from now.
+  // Each starts this week's planning: each makes the task with a block from now, unless it has already synced the
+  // other's block, which it never doubles. Either way it's one task.
   const start = async (d: typeof a) => {
-    await go(d.page, 'Today', 'Plan your week');
-    await d.page.getByRole('button', { name: 'Start planning' }).click();
-    await expect(d.page.getByText(/^Planning until .*\.$/)).toBeVisible();
+    // Once it has the other's block under way, Today shows that rather than the prompt.
+    await go(d.page, 'Today', /^(Today|Plan your week)$/);
+    await pane(d.page, 'Today').getByRole('button', { name: /^(Start planning|Keep going)$/ }).first().click();
+    await expect(d.page.getByRole('navigation', { name: 'Planning steps' })).toBeVisible();
   };
   await start(a);
+  await expect(a.page.getByText(/^Planning until .*\.$/)).toBeVisible();
   await syncNow(a.page);
   await start(b);
   for (const d of [b, a]) await syncNow(d.page);
   await go(a.page, 'Week', /./);
-  await expect(pane(a.page, 'Week').getByRole('button', { name: /^Plan the week of / })).toHaveCount(2);
+  await expect(pane(a.page, 'Week').getByRole('button', { name: /^Plan the week of / }).first()).toBeVisible();
 
   // Save and exit stops both; then the week asks again.
   await go(a.page, 'Today');

@@ -293,13 +293,13 @@ make test-e2e ENV=staging
 
 This builds the app from `staging.outputs.json`, signs in through the Cognito sign-in page as `integration.testUser`, with its password from SSM, and runs only the signed-in tests. Everything they create is deleted at the end, apart from the test user's settings. The sign-in expiry test needs the local stack's clock, so it's listed as skipped. Against prod it also needs `CONFIRM_PROD=yes`, and the same callback in `prod.yaml`.
 
-Before a release, check this checkout's web bundle against the one prod serves, on the same callback:
+Before a release, check this checkout's web bundle against the oldest one prod serves, on the same callback:
 
 ```sh
 make test-compat ENV=staging
 ```
 
-This reads prod's version from its `version.json`, builds the web bundle at that commit and at this checkout, both for staging, and serves them from `http://localhost:5199`. One browser opens each in turn on the same data, as an update and a rollback after a failed trial do on a device, and then an old and a new device sign in as the test user and sync captures, dates, ticks and deletes both ways. `BASE=<commit>` picks a different old bundle. `make test-deployed` runs it against staging, and `make test-compat` and `make test-e2e` run it against a local stack, with `origin/main` as the old bundle when there's no config folder, as in CI.
+This reads the version each of prod's surfaces serves, the web app's `version.json` and each feed, and takes the oldest by build (`frontend/scripts/compat-base.ts`), since one person's devices can run all of them at once and the widest gap is the one to test. It builds the web bundle at that version's commit and at this checkout, both for staging, and serves them from `http://localhost:5199`. One browser opens each in turn on the same data, as an update and a rollback after a failed trial do on a device, and then an old and a new device sign in as the test user and sync captures, dates, ticks and deletes both ways. `BASE=<commit>` picks a different old bundle. `make test-deployed` runs it against staging, and `make test-compat` and `make test-e2e` run it against a local stack, with `origin/main` as the old bundle when there's no config folder, as in CI.
 
 The iPhone app's tests can do the same on the Simulator, with the `multiscale://auth/callback` callback that's already in the example config:
 

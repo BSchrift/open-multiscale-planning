@@ -15,8 +15,8 @@ const stackOutputs = JSON.stringify([
 const shell = { electron: 'e1', ios: 'i1' };
 const feedWith = (s: object) => JSON.stringify({ manifest: JSON.stringify({ version: 'old', build: 0, shell: s, files: [] }), signature: 'x' });
 
-// aws answers get-parameter from $PARAMS, a folder of files named like the parameter with / as _, and the live feed
-// from $PARAMS/feed.
+// aws answers get-parameter from $PARAMS, a folder of files named like the parameter with / as _, the live feed from
+// $PARAMS/feed, and the record of a checked Mac app on the downloads host from $PARAMS/checked.
 function sandbox() {
   const s = sandboxRepo('pipeline.sh');
   s.stub('aws', `echo "aws AWS_PROFILE=$AWS_PROFILE $*" >> "$LOG"
@@ -25,7 +25,10 @@ case "$*" in
   *start-pipeline-execution*) echo exec-1;;
   *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
   *get-pipeline-execution*) echo abc1234;;
+  *list-state-machines*) echo arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc;;
+  *list-executions*) echo arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1;;
   *describe-stacks*) echo '${stackOutputs}';;
+  *"s3api head-object"*"--key mac/manifest.json"*) [ -f "$PARAMS/checked" ] || exit 254;;
   *"s3api head-object"*) [ -f "$PARAMS/inbox/manifest.json" ] || exit 254;;
   *--recursive*) cp "$PARAMS/inbox/"* "$(echo "$*" | awk '{print $4}')/";;
   *"s3 cp s3://"*) [ -f "$PARAMS/feed" ] && cat "$PARAMS/feed" || exit 1;;
@@ -77,6 +80,9 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /aws AWS_PROFILE=ms-control codepipeline stop-pipeline-execution --pipeline-name Multiscale --pipeline-execution-id exec-7 --abandon/);
     assert.match(r.stdout, /Stopped run exec-7, at abc1234, before prod/);
+    // And its window, so the email's Promote now link no longer promotes anything.
+    assert.match(s.log(), /stepfunctions list-executions --state-machine-arn arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc --status-filter RUNNING/);
+    assert.match(s.log(), /stepfunctions stop-execution --execution-arn arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1/);
   });
 
   it('stops nothing when no run is waiting before prod', () => {
@@ -86,7 +92,7 @@ describe('scripts/pipeline.sh, from a Mac', () => {
       const r = s.run(['stop']);
       assert.equal(r.status, 0, r.stderr);
       assert.match(r.stdout, /No run is waiting to go to prod/);
-      assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
+      assert.doesNotMatch(s.log(), /stop-pipeline-execution|stop-execution/);
     }
   });
 
@@ -255,12 +261,14 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     return { CODEBUILD_SRC_DIR_Built: builtDir, COMMIT, MAC_INBOX_BUCKET: 'inbox-bucket', MAC_TEAM_ID: 'ABCDE12345', MAC_WAIT_SECONDS: '600', SEVENZIP: '/bin/true' };
   };
 
-  it("checks no Mac app when every feed can take this build's", () => {
+  it("checks no Mac app when every feed can take this build's and the downloads host serves one the pipeline checked", () => {
     const s = configured();
     writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    writeFileSync(join(s.params, 'checked'), '');
     const r = s.run(['mac'], macStep(s, { built: shell, inbox: false }));
     assert.equal(r.status, 0, r.stderr);
-    assert.doesNotMatch(s.log(), /head-object|mac-inbox/);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3api head-object --bucket bucket --key mac\/manifest\.json/);
+    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox/);
     assert.equal(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), 'staging: no new Mac app needed\nprod: no new Mac app needed\n');
   });
 
@@ -273,6 +281,18 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
       // As the pipeline's own role, which may only read the inbox.
       assert.match(s.log(), new RegExp(`aws AWS_PROFILE= s3api head-object --bucket inbox-bucket --key inbox/${COMMIT}/${env}/manifest\\.json`));
       assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} \\S+ ${s.root}/built/web/${env} ${s.root}/built/mac/${env}/dist-electron ENV=undefined SEVENZIP=/bin/true MAC_TEAM_ID=ABCDE12345`));
+      assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
+    }
+  });
+
+  it("checks this commit's Mac app when the downloads host serves none the pipeline checked, though the feed can take the build", () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['mac'], macStep(s, { built: shell }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /staging's downloads host serves no Mac app the pipeline checked/);
+    for (const env of ['staging', 'prod']) {
+      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} `));
       assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
     }
   });
@@ -299,7 +319,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
   const withMac = (s: ReturnType<typeof sandbox>, built: object, dmg: boolean) => {
     const mac = join(s.root, 'mac-apps');
     mkdirSync(join(mac, 'staging'), { recursive: true });
-    if (dmg) writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+    if (dmg) {
+      writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+      writeFileSync(join(mac, 'staging/manifest.json'), '{}');
+    }
     return { ...artifacts(s, built), CODEBUILD_SRC_DIR_MacApps: mac };
   };
 
@@ -309,6 +332,18 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i1' }, true));
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp \S+\/mac-apps\/staging\/Multiscale\.dmg s3:\/\/bucket\/downloads\/Multiscale\.dmg --cache-control public, max-age=300 --content-type application\/x-apple-diskimage\n(.*\n)*.*s3:\/\/bucket\/release\/release\.json/);
+    // And then which checked app the downloads host serves, so later runs need no new one until the feed does.
+    assert.match(s.log(), /s3:\/\/bucket\/downloads\/Multiscale\.dmg (.*\n)*.*s3 cp \S+\/mac-apps\/staging\/manifest\.json s3:\/\/bucket\/mac\/manifest\.json/);
+  });
+
+  it('publishes a checked Mac app when the feed can take the build too, as when the downloads host had none the pipeline checked', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, shell, true));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /s3:\/\/bucket\/downloads\/Multiscale\.dmg/);
+    assert.match(s.log(), /s3:\/\/bucket\/mac\/manifest\.json/);
+    assert.match(s.log(), /s3:\/\/bucket\/release\/release\.json/);
   });
 
   it('publishes nothing when the build needs a new Mac app and the run checked none', () => {

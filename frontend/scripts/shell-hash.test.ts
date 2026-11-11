@@ -91,6 +91,13 @@ describe('shellHash', () => {
     for (const path of ['scripts/mac-signing.ts', 'scripts/entitlements.mac.plist', 'scripts/electron-build.mjs']) expect(isHashed('electron', path), path).toBe(false);
   });
 
+  // Uploading to TestFlight changes nothing a bundle can call, so a TestFlight build takes the same bundles as one from
+  // Xcode. Its Info.plist is in ios/, and counts.
+  it('leaves out how the iPhone app reaches TestFlight', () => {
+    expect(isHashed('ios', 'scripts/testflight.ts')).toBe(false);
+    expect(isHashed('ios', 'ios/App/App/Info.plist')).toBe(true);
+  });
+
   it('picks native packages for each app', () => {
     expect(SHELL_SOURCES.electron.packages('better-sqlite3')).toBe(true);
     expect(SHELL_SOURCES.electron.packages('react')).toBe(false);

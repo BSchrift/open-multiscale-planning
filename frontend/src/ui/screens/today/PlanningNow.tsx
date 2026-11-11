@@ -27,7 +27,8 @@ export function PlanningNow(props: { block: BlockRow; layout: Layout }) {
   const start = useMutation((w) => startBlock(w, block.id, clock));
   const free = useMutation((w) => removeBlock(w, block.id));
   const undo = useMutation((w, reverse: Awaited<ReturnType<typeof removeBlock>>) => applyPlanChange(w, reverse));
-  const open = () => week && nav.openFlow('planning', { week });
+  // A week's block opens weekly planning on its week; a stretch's opens planning ahead.
+  const open = () => (week ? nav.openFlow('planning', { week }) : nav.openFlow('plan'));
   const started = !!block.started_at;
   const range = formatRange(block.start, block.end, clock.zone());
   const grow = props.layout === 'phone' ? ' grow' : '';

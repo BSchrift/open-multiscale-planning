@@ -176,7 +176,7 @@ export function useReminders(): void {
       case A.startPlanning:
         // The app comes to the front for it, and opens planning on this block's week.
         await startBlock(w, id, tap);
-        return { planning: planningWeekOf(block.task_id) };
+        return { planning: planningWeekOf(block.task_id) ?? 'stretch' };
       case A.notDone:
         return answerBlock(w, id, { result: 'not' }, tap);
       case A.skip:
@@ -223,7 +223,10 @@ export function useReminders(): void {
     // Rather than act on a block that's no longer what the notification said, show the day as it is.
     const result = await answer.run(response, tap);
     if (result === STALE) nav.go('today');
-    else if (result && 'planning' in result && result.planning) nav.openFlow('planning', { week: result.planning });
+    else if (result && 'planning' in result) {
+      if (result.planning === 'stretch') nav.openFlow('plan');
+      else nav.openFlow('planning', { week: result.planning });
+    }
   };
   const latest = useRef(respond);
   latest.current = respond;

@@ -110,6 +110,22 @@ describe('reminders', () => {
     expect(screen.getByRole('heading', { name: 'Plan the week' })).toBeVisible();
   });
 
+  it("a stretch's planning block's Start opens the stretch flow", async () => {
+    const t = await renderApp({
+      now: NOW,
+      zone: ZONE,
+      seed: async (w) => {
+        await seed(w);
+        await w.create('task', { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'] }, 'planning:stretch:2027-01-01');
+        await w.create('time_block', { task_id: 'planning:stretch:2027-01-01', start: at(17), end: at(17, 45), tz: ZONE }, 'sp');
+      },
+    });
+    await waitFor(async () => expect((await t.platform.notifications.scheduled()).some((r) => r.block_id === 'sp')).toBe(true));
+    const start = (await t.platform.notifications.scheduled()).find((r) => r.block_id === 'sp')!;
+    await act(() => t.platform.notifications.respond({ reminder_id: start.id, block_id: 'sp', action_id: REMINDER_ACTION.startPlanning }));
+    expect(await screen.findByRole('heading', { name: /^Plan (the next|your first) stretch$/ })).toBeVisible();
+  });
+
   describe("the weekly reminder about next week's planning", () => {
     // Friday, Nov 6 at 1pm: next week's row offers 5pm today, so the reminder comes at 2pm.
     const FRIDAY = localToInstant('2026-11-06', 13 * 60, ZONE);

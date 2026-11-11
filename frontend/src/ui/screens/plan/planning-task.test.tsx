@@ -113,3 +113,20 @@ describe('the Plan page', () => {
     await waitFor(async () => expect((await blocksOf(t)).some((b) => b.started_at === THURSDAY)).toBe(true));
   });
 });
+
+describe("a stretch's planning block", () => {
+  it('on the Now card, Start planning opens the stretch flow', async () => {
+    const t = await renderScreen('today', {
+      now: at('2026-12-24', '17:05'),
+      zone: ZONE,
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'] }, ID);
+        await w.create('time_block', { task_id: ID, start: at('2026-12-24', '17:00'), end: at('2026-12-24', '17:45'), tz: ZONE }, 'sb');
+      },
+    });
+    const card = await screen.findByRole('region', { name: 'Current block' });
+    await userEvent.click(within(card).getByRole('button', { name: 'Start planning' }));
+    await waitFor(() => expect(t.nav().flow?.area).toBe('plan'));
+  });
+});

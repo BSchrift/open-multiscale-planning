@@ -214,6 +214,13 @@ case "$command" in
     fi
     commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
     aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped before prod by make pipeline-stop" >/dev/null
+    # Abandoning leaves the window's own wait running, and its email's Promote now link would still answer it.
+    machine="$(aws stepfunctions list-state-machines --query "stateMachines[?starts_with(name, 'Promotion')].stateMachineArn | [0]" --output text)"
+    if [ -n "$machine" ] && [ "$machine" != None ]; then
+      for execution in $(aws stepfunctions list-executions --state-machine-arn "$machine" --status-filter RUNNING --query 'executions[].executionArn' --output text); do
+        aws stepfunctions stop-execution --execution-arn "$execution" --cause "Stopped before prod by make pipeline-stop" >/dev/null
+      done
+    fi
     echo "Stopped run $id, at $commit, before prod. Staging keeps it; prod doesn't get it."
     ;;
   tag)

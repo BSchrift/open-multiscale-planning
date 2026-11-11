@@ -126,7 +126,7 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | --- | --- |
 | `make pipeline-pause` | Main commits stop at Build: each run they start stops itself. The switch is the SSM parameter `/multiscale/pipeline/paused` |
 | `make pipeline-resume` | Each main commit releases to staging again |
-| `make pipeline-stop` | Stops the run waiting in its window before prod, abandoning it, and says which commit it stopped. Staging keeps that commit; prod never gets it |
+| `make pipeline-stop` | Stops the run waiting in its window before prod, abandoning it and ending its window, so its Promote now link no longer works, and says which commit it stopped. Staging keeps that commit; prod never gets it |
 | `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip` and `ALARMS=off` are above |
 | `make release-tag` | Tags the commit prod last released as `release-<date>`, noting a skipped canary or the alarms off, and pushes the tag |
 | `make pipeline-config` | Uploads the config folder's files the pipeline reads: `control.yaml`, `staging.yaml`, `prod.yaml`, and each release key's public half. Each key itself goes where only the signing step reads it |
@@ -136,8 +136,9 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 minutes) emails the commit and the time it goes to prod, then waits until that time. To send it sooner, open the
 email's link and choose **Promote now**: the run goes to prod at once. Opening the link alone changes nothing, since
 mail scanners open links, but anyone with it can promote that run, so don't forward the email. To keep it from prod,
-run `make pipeline-stop`, or choose **Stop execution** on the run in CodePipeline, before then. **An agent stops a run
-only when the owner asks in chat.** The window is `pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of
+run `make pipeline-stop` before then: it also ends the window, so the link stops working. **Stop execution** on the run
+in CodePipeline keeps it from prod too, but leaves the link saying it promoted. **An agent stops a run only when the
+owner asks in chat.** The window is `pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of
 whole days, hours, minutes and seconds up to 6 days: `PT2H` when it's left out, `PT0S` to go at once. Prod's canary and
 its alarms still guard the release. Failed runs and failed nightly runs are emailed to the same address. The pause
 switch is unchanged: it holds back new runs, not one already past staging.

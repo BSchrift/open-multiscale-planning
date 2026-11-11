@@ -25,6 +25,8 @@ case "$*" in
   *start-pipeline-execution*) echo exec-1;;
   *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
   *get-pipeline-execution*) echo abc1234;;
+  *list-state-machines*) echo arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc;;
+  *list-executions*) echo arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1;;
   *describe-stacks*) echo '${stackOutputs}';;
   *"s3api head-object"*"--key mac/manifest.json"*) [ -f "$PARAMS/checked" ] || exit 254;;
   *"s3api head-object"*) [ -f "$PARAMS/inbox/manifest.json" ] || exit 254;;
@@ -78,6 +80,9 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /aws AWS_PROFILE=ms-control codepipeline stop-pipeline-execution --pipeline-name Multiscale --pipeline-execution-id exec-7 --abandon/);
     assert.match(r.stdout, /Stopped run exec-7, at abc1234, before prod/);
+    // And its window, so the email's Promote now link no longer promotes anything.
+    assert.match(s.log(), /stepfunctions list-executions --state-machine-arn arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc --status-filter RUNNING/);
+    assert.match(s.log(), /stepfunctions stop-execution --execution-arn arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1/);
   });
 
   it('stops nothing when no run is waiting before prod', () => {
@@ -87,7 +92,7 @@ describe('scripts/pipeline.sh, from a Mac', () => {
       const r = s.run(['stop']);
       assert.equal(r.status, 0, r.stderr);
       assert.match(r.stdout, /No run is waiting to go to prod/);
-      assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
+      assert.doesNotMatch(s.log(), /stop-pipeline-execution|stop-execution/);
     }
   });
 

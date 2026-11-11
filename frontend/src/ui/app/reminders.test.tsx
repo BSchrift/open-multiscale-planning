@@ -1,6 +1,7 @@
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { extendBlock, moveBlock, swapBlocks } from '../../core/blocks';
+import { extendBlock, markDoneNow, moveBlock, removeBlock, swapBlocks } from '../../core/blocks';
+import { fixedClock } from '../../core/clock';
 import { localToInstant } from '../../core/dates';
 import { getRecord, outcomeId } from '../../core/records';
 import type { Writer } from '../../core/records';
@@ -115,11 +116,23 @@ describe('reminders', () => {
       let still: Reminder | undefined;
       await waitFor(async () => {
         still = (await t.scheduled()).find((r) => r.kind === 'still_paused');
-        expect(still?.title).toBe('Still paused: Write the report');
+        expect(still?.title).toBe('Write the report has been paused for 30 min');
       });
       act(() => t.clock.set(at(15, 40)));
       await act(() => t.platform.notifications.respond({ reminder_id: still!.id, block_id: 'b1', action_id: REMINDER_ACTION.resume }));
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 18, end: at(16, 18) }));
+      await waitFor(async () => expect((await t.scheduled()).some((r) => r.kind === 'still_paused')).toBe(false));
+    });
+
+    it.each<[string, (w: Writer) => Promise<unknown>]>([
+      ['finished', (w: Writer) => markDoneNow(w, 'b1', fixedClock(at(15, 30), ZONE))],
+      ['deleted', (w: Writer) => w.delete('time_block', 'b1')],
+      ['taken off the calendar', (w: Writer) => removeBlock(w, 'b1')],
+    ])('the still-paused reminder goes when the block is %s before it fires', async (_, first) => {
+      const t = await open();
+      await t.write(paused);
+      await waitFor(async () => expect((await t.scheduled()).some((r) => r.kind === 'still_paused')).toBe(true));
+      await act(() => t.write(first));
       await waitFor(async () => expect((await t.scheduled()).some((r) => r.kind === 'still_paused')).toBe(false));
     });
 

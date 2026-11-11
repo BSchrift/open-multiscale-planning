@@ -8,7 +8,7 @@ import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
-import { renderScreen } from '../../app/testing';
+import { renderApp, renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
 import { noFiles } from '../../../core/sync-testing';
 
@@ -117,14 +117,17 @@ describe('the Now card', () => {
     };
     const later = (t: Harness, minutes: number) => act(() => t.clock.set(Date.parse(NOW) + minutes * 60_000));
 
-    it('shows the time spent once started, and tapping it pauses: the countdown stops and the card says when it ends', async () => {
+    it('shows the percent of the block spent once started, and tapping it pauses: the countdown stops and the card says when it ends', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
-      await userEvent.click(within(now).getByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }));
+      // The middle shows the percent; the name says both it and the time spent.
+      const pause = within(now).getByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' });
+      expect(pause).toHaveTextContent(/^50%$/);
+      await userEvent.click(pause);
       const ring = await within(now).findByRole('button', { name: 'Resume, 1 hour spent, 50% of the block' });
-      // Focus stays on the ring, which now resumes, and no toast: tapping it again is Pause's undo.
+      // Focus stays on the ring, which now resumes, and a toast says what happened.
       expect(ring).toHaveFocus();
-      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(await screen.findByText('Paused Write the report')).toBeVisible();
       expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at).toBe(NOW);
       expect(within(now).getByText('Ends at 3pm unless you resume.')).toBeVisible();
       later(t, 9);
@@ -147,6 +150,110 @@ describe('the Now card', () => {
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
       expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_min ?? null).toBeNull();
+      // That's a Pause too, and its toast's Undo puts the block back as Resume left it.
+      await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') }));
+    });
+
+    it("Undo on Pause's toast takes the pause away, with the end where it was", async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      expect(await within(now).findByRole('button', { name: /^Pause, / })).toBeVisible();
+      const b1 = await getRecord(t.db, 'time_block', 'b1');
+      expect(b1).toMatchObject({ paused_at: null, end: at('15:00') });
+      expect(b1?.paused_min ?? null).toBeNull();
+      expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
+    });
+
+    describe('the P key', () => {
+      const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+      it('on desktop, pauses and resumes as the ring does, with the same toast and take-back', async () => {
+        const t = await open(running);
+        const now = await screen.findByRole('region', { name: 'Current block' });
+        await within(now).findByRole('button', { name: /^Pause, / });
+        await userEvent.keyboard('p');
+        expect(await within(now).findByRole('button', { name: /^Resume, / })).toBeVisible();
+        expect(await screen.findByText('Paused Write the report')).toBeVisible();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at).toBe(NOW);
+        later(t, 9);
+        await userEvent.keyboard('p');
+        await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') }));
+        // The ring says it's there, for screen readers.
+        expect(within(now).getByRole('button', { name: /^Pause, / })).toHaveAttribute('aria-keyshortcuts', 'P');
+      });
+
+      it('does nothing while typing, with a modifier held, or with a dialog open', async () => {
+        const t = await open(running);
+        const now = await screen.findByRole('region', { name: 'Current block' });
+        await within(now).findByRole('button', { name: /^Pause, / });
+        const editable = document.createElement('div');
+        editable.setAttribute('contenteditable', 'true');
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.append(document.createElement('button'));
+        for (const [holder, field] of [
+          [document.createElement('input'), null],
+          [document.createElement('textarea'), null],
+          [editable, null],
+          [dialog, dialog.firstElementChild],
+        ] as const) {
+          document.body.append(holder);
+          const target = (field ?? holder) as HTMLElement;
+          target.tabIndex = 0;
+          target.focus();
+          expect(target).toHaveFocus();
+          await userEvent.keyboard('p');
+          holder.remove();
+        }
+        for (const held of ['Meta', 'Control', 'Alt', 'Shift']) await userEvent.keyboard(`{${held}>}p{/${held}}`);
+        await settle();
+        expect(screen.queryByText('Paused Write the report')).toBeNull();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at ?? null).toBeNull();
+        // With focus back on the page, it pauses.
+        await userEvent.keyboard('p');
+        expect(await within(now).findByRole('button', { name: /^Resume, / })).toBeVisible();
+      });
+
+      it('does nothing while another tab is open, though Today stays behind it', async () => {
+        const t = await renderApp({
+          now: NOW,
+          zone: ZONE,
+          seed: async (w) => {
+            await planned(w);
+            await running(w);
+          },
+        });
+        await screen.findByRole('button', { name: /^Pause, / });
+        const tabs = screen.getByRole('navigation', { name: 'Main' });
+        await userEvent.click(within(tabs).getByRole('button', { name: 'Week' }));
+        // Hidden, so out of the accessibility tree, but still mounted.
+        await waitFor(() => expect(screen.queryByRole('button', { name: /^Pause, / })).toBeNull());
+        expect(document.querySelector('.spentring')).not.toBeNull();
+        await userEvent.keyboard('p');
+        await settle();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at ?? null).toBeNull();
+        await userEvent.click(within(tabs).getByRole('button', { name: 'Today' }));
+        await screen.findByRole('button', { name: /^Pause, / });
+        await userEvent.keyboard('p');
+        expect(await screen.findByRole('button', { name: /^Resume, / })).toBeVisible();
+      });
+
+      it('does nothing on phone', async () => {
+        const t = await open(running, { layout: 'phone' });
+        const now = await screen.findByRole('region', { name: 'Current block' });
+        const ring = await within(now).findByRole('button', { name: /^Pause, / });
+        expect(ring).not.toHaveAttribute('aria-keyshortcuts');
+        await userEvent.keyboard('p');
+        await settle();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at ?? null).toBeNull();
+        expect(within(now).getByRole('button', { name: /^Pause, / })).toBeVisible();
+      });
     });
 
     it('a tap more than 30 seconds after Resume is a new pause', async () => {
@@ -182,7 +289,8 @@ describe('the Now card', () => {
       expect(info).toHaveAttribute('aria-expanded', 'true');
       const key = within(now).getByRole('group', { name: 'Key' });
       expect(within(key).getByText('Time spent, filling toward the end')).toBeVisible();
-      expect(within(key).getByText('Tap the ring to pause the countdown')).toBeVisible();
+      // On desktop it names the key that does the same.
+      expect(within(key).getByText('Tap the ring or press P to pause the countdown')).toBeVisible();
       expect(within(key).getByText('Resume, and the end moves later')).toBeVisible();
       await userEvent.click(info);
       expect(within(now).queryByRole('group', { name: 'Key' })).toBeNull();

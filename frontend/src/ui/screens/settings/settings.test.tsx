@@ -362,7 +362,7 @@ describe('Settings', () => {
       await userEvent.click(within(rem).getByRole('checkbox', { name: 'Ask at block end' }));
       const delay = within(rem).getByRole('slider', { name: 'After' });
       expect(delay).toHaveAttribute('aria-valuetext', '5 minutes');
-      expect(within(rem).getByText('A paused block also gets one reminder after 15 minutes.')).toBeVisible();
+      expect(within(rem).getByText('A paused block also gets one reminder after 30 minutes.')).toBeVisible();
       fireEvent.change(delay, { target: { value: '15' } });
       await waitFor(() => expect(within(rem).getByRole('slider', { name: 'After' })).toHaveAttribute('aria-valuetext', '15 minutes'));
       await userEvent.click(within(rem).getByRole('checkbox', { name: "Ask if I've started, unless I already tapped Start" }));

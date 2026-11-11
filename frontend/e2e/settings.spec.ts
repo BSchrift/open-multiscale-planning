@@ -113,7 +113,7 @@ test('edits settings in place', async ({ page }, info) => {
   const rem = p.getByRole('region', { name: 'Reminders' });
   await rem.getByRole('slider', { name: 'After' }).fill('15');
   await expect(rem.getByText('15 minutes', { exact: true })).toBeVisible();
-  const pauseNote = rem.getByText('A paused block also gets one reminder after 15 minutes.');
+  const pauseNote = rem.getByText('A paused block also gets one reminder after 30 minutes.');
   await expect(pauseNote).toBeVisible();
   await rem.getByRole('checkbox', { name: "Ask if I've started, unless I already tapped Start" }).click();
   await expect(rem.getByRole('slider', { name: 'After' })).toHaveCount(0);

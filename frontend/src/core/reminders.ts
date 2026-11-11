@@ -1,7 +1,7 @@
 // Which notifications to schedule. The platform fires them; a sync or opening the app replaces the whole list, so
 // answering on another device clears the prompt here at this device's next sync.
 
-import { isPaused, spentLine, timeLeftMs, workMinutes } from './blocks';
+import { isPaused, pauseWords, spentLine, timeLeftMs, workMinutes } from './blocks';
 import { formatMinutes, formatTime, instantMs, localDate, toInstant } from './dates';
 import type { UtcRange } from './dates';
 import type { Clock } from './clock';
@@ -14,7 +14,7 @@ export const REMINDER_LIMIT = 64;
 
 const SNOOZE_MIN = 10;
 /** How long a pause runs before one reminder that the block is still paused. */
-export const PAUSE_REMINDER_MIN = 15;
+export const PAUSE_REMINDER_MIN = 30;
 const MINUTE_MS = 60_000;
 const DAY_MS = 1440 * MINUTE_MS;
 /** Comfortably more than 64 reminders' worth of a normal plan, and the list is rebuilt at every open and sync. */
@@ -121,8 +121,8 @@ function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: In
         kind: 'still_paused',
         block_id: block.id,
         at: toInstant(at),
-        title: `Still paused: ${name}`,
-        body: `Paused since ${formatTime(block.paused_at!, zone)}. It ends at ${formatTime(end, zone)} unless you resume.`,
+        title: `${name} has been paused for ${pauseWords(PAUSE_REMINDER_MIN)}`,
+        body: `It ends at ${formatTime(end, zone)} unless you resume.`,
         actions: [{ id: A.resume, title: 'Resume' }],
       });
     }

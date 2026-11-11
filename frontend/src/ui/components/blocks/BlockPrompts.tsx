@@ -26,9 +26,10 @@ function DesktopPrompt(props: { label: string; onClose(): void; children: ReactN
   );
 }
 
-/** Someone typing, or working in another dialog, whose keys a prompt opening on its own would take. */
-const busy = () =>
-  !!document.querySelector('[aria-modal="true"]') || !!document.activeElement?.closest('input, textarea, select, [role="dialog"]');
+/** Someone typing, or working in another dialog, whose keys a prompt opening on its own, or Today's P, would take. */
+export const busy = () =>
+  !!document.querySelector('[aria-modal="true"]') ||
+  !!document.activeElement?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]');
 
 /**
  * The corner panel on desktop, a sheet on phone, or with `sheet` a sheet on both, with that class. It waits while you're

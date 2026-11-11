@@ -3,7 +3,7 @@
 // Schedule. The step is kept on this device per week, so leaving part way resumes there.
 
 import { useEffect, useRef, useState } from 'react';
-import { addWeeks, formatTime, formatWeekRange, formatWeekday, localDate, weekStart } from '../../../core/dates';
+import { addWeeks, formatMinutes, formatTime, formatWeekRange, formatWeekday, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange, autoPickedOneOffs, minutesLeft } from '../../../core/plan';
 import { finishWeek, stopPlanning } from '../../../core/planning';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../core/records';
@@ -18,6 +18,7 @@ import { InboxStep } from './inbox/InboxStep';
 import { PickStep } from './pick/PickStep';
 import { ReviewStep } from './review/ReviewStep';
 import { ScheduleStep } from './schedule';
+import { usePlanningTime } from './usePlanningTime';
 import './planning.css';
 
 const STEPS = ['1. Inbox', '2. Pick tasks', '3. Schedule', '4. Review'] as const;
@@ -71,27 +72,30 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
     void autoPickRun();
   }, [autoPickRun]);
 
+  const time = usePlanningTime(week);
   // Finishing the plan finishes its planning task, and frees what's left of its block, with Undo for all of it.
   const finish = useMutation((w) => finishWeek(w, week, clock));
   const undo = useMutation((w, reverse: Awaited<ReturnType<typeof finishWeek>>['reverse']) => applyPlanChange(w, reverse));
   const onFinish = async () => {
+    await time.flush();
     const done = await finish.run();
     if (!done) return;
     const zone = clock.zone();
     const freed = done.freed && `${formatWeekday(localDate(done.freed, zone))} ${formatTime(done.freed, zone)}`;
-    toast.show(freed ? `Week planned. ${freed} is free again.` : 'Week planned.', { undo: () => undo.run(done.reverse) });
+    const message = freed ? `Week planned. ${freed} is free again.` : done.minutes ? `Week planned in ${formatMinutes(done.minutes)}.` : 'Week planned.';
+    toast.show(message, { undo: () => undo.run(done.reverse) });
     close();
   };
   // Save and exit: a planning block under way ends now. Everything else is already saved.
   const stop = useMutation((w) => stopPlanning(w, week, clock));
-  const exit = () => void stop.run().then(close);
+  const exit = () => void time.flush().then(() => stop.run()).then(close);
 
   const go = (n: number) => setStep(Math.max(0, Math.min(STEPS.length - 1, n)));
   const body = [
     <InboxStep key="inbox" week={week} layout={layout} onNext={() => go(1)} />,
     <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} />,
     <ScheduleStep key="schedule" week={week} layout={layout} onContinue={() => go(3)} />,
-    <ReviewStep key="review" week={week} layout={layout} onFinish={onFinish} />,
+    <ReviewStep key="review" week={week} began={time.began} layout={layout} onFinish={onFinish} />,
   ][step];
   const tabs = (labels: readonly string[], className: string) => (
     <nav className={className} aria-label="Planning steps">

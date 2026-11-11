@@ -14,6 +14,8 @@ import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { PlanningSet } from '../../components/planning/PlanningRow';
+import { PlanningTimes } from '../../components/planning/PlanningTimes';
+import { planningWeekOf } from '../../../core/planning';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
@@ -31,7 +33,7 @@ import { useWeekActions } from './useWeekActions';
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
 const CELL_PX = 46;
-const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint' } as const;
+const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint', planning: 'c-planning' } as const;
 const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
 const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
 
@@ -129,6 +131,7 @@ export function PhoneWeek(props: WeekProps) {
   const opened = open?.kind === 'block' ? model.blocks.find((b) => b.id === open.id) : undefined;
   const item = open?.kind === 'item' ? model.unscheduled.find((x) => x.id === open.id) : undefined;
   const [dropAt, setDropAt] = useState<{ item: LaneItem; slot: Slot } | null>(null);
+  const [planningFor, setPlanningFor] = useState<string | null>(null);
   const laneItems = model.unscheduled.filter((x) => !x.dates || (x.dates.from <= selDay && selDay <= x.dates.to));
   const card = (x: LaneItem) => (
     <LaneCard
@@ -137,7 +140,7 @@ export function PhoneWeek(props: WeekProps) {
       ctx={model.ctx}
       open={false}
       draggable={isThis && !placing}
-      onToggle={() => setOpen({ kind: 'item', id: x.id })}
+      onToggle={() => (planningWeekOf(x.id) ? setPlanningFor(planningWeekOf(x.id)) : setOpen({ kind: 'item', id: x.id }))}
       onPreview={(slot) => setDropAt(slot && { item: x, slot })}
       onDrop={(slot) => void act.place(x, slot)}
     />
@@ -179,6 +182,7 @@ export function PhoneWeek(props: WeekProps) {
           </button>
           <div className="wktitle">
             <div className="small quiet">{props.label}</div>
+            {props.planningAt && <div className="small quiet">{props.planningAt}</div>}
             <h2>{props.title}</h2>
           </div>
           <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing} onClick={() => props.goWeek(addDays(props.week, 7))}>
@@ -187,6 +191,7 @@ export function PhoneWeek(props: WeekProps) {
         </div>
         {props.gated && <PlanPrompt week={data.week} />}
         {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
+        {planningFor && <PlanningTimes week={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
         {!isThis && !placing && (
           <div className="wkcenter">
             <button className="btn" type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>

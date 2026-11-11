@@ -211,6 +211,57 @@ describe('the Review step', () => {
     expect(screen.getByText('All weekly aims are reached.')).toBeInTheDocument();
   });
 
+  describe('the time spent planning', () => {
+    it('counts the minutes you were active, and closing the flow adds them to the week with when it began', async () => {
+      const close = vi.fn();
+      const t = await openPlanning({ params: { week: '2026-11-09' }, close });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue to picking tasks' }));
+      // Active for 3 minutes, then away for 15: only 5 of those count.
+      t.clock.set('2026-11-02T20:03:00Z');
+      await userEvent.click(screen.getByRole('button', { name: 'Previous step' }));
+      t.clock.set('2026-11-02T20:18:00Z');
+      await userEvent.click(screen.getByRole('button', { name: 'Save and exit' }));
+      await waitFor(async () =>
+        expect(await getRecord(t.db, 'week_plan', weekPlanId('2026-11-09'))).toMatchObject({ planning_min: 8, planning_started_at: '2026-11-02T20:00:00Z' }),
+      );
+    });
+
+    it('Finish plan says how long planning took', async () => {
+      const t = await openPlanning({ step: 3, params: { week: '2026-11-09' } });
+      localStorage.setItem('multiscale.planning.step.2026-11-09', '3');
+      await screen.findByRole('button', { name: 'Finish plan' });
+      t.clock.set('2026-11-02T20:04:00Z');
+      await userEvent.click(screen.getByRole('button', { name: 'Finish plan' }));
+      expect(await screen.findByText('Week planned in 4m.')).toBeVisible();
+    });
+  });
+
+  describe("Review's next planning row", () => {
+    // Sunday, Nov 8 at 5:05pm in Chicago, planning the week of Nov 9.
+    const SUNDAY = '2026-11-08T23:05:00Z';
+
+    it('offers the same time a week on, and schedules it in one tap with Undo in the row', async () => {
+      const t = await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
+      const next = await screen.findByRole('region', { name: 'Next planning' });
+      expect(within(next).getByText('Sun Nov 15, 5pm')).toBeVisible();
+      expect(within(next).getByText('Same time as today')).toBeVisible();
+      await userEvent.click(within(next).getByRole('button', { name: 'Schedule planning for Sunday, Nov 15 at 5pm' }));
+      expect(await within(next).findByText('Scheduled for Sun Nov 15, 5pm.')).toBeVisible();
+      const blocks = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 'planning:week:2026-11-16' && !b.deleted_at);
+      expect(await blocks()).toMatchObject([{ start: '2026-11-15T23:00:00Z', end: '2026-11-15T23:30:00Z' }]);
+      await userEvent.click(within(next).getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await blocks()).toEqual([]));
+      expect(await screen.findByRole('button', { name: 'Schedule planning for Sunday, Nov 15 at 5pm' })).toBeVisible();
+    });
+
+    it('offers Choose a time for next week too', async () => {
+      await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
+      const next = await screen.findByRole('region', { name: 'Next planning' });
+      await userEvent.click(within(next).getByRole('button', { name: 'Choose a time to plan the week after' }));
+      expect(await screen.findByRole('dialog', { name: 'When will you plan the week after?' })).toBeVisible();
+    });
+  });
+
   describe('with a planning task', () => {
     const PLAN = 'planning:week:2026-11-09';
     const seed = (block: { start: string; end: string; started_at?: string }) => async (w: Writer) => {

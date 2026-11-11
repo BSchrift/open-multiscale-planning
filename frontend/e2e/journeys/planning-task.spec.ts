@@ -53,29 +53,34 @@ test('the prompt to plan, next week’s planning task, and finishing it', async 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(row).toBeVisible();
 
-  // Now places a block from this minute and opens planning; Save and exit stops it, and the row comes back.
-  const startNow = async () => {
-    await row.getByRole('button', { name: 'Choose a time to plan next week' }).click();
-    const sheet = page.getByRole('dialog', { name: 'When will you plan next week?' });
-    await expect(sheet.getByText('About 30m, a first guess.')).toBeVisible();
-    if (phone) {
-      for (const name of ['Start planning now', 'Choose another time', 'Change length', 'Close']) await expectTapTarget(sheet.getByRole('button', { name }));
-    }
-    await sheet.getByRole('button', { name: 'Start planning now' }).click();
-    await expect(page.getByText(/^Planning until 10:\d\dam\.$/)).toBeVisible();
-    await expect(page.getByText('Nov 9 to 15')).toBeVisible();
-  };
-  await startNow();
+  // Now places a block from this minute and opens planning. Save and exit stops it, and the row offers Keep going.
+  await row.getByRole('button', { name: 'Choose a time to plan next week' }).click();
+  const sheet = page.getByRole('dialog', { name: 'When will you plan next week?' });
+  await expect(sheet.getByText('About 30m, a first guess.')).toBeVisible();
+  if (phone) {
+    for (const name of ['Start planning now', 'Choose another time', 'Change length', 'Close']) await expectTapTarget(sheet.getByRole('button', { name }));
+  }
+  await sheet.getByRole('button', { name: 'Start planning now' }).click();
+  await expect(page.getByText(/^Planning until 10:\d\dam\.$/)).toBeVisible();
+  await expect(page.getByText('Nov 9 to 15')).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await expect(row).toBeVisible();
+  const stopped = page.getByRole('region', { name: 'Finish planning next week' });
+  await expect(stopped.getByText(/^You stopped on the Inbox step\. About 30m left\.$|^Started, not finished\. About 30m left\.$/)).toBeVisible();
 
-  // Finish plan finishes the task: the row is gone for good.
-  await startNow();
+  // Keep going, then Finish plan finishes the task: the row is gone for good.
+  await stopped.getByRole('button', { name: 'Keep going' }).click();
+  await expect(page.getByText('Nov 9 to 15')).toBeVisible();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Review$/ }).click();
+  // Review offers the next planning time, this session's a week on, in one tap.
+  const next = page.getByRole('region', { name: 'Next planning' });
+  await expect(next.getByText('Same time as today')).toBeVisible();
+  await next.getByRole('button', { name: /^Schedule planning for Friday, Nov 13 at 10/ }).click();
+  await expect(next.getByText(/^Scheduled for Fri Nov 13, 10/)).toBeVisible();
   await page.getByRole('button', { name: 'Finish plan' }).click();
   await expect(page.getByText('Week planned.')).toBeVisible();
   await expect(pane(page, 'Today').getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
   await expect(row).toHaveCount(0);
+  await expect(stopped).toHaveCount(0);
 
   // Monday: the week was planned on Friday, so nothing asks.
   await jumpTo(page, chicago('2026-11-09', '08:00'));

@@ -4,7 +4,8 @@
 // this week ready to edit.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, diffDays, formatDate, weekStart } from '../../../core/dates';
+import { addDays, diffDays, formatDate, formatTime, instantMs, localDate, weekStart } from '../../../core/dates';
+import { dayName } from '../../components/weekgrid';
 import type { LocalDate } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
@@ -36,6 +37,8 @@ export interface WeekProps {
   gated: boolean;
   /** This week's planning block, when it's set for later: said in place of the prompt. */
   planningSet: TimeBlock | null;
+  /** 'Planning: Sun Nov 8, 5pm', when this week's planning has a time still to come. */
+  planningAt: string | null;
   goWeek(week: LocalDate): void;
   /** A task to place, from Find a time or Place on calendar. */
   place: string | null;
@@ -78,6 +81,9 @@ export default function WeekScreen(props: ScreenProps) {
 
   if (!data || !model) return null;
   const offset = Math.round(diffDays(current, data.week) / 7);
+  const ahead = blockAhead(data.planning, clock);
+  const zone = clock.zone();
+  const planningAt = ahead && instantMs(ahead.start) > clock.now() ? `Planning: ${dayName(localDate(ahead.start, zone))}, ${formatTime(ahead.start, zone)}` : null;
   const shared: WeekProps = {
     data,
     week,
@@ -88,6 +94,7 @@ export default function WeekScreen(props: ScreenProps) {
     editing: editing && offset === 0,
     setEditing,
     gated: offset === 0 && !editing && weekGate(data.planning, clock) === 'gate',
+    planningAt,
     planningSet: offset === 0 && !editing && weekGate(data.planning, clock) === 'set' ? (blockAhead(data.planning, clock) ?? null) : null,
     goWeek: (to) => {
       setWeek(weekStart(to));

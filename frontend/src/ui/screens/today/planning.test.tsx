@@ -237,3 +237,78 @@ describe('a planning block on the Now card', () => {
     expect(within(await screen.findByRole('region', { name: 'Current block' })).getByRole('button', { name: 'Keep going' })).toBeVisible();
   });
 });
+
+describe('the row learns', () => {
+  // Four weeks planned in 22 to 46 minutes, each begun on Sunday at 5pm.
+  const history = async (w: Writer) => {
+    for (const [week, minutes] of [['2026-10-12', 22], ['2026-10-19', 31], ['2026-10-26', 40], ['2026-11-02', 46]] as const) {
+      await w.create(
+        'week_plan',
+        { week_start: week, finished_at: at(week, '08:00'), planning_min: minutes, planning_started_at: at(weekBefore(week), '17:05') },
+        weekPlanId(week),
+      );
+    }
+  };
+  const weekBefore = (week: string) => new Date(Date.parse(`${week}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+  it('how long planning takes from your last plans, and offers your usual time first', async () => {
+    await open({ seed: history });
+    const r = await row();
+    expect(within(r).getByText(/About 45m · 1 in your Inbox/)).toBeVisible();
+    expect(within(r).getByRole('button', { name: 'Schedule planning for Sunday, Nov 8 at 5pm' })).toBeVisible();
+    await userEvent.click(within(r).getByRole('button', { name: 'Choose a time to plan next week' }));
+    const sheet = await screen.findByRole('dialog', { name: 'When will you plan next week?' });
+    expect(within(sheet).getByText('About 45m, from your last 4 plans.')).toBeVisible();
+    expect(within(sheet).getByRole('button', { name: 'Schedule planning for Sunday, Nov 8 at 5pm, your usual time' })).toHaveTextContent('Sun 5pm, your usual time');
+  });
+
+  it('says when planning stopped part way, with the step and the time left, and Keep going places a block for it', async () => {
+    localStorage.setItem(`multiscale.planning.step.${NEXT}`, '2');
+    const t = await open({ seed: (w) => w.create('week_plan', { week_start: NEXT, planning_min: 16, planning_started_at: at('2026-11-05', '20:00') }, weekPlanId(NEXT)) });
+    const r = await screen.findByRole('region', { name: 'Finish planning next week' });
+    expect(within(r).getByText('You stopped on the Schedule step. About 15m left.')).toBeVisible();
+    await userEvent.click(within(r).getByRole('button', { name: 'Keep going' }));
+    expect(t.nav().flow).toEqual({ area: 'planning', params: { week: NEXT } });
+    expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: FRIDAY, end: at('2026-11-06', '10:15') }]);
+    localStorage.clear();
+  });
+
+  it('on a device that can’t know the step, says planning started and isn’t finished', async () => {
+    await open({ seed: (w) => w.create('week_plan', { week_start: NEXT, planning_min: 16, planning_started_at: at('2026-11-05', '20:00') }, weekPlanId(NEXT)) });
+    const r = await screen.findByRole('region', { name: 'Finish planning next week' });
+    expect(within(r).getByText('Started, not finished. About 15m left.')).toBeVisible();
+  });
+
+  it('says when its time passed unopened, and offers the next free time', async () => {
+    await open({
+      now: at('2026-11-07', '12:00'),
+      seed: async (w) => {
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: [`week:${NEXT}`] }, NEXT_ID);
+        await w.create('time_block', { task_id: NEXT_ID, start: at('2026-11-07', '09:00'), end: at('2026-11-07', '09:30'), tz: ZONE });
+      },
+    });
+    const r = await row();
+    expect(within(r).getByText('Your planning time passed. About 30m.')).toBeVisible();
+    expect(within(r).getByRole('button', { name: /^Schedule planning for / })).toBeVisible();
+  });
+});
+
+describe('a planning block for a week planned on an older app', () => {
+  it('says the week is planned already, and offers Free this time in place of Start', async () => {
+    const t = await renderScreen('today', {
+      now: at(THIS, '18:05'),
+      zone: ZONE,
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 2', plans: [`week:${THIS}`] }, THIS_ID);
+        await w.create('time_block', { task_id: THIS_ID, start: at(THIS, '18:00'), end: at(THIS, '18:30'), tz: ZONE }, 'p1');
+      },
+    });
+    const card = await screen.findByRole('region', { name: 'Current block' });
+    expect(within(card).getByText('This week is already planned.')).toBeVisible();
+    expect(within(card).queryByRole('button', { name: 'Start planning' })).toBeNull();
+    await userEvent.click(within(card).getByRole('button', { name: 'Free this time' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'p1'))?.cancelled).toBe(true));
+    expect(await screen.findByText('Freed 6pm to 6:30pm.')).toBeVisible();
+  });
+});

@@ -5,14 +5,15 @@ import type { BlockRow } from '../../../core/queries';
 import { isRepeating, onceWhen, scheduleLabel } from '../../../core/schedule';
 import type { BlockResult, Instant, Objective, Practice, Project, Task } from '../../../core/types';
 
-/** Blue for projects, purple for one offs, teal for practices. */
-export type BlockKind = 'project' | 'one_off' | 'practice';
+/** Blue for projects, purple for one offs, teal for practices, grey for planning. */
+export type BlockKind = 'project' | 'one_off' | 'practice' | 'planning';
 
 /** The kind in words, for labels, so it never rests on colour alone. */
-export const KIND_WORD: Record<BlockKind, string> = { project: 'Project', practice: 'Practice', one_off: 'One off' };
+export const KIND_WORD: Record<BlockKind, string> = { project: 'Project', practice: 'Practice', one_off: 'One off', planning: 'Planning' };
 
 function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKind {
-  return block.practice_id ? 'practice' : block.task_kind === 'one_off' ? 'one_off' : 'project';
+  if (block.practice_id) return 'practice';
+  return block.task_kind === 'one_off' || block.task_kind === 'planning' ? block.task_kind : 'project';
 }
 
 export const OUTCOME_WORD: Record<BlockResult, string> = { done: 'Done', partly: 'Partly', not: 'Not done' };
@@ -44,6 +45,7 @@ export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>
     const target = practice ? `${formatMinutes(practice.target_min)} a ${practice.per}` : '';
     return { kind, word: 'Practice', path: [objective?.title, target].filter(Boolean).join(', ') };
   }
+  if (kind === 'planning') return { kind, word: 'Planning', path: '' };
   if (kind === 'one_off') {
     const s = task?.schedule;
     const when = s && (isRepeating(task!) ? scheduleLabel(s) : s.type === 'once' ? onceWhen(s) : '');

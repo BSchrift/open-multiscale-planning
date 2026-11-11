@@ -194,7 +194,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         <NowCard blocks={data.blocks} layout={layout} />
       )}
       {set && <PlanningSet week={data.planning.this.week} block={set} />}
-      {nextRow && <PlanningRow week={data.planning.next.week} onGone={(after) => land(() => firstControl(after))} />}
+      {nextRow && <PlanningRow planning={data.planning.next} onGone={(after) => land(() => firstControl(after))} />}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />
       {(data.blocks.length > 0 || !unplanned) && <DayTimeline data={data} events={data.events} />}

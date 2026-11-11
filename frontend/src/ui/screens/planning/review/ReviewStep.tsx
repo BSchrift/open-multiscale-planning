@@ -5,14 +5,15 @@ import { plannedByKind, weekAlerts } from '../../../../core/capacity';
 import { spansAhead } from '../../../../core/slots';
 import { formatMinutes } from '../../../../core/dates';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import type { LocalDate } from '../../../../core/types';
+import type { Instant, LocalDate } from '../../../../core/types';
+import { NextPlanning } from './NextPlanning';
 import type { Layout } from '../../../app/registry';
 import { useApp, useQuery } from '../../../app/store';
 import { TimeUse } from '../../../components/week/TimeUse';
 import { placedBlocks } from '../../../components/weekgrid';
 import { loadPlanning, weekModel } from '../model';
 
-export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish(): void }) {
+export function ReviewStep(props: { week: LocalDate; began: Instant; layout: Layout; onFinish(): void }) {
   const { week, layout } = props;
   const { clock } = useApp();
   const data = useQuery((sql) => loadPlanning(sql, clock, week), [week]).data;
@@ -47,6 +48,7 @@ export function ReviewStep(props: { week: LocalDate; layout: Layout; onFinish():
         </div>
       </div>
       <TimeUse open={m.open} planned={used} free={free} alerts={weekAlerts(m.slot, aims, m.pushback)} />
+      <NextPlanning week={week} began={props.began} />
       {layout === 'desktop' && (
         <div className="row">
           <button className="btn pri" type="button" onClick={props.onFinish}>

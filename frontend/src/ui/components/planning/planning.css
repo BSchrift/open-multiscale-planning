@@ -7,3 +7,9 @@
 .planset{justify-content:space-between;gap:var(--space-2)}
 .planany{flex-wrap:wrap;align-items:flex-end;gap:var(--space-2)}
 .planany label{display:flex;flex-direction:column;gap:4px}
+/* Planning blocks, in grey: busy time rather than project or one-off work. */
+:where([data-layout='desktop']) .ev-planning{background:var(--neutral);color:var(--neutral-ink);border:1px solid var(--border-strong);border-left-width:4px}
+:where([data-layout='phone']) .c-planning{background:var(--neutral);color:var(--neutral-ink);border:1px solid var(--border-strong);border-left-width:4px}
+[data-layout] .lanecard.k-planning{border-left:4px solid var(--border-strong)}
+.nextplan .between{align-items:center}
+:where([data-layout='desktop']) .oochip.planchip{border-color:var(--border-strong);background:var(--neutral);color:var(--neutral-ink)}

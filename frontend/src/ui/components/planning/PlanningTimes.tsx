@@ -10,7 +10,7 @@ import type { LocalDate } from '../../../core/types';
 import { useApp } from '../../app/store';
 import { Sheet } from '../Sheet';
 import { About } from './About';
-import { longTime, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
+import { estimateSource, longTime, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
 import './planning.css';
 
 /** The longest planning block, the same cap a first block and Start have. */
@@ -22,7 +22,8 @@ const toMinutes = (time: string) => {
 };
 const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
-export function PlanningTimes(props: { week: LocalDate; which: 'this' | 'next'; onClose(): void }) {
+/** name is the week as the person reads it: 'this week', 'next week' or 'the week after'. */
+export function PlanningTimes(props: { week: LocalDate; name: string; onClose(): void }) {
   const { week, onClose } = props;
   const { clock } = useApp();
   const planning = usePlanningTimes(week);
@@ -30,7 +31,7 @@ export function PlanningTimes(props: { week: LocalDate; which: 'this' | 'next'; 
   const [length, setLength] = useState<number | null>(null);
   const [changing, setChanging] = useState(false);
   const [choosing, setChoosing] = useState(false);
-  const title = `When will you plan ${props.which} week?`;
+  const title = `When will you plan ${props.name}?`;
   if (!planning) return null;
   const { estimate } = planning;
   const minutes = length ?? estimate.minutes;
@@ -45,7 +46,7 @@ export function PlanningTimes(props: { week: LocalDate; which: 'this' | 'next'; 
     <Sheet label={title} onClose={onClose}>
       <h2>{title}</h2>
       <p className="quiet">
-        <About minutes={estimate.minutes} after={estimate.guess ? ', a first guess.' : '.'} />
+        <About minutes={estimate.minutes} after={estimateSource(estimate)} />
       </p>
       <div className="stack8" role="group" aria-label="Times">
         {now && (
@@ -69,11 +70,14 @@ export function PlanningTimes(props: { week: LocalDate; which: 'this' | 'next'; 
             key={`${s.date}${s.start}`}
             className={`offer${!now && i === 0 ? ' first' : ''}`}
             type="button"
-            aria-label={`Schedule planning for ${longTime(s)}`}
+            aria-label={`Schedule planning for ${longTime(s)}${s.usual ? ', your usual time' : ''}`}
             autoFocus={!now && i === 0}
             onClick={() => done(s)}
           >
-            <span>{shortTime(s)}</span>
+            <span>
+              {shortTime(s)}
+              {s.usual && ', your usual time'}
+            </span>
             <span className="small">Schedule</span>
           </button>
         ))}

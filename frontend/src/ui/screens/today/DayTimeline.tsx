@@ -26,7 +26,7 @@ import type { TodayData } from './data';
 const ZOOM = [30, 48, 72, 96];
 const DAY_FROM = 7 * 60;
 const DAY_TO = 22 * 60;
-const KIND_CLASS: Record<BlockKind, string> = { project: 'project', one_off: 'maint', practice: 'practice' };
+const KIND_CLASS: Record<BlockKind, string> = { project: 'project', one_off: 'maint', practice: 'practice', planning: 'planning' };
 
 const same = (a: Slot, b: Slot) => a.start === b.start && a.end === b.end;
 const range = (s: Slot) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;

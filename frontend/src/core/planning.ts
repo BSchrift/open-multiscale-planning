@@ -7,7 +7,7 @@
 // the row is stored.
 
 import type { Clock } from './clock';
-import { addDays, addWeeks, blockMinutes, formatDate, instantMs, nowInstant, thisWeek, toInstant, today, weekStart } from './dates';
+import { addDays, addWeeks, blockMinutes, formatDate, instantMs, localDate, localMinutes, nowInstant, thisWeek, toInstant, today, weekday, weekDates, weekStart } from './dates';
 import type { Sql } from './db';
 import { markDoneNow, placeBlock, startBlock } from './blocks';
 import { applyPlanChange } from './plan';
@@ -15,10 +15,10 @@ import type { PlanChange, RecordWrite } from './plan';
 import { blocksInRange, inboxCount, taskBlocks } from './queries';
 import { getRecord, weekPlanId } from './records';
 import type { Writer } from './records';
-import { offers, slotContext } from './slots';
+import { fits, GRID, offers, slotContext } from './slots';
 import type { Offer, PlacedBlock, Slot } from './slots';
 import { closeTask } from './tasks';
-import type { CalendarSource, CalendarState, Fields, Instant, LocalDate, Minutes, Settings, Task, TimeBlock, WeekPlan } from './types';
+import type { CalendarSource, CalendarState, Fields, Instant, LocalDate, Minutes, Settings, Task, TimeBlock, TimeOfDay, Weekday, WeekPlan } from './types';
 
 /** Next week's task is made, and its row shows, from this many days before the week starts. */
 export const PLANNING_LEAD_DAYS = 3;
@@ -28,6 +28,14 @@ const FIRST_GUESS_MIN = 30;
 const FULL_INBOX_GUESS_MIN = 45;
 /** More Inbox items than this make the first guess longer. */
 const FULL_INBOX = 15;
+/** The longest a planning block gets, the same cap a first block and Start have. */
+export const LONGEST_PLANNING_MIN = 120;
+/** Plans the estimate learns from, and the fewest active minutes one needs to count. */
+const MEASURED_WEEKS = 4;
+const SHORTEST_MEASURED_MIN = 5;
+/** Your usual time is when planning began in this many of the last few plans. */
+const USUAL_OF = 3;
+const USUAL_IN = 2;
 const MINUTE_MS = 60_000;
 
 export const weekPlanningId = (week: LocalDate) => `planning:week:${week}`;
@@ -50,11 +58,59 @@ export interface Estimate {
   minutes: Minutes;
   /** No history yet, so the sheet says it's a first guess. */
   guess: boolean;
+  /** How many plans it's the middle of. */
+  from?: number;
 }
 
-/** How long planning a week takes: until there's history, 30 minutes, or 45 with a full Inbox. */
-export function weekEstimate(inbox: number): Estimate {
-  return { minutes: inbox > FULL_INBOX ? FULL_INBOX_GUESS_MIN : FIRST_GUESS_MIN, guess: true };
+const upTo15 = (minutes: number) => Math.ceil(minutes / GRID) * GRID;
+const bounded = (minutes: number) => Math.min(LONGEST_PLANNING_MIN, Math.max(SHORTEST_PLANNING_MIN, upTo15(minutes)));
+
+/**
+ * How long planning a week takes: the middle of the last 4 finished plans with at least 5 active minutes, rounded up
+ * to 15 and kept between 15m and 2h. Until there's one, 30 minutes, or 45 with a full Inbox.
+ */
+export function weekEstimate(inbox: number, plans: readonly WeekPlan[] = []): Estimate {
+  const measured = plans
+    .filter((p) => p.finished_at && !p.deleted_at && (p.planning_min ?? 0) >= SHORTEST_MEASURED_MIN)
+    .sort((a, b) => b.week_start.localeCompare(a.week_start))
+    .slice(0, MEASURED_WEEKS)
+    .map((p) => p.planning_min!)
+    .sort((a, b) => a - b);
+  if (measured.length === 0) return { minutes: inbox > FULL_INBOX ? FULL_INBOX_GUESS_MIN : FIRST_GUESS_MIN, guess: true };
+  const mid = measured.length / 2;
+  const middle = measured.length % 2 ? measured[Math.floor(mid)]! : (measured[mid - 1]! + measured[mid]!) / 2;
+  return { minutes: bounded(middle), guess: false, from: measured.length };
+}
+
+/** After stopping early: the estimate less the minutes spent, rounded up, and at least 15m. */
+export const timeLeft = (estimate: Minutes, spent: Minutes): Minutes => bounded(estimate - spent);
+
+export interface UsualTime {
+  day: Weekday;
+  minutes: TimeOfDay;
+}
+
+/** The weekday and quarter hour planning began in 2 of the last 3 plans, or null. */
+export function usualTime(plans: readonly WeekPlan[], zone: string): UsualTime | null {
+  const starts = plans
+    .filter((p) => p.planning_started_at && !p.deleted_at)
+    .sort((a, b) => b.week_start.localeCompare(a.week_start))
+    .slice(0, USUAL_OF)
+    .map((p) => {
+      const at = p.planning_started_at!;
+      return { day: weekday(localDate(at, zone)), minutes: Math.floor(localMinutes(at, zone) / GRID) * GRID };
+    });
+  return starts.find((s) => starts.filter((o) => o.day === s.day && o.minutes === s.minutes).length >= USUAL_IN) ?? null;
+}
+
+/** Adds the minutes of one time in the planning flow to its week, and notes when planning first began. */
+export async function addPlanningMinutes(w: Writer, week: LocalDate, minutes: Minutes, began: Instant): Promise<void> {
+  const plan = await getRecord(w.sql, 'week_plan', weekPlanId(week));
+  const fields: Fields<'week_plan'> = {
+    ...(minutes > 0 ? { planning_min: (plan?.planning_min ?? 0) + minutes } : {}),
+    ...(plan?.planning_started_at ? {} : { planning_started_at: began }),
+  };
+  if (Object.keys(fields).length > 0) await setWeekPlan(w, week, fields);
 }
 
 const taskFields = (week: LocalDate, minutes: Minutes): Fields<'task'> => ({
@@ -104,6 +160,16 @@ export function blockAhead(p: WeekPlanning, clock: Clock): TimeBlock | undefined
   return p.blocks.find((b) => !b.ended_at && instantMs(b.end) > clock.now());
 }
 
+/**
+ * What the row says once something has happened: 'stopped' once planning began and wasn't finished, 'passed' when its
+ * block went by unopened, else 'ask'. Null while a planning block is under way or still to come.
+ */
+export function rowState(p: WeekPlanning, clock: Clock): 'ask' | 'passed' | 'stopped' | null {
+  if (blockAhead(p, clock)) return null;
+  if (p.plan?.planning_started_at || p.plan?.planning_min) return 'stopped';
+  return p.blocks.some((b) => !b.started_at && instantMs(b.end) <= clock.now()) ? 'passed' : 'ask';
+}
+
 /** Next week's row: from three days before, while its task waits for a time and the week isn't planned. */
 export function weekRow(p: WeekPlanning, clock: Clock): boolean {
   const on = today(clock);
@@ -132,29 +198,65 @@ export interface TimesInput {
 
 const slotOf = (o: Offer): Slot => ({ date: o.date, start: o.start, end: o.end });
 
+export interface Time extends Slot {
+  /** Your usual time, said beside it. */
+  usual?: boolean;
+}
+
 /**
- * Times to plan a week in, best first, at most three. Ahead of the week, they're before it starts, from offers(); Monday
- * morning only when nothing earlier is free. Once the week has begun, the next free times from today, one a day.
+ * Times to plan a week in, best first, at most three. Your usual time leads when it's free and still to come before
+ * the week starts, or later this week once it has begun. Ahead of the week, the rest are before it starts, from
+ * offers(); Monday morning only when nothing earlier is free. Once the week has begun, the next free times from today,
+ * one a day.
  */
-export function planningTimes(week: LocalDate, minutes: Minutes, input: TimesInput): Slot[] {
+export function planningTimes(week: LocalDate, minutes: Minutes, input: TimesInput, usual: UsualTime | null = null): Time[] {
   const { settings, calendar, sources, blocks, clock } = input;
   // shortcut: an hour closed to projects by one block and to one offs by another reads as open; split blocks are rare.
   const availability = settings.availability.filter((b) => b.projects && b.one_offs);
   const ctx = (wk: LocalDate) => slotContext({ week: wk, availability, avoided: settings.avoided_slots, sources, calendar, blocks, clock });
   const current = thisWeek(clock);
+  const window = ctx(week > current ? current : week);
+  const day = usual && weekDates(window.week).find((d) => weekday(d) === usual.day && (week > current ? d < week : true));
+  const first: Time[] = day && fits(day, usual!.minutes, minutes, 'project', window) ? [{ date: day, start: usual!.minutes, end: usual!.minutes + minutes, usual: true }] : [];
+  const rest = (slots: Slot[]) => [...first, ...slots.filter((s) => !first.some((f) => f.date === s.date))].slice(0, 3);
   if (week > current) {
-    const before = offers(minutes, { kind: 'project' }, ctx(current)).filter((o) => o.date < week);
-    if (before.length > 0) return before.slice(0, 3).map(slotOf);
+    const before = offers(minutes, { kind: 'project' }, window).filter((o) => o.date < week);
+    if (before.length > 0 || first.length > 0) return rest(before.map(slotOf));
     // Due the day before, so Monday's offer starts at its first open hour rather than the evening.
     return offers(minutes, { kind: 'project', due: addDays(week, -1) }, ctx(week))
       .filter((o) => o.date === week)
       .slice(0, 1)
       .map(slotOf);
   }
-  return offers(minutes, { kind: 'project' }, ctx(week))
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 3)
-    .map(slotOf);
+  return rest(
+    offers(minutes, { kind: 'project' }, window)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(slotOf),
+  );
+}
+
+/**
+ * Review's next planning time: this session's start a week on, rounded down to the quarter hour, when it began before
+ * the week it plans or on its first day and that time is free. Otherwise your usual time or the best free time before
+ * the following week starts.
+ */
+export function nextPlanningTime(
+  week: LocalDate,
+  began: Instant | null,
+  minutes: Minutes,
+  input: TimesInput,
+  usual: UsualTime | null = null,
+): { slot: Slot; same: boolean } | null {
+  const zone = input.clock.zone();
+  const next = addWeeks(week, 1);
+  if (began && localDate(began, zone) <= week) {
+    const date = addDays(localDate(began, zone), 7);
+    const start = Math.floor(localMinutes(began, zone) / GRID) * GRID;
+    const ctx = slotContext({ ...input, week: weekStart(date), avoided: input.settings.avoided_slots, availability: input.settings.availability });
+    if (fits(date, start, minutes, 'project', ctx)) return { slot: { date, start, end: start + minutes }, same: true };
+  }
+  const best = planningTimes(next, minutes, input, usual)[0];
+  return best ? { slot: { date: best.date, start: best.start, end: best.end }, same: false } : null;
 }
 
 /** A block from this minute for the estimate, ending sooner if another block starts first, or null under 15 minutes. */
@@ -243,16 +345,21 @@ export async function skipWeek(w: Writer, week: LocalDate, clock: Clock): Promis
  * done now does, and any still to come is freed. Returns the reverse, which reopens all of it, and the start of the
  * block freed, for the toast.
  */
-export async function finishWeek(w: Writer, week: LocalDate, clock: Clock): Promise<{ reverse: PlanChange; freed: Instant | null }> {
+export async function finishWeek(
+  w: Writer,
+  week: LocalDate,
+  clock: Clock,
+): Promise<{ reverse: PlanChange; freed: Instant | null; minutes: Minutes | null }> {
   const planned = await setWeekPlan(w, week, { finished_at: nowInstant(clock) });
+  const minutes = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.planning_min ?? null;
   const task = await getRecord(w.sql, 'task', weekPlanningId(week));
-  if (!isOpen(task ?? null)) return { reverse: { writes: [planned] }, freed: null };
+  if (!isOpen(task ?? null)) return { reverse: { writes: [planned] }, freed: null, minutes };
   const now = clock.now();
   const live = (await taskBlocks(w.sql, { task_id: task!.id })).filter((b) => !b.ended_at && instantMs(b.end) > now);
   const running = live.find((b) => instantMs(b.start) <= now);
   const freed = live.find((b) => instantMs(b.start) > now && !b.started_at)?.start ?? null;
   const closed = running ? await markDoneNow(w, running.id, clock) : await closeTask(w, task!.id, 'done', clock);
-  return { reverse: { writes: [...closed.writes, planned] }, freed };
+  return { reverse: { writes: [...closed.writes, planned] }, freed, minutes };
 }
 
 /**

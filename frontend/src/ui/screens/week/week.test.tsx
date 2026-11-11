@@ -118,6 +118,34 @@ describe.each(['desktop', 'phone'] as const)('this week before it is planned, on
   });
 });
 
+describe("next week's planning task", () => {
+  // Friday, Nov 6: the app has saved the planning task for the week of Nov 9, with no time.
+  const friday = (layout: 'desktop' | 'phone' = 'desktop') =>
+    open({
+      layout,
+      now: at('10:00', '2026-11-06'),
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 30 }, 'planning:week:2026-11-09');
+      },
+    });
+
+  it('heads To schedule in the days before its week, and opens the times on click', async () => {
+    await friday();
+    const card = await screen.findByRole('button', { name: 'Planning: Plan the week of Nov 9, Nov 6 to Nov 8, 30m to schedule' });
+    await userEvent.click(card);
+    expect(await screen.findByRole('dialog', { name: 'When will you plan next week?' })).toBeVisible();
+  });
+
+  it('once scheduled, shows as Planning on the week, and next week says when', async () => {
+    const t = await friday();
+    await t.write((w) => w.create('time_block', { task_id: 'planning:week:2026-11-09', start: at('17:00', '2026-11-08'), end: at('17:30', '2026-11-08'), tz: ZONE }));
+    expect(await screen.findByRole('button', { name: /^Plan the week of Nov 9, Sun Nov 8, 5pm to 5:30pm, Planning\./ })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(await screen.findByText('Planning: Sun Nov 8, 5pm')).toBeVisible();
+  });
+});
+
 describe('Week on desktop', () => {
   it('shows this week: blocks in their colours, calendar events behind, a conflict named, and the time left', async () => {
     await open();

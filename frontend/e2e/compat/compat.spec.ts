@@ -223,6 +223,8 @@ test.describe('one device', () => {
       { type: 'task', id: 'planning:week:2026-11-09', fields: { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 30 } },
       { type: 'time_block', id: 'pb1', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:00'), end: at(6, '17:30'), tz } },
       { type: 'task', id: 'planning:week:2026-11-16', fields: { kind: 'planning', title: 'Plan the week of Nov 16', plans: ['week:2026-11-16'], estimate_min: 30 } },
+      // Planning begun and stopped part way, as the update measures it.
+      { type: 'week_plan', id: 'week:2026-11-09', fields: { week_start: '2026-11-09', planning_min: 12, planning_started_at: at(4, '09:00') } },
       {
         type: 'task',
         id: 'planning:week:2026-10-26',

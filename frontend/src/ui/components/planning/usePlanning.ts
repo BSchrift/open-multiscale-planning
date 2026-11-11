@@ -6,7 +6,8 @@ import { formatDate, formatDayLong, formatTime, formatTimeOfDay, formatWeekday, 
 import type { Sql } from '../../../core/db';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
-import { deletePlanning, nowSlot, planningTimes, schedulePlanning, skipWeek, startPlanning, weekEstimate } from '../../../core/planning';
+import { deletePlanning, nowSlot, planningTimes, schedulePlanning, skipWeek, startPlanning, usualTime, weekEstimate } from '../../../core/planning';
+import type { Estimate } from '../../../core/planning';
 import { blocksInRange, inboxCount } from '../../../core/queries';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
@@ -40,22 +41,31 @@ async function loadInput(sql: Sql, clock: Clock, week: LocalDate) {
     // This week's blocks, and next week's too when planning it, so times offered go around them.
     blocks: await blocksInRange(sql, { from_utc: weekRange(current, zone).from_utc, to_utc: weekRange(week > current ? week : current, zone).to_utc }),
     inbox: await inboxCount(sql),
+    // What the estimate and your usual time learn from.
+    plans: await listRecords(sql, 'week_plan'),
   };
 }
 
-/** The estimate, and the times to offer for planning a week at a length. Null until loaded. */
+/** The estimate, your usual time, and the times to offer for planning a week at a length. Null until loaded. */
 export function usePlanningTimes(week: LocalDate) {
   const { clock } = useApp();
   const data = useQuery((sql, c) => loadInput(sql, c, week), [week]).data;
   if (!data) return null;
-  const estimate = weekEstimate(data.inbox);
+  const estimate = weekEstimate(data.inbox, data.plans);
+  const usual = usualTime(data.plans, clock.zone());
+  const input = { ...data, clock };
   return {
     estimate,
     inbox: data.inbox,
-    times: (minutes: Minutes) => planningTimes(week, minutes, { ...data, clock }),
+    input,
+    usual,
+    times: (minutes: Minutes) => planningTimes(week, minutes, input, usual),
     now: (minutes: Minutes) => nowSlot(minutes, data.blocks, clock),
   };
 }
+
+/** 'About 30m, a first guess.', 'About 30m, from your last 4 plans.' */
+export const estimateSource = (e: Estimate) => (e.guess ? ', a first guess.' : `, from your last ${e.from === 1 ? 'plan' : `${e.from} plans`}.`);
 
 export function usePlanningActions() {
   const { clock } = useApp();

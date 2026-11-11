@@ -187,6 +187,10 @@ export interface WeekPlan extends BaseRecord {
   skipped_past_end?: string[];
   /** Skip for now on this week's prompt to plan, on every device. */
   planning_skipped_at?: Instant | null;
+  /** Minutes active in planning this week, added each time the flow closes. Written whole. */
+  planning_min?: Minutes | null;
+  /** When planning first opened for this week: it gives your usual time and Review's same time as today. */
+  planning_started_at?: Instant | null;
 }
 
 /** A task added in Pick tasks. Keyed by weekPickId(week_start, task_id). */

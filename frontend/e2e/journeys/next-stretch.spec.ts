@@ -144,7 +144,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const cards = page.getByRole('dialog', { name: 'Process Inbox' });
   await cards.getByRole('button', { name: 'Bake a sourdough loaf' }).click();
   await expect(cards.getByText('Sent to Bake a sourdough loaf.')).toBeVisible();
-  await (phone ? cards.getByRole('button', { name: 'Exit' }).click() : page.keyboard.press('Escape'));
+  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
   await expect(page.getByText('1 sorted. Your Inbox is clear.')).toBeFocused();
   await next('Continue to Finish');
 

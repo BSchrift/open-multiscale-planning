@@ -785,7 +785,7 @@ describe('Planning ahead', () => {
       expect(screen.getByText('Call the tiler')).toBeVisible();
       expect(screen.queryByRole('button', { name: /more$/ })).toBeNull();
       await userEvent.click(layout === 'phone' ? next(layout, 'Process 2 items') : screen.getByRole('button', { name: 'Process 2 items' }));
-      expect(t.nav().overlay).toEqual({ area: 'process', params: { stretch: '2027-01-01' } });
+      expect(t.nav().overlay).toEqual({ area: 'process', params: { stretchStart: '2027-01-01', stretchEnd: '2027-03-31' } });
 
       await t.write((w) => w.set('task', 'i1', { kind: 'project', project_id: 'p1', milestone_id: 'm2' }));
       act(() => t.nav().closeOverlay());

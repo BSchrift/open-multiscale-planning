@@ -197,7 +197,7 @@ test('Goals asks for some when there are none, and the Inbox lists a big one who
   await expect(page.locator('.planflow')).toHaveAttribute('inert', '');
   await cards.getByRole('button', { name: /^One offs/ }).click();
   await expect(cards.getByText('Sent to One offs.')).toBeVisible();
-  await (phone ? cards.getByRole('button', { name: 'Exit' }).click() : page.keyboard.press('Escape'));
+  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
   await expect(page.getByText('1 sorted. 213 still in your Inbox.')).toBeFocused();
   await expect(steps.getByRole('button', { name: /Inbox, 213 items$/ })).toBeVisible();
   expect(errors).toEqual([]);

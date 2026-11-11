@@ -599,7 +599,9 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const inbox = data.inbox;
   const process = (item?: string) => {
     setRan((r) => r ?? inbox.map((i) => i.id));
-    nav.openOverlay('process', item ? { stretch: st.start, item } : { stretch: st.start });
+    // In the stretch's context: its projects first, new ones ending with it, and no Add to this week.
+    const stretch = { stretchStart: st.start, stretchEnd: st.end };
+    nav.openOverlay('process', item ? { ...stretch, item } : stretch);
   };
   const sortedCount = ran && ran.filter((id) => !inbox.some((i) => i.id === id)).length;
   const summary = ran && !overlay ? `${sortedCount} sorted. ${inbox.length ? `${inbox.length} still in your Inbox.` : 'Your Inbox is clear.'}` : null;

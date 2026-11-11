@@ -373,6 +373,12 @@ function Reminders(props: { layout: Layout }) {
         )}
       </div>
       <div className={row}>{toggle('block_end', 'Ask at block end')}</div>
+      <div className={row}>
+        <label className="taskrow">
+          <input type="checkbox" checked={r.planning !== false} onChange={() => void set.run({ planning: r.planning === false })} />
+          <span>Remind me when next week's planning has no time</span>
+        </label>
+      </div>
     </Section>
   );
 }

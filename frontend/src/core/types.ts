@@ -239,6 +239,8 @@ export interface ReminderSettings {
   check_in: boolean;
   check_in_delay_min: Minutes;
   block_end: boolean;
+  /** The weekly reminder while next week's planning has no time. Missing means on. */
+  planning?: boolean;
 }
 
 /** A time pattern no longer suggested. */
@@ -382,7 +384,7 @@ export interface RecordChange {
   fields: Record<string, FieldChange>;
 }
 
-export type ReminderKind = 'block_start' | 'check_in' | 'block_end' | 'still_paused';
+export type ReminderKind = 'block_start' | 'check_in' | 'block_end' | 'still_paused' | 'planning_unscheduled';
 
 export interface ReminderAction {
   id: string;
@@ -396,6 +398,7 @@ export interface Reminder {
   /** Stable, so that rescheduling replaces rather than duplicates. */
   id: string;
   kind: ReminderKind;
+  /** The block it's about, or for planning_unscheduled the week's planning task. */
   block_id: string;
   at: Instant;
   title: string;

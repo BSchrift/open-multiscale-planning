@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { expectTapTarget } from '../seed';
-import { chicago, firstRun, jumpTo, pane, start, TZ } from './journey';
+import { chicago, firstRun, jumpTo, pane, start, tab, TZ } from './journey';
 
 // Planning as a task: the prompt to plan a week that started unplanned, then next week's planning task, which the app
 // saves with no time three days before the week. Schedule and Delete each have Undo, Now places a block and opens
@@ -87,5 +87,12 @@ test('the prompt to plan, next week’s planning task, and finishing it', async 
   await expect(pane(page, 'Today').getByText('Monday, Nov 9')).toBeVisible();
   await expect(pane(page, 'Today').getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Plan your week' })).toHaveCount(0);
+
+  // The weekly reminder can be switched off in Settings › Reminders.
+  await tab(page, phone, 'Settings');
+  const weekly = pane(page, 'Settings').getByRole('checkbox', { name: "Remind me when next week's planning has no time" });
+  await expect(weekly).toBeChecked();
+  await weekly.click();
+  await expect(weekly).not.toBeChecked();
   expect(errors).toEqual([]);
 });

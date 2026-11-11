@@ -7,18 +7,53 @@
 // the row is stored.
 
 import type { Clock } from './clock';
-import { addDays, addWeeks, blockMinutes, formatDate, instantMs, localDate, localMinutes, nowInstant, thisWeek, toInstant, today, weekday, weekDates, weekStart } from './dates';
+import {
+  addDays,
+  addWeeks,
+  blockMinutes,
+  formatDate,
+  formatMinutes,
+  formatTimeOfDay,
+  formatWeekday as formatWeekdayShort,
+  instantMs,
+  localDate,
+  localMinutes,
+  nowInstant,
+  thisWeek,
+  toInstant,
+  today,
+  weekday,
+  weekDates,
+  weekStart,
+} from './dates';
 import type { Sql } from './db';
 import { markDoneNow, placeBlock, startBlock } from './blocks';
 import { applyPlanChange } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
 import { blocksInRange, inboxCount, taskBlocks } from './queries';
+import { isAway } from './queue';
+import { REMINDER_ACTION } from './reminders';
 import { getRecord, weekPlanId } from './records';
 import type { Writer } from './records';
-import { fits, GRID, offers, slotContext } from './slots';
+import { fits, GRID, offers, slotContext, slotInstants } from './slots';
 import type { Offer, PlacedBlock, Slot } from './slots';
 import { closeTask } from './tasks';
-import type { CalendarSource, CalendarState, Fields, Instant, LocalDate, Minutes, Settings, Task, TimeBlock, TimeOfDay, Weekday, WeekPlan } from './types';
+import type {
+  AwayPeriod,
+  CalendarSource,
+  CalendarState,
+  Fields,
+  Instant,
+  LocalDate,
+  Minutes,
+  Reminder,
+  Settings,
+  Task,
+  TimeBlock,
+  TimeOfDay,
+  Weekday,
+  WeekPlan,
+} from './types';
 
 /** Next week's task is made, and its row shows, from this many days before the week starts. */
 export const PLANNING_LEAD_DAYS = 3;
@@ -257,6 +292,36 @@ export function nextPlanningTime(
   }
   const best = planningTimes(next, minutes, input, usual)[0];
   return best ? { slot: { date: best.date, start: best.start, end: best.end }, same: false } : null;
+}
+
+/** How long before the time the row offers the weekly reminder comes. */
+const REMIND_BEFORE_MS = 3 * 60 * MINUTE_MS;
+
+/**
+ * The weekly reminder, while next week's planning has no time: one notification, 3 hours before the time its row will
+ * offer, whose one action opens the app on the times. Null once that planning is scheduled, finished or deleted, with
+ * the switch in Settings off, or on away dates. Each device works it out again whenever the app runs.
+ */
+export function planningReminder(
+  next: WeekPlanning,
+  input: TimesInput & { plans: readonly WeekPlan[]; inbox: number; on: boolean; away: readonly AwayPeriod[] },
+): Reminder | null {
+  const { clock } = input;
+  if (!input.on || isPlanned(next) || next.task?.deleted_at || next.task?.done_at || blockAhead(next, clock)) return null;
+  const estimate = weekEstimate(input.inbox, input.plans).minutes;
+  const opens = addDays(next.week, -PLANNING_LEAD_DAYS);
+  const slot = planningTimes(next.week, estimate, input, usualTime(input.plans, clock.zone())).find((s) => s.date >= opens);
+  if (!slot || isAway(slot.date, input.away)) return null;
+  const start = slotInstants(slot, clock.zone()).start;
+  return {
+    id: `reminder:planning:${next.week}`,
+    kind: 'planning_unscheduled',
+    block_id: weekPlanningId(next.week),
+    at: toInstant(instantMs(start) - REMIND_BEFORE_MS),
+    title: "Next week isn't planned yet",
+    body: `About ${formatMinutes(estimate)}. ${formatWeekdayShort(slot.date)} ${formatTimeOfDay(slot.start)} is free.`,
+    actions: [{ id: REMINDER_ACTION.choosePlanningTime, title: 'Choose a time', opens_app: true }],
+  };
 }
 
 /** A block from this minute for the estimate, ending sooner if another block starts first, or null under 15 minutes. */

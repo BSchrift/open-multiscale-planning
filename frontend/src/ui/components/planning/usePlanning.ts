@@ -1,6 +1,7 @@
 // What the planning row, the prompt to plan and the times sheet read, and every change they make, each one
 // transaction with its message and Undo.
 
+import { useSyncExternalStore } from 'react';
 import type { Clock } from '../../../core/clock';
 import { formatDate, formatDayLong, formatTime, formatTimeOfDay, formatWeekday, thisWeek, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
@@ -17,6 +18,27 @@ import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
+
+// The weekly reminder's Choose a time asks Today's row to open its times, as a notification's Partly asks for its
+// prompt.
+let planningRequest: LocalDate | null = null;
+const requestListeners = new Set<() => void>();
+
+export function requestPlanningTimes(week: LocalDate | null): void {
+  planningRequest = week;
+  for (const notify of requestListeners) notify();
+}
+
+/** The week whose times a notification asked to open, if any. Clear it with requestPlanningTimes(null). */
+export function usePlanningRequest(): LocalDate | null {
+  return useSyncExternalStore(
+    (notify) => {
+      requestListeners.add(notify);
+      return () => void requestListeners.delete(notify);
+    },
+    () => planningRequest,
+  );
+}
 
 /** 'Fri 5pm' */
 export const shortTime = (s: Slot) => `${formatWeekday(s.date)} ${formatTimeOfDay(s.start)}`;

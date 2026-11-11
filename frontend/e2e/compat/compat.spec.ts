@@ -251,6 +251,29 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test("the weekly planning reminder's switch, off in the update, stays off when the bundle before changes another", async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    await go(page, 'Settings');
+    const weekly = () => pane(page, 'Settings').getByRole('checkbox', { name: "Remind me when next week's planning has no time" });
+    await weekly().click();
+    await expect(weekly()).not.toBeChecked();
+
+    // The bundle before writes the reminders back whole when it changes one.
+    page = await relaunch(page, 'old', errors);
+    await go(page, 'Settings');
+    await pane(page, 'Settings').getByRole('checkbox', { name: 'Ask at block end' }).click();
+    await expect(pane(page, 'Settings').getByRole('checkbox', { name: 'Ask at block end' })).not.toBeChecked();
+
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Settings');
+    await expect(weekly()).not.toBeChecked();
+    await expect(pane(page, 'Settings').getByRole('checkbox', { name: 'Ask at block end' })).not.toBeChecked();
+    expect(errors).toEqual([]);
+  });
+
   test('a block the update paused runs on in the bundle before, which keeps the pause through a change of its own', async ({ context }) => {
     test.skip(oldPauses(), noOlderThanPausing);
     const errors: string[] = [];

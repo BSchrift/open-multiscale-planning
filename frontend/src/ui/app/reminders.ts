@@ -7,14 +7,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { answerBlock, extendBlock, nextBlock, resumeBlock, startBlock, swapBlocks, unscheduleBlock, workMinutes } from '../../core/blocks';
 import type { Clock } from '../../core/clock';
-import { dayRange, instantMs, localDate, today, weekStart } from '../../core/dates';
-import { planningWeekOf } from '../../core/planning';
+import { addWeeks, dayRange, instantMs, localDate, thisWeek, today, weekStart } from '../../core/dates';
+import { loadWeekPlanning, planningReminder, planningWeekOf } from '../../core/planning';
 import { blocksInRange, inboxCount } from '../../core/queries';
 import type { BlockRow } from '../../core/queries';
-import { getRecord, getSettings, listRecords, outcomeId } from '../../core/records';
-import { REMINDER_ACTION, reminderRange, remindersToSchedule, snoozeUntil } from '../../core/reminders';
+import { CALENDAR_ID, getRecord, getSettings, listRecords, outcomeId } from '../../core/records';
+import { REMINDER_ACTION, REMINDER_LIMIT, reminderRange, remindersToSchedule, snoozeUntil } from '../../core/reminders';
 import type { Instant, Reminder, TimeBlock } from '../../core/types';
 import type { ReminderResponse } from '../../platform/types';
+import { requestPlanningTimes } from '../components/planning/usePlanning';
 import { useNav } from './nav';
 import { useApp, useMutation, useQuery } from './store';
 
@@ -120,9 +121,14 @@ export function useReminders(): void {
   const { data } = useQuery(
     async (sql, c) => ({
       blocks: await blocksInRange(sql, reminderRange(c)),
-      settings: (await getSettings(sql)).reminders,
+      settings: await getSettings(sql),
       away: await listRecords(sql, 'away_period'),
       inbox: await inboxCount(sql),
+      // For the weekly reminder while next week's planning has no time.
+      plans: await listRecords(sql, 'week_plan'),
+      calendar: (await getRecord(sql, 'calendar', CALENDAR_ID)) ?? null,
+      sources: await listRecords(sql, 'calendar_source'),
+      next: await loadWeekPlanning(sql, addWeeks(thisWeek(c), 1)),
     }),
     [wake],
   );
@@ -133,7 +139,16 @@ export function useReminders(): void {
   useEffect(() => {
     if (!data) return;
     const blocks = new Map(data.blocks.map((b) => [b.id, b]));
-    const list = remindersToSchedule(data.blocks, data.settings, data.away, clock, snoozed, data.inbox).map((r) => withBlock(r, blocks.get(r.block_id)!));
+    // A planning block for a week an older app already planned asks nothing: the Now card offers to free it.
+    const planned = new Set(data.plans.filter((p) => p.finished_at).map((p) => p.week_start));
+    const asking = data.blocks.filter((b) => !planned.has(planningWeekOf(b.task_id) ?? ''));
+    const weekly = planningReminder(data.next, { ...data, clock, on: data.settings.reminders.planning !== false });
+    const list = [
+      ...remindersToSchedule(asking, data.settings.reminders, data.away, clock, snoozed, data.inbox).map((r) => withBlock(r, blocks.get(r.block_id)!)),
+      ...(weekly && instantMs(weekly.at) > clock.now() ? [{ ...weekly, id: `${weekly.id} ${weekly.kind}` }] : []),
+    ]
+      .sort((a, b) => instantMs(a.at) - instantMs(b.at))
+      .slice(0, REMINDER_LIMIT);
     chain.current = chain.current
       .then(async () => {
         // Asked once there's something to remind about, rather than at first launch with an empty plan.
@@ -188,6 +203,13 @@ export function useReminders(): void {
 
   const respond = async (response: ReminderResponse) => {
     if (response.action_id === REMINDER_ACTION.snooze) return snoozeBlock(response.block_id, snoozeUntil(clock));
+    // The weekly reminder is about a week's planning task rather than a block: it opens Today on its times.
+    const week = planningWeekOf(response.block_id);
+    if (week) {
+      nav.go('today');
+      requestPlanningTimes(week);
+      return;
+    }
     // Done from a notification delivered before it was taken off opens the app to ask, rather than finishing the task.
     if (response.action_id === null || response.action_id === REMINDER_ACTION.partly || response.action_id === REMINDER_ACTION.done) {
       nav.go('today');

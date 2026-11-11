@@ -369,6 +369,18 @@ describe('Settings', () => {
       await waitFor(() => expect(within(rem).queryByRole('slider', { name: 'After' })).toBeNull());
       expect((await stored(t)).reminders).toEqual({ block_start: false, check_in: false, check_in_delay_min: 15, block_end: false });
     });
+
+    it("has a switch for the weekly reminder about next week's planning, on until switched off, kept when another changes", async () => {
+      const t = await renderScreen('settings');
+      const rem = await screen.findByRole('region', { name: 'Reminders' });
+      const weekly = within(rem).getByRole('checkbox', { name: "Remind me when next week's planning has no time" });
+      expect(weekly).toBeChecked();
+      await userEvent.click(weekly);
+      await waitFor(async () => expect((await stored(t)).reminders?.planning).toBe(false));
+      await userEvent.click(within(rem).getByRole('checkbox', { name: 'Ask at block end' }));
+      await waitFor(async () => expect((await stored(t)).reminders).toMatchObject({ block_end: false, planning: false }));
+      expect(within(rem).getByRole('checkbox', { name: "Remind me when next week's planning has no time" })).not.toBeChecked();
+    });
   });
 
   describe('More line', () => {

@@ -3,7 +3,7 @@
 // with the time left; once its time passed unopened, it says so. Also the line that takes the prompt's place once this
 // week's planning is set for later. Neither moves focus as it appears.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatTime, formatWeekday, instantMs, localDate } from '../../../core/dates';
 import { rowState, timeLeft, weekPlanningTitle } from '../../../core/planning';
 import type { WeekPlanning } from '../../../core/planning';
@@ -13,7 +13,7 @@ import { useApp, useStickyState } from '../../app/store';
 import { BinIcon } from '../icons';
 import { About } from './About';
 import { PlanningTimes } from './PlanningTimes';
-import { longTime, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
+import { longTime, requestPlanningTimes, shortTime, usePlanningActions, usePlanningRequest, usePlanningTimes } from './usePlanning';
 import './planning.css';
 
 /** The best time becomes Start now when it's this close. */
@@ -32,6 +32,13 @@ export function PlanningRow(props: { planning: WeekPlanning; onGone(after: Eleme
   // The step is kept on the device that planned, so another device can only say planning started.
   const [step] = useStickyState<number | null>(`planning.step.${week}`, null);
   const ref = useRef<HTMLElement>(null);
+  // The weekly reminder's Choose a time lands here.
+  const request = usePlanningRequest();
+  useEffect(() => {
+    if (request !== week) return;
+    setChoosing(true);
+    requestPlanningTimes(null);
+  }, [request, week]);
   if (!planning) return null;
   const state = rowState(props.planning, clock);
   const phone = layout === 'phone';

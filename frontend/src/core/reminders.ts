@@ -34,6 +34,8 @@ export const REMINDER_ACTION = {
   logAll: 'log_all',
   /** A planning block's Start, which opens planning where it was left. */
   startPlanning: 'start_planning',
+  /** The weekly reminder's one action, which opens the app on next week's times. */
+  choosePlanningTime: 'choose_planning_time',
 } as const;
 
 const A = REMINDER_ACTION;

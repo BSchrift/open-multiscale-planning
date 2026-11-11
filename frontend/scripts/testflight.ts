@@ -87,9 +87,12 @@ type Get = (path: string, query: Record<string, string>) => Promise<{ data: { id
 type Delete = (path: string) => Promise<void>;
 type Send = (method: 'POST' | 'PATCH', path: string, body: object) => Promise<{ data?: { id: string; attributes: Record<string, unknown> } }>;
 
+/** A token, or a way to make one for each request: a token lasts 15 minutes, and waiting for processing can take longer. */
+type Token = string | (() => string);
+
 /** Requests from the App Store Connect API with the token. A refusal throws with Apple's own reason. */
-async function ascRequest(fetchImpl: typeof fetch, token: string, method: string, path: string, query = '', send?: object): Promise<unknown> {
-  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+async function ascRequest(fetchImpl: typeof fetch, token: Token, method: string, path: string, query = '', send?: object): Promise<unknown> {
+  const headers: Record<string, string> = { authorization: `Bearer ${typeof token === 'function' ? token() : token}` };
   if (send) headers['content-type'] = 'application/json';
   const response = await fetchImpl(`${API}${path}${query}`, { method, headers, body: send && JSON.stringify(send) });
   const body = await response.json().catch(() => ({}));
@@ -100,15 +103,15 @@ async function ascRequest(fetchImpl: typeof fetch, token: string, method: string
   return body;
 }
 
-export function ascGet(token: string, fetchImpl: typeof fetch = fetch): Get {
+export function ascGet(token: Token, fetchImpl: typeof fetch = fetch): Get {
   return (path, query) => ascRequest(fetchImpl, token, 'GET', path, `?${new URLSearchParams(query)}`) as ReturnType<Get>;
 }
 
-export function ascDelete(token: string, fetchImpl: typeof fetch = fetch): Delete {
+export function ascDelete(token: Token, fetchImpl: typeof fetch = fetch): Delete {
   return async (path) => void (await ascRequest(fetchImpl, token, 'DELETE', path));
 }
 
-export function ascSend(token: string, fetchImpl: typeof fetch = fetch): Send {
+export function ascSend(token: Token, fetchImpl: typeof fetch = fetch): Send {
   return (method, path, body) => ascRequest(fetchImpl, token, method, path, '', body) as ReturnType<Send>;
 }
 
@@ -286,7 +289,7 @@ async function main([command, configDir, build]: string[]) {
     const revoked = await revokeCertificates(ascGet(token), ascDelete(token), identities);
     console.log(revoked.length > 0 ? `Revoked the certificates Xcode made on this runner: ${revoked.join(', ')}.` : 'No certificate of the team has its key on this runner.');
   } else if (command === 'testers' && configDir && build) {
-    const token = tokenFor(configDir);
+    const token = () => tokenFor(configDir);
     const subject = execFileSync('git', ['log', '-1', '--format=%s'], { encoding: 'utf8' }).trim();
     const link = await publishToTesters(ascGet(token), ascSend(token), projectBundleId(), Number(build), `This build: ${subject}`);
     const line = `Build ${build} is with the ${TESTERS} group and submitted for Beta App Review. Once it passes, anyone can install it from ${link}`;

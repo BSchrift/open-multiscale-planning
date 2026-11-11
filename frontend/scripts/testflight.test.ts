@@ -209,6 +209,21 @@ describe('revokeCertificates', () => {
   });
 });
 
+describe('ascGet and ascSend', () => {
+  it('sign each request with a new token when given a way to make them, since a long wait outlasts one', async () => {
+    const auths: (string | null)[] = [];
+    const fetchImpl = (async (_: string, init?: RequestInit) => {
+      auths.push(new Headers(init?.headers).get('authorization'));
+      return new Response('{"data":[]}');
+    }) as unknown as typeof fetch;
+    let n = 0;
+    const token = () => `token-${++n}`;
+    await ascGet(token, fetchImpl)('/v1/apps', {});
+    await ascSend(token, fetchImpl)('POST', '/v1/betaGroups', {});
+    expect(auths).toEqual(['Bearer token-1', 'Bearer token-2']);
+  });
+});
+
 describe('publishToTesters', () => {
   const BUILD = '/v1/builds?filter[app]=42&filter[version]=1794000000&fields[builds]=version,processingState';
   const GROUPS = '/v1/apps/42/betaGroups?fields[betaGroups]=name,isInternalGroup,publicLinkEnabled,publicLink';

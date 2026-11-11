@@ -5,12 +5,19 @@ import type { FormEvent } from 'react';
 import { addMonths, formatDate, isDay, today } from '../../../core/dates';
 import { currentStretch } from '../../../core/plan';
 import { getSettings } from '../../../core/records';
+import type { Fields } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
 
 
-export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: string; onClose(): void; onAdded?(id: string): void }) {
+export function ProjectAdd(props: {
+  objectiveId: string | null;
+  goalTitle?: string;
+  onClose(): void;
+  /** Saves the project in the caller's own change instead, with what goes with it, so one Undo takes it all back. True once saved. */
+  save?(fields: Fields<'project'> & { title: string }): Promise<boolean>;
+}) {
   const { clock } = useApp();
   const toast = useToast();
   const on = today(clock);
@@ -21,19 +28,20 @@ export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: stri
   const [picked, setEnd] = useState<string | null>(null);
   const end = picked ?? (settings && currentStretch(settings, on)?.end) ?? addMonths(on, 3);
   const [error, setError] = useState('');
-  const add = useMutation((w, name: string) =>
-    w.create('project', { objective_id: props.objectiveId, title: name, state: 'active', start, end }),
-  );
+  const add = useMutation((w, fields: Fields<'project'>) => w.create('project', fields));
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();
     if (!name) return setError('Give it a name.');
     if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-    const id = await add.run(name);
-    if (!id) return;
+    const fields = { objective_id: props.objectiveId, title: name, state: 'active' as const, start, end };
+    if (props.save) {
+      if (await props.save(fields)) props.onClose();
+      return;
+    }
+    if (!(await add.run(fields))) return;
     toast.show(`Project added, ${formatDate(start)} to ${formatDate(end)}.`);
-    props.onAdded?.(id);
     props.onClose();
   };
 

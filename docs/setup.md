@@ -428,7 +428,7 @@ The Apple Developer Program costs about $99 a year; check the current price when
    ```
 
    `make release` now notarizes the Mac app and its disk image, staples Apple's ticket to both so that they open offline too, and checks them with `spctl` and `xcrun stapler validate`. The release stops if any of that fails. Without the key, it says so and releases the app signed but not notarized. To replace the key, revoke it in App Store Connect and swap both files.
-8. Optionally, let GitHub Actions build, sign and notarize the Mac app for each commit that needs a new one, which the release pipeline checks and publishes, so you no longer release it from the Mac. It needs the certificate and key from items 5 and 7 in a GitHub environment that only you can approve: see [Setting up the Mac release](releasing.md#setting-up-the-mac-release). When you replace either, set its secret again.
+8. Optionally, let GitHub Actions build, sign and notarize the Mac app for each commit that needs a new one, which the release pipeline checks and publishes, so you no longer release it from the Mac. It needs the certificate and key from items 5 and 7 in a GitHub environment that only `main` can use: see [Setting up the Mac release](releasing.md#setting-up-the-mac-release). When you replace either, set its secret again.
 
 ## Real-phone checklist
 
@@ -484,7 +484,7 @@ Then send them the **Testers** group's public link, which each upload prints and
 
 ### TestFlight from GitHub Actions
 
-`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs in the `release` environment, which needs your approval and holds the App Store Connect key ([releasing.md](releasing.md#the-release-environment)).
+`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs in the `release` environment, which holds the App Store Connect key and may need your approval ([releasing.md](releasing.md#the-release-environment)).
 
 Once, after steps 1, 2 and 4 above:
 
@@ -504,7 +504,7 @@ gh workflow run testflight.yml --ref main                               # main's
 gh workflow run testflight.yml --ref main -f commit=<full commit hash>  # a commit on main, such as prod's
 ```
 
-Then approve the run's deployment to `release`, in the run's page on GitHub. It builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
+If `release` has a reviewer, approve the run's deployment to it, in the run's page on GitHub. The run builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
 
 ## Run it locally
 

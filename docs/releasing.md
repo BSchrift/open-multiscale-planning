@@ -16,7 +16,7 @@ the Mac release's, which may only upload to the pipeline's inbox, through GitHub
 | Stage | Runs against | What happens | Stops the release when |
 | --- | --- | --- | --- |
 | **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, iOS | A check fails. Every check must pass before a merge |
-| **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves | For a main commit that changes the Mac app's native code, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | The owner doesn't approve it, or a build or notarization fails. The pipeline then stops at Staging |
+| **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves if the `release` environment asks | For a main commit that changes the Mac app's native code, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | An approval the environment asks for doesn't come, or a build or notarization fails. The pipeline then stops at Staging |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, waits for GitHub's and checks it. Signs staging's feed in the signing step. Publishes the web app, any new Mac app, then the feed, and runs the web app, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it. Then a wait until that time, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
@@ -191,11 +191,11 @@ never trusts GitHub's word for any of it.
 1. **GitHub Actions builds it.** `.github/workflows/mac-release.yml` runs for a push to main that changes what the Mac
    app's shell hash covers (`frontend/scripts/shell-hash.ts`), or by hand for a main commit:
    `gh workflow run mac-release.yml -f commit=<full commit hash>`. A first job, with no secrets, checks that the commit
-   is on main and that its native code really changed. The signing job then waits for the owner's approval in the
-   `release` environment. It installs the lockfile's packages with no install scripts, imports the Developer ID into a
-   keychain of its own, builds the staging and prod apps with `scripts/mac-app.sh` (signed, notarized, stapled, opened
-   by `spctl` and started, as `make release` does), and writes a manifest beside each disk image: the commit, the
-   versions, the shell hash, SHA-256s and the notary submissions. It uploads both to
+   is on main and that its native code really changed. The signing job then runs in the `release` environment, after
+   the owner's approval if the environment has a reviewer. It installs the lockfile's packages with no install scripts,
+   imports the Developer ID into a keychain of its own, builds the staging and prod apps with `scripts/mac-app.sh`
+   (signed, notarized, stapled, opened by `spctl` and started, as `make release` does), and writes a manifest beside
+   each disk image: the commit, the versions, the shell hash, SHA-256s and the notary submissions. It uploads both to
    `s3://<inbox bucket>/inbox/<commit>/<env>/`, the manifest last, and deletes the keychain and the notary key.
 2. **The pipeline waits for it.** The Staging stage's MacApp step, beside staging's deploy, compares each
    environment's feed with this build. For each that needs a new Mac app, it waits for that environment's manifest in
@@ -243,8 +243,8 @@ For each environment's upload, on Linux, with OpenSSL and 7-Zip:
 
 ### The release environment
 
-The signing job runs in the GitHub environment `release`, which needs the owner's approval, takes deployments only from
-`main`, and holds the only copies of the signing secrets:
+The signing job runs in the GitHub environment `release`, which takes deployments only from `main`, may need the owner's
+approval, and holds the only copies of the signing secrets:
 
 | Name | Kind | Holds |
 | --- | --- | --- |
@@ -297,6 +297,10 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
    ```
 
    `prevent_self_review` stays off, since the run you approve is the one your merge started.
+
+   The reviewer is optional while you're the only one who can push to `main` or start workflows. Every commit there has
+   then come through your merge, and a pull request from a fork never gets the environment's secrets. With
+   `"reviewers": []`, a run from `main` starts at once. Add the reviewer back before anyone else gets write access.
 4. **The Developer ID.** In **Keychain Access**, under **login > My Certificates**, select
    **Developer ID Application: …** with its key, choose **File > Export Items**, and save it as `DeveloperID.p12` with
    a new password. Then, typing that password when asked:
@@ -333,15 +337,16 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
    gh variable set AWS_REGION --env release --repo "$repo" --body <control region>
    ```
 
-8. **A first build.** `gh workflow run mac-release.yml -f commit="$(git rev-parse origin/main)"`, then approve it under
-   the run's **Review deployments**. It stops at once, naming anything missing from the environment.
+8. **A first build.** `gh workflow run mac-release.yml -f commit="$(git rev-parse origin/main)"`, then, if the
+   environment has a reviewer, approve it under the run's **Review deployments**. It stops at once, naming anything
+   missing from the environment.
 
 ### When a run stops for the Mac app
 
-- **No Mac app in time.** The MacApp step's log says which commit. Approve the waiting workflow run, or start one for
-  that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, run the pipeline again:
-  `make promote COMMIT=<sha>`. A push whose native code didn't change starts no build, so a run for it can need one
-  when the feed is older still, such as after a failed run.
+- **No Mac app in time.** The MacApp step's log says which commit. Approve the workflow run if it waits for you, or
+  start one for that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, run the
+  pipeline again: `make promote COMMIT=<sha>`. A push whose native code didn't change starts no build, so a run for it
+  can need one when the feed is older still, such as after a failed run.
 - **The check failed.** The MacApp step's log lists every problem. Nothing was published. "The build's settings
   differ" means `MAC_BUILD_CONFIG` is out of date: make it again (step 6 above) and build again.
 

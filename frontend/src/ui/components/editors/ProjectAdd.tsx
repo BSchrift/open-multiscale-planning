@@ -21,6 +21,8 @@ export function ProjectAdd(props: {
   write?(fields: Fields<'project'>): Promise<string | undefined>;
   onClose(): void;
   onAdded?(id: string): void;
+  /** Saves the project in the caller's own change instead, with what goes with it, so one Undo takes it all back. True once saved. */
+  save?(fields: Fields<'project'> & { title: string }): Promise<boolean>;
 }) {
   const { clock } = useApp();
   const toast = useToast();
@@ -40,6 +42,10 @@ export function ProjectAdd(props: {
     if (!name) return setError('Give it a name.');
     if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
     const fields: Fields<'project'> = { objective_id: props.objectiveId, title: name, state: 'active', start, end };
+    if (props.save) {
+      if (await props.save({ ...fields, title: name })) props.onClose();
+      return;
+    }
     const id = props.write ? await props.write(fields) : await add.run(fields);
     if (!id) return;
     if (!props.write) toast.show(`Project added, ${formatDate(start)} to ${formatDate(end)}.`);

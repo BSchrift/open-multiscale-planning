@@ -76,17 +76,37 @@ describe('Process on desktop', () => {
     expect(btn('‹ Undo and go back')).toBeDisabled();
   });
 
-  it.each(['desktop', 'phone'] as const)('on %s, makes a new project from the card and sends the item to it', async (layout) => {
+  it.each(['desktop', 'phone'] as const)('on %s, makes a new project from the card and sends the item to it in one change', async (layout) => {
     const t = await open({ layout });
     await screen.findByRole('heading', { name: 'Call the bank' });
     await userEvent.click(btn('+ New project'));
     const form = screen.getByRole('form', { name: 'Add project' });
     await userEvent.type(within(form).getByLabelText('Name'), 'Fix up the shed');
+    const saves = vi.spyOn(t.db, 'transaction');
     await userEvent.click(within(form).getByRole('button', { name: 'Add project' }));
-    await screen.findByRole('heading', { name: 'Fix the gate' });
-    expect(last()).toHaveTextContent('Sent to Fix up the shed.');
+    await waitFor(() => expect(form).not.toBeInTheDocument());
+    // The card has already moved on as the form closes, so a key pressed now is for the next item.
+    expect(title()).toHaveTextContent('Fix the gate');
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(last()).toHaveTextContent('Sent to new project Fix up the shed.');
     const [shed] = await t.db.all<{ id: string }>("SELECT id FROM project WHERE title = 'Fix up the shed'");
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: shed!.id });
+    // Single keys are off by default and Alt with the key always works on desktop; phone has no keys, so it taps.
+    if (layout === 'phone') await userEvent.click(btn('One offs'));
+    else altKey('KeyO');
+    await screen.findByRole('heading', { name: 'Read the article' });
+    expect((await task(t.db, 'i2'))?.kind).toBe('one_off');
+
+    // One Undo per change: the first takes back the send to One offs, the second the project and the send to it.
+    const undo = () => userEvent.click(btn(layout === 'phone' ? '‹ Undo' : '‹ Undo and go back'));
+    await undo();
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    await undo();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
+    expect(await getRecord(t.db, 'project', shed!.id)).toMatchObject({ deleted_at: expect.any(String) });
+    expect(btn(layout === 'phone' ? '‹ Undo' : '‹ Undo and go back')).toBeDisabled();
+    expect(within(card()).queryByText(/Fix up the shed/)).toBeNull();
   });
 
   it('swipes a copy of the card away after a choice, out of reach of keys and screen readers, then removes it', async () => {

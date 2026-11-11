@@ -123,8 +123,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const busy = useRef(false);
   const [newOpen, setNewOpen] = useState(false);
-  // A project made from the card, which takes the item once it shows up as a destination.
-  const [madeId, setMadeId] = useState<string | null>(null);
   // The form for a new home, and the button that opened it, by its key, which gets focus back when it closes.
   const [form, setForm] = useState<{ kind: HomeKind; name?: string; opener: string } | null>(null);
   const [finder, setFinder] = useState<{ q: string; at: number } | null>(null);
@@ -194,25 +192,31 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
   const weekNote = planning ? ' and added to the plan.' : ' and added to this week, not on the calendar yet.';
 
-  const send = (dest: Destination | null) => {
-    if (!item) return;
-    const name = dest ? dest.title : 'One offs';
+  /** Sends the item to a project, or to One offs with none. A new project from the card comes as its fields. */
+  const send = (dest: Destination | null, make?: Fields<'project'> & { title: string }) => {
+    if (!item) return Promise.resolve(false);
+    const name = make ? `new project ${make.title}` : dest ? dest.title : 'One offs';
     // shortcut: no estimate picks 30m for a one off and 1h for a project, ask later if these prove wrong.
-    const minutes = est || (dest ? 60 : 30);
+    const minutes = est || (make || dest ? 60 : 30);
     let note = '.';
     const run = async (w: Writer): Promise<PlanChange> => {
+      // Made in the same change as the send, so one Undo takes back both, and no key can reach the next item in between.
+      const made = make && (await w.create('project', make));
+      const projectId = made || dest?.plan.project.id;
       // Fields merge one by one, so each kind clears the other's: another device may have sent this item the other way.
-      const fields: Fields<'task'> = dest
-        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: null, schedule: null, next_due: null, estimate_min: est || null }
+      const fields: Fields<'task'> = projectId
+        ? { kind: 'project', project_id: projectId, milestone_id: null, schedule: null, next_due: null, estimate_min: est || null }
         : oneOffFields({ ...emptyDraft(today), title: item.title, estimate: est }, today);
-      const reverse = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
+      const filed = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
+      const reverse: PlanChange = made ? { writes: [...filed.writes, { type: 'project', id: made, fields: { deleted_at: nowInstant(clock) } }] } : filed;
       if (!s.planOn) return reverse;
       note = weekNote;
       return addToWeek(w, minutes, reverse);
     };
-    void commit(run, () => ({ sorted: s.sorted + 1, last: `Sent to ${name}${note}`, sent: { id: item.id, title: item.title, project: dest?.plan ?? null } })).then(
-      (done) => done && dest && setUsed((u) => [dest.plan.project.id, ...u.filter((id) => id !== dest.plan.project.id)]),
-    );
+    return commit(run, () => ({ sorted: s.sorted + 1, last: `Sent to ${name}${note}`, sent: { id: item.id, title: item.title, project: dest?.plan ?? null } })).then((done) => {
+      if (done && dest) setUsed((u) => [dest.plan.project.id, ...u.filter((id) => id !== dest.plan.project.id)]);
+      return done;
+    });
   };
 
   /**
@@ -263,13 +267,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
 
   const skip = () => item && void commit(null, () => ({ last: 'Skipped. It stays in your Inbox.' }));
-  useEffect(() => {
-    const made = madeId && [...data.shown, ...data.others].find((d) => d.plan.project.id === madeId);
-    if (!made) return;
-    setMadeId(null);
-    send(made);
-  }, [madeId, data]);
-  const newProject = newOpen && <ProjectAdd objectiveId={null} onAdded={setMadeId} onClose={() => setNewOpen(false)} />;
+  const newProject = newOpen && <ProjectAdd objectiveId={null} save={(fields) => send(null, fields)} onClose={() => setNewOpen(false)} />;
   const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ deleted: s.deleted + 1, last: 'Deleted.' }));
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
   const back = history[history.length - 1];

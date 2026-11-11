@@ -100,6 +100,15 @@ describe('expiryFor', () => {
     expect(expiry('project', { title: 'x', state: 'finished' }, { state: formatClock({ wall: 0, counter: 0, device: 'd' }) })).toBeNull();
   });
 
+  it("gives an attachment its task's expiry, and its own once it's removed", () => {
+    const task = (data: Record<string, unknown>) => record({ kind: 'one_off', title: 'x', ...data });
+    expect(expiry('attachment', { task_id: 't', kind: 'link' }, {}, task({ done_at: '2026-11-02T15:00:00Z' }))).toBe('2031-11-02T15:00:00Z');
+    expect(expiry('attachment', { task_id: 't', kind: 'photo' }, {}, task({ deleted_at: '2026-11-02T15:00:00Z' }))).toBe('2026-12-02T15:00:00Z');
+    expect(expiry('attachment', { task_id: 't', kind: 'photo' }, {}, task({}))).toBeNull();
+    expect(expiry('attachment', { task_id: 't', kind: 'photo' })).toBeNull();
+    expect(expiry('attachment', { task_id: 't', kind: 'photo', deleted_at: '2026-11-02T15:00:00Z' }, {}, task({}))).toBe('2026-12-02T15:00:00Z');
+  });
+
   it('keeps practices, settings and the calendar records', () => {
     for (const type of ['practice', 'settings', 'calendar', 'calendar_source']) expect(expiry(type, { state: 'ended', end: '2026-11-02T15:00:00Z' })).toBeNull();
   });
@@ -193,6 +202,21 @@ describe('the write path', () => {
     expect(await expiresAt(later)).toBe('2031-11-02T15:00:00Z');
     await transact(db, clock, (w) => w.set('project', project, { state: 'active' }));
     expect([await expiresAt(project), await expiresAt(milestone), await expiresAt(later)]).toEqual([null, null, null]);
+  });
+
+  it("passes a task's expiry to its attachments, as it closes, is deleted and comes back", async () => {
+    const task = await transact(db, clock, (w) => w.create('task', { kind: 'one_off', title: 'Paint the fence' }));
+    const photo = await transact(db, clock, (w) => w.create('attachment', { task_id: task, kind: 'photo', name: 'Fence.jpg' }));
+    expect(await expiresAt(photo)).toBeUndefined();
+    await transact(db, clock, (w) => w.set('task', task, { done_at: NOW }));
+    expect(await expiresAt(photo)).toBe('2031-11-02T15:00:00Z');
+    // One added to a closed task gets it too.
+    const link = await transact(db, clock, (w) => w.create('attachment', { task_id: task, kind: 'link', name: 'Colours', url: 'https://example.com' }));
+    expect(await expiresAt(link)).toBe('2031-11-02T15:00:00Z');
+    await transact(db, clock, (w) => w.delete('task', task));
+    expect([await expiresAt(photo), await expiresAt(link)]).toEqual(['2026-12-02T15:00:00Z', '2026-12-02T15:00:00Z']);
+    await transact(db, clock, (w) => w.set('task', task, { deleted_at: null, done_at: null }));
+    expect([await expiresAt(photo), await expiresAt(link)]).toEqual([null, null]);
   });
 
   it("moves an answer's expiry with its block", async () => {

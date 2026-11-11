@@ -1,20 +1,14 @@
-# Builds, signs and notarizes the Mac app for a main commit that needs a new one, and hands it to the release
-# pipeline's inbox, which checks it and publishes it (docs/releasing.md). It runs when a push to main changes what the
-# Mac app's shell hash covers (frontend/scripts/shell-hash.ts), or by hand for a main commit:
+# Builds, signs and notarizes the Mac app for a main commit, and hands it to the release pipeline's inbox, which checks it
+# and publishes it when the commit's release needs a new one (docs/releasing.md). It runs for every push to main, so the
+# app is there whenever a release needs it, or by hand for a main commit:
 #   gh workflow run mac-release.yml -f commit=<full commit hash>
-# The signing job runs in the release environment, which needs the owner's approval and holds the only copies of the
-# signing secrets. Its one AWS permission is writing to the inbox, through GitHub's OIDC token.
+# The signing job runs in the release environment, which takes only main and holds the only copies of the signing
+# secrets. Its one AWS permission is writing to the inbox, through GitHub's OIDC token.
 name: Mac release
 
 on:
   push:
     branches: [main]
-    paths:
-      - frontend/electron/**
-      - frontend/scripts/electron-compile.mjs
-      - frontend/src/platform/shortcut.ts
-      - frontend/src/core/captureTitle.ts
-      - frontend/package-lock.json
   workflow_dispatch:
     inputs:
       commit:
@@ -30,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Which commit, and whether it needs a new Mac app: a lockfile change that moves no native package doesn't.
+  # Which commit: only one on main.
   check:
     if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
@@ -38,20 +32,15 @@ jobs:
       contents: read
     outputs:
       commit: ${{ steps.check.outputs.commit }}
-      build: ${{ steps.check.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 25
       - id: check
         env:
           EVENT: ${{ github.event_name }}
           INPUT_COMMIT: ${{ inputs.commit }}
-          BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then commit="$INPUT_COMMIT"; else commit="$AFTER"; fi
@@ -59,14 +48,10 @@ jobs:
             echo "::error::Only a commit on main is released, named by its full hash."
             exit 1
           fi
-          if [ "$EVENT" = workflow_dispatch ]; then build=true; else build="$(node frontend/scripts/mac-inbox.ts changed "$BEFORE" "$commit")"; fi
           echo "commit=$commit" >>"$GITHUB_OUTPUT"
-          echo "build=$build" >>"$GITHUB_OUTPUT"
-          [ "$build" = true ] || echo "Nothing the Mac app's native code is made of changed, so no new Mac app is needed."
 
   mac:
     needs: check
-    if: needs.check.outputs.build == 'true'
     runs-on: macos-15
     environment: release
     timeout-minutes: 120

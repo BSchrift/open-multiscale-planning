@@ -102,6 +102,14 @@ live_shell() {
   echo "$shell"
 }
 
+# Whether an environment's downloads host serves a Mac app the MacApp step checked, as publish records it. A Mac app
+# from before GitHub Actions built them, such as one released unsigned, has no record, so the next run replaces it.
+checked_mac_live() {
+  local env_name="$1" account region profile
+  read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
+  AWS_PROFILE="$profile" aws s3api head-object --bucket "$(release_bucket "$env_name")" --key mac/manifest.json >/dev/null 2>&1
+}
+
 release_bucket() {
   node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseBucket ?? "")' "$MULTISCALE_CONFIG_DIR/$1.outputs.json"
 }
@@ -162,7 +170,8 @@ switch() {
 # always switches. Each feed compares only its own app's native code with what it serves now: the desktop feed switches
 # when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, the iPhone feed when the
 # iPhone app's is unchanged (an iPhone app is still released from the Mac), and the shared feed only when both do, so
-# no installed app is told it needs an app that isn't out.
+# no installed app is told it needs an app that isn't out. A Mac app the MacApp step checked is published whenever it
+# hands one on, as when the downloads host served none it checked, with the record that it's a checked one.
 publish() {
   local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" waiting="" feed
   web="$(built)/web/$env_name"
@@ -171,12 +180,12 @@ publish() {
   build="$(shell_of <"$web/version.json")"
   version="$(version_of "$web")"
   feeds=""
+  if [ -n "$mac" ] && [ -f "$mac/$env_name/Multiscale.dmg" ]; then dmg="$mac/$env_name/Multiscale.dmg"; fi
   if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
   elif [ -z "$mac" ]; then
     waiting="Mac"
-  elif [ -f "$mac/$env_name/Multiscale.dmg" ]; then
-    dmg="$mac/$env_name/Multiscale.dmg"
+  elif [ -n "$dmg" ]; then
     feeds=desktop
   else
     echo "This build needs a newer Mac app than $env_name's desktop feed, but this run checked none for $env_name, so nothing is published." >&2
@@ -191,7 +200,9 @@ publish() {
     switch "$env_name" web "$version"
     if [ -n "$dmg" ]; then
       # Before the feed, which then links apps that can't take it to this app.
-      aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
+      aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage || exit 1
+      # Then the record that it's a checked app, which the downloads host doesn't serve.
+      aws s3 cp "$(dirname "$dmg")/manifest.json" "s3://$(release_bucket "$env_name")/mac/manifest.json" --content-type application/json || exit 1
       echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
     fi
     for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
@@ -254,6 +265,13 @@ case "$command" in
     fi
     commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
     aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped before prod by make pipeline-stop" >/dev/null
+    # Abandoning leaves the window's own wait running, and its email's Promote now link would still answer it.
+    machine="$(aws stepfunctions list-state-machines --query "stateMachines[?starts_with(name, 'Promotion')].stateMachineArn | [0]" --output text)"
+    if [ -n "$machine" ] && [ "$machine" != None ]; then
+      for execution in $(aws stepfunctions list-executions --state-machine-arn "$machine" --status-filter RUNNING --query 'executions[].executionArn' --output text); do
+        aws stepfunctions stop-execution --execution-arn "$execution" --cause "Stopped before prod by make pipeline-stop" >/dev/null
+      done
+    fi
     echo "Stopped run $id, at $commit, before prod. Staging keeps it; prod doesn't get it."
     ;;
   tag)
@@ -331,8 +349,9 @@ case "$command" in
     (cd "$root/infrastructure" && npx cdk deploy --app "$(built)/infrastructure/cdk.out/staging" Multiscale-staging --require-approval never)
     ;;
   mac)
-    # For each environment whose feed needs a newer Mac app than this build's, the Mac app GitHub Actions built from
-    # this commit: waited for in the inbox, checked, and handed to the releases (frontend/scripts/mac-inbox.ts).
+    # For each environment whose feed needs a newer Mac app than this build's, or whose downloads host serves none the
+    # pipeline checked, the Mac app GitHub Actions built from this commit: waited for in the inbox, checked, and handed to
+    # the releases (frontend/scripts/mac-inbox.ts).
     fetch_config
     profiles
     frontend_deps
@@ -341,13 +360,17 @@ case "$command" in
     mkdir -p "$checked"
     for env_name in "${environments[@]}"; do
       outputs "$env_name"
-      if ! differs "$(live_shell "$env_name" desktop)" "$(shell_of <"$(built)/web/$env_name/version.json")" electron; then
+      if differs "$(live_shell "$env_name" desktop)" "$(shell_of <"$(built)/web/$env_name/version.json")" electron; then
+        echo "$env_name's desktop feed needs a newer Mac app than this build's."
+      elif ! checked_mac_live "$env_name"; then
+        echo "$env_name's downloads host serves no Mac app the pipeline checked, so it gets this build's."
+      else
         echo "$env_name's desktop feed can take this build as its Mac app is, so it needs no new one."
         echo "$env_name: no new Mac app needed" >>"$checked/checked.txt"
         continue
       fi
       key="inbox/${COMMIT:?}/$env_name"
-      echo "$env_name needs a new Mac app. Waiting up to $((MAC_WAIT_SECONDS / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
+      echo "Waiting up to $((MAC_WAIT_SECONDS / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
       deadline=$((SECONDS + MAC_WAIT_SECONDS))
       until aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "$key/manifest.json" >/dev/null 2>&1; do
         if [ "$SECONDS" -ge "$deadline" ]; then

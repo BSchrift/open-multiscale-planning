@@ -145,13 +145,15 @@ describe('the Inbox step', () => {
     expect(await screen.findByText('Inbox is empty.')).toBeInTheDocument();
   });
 
-  it('on phone lists rows named by what they say, as the Inbox does, each opening the cards on it', async () => {
+  it('on phone lists rows as the Inbox does, each name opening its popup and each › the cards on it', async () => {
     const t = await openPlanning({
       layout: 'phone',
       seed: (w) => w.create('task', { kind: 'inbox', title: 'Return the library books', estimate_min: 30 }, 'i1'),
     });
-    await userEvent.click(await screen.findByRole('button', { name: /^Return the library books/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Process Return the library books' }));
     expect(t.nav().overlay).toEqual({ area: 'process', params: { planning: '2026-11-02', item: 'i1' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Return the library books' }));
+    expect(t.nav().overlay).toEqual({ area: 'task', params: { task: 'i1' } });
   });
 });
 

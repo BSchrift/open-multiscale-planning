@@ -3,7 +3,6 @@
 // uploads its disk image with a manifest to the pipeline's inbox. The pipeline checks both on Linux, and publishes the
 // disk image only if the app inside is signed by the configured team, notarized, and holds the very code the pipeline
 // built from the same commit.
-//   node scripts/mac-inbox.ts changed <before> <after>        true if the Mac app's native code changed between commits
 //   node scripts/mac-inbox.ts build-config <config folder>    the config the Mac build reads, for MAC_BUILD_CONFIG
 //   node scripts/mac-inbox.ts unpack-config <folder>          writes MAC_BUILD_CONFIG's files into a config folder
 //   node scripts/mac-inbox.ts manifest <env> <commit> <since> <notarytool history> <out>
@@ -22,7 +21,6 @@ import {
   INFO_PLIST_SLOT, machOSignatures, parseCodeDirectory, RESOURCES_SLOT,
 } from './code-signature.ts';
 import type { Signature, Trust } from './code-signature.ts';
-import { isHashed, SHELL_SOURCES } from './shell-hash.ts';
 
 type Env = 'staging' | 'prod';
 const ENVS: Env[] = ['staging', 'prod'];
@@ -340,20 +338,6 @@ export async function verifyInbox(inbox: string, want: { env: Env; commit: strin
   return problems;
 }
 
-/**
- * What the Mac app's native code is made of at a commit: the files its shell hash covers, by git's blob id, and the
- * native packages' versions in the lockfile. Unlike the shell hash it leaves out the build's settings, which no commit
- * changes. Run from the frontend folder.
- */
-export function nativeSources(commit: string, cwd: string): string {
-  const git = (args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  const { paths, packages } = SHELL_SOURCES.electron;
-  const files = git(['ls-tree', '-r', commit, '--', ...paths]).split('\n').filter((line) => line && isHashed('electron', line.split('\t')[1]!));
-  const lock = (JSON.parse(git(['show', `${commit}:./package-lock.json`])) as { packages: Record<string, { version: string }> }).packages;
-  const versions = Object.entries(lock).filter(([key]) => key.startsWith('node_modules/') && packages(key.slice('node_modules/'.length))).map(([key, { version }]) => `${key}@${version}`);
-  return [...files, ...versions.sort()].join('\n');
-}
-
 const BUILD_OUTPUTS = ['ApiUrl', 'CognitoDomain', 'AppClientId', 'ReleaseUrl', 'DownloadsUrl'];
 
 /** The config folder's files that the Mac build reads, cut to what it reads from them, as MAC_BUILD_CONFIG holds them. */
@@ -397,17 +381,7 @@ export function unpackConfig(encoded: string, dir: string): string[] {
 
 async function main([command, ...args]: string[]) {
   const frontend = join(import.meta.dirname, '..');
-  if (command === 'changed') {
-    const [before, after] = args as [string, string];
-    // A push that starts the branch, or from a commit this clone doesn't have, counts as a change.
-    let previous: string | undefined;
-    try {
-      previous = /^[0-9a-f]{40}$/.test(before ?? '') && !/^0+$/.test(before) ? nativeSources(before, frontend) : undefined;
-    } catch {
-      previous = undefined;
-    }
-    console.log(String(previous === undefined || previous !== nativeSources(after, frontend)));
-  } else if (command === 'build-config') {
+  if (command === 'build-config') {
     process.stdout.write(Buffer.from(JSON.stringify(await buildConfig(args[0]!))).toString('base64'));
   } else if (command === 'unpack-config') {
     const hidden = unpackConfig(process.env.MAC_BUILD_CONFIG ?? '', args[0]!);
@@ -463,7 +437,7 @@ async function main([command, ...args]: string[]) {
     }
     console.log(`Checked ${env}'s Mac app at ${commit}: signed by the configured team, notarized, and the pipeline's own build inside.`);
   } else {
-    throw new Error('Use: mac-inbox.ts changed | build-config | unpack-config | manifest | verify. See the comment at its top.');
+    throw new Error('Use: mac-inbox.ts build-config | unpack-config | manifest | verify. See the comment at its top.');
   }
 }
 

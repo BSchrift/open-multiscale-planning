@@ -70,29 +70,4 @@ describe('editors after a failed save', () => {
     expect(screen.getByRole('dialog', { name: 'Edit milestone' })).toBe(editor);
     expect((await getRecord(t.db, 'milestone', 'm2'))?.met_at).toBeFalsy();
   });
-
-  it('Edit task stays open when Save fails', async () => {
-    const t = await project();
-    await userEvent.click(await screen.findByRole('button', { name: /^Edit task Pick a colour/ }));
-    const editor = screen.getByRole('dialog', { name: 'Edit task' });
-    await userEvent.selectOptions(within(editor).getByLabelText('Milestone'), 'Done');
-    failNextSave(t);
-    await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
-    await failed();
-    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBe(editor);
-    expect(within(editor).getByLabelText('Milestone')).toHaveValue('');
-    expect((await getRecord(t.db, 'task', 't1'))?.milestone_id).toBe('m1');
-  });
-
-  it('Edit task stays open when Delete fails, with no Undo offered', async () => {
-    const t = await project();
-    await userEvent.click(await screen.findByRole('button', { name: /^Edit task Pick a colour/ }));
-    const editor = screen.getByRole('dialog', { name: 'Edit task' });
-    failNextSave(t);
-    await userEvent.click(within(editor).getByRole('button', { name: 'Delete task' }));
-    await failed();
-    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBe(editor);
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
-    expect((await getRecord(t.db, 'task', 't1'))?.deleted_at).toBeFalsy();
-  });
 });

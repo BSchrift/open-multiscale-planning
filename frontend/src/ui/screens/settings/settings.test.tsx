@@ -12,6 +12,7 @@ import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
 import { parsePeriod } from '../../../../../config/retention';
+import { noFiles } from '../../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -26,6 +27,7 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    files: noFiles(),
   } satisfies AppSync;
 }
 

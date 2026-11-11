@@ -6,6 +6,7 @@ import { CALENDAR_ID, getSettings, listRecords } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { renderApp, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
+import { noFiles } from '../../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -20,6 +21,7 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    files: noFiles(),
   } satisfies AppSync;
 }
 

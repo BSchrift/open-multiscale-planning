@@ -51,6 +51,15 @@ export interface CaptureShortcut {
   set(accelerator: string): Promise<boolean>;
 }
 
+/** Attachments' bytes kept on this device, by attachment id. */
+export interface FileStore {
+  get(id: string): Promise<Blob | null>;
+  put(id: string, file: Blob): Promise<void>;
+  remove(id: string): Promise<void>;
+  /** Everything, as when another account signs in here. */
+  clear(): Promise<void>;
+}
+
 export interface Platform {
   readonly kind: PlatformKind;
   /** The open, migrated database. */
@@ -58,6 +67,10 @@ export interface Platform {
   readonly notifications: Notifications;
   readonly tokens: SecureTokens;
   readonly lifecycle: Lifecycle;
+  /** Attachments' bytes kept on this device. */
+  readonly files: FileStore;
+  /** Set where this app may not reach attachments' storage: a Mac app whose content policy is from before them. */
+  readonly filesBlocked?: true;
   /** Opens a URL in the system browser. Sign-in starts here and returns through onDeepLink. */
   openExternal(url: string): Promise<void>;
   /** The URL the identity provider sends the browser back to. */

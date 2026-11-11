@@ -54,7 +54,7 @@ test('the Now card: Start counts down, Mark done now frees the time, and Undo pu
   expect(errors).toEqual([]);
 });
 
-test('the time-spent ring pauses with a toast and resumes the block under way, and a tap soon after Resume takes it back', async ({ page }, info) => {
+test('the time-spent ring pauses and resumes the block under way, each with a toast, and a tap soon after Resume takes it back', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') }), block('b2', 't2', '16:00', '17:00')]);
@@ -95,20 +95,23 @@ test('the time-spent ring pauses with a toast and resumes the block under way, a
   await expect(now.getByRole('timer')).toHaveText('38:00');
   await shot('ring-paused');
 
-  // Resume moves the end on by the pause, with no toast: a tap on the ring straight after takes it back. The tap puts
-  // Pause's toast away too.
+  // Resume moves the end on by the pause and says so, in the toast's one place: a tap on the ring straight after
+  // takes it back, and Pause's toast takes the place of Resume's.
   await now.getByRole('button', { name: /^Resume, / }).click();
   await expect(now.getByText('Now, 1:38pm to 2:44pm')).toBeVisible();
   await expect(now.getByRole('button', { name: /^Pause, 22 minutes spent/ })).toBeVisible();
-  await expect(page.locator('.toast')).toHaveCount(0);
+  await expect(toast).toHaveCount(1);
+  await expect(toast).toHaveText(/^Resumed\. It now ends at 2:44pm\.\s*Undo$/);
   await shot('ring-resumed');
   await now.getByRole('button', { name: /^Pause, / }).click();
   await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
   await expect(now.getByText('Paused for 6 min')).toBeVisible();
+  await expect(toast).toHaveCount(1);
+  await expect(toast).toContainText('Paused Write the report');
   expect(errors).toEqual([]);
 });
 
-test('on desktop, P pauses and resumes the block under way, and Undo on the toast takes the pause away', async ({ page }, info) => {
+test("on desktop, P pauses and resumes the block under way, and each toast's Undo takes back what it did", async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'P is a desktop key');
   const errors = await open(page, [planned, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
   await page.clock.setFixedTime(NOW);
@@ -129,6 +132,16 @@ test('on desktop, P pauses and resumes the block under way, and Undo on the toas
   await page.clock.setFixedTime(NOW.getTime() + 12 * 60_000);
   await page.keyboard.press('p');
   await expect(now.getByText('Now, 1:38pm to 2:44pm')).toBeVisible();
+  // No tap put Pause's toast away, so Resume's takes its place, and its Undo puts the pause back with the old end.
+  const toast = page.locator('.toast');
+  await expect(toast).toHaveCount(1);
+  await expect(toast).toContainText('Resumed. It now ends at 2:44pm.');
+  await page.screenshot({ path: info.outputPath('resume-key-desktop.png') });
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(now.getByRole('button', { name: /^Resume, / })).toBeVisible();
+  await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
+  await expect(now.getByText('Paused for 6 min')).toBeVisible();
+  await expect(toast).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -158,6 +171,7 @@ test('a pause running to the end asks the end question, whose Resume runs into t
   const now = page.getByRole('region', { name: 'Current block' });
   await expect(now.getByText('Now, 1pm to 2:28pm')).toBeVisible();
   await expect(now.getByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' })).toBeVisible();
+  await expect(page.locator('.toast')).toContainText('Resumed. It now ends at 2:28pm.');
 
   await expect(page.getByText('Paint the fence conflicts with Write the report.')).toBeVisible();
   await page.getByRole('button', { name: 'Shift rest of today' }).click();

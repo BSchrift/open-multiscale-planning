@@ -116,6 +116,7 @@ describe('the Now card', () => {
       await w.set('time_block', 'b1', { started_at: at('13:00') });
     };
     const later = (t: Harness, minutes: number) => act(() => t.clock.set(Date.parse(NOW) + minutes * 60_000));
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 100)));
 
     it('shows the percent of the block spent once started, and tapping it pauses: the countdown stops and the card says when it ends', async () => {
       const t = await open(running);
@@ -135,7 +136,7 @@ describe('the Now card', () => {
       expect(within(now).getByRole('timer')).toHaveTextContent('1:00:00');
     });
 
-    it('Resume moves the end later by the pause, with no toast, and a tap on the ring within 30 seconds takes it back exactly', async () => {
+    it('Resume moves the end later by the pause and says the new end, and a tap on the ring within 30 seconds takes it back exactly', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
@@ -145,12 +146,15 @@ describe('the Now card', () => {
       expect(await within(now).findByText('Now, 1pm to 3:09pm')).toBeVisible();
       expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') });
       expect(await within(now).findByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }, { timeout: 2000 })).toBeVisible();
-      expect(screen.queryByText(/^Resumed/)).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      // The toast says the new end, and leaves focus on the ring.
+      expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+      expect(within(now).getByRole('button', { name: /^Pause, / })).toHaveFocus();
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
       expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_min ?? null).toBeNull();
-      // That's a Pause too, and its toast's Undo puts the block back as Resume left it.
+      // That's a Pause too: its toast takes the place of Resume's, and its Undo puts the block back as Resume left it.
+      expect(await screen.findByText('Paused Write the report')).toBeVisible();
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
       await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') }));
     });
@@ -169,8 +173,42 @@ describe('the Now card', () => {
       expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
     });
 
+    it("Undo on Resume's toast puts the pause back as it was: paused again, with its old end", async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      await userEvent.click(within(now).getByRole('button', { name: /^Resume, / }));
+      expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+      later(t, 10);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(await within(now).findByRole('button', { name: /^Resume, / })).toBeVisible();
+      const b1 = await getRecord(t.db, 'time_block', 'b1');
+      expect(b1).toMatchObject({ paused_at: NOW, end: at('15:00') });
+      expect(b1?.paused_min ?? null).toBeNull();
+      expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
+      expect(await within(now).findByText('Paused for 10 min', {}, { timeout: 2000 })).toBeVisible();
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
+    });
+
+    it('a Resume another device got to first says nothing', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      const ring = await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      // Resumed elsewhere, synced in just before this tap, which then finds nothing to resume.
+      const elsewhere = t.write((w) => w.set('time_block', 'b1', { paused_at: null, paused_min: 9, end: at('15:09') }));
+      fireEvent.click(ring);
+      await elsewhere;
+      expect(await within(now).findByRole('button', { name: /^Pause, / })).toBeVisible();
+      await settle();
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') });
+    });
+
     describe('the P key', () => {
-      const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 100)));
 
       it('on desktop, pauses and resumes as the ring does, with the same toast and take-back', async () => {
         const t = await open(running);
@@ -183,8 +221,16 @@ describe('the Now card', () => {
         later(t, 9);
         await userEvent.keyboard('p');
         await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') }));
+        // With no tap to put Pause's toast away, Resume's takes its place.
+        expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+        expect(screen.queryByText('Paused Write the report')).toBeNull();
         // The ring says it's there, for screen readers.
         expect(within(now).getByRole('button', { name: /^Pause, / })).toHaveAttribute('aria-keyshortcuts', 'P');
+        // P straight after takes the Resume back, and Pause's toast takes the place of Resume's.
+        await userEvent.keyboard('p');
+        await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
+        expect(await screen.findByText('Paused Write the report')).toBeVisible();
+        expect(screen.queryByText(/^Resumed/)).toBeNull();
       });
 
       it('does nothing while typing, with a modifier held, or with a dialog open', async () => {
@@ -270,14 +316,15 @@ describe('the Now card', () => {
       );
     });
 
-    it('a quick second tap leaves no trace and no toast', async () => {
+    it('a quick second tap leaves no trace, and its toast says the end is where it was', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await userEvent.click(await within(now).findByRole('button', { name: /^Resume, / }));
       await within(now).findByRole('button', { name: /^Pause, / });
       expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, end: at('15:00') });
-      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(await screen.findByText('Resumed. It now ends at 3pm.')).toBeVisible();
+      expect(screen.queryByText('Paused Write the report')).toBeNull();
     });
 
     it('the ⓘ shows what the ring and its signs mean, and hides it again', async () => {
@@ -361,10 +408,11 @@ describe('the end-of-block prompt', () => {
     const now = screen.getByRole('region', { name: 'Current block' });
     const ring = await within(now).findByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' });
     expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 38, end: at('14:28') });
-    expect(screen.queryByText(/^Resumed/)).toBeNull();
+    expect(await screen.findByText('Resumed. It now ends at 2:28pm.')).toBeVisible();
     // Pressed by mistake, a tap on the ring takes it back: paused from the same moment, and the block missed again.
     await userEvent.click(ring);
     await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: at('13:22'), end: at('13:50') }));
+    expect(screen.queryByText(/^Resumed/)).toBeNull();
     expect(await screen.findByRole('button', { name: 'Review' })).toBeVisible();
   });
 

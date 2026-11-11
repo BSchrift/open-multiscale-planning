@@ -14,8 +14,9 @@ stack:
   # minutes still see some real use.
   canaryPercent: 10
   canaryMinutes: 90
-  # Whether DynamoDB throttling the API's requests stops a release and rolls it back. On prod nothing but people and
-  # the release canary use the API, so a throttle there is real.
+  # Whether DynamoDB throttling the API's requests stops a release and rolls it back. On prod only people, the release
+  # canary and the release's own tests use the API, and the tests pace their full batches under a partition's write
+  # rate (backend/integration), so a throttle there is real.
   throttleReleaseAlarm: true
 
 attachments:

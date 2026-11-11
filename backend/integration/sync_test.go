@@ -164,6 +164,9 @@ func TestPagingReturnsEverythingOnceInOrder(t *testing.T) {
 	start := a.startCursor()
 	want := map[string]bool{}
 	for batch := 0; batch < 6; batch++ {
+		if batch > 0 {
+			time.Sleep(fullBatchPause)
+		}
 		var changes []record
 		for i := 0; i < maxChanges; i++ {
 			id := fresh("page")
@@ -438,6 +441,7 @@ func TestLargestAllowedBatchAndRecord(t *testing.T) {
 		t.Fatalf("%d", len(all))
 	}
 	// As near the limit as JSON allows, with the shape that costs DynamoDB most per byte of JSON.
+	time.Sleep(fullBatchPause)
 	id := fresh("limit")
 	clock := a.clock()
 	overhead := len(fmt.Sprintf(`{"list":{"v":[],"c":%q}}`, clock))

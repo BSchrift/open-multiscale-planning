@@ -40,11 +40,12 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
   await expect(page.getByRole('button', { name: 'Process 1 item' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
-  // Pick: a task's title opens its editor, and a rename shows at once, with focus back on the title.
+  // Pick: a task's title opens its popup, and a rename shows at once, with focus back on the title.
   if (!phone) await page.getByRole('button', { name: /^Write the report,/ }).click();
   await page.getByRole('button', { name: /^Edit task Write chapter one/ }).click();
-  const editor = page.getByRole('dialog', { name: 'Edit task' });
-  await editor.getByRole('textbox', { name: 'Title' }).fill('Write the first chapter');
+  const editor = page.getByRole('dialog', { name: 'Write chapter one' });
+  await editor.getByRole('button', { name: 'Rename Write chapter one' }).click();
+  await editor.getByRole('textbox', { name: 'Name' }).fill('Write the first chapter');
   await editor.getByRole('button', { name: 'Save' }).click();
   await expect(editor).toHaveCount(0);
   const renamed = page.getByRole('button', { name: /^Edit task Write the first chapter/ });

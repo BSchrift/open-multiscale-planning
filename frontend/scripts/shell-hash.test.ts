@@ -23,6 +23,13 @@ describe('shellHash', () => {
     expect(shellHash(files, {}, { ...build, scheme: 'multiscale-staging' })).not.toBe(base);
     expect(shellHash(files, {}, build)).toBe(base);
     expect(shellHash(files, {})).not.toBe(base);
+    // Attachments' storage too, once the environment has it.
+    expect(
+      macBuild(
+        { apiUrl: 'https://api.example.test', authUrl: 'https://auth.example.test', filesUrl: 'https://files.example.test', filesUploadUrl: 'https://bucket.example.test/u' },
+        { name: 'Multiscale', scheme: 'multiscale' },
+      ).backendOrigins,
+    ).toEqual(['https://api.example.test', 'https://auth.example.test', 'https://files.example.test', 'https://bucket.example.test']);
   });
 
   it("ignores tests and other files the app doesn't ship", () => {

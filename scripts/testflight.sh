@@ -44,6 +44,12 @@ out="$(mktemp -d)"
 echo "Archiving build $build"
 xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -configuration Release -destination generic/platform=iOS \
   -archivePath "$out/Multiscale.xcarchive" "${auth[@]}" CURRENT_PROJECT_VERSION="$build" archive
+# App Store Connect refuses an app with a symlink in it (ITMS-90332), but only after the upload, so this stops first.
+links="$(find "$out/Multiscale.xcarchive/Products/Applications" -type l)"
+if [ -n "$links" ]; then
+  printf 'The archived app has symbolic links, which App Store Connect refuses:\n%s\n' "$links" >&2
+  exit 1
+fi
 
 # Xcode would otherwise renumber the build as it uploads.
 cat >"$out/export.plist" <<EOF

@@ -10,14 +10,15 @@ import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Minutes } from '../../../../core/types';
 import { EstimateSlider } from '../../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
+import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
 import { Popover } from '../../../components/Popover';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { Sheet } from '../../../components/Sheet';
+import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { pickWarning } from '../../../../core/capacity';
 import { Aims } from './Aims';
-import { EditTask } from './EditTask';
 import { aimWords } from './model';
 import type { PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
@@ -59,7 +60,7 @@ export function PickPhone(props: PickProps) {
   const [chosen, setChosen] = useState<string | null | undefined>(undefined);
   const active = chosen === undefined ? seq[0]! : chosen;
   const at = active ? seq.indexOf(active) : -1;
-  const [editFor, setEditFor] = useState<string | null>(null);
+  const openTask = useOpenTask();
   const [sheet, setSheet] = useState<string | null>(null);
   const [fixFor, setFixFor] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; ids: string[] } | null>(null);
@@ -82,7 +83,6 @@ export function PickPhone(props: PickProps) {
   const warn = pickWarning(free, model.pushback);
   const fixProject = view.projects.find((p) => p.plan.project.id === fixFor);
   const pastNow = view.pastEnd.find((p) => sheet === `past:${p.plan.project.id}`);
-  const editRow = allRows.find((r) => r.c.task.id === editFor);
   const [estFor, setEstFor] = useState<string | null>(null);
   const estRow = allRows.find((r) => r.c.task.id === estFor);
 
@@ -91,8 +91,9 @@ export function PickPhone(props: PickProps) {
     const full = !r.c.picked && estText(r) === 'On the calendar';
     return (
       <div key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}${done ? ' isdone' : ''}`}>
-        <button className="tmain" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => setEditFor(r.c.task.id)}>
+        <button className="tmain" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => openTask(r.c.task.id, r.note)}>
           {r.title}
+          {r.c.task.notes && <NoteMark />}
         </button>
         {done ? (
           <span className="testb">Done</span>
@@ -488,7 +489,6 @@ export function PickPhone(props: PickProps) {
         />
       )}
 
-      {editRow && <EditTask row={editRow} view={view} ctx={model.ctx} onClose={() => setEditFor(null)} />}
       {estRow && (
         <Popover label={`Estimate for ${estRow.title}`} onClose={() => setEstFor(null)}>
           <h2>{estRow.title}</h2>

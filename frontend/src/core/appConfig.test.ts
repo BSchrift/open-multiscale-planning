@@ -26,6 +26,12 @@ describe('loadAppConfig', () => {
     );
   });
 
+  it("reads where attachments' storage is, when the environment has it", () => {
+    const read = files({ '/config-dir/staging.outputs.json': { ...outputs, FilesUrl: 'https://files.example.test', FilesUploadUrl: 'https://bucket.example.test' } });
+    expect(loadAppConfig('staging', read, dir)).toMatchObject({ filesUrl: 'https://files.example.test', filesUploadUrl: 'https://bucket.example.test' });
+    expect(loadAppConfig('staging', files({ '/config-dir/staging.outputs.json': outputs }), dir)).not.toHaveProperty('filesUrl');
+  });
+
   it('keeps staging and prod apart', () => {
     const read = files({ '/config-dir/staging.outputs.json': outputs, '/config-dir/prod.outputs.json': { ...outputs, AppClientId: 'client-2' } });
     expect(loadAppConfig('prod', read, dir).authClientId).toBe('client-2');

@@ -7,6 +7,7 @@ import { getRecord } from '../../../core/records';
 import { useApp, useQuery } from '../../app/store';
 import { Pill } from '../Pill';
 import { Sheet } from '../Sheet';
+import { TaskName } from '../task/TaskName';
 import { describeBlock, formatRange, OUTCOME_WORD } from './describe';
 import type { BlockRecords } from './describe';
 
@@ -45,12 +46,14 @@ export function BlockDetail(props: { block: BlockRow; onClose(): void }) {
   const { block } = props;
   const { layout, clock } = useApp();
   const when = formatRange(block.start, block.end, clock.zone());
+  // A task's name opens its popup.
+  const name = block.task_id ? <TaskName id={block.task_id} title={block.title ?? ''} /> : block.title;
   if (layout === 'phone') {
     return (
       <Sheet label={block.title ?? 'Time block'} onClose={props.onClose}>
         <div>
           <div className="small quiet">{when}</div>
-          <h2>{block.title}</h2>
+          <h2>{name}</h2>
         </div>
         <div className="stack8 small">
           <BlockDetailBody block={block} />
@@ -64,7 +67,7 @@ export function BlockDetail(props: { block: BlockRow; onClose(): void }) {
   return (
     <div className="panel stack8 small" role="region" aria-label={block.title ?? 'Time block'}>
       <div className="between">
-        <span className="strong">{block.title}</span>
+        <span className="strong">{name}</span>
         <button className="link" type="button" onClick={props.onClose}>
           Close
         </button>

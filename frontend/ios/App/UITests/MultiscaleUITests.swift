@@ -181,16 +181,21 @@ final class ShellUITests: XCTestCase {
         exists(app.webElement("Return the library books done"))
     }
 
-    func testADescriptionTakesBoldFromTheBarWithTheKeyboardStillUpThenShowsFormatted() {
+    func testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBarWithTheKeyboardUp() {
         let app = launchApp(seed: "Seed to schedule")
         app.tapWeb("Goals")
+        // On CI's iOS 26 Simulator the first tap after launch is sometimes lost; a person would tap again.
+        if !app.webButton(startingWith: "Learn to bake bread").waitForExistence(timeout: 5) { app.tapWeb("Goals") }
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
         app.tapWeb(startingWith: "Edit task Mix the dough")
+        // The popup opens on the task's name, read as its heading, so the keyboard stays down until a field is tapped.
+        exists(app.webButton("Rename Mix the dough"))
+        let keyboard = app.keyboards.element
+        XCTAssertFalse(keyboard.waitForExistence(timeout: 2), "the keyboard came up as the popup opened")
         let field = app.page.textViews["Description"]
         exists(field)
         field.tap()
-        let keyboard = app.keyboards.element
         XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(app.debugDescription)")
         field.typeText("Use ")
         // The bar's buttons leave the field focused, so the keyboard stays up and typing goes on between the marks.
@@ -681,7 +686,8 @@ final class SignedInUITests: XCTestCase {
         // Deleted here, deleted there, so a deployment's test user keeps nothing live.
         // Only this run's item: a deployment's Inbox can hold what other suites left.
         app.tapWeb(startingWith: "Inbox")
-        app.tapWeb(title)
+        // The item's › opens Process on it; its name opens its popup.
+        app.tapWeb("Process \(title)")
         app.tapWeb("Delete/done")
         app.tapWeb("Yes, delete")
         // Process goes on to whatever else is in the Inbox, so the server is what shows it worked.

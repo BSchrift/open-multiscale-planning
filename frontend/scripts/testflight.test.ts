@@ -209,13 +209,30 @@ describe('revokeCertificates', () => {
   });
 });
 
+describe('ascGet and ascSend', () => {
+  it('sign each request with a new token when given a way to make them, since a long wait outlasts one', async () => {
+    const auths: (string | null)[] = [];
+    const fetchImpl = (async (_: string, init?: RequestInit) => {
+      auths.push(new Headers(init?.headers).get('authorization'));
+      return new Response('{"data":[]}');
+    }) as unknown as typeof fetch;
+    let n = 0;
+    const token = () => `token-${++n}`;
+    await ascGet(token, fetchImpl)('/v1/apps', {});
+    await ascSend(token, fetchImpl)('POST', '/v1/betaGroups', {});
+    expect(auths).toEqual(['Bearer token-1', 'Bearer token-2']);
+  });
+});
+
 describe('publishToTesters', () => {
   const BUILD = '/v1/builds?filter[app]=42&filter[version]=1794000000&fields[builds]=version,processingState';
+  const UPLOADS = '/v1/apps/42/buildUploads?filter[cfBundleVersion]=1794000000&fields[buildUploads]=cfBundleVersion,state';
   const GROUPS = '/v1/apps/42/betaGroups?fields[betaGroups]=name,isInternalGroup,publicLinkEnabled,publicLink';
   const LINK = 'https://testflight.apple.com/join/AbCdEf12';
   const processed = (state: string) => ({ data: [{ id: 'b1', attributes: { version: '1794000000', processingState: state } }] });
   const group = (attributes: object) => ({ id: 'g1', attributes: { name: 'Testers', isInternalGroup: false, publicLinkEnabled: true, publicLink: LINK, ...attributes } });
   const conflict = () => new Response('{"errors":[{"status":"409","code":"ENTITY_ERROR","detail":"already"}]}', { status: 409 });
+  const upload = (state: string, errors: object[] = []) => ({ data: [{ id: 'u1', attributes: { cfBundleVersion: '1794000000', state: { state, errors, warnings: [], infos: [] } } }] });
   const nonGets = (api: ReturnType<typeof fakeApi>) =>
     api.requests.filter((r) => r.method !== 'GET').map((r) => [r.method, r.url.replace('https://api.appstoreconnect.apple.com', ''), r.body]);
 
@@ -224,6 +241,7 @@ describe('publishToTesters', () => {
     const api = fakeApi({
       [APPS]: app,
       [BUILD]: () => states.shift(),
+      [UPLOADS]: upload('PROCESSING'),
       [GROUPS]: { data: [group({ name: 'App Store Connect Users', isInternalGroup: true })] },
       'POST /v1/betaGroups': { data: group({}) },
       'POST /v1/betaGroups/g1/relationships/builds': null,
@@ -262,10 +280,22 @@ describe('publishToTesters', () => {
     await expect(publishToTesters(fakeApi({ [APPS]: app, [BUILD]: processed('INVALID') }).get, send, BUNDLE, 1794000000, 'x', async () => {})).rejects.toThrow(
       "App Store Connect couldn't process build 1794000000: INVALID.",
     );
-    await expect(publishToTesters(fakeApi({ [APPS]: app, [BUILD]: { data: [] } }).get, send, BUNDLE, 1794000000, 'x', async () => {}, 3)).rejects.toThrow(
+    await expect(publishToTesters(fakeApi({ [APPS]: app, [BUILD]: { data: [] }, [UPLOADS]: { data: [] } }).get, send, BUNDLE, 1794000000, 'x', async () => {}, 3)).rejects.toThrow(
       "Build 1794000000 still wasn't ready in App Store Connect after 3 minutes.",
     );
     const api = fakeApi({ [APPS]: app, [BUILD]: processed('VALID'), [GROUPS]: { data: [group({})] }, 'POST /v1/betaGroups/g1/relationships/builds': null, 'POST /v1/betaBuildLocalizations': null });
     await expect(publishToTesters(api.get, api.send, BUNDLE, 1794000000, 'x', async () => {})).rejects.toThrow('refused POST /v1/betaAppReviewSubmissions: 404');
+  });
+
+  it("stops waiting when App Store Connect refused the upload, with Apple's reasons, which otherwise only reach the account holder's email", async () => {
+    const refused = upload('FAILED', [
+      { code: '90332', description: 'Invalid Symbolic Link.' },
+      { code: '90333', description: 'Something else.' },
+    ]);
+    const waits: number[] = [];
+    await expect(publishToTesters(fakeApi({ [APPS]: app, [BUILD]: { data: [] }, [UPLOADS]: refused }).get, fakeApi({}).send, BUNDLE, 1794000000, 'x', async (ms) => void waits.push(ms))).rejects.toThrow(
+      'App Store Connect refused build 1794000000 after its upload: ITMS-90332: Invalid Symbolic Link. ITMS-90333: Something else.',
+    );
+    expect(waits).toEqual([]);
   });
 });

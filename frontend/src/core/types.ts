@@ -293,6 +293,29 @@ export interface Practice extends BaseRecord {
   state: PracticeState;
 }
 
+export type AttachmentKind = 'link' | 'photo' | 'file';
+
+/**
+ * A link, photo or file on a task, as a record of its own. A photo's or file's bytes go to private storage through the
+ * API, which checks them against size, type and sha256 here; this device keeps a copy once it has them (files.ts).
+ */
+export interface Attachment extends BaseRecord {
+  task_id: string;
+  kind: AttachmentKind;
+  /** What it's called: a page's address or a file's name. */
+  name: string;
+  /** A link's address. */
+  url?: string | null;
+  /** A photo's or file's size in bytes. */
+  size?: number | null;
+  /** A photo's or file's content type. */
+  type?: string | null;
+  /** The SHA-256 of a photo's or file's bytes, in base64, as the upload signs it. */
+  sha256?: string | null;
+  /** When its upload finished, so other devices know they can fetch it. */
+  uploaded_at?: Instant | null;
+}
+
 export interface RecordMap {
   objective: Objective;
   project: Project;
@@ -308,6 +331,7 @@ export interface RecordMap {
   calendar: CalendarState;
   calendar_source: CalendarSource;
   practice: Practice;
+  attachment: Attachment;
 }
 
 export type RecordType = keyof RecordMap;
@@ -330,6 +354,7 @@ export const RECORD_TYPES = [
   'calendar',
   'calendar_source',
   'practice',
+  'attachment',
 ] as const satisfies readonly RecordType[];
 
 /** The bucket aims and meters use for all one offs together, beside project ids. */

@@ -79,6 +79,23 @@ describe('Settings', () => {
     });
   });
 
+  it("offers single-key shortcuts in Process on desktop, off until switched on, and keeps the choice on this device's storage", async () => {
+    await renderScreen('settings');
+    const keys = await screen.findByRole('checkbox', { name: 'Single-key shortcuts in Process' });
+    expect(keys).not.toBeChecked();
+    await userEvent.click(keys);
+    expect(keys).toBeChecked();
+    expect(localStorage.getItem('multiscale.processKeys')).toBe('true');
+    await userEvent.click(keys);
+    expect(localStorage.getItem('multiscale.processKeys')).toBe('false');
+  });
+
+  it("has no keyboard setting on phone, which has no keyboard", async () => {
+    await renderScreen('settings', { layout: 'phone' });
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    expect(screen.queryByRole('checkbox', { name: 'Single-key shortcuts in Process' })).toBeNull();
+  });
+
   describe('account and sync', () => {
     it('signed out, offers Sign in', async () => {
       const sync = fakeSync();

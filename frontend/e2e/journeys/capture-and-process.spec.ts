@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { addMilestones, addProject, chicago, firstRun, jumpTo, openProject, pane, start, tab, TZ } from './journey';
 
-// Capture from anywhere, sort the Inbox to a milestone, a dated one off, an undated one off and the bin, then live
-// with the One offs page across days: ticking, Today's one offs, Finished tasks and the Repeating group.
+// Capture from anywhere, sort the Inbox to a milestone, a dated one off, an undated one off, a practice made from its
+// card and the bin, then live with the One offs page across days: ticking, Today's one offs, Finished tasks and the
+// Repeating group.
 
 test.use({ timezoneId: TZ, actionTimeout: 15_000 });
 
@@ -32,12 +33,13 @@ test('capture, process each item to its place, then one offs across the week', a
   await tab(page, phone, 'Today');
   await capture(page, phone, 'Return the library books', !phone);
   await capture(page, phone, 'Pay the water bill', false);
+  await capture(page, phone, 'Stretch every morning', false);
   await capture(page, phone, 'An old idea to let go', !phone);
 
   await tab(page, phone, 'Inbox');
   const inbox = pane(page, 'Inbox');
-  await expect(inbox.locator('.inboxrow, .morerow')).toHaveText([/Buy a proofing basket/, /Return the library books/, /Pay the water bill/, /An old idea to let go/]);
-  await inbox.getByRole('button', { name: 'Process 4 items' }).click();
+  await expect(inbox.locator('.inboxrow, .morerow')).toHaveText([/Buy a proofing basket/, /Return the library books/, /Pay the water bill/, /Stretch every morning/, /An old idea to let go/]);
+  await inbox.getByRole('button', { name: 'Process 5 items' }).click();
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
 
   // To the project, then onto its milestone from the line under the card.
@@ -58,12 +60,22 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(card.getByRole('heading', { name: 'Pay the water bill' })).toBeVisible();
   await card.getByRole('button', { name: 'One offs' }).click();
 
+  // A practice of its own, made from its card: the item becomes it, and leaves the Inbox.
+  await expect(card.getByRole('heading', { name: 'Stretch every morning' })).toBeVisible();
+  await card.getByRole('button', { name: 'New practice from this item' }).click();
+  const practice = phone ? page.getByRole('dialog', { name: 'New practice' }) : card.getByRole('form', { name: 'New practice' });
+  await expect(practice.getByRole('textbox', { name: 'Name' })).toHaveValue('Stretch every morning');
+  await practice.getByRole('button', { name: 'Change time' }).click();
+  await practice.getByRole('slider', { name: 'Target' }).fill('15');
+  await practice.getByRole('button', { name: 'Make it a practice' }).click();
+  await expect(card.getByRole('status')).toHaveText('"Stretch every morning" is now a practice, 15m a day. It left your Inbox.');
+
   // And the bin, after asking.
   await expect(card.getByRole('heading', { name: 'An old idea to let go' })).toBeVisible();
   await card.getByRole('button', { name: 'Delete/done' }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card.getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
-  await expect(card).toContainText('3 sorted, 1 deleted.');
+  await expect(card).toContainText('4 sorted, 1 deleted.');
   await card.getByRole('button', { name: 'Done' }).click();
   await expect(inbox.getByText(/^Inbox is empty\./)).toBeVisible();
 
@@ -113,7 +125,11 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(repeating).toContainText('Weekly, next Wed Nov 11');
   await oneOffs.getByRole('button', { name: 'Finished tasks' }).click();
   const finished = oneOffs.getByRole('region', { name: 'Finished tasks' });
-  await expect(finished.getByText('3 finished')).toBeVisible();
+  await expect(finished.getByText('4 finished')).toBeVisible();
   await expect(finished.getByRole('checkbox', { name: 'Pay the water bill done' })).toBeChecked();
+  // The item that became a practice is finished too, and links to it, open on the Goals page.
+  await finished.getByRole('button', { name: 'Became the practice Stretch every morning' }).click();
+  if (phone) await expect(page.getByRole('dialog', { name: 'Edit practice' }).getByLabel('Name')).toHaveValue('Stretch every morning');
+  else await expect(pane(page, 'Goals').getByRole('button', { name: /^Stretch every morning/, expanded: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

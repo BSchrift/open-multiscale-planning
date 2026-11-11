@@ -1038,6 +1038,20 @@ describe('Goals', () => {
   });
 
   describe('practices', () => {
+    it('a link to a practice opens it, in its section on desktop and in its sheet on phone', async () => {
+      await renderScreen('goals', { seed: bread, params: { show: 'pr1' } });
+      expect(await screen.findByRole('button', { name: /^Stretch/, expanded: true })).toBeVisible();
+      expect(screen.getByRole('slider', { name: 'Target' })).toBeVisible();
+      cleanup();
+      await renderScreen('goals', { seed: bread, params: { show: 'pr1' }, layout: 'phone' });
+      expect(await screen.findByRole('dialog', { name: 'Edit practice' })).toBeVisible();
+    });
+
+    it('a link to a goal opens it', async () => {
+      await renderScreen('goals', { seed: bread, params: { show: 'g2' } });
+      expect(await screen.findByRole('button', { name: /^Run a 10k/, expanded: true })).toBeVisible();
+    });
+
     it('on desktop: no goal section, link to a goal, target slider, pause, end', async () => {
       const t = await renderScreen('goals', { seed: bread });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));

@@ -68,7 +68,8 @@ export const SQL = {
           AND julianday(c.done_at) >= julianday(b.start))`,
 
   finished: `
-    SELECT c.id, c.task_id, t.title, c.done_at
+    SELECT c.id, c.task_id, t.title, c.done_at,
+           json_extract(t.became, '$.type') AS became_type, json_extract(t.became, '$.id') AS became_id
     FROM task_completion c
     JOIN task t ON t.id = c.task_id
     WHERE c.deleted_at IS NULL
@@ -250,6 +251,9 @@ export interface FinishedRow {
   task_id: string;
   title: string;
   done_at: Instant;
+  /** What an Inbox item became, as Task.became has it. */
+  became_type: 'project' | 'practice' | 'objective' | null;
+  became_id: string | null;
 }
 
 /** Completions newest first, ten at a time. */

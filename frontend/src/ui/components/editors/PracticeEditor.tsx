@@ -21,7 +21,7 @@ function daysKey(days: readonly Weekday[] | null | undefined): DaysKey {
   return set === DAYS.weekdays.join() ? 'weekdays' : set === DAYS.weekends.join() ? 'weekends' : 'all';
 }
 
-const targetMax = (per: Practice['per']) => (per === 'day' ? 240 : 1200);
+export const targetMax = (per: Practice['per']) => (per === 'day' ? 240 : 1200);
 const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
 /** "15m a day, weekdays, around 7am" */
@@ -34,9 +34,11 @@ export function practiceRule(p: Practice): string {
 /** Goals a practice or project can link to: any that isn't archived. */
 const linkable = (goals: readonly Objective[]) => goals.filter((g) => g.state !== 'archived' && !g.deleted_at);
 
-export function GoalSelect(props: { goals: readonly Objective[]; value: string; onChange(id: string): void }) {
-  return (
-    <label className="popfield">
+/** With onNew, a + New goal button follows the select, rather than being one of its options. */
+export function GoalSelect(props: { goals: readonly Objective[]; value: string; onChange(id: string): void; onNew?(): void }) {
+  const { layout } = useApp();
+  const select = (
+    <label className={props.onNew ? 'popfield grow' : 'popfield'}>
       Goal
       <select className="field" aria-label="Goal" value={props.value} onChange={(event) => props.onChange(event.target.value)}>
         <option value="">No goal</option>
@@ -48,9 +50,18 @@ export function GoalSelect(props: { goals: readonly Objective[]; value: string; 
       </select>
     </label>
   );
+  if (!props.onNew) return select;
+  return (
+    <div className="row nowrap fieldandbtn">
+      {select}
+      <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={props.onNew}>
+        + New goal
+      </button>
+    </div>
+  );
 }
 
-function TargetSlider(props: { per: Practice['per']; value: number; onChange(minutes: number): void }) {
+export function TargetSlider(props: { per: Practice['per']; value: number; onChange(minutes: number): void }) {
   const id = useId();
   return (
     <div className="stack8">

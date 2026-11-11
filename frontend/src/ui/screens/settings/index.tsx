@@ -15,6 +15,7 @@ import type { CalendarMode, Fields, Instant, ReminderSettings } from '../../../c
 import { DEFAULT_SHORTCUT, shortcutFromKeys, shortcutLabel } from '../../../platform/shortcut';
 import { setAppearance, useAppearance } from '../../app/appearance';
 import { useCaptureShortcut } from '../../app/captureShortcut';
+import { useProcessKeys } from '../../app/processKeys';
 import type { Layout, ScreenProps } from '../../app/registry';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
@@ -411,6 +412,25 @@ function Appearance(props: { layout: Layout }) {
   );
 }
 
+/** Desktop: whether Process takes single keys. Off, Option or Alt with the key still works. */
+function ProcessKeys() {
+  const [on, set] = useProcessKeys();
+  return (
+    <Section title="Keyboard">
+      <div className="setrow">
+        <label className="taskrow">
+          <input type="checkbox" checked={on} onChange={() => set(!on)} />
+          <span>Single-key shortcuts in Process</span>
+        </label>
+      </div>
+      <p className="quiet">
+        Keys such as S to skip and 1 to send to a project work on their own. Off, hold Option or Alt with the key, so speech input can't press them.
+        For this device only.
+      </p>
+    </Section>
+  );
+}
+
 /** Opens the Data retention page, which says what's kept and for how long. */
 function DataRetention(props: { layout: Layout }) {
   const nav = useNav();
@@ -542,6 +562,7 @@ export default function Screen(props: ScreenProps) {
       <Away layout={layout} />
       <Reminders layout={layout} />
       <Appearance layout={layout} />
+      {layout === 'desktop' && <ProcessKeys />}
       <CaptureKeys />
       {updates && <Updates layout={layout} updates={updates} />}
       <DataRetention layout={layout} />

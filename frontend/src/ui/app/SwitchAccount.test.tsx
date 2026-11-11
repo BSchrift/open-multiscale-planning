@@ -122,15 +122,17 @@ describe('switching accounts', () => {
       expect(localStorage.getItem('multiscale.appearance')).toBe('dark');
     });
 
-    it("keeps this device's Show completed choice, which isn't the account's either", async () => {
+    it("keeps this device's Show completed and Process keys choices, which aren't the account's either", async () => {
       const sync = fakeSync();
       const t = await renderApp({ layout, sync });
       localStorage.setItem('multiscale.showCompleted', 'true');
+      localStorage.setItem('multiscale.processKeys', 'true');
       localStorage.setItem('multiscale.plan.flow', JSON.stringify({ begun: true }));
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));
       await waitFor(() => expect(localStorage.getItem('multiscale.plan.flow')).toBeNull());
       expect(localStorage.getItem('multiscale.showCompleted')).toBe('true');
+      expect(localStorage.getItem('multiscale.processKeys')).toBe('true');
     });
 
     it('a failed erase says so and keeps asking, with everything still here', async () => {

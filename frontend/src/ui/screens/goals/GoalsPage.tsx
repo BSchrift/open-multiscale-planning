@@ -2,7 +2,7 @@
 // delete it. A closed goal shows its worst project when one needs you, and asks "Still a goal?" when nothing is
 // active and nothing under it has changed for a cadence. Finished and dropped projects and archived goals wait under Archived, each with Restore.
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { formatDate, formatMinutes, localDate, nowInstant, today } from '../../../core/dates';
 import { cadenceBefore, nextStretch, planningDue, restoreProject } from '../../../core/plan';
@@ -141,7 +141,7 @@ function DeleteGoal(props: { goal: Objective; onClose(): void; onDeleted(): void
   );
 }
 
-export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
+export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: string }) {
   const { data, ctx } = props;
   const { layout, clock } = useApp();
   const nav = useNav();
@@ -178,6 +178,15 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
   const loosePractices = practices.filter((p) => homeOf(p.objective_id) === NO_GOAL);
 
   const toggle = (id: string) => setOpen({ ...open, [id]: !open[id] });
+
+  // A link to a practice or goal, such as from what an Inbox item became, opens it.
+  useEffect(() => {
+    const practice = practices.find((p) => p.id === props.show);
+    const section = practice ? homeOf(practice.objective_id) : goals.find((g) => g.id === props.show)?.id;
+    if (!section) return;
+    setOpen((o) => ({ ...o, [section]: true, ...(practice && !phone ? { [`practice:${practice.id}`]: true } : {}) }));
+    if (practice && phone) setPracticeOpen(practice.id);
+  }, [props.show]);
   const change = (goal: Objective, fields: Fields<'objective'>, message: string, then: () => HTMLElement | null | undefined) => async () => {
     land(then);
     const previous = await setGoal.run(goal.id, fields);

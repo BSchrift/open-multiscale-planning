@@ -117,9 +117,16 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await field.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
 
-  // Process: Add to this week picks it for the week, and puts nothing on the calendar.
+  // Process: a practice made from the card takes the item with it, in one change that one Undo takes back.
   await nav.getByRole('button', { name: /Inbox/ }).click();
   await page.getByRole('button', { name: `Assign ${title}` }).click();
+  await page.getByRole('button', { name: 'New practice from this item' }).click();
+  await page.getByRole('button', { name: 'Make it a practice' }).click();
+  await expect(page.getByText(`"${title}" is now a practice, 30m a day. It left your Inbox.`)).toBeVisible();
+  await page.getByRole('button', { name: '‹ Undo and go back' }).click();
+  await expect(page.getByText(`Undone: ${title} removed, "${title}" is back in your Inbox.`)).toBeVisible();
+
+  // Add to this week picks it for the week, and puts nothing on the calendar.
   await page.getByRole('button', { name: 'Add to this week' }).click();
   await page.getByRole('button', { name: 'One offs, add to this week' }).click();
   await expect(page.getByText('Sent to One offs and added to this week, not on the calendar yet.')).toBeVisible();

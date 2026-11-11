@@ -251,6 +251,54 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('an Inbox item the update made a practice is a finished task in the bundle before, which can reopen it', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    const finished = () => pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
+    const openFinished = async () => {
+      await go(page, 'One offs');
+      await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
+    };
+
+    // The update makes the item a practice from its card: it closes, with a link to the practice.
+    await go(page, 'Inbox');
+    await pane(page, 'Inbox').getByRole('button', { name: 'Assign Order more coffee beans' }).click();
+    const card = page.getByRole('dialog', { name: 'Process Inbox' });
+    await card.getByRole('button', { name: 'New practice from this item' }).click();
+    await card.getByRole('form', { name: 'New practice' }).getByRole('textbox', { name: 'Name' }).fill('Brew coffee at home');
+    await card.getByRole('button', { name: 'Make it a practice' }).click();
+    await expect(card.getByRole('status')).toHaveText('"Order more coffee beans" is now the practice Brew coffee at home, 30m a day. It left your Inbox.');
+    await page.keyboard.press('Escape');
+    await openFinished();
+    await expect(finished().getByRole('button', { name: 'Became the practice Brew coffee at home' })).toBeVisible();
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before knows nothing of the link: the item is a finished task, out of the Inbox,
+    // and unticking it there reopens it.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'Inbox');
+    await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toHaveCount(0);
+    await openFinished();
+    const box = finished().getByRole('checkbox', { name: 'Order more coffee beans done' });
+    await expect(box).toBeChecked();
+    await box.click();
+    await expect(box).not.toBeChecked();
+
+    // Updated again, the item is back in the Inbox, with no link, and the practice stays.
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Inbox');
+    await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toBeVisible();
+    await openFinished();
+    await expect(finished().getByText('Order more coffee beans')).toHaveCount(0);
+    await go(page, 'Goals');
+    await expect(pane(page, 'Goals').getByRole('button', { name: /Practices with no goal/ })).toContainText('1 practice');
+    await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
   test("the weekly planning reminder's switch, off in the update, stays off when the bundle before changes another", async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);

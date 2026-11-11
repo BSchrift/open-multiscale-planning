@@ -2,8 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { fixedClock } from './clock';
 import { openDb } from './db';
 import { applyPlanChange, gatherPlans, markMilestoneDone } from './plan';
+import type { PlanChange } from './plan';
+import { finishedTasks } from './queries';
 import { getRecord, listRecords, transact } from './records';
-import { closeProject, closeTask, deleteGoal, endPractice, goalContents, retickOneOff, scheduledWork, tickOneOff, undoProjectChange, untickOneOff } from './tasks';
+import {
+  closeProject,
+  closeTask,
+  deleteGoal,
+  endPractice,
+  goalContents,
+  makeHome,
+  retickOneOff,
+  scheduledWork,
+  tickOneOff,
+  undoHome,
+  undoProjectChange,
+  untickOneOff,
+} from './tasks';
+import type { Home, Made } from './tasks';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
 
 const NOW = '2026-11-04T12:00:00Z'; // a Wednesday; its week starts 2026-11-02
@@ -359,5 +375,90 @@ describe('undoProjectChange', () => {
     expect((await getRecord(db, 'time_block', 'later'))?.cancelled).toBeNull();
     expect((await getRecord(db, 'week_pick', 'pick:2026-11-02:t'))?.deleted_at).toBe(NOW);
     expect((await getRecord(db, 'week_pick', 'pick:2026-11-09:t'))?.deleted_at).toBeNull();
+  });
+});
+
+describe('makeHome', () => {
+  async function inbox() {
+    const clock = fixedClock(NOW);
+    const db = await openDb(nodeSqliteDriver());
+    await transact(db, clock, async (w) => {
+      await w.create('objective', { title: 'Travel more', state: 'active' }, 'g');
+      await w.create('task', { kind: 'inbox', title: 'Book flights to Osaka', estimate_min: 45 }, 'i');
+    });
+    const make = (home: Home) => transact(db, clock, (w) => makeHome(w, 'i', home, clock));
+    const undo = (made: Made, reverse: PlanChange) => transact(db, clock, (w) => undoHome(w, 'i', made, reverse));
+    const live = async (type: 'objective' | 'project' | 'practice') => (await listRecords(db, type)).map((r) => r.title);
+    return { clock, db, make, undo, live };
+  }
+  const dates = { start: '2026-11-04', end: '2026-12-31' };
+
+  it('makes a project under a new goal and files the item as its first task, in one change that undoes exactly', async () => {
+    const { db, make, undo, live } = await inbox();
+    const before = await getRecord(db, 'task', 'i');
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true });
+    expect(made).toMatchObject({ type: 'project' });
+    expect(await getRecord(db, 'project', made.id)).toMatchObject({ title: 'Japan trip', state: 'active', ...dates, objective_id: made.goal });
+    expect(await getRecord(db, 'objective', made.goal!)).toMatchObject({ title: 'See Asia', state: 'active' });
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ kind: 'project', project_id: made.id, milestone_id: null, estimate_min: 45 });
+    expect((await getRecord(db, 'task', 'i'))?.done_at).toBeUndefined();
+
+    expect(await undo(made, reverse)).toBe(false);
+    expect(await live('project')).toEqual([]);
+    expect(await live('objective')).toEqual(['Travel more']);
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ ...before, project_id: null, milestone_id: null, schedule: null, next_due: null });
+  });
+
+  it('makes a project from an item that is the project itself: closed with a link, listed as finished, and back on Undo', async () => {
+    const { db, make, undo, live } = await inbox();
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { id: 'g' }, ...dates, keep: false });
+    expect(await getRecord(db, 'project', made.id)).toMatchObject({ objective_id: 'g' });
+    expect(made.goal).toBeNull();
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ kind: 'inbox', done_at: NOW, became: { type: 'project', id: made.id } });
+    expect(await finishedTasks(db)).toMatchObject([{ task_id: 'i', title: 'Book flights to Osaka', became_type: 'project', became_id: made.id }]);
+
+    await undo(made, reverse);
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ kind: 'inbox', done_at: null, became: null });
+    expect(await finishedTasks(db)).toEqual([]);
+    expect(await live('project')).toEqual([]);
+    expect(await live('objective')).toEqual(['Travel more']);
+  });
+
+  it.each([
+    ['practice', { kind: 'practice', title: 'Meditate', goal: null, target_min: 30, per: 'day', keep: false }, 'practice'],
+    ['goal', { kind: 'goal', title: 'Make pottery', keep: false }, 'objective'],
+  ] as const)('makes a %s the item becomes: closed with a link to it', async (_, home, type) => {
+    const { db, make, undo, live } = await inbox();
+    const { made, reverse } = await make(home);
+    expect(made).toEqual({ type, id: expect.any(String), goal: null });
+    expect(await getRecord(db, type, made.id)).toMatchObject({ title: home.title, state: 'active' });
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ done_at: NOW, became: { type, id: made.id } });
+
+    await undo(made, reverse);
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ kind: 'inbox', done_at: null, became: null });
+    expect(await live(type)).toEqual(type === 'objective' ? ['Travel more'] : []);
+  });
+
+  it('makes a practice with no preferred time under a new goal, and keeps the item open to file next', async () => {
+    const { db, make, undo, live } = await inbox();
+    const before = await getRecord(db, 'task', 'i');
+    const { made, reverse } = await make({ kind: 'practice', title: 'Walk more', goal: { title: 'Health' }, target_min: 20, per: 'week', keep: true });
+    expect(await getRecord(db, 'practice', made.id)).toMatchObject({ title: 'Walk more', objective_id: made.goal, target_min: 20, per: 'week', preferred_times: [], state: 'active' });
+    expect(await getRecord(db, 'task', 'i')).toEqual(before);
+
+    await undo(made, reverse);
+    expect(await live('practice')).toEqual([]);
+    expect(await live('objective')).toEqual(['Travel more']);
+    expect(await getRecord(db, 'task', 'i')).toEqual(before);
+  });
+
+  it('keeps a project another device has put tasks in since, with its new goal, and gives back only the item', async () => {
+    const { db, clock, make, undo, live } = await inbox();
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true });
+    await transact(db, clock, (w) => w.create('task', { kind: 'project', project_id: made.id, title: 'Renew the passport' }, 'other'));
+    expect(await undo(made, reverse)).toBe(true);
+    expect(await live('project')).toEqual(['Japan trip']);
+    expect((await live('objective')).sort()).toEqual(['See Asia', 'Travel more']);
+    expect(await getRecord(db, 'task', 'i')).toMatchObject({ kind: 'inbox', project_id: null });
   });
 });

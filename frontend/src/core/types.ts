@@ -135,6 +135,11 @@ export interface Task extends BaseRecord {
   notes?: string | null;
   /** A planning task's plans, such as ['week:2026-11-16']. */
   plans?: string[] | null;
+  /**
+   * What an Inbox item became when Process made it a project, practice or goal: set with done_at, so the finished item
+   * links to it. Apps from before it see a finished task.
+   */
+  became?: { type: 'project' | 'practice' | 'objective'; id: string } | null;
 }
 
 /** One per finish of a one off. */

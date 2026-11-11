@@ -1,8 +1,8 @@
 // A task's popup: everything about one task, to read and change, opened by tapping the task wherever it shows. A sheet
-// on phone and a centred dialog on desktop. Top to bottom: its name, Time estimate, where it belongs, Description,
-// Attachments, then Save, Cancel and Delete task. Focus starts on the name, read as the heading, so the phone's keyboard stays down until
-// a field is tapped. Save and Delete each offer Undo. Attachments are added and removed as they go, each with its own
-// Undo, rather than on Save.
+// on phone and a centred dialog on desktop. Top to bottom: its name, with what Process made of a finished Inbox item,
+// Time estimate, where it belongs, Description, Attachments, then Save, Cancel and Delete task. Focus starts on the
+// name, read as the heading, so the phone's keyboard stays down until a field is tapped. Save and Delete each offer
+// Undo. Attachments are added and removed as they go, each with its own Undo, rather than on Save.
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -22,6 +22,7 @@ import { CloseIcon } from '../../components/icons';
 import { NotesField } from '../../components/notes/NotesField';
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
+import { Became } from '../../components/task/Became';
 import { useToast } from '../../components/Toast';
 import './task.css';
 
@@ -163,6 +164,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
             )}
           </div>
           {props.note && <p className="small quiet">{props.note}</p>}
+          {task.done_at && task.became && <Became became={task.became} onGo={close} />}
         </div>
         <div className="taskpopbody">
           <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />

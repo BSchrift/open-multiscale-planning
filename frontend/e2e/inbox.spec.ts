@@ -96,8 +96,9 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
     await sheet.getByRole('button', { name: /Write the report/ }).click();
     await sheet.getByRole('button', { name: 'Send' }).click();
   } else {
-    await card(page).getByRole('combobox', { name: 'Send to another project' }).selectOption({ label: 'Write the report (Paused)' });
-    await card(page).getByRole('button', { name: 'Send', exact: true }).click();
+    await card(page).getByRole('button', { name: 'Find a project' }).click();
+    await card(page).getByRole('combobox', { name: 'Find a project' }).fill('report');
+    await card(page).getByRole('option', { name: /Write the report/ }).click();
   }
   await expect(card(page).getByRole('status')).toHaveText('Sent to Write the report.');
 
@@ -111,9 +112,24 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
   await expect(inboxPane(page).getByText(phone ? 'Inbox is empty. Anything you capture lands here.' : 'Inbox is empty.')).toBeVisible();
 });
 
-test('keyboard shortcuts on the desktop card', async ({ page }, info) => {
+test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once Settings turns them on', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'Keyboard shortcuts are for the desktop card.');
   await open(page, false);
+  await inboxPane(page).getByRole('button', { name: 'Assign Fix the gate' }).click();
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeFocused();
+  // Off, as by default: a key alone does nothing, and with Alt (Option on a Mac) it works.
+  await page.keyboard.press('o');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
+  await expect(card(page).getByText('Keys work with Option or Alt held. Settings can make them work alone.')).toBeVisible();
+  await page.keyboard.press('Alt+KeyO');
+  await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
+  await page.keyboard.press('Alt+KeyZ');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('checkbox', { name: 'Single-key shortcuts in Process' }).check();
+  await nav(page).getByRole('button', { name: /^Inbox/ }).click();
   await inboxPane(page).getByRole('button', { name: 'Assign Fix the gate' }).click();
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeFocused();
   await page.keyboard.press('o');
@@ -122,11 +138,92 @@ test('keyboard shortcuts on the desktop card', async ({ page }, info) => {
   await expect(card(page).getByRole('status')).toHaveText('Sent to Paint the fence.');
   await page.keyboard.press('z');
   await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
+  // The finder: / opens it, typing filters, Enter sends.
+  await page.keyboard.press('/');
+  await page.keyboard.type('report');
+  await page.keyboard.press('Enter');
+  await expect(card(page).getByRole('status')).toHaveText('Sent to Write the report.');
+  // N opens the form on the name, selected; Esc goes back to the button that opened it.
+  await page.keyboard.press('n');
+  const form = card(page).getByRole('form', { name: 'New project' });
+  await expect(form.getByRole('textbox', { name: 'Name' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(form).toHaveCount(0);
+  await expect(card(page).getByRole('button', { name: 'New project from this item' })).toBeFocused();
   await page.keyboard.press('s');
-  await expect(card(page).getByRole('heading', { name: 'Buy stamps' })).toBeVisible();
+  await expect(card(page).getByRole('heading', { name: "That's everything for now" })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(card(page)).toHaveCount(0);
-  await expect(inboxPane(page).locator('.inboxrow')).toHaveCount(2);
+  await expect(inboxPane(page).locator('.inboxrow')).toHaveText([/Buy stamps/]);
+});
+
+test('makes a project under a new goal, a practice and a goal from cards, each one change with its own Undo', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
+  // A form in place of the destinations on desktop, a sheet on phone.
+  const form = (name: string) => (phone ? page.getByRole('dialog', { name }) : card(page).getByRole('form', { name }));
+
+  // Call the bank: a project under a new goal, with the item as its first task.
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  await card(page).getByRole('button', { name: 'New project from this item' }).click();
+  const project = form('New project');
+  await expect(project.getByRole('textbox', { name: 'Name' })).toHaveValue('Call the bank');
+  await project.getByRole('textbox', { name: 'Name' }).fill('Sort out the bank');
+  await project.getByRole('button', { name: '+ New goal' }).click();
+  await project.getByRole('textbox', { name: 'New goal name' }).fill('Money in order');
+  await expect(project.getByText('Today to Dec 31')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('home-form.png') });
+  await project.getByRole('button', { name: 'Add project and send it there' }).click();
+  await expect(card(page).getByRole('status')).toHaveText('Added goal Money in order and project Sort out the bank, and sent "Call the bank" to it.');
+
+  // Fix the gate: a practice it becomes, then Undo takes back both the practice and the closing.
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
+  await card(page).getByRole('button', { name: 'New practice from this item' }).click();
+  await expect(form('New practice').getByRole('combobox', { name: 'Goal' })).toHaveValue(/.+/);
+  await form('New practice').getByRole('button', { name: 'Make it a practice' }).click();
+  await expect(card(page).getByRole('status')).toHaveText('"Fix the gate" is now a practice, 30m a day. It left your Inbox.');
+  await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
+  await expect(card(page).getByRole('status')).toHaveText('Undone: Fix the gate removed, "Fix the gate" is back in your Inbox.');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
+
+  // A goal, keeping the item on the card to file next.
+  await card(page).getByRole('button', { name: 'New goal from this item' }).click();
+  await form('New goal').getByRole('textbox', { name: 'Name' }).fill('Keep the house');
+  await form('New goal').getByRole('checkbox', { name: 'Keep it on this card to file next' }).check();
+  await form('New goal').getByRole('button', { name: 'Add goal' }).click();
+  await expect(card(page).getByRole('status')).toHaveText('Added goal Keep the house. Now file "Fix the gate".');
+  await card(page).getByRole('button', { name: 'Paint the fence' }).click();
+  await expect(card(page).getByRole('status')).toHaveText('Sent to Paint the fence.');
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toHaveCount(0);
+
+  // Both goals are on the Goals page, and only Buy stamps is left to sort.
+  await expect(inboxPane(page).locator('.inboxrow, .morerow')).toHaveText([/Buy stamps/]);
+  await nav(page).getByRole('button', { name: /^Goals/ }).click();
+  const goals = page.locator(".pane[aria-label='Goals']:visible");
+  await expect(goals.getByText('Money in order').first()).toBeVisible();
+  await expect(goals.getByText('Keep the house').first()).toBeVisible();
+});
+
+test('phone: the form for a new home rises above the keyboard with its button in view', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The keyboard is a phone matter');
+  await open(page, true);
+  await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
+  await card(page).getByRole('button', { name: 'New project from this item' }).click();
+  const sheet = page.getByRole('dialog', { name: 'New project' });
+  const height = page.viewportSize()!.height;
+  // As app/keyboard.ts sets it for a 336pt keyboard.
+  await page.evaluate(() => document.documentElement.style.setProperty('--keyboard', '336px'));
+  await expect.poll(async () => Math.round((await sheet.boundingBox())!.y + (await sheet.boundingBox())!.height)).toBe(height - 336);
+  const add = sheet.getByRole('button', { name: 'Add project and send it there' });
+  await expect(add).toBeInViewport();
+  expect((await add.boundingBox())!.y + (await add.boundingBox())!.height).toBeLessThanOrEqual(height - 336);
+  for (const name of ['Clear name', '+ New goal', 'Cancel']) {
+    const box = await sheet.getByRole('button', { name, exact: true }).boundingBox();
+    expect(box!.height, name).toBeGreaterThanOrEqual(44);
+  }
+  await page.screenshot({ path: info.outputPath('home-sheet.png') });
 });
 
 test('phone: the Capture sheet rises above the keyboard, which covers the page rather than shrinking it', async ({ page }, info) => {

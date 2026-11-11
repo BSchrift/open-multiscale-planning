@@ -18,6 +18,25 @@ import { capture, closeDevices, daysAhead, deleteFromInbox, device, oneOff, sign
 test.use({ baseURL: `http://localhost:${process.env.COMPAT_WEB_PORT}` });
 test.afterEach(closeDevices);
 
+// The two-device pause test's block is live for an hour on a deployment's shared test user, and one a failed run left
+// takes the Current block card from every run in that hour. So it's deleted even when the test fails, from a fresh
+// device, since a test that timed out has no page left to do it from.
+let live: { run: string; task: string; block: string } | null = null;
+test.afterEach(async ({ browser }) => {
+  if (!live) return;
+  const { run, task, block } = live;
+  live = null;
+  const gone = new Date().toISOString();
+  const d = await device(browser, `e2e-${run}`, on('new'));
+  await seed(d.page, [
+    { type: 'time_block', id: block, fields: { deleted_at: gone } },
+    { type: 'task', id: task, fields: { deleted_at: gone } },
+  ]);
+  await signIn(d.page);
+  await syncNow(d.page);
+  await d.page.context().close();
+});
+
 type Bundle = 'old' | 'new';
 const bundle = (name: Bundle) => ({ name: 'bundle', value: name, domain: 'localhost', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' as const });
 const on = (name: Bundle) => ({ storageState: { cookies: [bundle(name)], origins: [] } });
@@ -496,6 +515,11 @@ test('an old and a new device of one user: a block the new one paused runs on in
   const ids = { task: `e2e-${run}-gate`, block: `e2e-${run}-gate-block` };
   // Started on the minute, so the block is today's for the run's few minutes.
   const start = Math.floor(Date.now() / 60_000) * 60_000;
+  // The block runs an hour, and the bundle before can't move one that runs past the day's end.
+  const midnight = new Date(start);
+  midnight.setHours(24, 0, 0, 0);
+  test.skip(midnight.getTime() - start < 70 * 60_000, 'needs: an hour of the day left');
+  live = { run, ...ids };
   const iso = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
   const oldDevice = await device(browser, `e2e-${run}`, on('old'));
   const newDevice = await device(browser, `e2e-${run}`, on('new'));
@@ -553,6 +577,7 @@ test('an old and a new device of one user: a block the new one paused runs on in
   ]);
   await syncNow(oldDevice.page);
   await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
+  live = null;
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });

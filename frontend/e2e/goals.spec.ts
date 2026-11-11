@@ -90,11 +90,11 @@ test('answers the overdue question and adds and edits tasks on a project', async
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit task Proof the dough, 1h' })).toBeVisible();
 
-  // From the keyboard: Enter opens the editor, Esc closes it and puts focus back on its row.
+  // From the keyboard: Enter opens the task's popup, Esc closes it and puts focus back on its row.
   const row = page.getByRole('button', { name: 'Edit task Feed the starter, 2h' });
   await row.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog', { name: 'Edit task' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Feed the starter' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(row).toBeFocused();

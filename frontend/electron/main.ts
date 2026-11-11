@@ -12,7 +12,7 @@ import type { DownloadedRelease } from '../src/core/updates';
 import type { ReminderResponse } from '../src/platform/types';
 import { captureHotkey } from './hotkey';
 import { createReminderTimers } from './reminder-timers';
-import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isOwnDbSql, isSqlValues, isWebUrl } from './security';
+import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl } from './security';
 import { betterSqliteDriver } from './sqlite-driver';
 import { fileTokens } from './tokens';
 import { webBundles } from './updates';
@@ -106,10 +106,10 @@ function rollBack() {
   loadPage();
 }
 
-/** No navigating away and no new windows: web links go to the browser, and nothing else goes anywhere. */
+/** No navigating away and no new windows: web and mail links go to the browser and mail app, and nothing else goes anywhere. */
 function lockDown(window: BrowserWindow) {
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isWebUrl(url)) void shell.openExternal(url);
+    if (isExternalUrl(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event) => event.preventDefault());

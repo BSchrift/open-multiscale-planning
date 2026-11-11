@@ -586,18 +586,19 @@ describe('Goals', () => {
       );
       expect(added).toEqual([{ milestone_id: 'm1', estimate_min: 45 }]);
 
+      // A task once added opens in its popup, which moves it and deletes it.
       await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
-      editor = screen.getByRole('dialog', { name: 'Edit task' });
+      editor = await screen.findByRole('dialog', { name: 'Feed the starter' });
       expect(within(editor).getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-      await userEvent.selectOptions(within(editor).getByLabelText('Milestone'), 'First loaf');
+      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
-      expect(await screen.findByText('Moved Feed the starter to First loaf.')).toBeVisible();
+      expect(await screen.findByText('Moved Feed the starter to Bake a sourdough loaf, First loaf.')).toBeVisible();
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m2');
       await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
       await waitFor(async () => expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m1'));
 
       await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
-      await userEvent.click(within(screen.getByRole('dialog', { name: 'Edit task' })).getByRole('button', { name: 'Delete task' }));
+      await userEvent.click(within(await screen.findByRole('dialog', { name: 'Feed the starter' })).getByRole('button', { name: 'Delete task' }));
       expect(await screen.findByText('Deleted Feed the starter.')).toBeVisible();
       expect((await record(t, 'task', 't2'))?.deleted_at).toBeTruthy();
       await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -656,19 +657,24 @@ describe('Goals', () => {
       expect(document.querySelector('.taskghost')).toBeNull();
       expect(screen.queryByRole('button', { name: /milestone Done/ })).toBeNull();
       expect(within(done).queryByRole('button', { name: /Drop|Delete/ })).toBeNull();
-      // A task's editor offers Done, where tasks with no milestone sit, then the real milestones.
+      // A task's popup offers each milestone, then Done, where tasks with no milestone sit.
       await userEvent.click(within(head).getByRole('button', { name: 'Done tasks' }));
       await userEvent.click(within(done).getByRole('button', { name: /^Edit task Buy flour/ }));
-      let editor = screen.getByRole('dialog', { name: 'Edit task' });
-      expect(within(editor).getAllByRole('option').map((o) => o.textContent)).toEqual(['Done', 'Make a starter']);
-      await userEvent.selectOptions(within(editor).getByLabelText('Milestone'), 'Make a starter');
+      let editor = await screen.findByRole('dialog', { name: 'Buy flour' });
+      expect(within(editor).getAllByRole('option').map((o) => o.textContent)).toEqual([
+        'Inbox',
+        'One offs',
+        'Bake a sourdough loaf, Make a starter',
+        'Bake a sourdough loaf, Done',
+      ]);
+      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Make a starter');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
-      expect(await screen.findByText('Moved Buy flour to Make a starter.')).toBeVisible();
+      expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Make a starter.')).toBeVisible();
       await userEvent.click(await within(group('Make a starter')).findByRole('button', { name: /^Edit task Buy flour/ }));
-      editor = screen.getByRole('dialog', { name: 'Edit task' });
-      await userEvent.selectOptions(within(editor).getByLabelText('Milestone'), 'Done');
+      editor = await screen.findByRole('dialog', { name: 'Buy flour' });
+      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
-      expect(await screen.findByText('Moved Buy flour to Done.')).toBeVisible();
+      expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Done.')).toBeVisible();
     });
   });
 
@@ -757,22 +763,24 @@ describe('Goals', () => {
       expect((await record(t, 'task', 't3'))?.done_at).toBeNull();
     });
 
-    it('a task completed elsewhere while its editor is open stays until the editor closes, keeping what was typed', async () => {
+    it('a task completed elsewhere while its popup is open keeps the popup and what was typed', async () => {
       const t = await project(layout, more);
       const ms = await starter();
       await userEvent.click(within(ms).getByRole('button', { name: /^Edit task Feed the starter/ }));
-      const title = within(await screen.findByRole('dialog', { name: 'Edit task' })).getByRole('textbox', { name: 'Title' });
+      const popup = await screen.findByRole('dialog', { name: 'Feed the starter' });
+      await userEvent.click(within(popup).getByRole('button', { name: 'Rename Feed the starter' }));
+      const title = within(popup).getByRole('textbox', { name: 'Name' });
       await userEvent.clear(title);
       await userEvent.type(title, 'Feed the starter twice');
       await t.write((w) => w.set('task', 't2', { done_at: '2026-11-02T20:00:00Z' }));
-      await waitFor(() => expect(within(ms).getByRole('checkbox', { name: 'Feed the starter done' })).toBeChecked());
-      expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeVisible();
+      // Its row goes behind Show completed, and the popup, which isn't in the row, stays as it was.
+      await waitFor(() => expect(within(ms).queryByText('Feed the starter')).toBeNull());
+      expect(popup).toBeVisible();
       expect(title).toHaveValue('Feed the starter twice');
 
-      await userEvent.click(within(screen.getByRole('dialog', { name: 'Edit task' })).getByRole('button', { name: 'Cancel' }));
-      await waitFor(() => expect(within(ms).queryByText('Feed the starter')).toBeNull());
-      await userEvent.click(within(ms).getByRole('button', { name: 'Show 2 completed in Make a starter' }));
-      expect(screen.queryByRole('dialog', { name: 'Edit task' })).toBeNull();
+      await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect((await record(t, 'task', 't2'))?.title).toBe('Feed the starter');
     });
 
     it('shown, as kept from before, a completed task unticks and ticks again in place', async () => {
@@ -883,11 +891,11 @@ describe('Goals', () => {
     expect(addPractice).toHaveFocus();
   });
 
-  it('closes an editor with Esc and puts focus back on its row', async () => {
+  it('closes a task popup with Esc and puts focus back on its row', async () => {
     await project();
     const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
     await userEvent.click(row);
-    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeVisible();
+    expect(await screen.findByRole('dialog', { name: 'Feed the starter' })).toBeVisible();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(row).toHaveFocus();

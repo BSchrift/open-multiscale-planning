@@ -35,4 +35,6 @@ export interface ElectronBridge {
   setAppearance(appearance: Appearance): Promise<void>;
   updates: NativeUpdates;
   captureShortcut: CaptureShortcut;
+  /** Set by apps whose content policy lets the page reach attachments' storage. Older apps lack it. */
+  attachments?: true;
 }

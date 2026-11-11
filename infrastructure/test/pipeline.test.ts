@@ -175,33 +175,69 @@ describe('the release pipeline', () => {
     assert.ok(![...signerActions].some((a) => a.startsWith('sts:') || a === 'ssm:PutParameter'));
   });
 
-  const promotion = () => {
-    const [[id, machine]] = ofType('AWS::StepFunctions::StateMachine');
+  const promotion = (resources = all) => {
+    const [[id, machine]] = Object.entries(resources).filter(([, r]) => r.Type === 'AWS::StepFunctions::StateMachine');
     const body = machine.Properties.DefinitionString;
     // The definition is a Fn::Join of strings and references; the states are what matter here.
-    const text = typeof body === 'string' ? body : body['Fn::Join'][1].map((part: unknown) => (typeof part === 'string' ? part : JSON.stringify(part))).join('');
-    return { id, machine, text };
+    const parts: unknown[] = typeof body === 'string' ? [body] : body['Fn::Join'][1];
+    const text = parts.map((part) => (typeof part === 'string' ? part : JSON.stringify(part))).join('');
+    // With each reference as a placeholder string, <{'Ref':'Id'}>, it parses, so each state can be read.
+    const ref = (part: unknown) => `<${JSON.stringify(part).replaceAll('"', "'")}>`;
+    const { States: states } = JSON.parse(parts.map((part) => (typeof part === 'string' ? part : ref(part))).join(''));
+    return { id, machine, text, states, ref };
   };
 
   it('emails when staging passes, saying when the run goes to prod and how to stop it, then waits that long', () => {
     const [wait] = actions('Promote');
-    const { id, text } = promotion();
+    const { id, text, states } = promotion();
     assert.ok(JSON.stringify(wait.Configuration.StateMachineArn).includes(id));
     // The commit, from the source, and the window, from control.yaml: two hours unless it says otherwise.
     const input = JSON.parse(wait.Configuration.Input);
     assert.equal(input.commit, '#{GitHub.CommitId}');
     assert.equal(input.seconds, 7200);
     assert.match(text, /"QueryLanguage":"JSONata"/);
-    assert.match(text, /"Notify":\{"Next":"Window","Type":"Task"/);
-    assert.ok(text.includes(`"Resource":"arn:{"Ref":"AWS::Partition"}:states:::sns:publish"`), text);
+    // The email is the wait: it carries the run's task token, and the state waits for it to come back, or for the
+    // window to end, which promotes the run as it always has.
+    const notify = states.NotifyAndWait;
+    assert.equal(notify.Resource, "arn:<{'Ref':'AWS::Partition'}>:states:::sns:publish.waitForTaskToken");
+    assert.equal(notify.TimeoutSeconds, '{% $states.input.seconds %}');
+    assert.deepEqual(notify.Catch, [{ ErrorEquals: ['States.Timeout'], Next: 'WindowEnded', Output: '{% $states.input %}' }]);
+    assert.equal(states.WindowEnded.Type, 'Succeed');
     const [[topicId]] = ofType('AWS::SNS::Topic');
-    assert.ok(text.includes(`"TopicArn":"{"Ref":"${topicId}"}"`), text);
-    assert.match(text, /passed staging/);
-    assert.match(text, /make pipeline-stop/);
-    // Both the email and the wait count from when the window starts, the state machine's start.
-    const until = '$fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000)';
-    assert.ok(text.includes(`"Type":"Wait","Timestamp":"{% ${until} %}"`), text);
-    assert.ok(text.includes('$toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000'), text);
+    assert.equal(notify.Arguments.TopicArn, `<{'Ref':'${topicId}'}>`);
+    assert.match(notify.Arguments.Message, /passed staging/);
+    assert.match(notify.Arguments.Message, /make pipeline-stop/);
+    // The email counts from when the window starts, the state machine's start, and the wait from just after.
+    assert.ok(notify.Arguments.Message.includes('$toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000'));
+  });
+
+  it("links the email to a page that promotes the run at once, with the run's task token", () => {
+    const { states, ref } = promotion();
+    const [[urlId, url]] = ofType('AWS::Lambda::Url');
+    const link = `${ref({ 'Fn::GetAtt': [urlId, 'FunctionUrl'] })}?token=' & $encodeUrlComponent($states.context.Task.Token)`;
+    assert.ok(states.NotifyAndWait.Arguments.Message.includes(link), states.NotifyAndWait.Arguments.Message);
+    // Anyone with the link may open it: the token in it is what lets them promote, and only that run.
+    assert.equal(url.Properties.AuthType, 'NONE');
+    const [[functionId, fn]] = ofType('AWS::Lambda::Function');
+    assert.deepEqual(url.Properties.TargetFunctionArn, { 'Fn::GetAtt': [functionId, 'Arn'] });
+    assert.match(fn.Properties.Runtime, /^nodejs/);
+    assert.equal(fn.Properties.Handler, 'index.handler');
+  });
+
+  it("lets the link's function send the task token back to the state machine, write its logs, and do nothing else", () => {
+    const { id } = promotion();
+    const [[, fn]] = ofType('AWS::Lambda::Function');
+    const roleId = fn.Properties.Role['Fn::GetAtt'][0];
+    assert.equal(all[roleId]!.Properties.ManagedPolicyArns, undefined);
+    const statements = policiesOf(roleId);
+    assert.deepEqual(statements.flatMap((st) => [st.Action].flat()).sort(), ['logs:CreateLogStream', 'logs:PutLogEvents', 'states:SendTaskSuccess']);
+    const send = statements.find((st) => st.Action === 'states:SendTaskSuccess')!;
+    assert.deepEqual(send.Resource, { Ref: id });
+    const [[logsId]] = ofType('AWS::Logs::LogGroup').filter(([lid]) => JSON.stringify(fn.Properties.LoggingConfig).includes(lid));
+    for (const st of statements.filter((s) => s !== send)) assert.deepEqual(st.Resource, { 'Fn::GetAtt': [logsId, 'Arn'] });
+    // No other role may answer the state machine's tasks.
+    const answering = ofType('AWS::IAM::Role').filter(([rid]) => policiesOf(rid).some((st) => [st.Action].flat().some((a: string) => a.startsWith('states:SendTask'))));
+    assert.deepEqual(answering.map(([rid]) => rid), [roleId]);
   });
 
   it('waits on Step Functions, so the window costs no build minutes, and only it may publish to the topic', () => {
@@ -219,6 +255,15 @@ describe('the release pipeline', () => {
     const [p] = Object.values(none.toJSON().Resources as Record<string, any>).filter((r) => r.Type === 'AWS::CodePipeline::Pipeline');
     const promote = p.Properties.Stages.find((st: any) => st.Name === 'Promote').Actions[0];
     assert.equal(JSON.parse(promote.Configuration.Input).seconds, 0);
+    // Step Functions refuses a timeout of 0, so no window skips the wait: it only emails, with no link to wait for.
+    const { states } = promotion(none.toJSON().Resources);
+    assert.deepEqual(states.HasWindow.Choices, [{ Condition: '{% $states.input.seconds > 0 %}', Next: 'NotifyAndWait' }]);
+    assert.equal(states.HasWindow.Default, 'Notify');
+    assert.equal(states.Notify.Resource, "arn:<{'Ref':'AWS::Partition'}>:states:::sns:publish");
+    assert.equal(states.Notify.TimeoutSeconds, undefined);
+    assert.equal(states.Notify.End, true);
+    assert.match(states.Notify.Arguments.Message, /passed staging/);
+    assert.doesNotMatch(states.Notify.Arguments.Message, /Task\.Token/);
   });
 
   it('emails the notice before prod and failed runs to the configured address', () => {
@@ -273,6 +318,15 @@ describe("the Mac release's inbox", () => {
     // Its policy only refuses requests without TLS: it grants nothing.
     const [, policy] = m.ofType('AWS::S3::BucketPolicy').find(([, p]) => p.Properties.Bucket.Ref === bucketId)!;
     assert.deepEqual(policy.Properties.PolicyDocument.Statement.map((s: any) => [s.Effect, s.Condition]), [['Deny', { Bool: { 'aws:SecureTransport': 'false' } }]]);
+  });
+
+  it("trusts only GitHub's tokens whose subject control.yaml names, when GitHub's subjects carry the owner's and repository's ids", () => {
+    const own = new PipelineStack(new App(), 'Multiscale-pipeline', {
+      control: { ...control, pipeline: { ...control.pipeline, mac: { teamId: 'ABCDE12345', githubSubject: 'repo:someone@1/open-multiscale-planning@2:environment:release' } } },
+      environments,
+    });
+    const [, role] = Object.entries(Template.fromStack(own).toJSON().Resources as Record<string, any>).find(([, r]) => r.Properties?.RoleName === MAC_INBOX_ROLE_NAME)!;
+    assert.equal(role.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals['token.actions.githubusercontent.com:sub'], 'repo:someone@1/open-multiscale-planning@2:environment:release');
   });
 
   it("trusts only GitHub's tokens for this repository's release environment", () => {

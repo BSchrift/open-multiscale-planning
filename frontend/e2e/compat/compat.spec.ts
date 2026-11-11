@@ -298,12 +298,11 @@ test.describe('one device', () => {
     await box.click();
     await expect(box).not.toBeChecked();
 
-    // Updated again, the item is back in the Inbox, with no link, and the practice stays.
+    // Updated again, the item is back in the Inbox, so neither finished nor linked, and the practice stays. One offs
+    // may now show no Finished tasks at all, since it hides them when there are none.
     page = await relaunch(page, 'new', errors);
     await go(page, 'Inbox');
     await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toBeVisible();
-    await openFinished();
-    await expect(finished().getByText('Order more coffee beans')).toHaveCount(0);
     await go(page, 'Goals');
     await expect(pane(page, 'Goals').getByRole('button', { name: /Practices with no goal/ })).toContainText('1 practice');
     await everyScreen(page);

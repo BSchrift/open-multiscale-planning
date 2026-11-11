@@ -506,6 +506,15 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.doesNotMatch(s.log(), /mac-inbox/);
   });
 
+  it("stops waiting before CodeBuild's own limit, however long the wait, and says how to retry the stage", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['mac'], { ...macStep(s, { inbox: false }), MAC_WAIT_SECONDS: '7200', CODEBUILD_LIMIT_SECONDS: '0', EXECUTION_ID: 'exec-1' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stdout, /Waiting up to 0 minutes/);
+    assert.match(r.stderr, /retry-stage-execution --pipeline-name Multiscale --stage-name Staging --pipeline-execution-id exec-1 --retry-mode FAILED_ACTIONS/);
+  });
+
   it('stops the run, handing on nothing, when a Mac app fails its checks', () => {
     const s = configured();
     s.put(FEEDS.shared, feedWith(shell));

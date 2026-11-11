@@ -16,6 +16,7 @@ import { formatRange } from '../../components/blocks/describe';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { InfoIcon } from '../../components/icons';
 import { TaskName } from '../../components/task/TaskName';
+import { PlanningNow } from './PlanningNow';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const MINUTE_MS = 60_000;
@@ -143,6 +144,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
   const glance = details?.task?.notes ? notesLines(details.task.notes, 2) : [];
   const attached = details?.attached ?? 0;
 
+  if (cur?.task_kind === 'planning') return <PlanningNow block={cur} layout={layout} />;
   if (cur) {
     const started = !!cur.started_at;
     const paused = isPaused(cur);

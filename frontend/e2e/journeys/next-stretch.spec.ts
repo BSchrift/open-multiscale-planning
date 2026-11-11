@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, start, tab, TZ } from './journey';
 
-// A first stretch planned from the first day, with some work done, then planning the next one in late December: Look
-// back reads what happened, Practices edit in place, Projects puts milestones in the plan, Time sets an aim, and
-// Finish sets the plan that the Plan page and the first week of January then follow.
+// A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
+// shows what each got and adds one, Practices edit in place, Projects puts milestones in the plan and adds a project
+// under a new goal, the Inbox is sorted, and Finish checks the fit, sets an aim, takes a change back and sets the plan
+// that weekly planning, the Plan page and the first week of January then follow.
 
 test.use({ timezoneId: TZ, actionTimeout: 15_000 });
 
@@ -13,7 +14,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const goal = 'Learn to bake bread';
   const errors = await start(page, chicago('2026-12-07', '09:00')); // Monday, in the last quarter of 2026.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
 
   // The first plan is for this stretch, from today to the quarter's end.
   await tab(page, phone, 'Plan');
@@ -57,18 +58,25 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await tab(page, phone, 'Plan');
   await plan.getByRole('button', { name: /^(Plan now|Plan the next stretch)/ }).first().click();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  const next = (name: string) => (phone ? page.locator('.flowbot').getByRole('button', { name }) : page.getByRole('button', { name, exact: true })).click();
 
-  // Look back.
-  await expect(page.getByRole('heading', { name: 'How did Dec 7 to Dec 31 go?' })).toBeVisible();
+  // Goals: how the stretch went, and each goal on a card with what it got. A new goal is one change, with Undo.
+  await expect(page.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' })).toBeFocused();
   await expect(page.getByText('1 of 1 milestones due in this time were met.')).toBeVisible();
-  const time = page.getByRole('region', { name: 'Time by goal, and One offs' });
-  await expect(time.locator('.between').filter({ hasText: goal })).toContainText('30m');
-  await page.getByLabel('Anything to do differently? (optional)').fill('Bake on weekends.');
-  await expect(page.getByText('Next stretch: Jan 1 to Mar 31')).toBeVisible();
+  const bread = page.getByRole('region', { name: goal });
+  await expect(bread).toContainText('30m this stretch');
+  await expect(bread).toContainText('Projects: Bake a sourdough loaf');
+  await expect(page.getByRole('region', { name: 'Does it fit?' })).toContainText(/About \dh planned, about \dh at your recent pace\./);
+  await page.getByRole('button', { name: '+ New goal' }).click();
+  await page.getByRole('textbox', { name: 'New goal' }).fill('Keep fit');
+  await page.getByRole('button', { name: 'Add goal' }).click();
+  await expect(page.getByRole('region', { name: 'Keep fit' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo: Added goal Keep fit.' })).toBeVisible();
+  await next('Goals look right');
 
   // Practices: each a summary, whose Edit opens its fields in place until Done.
-  await steps.getByRole('button', { name: /Practices$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Your practices' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Step 2 of 5, Practices. Your practices' })).toBeFocused();
+  await expect(steps.getByRole('button', { name: /Goals, done$/ })).toBeVisible();
   await expect(page.getByText('15m a day, every day, around 7:30am')).toBeVisible();
   await page.getByRole('button', { name: 'Edit Read about baking' }).click();
   const editor = page.getByRole('group', { name: /^Edit Read about/ });
@@ -79,10 +87,10 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await editor.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByText('20m a day, every day, around 7:30am')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit Read about bread' })).toBeFocused();
+  await next('Practices look right');
 
   // Projects: the timeline, with one milestone added by name and one dated by typing, each with Undo.
-  await steps.getByRole('button', { name: /Projects$/ }).click();
-  await expect(page.getByRole('heading', { name: 'What will you reach by Mar 31?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Step 3 of 5, Projects. What will you reach by Mar 31?' })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Take milestone First good loaf out of this plan' })).toHaveAttribute('aria-pressed', 'true');
   // On the timeline, a date inside the stretch is already in the plan and a later one is not.
   await expect(page.getByRole('button', { name: /^Milestone: First good loaf, Feb 12, in this plan\./ })).toBeVisible();
@@ -104,26 +112,65 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await date.getByRole('button', { name: 'Set date' }).click();
   await expect(page.getByRole('button', { name: 'Undo: First good loaf, Feb 19.' })).toBeVisible();
 
-  // Time: the open work under the plan, and a weekly aim.
-  await steps.getByRole('button', { name: /Time$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Does it fit?' })).toBeVisible();
-  await expect(page.getByText(/^About 2h of open tasks sit under your planned milestones\./)).toBeVisible();
+  // A new project ends with the stretch being planned, and gets a new goal in the same write.
+  await page.getByRole('button', { name: '+ Add project' }).click();
+  const rye = page.getByRole('form', { name: 'Add project' });
+  await expect(rye.getByLabel('Ends')).toHaveValue('2027-03-31');
+  await rye.getByLabel('Name').fill('Bake rye');
+  await rye.getByRole('button', { name: 'Add project' }).click();
+  await page.getByRole('button', { name: 'Goal for Bake rye: No goal. Change' }).click();
+  const picker = page.getByRole('dialog', { name: 'Goal for Bake rye' });
+  await picker.getByRole('button', { name: '+ New goal' }).click();
+  await picker.getByRole('textbox', { name: 'New goal name' }).fill('Bake for friends');
+  await picker.getByRole('button', { name: 'Add and link' }).click();
+  await expect(page.getByRole('button', { name: 'Goal for Bake rye: Bake for friends. Change' })).toBeVisible();
+
+  // Something to sort, captured from Add without leaving planning.
+  await page.getByRole('button', phone ? { name: 'Add a goal, practice, project or Inbox task' } : { name: '+ Add', exact: true }).click();
+  const adds = page.getByRole('dialog', { name: 'Add' });
+  await expect(adds.getByRole('button').first()).toHaveText('Project');
+  await adds.getByRole('button', { name: 'Task to Inbox' }).click();
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await capture.getByRole('textbox', { name: 'Capture to Inbox' }).fill('Buy a banneton');
+  await capture.getByRole('textbox', { name: 'Capture to Inbox' }).press('Enter');
+  await expect(capture).toHaveCount(0);
+  await expect(steps.getByRole('button', { name: /Inbox, 1 item$/ })).toBeVisible();
+  // Bake rye's Done is in the plan too, at the stretch's end.
+  await next('Continue with 3 milestones');
+
+  // Inbox: Process gives the item a home, then a line says what was sorted, with focus on it.
+  await expect(page.getByRole('heading', { name: 'Step 4 of 5, Inbox. Give each item a home' })).toBeFocused();
+  await (phone ? next('Process 1 item') : page.getByRole('button', { name: 'Process 1 item' }).click());
+  const cards = page.getByRole('dialog', { name: 'Process Inbox' });
+  await cards.getByRole('button', { name: 'Bake a sourdough loaf' }).click();
+  await expect(cards.getByText('Sent to Bake a sourdough loaf.')).toBeVisible();
+  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
+  await expect(page.getByText('1 sorted. Your Inbox is clear.')).toBeFocused();
+  await next('Continue to Finish');
+
+  // Finish: whether it fits, a weekly aim, what changed with an Undo on each line, then on to the week.
+  await expect(page.getByRole('heading', { name: 'Step 5 of 5, Finish. Ready for Jan 1 to Mar 31' })).toBeFocused();
+  await expect(page.getByText(/2h planned, about \dh at your recent pace\.$/)).toBeVisible();
+  await page.getByRole('button', { name: 'Set weekly aims' }).click();
   const aim = page.getByRole('slider', { name: 'Weekly aim for Bake a sourdough loaf' });
   await aim.fill('8');
   await expect(aim).toHaveAttribute('aria-valuetext', '2h');
-
-  // Finish: the plan and what changed, then set.
-  await steps.getByRole('button', { name: /Finish$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Ready for Jan 1 to Mar 31' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'The plan' })).toContainText('Bake a sourdough loaf: First good loaf, Feb 19; Share a loaf, by Mar 31');
   const changed = page.getByRole('region', { name: 'What changed' });
+  await expect(changed).toContainText('Added goal Keep fit.');
   await expect(changed).toContainText('Added Share a loaf to this plan');
   await expect(changed).toContainText('Weekly aim changed: Bake a sourdough loaf');
-  await (phone ? page.locator('.flowdock').getByRole('button', { name: 'Finish' }) : page.getByRole('button', { name: 'Finish', exact: true })).click();
+  await changed.getByRole('button', { name: 'Undo: Added project Bake rye, Dec 26 to Mar 31.' }).click();
+  await expect(changed).not.toContainText('Added project Bake rye');
+  await next('Finish and plan the week');
   await expect(page.getByText('Your plan for Jan 1 to Mar 31 is set.')).toBeVisible();
-  const next = plan.getByRole('region', { name: 'Next plan, Jan 1 to Mar 31' });
-  await expect(next).toContainText('First good loaf');
-  await expect(next).toContainText('Share a loaf');
+  // Nothing new has reached the Inbox since its step, so weekly planning starts on Pick tasks.
+  await expect(steps.getByRole('button', { name: phone ? 'Pick' : '2. Pick tasks' })).toHaveAttribute('aria-current', 'step');
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  await tab(page, phone, 'Plan');
+  const nextPlan = plan.getByRole('region', { name: 'Next plan, Jan 1 to Mar 31' });
+  await expect(nextPlan).toContainText('First good loaf');
+  await expect(nextPlan).toContainText('Share a loaf');
 
   // Goals shows the same plan and the renamed practice.
   await openProject(page, phone, goal, 'Bake a sourdough loaf');
@@ -141,6 +188,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(current).toContainText('Share a loaf');
   await tab(page, phone, 'Today');
   await page.getByRole('button', { name: 'Start planning' }).first().click();
+  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
+  await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Schedule/ }).click();
   if (phone) {
     await page.getByRole('button', { name: /^All picked tasks/ }).click();

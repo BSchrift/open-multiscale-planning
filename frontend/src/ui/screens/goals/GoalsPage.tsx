@@ -2,10 +2,10 @@
 // delete it. A closed goal shows its worst project when one needs you, and asks "Still a goal?" when nothing is
 // active and nothing under it has changed for a cadence. Finished and dropped projects and archived goals wait under Archived, each with Restore.
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { formatDate, formatMinutes, localDate, nowInstant, today } from '../../../core/dates';
-import { cadenceBefore, nextStretch, planningDue, restoreProject } from '../../../core/plan';
+import { cadenceBefore, nextStretch, restoreProject } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { status } from '../../../core/status';
 import type { ProjectStatus } from '../../../core/status';
@@ -21,6 +21,7 @@ import { useToast } from '../../components/Toast';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import type { GoalsData } from './data';
 import { ProjectBody } from './ProjectView';
+import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
 
 const NO_GOAL = 'nogoal';
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -141,7 +142,7 @@ function DeleteGoal(props: { goal: Objective; onClose(): void; onDeleted(): void
   );
 }
 
-export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
+export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: string }) {
   const { data, ctx } = props;
   const { layout, clock } = useApp();
   const nav = useNav();
@@ -178,6 +179,15 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
   const loosePractices = practices.filter((p) => homeOf(p.objective_id) === NO_GOAL);
 
   const toggle = (id: string) => setOpen({ ...open, [id]: !open[id] });
+
+  // A link to a practice or goal, such as from what an Inbox item became, opens it.
+  useEffect(() => {
+    const practice = practices.find((p) => p.id === props.show);
+    const section = practice ? homeOf(practice.objective_id) : goals.find((g) => g.id === props.show)?.id;
+    if (!section) return;
+    setOpen((o) => ({ ...o, [section]: true, ...(practice && !phone ? { [`practice:${practice.id}`]: true } : {}) }));
+    if (practice && phone) setPracticeOpen(practice.id);
+  }, [props.show]);
   const change = (goal: Objective, fields: Fields<'objective'>, message: string, then: () => HTMLElement | null | undefined) => async () => {
     land(then);
     const previous = await setGoal.run(goal.id, fields);
@@ -444,12 +454,14 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext }) {
   const archivedCount = archivedGoals.length + archivedProjects.length;
   // On the page rather than in the row, so it stays open when its practice moves to another goal.
   const sheetPractice = practices.find((p) => p.id === practiceOpen);
+  const stretchPlanning = useStretchPlanning();
   return (
     <div className={phone ? 'stack goalspage' : 'wrap stack goalspage'}>
       <h1>Goals</h1>
-      {phone && planningDue(ctx.settings, on) && (
+      {/* Today's row asks to plan the stretch; here, once its planning has a time, only when. */}
+      {phone && stretchPlanning.at && (
         <button className="attn due" type="button" onClick={() => nav.openFlow('plan')}>
-          <span>Time to plan {ctx.settings.plan_stretch.last_planned ? 'the next' : 'your first'} stretch</span>
+          <span>{stretchPlanning.at}</span>
           <span aria-hidden="true">›</span>
         </button>
       )}

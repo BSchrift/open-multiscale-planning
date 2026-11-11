@@ -117,6 +117,26 @@ describe('which reminders a block gets', () => {
   });
 });
 
+describe('a planning block', () => {
+  const plan = block('p', day('10:00'), day('10:30'), { task_id: 'planning:week:2026-11-09', task_kind: 'planning', title: 'Plan the week of Nov 9' });
+
+  it('gets only its start, whose Start opens planning, and no question during or after it', () => {
+    const rs = remindersToSchedule([plan], settings, [], clock, {}, 8);
+    expect(kindsAt(rs)).toEqual([['block_start', day('10:00')]]);
+    expect(rs[0]).toMatchObject({ title: 'Plan the week of Nov 9', body: '10am to 10:30am. 8 in your Inbox.' });
+    expect(rs[0]!.actions).toEqual([
+      { id: REMINDER_ACTION.startPlanning, title: 'Start', opens_app: true },
+      { id: REMINDER_ACTION.nextBlock, title: 'Do next block instead' },
+    ]);
+  });
+
+  it('is never missed and never asks Have you started', () => {
+    const later = fixedClock(day('10:20'));
+    expect(checkInDue([plan], settings, [], later)).toBeUndefined();
+    expect(missedBlocks([plan], [], fixedClock(day('11:00')))).toEqual([]);
+  });
+});
+
 describe('settings', () => {
   it('turn each kind off on its own', () => {
     const kinds = (over: Partial<typeof settings>) => remindersToSchedule([a], { ...settings, ...over }, [], clock).map((r) => r.kind);

@@ -4,16 +4,6 @@
   min-width: 0;
 }
 
-[data-layout='desktop'] .pxotherpick {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-
-[data-layout='desktop'] .pxotherpick .pxother {
-  flex: 1 1 auto;
-}
-
 /* Phone: the flow sits on the ground, where the usual track would vanish. */
 [data-layout='phone'] .pxbar {
   background: var(--card-line);
@@ -21,6 +11,10 @@
 
 [data-layout] .pxlastrow {
   min-height: 32px;
+}
+
+[data-layout='desktop'] .pxhint {
+  margin-left: auto;
 }
 
 [data-layout] .pxms {
@@ -41,4 +35,79 @@
 
 [data-layout] .pxlines > span {
   display: block;
+}
+
+/* No home yet? Make one: a labelled row of three. */
+[data-layout] .pxmake {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+[data-layout] .pxmakes {
+  display: flex;
+  gap: 8px;
+}
+
+[data-layout] .pxmakes .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-layout='phone'] .pxmake {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+[data-layout='phone'] .pxmakes .btn {
+  flex: 1 1 0;
+  justify-content: center;
+  padding-inline: 6px;
+}
+
+/* A key beside a button's words, as the destinations show theirs. */
+[data-layout='desktop'] .pxcard .btn .keycap,
+[data-layout='desktop'] .pxweek .keycap {
+  margin-left: 6px;
+}
+
+[data-layout='desktop'] .pxmakes .keycap {
+  margin-left: 0;
+}
+
+/* The finder: one field, and its matches as rows under it, the one Enter sends lit. */
+[data-layout] .pxfindlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+[data-layout] .pxfindrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+[data-layout] .pxfindrow + .pxfindrow {
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout] .pxfindrow:hover,
+[data-layout] .pxfindrow[aria-selected='true'] {
+  background: var(--blue-pale);
+}
+
+[data-layout] .pxfindrow[aria-selected='true'] {
+  box-shadow: inset 4px 0 0 var(--blue);
 }

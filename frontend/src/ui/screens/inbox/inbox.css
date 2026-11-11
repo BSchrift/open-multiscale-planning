@@ -8,3 +8,8 @@
 [data-layout='phone'] .inboxdocked {
   padding-bottom: 72px;
 }
+
+/* While selecting, the list's own actions are the ones to use, so Process steps aside. */
+[data-layout='phone'] .inboxdocked:has(.inboxsel) > .tray {
+  display: none;
+}

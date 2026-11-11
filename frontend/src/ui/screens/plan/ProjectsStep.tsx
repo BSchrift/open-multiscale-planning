@@ -1,7 +1,8 @@
 // The Projects step: every project on one timeline with the stretch as a band. A solid diamond is in the plan and a
 // hollow one isn't. Click a name to add or take it out, drag a diamond or type a date, drag Done to change the end.
-// Needs a call comes first; then active projects in added order, so a row never jumps while its dates are dragged.
-// Every change goes through act, so the pinned Undo line takes them back newest first.
+// Each project's goal sits under its name, to change in place. Overdue comes first; then active projects in added
+// order, so a row never jumps while its dates are dragged, and + Add project after them. Every change goes through
+// act, so the pinned Undo line takes them back newest first.
 
 import { useRef, useState } from 'react';
 import type { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref, RefObject } from 'react';
@@ -12,6 +13,7 @@ import {
   doneInPlan,
   dropMilestone,
   effectiveDue,
+  markMilestoneDone,
   moveDone,
   moveMilestone,
   msInPlan,
@@ -29,10 +31,10 @@ import type { PlanChange, PlanContext, ProjectPlan, Stretch } from '../../../cor
 import { newId } from '../../../core/records';
 import { moveOnce, onceWhen, setOnceDates } from '../../../core/schedule';
 import { status, withStatusLine } from '../../../core/status';
-import { closeProject } from '../../../core/tasks';
-import type { Fields, LocalDate, Milestone, Minutes, Task } from '../../../core/types';
+import { closeProject, scheduledWork } from '../../../core/tasks';
+import type { Fields, LocalDate, Milestone, Objective, Task } from '../../../core/types';
 import { useApp } from '../../app/store';
-import { CloseQuestion } from '../../components/editors';
+import { CloseQuestion, ProjectAdd } from '../../components/editors';
 import { OneOffDateForm } from '../../components/oneoff';
 import { Pill } from '../../components/Pill';
 import { Popover } from '../../components/Popover';
@@ -41,9 +43,12 @@ import { axisMonths } from '../../components/TimelineBar';
 import { useToast } from '../../components/Toast';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import type { PlanData } from './data';
-import { hrs, msWhen, needsCall, oneOffsIn } from './model';
+import { GoalPicker, useAdd } from './GoalPicker';
+import { msWhen, needsCall, oneOffsIn, range } from './model';
 import type { Act, Call } from './model';
 import { Diamond } from './PlanPage';
+import { StepHead } from './StepHead';
+import type { Head } from './StepHead';
 
 /** Within this many days of the band's end, a dropped diamond means "by the end" rather than a date. */
 const EDGE_DAYS = 3;
@@ -247,6 +252,7 @@ function DateForm(props: {
 
 interface RowProps {
   plan: ProjectPlan;
+  goals: readonly Objective[];
   axis: Axis;
   st: Stretch;
   ctx: PlanContext;
@@ -267,6 +273,7 @@ function ProjectRow(props: RowProps) {
   const dropRef = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
 
   const run = (p: Planned | null) => {
     if (!p) return;
@@ -560,15 +567,34 @@ function ProjectRow(props: RowProps) {
     </button>
   );
   const pill = <Pill tone={stat.tone}>{stat.pill}</Pill>;
+  const goal = props.goals.find((g) => g.id === project.objective_id && !g.deleted_at && g.state !== 'archived');
+  const goalName = goal?.title ?? 'No goal';
+  const goalButton = (
+    <button
+      className={`plgoal small${goal ? '' : ' none'}`}
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={picking}
+      aria-label={`Goal for ${project.title}: ${goalName}. Change`}
+      onClick={() => setPicking(true)}
+    >
+      {goalName} <span aria-hidden="true">▾</span>
+    </button>
+  );
+  const goalPicker = picking && (
+    <GoalPicker item={{ type: 'project', id: project.id, title: project.title, goal: goal?.id ?? null }} goals={props.goals} act={act} onClose={() => setPicking(false)} />
+  );
 
   if (phone) {
     return (
       <div className={`prow${nothing ? ' muted' : ''}`}>
         {menuButton}
         <div className="pline">
+          {goalButton}
           {pill}
           <span className="small quiet">{hoursText}</span>
         </div>
+        {goalPicker}
         {track}
         <div>
           {items.map((it) => (
@@ -597,6 +623,10 @@ function ProjectRow(props: RowProps) {
           {pill}
           <span className="small quiet">{hoursText}</span>
           {menuSheet}
+          <div className="editrow">
+            {goalButton}
+            {goalPicker}
+          </div>
         </div>
         {track}
       </div>
@@ -625,21 +655,38 @@ function CallRow(props: { call: Call; st: Stretch; ctx: PlanContext; phone: bool
   const { clock } = useApp();
   const toast = useToast();
   const [asking, setAsking] = useState<'finished' | 'dropped' | null>(null);
+  const [keeping, setKeeping] = useState(false);
   const finishRef = useRef<HTMLButtonElement>(null);
   const dropRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
   const { plan, milestone: m } = call;
+  const on = today(ctx.clock);
   const btn = phone ? 'btn grow' : 'btn sm';
   const run = (p: Planned) => void act(p.key, p.text, (w) => applyPlanChange(w, p.change));
   const close = (state: 'finished' | 'dropped') => {
     setAsking(null);
     void act(`proj-${plan.project.id}`, `${state === 'finished' ? 'Finished' : 'Dropped'} ${plan.project.title}.`, (w) => closeProject(w, plan.project.id, state, clock));
   };
+  // A project past its end is brought in as it always was; an overdue milestone is kept in with a date in this stretch.
   const bringIn = () => {
-    if (m) return run(clearMs(plan, m, st, ctx));
     const error = doneDateError(plan, st.end);
     if (error) return toast.show(error);
     run({ key: `proj-${plan.project.id}`, text: `Brought in ${plan.project.title}, ending ${formatDate(st.end)}.`, change: moveDone(plan, st.end, ctx) });
   };
+  const earliest = st.start > on ? st.start : on;
+  const keep = (ms: Milestone, date: string) => {
+    if (!isDay(date) || date < earliest || date > st.end) return `Pick a date from ${range({ start: earliest, end: st.end })}.`;
+    setKeeping(false);
+    run({ key: `ms-${ms.id}`, text: `Kept ${ms.title} in this plan, ${formatDate(date)}.`, change: moveMilestone(plan, ms.id, date, ctx) });
+    return null;
+  };
+  // Ticks its open tasks too, and frees any time still ahead for them, as Mark done does on Goals.
+  const markDone = (ms: Milestone) =>
+    void act(`ms-${ms.id}`, `Marked ${ms.title} done.`, async (w) => {
+      const open = plan.tasks.filter((t) => t.milestone_id === ms.id && !t.done_at && !t.cancelled_at).map((t) => t.id);
+      const work = open.length ? await scheduledWork(w.sql, open, clock) : {};
+      return applyPlanChange(w, withStatusLine(plan, markMilestoneDone(plan, ms.id, work, ctx), ctx));
+    });
   // Same as dropping on Goals: done tasks stay on record and open ones move to the next open milestone.
   const drop = () =>
     m
@@ -662,20 +709,44 @@ function CallRow(props: { call: Call; st: Stretch; ctx: PlanContext; phone: bool
       </div>
       {asking ? (
         <CloseQuestion state={asking} onYes={() => close(asking)} onNo={() => setAsking(null)} back={() => (asking === 'finished' ? finishRef : dropRef).current} />
+      ) : m ? (
+        <div className="row">
+          <button className={btn} type="button" aria-label={`Already done: ${call.title}`} onClick={() => markDone(m)}>
+            Already done
+          </button>
+          <button ref={keepRef} className={btn} type="button" aria-label={`Keep in plan: ${call.title}`} onClick={() => setKeeping(true)}>
+            Keep in plan
+          </button>
+          <button ref={dropRef} className={btn} type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
+            Drop
+          </button>
+        </div>
       ) : (
         <div className="row">
           <button className={btn} type="button" aria-label={`Bring in ${call.title}`} onClick={bringIn}>
             Bring in
           </button>
-          <button ref={dropRef} className={m ? btn : `${btn} danger`} type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
+          <button ref={dropRef} className={`${btn} danger`} type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
             Drop
           </button>
-          {!m && (
-            <button ref={finishRef} className={`${btn} danger`} type="button" aria-label={`Finish ${call.title}`} onClick={() => setAsking('finished')}>
-              Finish
-            </button>
-          )}
+          <button ref={finishRef} className={`${btn} danger`} type="button" aria-label={`Finish ${call.title}`} onClick={() => setAsking('finished')}>
+            Finish
+          </button>
         </div>
+      )}
+      {m && keeping && (
+        <DateForm
+          label={`Date for ${m.title}`}
+          initial={st.end}
+          min={earliest}
+          phone={phone}
+          hint={`It stays in this plan on any day from ${range({ start: earliest, end: st.end })}.`}
+          onSet={(date) => keep(m, date)}
+          onClose={() => {
+            setKeeping(false);
+            if (!phone) keepRef.current?.focus();
+          }}
+        />
       )}
     </div>
   );
@@ -811,19 +882,18 @@ export function ProjectsStep(props: {
   data: PlanData;
   ctx: PlanContext;
   st: Stretch;
-  pace: Minutes | null;
   phone: boolean;
   act: Act;
-  undoText: string | null;
-  onUndo(): void;
   continueLabel: string;
   onNext(): void;
-  headRef: Ref<HTMLHeadingElement>;
+  head: Head;
 }) {
-  const { data, ctx, st, pace, phone, act } = props;
+  const { data, ctx, st, phone, act } = props;
   const on = today(ctx.clock);
+  const add = useAdd(act);
   const [laterOpen, setLaterOpen] = useState(false);
   const [looseOpen, setLooseOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   // A date takes a one off out of No date yet, so focus lands on the next one there, the list's toggle or the heading.
   const land = useFocusLanding();
   const oneOffsRef = useRef<HTMLElement>(null);
@@ -852,59 +922,28 @@ export function ProjectsStep(props: {
   const oneOffs = oneOffsIn(data.oneOffs, st);
   const loose = data.oneOffs.filter((t) => t.schedule?.type === 'once' && !t.schedule.from);
 
-  const planned = data.plans.reduce((sum, p) => sum + planMinutes(p, st), 0);
-  const capacity = pace == null ? null : (pace * (diffDays(st.start, st.end) + 1)) / 7;
-  const over = capacity != null && planned > capacity;
-  const scale = Math.max(planned, capacity ?? 0, 1);
   const noTasks = data.plans.reduce((n, plan) => {
     const ids = plannedIds(plan, st);
     const openUnder = (id: string | null) => plan.tasks.some((t) => (t.milestone_id ?? null) === id && !t.done_at && !t.cancelled_at);
     const anyOpen = plan.tasks.some((t) => !t.done_at && !t.cancelled_at);
     return n + ids.filter((id) => (id.startsWith('done:') ? !anyOpen : !openUnder(id))).length;
   }, 0);
-  const meterText = capacity == null ? `About ${hrs(planned)} planned.` : `About ${hrs(planned)} planned, about ${hrs(capacity)} at your recent pace.`;
-  const row = (plan: ProjectPlan) => <ProjectRow key={plan.project.id} plan={plan} axis={axis} st={st} ctx={ctx} phone={phone} act={act} />;
+  const row = (plan: ProjectPlan) => <ProjectRow key={plan.project.id} plan={plan} goals={data.objectives} axis={axis} st={st} ctx={ctx} phone={phone} act={act} />;
 
   return (
     <div className="stack planstep">
-      <div className={phone ? 'stack8' : 'planhead'}>
-        <div>
-          <h2 ref={props.headRef} tabIndex={-1}>
-            What will you reach by {formatDate(st.end)}?
-          </h2>
-          <p className={phone ? 'small quiet' : 'quiet'}>Add milestones to this plan. Date one only if the date matters.</p>
-        </div>
-        <div className={phone ? 'stack8' : 'planmeter small'}>
-          {/* With no recent pace there's nothing to compare against, so only the words show. */}
-          {capacity != null && (
-            <span className="mmeter" role="img" aria-label={meterText}>
-              <span className={`mfill${over ? '' : ' calm'}`} style={{ width: pct((planned / scale) * 100) }} />
-              <span className="mtick" style={{ left: pct((capacity / scale) * 100) }} />
-            </span>
-          )}
-          <div className={phone ? 'small' : undefined}>{meterText}</div>
-          {over && <div className="strong overtext">More than your recent pace. Something may slip.</div>}
-          {noTasks > 0 && (
-            <div className="quiet">
-              {noTasks} {noTasks === 1 ? 'has' : 'have'} no tasks yet, so this may be low.
-            </div>
-          )}
-        </div>
+      <div className="stack8">
+        <StepHead head={props.head}>What will you reach by {formatDate(st.end)}?</StepHead>
+        <p className={phone ? 'small quiet' : 'quiet'}>Add milestones to this plan. Date one only if the date matters.</p>
+        {noTasks > 0 && (
+          <p className="small quiet">
+            {noTasks} planned {noTasks === 1 ? 'milestone has' : 'milestones have'} no tasks yet, so Does it fit may be low.
+          </p>
+        )}
       </div>
-      <div className="sr" role="status">
-        {props.undoText}
-      </div>
-      {!phone && props.undoText && (
-        <div className="planundo">
-          <span className="grow">{props.undoText}</span>
-          <button className="btn sm" type="button" aria-label={`Undo: ${props.undoText}`} onClick={props.onUndo}>
-            Undo
-          </button>
-        </div>
-      )}
       {calls.length > 0 && (
-        <section className="stack8" aria-label="Needs a call">
-          <h3>Needs a call</h3>
+        <section className="stack8" aria-label={`Overdue (${calls.length})`}>
+          <h3>Overdue ({calls.length})</h3>
           <div className="card">
             {calls.map((call) => (
               <CallRow key={call.key} call={call} st={st} ctx={ctx} phone={phone} act={act} />
@@ -924,6 +963,12 @@ export function ProjectsStep(props: {
           </div>
         )}
         {active.map(row)}
+        <div className={phone ? 'planadd' : 'planadd planlater'}>
+          <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => setAdding(true)}>
+            + Add project
+          </button>
+        </div>
+        {adding && <ProjectAdd objectiveId={null} end={st.end} write={add.project} onClose={() => setAdding(false)} />}
         {later.length > 0 && <Caret open={laterOpen} label={`Paused or starting later (${later.length})`} onToggle={() => setLaterOpen(!laterOpen)} phone={phone} />}
         {laterOpen && later.map(row)}
         <Legend phone={phone} />

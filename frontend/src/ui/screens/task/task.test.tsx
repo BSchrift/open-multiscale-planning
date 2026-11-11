@@ -204,4 +204,34 @@ describe('the task popup after a failed save', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     expect((await record(t, 't1'))?.deleted_at).toBeFalsy();
   });
+
+  it('links an Inbox item Process made a goal to it, closing to show it', async () => {
+    const close = vi.fn();
+    const t = await renderScreen('task', {
+      presentation: 'overlay',
+      params: { task: 'i1' },
+      close,
+      seed: async (w) => {
+        await w.create('objective', { title: 'Make pottery', state: 'active' }, 'g1');
+        await w.create('task', { kind: 'inbox', title: 'Look into pottery classes', done_at: '2026-11-01T15:00:00Z', became: { type: 'objective', id: 'g1' } }, 'i1');
+      },
+    });
+    const popup = await screen.findByRole('dialog', { name: 'Look into pottery classes' });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Became the goal Make pottery' }));
+    expect(close).toHaveBeenCalled();
+    expect(t.nav().route).toMatchObject({ area: 'goals', params: { show: 'g1' } });
+  });
+
+  it("says nothing of what an open item became: unticked, it's back in the Inbox", async () => {
+    await renderScreen('task', {
+      presentation: 'overlay',
+      params: { task: 'i1' },
+      seed: async (w) => {
+        await w.create('objective', { title: 'Make pottery', state: 'active' }, 'g1');
+        await w.create('task', { kind: 'inbox', title: 'Look into pottery classes', done_at: null, became: { type: 'objective', id: 'g1' } }, 'i1');
+      },
+    });
+    const popup = await screen.findByRole('dialog', { name: 'Look into pottery classes' });
+    expect(within(popup).queryByRole('button', { name: /^Became/ })).toBeNull();
+  });
 });

@@ -2,7 +2,7 @@
 // times, Pause and End. Planning places sessions from these, so changes apply from the next plan.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -21,7 +21,7 @@ function daysKey(days: readonly Weekday[] | null | undefined): DaysKey {
   return set === DAYS.weekdays.join() ? 'weekdays' : set === DAYS.weekends.join() ? 'weekends' : 'all';
 }
 
-const targetMax = (per: Practice['per']) => (per === 'day' ? 240 : 1200);
+export const targetMax = (per: Practice['per']) => (per === 'day' ? 240 : 1200);
 const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
 /** "15m a day, weekdays, around 7am" */
@@ -34,9 +34,11 @@ export function practiceRule(p: Practice): string {
 /** Goals a practice or project can link to: any that isn't archived. */
 const linkable = (goals: readonly Objective[]) => goals.filter((g) => g.state !== 'archived' && !g.deleted_at);
 
-export function GoalSelect(props: { goals: readonly Objective[]; value: string; onChange(id: string): void }) {
-  return (
-    <label className="popfield">
+/** With onNew, a + New goal button follows the select, rather than being one of its options. */
+export function GoalSelect(props: { goals: readonly Objective[]; value: string; onChange(id: string): void; onNew?(): void }) {
+  const { layout } = useApp();
+  const select = (
+    <label className={props.onNew ? 'popfield grow' : 'popfield'}>
       Goal
       <select className="field" aria-label="Goal" value={props.value} onChange={(event) => props.onChange(event.target.value)}>
         <option value="">No goal</option>
@@ -48,9 +50,18 @@ export function GoalSelect(props: { goals: readonly Objective[]; value: string; 
       </select>
     </label>
   );
+  if (!props.onNew) return select;
+  return (
+    <div className="row nowrap fieldandbtn">
+      {select}
+      <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={props.onNew}>
+        + New goal
+      </button>
+    </div>
+  );
 }
 
-function TargetSlider(props: { per: Practice['per']; value: number; onChange(minutes: number): void }) {
+export function TargetSlider(props: { per: Practice['per']; value: number; onChange(minutes: number): void }) {
   const id = useId();
   return (
     <div className="stack8">
@@ -76,7 +87,13 @@ function TargetSlider(props: { per: Practice['per']; value: number; onChange(min
 }
 
 /** Edits a practice in place. Every change is saved at once; a blank name is never saved. */
-export function PracticeFields(props: { practice: Practice; goals: readonly Objective[]; onEnded?(): void }) {
+export function PracticeFields(props: {
+  practice: Practice;
+  goals: readonly Objective[];
+  /** A goal control of the caller's own, in place of the select, as planning's links a new goal too. */
+  goalField?: ReactNode;
+  onEnded?(): void;
+}) {
   const p = props.practice;
   const { clock } = useApp();
   const toast = useToast();
@@ -116,7 +133,7 @@ export function PracticeFields(props: { practice: Practice; goals: readonly Obje
           }}
         />
       </label>
-      <GoalSelect goals={props.goals} value={p.objective_id ?? ''} onChange={(id) => set({ objective_id: id || null })} />
+      {props.goalField ?? <GoalSelect goals={props.goals} value={p.objective_id ?? ''} onChange={(id) => set({ objective_id: id || null })} />}
       <TargetSlider per={p.per} value={p.target_min} onChange={(target_min) => set({ target_min })} />
       <div className="row nowrap">
         <label className="popfield grow">
@@ -211,7 +228,14 @@ export function PracticeSheet(props: { practice: Practice; goals: readonly Objec
 }
 
 /** Adds a practice, linked to a goal or to nothing. */
-export function PracticeAdd(props: { goals: readonly Objective[]; objectiveId: string | null; onAdded?(id: string): void; onClose(): void }) {
+export function PracticeAdd(props: {
+  goals: readonly Objective[];
+  objectiveId: string | null;
+  /** Saves the practice instead of the form, resolving to its id. The caller then reports it. */
+  write?(fields: Fields<'practice'>): Promise<string | undefined>;
+  onAdded?(id: string): void;
+  onClose(): void;
+}) {
   const toast = useToast();
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState(props.objectiveId ?? '');
@@ -219,25 +243,24 @@ export function PracticeAdd(props: { goals: readonly Objective[]; objectiveId: s
   const [per, setPer] = useState<Practice['per']>('day');
   const [time, setTime] = useState('07:00');
   const [error, setError] = useState('');
-  const add = useMutation((w, name: string) =>
-    w.create('practice', {
+  const add = useMutation((w, fields: Fields<'practice'>) => w.create('practice', fields));
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = title.trim();
+    if (!name) return setError('Give it a name.');
+    const fields: Fields<'practice'> = {
       title: name,
       objective_id: goal || null,
       target_min: target,
       per,
       preferred_times: time ? [toMinutes(time)] : [],
       state: 'active',
-    }),
-  );
-
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    const name = title.trim();
-    if (!name) return setError('Give it a name.');
-    const id = await add.run(name);
+    };
+    const id = props.write ? await props.write(fields) : await add.run(fields);
     if (!id) return;
     props.onAdded?.(id);
-    toast.show('Practice added. It waits in To schedule on Week until you give it a time.');
+    if (!props.write) toast.show('Practice added. It waits in To schedule on Week until you give it a time.');
     props.onClose();
   };
 

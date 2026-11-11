@@ -15,6 +15,7 @@ import type { CalendarMode, Fields, Instant, ReminderSettings } from '../../../c
 import { DEFAULT_SHORTCUT, shortcutFromKeys, shortcutLabel } from '../../../platform/shortcut';
 import { setAppearance, useAppearance } from '../../app/appearance';
 import { useCaptureShortcut } from '../../app/captureShortcut';
+import { useProcessKeys } from '../../app/processKeys';
 import type { Layout, ScreenProps } from '../../app/registry';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
@@ -373,6 +374,12 @@ function Reminders(props: { layout: Layout }) {
         )}
       </div>
       <div className={row}>{toggle('block_end', 'Ask at block end')}</div>
+      <div className={row}>
+        <label className="taskrow">
+          <input type="checkbox" checked={r.planning !== false} onChange={() => void set.run({ planning: r.planning === false })} />
+          <span>Remind me when next week's planning has no time</span>
+        </label>
+      </div>
     </Section>
   );
 }
@@ -401,6 +408,25 @@ function Appearance(props: { layout: Layout }) {
         ))}
       </div>
       <p className={props.layout === 'phone' ? 'small quiet' : 'quiet'}>System follows this device's light or dark setting. Kept on this device only.</p>
+    </Section>
+  );
+}
+
+/** Desktop: whether Process takes single keys. Off, Option or Alt with the key still works. */
+function ProcessKeys() {
+  const [on, set] = useProcessKeys();
+  return (
+    <Section title="Keyboard">
+      <div className="setrow">
+        <label className="taskrow">
+          <input type="checkbox" checked={on} onChange={() => set(!on)} />
+          <span>Single-key shortcuts in Process</span>
+        </label>
+      </div>
+      <p className="quiet">
+        Keys such as S to skip and 1 to send to a project work on their own. Off, hold Option or Alt with the key, so speech input can't press them.
+        For this device only.
+      </p>
     </Section>
   );
 }
@@ -536,6 +562,7 @@ export default function Screen(props: ScreenProps) {
       <Away layout={layout} />
       <Reminders layout={layout} />
       <Appearance layout={layout} />
+      {layout === 'desktop' && <ProcessKeys />}
       <CaptureKeys />
       {updates && <Updates layout={layout} updates={updates} />}
       <DataRetention layout={layout} />

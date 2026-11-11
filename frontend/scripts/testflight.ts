@@ -197,6 +197,18 @@ async function once(send: Send, path: string, body: object): Promise<void> {
 }
 
 /**
+ * Apple's reasons for refusing build <build> once uploaded, or null while it hasn't. A refused upload never becomes a
+ * build, and otherwise its reasons reach only the account holder's email.
+ */
+async function uploadRefusals(get: Get, appId: string, build: number): Promise<string | null> {
+  const uploads = (await get(`/v1/apps/${appId}/buildUploads`, { 'filter[cfBundleVersion]': String(build), 'fields[buildUploads]': 'cfBundleVersion,state' })) as unknown as {
+    data: { attributes: { state?: { state: string; errors?: { code: string; description: string }[] } } }[];
+  };
+  const failed = uploads.data.find((u) => u.attributes.state?.state === 'FAILED')?.attributes.state;
+  return failed ? (failed.errors ?? []).map((e) => `ITMS-${e.code}: ${e.description}`).join(' ') || 'no reason given.' : null;
+}
+
+/**
  * Gives build <build> to the Testers group, making the group with its public link the first time, describes what to
  * test, and submits the build for Beta App Review, which external testers need. Waits, a minute at a time, while App
  * Store Connect processes the upload. Returns the public link.
@@ -219,8 +231,12 @@ export async function publishToTesters(
     const state = builds.data[0]?.attributes.processingState;
     if (state === 'VALID') buildId = builds.data[0]!.id;
     else if (state && state !== 'PROCESSING') throw new Error(`App Store Connect couldn't process build ${build}: ${state}.`);
-    else if (tried >= tries) throw new Error(`Build ${build} still wasn't ready in App Store Connect after ${tries} minutes. Run testflight.ts testers again later.`);
-    else await wait(MINUTE_MS);
+    else {
+      const refused = state ? null : await uploadRefusals(get, app.id, build);
+      if (refused) throw new Error(`App Store Connect refused build ${build} after its upload: ${refused}`);
+      if (tried >= tries) throw new Error(`Build ${build} still wasn't ready in App Store Connect after ${tries} minutes. Run testflight.ts testers again later.`);
+      await wait(MINUTE_MS);
+    }
   }
 
   const groups = (await get(`/v1/apps/${app.id}/betaGroups`, { 'fields[betaGroups]': 'name,isInternalGroup,publicLinkEnabled,publicLink' })) as unknown as { data: BetaGroup[] };

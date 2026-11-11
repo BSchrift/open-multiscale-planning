@@ -315,7 +315,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "rm -rf \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\nmkdir -p \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ]; then\n  cp -R \"$BUILT_PRODUCTS_DIR/MultiscaleShare.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ] || [ \"$MULTISCALE_CONTROL\" = YES ]; then\n  cp -R \"$BUILT_PRODUCTS_DIR/MultiscaleCapture.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\n";
+			shellScript = "rm -rf \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\nmkdir -p \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH\"\n# An archive leaves each extension here as a symlink, and App Store Connect refuses one in the app, so -H copies what it points to.\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ]; then\n  cp -RH \"$BUILT_PRODUCTS_DIR/MultiscaleShare.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\nif [ \"$MULTISCALE_EXTENSIONS\" = YES ] || [ \"$MULTISCALE_CONTROL\" = YES ]; then\n  cp -RH \"$BUILT_PRODUCTS_DIR/MultiscaleCapture.appex\" \"$TARGET_BUILD_DIR/$PLUGINS_FOLDER_PATH/\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

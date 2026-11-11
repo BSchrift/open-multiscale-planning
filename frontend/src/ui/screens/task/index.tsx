@@ -1,7 +1,8 @@
 // A task's popup: everything about one task, to read and change, opened by tapping the task wherever it shows. A sheet
-// on phone and a centred dialog on desktop. Top to bottom: its name, Time estimate, where it belongs, Description, then
-// Save, Cancel and Delete task. Focus starts on the name, read as the heading, so the phone's keyboard stays down until
-// a field is tapped. Save and Delete each offer Undo.
+// on phone and a centred dialog on desktop. Top to bottom: its name, Time estimate, where it belongs, Description,
+// Attachments, then Save, Cancel and Delete task. Focus starts on the name, read as the heading, so the phone's keyboard stays down until
+// a field is tapped. Save and Delete each offer Undo. Attachments are added and removed as they go, each with its own
+// Undo, rather than on Save.
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -14,6 +15,7 @@ import { closeTask } from '../../../core/tasks';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
+import { Attachments } from '../../components/attachments/Attachments';
 import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { CloseIcon } from '../../components/icons';
@@ -175,6 +177,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
             </select>
           </label>
           <NotesField value={notes} onChange={setNotes} />
+          <Attachments taskId={task.id} />
           {error && (
             <div className="fielderr" role="alert">
               {error}

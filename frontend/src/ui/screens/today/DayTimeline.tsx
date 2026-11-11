@@ -78,6 +78,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null } | null>(null);
   const droppedAt = useRef(0);
   const steps = useRef<{ id: string; at: Slot; reverse: PlanChange } | null>(null);
+  // Arrow steps save one after another, each from where the last one put the block, since the day can redraw from a
+  // step's save while the next is still saving and show the block a step behind.
+  const stepping = useRef(Promise.resolve());
   // A dropped block stays where it landed until the saved position comes back.
   const positions = data.blocks.map((b) => `${b.id} ${b.start} ${b.end}`).join();
   useEffect(() => setDrag(null), [positions]);
@@ -216,11 +219,15 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const delta = ({ ArrowUp: -GRID, ArrowDown: GRID } as Record<string, number>)[e.key];
     if (!delta || !(move || e.shiftKey)) return;
     e.preventDefault();
-    const from = slotOf(i);
-    const next = dragResult(from, e.shiftKey ? 'resize' : 'move', 0, delta, [], bounds(from));
-    if (same(next, from)) return;
-    setDrag({ id: i.id, slot: next, ghost: null });
-    void save(i, from, next, true);
+    const mode = e.shiftKey ? 'resize' : 'move';
+    stepping.current = stepping.current.then(async () => {
+      const last = steps.current;
+      const from = last?.id === i.id ? last.at : slotOf(i);
+      const next = dragResult(from, mode, 0, delta, [], bounds(from));
+      if (same(next, from)) return;
+      setDrag({ id: i.id, slot: next, ghost: null });
+      await save(i, from, next, true);
+    });
   };
 
   const calendar = (

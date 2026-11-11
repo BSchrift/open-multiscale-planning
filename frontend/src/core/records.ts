@@ -226,7 +226,14 @@ class TxWriter implements Writer {
     }
     await writeRow(this.sql, id, type, data, clocks);
     this.wrote = true;
-    // A milestone goes with its project, and an answer is counted from its block's end.
+    // A milestone goes with its project, an attachment with its task, and an answer is counted from its block's end.
+    if ('expires_at' in follows && type === 'task') {
+      const attachments = await this.sql.all<{ id: string }>(
+        "SELECT id FROM records WHERE type = 'attachment' AND json_extract(data, '$.task_id') = :id",
+        { id },
+      );
+      for (const a of attachments) await this.refresh(a.id, automatic);
+    }
     if ('expires_at' in follows && type === 'project') {
       const milestones = await this.sql.all<{ id: string }>(
         "SELECT id FROM records WHERE type = 'milestone' AND json_extract(data, '$.project_id') = :id",
@@ -248,9 +255,11 @@ class TxWriter implements Writer {
     const parent =
       type === 'milestone' && typeof data.project_id === 'string'
         ? await this.stored(data.project_id, 'project')
-        : type === 'block_outcome' && id.startsWith(OUTCOME_PREFIX)
-          ? await this.stored(id.slice(OUTCOME_PREFIX.length), 'time_block')
-          : null;
+        : type === 'attachment' && typeof data.task_id === 'string'
+          ? await this.stored(data.task_id, 'task')
+          : type === 'block_outcome' && id.startsWith(OUTCOME_PREFIX)
+            ? await this.stored(id.slice(OUTCOME_PREFIX.length), 'time_block')
+            : null;
     const expires = expiryFor(type, { data: { ...data, ...changes }, clocks }, policy, parent);
     // Cleared when what it counts from clears, as when a task opens again.
     return expiryDiffers(data.expires_at, expires) ? { ...changes, expires_at: expires } : changes;

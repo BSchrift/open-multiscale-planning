@@ -47,6 +47,8 @@ export interface HarnessOptions {
   kind?: PlatformKind;
   /** The desktop's global capture shortcut. Absent by default, as in a browser. */
   captureShortcut?: CaptureShortcut;
+  /** As on a Mac app whose content policy is from before attachments. */
+  filesBlocked?: true;
 }
 
 export interface Harness extends RenderResult {
@@ -65,6 +67,7 @@ async function prepare(options: HarnessOptions) {
     options.nativeUpdates ? { updates: options.nativeUpdates } : {},
     options.kind ? { kind: options.kind } : {},
     options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
+    options.filesBlocked ? { filesBlocked: true as const } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));

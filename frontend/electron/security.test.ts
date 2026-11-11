@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isOwnDbSql, isSqlValues, isWebUrl } from './security';
+import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl } from './security';
 
 describe('appFilePath', () => {
   it('maps paths inside the root, with / as the page', () => {
@@ -22,6 +22,13 @@ describe('isWebUrl', () => {
     for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'smb://host/share', 'not a url', 42, null]) {
       expect(isWebUrl(bad)).toBe(false);
     }
+  });
+});
+
+describe('isExternalUrl', () => {
+  it('lets web links out, and mail links from a description, and nothing else', () => {
+    for (const url of ['https://example.com/', 'http://example.com/', 'mailto:sam@example.com']) expect(isExternalUrl(url)).toBe(true);
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'multiscale://capture', 'smb://share', 'nonsense', 42, null]) expect(isExternalUrl(url)).toBe(false);
   });
 });
 
@@ -87,5 +94,9 @@ describe('contentSecurityPolicy', () => {
     expect(csp).toContain("script-src 'self'");
     expect(csp).not.toMatch(/script-src[^;]*unsafe/);
     expect(csp).toContain("connect-src 'self' https://api.example.com");
+  });
+
+  it("shows photos from the device's own copies, and loads no image from elsewhere", () => {
+    expect(csp).toContain("img-src 'self' data: blob:");
   });
 });

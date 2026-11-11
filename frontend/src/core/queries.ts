@@ -6,7 +6,7 @@
 
 import { parseClock } from './clock';
 import type { Sql } from './db';
-import type { BlockResult, Instant, LocalDate, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
+import type { Attachment, BlockResult, Instant, LocalDate, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
 import type { UtcRange } from './dates';
 
 export const SQL = {
@@ -82,6 +82,12 @@ export const SQL = {
     WHERE c.deleted_at IS NULL
       AND t.title LIKE '%' || :search || '%'`,
 
+  taskAttachments: `
+    SELECT id, task_id, kind, name, url, size, type, sha256, uploaded_at, deleted_at
+    FROM attachment
+    WHERE task_id = :task_id AND deleted_at IS NULL
+    ORDER BY id`,
+
   oneOffs: `
     SELECT id, data
     FROM records
@@ -150,6 +156,7 @@ export const QUERY_INDEX = {
   queue: ['outcome_result', 'block_task'],
   finished: [],
   finishedCount: [],
+  taskAttachments: [],
   oneOffs: ['task_kind'],
   completionsSince: [],
   projectTasks: ['task_project'],
@@ -165,6 +172,11 @@ export interface InboxRow {
   estimate_min: Minutes | null;
   /** 1 when it has a description. */
   has_notes: number;
+}
+
+/** A task's attachments, in the order they were added. */
+export function taskAttachments(sql: Sql, taskId: string): Promise<Attachment[]> {
+  return sql.all<Attachment>(SQL.taskAttachments, { task_id: taskId });
 }
 
 export function inboxTasks(sql: Sql): Promise<InboxRow[]> {

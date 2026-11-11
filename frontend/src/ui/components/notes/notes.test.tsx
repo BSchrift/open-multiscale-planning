@@ -224,5 +224,6 @@ describe('the Now card', () => {
     const now = await screen.findByRole('region', { name: 'Current block' });
     const glance = await within(now).findByText(/Use the Q3 numbers first\./);
     expect(glance.textContent).toBe('Use the Q3 numbers first.\nCheck the totals');
+    expect(within(now).queryByText(/attachment/)).toBeNull();
   });
 });

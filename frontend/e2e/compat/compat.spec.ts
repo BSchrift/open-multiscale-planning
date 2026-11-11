@@ -488,3 +488,52 @@ test('an old device changing a task keeps the description a new device wrote', a
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });
+
+// The last release has no attachments. It keeps their records without showing them, and its edits to their task leave
+// them alone.
+test('an old device changing a task keeps the attachments a new device added', async ({ browser }) => {
+  test.setTimeout(180_000);
+  const run = randomUUID().slice(0, 8);
+  const id = `e2e-${run}-shed`;
+  const title = `Clear the shed ${run}`;
+  const oldDevice = await device(browser, `e2e-${run}`, on('old'));
+  const newDevice = await device(browser, `e2e-${run}`, on('new'));
+  consoleErrors(oldDevice.page, oldDevice.errors, 'old');
+  consoleErrors(newDevice.page, newDevice.errors, 'new');
+  await seed(newDevice.page, [oneOff(id, title)]);
+  await signIn(oldDevice.page);
+  await signIn(newDevice.page);
+
+  const openPopup = async () => {
+    await go(newDevice.page, 'One offs');
+    await pane(newDevice.page, 'One offs').getByRole('button', { name: title, exact: true }).click();
+    return newDevice.page.locator(`.sheet.taskpop[aria-label="${title}"]`);
+  };
+  let popup = await openPopup();
+  await popup.getByRole('button', { name: /^\+ Add a link/ }).click();
+  await popup.getByRole('button', { name: 'Paste a link' }).click();
+  await popup.getByRole('textbox', { name: 'Address' }).fill('https://example.com/skip-hire');
+  await popup.getByRole('button', { name: 'Add link' }).click();
+  await expect(popup.getByRole('link', { name: 'example.com' })).toBeVisible();
+  await newDevice.page.keyboard.press('Escape');
+  await syncNow(newDevice.page);
+  await syncNow(oldDevice.page);
+
+  const date = daysAhead(12);
+  await setDate(oldDevice.page, title, date);
+  await syncNow(oldDevice.page);
+  await syncNow(newDevice.page);
+  await go(newDevice.page, 'One offs');
+  await expect(dated(newDevice.page, title, date)).toBeVisible();
+  popup = await openPopup();
+  await expect(popup.getByRole('link', { name: 'example.com' })).toHaveAttribute('href', 'https://example.com/skip-hire');
+  await newDevice.page.keyboard.press('Escape');
+
+  // A deployment's test user keeps nothing live.
+  await seed(oldDevice.page, [{ type: 'task', id, fields: { deleted_at: new Date().toISOString() } }]);
+  await syncNow(oldDevice.page);
+  await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
+
+  expect(oldDevice.errors).toEqual([]);
+  expect(newDevice.errors).toEqual([]);
+});

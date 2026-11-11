@@ -250,12 +250,17 @@ export interface ApiDeps {
 }
 
 /** POSTs to the API signed in, refreshing the token once on a 401. Throws SyncError: offline or sign_in_expired. */
-export async function apiPost(deps: ApiDeps, path: string, body?: unknown): Promise<Response> {
+export function apiPost(deps: ApiDeps, path: string, body?: unknown): Promise<Response> {
+  return apiRequest(deps, 'POST', path, body);
+}
+
+/** A request to the API signed in, as apiPost makes. */
+export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Response> {
   const post = async (token: string) => {
     try {
       return await deps.fetch(`${deps.apiUrl}${path}`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        method,
+        headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });

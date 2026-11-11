@@ -6,6 +6,7 @@ import type { Slot, SlotContext } from '../../../core/slots';
 import { useApp } from '../../app/store';
 import { dragCard } from '../../components/weekgrid';
 import { KIND_WORD } from '../../components/blocks/describe';
+import { TaskName } from '../../components/task/TaskName';
 import { dayName } from '../../components/weekgrid';
 import type { LaneItem } from './data';
 // The card styles, for Today too.
@@ -63,7 +64,8 @@ export function LaneActions(props: {
   return (
     <>
       <div>
-        <div className="strong mhead">{item.title}</div>
+        {/* A task's name opens its popup; a practice's session has none. */}
+        <div className="strong mhead">{item.task ? <TaskName id={item.task.id} title={item.title} details={!!item.task.notes} /> : item.title}</div>
         <div className="small quiet">
           {KIND_WORD[item.kind]}, {item.line} to schedule{when ? `, ${when}` : ''}
         </div>

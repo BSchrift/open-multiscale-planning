@@ -66,7 +66,7 @@ describe('One offs on desktop', () => {
     await userEvent.click(show);
     expect(show).toHaveAccessibleName('Hide completed in One offs');
     expect(box('Return the drill')).toBeChecked();
-    expect(screen.getByText('Return the drill')).toHaveClass('done');
+    expect(screen.getByRole('button', { name: 'Return the drill' }).parentElement).toHaveClass('done');
     expect(lineOf('Return the drill')).toBe('Done today');
     expect(screen.queryByRole('button', { name: /date for Return the drill/ })).toBeNull();
 

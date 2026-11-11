@@ -1,6 +1,6 @@
 // The block in progress with its countdown and time-spent ring, or the next one with Start early. The ring is also
 // Pause and Resume: a tap stops the countdown and the ring together, and the sign inside says which a tap will do.
-// During a task's block the card also shows the first lines of its description.
+// During a task's block the card also shows the first lines of its description, and a task's name opens its popup.
 
 import { useId, useRef, useState } from 'react';
 import { currentBlock, isPaused, nextBlock, pauseWords, ringFill, timeLeftMs, timeSpentMs } from '../../../core/blocks';
@@ -13,6 +13,7 @@ import { useApp, useNow, useQuery } from '../../app/store';
 import { formatRange } from '../../components/blocks/describe';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { InfoIcon } from '../../components/icons';
+import { TaskName } from '../../components/task/TaskName';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const MINUTE_MS = 60_000;
@@ -148,7 +149,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
       <section className={`now stack${started ? ' timed' : ''}`} aria-label="Current block">
         <div className="small quiet">Now, {formatRange(cur.start, cur.end, zone)}</div>
         <h2 ref={head} tabIndex={-1}>
-          {cur.title}
+          {cur.task_id ? <TaskName id={cur.task_id} title={cur.title ?? ''} /> : cur.title}
         </h2>
         {glance.length > 0 && <p className="nownotes">{glance.join('\n')}</p>}
         {started && (
@@ -189,7 +190,8 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
       <section className="now stack" aria-label="Current block">
         <div className="small quiet">{phone ? `${free}. Next:` : free}</div>
         <h2 ref={head} tabIndex={-1}>
-          {phone ? next.title : `Next: ${next.title}`}
+          {!phone && 'Next: '}
+          {next.task_id ? <TaskName id={next.task_id} title={next.title ?? ''} /> : next.title}
         </h2>
         <div className="row">
           <button className={phone ? 'btn pri' : 'btn'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>

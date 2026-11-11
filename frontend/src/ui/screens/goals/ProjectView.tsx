@@ -30,11 +30,11 @@ import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { NoteMark } from '../../components/notes/NoteMark';
 import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
+import { useOpenTask } from '../../components/task/TaskName';
 import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import { ProjectTimeline } from './ProjectTimeline';
 
 type Editing =
-  | { kind: 'task'; id: string }
   | { kind: 'addTask'; at: string; milestone: string | null }
   | { kind: 'milestone'; id: string }
   | { kind: 'addMilestone' };
@@ -104,6 +104,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
   const phone = layout === 'phone';
   const apply = usePlanChange();
   const [editing, setEditing] = useState<Editing | null>(null);
+  const openTask = useOpenTask();
   const [fold, setFold] = useState<Record<string, boolean>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const showCompleted = useShowCompleted();
@@ -175,7 +176,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
             type="button"
             aria-label={`Edit task ${t.title}, ${meta}${t.notes ? ', has details' : ''}`}
             onPointerDown={phone ? press(t.id, t.title) : undefined}
-            onClick={() => !justDropped() && setEditing({ kind: 'task', id: t.id })}
+            onClick={() => !justDropped() && openTask(t.id)}
           >
             <span className="grow">
               {t.title}
@@ -192,16 +193,14 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
             <span className="small quiet">{meta}</span>
           </div>
         )}
-        {editing?.kind === 'task' && editing.id === t.id && <TaskEditor plan={plan} ctx={ctx} taskId={t.id} onClose={close} />}
       </div>
     );
   };
 
-  // Completed tasks wait behind each group's Show completed, counted as in the progress (cancelled ones aren't). One
-  // being edited stays until its editor closes, so a tick synced from elsewhere doesn't take the editor away.
+  // Completed tasks wait behind each group's Show completed, counted as in the progress (cancelled ones aren't).
   const taskRows = (tasks: Task[], locked: boolean, label: string) => (
     <>
-      {tasks.filter((t) => showCompleted || !t.done_at || (editing?.kind === 'task' && editing.id === t.id)).map((t) => taskRow(t, locked))}
+      {tasks.filter((t) => showCompleted || !t.done_at).map((t) => taskRow(t, locked))}
       <ShowCompleted count={tasks.filter((t) => t.done_at).length} list={label} />
     </>
   );

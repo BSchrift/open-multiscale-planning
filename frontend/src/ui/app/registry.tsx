@@ -6,6 +6,7 @@
 import { lazy } from 'react';
 import type { ComponentType } from 'react';
 import CaptureScreen from '../screens/capture';
+import TaskScreen from '../screens/task';
 
 export type Layout = 'desktop' | 'phone';
 
@@ -15,6 +16,7 @@ export type AreaId =
   | 'inbox'
   | 'process'
   | 'capture'
+  | 'task'
   | 'planning'
   | 'plan'
   | 'goals'
@@ -28,7 +30,7 @@ export type RouteParams = Readonly<Record<string, string>>;
 /**
  * - page: inside the navigation, on a tab.
  * - flow: full screen with no tab bar on phone, or the main area on desktop.
- * - overlay: above everything, such as Capture and Process.
+ * - overlay: above everything, such as Capture, Process and a task's popup.
  */
 export type Presentation = 'page' | 'flow' | 'overlay';
 
@@ -48,6 +50,8 @@ export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<Screen
   // Loaded with the app, unlike the rest: a screen that suspends shows its fallback, and React then holds the screen
   // back for 300ms, so the first capture after launch would open that much late.
   capture: { label: 'Capture', Screen: CaptureScreen },
+  // A task's popup, opened over whatever showed the task. Loaded with the app too, so a tap opens it at once.
+  task: { label: 'Task', Screen: TaskScreen },
   planning: { label: 'Plan your week', Screen: lazy(() => import('../screens/planning')) },
   plan: { label: 'Plan', Screen: lazy(() => import('../screens/plan')) },
   goals: { label: 'Goals', Screen: lazy(() => import('../screens/goals')) },

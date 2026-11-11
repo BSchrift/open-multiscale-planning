@@ -11,7 +11,7 @@ import type { UtcRange } from './dates';
 
 export const SQL = {
   inbox: `
-    SELECT id, title, estimate_min
+    SELECT id, title, estimate_min, notes IS NOT NULL AND notes != '' AS has_notes
     FROM task
     WHERE kind = 'inbox'
       AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL
@@ -163,6 +163,8 @@ export interface InboxRow {
   id: string;
   title: string;
   estimate_min: Minutes | null;
+  /** 1 when it has a description. */
+  has_notes: number;
 }
 
 export function inboxTasks(sql: Sql): Promise<InboxRow[]> {

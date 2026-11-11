@@ -1,7 +1,8 @@
-// Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away: choosing a
-// project, and then one of its milestones, or One offs skips the Inbox, and a time estimate travels with the task.
+// Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away. It opens with
+// Time first, right under the name, then Send to, where choosing a project, and then one of its milestones, or One offs
+// skips the Inbox, then a description, in which Enter makes a new line and ⌘Enter saves.
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
 import { inboxCount } from '../../../core/queries';
@@ -10,6 +11,7 @@ import type { Fields, LocalDate, Minutes } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useMutation, useQuery, useToday } from '../../app/store';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { NotesField } from '../../components/notes/NotesField';
 // From draft rather than the folder's index, so the app's first chunk doesn't carry the one off form and row.
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
@@ -22,10 +24,11 @@ const ONE_OFFS = 'oneoffs';
 const SAVED_MS = 700;
 const FADE_MS = 120;
 
-function fieldsFor(title: string, where: string, milestone: string, est: Minutes, today: LocalDate): Fields<'task'> {
-  if (where === ONE_OFFS) return oneOffFields({ ...emptyDraft(today), title, estimate: est }, today);
-  if (where) return { kind: 'project', project_id: where, milestone_id: milestone || null, title, estimate_min: est || null };
-  return { kind: 'inbox', title, estimate_min: est || null };
+function fieldsFor(title: string, where: string, milestone: string, est: Minutes, notes: string, today: LocalDate): Fields<'task'> {
+  const described = notes.trim() ? { notes } : {};
+  if (where === ONE_OFFS) return { ...oneOffFields({ ...emptyDraft(today), title, estimate: est }, today), ...described };
+  if (where) return { kind: 'project', project_id: where, milestone_id: milestone || null, title, estimate_min: est || null, ...described };
+  return { kind: 'inbox', title, estimate_min: est || null, ...described };
 }
 
 export default function Screen(props: ScreenProps) {
@@ -49,6 +52,8 @@ export default function Screen(props: ScreenProps) {
       [where],
     ).data ?? [];
   const [est, setEst] = useState<Minutes>(0);
+  const [notes, setNotes] = useState('');
+  const form = useRef<HTMLFormElement>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [fade, setFade] = useState(false);
   const ids = { field: useId(), where: useId(), milestone: useId() };
@@ -72,7 +77,7 @@ export default function Screen(props: ScreenProps) {
     event.preventDefault();
     const title = captureTitle(text);
     if (!title || saved || save.pending) return;
-    const waiting = await save.run(fieldsFor(title, where, milestone, est, today));
+    const waiting = await save.run(fieldsFor(title, where, milestone, est, notes, today));
     if (waiting === undefined) return;
     const message = where ? `Saved to ${place}` : phone ? 'Saved to Inbox' : `Saved to Inbox, ${waiting} waiting`;
     if (phone) {
@@ -80,6 +85,7 @@ export default function Screen(props: ScreenProps) {
       close();
     } else {
       setText('');
+      setNotes('');
       setSaved(message);
     }
   };
@@ -118,6 +124,7 @@ export default function Screen(props: ScreenProps) {
     </select>
   );
   const slider = <EstimateSlider label="Time" value={est} onChange={setEst} />;
+  const description = <NotesField value={notes} onChange={setNotes} onSubmit={() => form.current?.requestSubmit()} />;
   const detailsToggle = (className: string) => (
     <button className={className} type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
       {details ? 'Hide details' : 'Add details'}
@@ -127,7 +134,7 @@ export default function Screen(props: ScreenProps) {
   if (phone) {
     return (
       <Sheet label="Capture" onClose={close}>
-        <form className="stack" onSubmit={submit}>
+        <form ref={form} className="stack capform" onSubmit={submit}>
           <label className="strong" htmlFor={ids.field}>
             Capture to {place}
           </label>
@@ -143,6 +150,7 @@ export default function Screen(props: ScreenProps) {
           <div>{detailsToggle('link')}</div>
           {details && (
             <>
+              {slider}
               <div className="stack8">
                 <label className="small quiet" htmlFor={ids.where}>
                   Send to
@@ -157,7 +165,7 @@ export default function Screen(props: ScreenProps) {
                   {milestoneSelect}
                 </div>
               )}
-              {slider}
+              {description}
             </>
           )}
           <button className="btn pri" type="submit">
@@ -171,7 +179,7 @@ export default function Screen(props: ScreenProps) {
   return (
     <div className="capoverlay" onMouseDown={(e) => e.target === e.currentTarget && !text.trim() && close()}>
       <DesktopSheet fade={fade} onClose={close}>
-        <form onSubmit={submit}>
+        <form ref={form} onSubmit={submit}>
           <input
             className="capinput"
             autoFocus
@@ -184,17 +192,20 @@ export default function Screen(props: ScreenProps) {
           />
           {details && !saved && (
             <div className="capdetails">
-              <div className="capfield">
-                <label htmlFor={ids.where}>Send to</label>
-                {whereSelect}
-              </div>
-              {milestoneSelect && (
-                <div className="capfield">
-                  <label htmlFor={ids.milestone}>Milestone</label>
-                  {milestoneSelect}
-                </div>
-              )}
               {slider}
+              <div className="capplace">
+                <div className="capfield">
+                  <label htmlFor={ids.where}>Send to</label>
+                  {whereSelect}
+                </div>
+                {milestoneSelect && (
+                  <div className="capfield">
+                    <label htmlFor={ids.milestone}>Milestone</label>
+                    {milestoneSelect}
+                  </div>
+                )}
+              </div>
+              {description}
             </div>
           )}
           <div className="capfoot">

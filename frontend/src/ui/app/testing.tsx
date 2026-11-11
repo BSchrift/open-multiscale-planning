@@ -4,6 +4,8 @@
 //   expect(await screen.findByText('Paint the fence')).toBeVisible();
 //   await t.write((w) => ...);    // anything rendered picks it up, as with a sync
 //
+// A task's popup, opened from the screen, renders over it as in the app.
+//
 // Tests import this file; the app never does.
 
 import { render } from '@testing-library/react';
@@ -98,6 +100,15 @@ export async function renderScreen(
     nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
+  // A task's popup opens over whatever showed the task, so it renders here as the shell renders it. Other overlays,
+  // such as Process, are screens of their own, tested on their own.
+  const TaskPopup = () => {
+    const overlay = useOverlay();
+    const { closeOverlay } = useNav();
+    if (overlay?.area !== 'task') return null;
+    const { Screen: Popup } = AREAS.task;
+    return <Popup params={overlay.params} layout={layout} presentation="overlay" close={closeOverlay} />;
+  };
   return harness(
     <div data-layout={layout}>
       <ToastProvider>
@@ -110,6 +121,7 @@ export async function renderScreen(
               presentation={options.presentation ?? 'page'}
               close={options.close ?? (() => undefined)}
             />
+            {area !== 'task' && <TaskPopup />}
           </Suspense>
         </NavProvider>
       </ToastProvider>

@@ -15,6 +15,7 @@ import { useApp } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
+import { TaskName } from '../../components/task/TaskName';
 import { KIND_WORD } from '../../components/blocks/describe';
 import { clearLane, dayName, overLane, slotRange } from '../../components/weekgrid';
 import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
@@ -755,7 +756,7 @@ function BlockSheet(props: {
         <div className="small quiet">
           {dayName(block.date)}, {slotRange(block)}
         </div>
-        <h2>{block.title}</h2>
+        <h2>{block.task_id ? <TaskName id={block.task_id} title={block.title} /> : block.title}</h2>
       </div>
       {props.canEdit && (
         <div className="stack8">

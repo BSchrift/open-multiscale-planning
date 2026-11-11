@@ -10,6 +10,7 @@ import type { Reminder } from '../../core/types';
 import type { Route } from './nav';
 import { renderApp } from './testing';
 import type { HarnessOptions } from './testing';
+import { noFiles } from '../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -44,6 +45,7 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    files: noFiles(),
   } satisfies AppSync;
 }
 

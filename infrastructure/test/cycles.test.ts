@@ -3,9 +3,11 @@
 // UpdatePolicy to its CodeDeploy deployment group, so this walks every reference in each resource.
 
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
+import { PipelineStack } from '../lib/pipeline-stack.ts';
 import { MultiscaleStack } from '../lib/stack.ts';
 import type { Config, ControlConfig, EnvName } from '../lib/config.ts';
 
@@ -81,13 +83,15 @@ function cycles(resources: Resources): string[][] {
 }
 
 const control: ControlConfig = { aws: { account: '333333333333', region: 'us-west-2', profile: 'control' }, dns: { domain: 'example.net', hostedZoneId: 'Z0PARENTZONE' } };
-// Shaped like the real ones: each with its own zone, so release hosting and the web app are there, and staging with
-// retention's cleanup schedule.
+// Shaped like the real ones: each with its own zone, so release hosting and the web app are there, attachments' storage,
+// whose key the API names, and staging with retention's cleanup schedule.
+const filesKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' }) as string;
 const shaped = (envName: EnvName, zone: string): Config => ({
   aws: { account: envName === 'staging' ? '111111111111' : '222222222222', region: 'us-west-2', profile: `ms-${envName}` },
   alarmEmail: 'alarms@example.com',
   auth: { cognitoDomainPrefix: `multiscale-${envName}`, signInCallbackUrls: ['multiscale://auth/callback'] },
   dns: { zone },
+  files: { keys: { k1: filesKey }, signWith: 'k1' },
 });
 
 describe('the stack CloudFormation would deploy', () => {
@@ -103,6 +107,13 @@ describe('the stack CloudFormation would deploy', () => {
       });
     }
   }
+
+  it('has no dependency loop, for the release pipeline', () => {
+    // Its state machine's email links to a function whose role may answer that state machine.
+    const pipeline = { ...control, pipeline: { repository: 'someone/open-multiscale-planning', branch: 'main', email: 'releases@example.com' } };
+    const stack = new PipelineStack(new App(), 'Multiscale-pipeline', { control: pipeline, environments: { staging: shaped('staging', 'staging.example.net'), prod: shaped('prod', 'app.example.net') } });
+    assert.deepEqual(cycles(Template.fromStack(stack).toJSON().Resources as Resources), []);
+  });
 
   it('finds a loop through an UpdatePolicy, which is where this one hid', () => {
     const resources: Resources = {

@@ -8,6 +8,7 @@ import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { openDb } from '../core/db';
 import type { SqlDriver } from '../core/db';
+import { indexedDbFiles } from './attachment-files';
 import { deepLinks, memoryLifecycle, memoryNotifications } from './memory';
 import type { OpfsCall, OpfsResponse } from './opfs.worker';
 import { sqlJsDriver } from './sqljs-driver';
@@ -162,6 +163,7 @@ export async function createWebPlatform(): Promise<Platform> {
       remove: async (key) => void (await tokenRequest('readwrite', (files) => files.delete(`token:${key}`))),
     },
     lifecycle,
+    files: indexedDbFiles,
     openExternal: async (url) => void window.open(url, '_blank', 'noopener'),
     signInRedirectUri,
     onDeepLink: links.onDeepLink,

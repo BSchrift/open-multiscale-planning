@@ -105,6 +105,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `integration.historyUser` | Optional, staging only: the email of the history-scale test's own user, created in step 8. Only `make test-history ENV=staging` reads it. |
    | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
+   | `files` | Leave it out: `make files-key` writes it in step 7. It holds the public keys CloudFront checks attachments' download links against, and `signWith`, the one the API signs with. |
 
    No password or secret goes in these files. Test-user passwords go to SSM in step 8. The app's own settings, its limits and what differs between staging and prod for everyone, aren't copied here: they're public, in `config/protocol.yaml` and `config/env/`, as [config.md](config.md) explains.
 
@@ -146,10 +147,17 @@ To add a zone to staging or prod later, set its `dns.zone`, run `make deploy ENV
 ## 7. Deploy staging
 
 ```sh
+make files-key
 make deploy
 ```
 
-`ENV=staging` is the default. This checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`ENV=staging` is the default for both.
+
+`make files-key` makes the key pair attachments' download links are signed with. The private key goes to SSM at `/multiscale/staging/files/<name>`, where only the API reads it, and the public half to `files` in `staging.yaml`, which the stack gives CloudFront to check each link against. The name is `k` and today's date unless you pass `NAME=`. Attachments stay off until it exists: a deploy without it has no files bucket or files host, and the API answers `/files/*` as not configured. Run it once; to change the key later, see [Rotating the files signing key](#rotating-the-files-signing-key).
+
+To turn attachments on for an environment that's already deployed, run `make files-key` for it, then `make pipeline-config` if the release pipeline is set up, then deploy. The pipeline deploys from its own copy of `<env>.yaml`, and a copy without `files` takes the files host away again; the bucket stays, with what's in it.
+
+`make deploy` checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 
@@ -319,9 +327,10 @@ On staging it signs in through the hosted sign-in page as the history user: the 
 
 ## 12. Deploy prod
 
-Prod always takes an explicit `ENV=prod`:
+Prod always takes an explicit `ENV=prod`, for its own files key too:
 
 ```sh
+make files-key ENV=prod
 make deploy ENV=prod
 ```
 
@@ -419,7 +428,7 @@ The Apple Developer Program costs about $99 a year; check the current price when
    ```
 
    `make release` now notarizes the Mac app and its disk image, staples Apple's ticket to both so that they open offline too, and checks them with `spctl` and `xcrun stapler validate`. The release stops if any of that fails. Without the key, it says so and releases the app signed but not notarized. To replace the key, revoke it in App Store Connect and swap both files.
-8. Optionally, let GitHub Actions build, sign and notarize the Mac app for each commit that needs a new one, which the release pipeline checks and publishes, so you no longer release it from the Mac. It needs the certificate and key from items 5 and 7 in a GitHub environment that only you can approve: see [Setting up the Mac release](releasing.md#setting-up-the-mac-release). When you replace either, set its secret again.
+8. Optionally, let GitHub Actions build, sign and notarize the Mac app for each commit that needs a new one, which the release pipeline checks and publishes, so you no longer release it from the Mac. It needs the certificate and key from items 5 and 7 in a GitHub environment that only `main` can use: see [Setting up the Mac release](releasing.md#setting-up-the-mac-release). When you replace either, set its secret again.
 
 ## Real-phone checklist
 
@@ -454,7 +463,7 @@ Once:
 
 Each build:
 
-- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when Xcode is older than 26, App Store Connect has no app record yet, or it already has that build. It then waits while App Store Connect processes the build, usually within half an hour, gives it to the external group **Testers**, describes it with its commit's subject, submits it for Beta App Review, and prints the group's public link. The first run makes the group, with the public link on and no limit. `node scripts/testflight.ts testers <config folder> <build>` in `frontend` does that step again on its own, for a build whose upload finished but whose wait ran out.
+- `make testflight` uploads the checkout's commit, so commit first. The build number is the commit's time, as a release's is. It stops before building when Xcode is older than 26, App Store Connect has no app record yet, or it already has that build, and before uploading when the archived app has a symbolic link, which App Store Connect refuses. It then waits while App Store Connect processes the build, usually within half an hour, stopping with Apple's reasons if App Store Connect refuses the upload, gives it to the external group **Testers**, describes it with its commit's subject, submits it for Beta App Review, and prints the group's public link. The first run makes the group, with the public link on and no limit. `node scripts/testflight.ts testers <config folder> <build>` in `frontend` does that step again on its own, for a build whose upload finished but whose wait ran out.
 - `make release ENV=prod` uploads one as its last step, once its tests pass, and so needs Xcode 26 too. `SKIP_TESTFLIGHT=1` leaves it out, and the release then warns if testers' build is more than 60 days old. TestFlight builds stop opening after 90 days.
 - The app declares that it uses no encryption beyond HTTPS, so uploads ask no export compliance questions.
 
@@ -475,7 +484,7 @@ Then send them the **Testers** group's public link, which each upload prints and
 
 ### TestFlight from GitHub Actions
 
-`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs in the `release` environment, which needs your approval and holds the App Store Connect key ([releasing.md](releasing.md#the-release-environment)).
+`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs in the `release` environment, which holds the App Store Connect key and may need your approval ([releasing.md](releasing.md#the-release-environment)).
 
 Once, after steps 1, 2 and 4 above:
 
@@ -495,7 +504,7 @@ gh workflow run testflight.yml --ref main                               # main's
 gh workflow run testflight.yml --ref main -f commit=<full commit hash>  # a commit on main, such as prod's
 ```
 
-Then approve the run's deployment to `release`, in the run's page on GitHub. It builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
+If `release` has a reviewer, approve the run's deployment to it, in the run's page on GitHub. The run builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
 
 ## Run it locally
 
@@ -529,8 +538,24 @@ App builds share `frontend/dist` and the iOS build folders, so `npm run build`, 
 | Release the apps to staging, or prod | `make release`, `make release ENV=prod` |
 | Upload the iPhone app to TestFlight | `make testflight` |
 | Make a tester's account | `make tester EMAIL=<their email>` |
+| Show or raise one person's storage quota | `make storage-quota ENV=prod EMAIL=… GB=5` |
+| Rotate the key attachments' download links are signed with | `make files-key`, `make files-key ENV=prod`, then the steps below |
 
 Each signs in with the profile in its environment's file. After a deploy, commit your config folder.
+
+### Storage quotas
+
+Each person may store `attachments.defaultQuotaBytes` of attachments, from `config/env/<env>.yaml`: 1 GiB on prod. `make storage-quota ENV=prod EMAIL=… GB=5` raises one person's to 5 GiB, found by their email in Cognito, by writing `meta#quota` in their partition of the table. Without `GB` it prints their usage and quota, and `GB=default` removes the raise. It signs in with the profile in `<env>.yaml`, staging unless you say `ENV=prod`. No route writes `meta#quota` and sync writes only records, so the apps can't raise their own.
+
+### Rotating the files signing key
+
+CloudFront trusts every key in `files.keys`, and the API signs with `files.signWith`, so a new key goes in beside the old one:
+
+1. `make files-key` (with `ENV=prod` for prod) adds a new key, leaving `signWith` as it was. Run `make pipeline-config` if the release pipeline is set up, so it deploys the same `<env>.yaml`, then deploy. CloudFront now trusts both.
+2. Set `files.signWith` to the new key's name, run `make pipeline-config` again if you use it, and deploy again. The API signs with the new key from then on, and a version still taking traffic in the canary signs with the old one, which CloudFront still trusts.
+3. Once that deploy has finished, canary included, wait 5 minutes for the last link signed with the old key to expire. Then delete the old key from `files.keys`, `make pipeline-config`, deploy, and delete its private key with `aws ssm delete-parameter --name /multiscale/<env>/files/<old name>`.
+
+The script prints these steps with the names filled in.
 
 ### Releasing updates
 
@@ -570,7 +595,7 @@ aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time 
 
 Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
 
-Costs should stay under $1 a month per environment. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
+Costs should stay under $1 a month per environment. Attachments add about $0.006 a person a month at typical use, nearly all of it S3 storage. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 
 ## Restoring the table from a backup
 
@@ -582,4 +607,4 @@ aws dynamodb put-item --table-name "$(out prod TableName)" \
   --item "{\"pk\":{\"S\":\"meta\"},\"sk\":{\"S\":\"generation\"},\"value\":{\"S\":\"$(uuidgen)\"}}"
 ```
 
-Restored items keep their `expires_at`, so TTL removes any that expired since the backup, as [retention.md](retention.md) describes.
+Restored items keep their `expires_at`, so TTL removes any that expired since the backup, as [retention.md](retention.md) describes. Attachments' files aren't in the table's backup, so an attachment restored after its file was removed has no file to download.

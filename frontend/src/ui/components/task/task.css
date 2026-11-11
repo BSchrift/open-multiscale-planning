@@ -1,0 +1,29 @@
+/* A task's name as the way into its popup: text that's a button, keeping the look of the line it's in. */
+
+[data-layout] .taskname {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  [data-layout] .taskname:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+/* In a row, the name fills its line, and on phone takes a whole tap target. */
+[data-layout] .taskname.rowname {
+  display: block;
+  width: 100%;
+}
+
+[data-layout='phone'] .taskname.rowname {
+  min-height: var(--tap);
+}

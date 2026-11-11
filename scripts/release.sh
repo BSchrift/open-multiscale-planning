@@ -64,25 +64,21 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 node scripts/release-files.ts pack dist "$key" "$out"
 
-# Files are named by their contents, so each uploads once and caches for good. The disk image goes before the feed, so
-# an update that needs the new app can already link to it.
-aws s3 sync "$out/files" "s3://$bucket/release/files" --size-only --cache-control 'public, max-age=31536000, immutable' --content-type application/octet-stream
+# The version first, where no host serves it, then each surface switched to it as the pipeline does
+# (scripts/pipeline.sh). The disk image goes before the feeds, so an update that needs the new app can already link to it.
+# shortcut: old assets and versions stay, so a tab still on the last page can load what it needs; prune them if the
+# bucket grows.
+version="$("$root/scripts/pipeline.sh" upload "$env_name" "$PWD/dist" "$out")"
 aws s3 cp "$dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
-aws s3 cp "$out/release.json" "s3://$bucket/release/release.json" --cache-control 'public, max-age=60' --content-type application/json
+for surface in web desktop iphone shared; do "$root/scripts/pipeline.sh" switch "$env_name" "$surface" "$version"; done
 
-# The web app is the same build. Its named-by-content assets go first and cache for good, then the page that loads them.
-# shortcut: old assets stay, so a tab still on the last page can load what it needs; prune them if the folder grows.
-aws s3 sync dist/assets "s3://$bucket/web/assets" --size-only --cache-control 'public, max-age=31536000, immutable'
-aws s3 sync dist "s3://$bucket/web" --exclude 'assets/*' --cache-control 'no-cache'
-
-version="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("dist/version.json", "utf8")).version)')"
 echo "Released $version to $env_name"
 
 # Then every suite that can run against what was just released. Releasing to prod has already said yes to prod.
 # SKIP_TESTS=1 leaves them out, for a fix that can't wait for them; run make test-deployed after.
 if [ "${SKIP_TESTS:-}" = 1 ]; then
   echo "Left out the deployed tests. Run make test-deployed ENV=$env_name when you can."
-elif ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" "$root/scripts/test-deployed.sh"; then
+elif ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="desktop iphone shared" "$root/scripts/test-deployed.sh"; then
   echo "$version is live on $env_name, but its tests failed. To go back, revert the bad commit and release that." >&2
   exit 1
 fi

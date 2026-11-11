@@ -53,7 +53,9 @@ describe('the iOS project', () => {
     expect(widget).toHaveLength(2);
     for (const b of widget) expect(b).not.toContain('CODE_SIGN_ENTITLEMENTS');
     expect(project).toContain('MultiscaleCapture.appex');
-    expect(project).toMatch(/MULTISCALE_CONTROL\\" = YES \]; then\\n  cp -R \\"\$BUILT_PRODUCTS_DIR\/MultiscaleCapture\.appex/);
+    expect(project).toMatch(/MULTISCALE_CONTROL\\" = YES \]; then\\n  cp -RH \\"\$BUILT_PRODUCTS_DIR\/MultiscaleCapture\.appex/);
+    // An archive leaves each extension as a symlink there, and an app with one in it App Store Connect refuses.
+    expect(project).not.toMatch(/cp -R \\"\$BUILT_PRODUCTS_DIR/);
   });
 
   // A fixed white launch image or web view background would flash white before a dark page, and the status bar

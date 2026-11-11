@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { sandboxRepo } from './sandbox.ts';
 
@@ -11,12 +11,15 @@ const stackOutputs = JSON.stringify([
   { OutputKey: 'CognitoDomain', OutputValue: 'https://auth.example.net' },
   { OutputKey: 'AppClientId', OutputValue: 'client' },
   { OutputKey: 'ReleaseBucket', OutputValue: 'bucket' },
+  { OutputKey: 'WebUrl', OutputValue: 'https://web.example.net' },
+  { OutputKey: 'ReleaseUrl', OutputValue: 'https://release.example.net' },
 ]);
 const shell = { electron: 'e1', ios: 'i1' };
 const feedWith = (s: object) => JSON.stringify({ manifest: JSON.stringify({ version: 'old', build: 0, shell: s, files: [] }), signature: 'x' });
 
-// aws answers get-parameter from $PARAMS, a folder of files named like the parameter with / as _, and the live feed
-// from $PARAMS/feed.
+// aws answers get-parameter from $PARAMS, a folder of files named like the parameter with / as _, and s3 from a folder
+// per bucket under $PARAMS/s3 (fake-s3.ts), the record of a checked Mac app on a downloads host included.
+const fakeS3 = join(import.meta.dirname, 'fake-s3.ts');
 function sandbox() {
   const s = sandboxRepo('pipeline.sh');
   s.stub('aws', `echo "aws AWS_PROFILE=$AWS_PROFILE $*" >> "$LOG"
@@ -25,12 +28,24 @@ case "$*" in
   *start-pipeline-execution*) echo exec-1;;
   *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
   *get-pipeline-execution*) echo abc1234;;
+  *"sts get-caller-identity"*) echo "\${ACCOUNT:-210987654321}";;
+  *list-state-machines*) echo arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc;;
+  *list-executions*) echo arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1;;
   *describe-stacks*) echo '${stackOutputs}';;
-  *"s3api head-object"*) [ -f "$PARAMS/inbox/manifest.json" ] || exit 254;;
-  *--recursive*) cp "$PARAMS/inbox/"* "$(echo "$*" | awk '{print $4}')/";;
-  *"s3 cp s3://"*) [ -f "$PARAMS/feed" ] && cat "$PARAMS/feed" || exit 1;;
+  *"s3api head-object"*) [ -f "$PARAMS/s3/$(echo "$*" | sed -E 's|.*--bucket ([^ ]+) --key ([^ ]+).*|\\1/\\2|')" ] || exit 254;;
+  "s3 "*) exec node ${fakeS3} "$@";;
 esac`);
-  for (const name of ['go', 'npx', 'npm', 'sleep']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
+  for (const name of ['go', 'npx', 'npm', 'sleep', 'apt-get']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
+  s.stub('xvfb-run', 'shift; exec "$@"');
+  // The hosts serve what the bucket holds: web/ on the web host and release/ on the release host, or $STALE_HOST's old copy.
+  s.stub('curl', `echo "curl $*" >> "$LOG"
+url="$(printf '%s\\n' "$@" | grep '^https://')"
+case "$url" in
+  https://web.example.net/*) key="web/\${url#https://web.example.net/}";;
+  https://release.example.net/*) key="release/\${url#https://release.example.net/}";;
+esac
+[ -n "$STALE_HOST" ] && case "$url" in "$STALE_HOST"*) echo '{"version":"stale"}'; exit 0;; esac
+cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   s.stub('git', `echo "git $*" >> "$LOG"; case "$*" in *rev-parse*) echo abc123;; esac`);
   for (const env of ['staging', 'prod']) {
     writeFileSync(join(s.config, `${env}.release-key.pem`), generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }));
@@ -41,15 +56,48 @@ esac`);
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION" >> "$LOG"\n');
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
   const run = (args: string[], env: Record<string, string> = {}) =>
     spawnSync('bash', [join(s.root, 'scripts/pipeline.sh'), ...args], { encoding: 'utf8', env: { ...s.env, PARAMS: params, HOME: s.root, ...env } as NodeJS.ProcessEnv });
-  return { ...s, run, param, params };
+  // What a bucket holds, as s3://<bucket>/<key>.
+  const object = (url: string) => join(params, 's3', url.slice('s3://'.length));
+  const put = (url: string, value: string) => {
+    mkdirSync(dirname(object(url)), { recursive: true });
+    writeFileSync(object(url), value);
+  };
+  const get = (url: string) => (existsSync(object(url)) ? readFileSync(object(url), 'utf8') : null);
+  return { ...s, run, param, params, put, get };
 }
+
+// A release bucket with versions kept, each surface serving 0.1.0-ccc, and the history that got them there. 0.1.0-ios
+// needs a newer iPhone app.
+const feedOf = (version: string, build: number, s: object = shell) => JSON.stringify({ manifest: JSON.stringify({ version, build, shell: s, files: [] }), signature: 'x' });
+function kept(s: ReturnType<typeof sandbox>) {
+  const versions: [string, number, object][] = [['0.1.0-aaa', 1, shell], ['0.1.0-bbb', 2, shell], ['0.1.0-ccc', 3, shell], ['0.1.0-ios', 4, { electron: 'e1', ios: 'i2' }]];
+  for (const [version, build, sh] of versions) {
+    s.put(`s3://bucket/versions/${version}/web/version.json`, JSON.stringify({ version, build, shell: sh }));
+    s.put(`s3://bucket/versions/${version}/web/index.html`, `<html>${version}</html>`);
+    s.put(`s3://bucket/versions/${version}/release.json`, feedOf(version, build, sh));
+  }
+  s.put('s3://bucket/web/version.json', JSON.stringify({ version: '0.1.0-ccc', build: 3, shell }));
+  s.put('s3://bucket/web/index.html', '<html>0.1.0-ccc</html>');
+  for (const feed of ['desktop/release.json', 'iphone/release.json', 'release.json']) s.put(`s3://bucket/release/${feed}`, feedOf('0.1.0-ccc', 3));
+  const line = (version: string, day: number) => ({ version, build: Number(version.at(-1) === 'a' ? 1 : version.at(-1) === 'b' ? 2 : 3), at: `2026-11-0${day}T10:00:00Z` });
+  s.put('s3://bucket/state/history.json', JSON.stringify({
+    web: [line('0.1.0-aaa', 1), line('0.1.0-bbb', 2), line('0.1.0-ccc', 3)],
+    desktop: [line('0.1.0-bbb', 2), line('0.1.0-ccc', 3)],
+    iphone: [line('0.1.0-ccc', 3)],
+    shared: [line('0.1.0-bbb', 2), line('0.1.0-ccc', 3)],
+  }));
+}
+const served = (s: ReturnType<typeof sandbox>, key: string) => {
+  const r = JSON.parse(s.get(`s3://bucket/${key}`)!) as { version?: string; manifest?: string };
+  return r.manifest ? (JSON.parse(r.manifest) as { version: string }).version : r.version;
+};
 
 describe('scripts/pipeline.sh, from a Mac', () => {
   it("pauses and resumes main's releases with a parameter, signed in to the control account", () => {
@@ -77,6 +125,9 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /aws AWS_PROFILE=ms-control codepipeline stop-pipeline-execution --pipeline-name Multiscale --pipeline-execution-id exec-7 --abandon/);
     assert.match(r.stdout, /Stopped run exec-7, at abc1234, before prod/);
+    // And its window, so the email's Promote now link no longer promotes anything.
+    assert.match(s.log(), /stepfunctions list-executions --state-machine-arn arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc --status-filter RUNNING/);
+    assert.match(s.log(), /stepfunctions stop-execution --execution-arn arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1/);
   });
 
   it('stops nothing when no run is waiting before prod', () => {
@@ -86,7 +137,7 @@ describe('scripts/pipeline.sh, from a Mac', () => {
       const r = s.run(['stop']);
       assert.equal(r.status, 0, r.stderr);
       assert.match(r.stdout, /No run is waiting to go to prod/);
-      assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
+      assert.doesNotMatch(s.log(), /stop-pipeline-execution|stop-execution/);
     }
   });
 
@@ -104,6 +155,79 @@ describe('scripts/pipeline.sh, from a Mac', () => {
       assert.notEqual(s.run(['run'], env).status, 0);
       assert.doesNotMatch(s.log(), /^aws /m);
     }
+  });
+
+  // release-surface reads the environment's outputs, which make deploy writes on the Mac.
+  const surfaces = () => {
+    const s = sandbox();
+    writeFileSync(join(s.config, 'staging.outputs.json'), JSON.stringify(Object.fromEntries((JSON.parse(stackOutputs) as { OutputKey: string; OutputValue: string }[]).map((o) => [o.OutputKey, o.OutputValue]))));
+    kept(s);
+    return s;
+  };
+
+  it('lists what each surface serves, its last versions and the versions kept, signed in to the environment', () => {
+    const s = surfaces();
+    const r = s.run(['release-surface'], { ENV: 'staging' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging sts get-caller-identity/);
+    for (const surface of ['web', 'desktop', 'iphone', 'shared']) assert.match(r.stdout, new RegExp(`^  ${surface} +0\\.1\\.0-ccc$`, 'm'));
+    assert.match(r.stdout, /^  web +0\.1\.0-ccc 2026-11-03T10:00:00Z, 0\.1\.0-bbb 2026-11-02T10:00:00Z, 0\.1\.0-aaa 2026-11-01T10:00:00Z$/m);
+    assert.match(r.stdout, /Versions kept, newest first:\n(  0\.1\.0-(aaa|bbb|ccc|ios) +uploaded \S+ \S+\n){4}/);
+    assert.doesNotMatch(s.log(), /s3 cp s3:\/\/\S+ s3:\/\//);
+  });
+
+  it('switches web back to a version kept, and records it', () => {
+    const s = surfaces();
+    const r = s.run(['release-surface'], { ENV: 'staging', SURFACE: 'web', VERSION: '0.1.0-bbb' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>0.1.0-bbb</html>');
+    assert.equal(served(s, 'web/version.json'), '0.1.0-bbb');
+    assert.match(r.stdout, /Switched staging's web from 0\.1\.0-ccc to 0\.1\.0-bbb/);
+    assert.doesNotMatch(r.stdout, /further back/);
+    assert.deepEqual((JSON.parse(s.get('s3://bucket/state/history.json')!) as Record<string, { version: string }[]>).web!.map((l) => l.version), ['0.1.0-aaa', '0.1.0-bbb', '0.1.0-ccc', '0.1.0-bbb']);
+  });
+
+  it('says so when web goes back further than the version before, which the compatibility test does not cover', () => {
+    const s = surfaces();
+    const r = s.run(['release-surface'], { ENV: 'staging', SURFACE: 'web', VERSION: '0.1.0-aaa' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /further back than the version before/);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-aaa');
+  });
+
+  it('switches only the feed named, the shared one included', () => {
+    const s = surfaces();
+    assert.equal(s.run(['release-surface'], { ENV: 'staging', SURFACE: 'desktop', VERSION: '0.1.0-bbb' }).status, 0);
+    assert.equal(served(s, 'release/desktop/release.json'), '0.1.0-bbb');
+    assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
+    assert.equal(served(s, 'release/iphone/release.json'), '0.1.0-ccc');
+    assert.equal(s.run(['release-surface'], { ENV: 'staging', SURFACE: 'shared', VERSION: '0.1.0-bbb' }).status, 0);
+    assert.equal(served(s, 'release/release.json'), '0.1.0-bbb');
+  });
+
+  it("refuses a version not kept, or one the feed's apps couldn't take, and switches nothing", () => {
+    for (const [surface, version, why] of [['web', '0.1.0-zzz', /keeps no version 0\.1\.0-zzz/], ['iphone', '0.1.0-ios', /other native code than the apps staging's iphone feed serves/], ['shared', '0.1.0-ios', /other native code than the apps staging's shared feed serves/]] as const) {
+      const s = surfaces();
+      const r = s.run(['release-surface'], { ENV: 'staging', SURFACE: surface, VERSION: version });
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, why);
+      assert.doesNotMatch(s.log(), /s3 cp s3:\/\/\S+ s3:\/\//);
+    }
+    // The Mac's native code is the same, and web runs none.
+    for (const surface of ['desktop', 'web']) assert.equal(surfaces().run(['release-surface'], { ENV: 'staging', SURFACE: surface, VERSION: '0.1.0-ios' }).status, 0);
+  });
+
+  it('refuses another ENV or SURFACE, or a VERSION with no SURFACE, before calling AWS, and a profile signed in elsewhere', () => {
+    for (const env of [{ ENV: 'dev' }, { ENV: 'staging', SURFACE: 'watch', VERSION: '0.1.0-bbb' }, { ENV: 'staging', VERSION: '0.1.0-bbb' }] as Record<string, string>[]) {
+      const s = surfaces();
+      assert.notEqual(s.run(['release-surface'], env).status, 0);
+      assert.doesNotMatch(s.log(), /^aws /m);
+    }
+    const elsewhere = surfaces();
+    const r = elsewhere.run(['release-surface'], { ENV: 'staging', SURFACE: 'web', VERSION: '0.1.0-bbb', ACCOUNT: '123456789012' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /signed in to account 123456789012/);
+    assert.doesNotMatch(elsewhere.log(), /s3 /);
   });
 
   it("uploads the config files where the steps read them, and each release key only where the signing step does", () => {
@@ -173,41 +297,120 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /cdk synth --quiet -c deploy=staging -o cdk.out\/staging/);
   });
 
-  // The Build output with staging's web build, and the signing step's output, as CodeBuild hands them to a step.
-  const artifacts = (s: ReturnType<typeof sandbox>, built: object = shell) => {
+  // The Build output with an environment's web build, and the signing step's output, as CodeBuild hands them to a step.
+  const VERSION = '0.1.0-abc';
+  const release = JSON.stringify({ manifest: JSON.stringify({ version: VERSION, build: 1, shell, files: [{ path: 'index.html', sha256: 'a1' }] }), signature: 'x' });
+  const artifacts = (s: ReturnType<typeof sandbox>, built: object = shell, env = 'staging') => {
     const builtDir = join(s.root, 'built');
-    mkdirSync(join(builtDir, 'web/staging/assets'), { recursive: true });
-    writeFileSync(join(builtDir, 'web/staging/version.json'), JSON.stringify({ version: '0.1.0-abc', build: 1, shell: built }));
+    mkdirSync(join(builtDir, `web/${env}/assets`), { recursive: true });
+    writeFileSync(join(builtDir, `web/${env}/version.json`), JSON.stringify({ version: VERSION, build: 1, shell: built }));
+    writeFileSync(join(builtDir, `web/${env}/index.html`), '<html>new</html>');
+    writeFileSync(join(builtDir, `web/${env}/assets/app-1234.js`), 'app');
     const signed = join(s.root, 'signed');
     mkdirSync(join(signed, 'files'), { recursive: true });
-    writeFileSync(join(signed, 'release.json'), '{}');
-    return { CODEBUILD_SRC_DIR_Built: builtDir, CODEBUILD_SRC_DIR_SignedStaging: signed };
+    writeFileSync(join(signed, 'release.json'), release);
+    writeFileSync(join(signed, 'files/a1'), '<html>new</html>');
+    return { CODEBUILD_SRC_DIR_Built: builtDir, [`CODEBUILD_SRC_DIR_Signed${env === 'staging' ? 'Staging' : 'Prod'}`]: signed };
   };
+  const FEEDS = { desktop: 's3://bucket/release/desktop/release.json', iphone: 's3://bucket/release/iphone/release.json', shared: 's3://bucket/release/release.json' };
+  const history = (s: ReturnType<typeof sandbox>) => JSON.parse(s.get('s3://bucket/state/history.json') ?? '{}') as Record<string, { version: string; build: number; at: string }[]>;
 
-  it("publishes staging's web build and its signed feed, as its release role, then tests that version", () => {
+  it("uploads staging's version where no host serves it, switches the web app and every feed to it, then tests it", () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['release-staging'], artifacts(s));
     assert.equal(r.status, 0, r.stderr);
-    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 sync \S+\/signed\/files s3:\/\/bucket\/release\/files/);
-    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp \S+\/signed\/release\.json s3:\/\/bucket\/release\/release\.json/);
-    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 sync \S+\/built\/web\/staging s3:\/\/bucket\/web --exclude assets\/\*/);
-    assert.match(s.log(), /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1/);
+    // The version, kept: its page, and its feed as signed.
+    assert.equal(s.get(`s3://bucket/versions/${VERSION}/web/index.html`), '<html>new</html>');
+    assert.equal(s.get(`s3://bucket/versions/${VERSION}/web/assets/app-1234.js`), null);
+    assert.equal(s.get(`s3://bucket/versions/${VERSION}/release.json`), release);
+    // The files both name by their contents, in the stores the hosts serve, cached for good.
+    assert.equal(s.get('s3://bucket/web/assets/app-1234.js'), 'app');
+    assert.equal(s.get('s3://bucket/release/files/a1'), '<html>new</html>');
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 sync \S+\/built\/web\/staging\/assets s3:\/\/bucket\/web\/assets --size-only --cache-control public, max-age=31536000, immutable\n/);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 sync \S+\/signed\/files s3:\/\/bucket\/release\/files --size-only --cache-control public, max-age=31536000, immutable --content-type application\/octet-stream/);
+    // With the headers each switch copies: the page checked on every load, and each feed for a minute.
+    assert.match(s.log(), /s3 sync \S+\/built\/web\/staging s3:\/\/bucket\/versions\/0\.1\.0-abc\/web --exclude assets\/\* --cache-control no-cache/);
+    assert.match(s.log(), /s3 cp \S+\/signed\/release\.json s3:\/\/bucket\/versions\/0\.1\.0-abc\/release\.json --cache-control public, max-age=60 --content-type application\/json/);
+    // Then every surface switched to it, web's version.json last.
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>new</html>');
+    assert.match(s.log(), /s3 cp s3:\/\/bucket\/versions\/0\.1\.0-abc\/web\/ s3:\/\/bucket\/web\/ --recursive --exclude version\.json\n.*s3 cp s3:\/\/bucket\/versions\/0\.1\.0-abc\/web\/version\.json s3:\/\/bucket\/web\/version\.json\n/);
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    assert.deepEqual(Object.fromEntries(Object.entries(history(s)).map(([surface, lines]) => [surface, lines.map((l) => [l.version, l.build])])), {
+      web: [[VERSION, 1]], desktop: [[VERSION, 1]], iphone: [[VERSION, 1]], shared: [[VERSION, 1]],
+    });
+    assert.match(history(s).web![0]!.at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    assert.match(s.log(), /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop iphone shared SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1/);
     // Each profile signs in as its account's release role.
     assert.match(readFileSync(join(s.root, '.aws/config'), 'utf8'), /\[profile ms-staging\]\nrole_arn = arn:aws:iam::210987654321:role\/multiscale-release\ncredential_source = EcsContainer/);
   });
 
-  for (const [why, live] of [['needs newer native code than the feed', feedWith({ electron: 'e2', ios: 'i1' })], ['finds no feed yet', '']] as const) {
-    it(`leaves the feed for the Mac's release when the build ${why}, and still publishes the web app`, () => {
+  it('adds each switch to the history after the ones before', () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    s.put('s3://bucket/state/history.json', JSON.stringify({ web: [{ version: '0.1.0-old', build: 0, at: '2026-11-01T00:00:00Z' }] }));
+    assert.equal(s.run(['release-staging'], artifacts(s)).status, 0);
+    assert.deepEqual(history(s).web!.map((l) => l.version), ['0.1.0-old', VERSION]);
+  });
+
+  for (const [why, live] of [['needs newer native code than the feeds serve', feedWith({ electron: 'e2', ios: 'i2' })], ['finds no feed yet', '']] as const) {
+    it(`leaves the feeds for the Mac's release when the build ${why}, and still switches the web app`, () => {
       const s = configured();
-      if (live) writeFileSync(join(s.params, 'feed'), live);
+      if (live) s.put(FEEDS.shared, live);
       const r = s.run(['release-staging'], artifacts(s));
       assert.equal(r.status, 0, r.stderr);
-      assert.match(r.stderr, /make release ENV=staging/);
-      assert.doesNotMatch(s.log(), /s3:\/\/bucket\/release\/(files|release\.json) --/);
-      assert.match(s.log(), /s3:\/\/bucket\/web/);
+      assert.match(r.stdout, /needs a newer Mac and iPhone app than staging's feeds serve(.*\n)*.*make release ENV=staging/);
+      assert.equal(s.get(FEEDS.desktop), null);
+      assert.equal(s.get(FEEDS.iphone), null);
+      assert.equal(s.get(FEEDS.shared), live || null);
+      assert.equal(s.get('s3://bucket/web/index.html'), '<html>new</html>');
+      assert.deepEqual(Object.keys(history(s)), ['web']);
+      assert.match(s.log(), /EXPECT_FEEDS= SKIP_IOS/);
     });
   }
+
+  it('compares each feed with its own app only, so the desktop feed goes on while the iPhone and shared feeds wait for an iPhone app', () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['release-staging'], artifacts(s, { electron: 'e1', ios: 'i2' }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /needs a newer iPhone app than staging's feeds serve, so those feeds and the shared one stay as they are/);
+    assert.equal(s.get(FEEDS.desktop), release);
+    assert.equal(s.get(FEEDS.iphone), null);
+    assert.equal(s.get(FEEDS.shared), feedWith(shell));
+    assert.match(s.log(), /EXPECT_FEEDS=desktop SKIP_IOS/);
+  });
+
+  it("compares with a surface's own feed once it has one, and the shared feed follows when both can take the build", () => {
+    const s = configured();
+    // A Mac app out for e2, which the desktop feed took. The iPhone has no feed of its own yet, so it reads the shared one.
+    s.put(FEEDS.desktop, feedWith({ electron: 'e2', ios: 'i1' }));
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['release-staging'], artifacts(s, { electron: 'e2', ios: 'i1' }));
+    assert.equal(r.status, 0, r.stderr);
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    assert.doesNotMatch(s.log(), /downloads/);
+  });
+
+  it('uploads and switches for release.sh on a Mac, as the profile it signed in with, and refuses a version not uploaded', () => {
+    const s = sandbox();
+    writeFileSync(join(s.config, 'staging.outputs.json'), JSON.stringify({ ReleaseBucket: 'bucket' }));
+    const a = artifacts(s);
+    const mac = { AWS_PROFILE: 'ms-staging' };
+    const up = s.run(['upload', 'staging', join(a.CODEBUILD_SRC_DIR_Built!, 'web/staging'), a.CODEBUILD_SRC_DIR_SignedStaging!], mac);
+    assert.equal(up.status, 0, up.stderr);
+    assert.equal(up.stdout, `${VERSION}\n`);
+    assert.equal(s.get('s3://bucket/web/index.html'), null);
+    for (const surface of ['web', 'desktop', 'iphone', 'shared']) assert.equal(s.run(['switch', 'staging', surface, VERSION], mac).status, 0);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>new</html>');
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp s3:\/\/bucket\/versions\/0\.1\.0-abc\/release\.json s3:\/\/bucket\/release\/iphone\/release\.json/);
+    const missing = s.run(['switch', 'staging', 'web', '0.1.0-zzz'], mac);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /staging has no version 0\.1\.0-zzz uploaded/);
+    assert.notEqual(s.run(['switch', 'staging', 'watch', VERSION], mac).status, 0);
+    assert.deepEqual(history(s).web!.map((l) => l.version), [VERSION]);
+  });
 
   it('turns the release alarms off for both environments when the run asks, and only then', () => {
     const s = configured();
@@ -221,21 +424,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
 
   it("records what a prod release skipped beside its commit, for the release tag's note", () => {
     const s = configured();
-    const builtDir = join(s.root, 'built');
-    mkdirSync(join(builtDir, 'web/prod/assets'), { recursive: true });
-    writeFileSync(join(builtDir, 'web/prod/version.json'), JSON.stringify({ version: '0.1.0-abc', build: 1, shell }));
-    const signed = join(s.root, 'signed');
-    mkdirSync(join(signed, 'files'), { recursive: true });
-    writeFileSync(join(signed, 'release.json'), '{}');
-    const env = { CODEBUILD_SRC_DIR_Built: builtDir, CODEBUILD_SRC_DIR_SignedProd: signed, COMMIT: 'abc123' };
-    assert.equal(s.run(['release-prod'], { ...env, CANARY: 'skip', ALARMS: 'off' }).status, 0);
+    assert.equal(s.run(['release-prod'], { ...artifacts(s, shell, 'prod'), COMMIT: 'abc123', CANARY: 'skip', ALARMS: 'off' }).status, 0);
     assert.match(s.log(), /put-parameter --name \/multiscale\/pipeline\/released --type String --overwrite --value abc123 Canary skipped\. Release alarms off\./);
     const plain = configured();
-    mkdirSync(join(plain.root, 'built/web/prod/assets'), { recursive: true });
-    writeFileSync(join(plain.root, 'built/web/prod/version.json'), JSON.stringify({ version: '0.1.0-abc', build: 1, shell }));
-    mkdirSync(join(plain.root, 'signed/files'), { recursive: true });
-    writeFileSync(join(plain.root, 'signed/release.json'), '{}');
-    assert.equal(plain.run(['release-prod'], { CODEBUILD_SRC_DIR_Built: join(plain.root, 'built'), CODEBUILD_SRC_DIR_SignedProd: join(plain.root, 'signed'), COMMIT: 'abc123' }).status, 0);
+    assert.equal(plain.run(['release-prod'], { ...artifacts(plain, shell, 'prod'), COMMIT: 'abc123' }).status, 0);
     assert.match(plain.log(), /--name \/multiscale\/pipeline\/released --type String --overwrite --value abc123\n/);
   });
 
@@ -248,25 +440,38 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
       writeFileSync(join(builtDir, `web/${env}/version.json`), JSON.stringify({ version: '0.1.0-abc', build: 1, shell: built }));
     }
     if (inbox) {
-      mkdirSync(join(s.params, 'inbox'));
-      writeFileSync(join(s.params, 'inbox/manifest.json'), JSON.stringify({ files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
-      writeFileSync(join(s.params, 'inbox/Multiscale.dmg'), 'disk image');
+      for (const env of ['staging', 'prod']) {
+        s.put(`s3://inbox-bucket/inbox/${COMMIT}/${env}/manifest.json`, JSON.stringify({ files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
+        s.put(`s3://inbox-bucket/inbox/${COMMIT}/${env}/Multiscale.dmg`, 'disk image');
+      }
     }
     return { CODEBUILD_SRC_DIR_Built: builtDir, COMMIT, MAC_INBOX_BUCKET: 'inbox-bucket', MAC_TEAM_ID: 'ABCDE12345', MAC_WAIT_SECONDS: '600', SEVENZIP: '/bin/true' };
   };
 
-  it("checks no Mac app when every feed can take this build's", () => {
+  it("checks no Mac app when every feed can take this build's and the downloads host serves one the pipeline checked", () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
+    s.put('s3://bucket/mac/manifest.json', '{}');
     const r = s.run(['mac'], macStep(s, { built: shell, inbox: false }));
     assert.equal(r.status, 0, r.stderr);
-    assert.doesNotMatch(s.log(), /head-object|mac-inbox/);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3api head-object --bucket bucket --key mac\/manifest\.json/);
+    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox/);
     assert.equal(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), 'staging: no new Mac app needed\nprod: no new Mac app needed\n');
+  });
+
+  it('compares with the desktop feed once it has one, which a Mac app already out serves', () => {
+    const s = configured();
+    s.put(FEEDS.desktop, feedWith({ electron: 'e2', ios: 'i1' }));
+    s.put(FEEDS.shared, feedWith(shell));
+    s.put('s3://bucket/mac/manifest.json', '{}');
+    const r = s.run(['mac'], macStep(s, { inbox: false }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox/);
   });
 
   it("waits for GitHub Actions' Mac app of this commit, checks it against the Build output, and hands on what passed", () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['mac'], macStep(s));
     assert.equal(r.status, 0, r.stderr);
     for (const env of ['staging', 'prod']) {
@@ -277,9 +482,21 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     }
   });
 
+  it("checks this commit's Mac app when the downloads host serves none the pipeline checked, though the feed can take the build", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['mac'], macStep(s, { built: shell }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /staging's downloads host serves no Mac app the pipeline checked/);
+    for (const env of ['staging', 'prod']) {
+      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} `));
+      assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
+    }
+  });
+
   it('stops the run, saying what to do, when no Mac app arrives in time', () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['mac'], { ...macStep(s, { inbox: false }), MAC_WAIT_SECONDS: '0' });
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, new RegExp(`No Mac app for staging at ${COMMIT} reached the inbox in time`));
@@ -289,7 +506,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
 
   it('stops the run, handing on nothing, when a Mac app fails its checks', () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['mac'], { ...macStep(s), VERIFY_FAILS: '1' });
     assert.notEqual(r.status, 0);
     assert.throws(() => readFileSync(join(s.root, 'mac-checked/staging/Multiscale.dmg')));
@@ -299,46 +516,66 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
   const withMac = (s: ReturnType<typeof sandbox>, built: object, dmg: boolean) => {
     const mac = join(s.root, 'mac-apps');
     mkdirSync(join(mac, 'staging'), { recursive: true });
-    if (dmg) writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+    if (dmg) {
+      writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+      writeFileSync(join(mac, 'staging/manifest.json'), '{}');
+    }
     return { ...artifacts(s, built), CODEBUILD_SRC_DIR_MacApps: mac };
   };
 
-  it('publishes the checked Mac app to the downloads host, then the feed that needs it', () => {
+  it('publishes the checked Mac app to the downloads host, then the feeds that need it', () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i1' }, true));
     assert.equal(r.status, 0, r.stderr);
-    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp \S+\/mac-apps\/staging\/Multiscale\.dmg s3:\/\/bucket\/downloads\/Multiscale\.dmg --cache-control public, max-age=300 --content-type application\/x-apple-diskimage\n(.*\n)*.*s3:\/\/bucket\/release\/release\.json/);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp \S+\/mac-apps\/staging\/Multiscale\.dmg s3:\/\/bucket\/downloads\/Multiscale\.dmg --cache-control public, max-age=300 --content-type application\/x-apple-diskimage\n(.*\n)*.*s3:\/\/bucket\/release\/desktop\/release\.json/);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), 'disk image');
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    // And then the record that the downloads host serves a checked app, so later runs need none until a feed does.
+    assert.equal(s.get('s3://bucket/mac/manifest.json'), '{}');
+  });
+
+  it('publishes a checked Mac app when the feeds can take the build too, as when the downloads host had none the pipeline checked', () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, shell, true));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), 'disk image');
+    assert.equal(s.get('s3://bucket/mac/manifest.json'), '{}');
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
   });
 
   it('publishes nothing when the build needs a new Mac app and the run checked none', () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i1' }, false));
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /needs a newer Mac app than staging's feed, but this run checked none/);
-    // Nothing uploaded: the only call to the bucket reads the live feed.
+    assert.match(r.stderr, /needs a newer Mac app than staging's desktop feed, but this run checked none/);
+    // Nothing uploaded: the only calls to the bucket read the live feeds.
     assert.doesNotMatch(s.log(), /(cp|sync) \/\S+ s3:\/\/bucket\//);
+    assert.equal(s.get(`s3://bucket/versions/${VERSION}/release.json`), null);
     assert.doesNotMatch(s.log(), /test-deployed/);
   });
 
-  it('still leaves the feed for the Mac when the build needs a new iPhone app, after publishing the Mac app', () => {
+  it('publishes the Mac app and switches the desktop feed when the build needs a new iPhone app too, which the iPhone and shared feeds wait for', () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['release-staging'], withMac(s, { electron: 'e2', ios: 'i2' }, true));
     assert.equal(r.status, 0, r.stderr);
-    assert.match(s.log(), /s3:\/\/bucket\/downloads\/Multiscale\.dmg/);
-    assert.match(r.stderr, /needs a newer iPhone app than staging's feed, so the feed stays as it is/);
-    assert.doesNotMatch(s.log(), /s3:\/\/bucket\/release\/(files|release\.json) --/);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), 'disk image');
+    assert.match(r.stdout, /needs a newer iPhone app than staging's feeds serve, so those feeds and the shared one stay as they are/);
+    assert.equal(s.get(FEEDS.desktop), release);
+    assert.equal(s.get(FEEDS.iphone), null);
+    assert.equal(s.get(FEEDS.shared), feedWith(shell));
   });
 
   it('publishes no Mac app when the feed can take the build as it is', () => {
     const s = configured();
-    writeFileSync(join(s.params, 'feed'), feedWith(shell));
+    s.put(FEEDS.shared, feedWith(shell));
     const r = s.run(['release-staging'], withMac(s, shell, false));
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(s.log(), /downloads/);
-    assert.match(s.log(), /s3:\/\/bucket\/release\/release\.json/);
+    assert.equal(s.get(FEEDS.shared), release);
   });
 
   it('runs no nightly suites when main has not moved since the last one passed', () => {
@@ -348,5 +585,35 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Nothing new on main/);
     assert.doesNotMatch(s.log(), /npm |npx /);
+  });
+
+  it("switches each of staging's surfaces back one version and forward again each night, checking what its host serves", () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['nightly']);
+    assert.equal(r.status, 0, r.stderr);
+    for (const [surface, key, before] of [['web', 'web/version.json', '0.1.0-bbb'], ['desktop', 'release/desktop/release.json', '0.1.0-bbb']]) {
+      assert.match(r.stdout, new RegExp(`Switched staging's ${surface} from 0\\.1\\.0-ccc to ${before}\\.\\n(.*\\n)*Switched staging's ${surface} from ${before} to 0\\.1\\.0-ccc\\.`));
+      assert.equal(served(s, key), '0.1.0-ccc');
+    }
+    // As staging's release role, read back from each host.
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp s3:\/\/bucket\/versions\/0\.1\.0-bbb\/web\/ s3:\/\/bucket\/web\/ --recursive/);
+    assert.match(s.log(), /curl -fsS --max-time 20 https:\/\/web\.example\.net\/version\.json/);
+    assert.match(s.log(), /curl -fsS --max-time 20 https:\/\/release\.example\.net\/desktop\/release\.json/);
+    // The iPhone has had no version before this one.
+    assert.match(r.stdout, /iphone has no version before 0\.1\.0-ccc to go back to/);
+    assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
+    // Then the suites, against what it serves again.
+    assert.match(s.log(), /test-deployed ENV=staging/);
+  });
+
+  it('fails the nightly run when a host keeps serving the old version, after switching that surface forward again', () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['nightly'], { STALE_HOST: 'https://web.example.net' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /staging's web still doesn't serve 0\.1\.0-bbb/);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-ccc');
+    assert.doesNotMatch(s.log(), /test-deployed/);
   });
 });

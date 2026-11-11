@@ -11,6 +11,7 @@ import type { Fields, Task, TaskCompletion, TaskSchedule } from '../../../core/t
 import { useShowCompleted } from '../../app/showCompleted';
 import { useApp, useMutation } from '../../app/store';
 import { useTickAway } from '../ShowCompleted';
+import { useOpenTask } from '../task/TaskName';
 import { TaskRow } from '../TaskRow';
 import { useToast } from '../Toast';
 import { OneOffDates } from './OneOffDates';
@@ -55,8 +56,16 @@ export function useOneOffTick() {
 
 export function OneOffRow(props: { row: Row; onToggle(row: Row, box: HTMLInputElement): void }) {
   const { row } = props;
+  const openTask = useOpenTask();
   return (
-    <TaskRow title={row.task.title} checked={row.checked} line={rowLine(row)} details={!!row.task.notes} onToggle={(_, box) => props.onToggle(row, box)}>
+    <TaskRow
+      title={row.task.title}
+      checked={row.checked}
+      line={rowLine(row)}
+      details={!!row.task.notes}
+      onOpen={() => openTask(row.task.id)}
+      onToggle={(_, box) => props.onToggle(row, box)}
+    >
       <OneOffDates task={row.task} />
       <OneOffRepeat task={row.task} />
     </TaskRow>

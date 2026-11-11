@@ -154,7 +154,7 @@ describe('descriptions in the editors', () => {
     it(`a project task saves its description, and clears it (${layout})`, async () => {
       const t = await renderScreen('goals', { layout, seed: bread, params: { project: 'p1' } });
       await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
-      let editor = screen.getByRole('dialog', { name: 'Edit task' });
+      let editor = await screen.findByRole('dialog', { name: 'Feed the starter' });
       await userEvent.type(within(editor).getByLabelText('Description'), 'Use **rye**');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.notes).toBe('Use **rye**'));
@@ -163,7 +163,7 @@ describe('descriptions in the editors', () => {
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h, has details' });
       expect(within(row).getByRole('img', { name: 'Has details' })).toBeInTheDocument();
       await userEvent.click(row);
-      editor = screen.getByRole('dialog', { name: 'Edit task' });
+      editor = await screen.findByRole('dialog', { name: 'Feed the starter' });
       expect(within(editor).getByText('rye').tagName).toBe('STRONG');
       await userEvent.click(within(editor).getByRole('button', { name: 'Edit description' }));
       await userEvent.clear(within(editor).getByLabelText('Description'));
@@ -224,5 +224,6 @@ describe('the Now card', () => {
     const now = await screen.findByRole('region', { name: 'Current block' });
     const glance = await within(now).findByText(/Use the Q3 numbers first\./);
     expect(glance.textContent).toBe('Use the Q3 numbers first.\nCheck the totals');
+    expect(within(now).queryByText(/attachment/)).toBeNull();
   });
 });

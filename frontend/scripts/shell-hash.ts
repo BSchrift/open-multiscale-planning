@@ -36,12 +36,16 @@ export interface MacBuild {
  * The Mac build for a config and the app's name and scheme. The main process bakes the backend origins into the page's
  * content security policy, so a bundle built for other origins can only run on an app built for them too.
  */
-export function macBuild(config: { apiUrl: string; authUrl: string; releaseUrl?: string }, identity: { name: string; scheme: string }): MacBuild {
+export function macBuild(
+  config: { apiUrl: string; authUrl: string; releaseUrl?: string; filesUrl?: string; filesUploadUrl?: string },
+  identity: { name: string; scheme: string },
+): MacBuild {
+  const reached = [config.apiUrl, config.authUrl, config.releaseUrl, config.filesUrl, config.filesUploadUrl];
   return {
     name: identity.name,
     scheme: identity.scheme,
-    // The page reaches these: the API, sign-in, and where updates come from.
-    backendOrigins: [...new Set([config.apiUrl, config.authUrl, config.releaseUrl].filter((url): url is string => Boolean(url)).map((url) => new URL(url).origin))],
+    // The page reaches these: the API, sign-in, where updates come from, and attachments' storage.
+    backendOrigins: [...new Set(reached.filter((url): url is string => Boolean(url)).map((url) => new URL(url).origin))],
   };
 }
 

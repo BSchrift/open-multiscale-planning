@@ -11,6 +11,40 @@
   max-width: 300px;
 }
 
+/* Add details opens as one column: Time, then Send to and Milestone side by side, then the description. */
+[data-layout='desktop'] .capdetails {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+[data-layout='desktop'] .capdetails .estslider {
+  flex: none;
+  max-width: none;
+}
+
+[data-layout='desktop'] .capplace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+
+[data-layout='desktop'] .capplace .capfield select {
+  width: 100%;
+  max-width: none;
+}
+
+[data-layout='desktop'] .capdetails .notesarea {
+  color: var(--ink);
+  font-size: var(--text-base-desktop);
+}
+
+/* On phone Save stays at the foot of the sheet, in reach with the details open. */
+[data-layout='phone'] .capform > .btn.pri {
+  position: sticky;
+  bottom: 0;
+  box-shadow: 0 12px 0 12px var(--white);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-layout='desktop'] .capsheet {
     transition: none;

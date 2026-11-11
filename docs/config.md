@@ -4,8 +4,8 @@ Every setting has one home, picked by who reads it and who it belongs to.
 
 | What | Where | Example |
 | --- | --- | --- |
-| Limits and formats the server and the apps share, the same in every environment | `config/protocol.yaml` | `sync.maxChanges`, `clock.pattern` |
-| Settings that differ by environment, but not between one deployment and another | `config/env/local.yaml`, `staging.yaml` and `prod.yaml` | `stack.terminationProtection`; the backend's canary, `stack.canaryPercent` of traffic for `stack.canaryMinutes`; and whether throttles stop a release, `stack.throttleReleaseAlarm` |
+| Limits and formats the server and the apps share, the same in every environment | `config/protocol.yaml` | `sync.maxChanges`, `clock.pattern`, `attachments.maxFileBytes` and the content types a file may be |
+| Settings that differ by environment, but not between one deployment and another | `config/env/local.yaml`, `staging.yaml` and `prod.yaml` | `stack.terminationProtection`; the backend's canary, `stack.canaryPercent` of traffic for `stack.canaryMinutes`; whether throttles stop a release, `stack.throttleReleaseAlarm`; and each person's storage quota and hourly limits for attachments, `attachments.defaultQuotaBytes`, `attachments.uploadsPerHour` and `attachments.downloadBytesPerHour` |
 | Values only TypeScript reads | The TypeScript module that uses them | How often the app syncs |
 | What only your deployment has: accounts, domains, emails, test users | Your private config folder, `MULTISCALE_CONFIG_DIR` | `aws.account`, `dns.zone` |
 | Secrets | SSM, in the environment's account | Google's client secret, test-user passwords |
@@ -49,11 +49,14 @@ Loading lists every problem across every file at once:
 
 - each file decodes with no unknown key and no missing one;
 - all three environment files are present, and no other;
-- every number is positive and every string is set;
+- every number is positive, every string is set and every list has at least one entry;
 - `sync.maxChanges` is at most 99, since a request's changes and the user's counter share one DynamoDB transaction of 100 actions;
 - a full batch, one more record and its merged room fit the request limit: `clientBatchBytes + maxRecordBytes + mergedRoomBytes <= maxBodyBytes`;
 - the request limit stays under the 6 MB Lambda takes, with room for the event around it;
-- `records.idPattern` and `clock.pattern` compile, and the clock pattern has the three groups the apps read: wall time, counter and device.
+- `records.idPattern` and `clock.pattern` compile, and the clock pattern has the three groups the apps read: wall time, counter and device;
+- `attachments.maxFileBytes` is at most 5 GiB, the most one S3 PUT takes, and `attachments.maxIdsPerDownload` leaves room for the rate counter in one DynamoDB batch read of 100 keys;
+- each of `attachments.contentTypes` is a lowercase `type/subtype` with no parameters, listed once;
+- in each environment, `attachments.defaultQuotaBytes` and `attachments.downloadBytesPerHour` each hold at least one file of `attachments.maxFileBytes`.
 
 The checks run in three places: in CI, through `go test` in `config/`; in every build, where `forEnv` throws on an unknown environment; and in every Lambda as it starts.
 

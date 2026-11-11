@@ -154,6 +154,57 @@ describe('Capture on phone', () => {
   });
 });
 
+describe("Capture's details", () => {
+  /** The details' controls in order, by their names. */
+  const order = (dialog: HTMLElement) =>
+    Array.from(dialog.querySelectorAll('input, select, textarea, [role="toolbar"]'))
+      .map((e) => (e as HTMLElement).getAttribute('aria-label') ?? (e as HTMLInputElement).labels?.[0]?.textContent ?? e.tagName)
+      .filter((name) => !name.startsWith('Capture to'));
+
+  for (const layout of ['desktop', 'phone'] as const) {
+    it(`open with Time first, then Send to, Milestone and Description (${layout})`, async () => {
+      const t = await open(layout);
+      await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'Paint the fence');
+      await screen.findByRole('combobox', { name: 'Milestone' });
+      expect(order(screen.getByRole('dialog', { name: 'Capture' }))).toEqual(['Time', 'Send to', 'Milestone', 'Formatting', 'Description']);
+      await userEvent.type(field(), 'Buy brushes');
+      await userEvent.type(screen.getByRole('textbox', { name: 'Description' }), 'Two **wide** ones{Enter}and a narrow one');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(async () => expect(await tasks(t.db)).toMatchObject([{ title: 'Buy brushes', project_id: 'p1', notes: 'Two **wide** ones\nand a narrow one' }]));
+    });
+  }
+
+  it('one Tab from the name reaches Time on desktop', async () => {
+    await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    field().focus();
+    await userEvent.tab();
+    expect(screen.getByRole('slider', { name: 'Time' })).toHaveFocus();
+  });
+
+  it('saves from the description with ⌘Enter, where Enter makes a new line', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.type(field(), 'Call the bank');
+    const description = screen.getByRole('textbox', { name: 'Description' });
+    await userEvent.type(description, 'Ask about{Enter}the fee');
+    expect(await tasks(t.db)).toEqual([]);
+    fireEvent.keyDown(description, { key: 'Enter', metaKey: true });
+    await screen.findByText(/Saved to Inbox/);
+    expect(await tasks(t.db)).toMatchObject([{ kind: 'inbox', title: 'Call the bank', notes: 'Ask about\nthe fee' }]);
+  });
+
+  it('leaves out an empty description', async () => {
+    const t = await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.type(field(), 'Call the bank{Enter}');
+    await screen.findByText(/Saved to Inbox/);
+    expect((await tasks(t.db))[0]).not.toHaveProperty('notes');
+  });
+});
+
 describe('Capture in the app', () => {
   it('opens from the phone + button and lands in the Inbox count', async () => {
     await renderApp({ layout: 'phone' });

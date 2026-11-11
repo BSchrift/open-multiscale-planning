@@ -1,7 +1,7 @@
 // Shared editors for projects, milestones, tasks and practices. Each takes live records from its caller's query and
 // a PlanContext (pass planning: true inside the planning flow), and writes through core.
 //
-//   <TaskEditor plan={plan} ctx={ctx} taskId={id} onClose={close} />          popover on desktop, sheet on phone
+//   <TaskEditor plan={plan} ctx={ctx} milestoneId={id} onClose={close} />     adds tasks; a task's popup changes one
 //   <MilestoneEditor plan={plan} ctx={ctx} milestoneId={id} onClose={close} /> omit the id to add one
 //   <OverdueFix plan={plan} ctx={ctx} />                                        renders nothing unless overdue
 //   <CloseProject plan={plan} ctx={ctx} onClosed={leave} />                     Finish, Change end date, Drop

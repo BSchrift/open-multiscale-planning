@@ -31,17 +31,24 @@ export async function backfillExpiry(db: Db, clock: Clock): Promise<number> {
   const policy = activeRetention();
   if (!policy) return 0;
   const sources = SOURCES.map((f) => `'${f}'`).join(', ');
-  const rows = await db.all<{ id: string; type: string; data: string; clocks: string }>(
-    `SELECT id, type, data, clocks FROM records r WHERE json_extract(data, '$.expires_at') IS NULL OR EXISTS (
-       SELECT 1 FROM json_each(r.clocks) j WHERE j.key IN (${sources}) AND j.value > json_extract(r.clocks, '$.expires_at'))`,
+  // An attachment also comes back whenever its expiry isn't its task's: an app from before attachments changes a task's
+  // expiry without passing it on.
+  const rows = await db.all<{ id: string; type: string; data: string; clocks: string; task_data: string | null; task_clocks: string | null }>(
+    `SELECT r.id, r.type, r.data, r.clocks, t.data AS task_data, t.clocks AS task_clocks
+     FROM records r LEFT JOIN records t ON r.type = 'attachment' AND t.id = json_extract(r.data, '$.task_id') AND t.type = 'task'
+     WHERE json_extract(r.data, '$.expires_at') IS NULL OR EXISTS (
+       SELECT 1 FROM json_each(r.clocks) j WHERE j.key IN (${sources}) AND j.value > json_extract(r.clocks, '$.expires_at'))
+       OR (r.type = 'attachment' AND json_extract(r.data, '$.expires_at') IS NOT json_extract(t.data, '$.expires_at'))`,
   );
+  const parse = (json: string) => JSON.parse(json) as Record<string, unknown>;
   // Most never expire, so only those whose expiry changes are written. A milestone's and an answer's depend on another
   // record, which the write path reads.
   const due = rows
     .filter((row) => {
       if (row.type === 'milestone' || row.type === 'block_outcome') return true;
-      const data = JSON.parse(row.data) as Record<string, unknown>;
-      return expiryDiffers(data.expires_at, expiryFor(row.type, { data, clocks: JSON.parse(row.clocks) as Record<string, unknown> }, policy));
+      const data = parse(row.data);
+      const task = row.task_data && row.task_clocks ? { data: parse(row.task_data), clocks: parse(row.task_clocks) } : null;
+      return expiryDiffers(data.expires_at, expiryFor(row.type, { data, clocks: parse(row.clocks) }, policy, task));
     })
     .map((row) => row.id);
   for (let i = 0; i < due.length; i += BATCH) {

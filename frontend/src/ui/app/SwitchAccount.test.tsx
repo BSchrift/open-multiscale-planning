@@ -7,6 +7,7 @@ import type { AppSync } from '../../core/syncRunner';
 import { setAppearance } from './appearance';
 import { renderApp } from './testing';
 import type { Harness } from './testing';
+import { noFiles } from '../../core/sync-testing';
 
 afterEach(() => {
   cleanup();
@@ -24,6 +25,7 @@ function fakeSync(email: string | null = 'reader@example.com') {
     stop: vi.fn(),
     email: vi.fn(async () => email),
     eraseAndSignIn: vi.fn(async () => undefined),
+    files: noFiles(),
   } satisfies AppSync;
 }
 

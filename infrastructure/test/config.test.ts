@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -143,6 +144,33 @@ describe('loadConfig', () => {
     const urls = ['https://example.com/cb', 'multiscale://auth/callback', 'http://localhost:5173/auth/callback'];
     assert.deepEqual(loadConfig('staging', withStaging(withField(good, 'auth.signInCallbackUrls', urls)), false).config.auth.signInCallbackUrls, urls);
   });
+
+  describe('files', () => {
+    const rsa = (modulusLength = 2048) => generateKeyPairSync('rsa', { modulusLength }).publicKey.export({ type: 'spki', format: 'pem' }) as string;
+    const key = rsa();
+    const withFiles = (files: unknown) => withStaging({ ...good, files });
+
+    it('is optional, and reads the public keys and the one the API signs with', () => {
+      assert.equal(loadConfig('staging', withStaging(good), true).config.files, undefined);
+      const { config } = loadConfig('staging', withFiles({ keys: { k20261109: key, 'k2026-12_b': rsa() }, signWith: 'k20261109' }), true);
+      assert.equal(config.files?.signWith, 'k20261109');
+      assert.deepEqual(Object.keys(config.files!.keys), ['k20261109', 'k2026-12_b']);
+    });
+
+    it('refuses no keys, a bad name, a key it does not hold to sign with, and anything but an RSA 2048 public key', () => {
+      const bad: [string, unknown][] = [
+        ['files.keys', { keys: {}, signWith: 'k1' }],
+        ['files.keys', { signWith: 'k1' }],
+        ['files.keys', { keys: { 'k 1': key }, signWith: 'k 1' }],
+        ['files.signWith', { keys: { k1: key }, signWith: 'k2' }],
+        ['files.signWith', { keys: { k1: key } }],
+        ['files.keys.k1', { keys: { k1: 'not a key' }, signWith: 'k1' }],
+        ['files.keys.k1', { keys: { k1: generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }) }, signWith: 'k1' }],
+        ['files.keys.k1', { keys: { k1: rsa(1024) }, signWith: 'k1' }],
+      ];
+      for (const [named, files] of bad) throwsNaming(() => loadConfig('staging', withFiles(files), false), named);
+    });
+  });
 });
 
 describe('loadControl', () => {
@@ -223,6 +251,8 @@ describe('loadControl', () => {
     const own = withField(withField(withMac, 'pipeline.mac.waitFor', 'PT5H'), 'pipeline.mac.githubOidcProvider', 'existing');
     assert.deepEqual(loadControl(dirWith({ control: own }), true).pipeline?.mac, { teamId: 'ABCDE12345', waitFor: 'PT5H', githubOidcProvider: 'existing' });
     assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.mac, undefined);
+    const subject = 'repo:someone@1/open-multiscale-planning@2:environment:release';
+    assert.equal(loadControl(dirWith({ control: withField(withMac, 'pipeline.mac.githubSubject', subject) }), true).pipeline?.mac?.githubSubject, subject);
   });
 
   for (const [path, bad] of [
@@ -233,6 +263,9 @@ describe('loadControl', () => {
     ['pipeline.mac.waitFor', 'PT0S'],
     ['pipeline.mac.waitFor', '2h'],
     ['pipeline.mac.githubOidcProvider', 'yes'],
+    // Only the release environment's jobs, which need the owner's approval.
+    ['pipeline.mac.githubSubject', 'repo:someone/open-multiscale-planning:ref:refs/heads/main'],
+    ['pipeline.mac.githubSubject', 'repo:*:environment:release'],
   ] as const) {
     it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
       assert.throws(() => loadControl(dirWith({ control: withField(withMac, path, bad) }), false), new RegExp(path.replaceAll('.', '\\.')));

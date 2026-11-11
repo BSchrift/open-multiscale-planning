@@ -1,3 +1,4 @@
+import { createPublicKey } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -36,9 +37,17 @@ export interface MacReleaseConfig {
   waitFor?: string;
   /** existing when the account already has GitHub's OIDC provider, which an account can have only one of. */
   githubOidcProvider?: 'create' | 'existing';
+  /**
+   * The subject of GitHub's tokens for the release environment's jobs, when it isn't repo:<repository>:environment:release:
+   * a repository with immutable subjects has its owner's and its own ids in them, repo:<owner>@<id>/<repo>@<id>:….
+   */
+  githubSubject?: string;
 }
 
-/** How long a run waits for the Mac apps when control.yaml doesn't say: time for the owner to approve the build. */
+/**
+ * How long a run waits for the Mac apps when control.yaml doesn't say: time to build them, and for the owner to approve
+ * the build when the release environment asks.
+ */
 export const DEFAULT_MAC_WAIT = 'PT2H';
 /** CodeBuild runs a build for up to 8 hours, and checking the apps takes some of it. */
 export const MAX_MAC_WAIT_SECONDS = 7 * 3600;
@@ -62,6 +71,12 @@ export interface Config {
   alarmEmail: string;
   auth: { cognitoDomainPrefix: string; signInCallbackUrls: string[] };
   dns?: { zone: string };
+  /**
+   * Attachments' storage, written by make files-key. keys names each public key CloudFront checks download links
+   * against, an RSA 2048 PEM whose private half is the SSM SecureString /multiscale/<env>/files/<name>; signWith is the
+   * one the API signs with. Without it the environment has no attachments.
+   */
+  files?: { keys: Record<string, string>; signWith: string };
 }
 
 // Holds the committed examples, and is the config folder unless MULTISCALE_CONFIG_DIR names another.
@@ -100,6 +115,31 @@ function awsProblems(aws: any): string[] {
   return problems;
 }
 
+// CloudFront takes only RSA 2048 public keys for signed URLs.
+function filesProblems(files: any): string[] {
+  const keys = files?.keys;
+  if (keys === null || typeof keys !== 'object' || Array.isArray(keys) || Object.keys(keys).length === 0) {
+    return ['files.keys must name at least one public key, as make files-key writes it'];
+  }
+  const problems: string[] = [];
+  for (const [name, pem] of Object.entries(keys)) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      problems.push(`files.keys has a key named ${JSON.stringify(name)}: use letters, digits, - and _`);
+      continue;
+    }
+    let bits: number | undefined;
+    try {
+      const key = createPublicKey(String(pem));
+      if (key.asymmetricKeyType === 'rsa') bits = key.asymmetricKeyDetails?.modulusLength;
+    } catch {
+      // Reported below.
+    }
+    if (bits !== 2048) problems.push(`files.keys.${name} must be an RSA 2048 public key in PEM`);
+  }
+  if (typeof files.signWith !== 'string' || !Object.hasOwn(keys, files.signWith)) problems.push('files.signWith must name one of files.keys');
+  return problems;
+}
+
 function done<T>(path: string, problems: string[], value: T): T {
   if (problems.length > 0) throw new Error(`${path}: ${problems.join('; ')}`);
   return value;
@@ -129,6 +169,9 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
       if (wait === undefined || wait === 0 || wait > MAX_MAC_WAIT_SECONDS) problems.push('pipeline.mac.waitFor must be hours, minutes or seconds up to 7 hours, such as PT2H');
       mac.githubOidcProvider ??= 'create';
       if (!['create', 'existing'].includes(mac.githubOidcProvider)) problems.push('pipeline.mac.githubOidcProvider must be create or existing');
+      if (mac.githubSubject != null && !matches(/^repo:[^:*?]+:environment:release$/, mac.githubSubject)) {
+        problems.push('pipeline.mac.githubSubject must be repo:<owner>/<repo>:environment:release, with ids if GitHub adds them, and no wildcards');
+      }
     }
   }
   if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain) || matches(/@example\.com$/i, c.pipeline?.email))) {
@@ -153,6 +196,7 @@ export function loadConfig(envName: EnvName, dir: string, deploying: boolean): {
   if (!Array.isArray(signInCallbackUrls) || signInCallbackUrls.length === 0 || !signInCallbackUrls.every(checkCallback)) {
     problems.push('auth.signInCallbackUrls must list https, custom scheme or localhost URLs');
   }
+  if (c.files != null) problems.push(...filesProblems(c.files));
 
   let control: ControlConfig | undefined;
   const zone = c.dns?.zone;

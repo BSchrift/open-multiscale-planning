@@ -316,7 +316,9 @@ describe('first run', () => {
 describe('registry', () => {
   it.each(Object.keys(AREAS) as AreaId[])('renders %s on both layouts', async (area) => {
     for (const layout of ['desktop', 'phone'] as const) {
-      const t = await renderScreen(area, { layout });
+      // A task's popup needs its task.
+      const task = area === 'task' ? { params: { task: 't1' }, seed: (w: Writer) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 't1') } : {};
+      const t = await renderScreen(area, { layout, ...task });
       // More than the toast region the layout always holds.
       await waitFor(() => expect(t.container.querySelector(`[data-layout='${layout}']`)?.childElementCount ?? 0).toBeGreaterThan(1));
       cleanup();

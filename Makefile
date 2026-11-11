@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy release testflight tester review-user promote release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -59,6 +59,16 @@ deploy:
 smoke:
 	@scripts/smoke.sh
 
+# The key pair CloudFront checks download links against: ENV=staging (default) or prod. Writes the private key to SSM
+# and its public half to <env>.yaml in the config folder; deploy afterwards. Run again to rotate: docs/setup.md.
+files-key:
+	@scripts/files-key.sh
+
+# One person's storage for attachments, found by EMAIL, with the profile in <env>.yaml: ENV=staging (default) or prod.
+# GB=5 raises their quota to 5 GiB, GB=default removes the raise, and without GB it prints their usage and quota.
+storage-quota:
+	@scripts/storage-quota.sh
+
 # Builds the Mac app and the web bundle on this Mac, signs the bundle and uploads both: ENV=staging (default) or prod.
 # A prod release then uploads the iPhone app to TestFlight: make testflight.
 # With the release pipeline, this is the signed Mac app's step, from a release tag: docs/releasing.md.
@@ -89,6 +99,11 @@ promote:
 
 release-tag:
 	@scripts/pipeline.sh tag
+
+# Lists what each surface serves and the versions kept: ENV=staging (default) or prod. With SURFACE=web|desktop|iphone
+# and VERSION=<version>, switches that surface to a version kept, such as the one before: docs/releasing.md.
+release-surface:
+	@scripts/pipeline.sh release-surface
 
 pipeline-config:
 	@scripts/pipeline.sh config

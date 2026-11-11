@@ -218,7 +218,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await expect(page.getByRole('button', { name: 'Continue planning' })).toBeVisible();
+  // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
+  // earlier runs may have done, so any of its ways in will do.
+  await expect(page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first()).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

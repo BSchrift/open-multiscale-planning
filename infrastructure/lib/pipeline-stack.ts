@@ -3,6 +3,7 @@
 // No one approves it. docs/releasing.md describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild;
 // deploy rights stay in AWS.
 
+import { join } from 'node:path';
 import { CfnCapabilities, CfnOutput, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
@@ -14,14 +15,17 @@ import {
 import { CfnConnection } from 'aws-cdk-lib/aws-codestarconnections';
 import { Rule, RuleTargetInput, EventField } from 'aws-cdk-lib/aws-events';
 import { SnsTopic } from 'aws-cdk-lib/aws-events-targets';
-import { OidcProviderNative, PolicyStatement, Role, ServicePrincipal, WebIdentityPrincipal } from 'aws-cdk-lib/aws-iam';
+import { OidcProviderNative, Policy, PolicyStatement, Role, ServicePrincipal, WebIdentityPrincipal } from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
+import { Architecture, Code, Function as LambdaFunction, FunctionUrlAuthType, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { CodeBuildStartBuild } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
-import { DefinitionBody, QueryLanguage, StateMachine, TaskInput, Wait, WaitTime } from 'aws-cdk-lib/aws-stepfunctions';
+import {
+  Choice, Condition, DefinitionBody, Errors, IntegrationPattern, QueryLanguage, StateMachine, Succeed, TaskInput, Timeout,
+} from 'aws-cdk-lib/aws-stepfunctions';
 import { SnsPublish } from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { DEFAULT_MAC_WAIT, DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
@@ -189,20 +193,48 @@ export class PipelineStack extends Stack {
       },
     });
 
-    // The window before prod, on Step Functions, whose wait costs nothing: a standard workflow pays per state, and this
-    // has two. It emails the time the run goes to prod, counted from its own start, and waits until then.
-    const promoteAt = '$fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000)';
-    const notify = SnsPublish.jsonata(this, 'Notify', {
-      topic,
-      subject: 'A release is on its way to prod',
-      message: TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '.' %}`),
-      outputs: '{% $states.input %}',
+    // "Promote now", the email's link: a page whose button sends the run's task token back, which ends its window at
+    // once. Anyone with the link may open it; the token is what promotes, and only its own run.
+    const promoteNowLogs = new LogGroup(this, 'PromoteNowLogs', { retention: RetentionDays.ONE_MONTH });
+    const promoteNowRole = new Role(this, 'PromoteNowRole', { assumedBy: new ServicePrincipal('lambda.amazonaws.com') });
+    promoteNowLogs.grantWrite(promoteNowRole);
+    const promoteNow = new LambdaFunction(this, 'PromoteNow', {
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      code: Code.fromAsset(join(import.meta.dirname, '../promote-now')),
+      handler: 'index.handler',
+      role: promoteNowRole,
+      logGroup: promoteNowLogs,
+      timeout: Duration.seconds(10),
     });
-    const window = Wait.jsonata(this, 'Window', { time: WaitTime.timestamp(`{% ${promoteAt} %}`) });
+    const promoteNowUrl = promoteNow.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
+
+    // The window before prod, on Step Functions, whose wait costs nothing: a standard workflow pays per state, and a run
+    // passes three at most. It emails the time the run goes to prod, counted from its own start, with the link, and
+    // waits for the link's token until then. A timeout of 0 isn't allowed, so no window only emails.
+    const notice = (link: string) => TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '.'${link} %}`);
+    const subject = 'A release is on its way to prod';
+    const notifyAndWait = SnsPublish.jsonata(this, 'NotifyAndWait', {
+      topic,
+      subject,
+      message: notice(` & ' To send it to prod now: ${promoteNowUrl.url}?token=' & $encodeUrlComponent($states.context.Task.Token)`),
+      integrationPattern: IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+      taskTimeout: Timeout.jsonata('{% $states.input.seconds %}'),
+      outputs: '{% $states.input %}',
+    }).addCatch(Succeed.jsonata(this, 'WindowEnded'), { errors: [Errors.TIMEOUT], outputs: '{% $states.input %}' });
+    const notify = SnsPublish.jsonata(this, 'Notify', { topic, subject, message: notice(''), outputs: '{% $states.input %}' });
     const promotion = new StateMachine(this, 'Promotion', {
-      definitionBody: DefinitionBody.fromChainable(notify.next(window)),
+      definitionBody: DefinitionBody.fromChainable(Choice.jsonata(this, 'HasWindow')
+        .when(Condition.jsonata('{% $states.input.seconds > 0 %}'), notifyAndWait)
+        .otherwise(notify)),
       queryLanguage: QueryLanguage.JSONATA,
       timeout: Duration.days(7),
+    });
+    // The link's function may answer only this state machine, and only to promote. A policy of its own, not the role's
+    // default one, which the function waits on: the state machine already waits on the function, for its address.
+    new Policy(this, 'PromoteNowPolicy', {
+      roles: [promoteNowRole],
+      statements: [new PolicyStatement({ actions: ['states:SendTaskSuccess'], resources: [promotion.stateMachineArn] })],
     });
 
     // Mac apps from GitHub Actions. For a commit that needs a new Mac app, the workflow builds, signs and notarizes it,
@@ -285,8 +317,8 @@ export class PipelineStack extends Stack {
           ],
         },
         {
-          // No approval: staging's pass is emailed, and the run goes to prod when the window ends unless the owner
-          // stops it (make pipeline-stop). Prod's canary and its alarms still guard it.
+          // No approval: staging's pass is emailed, and the run goes to prod when the window ends, or sooner from the
+          // email's link, unless the owner stops it (make pipeline-stop). Prod's canary and its alarms still guard it.
           stageName: 'Promote',
           actions: [new StepFunctionInvokeAction({
             actionName: 'Wait',

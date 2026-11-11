@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { openSeeded } from './seed';
+import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -110,6 +110,69 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
   await card(page).getByRole('button', { name: 'Done' }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(inboxPane(page).getByText(phone ? 'Inbox is empty. Anything you capture lands here.' : 'Inbox is empty.')).toBeVisible();
+});
+
+// The owner's request for a long Inbox: select many items and give them a home at once, each action with one Undo.
+test('select mode sends, deletes and makes one offs of many items at once', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  const pane = inboxPane(page);
+  const rows = pane.locator('.inboxrow');
+  const toggle = pane.getByRole('button', { name: 'Select', exact: true });
+  const undo = page.getByRole('button', { name: 'Undo' });
+
+  await toggle.click();
+  await expect(pane.getByRole('status')).toHaveText('0 selected');
+  if (phone) {
+    // The docked Process button steps aside while selecting.
+    await expect(pane.getByRole('button', { name: 'Process 3 items' })).toBeHidden();
+    for (const name of ['Select all', 'Cancel', 'Send', 'Make one offs', 'Delete/done']) await expectTapTarget(pane.getByRole('button', { name, exact: true }));
+    await expectTapTarget(pane.getByRole('combobox', { name: 'Send to project' }));
+    // The whole row is the checkbox's label, so the row is what a finger hits.
+    for (const row of await rows.all()) await expectTapTarget(row);
+  }
+  await pane.getByRole('checkbox', { name: 'Call the bank' }).check();
+  await pane.getByText('Buy stamps').click();
+  await expect(pane.getByRole('status')).toHaveText('2 selected');
+  await pane.getByRole('combobox', { name: 'Send to project' }).selectOption({ label: 'Paint the fence' });
+  await pane.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByText('Sent 2 items to Paint the fence.')).toBeVisible();
+  await expect(rows).toHaveCount(1);
+  await expect(pane.getByRole('button', { name: 'Fix the gate', exact: true })).toBeFocused();
+  await undo.click();
+  await expect(rows).toHaveCount(3);
+
+  // Select all, then Delete/done asks first, and one Undo brings every item back.
+  await toggle.click();
+  await pane.getByRole('button', { name: 'Select all' }).click();
+  await expect(pane.getByRole('status')).toHaveText('3 selected');
+  await pane.getByRole('button', { name: 'Delete/done' }).click();
+  await expect(pane.getByRole('alert')).toContainText('Delete 3 items?');
+  if (phone) for (const name of ['Yes, delete', 'Keep them']) await expectTapTarget(pane.getByRole('button', { name }));
+  await pane.getByRole('button', { name: 'Yes, delete' }).click();
+  await expect(page.getByText('Deleted 3 items.')).toBeVisible();
+  await expect(pane.getByText(phone ? 'Inbox is empty. Anything you capture lands here.' : 'Inbox is empty.')).toBeVisible();
+  await expect(undo).toBeFocused();
+  await undo.click();
+  await expect(rows).toHaveCount(3);
+
+  // Leaving select mode forgets the ticks; One offs then saves, and stays after a reload.
+  await toggle.click();
+  await pane.getByRole('checkbox', { name: 'Call the bank' }).check();
+  await pane.getByRole('button', { name: 'Cancel' }).click();
+  await expect(toggle).toBeFocused();
+  await toggle.click();
+  await expect(pane.getByRole('status')).toHaveText('0 selected');
+  await pane.getByRole('checkbox', { name: 'Fix the gate' }).check();
+  await pane.getByRole('button', { name: 'Make one offs' }).click();
+  await expect(page.getByText('Made 1 one off.')).toBeVisible();
+  await expect(rows).toHaveCount(2);
+  await expect(pane.getByRole('button', { name: 'Buy stamps', exact: true })).toBeFocused();
+  // Phone WebKit saves the database 200ms after a change.
+  await page.waitForTimeout(600);
+  await page.reload();
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 2 to sort' : 'Inbox' }).click();
+  await expect(rows).toHaveCount(2);
 });
 
 test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once Settings turns them on', async ({ page }, info) => {

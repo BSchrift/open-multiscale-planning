@@ -155,6 +155,23 @@ describe('the Inbox step', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Return the library books' }));
     expect(t.nav().overlay).toEqual({ area: 'task', params: { task: 'i1' } });
   });
+
+  it("has the Inbox's select mode, to give many items a home at once", async () => {
+    const t = await openPlanning({
+      seed: async (w) => {
+        await w.create('task', { kind: 'inbox', title: 'Return the library books' }, 'i1');
+        await w.create('task', { kind: 'inbox', title: 'Paint the fence' }, 'i2');
+        await w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i3');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Select' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Return the library books' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Call the bank' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Make one offs' }));
+    expect(await screen.findByText('Made 2 one offs.')).toBeVisible();
+    expect((await getRecord(t.db, 'task', 'i3'))?.kind).toBe('one_off');
+    expect(await screen.findByRole('button', { name: 'Process 1 item' })).toBeInTheDocument();
+  });
 });
 
 describe('the Schedule step', () => {

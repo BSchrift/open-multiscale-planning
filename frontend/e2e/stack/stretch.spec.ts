@@ -6,8 +6,8 @@ import { closeDevices, device, signIn } from './devices';
 
 // Stretch planning's progress, through the backend: begun on one device, it resumes on another at the same step, with
 // the same steps done, and once one device finishes the plan, neither offers to continue it. On a deployment's shared
-// test user, planning may be under way from a run cut short, and the stretch may be planned already; each run starts
-// from Goals and finishes the plan again, which leaves that user as it found it.
+// test user, planning may be under way from a run cut short, and the stretch may be planned already, so each run starts
+// from Goals; finishing leaves that user's next stretch planned, as any finished run would.
 
 test.use({ baseURL: `http://localhost:${process.env.STACK_WEB_PORT}` });
 test.afterEach(closeDevices);

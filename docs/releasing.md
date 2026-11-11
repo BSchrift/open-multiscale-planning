@@ -18,9 +18,9 @@ the Mac release's, which may only upload to the pipeline's inbox, through GitHub
 | **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, iOS | A check fails. Every check must pass before a merge |
 | **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves if the `release` environment asks | For each main commit, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | An approval the environment asks for doesn't come, or a build or notarization fails. The pipeline then stops at Staging |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
-| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Publishes the web app, any new Mac app, then the feed, and runs the web app, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
+| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
-| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, publishes the web app, any new Mac app the Staging stage checked, and the feed, and checks them | A release alarm rolls the canary back, or a suite fails |
+| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
 | **Nightly** | Staging | The full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed iPhone build from that tag, and the Mac app's too until the Mac release is set up | — |
 
@@ -32,6 +32,35 @@ The history-scale budgets only report for now (`HISTORY_REPORT_ONLY=1`). A misse
 
 Each web build carries its environment's backend addresses, from its stack's outputs as Build finds them. A release
 that changes one of those outputs, such as a new sign-in client, reaches the web app with the run after it.
+
+## Versions and feeds
+
+Every release keeps its version in the environment's release bucket, and each surface serves one: the web app, and a
+feed each for the Mac and iPhone apps. A release first uploads the version, which changes nothing anyone sees, then
+switches each surface to it (`upload` and `switch` in `scripts/pipeline.sh`, which `scripts/release.sh` uses too).
+
+| Path | Holds | Served |
+| --- | --- | --- |
+| `versions/<version>/web/` | The build's files outside `assets/`: `index.html`, `version.json` and the rest | No |
+| `versions/<version>/release.json` | That build's signed feed | No |
+| `web/assets/` | Every version's assets, named by their contents, cached for a year | Web host |
+| `web/index.html` and the rest | A copy of the version web serves | Web host |
+| `release/files/` | Every version's files, named by their contents, cached for a year | Release host |
+| `release/desktop/release.json`, `release/iphone/release.json` | A copy of the Mac's and the iPhone's version's feed, cached for 60 seconds | Release host |
+| `release/release.json` | The shared feed, which bundles from before the apps' own feeds read | Release host |
+| `state/history.json` | Each surface's versions in the order it got them, with times | No |
+
+A version is what its `version.json` names: the package version and the commit, such as `0.1.0-85e85c2`. Switching web
+copies its page to `web/` with `no-cache`, `version.json` last, so the next page load gets it. Switching a feed copies
+its `release.json`, and each device takes it at its next check.
+
+A feed takes a build only when its app can. The desktop feed compares the Mac app's native code with what it serves,
+and takes the build when it's unchanged or a Mac app from GitHub Actions is published first. The iPhone feed compares
+the iPhone app's. The shared feed takes the build only when both do. Until an app's own feed exists, it compares with
+the shared one. Each release checks every feed it switched: the manifest checks out with the environment's release
+key, names the version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
+
+For now every surface switches in one step, staging's and prod's Release, and bundles still read the shared feed.
 
 ## The backend canary
 

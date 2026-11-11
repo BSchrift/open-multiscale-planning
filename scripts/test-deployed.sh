@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Every suite that can run against a deployment, run against one, as make release does after each release:
-#   web app      the deployed web app as people get it (frontend/e2e/deployed), desktop and phone sizes
+#   web app      the deployed web app as people get it (frontend/e2e/deployed), desktop and phone sizes, and the feeds
+#                the apps update from
 #   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack); staging only
 #   compat       on staging, prod's web bundle and this checkout's sharing a database and syncing (scripts/test-compat.sh)
 #   integration  the black-box suite against its API and sign-in
@@ -11,7 +12,8 @@
 #   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh),
 #                reporting its numbers: it fails only when a device holds fewer records than were seeded
 # Each runs even when one before it fails, and the summary names the ones that failed.
-#   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve.
+#   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve, and
+#   EXPECT_FEEDS the feeds that must serve it too: desktop, iphone and shared, as a release switched them.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
 #   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
@@ -45,7 +47,8 @@ if ! MULTISCALE_TARGET="$(node scripts/test-target.mjs)"; then
   echo "Couldn't read the $env_name test user. Sign in to AWS for $env_name, then run this again." >&2
   exit 1
 fi
-export MULTISCALE_TARGET DEPLOYED_WEB_URL="$web_url"
+release_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseUrl ?? "")' "$outputs")"
+export MULTISCALE_TARGET DEPLOYED_WEB_URL="$web_url" DEPLOYED_RELEASE_URL="$release_url"
 
 # Each suite's whole output is kept, so a failure can be looked into after a long run.
 logs="$root/frontend/test-results/deployed-$env_name"

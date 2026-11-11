@@ -99,6 +99,11 @@ describe('the planning frame', () => {
     expect(await screen.findByRole('button', { name: '3. Schedule' })).toHaveAttribute('aria-current', 'step');
   });
 
+  it('opens on Pick tasks when stretch planning has just sorted the Inbox, even where it was left elsewhere', async () => {
+    await openPlanning({ step: 3, params: { step: 'pick' } });
+    expect(await screen.findByRole('button', { name: '2. Pick tasks' })).toHaveAttribute('aria-current', 'step');
+  });
+
   it('on a device that has not pulled yet, what opening fills in never overwrites another device’s removed pick', async () => {
     const WEEK = '2026-11-02';
     const server = fakeSyncServer({ now: () => Date.parse('2026-11-03T00:00:00Z') });

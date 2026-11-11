@@ -327,6 +327,41 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('planning ahead left on a step the bundle before lacks resumes there on its nearest, and the update follows a step it moved to', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    const steps = () => page.getByRole('navigation', { name: 'Planning steps' });
+    const plan = async () => {
+      await go(page, 'Plan');
+      await pane(page, 'Plan')
+        .getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch)$/ })
+        .click();
+    };
+    // The update keeps planning's step on the device as a key, beside the number the bundle before reads.
+    await plan();
+    await steps().getByRole('button', { name: /Inbox/ }).click();
+    await expect(page.getByRole('heading', { name: /Give each item a home$/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+
+    // The bundle before has no Inbox step, so it opens on Projects, the step before it, and moves on to Practices.
+    page = await relaunch(page, 'old', errors);
+    await plan();
+    await expect(page.getByRole('heading', { name: /What will you reach by Dec 31\?$/ })).toBeVisible();
+    await expect(steps().getByRole('button', { name: /Projects/ })).toHaveAttribute('aria-current', 'step');
+    await steps().getByRole('button', { name: /Practices/ }).click();
+    await expect(page.getByRole('heading', { name: /Your practices$/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+
+    // Updated again, it opens where the bundle before left it.
+    page = await relaunch(page, 'new', errors);
+    await plan();
+    await expect(page.getByRole('heading', { name: /Your practices$/ })).toBeVisible();
+    await expect(steps().getByRole('button', { name: /Practices/ })).toHaveAttribute('aria-current', 'step');
+    expect(errors).toEqual([]);
+  });
+
   test('a block the update paused runs on in the bundle before, which keeps the pause through a change of its own', async ({ context }) => {
     test.skip(oldPauses(), noOlderThanPausing);
     const errors: string[] = [];

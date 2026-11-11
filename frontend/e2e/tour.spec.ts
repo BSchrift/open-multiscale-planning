@@ -236,7 +236,7 @@ test('the planning flows of a lived-in week render cleanly', async ({ page }, in
   await page.getByRole('button', { name: /planning|Plan now|Plan (the next|your first) stretch/ }).first().click();
   const planSteps = page.getByRole('navigation', { name: /steps/ });
   await expect(planSteps).toBeVisible();
-  for (const step of ['Look back', 'Practices', 'Projects', 'Time', 'Finish']) {
+  for (const step of ['Goals', 'Practices', 'Projects', 'Inbox', 'Finish']) {
     await planSteps.getByRole('button', { name: new RegExp(step) }).click();
     await look(page, info, `plan-${step.toLowerCase().replace(' ', '')}`);
   }

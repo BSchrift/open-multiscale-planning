@@ -1,6 +1,7 @@
 // Weekly planning: Inbox, Pick tasks, Schedule and Review, as tabs that can be visited in any order. Params:
-// week, the Monday to plan; with none, this week until it's planned, then next week. step: 'schedule', to open on
-// Schedule. The step is kept on this device per week, so leaving part way resumes there.
+// week, the Monday to plan; with none, this week until it's planned, then next week. step: 'schedule', to open that
+// week on Schedule, or 'pick', to open on Pick tasks, as stretch planning does when nothing new has reached the Inbox
+// since its own Inbox step. The step is kept on this device per week, so leaving part way resumes there.
 
 import { useEffect, useRef, useState } from 'react';
 import { addWeeks, formatMinutes, formatTime, formatWeekRange, formatWeekday, localDate, weekStart } from '../../../core/dates';
@@ -36,7 +37,7 @@ export default function PlanningScreen(props: ScreenProps) {
     if (!chosen && week) setChosen(week);
   }, [chosen, week]);
   if (!week) return null;
-  const start = props.params.step === 'schedule' && week === props.params.week ? 2 : undefined;
+  const start = props.params.step === 'schedule' && week === props.params.week ? 2 : props.params.step === 'pick' ? 1 : undefined;
   return <Flow key={week} week={week} current={current} start={start} onWeek={setChosen} layout={props.layout} close={props.close} />;
 }
 

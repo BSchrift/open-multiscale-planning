@@ -13,7 +13,7 @@ import { useApp, useMutation, useToday } from '../../app/store';
 import { diamondClass } from '../../components/MilestoneDiamond';
 import { CadenceEditor } from './Cadence';
 import type { PlanData } from './data';
-import { usePlanFlow, writeFlow } from './flowState';
+import { beginFlow, usePlanFlow } from './flowState';
 import { planContext, planGroups, range, whereNow } from './model';
 import type { PlanGroup } from './model';
 import { usePlanningActions } from '../../components/planning/usePlanning';
@@ -82,16 +82,17 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
   const planning = useStretchPlanning();
   const act = usePlanningActions();
 
-  // Opening planning for a plan that's due places a planning block from now, as every Start does.
-  const open = (step = flow.begun ? flow.step : 0) => {
-    writeFlow({ begun: true, step });
+  // Planning resumes where it was, or begins at its first step. A plan that's due gets a planning block from now, as
+  // every Start does.
+  const open = () => {
+    if (!flow.begun) beginFlow();
     if (planning.due) void act.start(planning.due);
     else nav.openFlow('plan');
   };
   const startCadence = async () => {
     if ((await save.run({ plan_cadence: { every: 1, unit: 'quarters', anchor: addDays(on, 1) } })) === undefined) return;
-    writeFlow({ restart: false });
-    open(0);
+    beginFlow({ restart: false });
+    nav.openFlow('plan');
   };
   return (
     <div className={`${phone ? 'stack' : 'wrap stack'} planpage`}>
@@ -123,7 +124,7 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
               on={on}
               onClose={() => setEditing(false)}
               onRestart={() => {
-                writeFlow({ begun: true, step: 0, restart: true, changes: [] });
+                beginFlow({ restart: true, changes: [] });
                 nav.openFlow('plan');
               }}
             />

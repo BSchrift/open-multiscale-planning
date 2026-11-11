@@ -316,7 +316,7 @@ approval, and holds the only copies of the signing secrets:
 | `ASC_API_KEY` | Secret | The App Store Connect API key that notarizes, the `.p8` file's contents |
 | `ASC_KEY_ID` | Secret or variable | That key's id |
 | `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
-| `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, sign-in client, bundle id and release key's public half |
+| `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, attachment hosts, sign-in client, bundle id and release key's public half |
 | `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
 | `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
 | `AWS_REGION` | Variable | The control account's region |
@@ -385,7 +385,7 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
    ```
 
 6. **The build's config.** Again whenever a backend address, the sign-in client, the bundle id or a release key
-   changes. Until then the check fails, saying the build's settings differ:
+   changes, and when attachments are turned on, which adds their hosts. Until then the check fails, saying the build's settings differ:
 
    ```sh
    (cd frontend && node scripts/mac-inbox.ts build-config "$MULTISCALE_CONFIG_DIR") | gh secret set MAC_BUILD_CONFIG --env release --repo "$repo"

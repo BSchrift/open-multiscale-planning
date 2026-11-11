@@ -338,7 +338,8 @@ export async function verifyInbox(inbox: string, want: { env: Env; commit: strin
   return problems;
 }
 
-const BUILD_OUTPUTS = ['ApiUrl', 'CognitoDomain', 'AppClientId', 'ReleaseUrl', 'DownloadsUrl'];
+// Every output loadAppConfig reads, since the build embeds them and the Mac app's content policy names some.
+const BUILD_OUTPUTS = ['ApiUrl', 'CognitoDomain', 'AppClientId', 'ReleaseUrl', 'DownloadsUrl', 'FilesUrl', 'FilesUploadUrl'];
 
 /** The config folder's files that the Mac build reads, cut to what it reads from them, as MAC_BUILD_CONFIG holds them. */
 export async function buildConfig(dir: string): Promise<Record<string, string>> {

@@ -172,6 +172,25 @@ describe('the build config for GitHub Actions', () => {
     expect(hidden).toEqual(expect.arrayContaining(['https://api.prod.example.net', 'api.prod.example.net', 'client', 'net.example.multiscale']));
     expect(() => unpackConfig(Buffer.from('{}').toString('base64'), out)).toThrow('MAC_BUILD_CONFIG lacks staging.outputs.json');
   });
+
+  // Otherwise the Mac app GitHub Actions builds differs from the pipeline's, as it did once attachments added FilesUrl.
+  it('loads to the same app config as the folder it was made from, with every output the build reads', async () => {
+    const { loadAppConfig } = await import('../src/core/appConfig');
+    const dir = mkdtempSync(join(tmpdir(), 'mac-config-'));
+    for (const env of ['staging', 'prod']) {
+      writeFileSync(join(dir, `${env}.outputs.json`), JSON.stringify({
+        ApiUrl: `https://api.${env}.example.net`, CognitoDomain: `https://auth.${env}.example.net`, AppClientId: 'client',
+        ReleaseUrl: `https://release.${env}.example.net`, DownloadsUrl: `https://downloads.${env}.example.net`,
+        FilesUrl: `https://files.${env}.example.net`, FilesUploadUrl: `https://upload.${env}.example.net`, ReleaseBucket: 'private-bucket',
+      }));
+      writeFileSync(join(dir, `${env}.yaml`), `aws:\n  account: "123456789012"\napp:\n  bundleId: net.example.multiscale\n`);
+      writeFileSync(join(dir, `${env}.release-key.pub`), 'cHVibGlj');
+    }
+    const out = mkdtempSync(join(tmpdir(), 'mac-unpacked-'));
+    unpackConfig(Buffer.from(JSON.stringify(await buildConfig(dir))).toString('base64'), out);
+    const read = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+    for (const env of ['staging', 'prod']) expect(loadAppConfig(env, read, out)).toEqual(loadAppConfig(env, read, dir));
+  });
 });
 
 describe('the Mac release workflow', () => {

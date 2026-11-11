@@ -3,9 +3,10 @@
 // Schedule. The step is kept on this device per week, so leaving part way resumes there.
 
 import { useEffect, useRef, useState } from 'react';
-import { addWeeks, formatWeekRange, nowInstant, weekStart } from '../../../core/dates';
-import { autoPickedOneOffs, minutesLeft } from '../../../core/plan';
-import { getRecord, listRecords, setWeekPick, weekPickId, weekPlanId } from '../../../core/records';
+import { addWeeks, formatTime, formatWeekRange, formatWeekday, localDate, weekStart } from '../../../core/dates';
+import { applyPlanChange, autoPickedOneOffs, minutesLeft } from '../../../core/plan';
+import { finishWeek, stopPlanning } from '../../../core/planning';
+import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../core/records';
 import type { LocalDate } from '../../../core/types';
 import { PlusIcon } from '../../components/icons';
 import { useToast } from '../../components/Toast';
@@ -70,12 +71,20 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
     void autoPickRun();
   }, [autoPickRun]);
 
-  const finish = useMutation((w) => w.create('week_plan', { week_start: week, finished_at: nowInstant(clock) }, weekPlanId(week)));
+  // Finishing the plan finishes its planning task, and frees what's left of its block, with Undo for all of it.
+  const finish = useMutation((w) => finishWeek(w, week, clock));
+  const undo = useMutation((w, reverse: Awaited<ReturnType<typeof finishWeek>>['reverse']) => applyPlanChange(w, reverse));
   const onFinish = async () => {
-    if ((await finish.run()) === undefined) return;
-    toast.show('Week planned.');
+    const done = await finish.run();
+    if (!done) return;
+    const zone = clock.zone();
+    const freed = done.freed && `${formatWeekday(localDate(done.freed, zone))} ${formatTime(done.freed, zone)}`;
+    toast.show(freed ? `Week planned. ${freed} is free again.` : 'Week planned.', { undo: () => undo.run(done.reverse) });
     close();
   };
+  // Save and exit: a planning block under way ends now. Everything else is already saved.
+  const stop = useMutation((w) => stopPlanning(w, week, clock));
+  const exit = () => void stop.run().then(close);
 
   const go = (n: number) => setStep(Math.max(0, Math.min(STEPS.length - 1, n)));
   const body = [
@@ -105,7 +114,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
       <div ref={root} className="planning pflow">
         <h1 className="sr">Plan the week</h1>
         <div className="flowtop">
-          <button className="btn" type="button" onClick={close}>
+          <button className="btn" type="button" onClick={exit}>
             Save and exit
           </button>
           {tabs(PHONE_STEPS, 'flowsteps')}
@@ -140,7 +149,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
             <h1>Plan the week</h1>
           </div>
         </div>
-        <button className="btn" type="button" onClick={close}>
+        <button className="btn" type="button" onClick={exit}>
           Save and exit
         </button>
       </div>

@@ -1,7 +1,8 @@
 // Everything Today reads, in one query that re-runs on every change.
 
 import type { Clock } from '../../../core/clock';
-import { dayRange, instantMs, thisWeek, toInstant, today } from '../../../core/dates';
+import { addWeeks, dayRange, instantMs, thisWeek, toInstant, today } from '../../../core/dates';
+import { loadWeekPlanning } from '../../../core/planning';
 import type { Sql } from '../../../core/db';
 import { blocksInRange, completionsSince, inboxCount, needsNewTime } from '../../../core/queries';
 import { busyEvents, queueItems } from '../../../core/queue';
@@ -43,6 +44,8 @@ export async function loadToday(sql: Sql, clock: Clock) {
     signedIn: isSignedIn(await syncStatus(sql)),
     queue: queueItems(await needsNewTime(sql), plans, picks, clock),
     inbox: await inboxCount(sql),
+    // This week's planning, for the prompt to plan it, and next week's, for its row.
+    planning: { this: await loadWeekPlanning(sql, thisWeek(clock)), next: await loadWeekPlanning(sql, addWeeks(thisWeek(clock), 1)) },
   };
 }
 

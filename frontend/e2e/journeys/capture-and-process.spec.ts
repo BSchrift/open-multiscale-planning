@@ -22,7 +22,7 @@ test('capture, process each item to its place, then one offs across the week', a
   const phone = info.project.name === 'phone';
   const errors = await start(page, chicago('2026-11-04', '09:00')); // Wednesday morning.
   await firstRun(page, 'Learn to bake bread');
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
   await tab(page, phone, 'Goals');
   await addProject(page, phone, 'Learn to bake bread', 'Bake a sourdough loaf', '2027-01-29');
   await addMilestones(page, [{ name: 'A starter that rises', due: '2026-11-20' }]);

@@ -214,6 +214,41 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('planning tasks the update saved are a block on Week in the bundle before, and never listed as work to do', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    // As the update saves them: one scheduled, one with no time yet, and one deleted.
+    const planning: Seed[] = [
+      { type: 'task', id: 'planning:week:2026-11-09', fields: { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 30 } },
+      { type: 'time_block', id: 'pb1', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:00'), end: at(6, '17:30'), tz } },
+      { type: 'task', id: 'planning:week:2026-11-16', fields: { kind: 'planning', title: 'Plan the week of Nov 16', plans: ['week:2026-11-16'], estimate_min: 30 } },
+      {
+        type: 'task',
+        id: 'planning:week:2026-10-26',
+        fields: { kind: 'planning', title: 'Plan the week of Oct 26', plans: ['week:2026-10-26'], estimate_min: 30, deleted_at: at(2, '08:00') },
+      },
+    ];
+    await openSeeded(page, [...week, ...planning]);
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before shows the scheduled one on Week under its title, and lists none as work.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Plan the week of Nov 9, Fri Nov 6, 5pm to 5:30pm/ })).toBeVisible();
+    for (const label of ['Inbox', 'One offs', 'Today']) {
+      await go(page, label, /./);
+      await expect(pane(page, label).getByText(/Plan the week of/)).toHaveCount(0);
+    }
+
+    // Updated again, nothing is lost.
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Plan the week of Nov 9, Fri Nov 6, 5pm to 5:30pm/ })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('a block the update paused runs on in the bundle before, which keeps the pause through a change of its own', async ({ context }) => {
     test.skip(oldPauses(), noOlderThanPausing);
     const errors: string[] = [];
@@ -359,7 +394,7 @@ test('an old and a new device of one user: a block the new one paused runs on in
   // Today, past the prompt to plan the week, which only this device remembers skipping.
   const today = async (d: typeof oldDevice) => {
     await go(d.page, 'Today', /^(Today|Plan your week)$/);
-    const skip = pane(d.page, 'Today').getByRole('button', { name: 'Skip for now' });
+    const skip = pane(d.page, 'Today').getByRole('button', { name: /^Skip (for now|planning this week)$/ });
     if (await skip.count()) await skip.click();
     await expect(pane(d.page, 'Today').getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
   };

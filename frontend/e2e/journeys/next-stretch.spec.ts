@@ -13,7 +13,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const goal = 'Learn to bake bread';
   const errors = await start(page, chicago('2026-12-07', '09:00')); // Monday, in the last quarter of 2026.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
 
   // The first plan is for this stretch, from today to the quarter's end.
   await tab(page, phone, 'Plan');
@@ -141,6 +141,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(current).toContainText('Share a loaf');
   await tab(page, phone, 'Today');
   await page.getByRole('button', { name: 'Start planning' }).first().click();
+  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
+  await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Schedule/ }).click();
   if (phone) {
     await page.getByRole('button', { name: /^All picked tasks/ }).click();

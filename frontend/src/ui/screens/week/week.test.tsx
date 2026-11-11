@@ -71,26 +71,50 @@ describe.each(['desktop', 'phone'] as const)('this week before it is planned, on
 
   it('asks to plan instead of offering to edit, as Today does, and Start planning opens planning', async () => {
     const t = await open({ layout });
-    expect(await screen.findByText("This week isn't planned yet.")).toBeVisible();
+    expect(await screen.findByText("This week isn't planned yet. About 30m.")).toBeVisible();
     expect(screen.queryByRole('button', { name: "Edit this week's plan" })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
     expect(t.nav().flow).toMatchObject({ area: 'planning' });
   });
 
-  it('Skip for now puts it away for the week and offers Edit again', async () => {
-    await open({ layout });
-    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+  it('Skip for now puts it away for the week on every device, and offers Edit again', async () => {
+    const t = await open({ layout });
+    // Option D on desktop: × is Skip for now.
+    await userEvent.click(await screen.findByRole('button', { name: layout === 'phone' ? 'Skip for now' : 'Skip planning this week' }));
     expect(await screen.findByRole('button', { name: "Edit this week's plan" })).toBeVisible();
-    expect(screen.queryByText("This week isn't planned yet.")).toBeNull();
-    cleanup();
-    await open({ layout });
-    expect(await screen.findByRole('button', { name: "Edit this week's plan" })).toBeVisible();
+    expect(screen.queryByText(/This week isn't planned yet/)).toBeNull();
+    expect((await getRecord(t.db, 'week_plan', weekPlanId('2026-11-02')))?.planning_skipped_at).toBeTruthy();
+  });
+
+  it('says when planning is set for later, in place of the prompt, with Start now', async () => {
+    const t = await open({
+      layout,
+      seed: async (w) => {
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 2' }, 'planning:week:2026-11-02');
+        await w.create('time_block', { task_id: 'planning:week:2026-11-02', start: '2026-11-04T00:00:00Z', end: '2026-11-04T00:30:00Z', tz: 'America/Chicago' }, 'p1');
+      },
+    });
+    const set = await screen.findByRole('region', { name: 'Planning is set for Tue 6pm.' });
+    expect(screen.queryByText(/This week isn't planned yet/)).toBeNull();
+    await userEvent.click(within(set).getByRole('button', { name: 'Start now' }));
+    expect(t.nav().flow).toEqual({ area: 'planning', params: { week: '2026-11-02' } });
+  });
+
+  it('Plan next week starts planning it, with a block from now', async () => {
+    const t = await open({ layout, seed: planned });
+    if (layout === 'phone') await userEvent.click(await screen.findByRole('button', { name: 'Next week' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Plan next week' }));
+    expect(t.nav().flow).toEqual({ area: 'planning', params: { week: '2026-11-09' } });
+    await waitFor(async () =>
+      expect((await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 'planning:week:2026-11-09')).toMatchObject([{ started_at: '2026-11-02T20:00:00Z' }]),
+    );
+    expect(await screen.findByText('Planning until 2:30pm.')).toBeVisible();
   });
 
   it('once planned, offers Edit and no prompt', async () => {
     await open({ layout, seed: planned });
     expect(await screen.findByRole('button', { name: "Edit this week's plan" })).toBeVisible();
-    expect(screen.queryByText("This week isn't planned yet.")).toBeNull();
+    expect(screen.queryByText(/This week isn't planned yet/)).toBeNull();
   });
 });
 

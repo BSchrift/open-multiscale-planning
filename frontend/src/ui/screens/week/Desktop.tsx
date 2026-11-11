@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { addWeeks, formatMinutes, formatTimeOfDay } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, otherOffers, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
@@ -13,6 +13,8 @@ import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
 import { PlanPrompt } from '../../components/PlanPrompt';
+import { PlanningSet } from '../../components/planning/PlanningRow';
+import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
 import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
@@ -28,6 +30,7 @@ export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
   const nav = useNav();
   const act = useWeekActions();
+  const planning = usePlanningActions();
   const [openBlock, setOpenBlock] = useState<string | null>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
   /** A card being dragged over a day, and where it would land. */
@@ -148,13 +151,14 @@ export function DesktopWeek(props: WeekProps) {
             </button>
           )}
           {(offset === 0 || offset === 1) && !editing && !props.gated && (
-            <button className="btn" type="button" onClick={() => nav.openFlow('planning')}>
+            <button className="btn" type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
             </button>
           )}
         </div>
       </div>
       {props.gated && <PlanPrompt week={data.week} />}
+      {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
       {offset < 0 && <p className="small quiet">Past weeks can be viewed but not changed.</p>}
 
       {!editing && <TimeUse open={model.open} planned={model.planned} free={model.free} alerts={model.alerts} />}

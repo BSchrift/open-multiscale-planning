@@ -211,6 +211,36 @@ describe('the Review step', () => {
     expect(screen.getByText('All weekly aims are reached.')).toBeInTheDocument();
   });
 
+  describe('with a planning task', () => {
+    const PLAN = 'planning:week:2026-11-09';
+    const seed = (block: { start: string; end: string; started_at?: string }) => async (w: Writer) => {
+      await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'] }, PLAN);
+      await w.create('time_block', { task_id: PLAN, ...block, tz: 'America/Chicago' }, 'p1');
+    };
+
+    it('Finish plan ahead of its block finishes the task and frees the block, with Undo', async () => {
+      const close = vi.fn();
+      // Sunday, Nov 8 at 5pm in Chicago.
+      const t = await openPlanning({ step: 3, params: { week: '2026-11-09' }, close, seed: seed({ start: '2026-11-08T23:00:00Z', end: '2026-11-08T23:30:00Z' }) });
+      await userEvent.click(await screen.findByRole('button', { name: 'Finish plan' }));
+      expect(await screen.findByText('Week planned. Sun 5pm is free again.')).toBeVisible();
+      expect((await getRecord(t.db, 'task', PLAN))?.done_at).toBe('2026-11-02T20:00:00Z');
+      expect((await getRecord(t.db, 'time_block', 'p1'))?.cancelled).toBe(true);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'p1'))?.cancelled).toBeFalsy());
+      expect((await getRecord(t.db, 'task', PLAN))?.done_at).toBeNull();
+      expect((await getRecord(t.db, 'week_plan', weekPlanId('2026-11-09')))?.finished_at).toBeNull();
+    });
+
+    it('Save and exit ends the planning block under way at that minute', async () => {
+      const close = vi.fn();
+      const t = await openPlanning({ params: { week: '2026-11-09' }, close, seed: seed({ start: '2026-11-02T19:50:00Z', end: '2026-11-02T20:20:00Z', started_at: '2026-11-02T19:50:00Z' }) });
+      await userEvent.click(await screen.findByRole('button', { name: 'Save and exit' }));
+      await waitFor(() => expect(close).toHaveBeenCalled());
+      expect(await getRecord(t.db, 'time_block', 'p1')).toMatchObject({ end: '2026-11-02T20:00:00Z', ended_at: '2026-11-02T20:00:00Z' });
+    });
+  });
+
   it('on phone, Finish plan is the bottom button', async () => {
     const close = vi.fn();
     await openPlanning({ step: 3, layout: 'phone', close });

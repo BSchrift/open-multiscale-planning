@@ -1,15 +1,17 @@
 // Today: the block in progress or next, what needs attention, one offs due today and the day's timeline. When the
 // week isn't planned it opens on a prompt to plan, and after time away on Welcome back.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatDate, formatDayLong, thisWeek } from '../../../core/dates';
 import { planningDue, planStretch } from '../../../core/plan';
 import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
-import { useApp, useNow, useQuery, useStickyState } from '../../app/store';
-import { useSkippedWeek } from '../../components/PlanPrompt';
+import { useApp, useMutation, useNow, useQuery, useStickyState, useToday } from '../../app/store';
+import { PlanningRow, PlanningSet } from '../../components/planning/PlanningRow';
+import { useFocusLanding } from '../../components/useFocusLanding';
+import { blockAhead, makeDuePlanningTasks, skipWeek, weekGate, weekRow } from '../../../core/planning';
 import { useCalendarCall } from '../settings/useCalendarCall';
 import { loadToday } from './data';
 import type { TodayData } from './data';
@@ -102,9 +104,19 @@ function Head(props: { date: string; title: string }) {
   );
 }
 
+/** The first control at or after an element, for focus once the control that was before it has gone. */
+function firstControl(from: Element | null): HTMLElement | null {
+  for (let el = from; el; el = el.nextElementSibling) {
+    const found = el.matches('button,a[href]') ? el : el.querySelector('button:not([disabled]),a[href]');
+    if (found) return found as HTMLElement;
+  }
+  return null;
+}
+
 function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null }) {
   const { data, unplanned } = props;
   const { clock, layout, sync } = useApp();
+  const land = useFocusLanding();
   const nav = useNav();
   const { prompt, missed } = usePrompts(data);
   const { call } = useCalendarCall();
@@ -152,10 +164,16 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
     });
   }
 
+  // One planning row at a time: this week's set time, else next week's row, which also takes the place of a skipped
+  // week's banner, since that week is nearly over.
+  const set = weekGate(data.planning.this, clock) === 'set' ? blockAhead(data.planning.this, clock) : undefined;
+  const nextRow = !set && weekRow(data.planning.next, clock);
+  const skipped = unplanned && !!data.planning.this.plan?.planning_skipped_at;
+
   return (
     <div className={phone ? 'stack today' : 'wrap stack24 today'}>
       <Head date={data.date} title="Today" />
-      {unplanned && <Banner />}
+      {skipped && !nextRow && <Banner />}
       {phone && shift && (
         <div className="warn shiftwarn" role="status">
           <div className="grow100">
@@ -175,6 +193,8 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       ) : (
         <NowCard blocks={data.blocks} layout={layout} />
       )}
+      {set && <PlanningSet week={data.planning.this.week} block={set} />}
+      {nextRow && <PlanningRow week={data.planning.next.week} onGone={(after) => land(() => firstControl(after))} />}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />
       {(data.blocks.length > 0 || !unplanned) && <DayTimeline data={data} events={data.events} />}
@@ -195,11 +215,17 @@ export default function Screen(_props: ScreenProps) {
   const { clock, layout } = useApp();
   const { data } = useQuery((sql, c) => loadToday(sql, c), []);
   const [picking, setPicking] = useState(false);
-  const [skipped, setSkipped] = useSkippedWeek();
+  // Whenever this device works out Today, it saves any planning task that's due. It places no time.
+  const day = useToday();
+  const makeDue = useMutation(({ automatic: w }) => makeDuePlanningTasks(w, clock));
+  const makeDueRun = makeDue.run;
+  useEffect(() => {
+    void makeDueRun();
+  }, [makeDueRun, day]);
+  const skip = useMutation((w) => skipWeek(w, thisWeek(clock), clock));
   const [pick, setPick] = useStickyState<{ date: string; id: string } | null>('today.pick', null);
   if (!data) return <div className={layout === 'phone' ? 'stack' : 'wrap stack24'} />;
 
-  const week = thisWeek(clock);
   const welcome = welcomeBack(data.recent, data.away, clock);
   const frame = (title: string, body: ReactNode) => (
     <div className={layout === 'phone' ? 'stack' : 'wrap stack24'}>
@@ -215,14 +241,14 @@ export default function Screen(_props: ScreenProps) {
         data={data}
         onPick={(id) => {
           setPick({ date: data.date, id });
-          setSkipped(week);
+          void skip.run();
           setPicking(false);
         }}
       />,
     );
   }
   if (welcome) return frame('Welcome back', <Welcome blocks={welcome.blocks} onReturned={() => setPicking(true)} />);
-  if (!data.planned && skipped !== week) {
+  if (weekGate(data.planning.this, clock) === 'gate') {
     return frame(
       'Plan your week',
       <>

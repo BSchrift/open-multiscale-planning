@@ -93,7 +93,8 @@ export interface Milestone extends BaseRecord {
   dropped_at?: Instant | null;
 }
 
-export type TaskKind = 'inbox' | 'one_off' | 'project';
+/** planning: the app's own task for planning a week, made with no time placed (planning.ts). */
+export type TaskKind = 'inbox' | 'one_off' | 'project' | 'planning';
 export type RepeatUnit = 'day' | 'week' | 'month' | 'year';
 
 /** How a one off comes due. A recurring task stays one record whose next_due moves along. */
@@ -132,6 +133,8 @@ export interface Task extends BaseRecord {
   moved_from?: string | null;
   /** Its description: plain text with a little Markdown (notes.ts), up to MAX_NOTES. */
   notes?: string | null;
+  /** A planning task's plans, such as ['week:2026-11-16']. */
+  plans?: string[] | null;
 }
 
 /** One per finish of a one off. */
@@ -182,6 +185,8 @@ export interface WeekPlan extends BaseRecord {
   skipped_aims?: string[];
   skipped_practices?: string[];
   skipped_past_end?: string[];
+  /** Skip for now on this week's prompt to plan, on every device. */
+  planning_skipped_at?: Instant | null;
 }
 
 /** A task added in Pick tasks. Keyed by weekPickId(week_start, task_id). */

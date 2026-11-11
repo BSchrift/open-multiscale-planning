@@ -551,7 +551,7 @@ describe('when the week is not planned', () => {
   it('opens on a prompt to plan, which opens the planning flow', async () => {
     const t = await unplanned(work);
     expect(await screen.findByRole('heading', { name: 'Plan your week' })).toBeVisible();
-    expect(screen.getByText("This week isn't planned yet.")).toBeVisible();
+    expect(screen.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
     expect(screen.getByText(/1 in your Inbox/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
     expect(t.nav().flow?.area).toBe('planning');
@@ -568,7 +568,7 @@ describe('when the week is not planned', () => {
 
   it('can be skipped, leaving a banner and what to do next, and Start puts it on the clock', async () => {
     const t = await unplanned(work);
-    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip planning this week' }));
     expect(await screen.findByText("This week isn't planned")).toBeVisible();
     const next = screen.getByRole('region', { name: 'Next up' });
     expect(within(next).getByText('Paint the fence')).toBeVisible();

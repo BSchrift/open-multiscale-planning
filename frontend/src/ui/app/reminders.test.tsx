@@ -92,6 +92,24 @@ describe('reminders', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16, 30)));
   });
 
+  it("a planning block's Start starts it and opens planning on its week", async () => {
+    const t = await renderApp({
+      now: NOW,
+      zone: ZONE,
+      seed: async (w) => {
+        await seed(w);
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'] }, 'planning:week:2026-11-09');
+        await w.create('time_block', { task_id: 'planning:week:2026-11-09', start: at(17), end: at(17, 30), tz: ZONE }, 'p1');
+      },
+    });
+    await waitFor(async () => expect((await t.platform.notifications.scheduled()).filter((r) => r.block_id === 'p1').map((r) => r.kind)).toEqual(['block_start']));
+    const start = (await t.platform.notifications.scheduled()).find((r) => r.block_id === 'p1')!;
+    await act(() => t.platform.notifications.respond({ reminder_id: start.id, block_id: 'p1', action_id: REMINDER_ACTION.startPlanning }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'p1'))?.started_at).toBe(NOW));
+    expect(await screen.findByText('Nov 9 to 15')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Plan the week' })).toBeVisible();
+  });
+
   describe('a pause running to the end', () => {
     const paused = (w: Writer) => w.set('time_block', 'b1', { started_at: at(15), paused_at: at(15, 22) });
 

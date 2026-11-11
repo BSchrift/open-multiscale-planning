@@ -101,7 +101,8 @@ Then wait for CI. A PR merges only with every check green.
 ## The product's rules
 
 - **Nothing happens to someone's plan without them.** Time is placed, and tasks are finished, only by an explicit action.
-  Suggestions are shown, never saved.
+  Suggestions are shown, never saved. Planning tasks are the one record the app makes without a tap: they place no time,
+  and they can be skipped or undone.
 - **Every change can be undone,** usually from the toast that reports it.
 - **Copy is plain and specific,** in sentence case, and says what happened.
 - **Accessibility is part of done:**

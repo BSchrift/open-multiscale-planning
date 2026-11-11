@@ -57,6 +57,7 @@ export const SQL = {
     WHERE o.result IN ('partly', 'not')
       AND o.deleted_at IS NULL AND o.dropped_at IS NULL
       AND t.done_at IS NULL AND t.cancelled_at IS NULL AND t.deleted_at IS NULL
+      AND t.kind IS NOT 'planning'
       AND NOT EXISTS (
         SELECT 1 FROM time_block later
         WHERE later.task_id = t.id AND later.start > b.start
@@ -116,6 +117,12 @@ export const SQL = {
     WHERE task_id = :task_id AND start > :now
       AND started_at IS NULL AND cancelled IS NOT 1 AND deleted_at IS NULL`,
 
+  taskBlocks: `
+    SELECT id, task_id, practice_id, start, end, tz, started_at, ended_at, cancelled, deleted_at
+    FROM time_block
+    WHERE task_id = :task_id AND cancelled IS NOT 1 AND deleted_at IS NULL
+    ORDER BY start`,
+
   futurePicks: `
     SELECT id, week_start, task_id, minutes, deleted_at
     FROM week_pick
@@ -161,6 +168,7 @@ export const QUERY_INDEX = {
   completionsSince: [],
   projectTasks: ['task_project'],
   futureBlocks: ['block_task'],
+  taskBlocks: ['block_task'],
   futurePicks: ['pick_week'],
   weekPractices: ['block_start'],
   goalClocks: [],
@@ -276,6 +284,11 @@ export function futureBlocks(sql: Sql, params: { task_id: string; now: Instant }
 }
 
 /** A task's picks from a week on. A closed task gives these up. */
+/** A task's blocks still on the calendar, past ones too, soonest first. */
+export function taskBlocks(sql: Sql, params: { task_id: string }): Promise<TimeBlock[]> {
+  return sql.all<TimeBlock>(SQL.taskBlocks, params);
+}
+
 export function futurePicks(sql: Sql, params: { task_id: string; week_start: LocalDate }): Promise<WeekPick[]> {
   return sql.all<WeekPick>(SQL.futurePicks, { task_id: params.task_id, week_start: params.week_start });
 }

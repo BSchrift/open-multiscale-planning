@@ -7,6 +7,7 @@ import { addDays, formatMinutes, instantMs, thisWeek, weekRange } from '../../..
 import type { Sql } from '../../../core/db';
 import { FIRST_BLOCK_MIN, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
+import { loadWeekPlanning } from '../../../core/planning';
 import { blocksInRange, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
@@ -22,7 +23,7 @@ import type { BlockKind } from '../../components/blocks/describe';
 // shortcut: reads every task, project and block on each change, as planning does; add narrower queries if Week slows.
 export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
   const range = weekRange(week, clock.zone());
-  const [blocks, settings, calendar, sources, weekPlans, picks, queue, records] = await Promise.all([
+  const [blocks, settings, calendar, sources, weekPlans, picks, queue, records, planning] = await Promise.all([
     blocksInRange(sql, range),
     getSettings(sql),
     getRecord(sql, 'calendar', CALENDAR_ID),
@@ -31,8 +32,9 @@ export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
     listRecords(sql, 'week_pick'),
     needsNewTime(sql),
     loadAnalyticsData(sql),
+    loadWeekPlanning(sql, week),
   ]);
-  return { week, blocks, settings, calendar: calendar ?? null, sources, weekPlans, picks, queue, records };
+  return { week, blocks, settings, calendar: calendar ?? null, sources, weekPlans, picks, queue, records, planning };
 }
 
 export type WeekData = Awaited<ReturnType<typeof loadWeek>>;

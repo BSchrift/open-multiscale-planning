@@ -148,7 +148,10 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await expect(placed).toBeVisible();
 
   // While editing, dragged back onto To schedule, it comes off the calendar.
-  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) await page.getByRole('button', { name: 'Skip for now' }).click();
+  // Skip for now is × on desktop, and is kept on the week's plan for every device.
+  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) {
+    await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  }
   await page.getByRole('button', { name: "Edit this week's plan" }).click();
   const block = page.getByRole('group', { name: new RegExp(`^${title}, `) });
   const box = (await block.boundingBox())!;

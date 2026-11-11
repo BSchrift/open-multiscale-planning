@@ -8,7 +8,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { answerBlock, extendBlock, nextBlock, resumeBlock, startBlock, swapBlocks, unscheduleBlock, workMinutes } from '../../core/blocks';
 import type { Clock } from '../../core/clock';
 import { dayRange, instantMs, localDate, today, weekStart } from '../../core/dates';
-import { blocksInRange } from '../../core/queries';
+import { planningWeekOf } from '../../core/planning';
+import { blocksInRange, inboxCount } from '../../core/queries';
 import type { BlockRow } from '../../core/queries';
 import { getRecord, getSettings, listRecords, outcomeId } from '../../core/records';
 import { REMINDER_ACTION, reminderRange, remindersToSchedule, snoozeUntil } from '../../core/reminders';
@@ -121,6 +122,7 @@ export function useReminders(): void {
       blocks: await blocksInRange(sql, reminderRange(c)),
       settings: (await getSettings(sql)).reminders,
       away: await listRecords(sql, 'away_period'),
+      inbox: await inboxCount(sql),
     }),
     [wake],
   );
@@ -131,7 +133,7 @@ export function useReminders(): void {
   useEffect(() => {
     if (!data) return;
     const blocks = new Map(data.blocks.map((b) => [b.id, b]));
-    const list = remindersToSchedule(data.blocks, data.settings, data.away, clock, snoozed).map((r) => withBlock(r, blocks.get(r.block_id)!));
+    const list = remindersToSchedule(data.blocks, data.settings, data.away, clock, snoozed, data.inbox).map((r) => withBlock(r, blocks.get(r.block_id)!));
     chain.current = chain.current
       .then(async () => {
         // Asked once there's something to remind about, rather than at first launch with an empty plan.
@@ -156,6 +158,10 @@ export function useReminders(): void {
       case A.start:
       case A.started:
         return startBlock(w, id, tap);
+      case A.startPlanning:
+        // The app comes to the front for it, and opens planning on this block's week.
+        await startBlock(w, id, tap);
+        return { planning: planningWeekOf(block.task_id) };
       case A.notDone:
         return answerBlock(w, id, { result: 'not' }, tap);
       case A.skip:
@@ -193,7 +199,9 @@ export function useReminders(): void {
     // What other devices changed, if it comes quickly.
     await Promise.race([sync?.syncNow(), new Promise((resolve) => setTimeout(resolve, SYNC_WAIT_MS))]);
     // Rather than act on a block that's no longer what the notification said, show the day as it is.
-    if ((await answer.run(response, tap)) === STALE) nav.go('today');
+    const result = await answer.run(response, tap);
+    if (result === STALE) nav.go('today');
+    else if (result && 'planning' in result && result.planning) nav.openFlow('planning', { week: result.planning });
   };
   const latest = useRef(respond);
   latest.current = respond;

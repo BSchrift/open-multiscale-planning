@@ -5,7 +5,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
-import { addDays, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
+import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { closestFit, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
 import type { Slot, SlotContext, Work } from '../../../core/slots';
@@ -13,6 +13,8 @@ import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
+import { PlanningSet } from '../../components/planning/PlanningRow';
+import { usePlanningActions } from '../../components/planning/usePlanning';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
@@ -45,6 +47,7 @@ export function PhoneWeek(props: WeekProps) {
   const { clock } = useApp();
   const nav = useNav();
   const act = useWeekActions();
+  const planning = usePlanningActions();
   const isThis = offset === 0;
   const now = clock.now();
   const day0 = today(clock);
@@ -183,6 +186,7 @@ export function PhoneWeek(props: WeekProps) {
           </button>
         </div>
         {props.gated && <PlanPrompt week={data.week} />}
+        {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
         {!isThis && !placing && (
           <div className="wkcenter">
             <button className="btn" type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>
@@ -365,7 +369,7 @@ export function PhoneWeek(props: WeekProps) {
           Edit this week's plan
         </button>
       ) : offset === 1 ? (
-        <button className="tray go" type="button" onClick={() => nav.openFlow('planning')}>
+        <button className="tray go" type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
           {model.thisPlanned ? 'Plan next week' : 'Start planning'}
         </button>
       ) : null}

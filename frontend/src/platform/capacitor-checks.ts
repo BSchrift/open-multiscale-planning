@@ -4,11 +4,12 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
 import { systemClock } from '../core/clock';
-import { addDays, nowInstant, thisWeek, toInstant, today } from '../core/dates';
+import { addDays, addWeeks, nowInstant, thisWeek, toInstant, today } from '../core/dates';
 import { META, openDb, refreshStatistics } from '../core/db';
 import type { Db } from '../core/db';
 import { planProblems, seedLarge } from '../core/queries-testing';
-import { setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
+import { nextStretch } from '../core/plan';
+import { getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
@@ -86,8 +87,13 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
   const on = today(clock);
   const now = clock.now();
   await transact(db, clock, async (w) => {
-    await updateSettings(w, { setup_done_at: nowInstant(clock) });
-    await w.create('week_plan', { week_start: thisWeek(clock), finished_at: nowInstant(clock) }, weekPlanId(thisWeek(clock)));
+    // This week, the next and the stretches are planned, so Today shows no planning row above the work these tests drag
+    // and answer: the stretch's row is taller than the alert it replaced, and pushed the day out of the drag's reach.
+    const stretch = nextStretch(await getSettings(w.sql), on);
+    await updateSettings(w, { setup_done_at: nowInstant(clock), plan_stretch: { last_planned: stretch.start } });
+    for (const week of [thisWeek(clock), addWeeks(thisWeek(clock), 1)]) {
+      await w.create('week_plan', { week_start: week, finished_at: nowInstant(clock) }, weekPlanId(week));
+    }
     const goal = await w.create('objective', { title: 'Learn to bake bread', state: 'active' });
     const project = await w.create('project', { objective_id: goal, title: 'Bake a sourdough loaf', state: 'active', start: on, end: addDays(on, 90) });
     const milestone = await w.create('milestone', { project_id: project, title: 'A starter that rises', due: addDays(on, 14), added_on: on });

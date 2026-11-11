@@ -495,7 +495,68 @@ export async function finishWeek(
   const planned = await setWeekPlan(w, week, { finished_at: nowInstant(clock) });
   const minutes = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.planning_min ?? null;
   const closed = await closePlanning(w, weekPlanningId(week), clock);
-  return { reverse: { writes: [...closed.reverse.writes, planned] }, freed: closed.freed, minutes };
+  // Planned in the stretch's block, carried on from its Finish and plan the week: that block ends now too.
+  const covering = await endCoveringBlocks(w, week, clock);
+  return { reverse: { writes: [...covering, ...closed.reverse.writes, planned] }, freed: closed.freed, minutes };
+}
+
+/** The week whose planning a stretch's planning block covers too, when the two share one. */
+export const coveredWeek = (task: Task | null): LocalDate | null => task?.plans?.find((x) => x.startsWith('week:'))?.slice('week:'.length) ?? null;
+
+/** Both in one block for at most this long; past it, each plan gets its own row. */
+export const BOTH_LONGEST_MIN = LONGEST_PLANNING_MIN;
+
+/** The stretch's task takes the shared block and lists the week among its plans, which covers the week's own row. */
+async function coverWeek(w: Writer, s: { stretch: Stretch; first: boolean }, week: LocalDate): Promise<RecordWrite> {
+  const id = planningId(s);
+  const title = `${stretchPlanningTitle(s.stretch)} and the week of ${formatDate(week)}`;
+  return { type: 'task', id, fields: await w.set('task', id, { plans: [`stretch:${s.stretch.start}`, `week:${week}`], title }) };
+}
+
+/** Schedule both: one block, the stretch's, covering the week too. Undo takes it back and parts them again. */
+export async function scheduleBoth(
+  w: Writer,
+  s: { stretch: Stretch; first: boolean },
+  week: LocalDate,
+  times: { start: Instant; end: Instant },
+  clock: Clock,
+): Promise<PlanChange> {
+  const placed = await schedulePlanning(w, s, times, clock);
+  return { writes: [...placed.writes, await coverWeek(w, s, week)] };
+}
+
+/** Start both: one block from now, the stretch's, covering the week too. */
+export async function startBoth(
+  w: Writer,
+  s: { stretch: Stretch; first: boolean },
+  week: LocalDate,
+  minutes: Minutes,
+  clock: Clock,
+): Promise<{ reverse: PlanChange; until: Instant | null }> {
+  const started = await startPlanning(w, s, minutes, clock);
+  return { reverse: { writes: [...started.reverse.writes, await coverWeek(w, s, week)] }, until: started.until };
+}
+
+/** Delete on the shared row deletes both tasks, with one reverse. */
+export async function deleteBoth(w: Writer, s: { stretch: Stretch; first: boolean }, week: LocalDate, clock: Clock): Promise<PlanChange> {
+  const stretch = await deletePlanning(w, s, clock);
+  const weekly = await deletePlanning(w, week, clock);
+  return { writes: [...weekly.writes, ...stretch.writes] };
+}
+
+/** Ends the blocks under way of a stretch's planning task that covers this week, now that the week is planned too. */
+async function endCoveringBlocks(w: Writer, week: LocalDate, clock: Clock): Promise<RecordWrite[]> {
+  const covering = (await listRecords(w.sql, 'task')).filter((t) => t.kind === 'planning' && t.id.startsWith('planning:stretch:') && coveredWeek(t) === week);
+  const now = clock.now();
+  const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+  const writes: RecordWrite[] = [];
+  for (const t of covering) {
+    for (const b of await taskBlocks(w.sql, { task_id: t.id })) {
+      if (b.ended_at || instantMs(b.start) > now || instantMs(b.end) <= now) continue;
+      writes.push({ type: 'time_block', id: b.id, fields: await w.set('time_block', b.id, { end: toInstant(Math.max(minute, instantMs(b.start))), ended_at: nowInstant(clock) }) });
+    }
+  }
+  return writes;
 }
 
 /**
@@ -514,16 +575,31 @@ async function closePlanning(w: Writer, id: string, clock: Clock): Promise<{ rev
 
 /**
  * Finishing a stretch's plan finishes its planning task, as finishWeek does, and keeps the minutes it took among the
- * last 3 the estimate learns from. Returns the reverse, which reopens the task and its block, and the block freed.
+ * last 3 the estimate learns from. With its week too (Finish and plan the week), a block shared with that week carries
+ * on into weekly planning, which ends it. Finished alone, the week goes back to its own row. Returns the reverse, which
+ * reopens the task and its block, and the block freed.
  */
-export async function finishStretchPlanning(w: Writer, start: LocalDate, clock: Clock): Promise<{ reverse: PlanChange; freed: Instant | null }> {
-  const closed = await closePlanning(w, stretchPlanningId(start), clock);
+export async function finishStretchPlanning(
+  w: Writer,
+  start: LocalDate,
+  clock: Clock,
+  andWeek = false,
+): Promise<{ reverse: PlanChange; freed: Instant | null }> {
+  const id = stretchPlanningId(start);
+  const task = (await getRecord(w.sql, 'task', id)) ?? null;
+  const week = coveredWeek(task);
+  const parted: RecordWrite[] =
+    week && !andWeek ? [{ type: 'task', id, fields: await w.set('task', id, { plans: [`stretch:${start}`], title: task!.title.replace(/ and the week of .*$/, '') }) }] : [];
+  const closed =
+    week && andWeek && isOpen(task)
+      ? { reverse: await closeTask(w, id, 'done', clock), freed: null }
+      : await closePlanning(w, id, clock);
   const held = (await getSettings(w.sql)).stretch_planning;
   if (held?.start === start) {
     const history = [...(held.history ?? []), ...(held.min ? [held.min] : [])].slice(-MEASURED_STRETCHES);
     await w.create('settings', { stretch_planning: { start, history } }, SETTINGS_ID);
   }
-  return closed;
+  return { reverse: { writes: [...closed.reverse.writes, ...parted] }, freed: closed.freed };
 }
 
 /**

@@ -25,7 +25,13 @@ const toMinutes = (time: string) => {
 const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 /** name is the week as the person reads it: 'this week', 'next week' or 'the week after'. */
-export function PlanningTimes(props: { for: PlanningFor; name: string; onClose(): void }) {
+export function PlanningTimes(props: {
+  for: PlanningFor;
+  name: string;
+  /** Both plans in one block: the week the stretch's block covers, their combined length, and parting them. */
+  both?: { week: LocalDate; minutes: number; onSeparate(): void };
+  onClose(): void;
+}) {
   const { for: week, onClose } = props;
   const { clock } = useApp();
   const planning = usePlanningTimes(week);
@@ -36,12 +42,13 @@ export function PlanningTimes(props: { for: PlanningFor; name: string; onClose()
   const title = `When will you plan ${props.name}?`;
   if (!planning) return null;
   const { estimate } = planning;
-  const minutes = length ?? estimate.minutes;
+  const minutes = length ?? props.both?.minutes ?? estimate.minutes;
+  const both = props.both && !isWeek(week) ? { ...props.both, s: week } : null;
   const now = planning.now(minutes);
   const times = planning.times(minutes);
   const done = (slot: Slot) => {
     onClose();
-    void act.schedule(week, slot);
+    void (both ? act.scheduleBoth(both.s, both.week, slot) : act.schedule(week, slot));
   };
 
   return (
@@ -60,7 +67,7 @@ export function PlanningTimes(props: { for: PlanningFor; name: string; onClose()
             autoFocus
             onClick={() => {
               onClose();
-              void act.start(week, minutes);
+              void (both ? act.startBoth(both.s, both.week, minutes) : act.start(week, minutes));
             }}
           >
             <span>Now, until {formatTime(now.end, clock.zone())}</span>
@@ -97,6 +104,18 @@ export function PlanningTimes(props: { for: PlanningFor; name: string; onClose()
       ) : (
         <button className="btn" type="button" onClick={() => setChanging(true)}>
           Change length
+        </button>
+      )}
+      {both && (
+        <button
+          className="btn"
+          type="button"
+          onClick={() => {
+            onClose();
+            both.onSeparate();
+          }}
+        >
+          Plan them at separate times
         </button>
       )}
       <button className="btn" type="button" onClick={onClose}>

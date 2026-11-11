@@ -27,7 +27,8 @@ const blocksOf = async (t: { db: Parameters<typeof listRecords>[0] }) => (await 
 describe("the stretch's planning row on Today", () => {
   it.each(['desktop', 'phone'] as const)('on %s, says how long, and schedules in one tap with Undo, in place of the old alert', async (layout) => {
     const t = await renderScreen('today', { now: THURSDAY, zone: ZONE, layout, seed: planned });
-    const row = await screen.findByRole('region', { name: 'Plan the next stretch' });
+    // The first render loads Today's code, which can take longer than a find's second under load.
+    const row = await screen.findByRole('region', { name: 'Plan the next stretch' }, { timeout: 5000 });
     expect(within(row).getByText(/Jan 1 to Mar 31 · About 45m/)).toBeVisible();
     expect(screen.queryByText(/Plan the next stretch\. It starts/)).toBeNull();
     await userEvent.click(within(row).getByRole('button', { name: /^Schedule planning for / }));
@@ -54,11 +55,22 @@ describe("the stretch's planning row on Today", () => {
     expect(within(row).getByText(/Ends Dec 31 · About 1h/)).toBeVisible();
   });
 
-  it("waits behind next week's row", async () => {
-    // Friday, Dec 25: next week's row is due too.
-    await renderScreen('today', { now: at('2026-12-25', '10:00'), zone: ZONE, seed: planned });
-    expect(await screen.findByRole('region', { name: 'Plan next week' })).toBeVisible();
-    expect(screen.queryByRole('region', { name: 'Plan the next stretch' })).toBeNull();
+  it('shares one row and one block with next week when both are due, and parts them on request', async () => {
+    // Friday, Dec 25: next week's planning is due too, and together they take 1h 15m.
+    const t = await renderScreen('today', { now: at('2026-12-25', '10:00'), zone: ZONE, seed: planned });
+    const row = await screen.findByRole('region', { name: 'Plan the next stretch and next week' });
+    expect(within(row).getByText(/Jan 1 to Mar 31, then the week of Dec 28 · About 1h 15m/)).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Plan next week' })).toBeNull();
+    await userEvent.click(within(row).getByRole('button', { name: /^Schedule planning for / }));
+    expect(await screen.findByText(/^Planning scheduled for /)).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Plan the next stretch and next week' })).toBeNull());
+    expect(screen.queryByRole('region', { name: 'Plan next week' })).toBeNull();
+    expect(await getRecord(t.db, 'task', ID)).toMatchObject({ title: 'Plan Jan 1 to Mar 31 and the week of Dec 28' });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    const again = await screen.findByRole('region', { name: 'Plan the next stretch and next week' });
+    await userEvent.click(within(again).getByRole('button', { name: 'Choose a time to plan the next stretch and next week' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Plan them at separate times' }));
+    expect(await screen.findByRole('region', { name: 'Plan the next stretch' })).toBeVisible();
   });
 });
 

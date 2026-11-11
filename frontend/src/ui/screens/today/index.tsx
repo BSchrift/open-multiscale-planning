@@ -9,8 +9,9 @@ import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useNow, useQuery, useStickyState, useToday } from '../../app/store';
 import { PlanningRow, PlanningSet } from '../../components/planning/PlanningRow';
 import { StretchRow } from '../../components/planning/StretchRow';
+import { BothRows } from '../../components/planning/BothRow';
 import { useFocusLanding } from '../../components/useFocusLanding';
-import { blockAhead, makeDuePlanningTasks, skipWeek, stretchRow, weekGate, weekRow } from '../../../core/planning';
+import { blockAhead, coveredWeek, makeDuePlanningTasks, skipWeek, stretchRow, weekGate, weekRow } from '../../../core/planning';
 import { useCalendarCall } from '../settings/useCalendarCall';
 import { loadToday } from './data';
 import type { TodayData } from './data';
@@ -152,7 +153,10 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   // One planning row at a time: this week's set time, else next week's row, which also takes the place of a skipped
   // week's banner, since that week is nearly over.
   const set = weekGate(data.planning.this, clock) === 'set' ? blockAhead(data.planning.this, clock) : undefined;
-  const nextRow = !set && weekRow(data.planning.next, clock);
+  const stretchPlan = data.planning.stretch;
+  // A stretch's block shared with next week covers the week's own row.
+  const covered = !!stretchPlan && coveredWeek(stretchPlan.task) === data.planning.next.week && !!blockAhead(stretchPlan, clock);
+  const nextRow = !set && !covered && weekRow(data.planning.next, clock);
   // The stretch's row waits behind next week's.
   const stretch = data.planning.stretch;
   const stretchShown = !set && !nextRow && !!stretch && stretchRow(stretch, clock);
@@ -184,7 +188,12 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         <NowCard blocks={data.blocks} layout={layout} />
       )}
       {set && <PlanningSet week={data.planning.this.week} block={set} />}
-      {nextRow && <PlanningRow planning={data.planning.next} onGone={(after) => land(() => firstControl(after))} />}
+      {/* A first plan, due until it's made, waits behind the week's rather than joining it. */}
+      {nextRow && stretchPlan && !stretchPlan.first && stretchRow(stretchPlan, clock) ? (
+        <BothRows week={data.planning.next} stretch={stretchPlan.stretch} first={stretchPlan.first} onGone={(after) => land(() => firstControl(after))} />
+      ) : (
+        nextRow && <PlanningRow planning={data.planning.next} onGone={(after) => land(() => firstControl(after))} />
+      )}
       {stretchShown && <StretchRow stretch={stretch.stretch} first={stretch.first} onGone={(after) => land(() => firstControl(after))} />}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />

@@ -457,11 +457,12 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const stop = useMutation((w) => stopPlanning(w, planning, clock));
   const exit = () => void time.flush().then(() => stop.run()).then(close);
   // Finishing saves the plan and finishes its planning task, freeing what's left of its block; Undo puts both back.
-  const save = useMutation(async (w, fields: Fields<'settings'>) => {
+  const save = useMutation(async (w, fields: Fields<'settings'>, andWeek: boolean) => {
     const pinned = held ? await applyPlanChange(w, held.change) : { writes: [] };
     const before = (await getRecord(w.sql, 'settings', SETTINGS_ID)) ? await w.set('settings', SETTINGS_ID, fields) : null;
     if (!before) await updateSettings(w, fields);
-    const closed = await finishStretchPlanning(w, planning.stretch.start, clock);
+    // Finish and plan the week carries a block shared with the week on into weekly planning.
+    const closed = await finishStretchPlanning(w, planning.stretch.start, clock, andWeek);
     return { pinned, before, closed };
   });
   const unfinish = useMutation(async (w, done: NonNullable<Awaited<ReturnType<typeof save.run>>>) => {
@@ -509,7 +510,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
     const pinned = data.settings.plan_cadence ? data.settings.plan_stretch : pinStretch(data.settings, [], st, st).settings.plan_stretch;
     const note = flow.note.trim();
     await time.flush();
-    const done = await save.run({ plan_stretch: { ...pinned, last_planned: st.start, last_note: note || pinned.last_note || null } });
+    const done = await save.run({ plan_stretch: { ...pinned, last_planned: st.start, last_note: note || pinned.last_note || null } }, week);
     if (done === undefined) return;
     resetFlow();
     const zone = clock.zone();

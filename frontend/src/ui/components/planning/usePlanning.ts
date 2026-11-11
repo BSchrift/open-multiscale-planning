@@ -8,7 +8,10 @@ import type { Sql } from '../../../core/db';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import {
+  deleteBoth,
   deletePlanning,
+  scheduleBoth,
+  startBoth,
   isWeek,
   nowSlot,
   planningId,
@@ -21,6 +24,10 @@ import {
   weekEstimate,
 } from '../../../core/planning';
 import type { Estimate, PlanningFor } from '../../../core/planning';
+import type { Stretch } from '../../../core/plan';
+
+/** A stretch's planning, as the shared row holds it. */
+type Both = { stretch: Stretch; first: boolean };
 import { blocksInRange, inboxCount } from '../../../core/queries';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
@@ -127,6 +134,21 @@ export function usePlanningActions() {
         `Planning for ${isWeek(p) ? `the week of ${formatDate(p)}` : `${formatDate(p.stretch.start)} to ${formatDate(p.stretch.end)}`} deleted.`,
       ),
     skip: (week: LocalDate) => undoable((w) => skipWeek(w, week, clock), 'Skipped planning this week.'),
+    /** Both plans in one block, the stretch's, covering the week. */
+    scheduleBoth: (s: Both, week: LocalDate, slot: Slot) =>
+      undoable((w) => scheduleBoth(w, s, week, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`),
+    removeBoth: (s: Both, week: LocalDate) =>
+      undoable((w) => deleteBoth(w, s, week, clock), `Planning for ${formatDate(s.stretch.start)} to ${formatDate(s.stretch.end)} and the week of ${formatDate(week)} deleted.`),
+    startBoth: async (s: Both, week: LocalDate, minutes: Minutes) => {
+      let until: string | null = null;
+      const reverse = await run(async (w) => {
+        const started = await startBoth(w, s, week, minutes, clock);
+        until = started.until;
+        return started.reverse;
+      });
+      if (reverse && until) toast.show(`Planning until ${formatTime(until, zone)}.`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
+      nav.openFlow('plan');
+    },
     /**
      * Places a block from now, for the estimate unless given a length, unless one is under way, there's no time or the
      * week or stretch is planned already. Then opens planning on it.

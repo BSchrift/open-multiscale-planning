@@ -29,6 +29,12 @@ const oldPauses = () => {
   return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('unless you resume.'));
 };
 const noOlderThanPausing = 'The bundle before already pauses blocks, so there is no older one to run against.';
+// The same for the stretch flow from goals to the Inbox, once it's on main.
+const oldPlansToInbox = () => {
+  const assets = join(process.env.COMPAT_OLD ?? '', 'assets');
+  return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('Give each item a home'));
+};
+const noOlderThanInboxStep = 'The bundle before already plans a stretch through the Inbox, so there is no older one to run against.';
 
 /** Notes what the page logs as an error, such as a query the database refused. */
 function consoleErrors(page: Page, errors: string[], name: Bundle) {
@@ -328,6 +334,7 @@ test.describe('one device', () => {
   });
 
   test('planning ahead left on a step the bundle before lacks resumes there on its nearest, and the update follows a step it moved to', async ({ context }) => {
+    test.skip(oldPlansToInbox(), noOlderThanInboxStep);
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);
     let page = await launch(context, 'new', errors);

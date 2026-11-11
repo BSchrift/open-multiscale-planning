@@ -44,7 +44,10 @@ export interface MacReleaseConfig {
   githubSubject?: string;
 }
 
-/** How long a run waits for the Mac apps when control.yaml doesn't say: time for the owner to approve the build. */
+/**
+ * How long a run waits for the Mac apps when control.yaml doesn't say: time to build them, and for the owner to approve
+ * the build when the release environment asks.
+ */
 export const DEFAULT_MAC_WAIT = 'PT2H';
 /** CodeBuild runs a build for up to 8 hours, and checking the apps takes some of it. */
 export const MAX_MAC_WAIT_SECONDS = 7 * 3600;

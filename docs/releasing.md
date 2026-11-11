@@ -21,7 +21,7 @@ the Mac release's, which may only upload to the pipeline's inbox, through GitHub
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
-| **Nightly** | Staging | The full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
+| **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed iPhone build from that tag, and the Mac app's too until the Mac release is set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
@@ -141,8 +141,36 @@ The release records it: the email before prod shows the run's canary and alarm s
   is published.
 - **After promotion:** revert the bad commit on main and let it release. A fix that can't wait 90 minutes can skip
   the canary.
-- **The web app and the feed:** release the commit before the bad one: `make promote COMMIT=<sha>`. The apps keep
-  the bundle they have until a newer one is published.
+- **The web app, or one app's feed:** switch it back to a version kept, as below.
+
+### One surface at a time
+
+`make release-surface ENV=prod SURFACE=web|desktop|iphone VERSION=<version>` switches one surface to a version the
+bucket keeps, signed in with the environment's profile as `make release` is. Without `VERSION`, it lists what each
+surface serves, each one's last versions with their times, and the versions kept. The pipeline switches with the same
+code (`scripts/pipeline.sh`).
+
+| Surface | To roll back | What it changes |
+| --- | --- | --- |
+| Web | Switch to the version before | Every page loaded from then on, within seconds |
+| The Mac or iPhone feed, to stop a version spreading | Switch the feed to the version before | Devices that haven't taken the bad version won't. Devices that have keep it |
+| The Mac or iPhone apps, to take a version back | Revert on main and let it release: a newer build with the old code | Every device, at its next check after that run reaches it |
+
+A feed switch only stops a bad version spreading, because the apps never take an older bundle than the one they have:
+the page skips a release whose build isn't newer (`frontend/src/core/updates.ts`), and the Mac and iPhone install only
+a newer bundle and always run the newest they have. A device that already took the bad one keeps it, unless it failed
+its 20-second trial, which rolls it back on that device by itself. A revert on main is a newer build with the old code.
+
+It refuses a version that isn't kept, and, for a feed, a version built for other native code than the apps that feed
+serves, since they couldn't take it. Web has no such guard: a browser loads whatever page is live. The compatibility
+test checks the bundle a release replaces against the new one, so going back one version is tested. Going back further
+is the owner's call, and the command says so.
+
+While bundles from before the per-app feeds are about, `SURFACE=shared` switches the shared feed they read, with both
+apps' native code checked.
+
+Every night, staging's run switches the web app and each app's feed back one version and forward again with the same
+code, and reads each back from its host.
 
 When a release alarm is already firing as a deploy starts, CodeDeploy refuses the deploy, and CloudFormation rolls it
 back. To ship the fix for it, see [Shipping while a release alarm fires](#shipping-while-a-release-alarm-fires).
@@ -157,6 +185,7 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | `make pipeline-resume` | Each main commit releases to staging again |
 | `make pipeline-stop` | Stops the run waiting in its window before prod, abandoning it and ending its window, so its Promote now link no longer works, and says which commit it stopped. Staging keeps that commit; prod never gets it |
 | `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip` and `ALARMS=off` are above |
+| `make release-surface` | Lists what each surface serves and the versions kept, or switches one surface to a version kept: [One surface at a time](#one-surface-at-a-time) |
 | `make release-tag` | Tags the commit prod last released as `release-<date>`, noting a skipped canary or the alarms off, and pushes the tag |
 | `make pipeline-config` | Uploads the config folder's files the pipeline reads: `control.yaml`, `staging.yaml`, `prod.yaml`, and each release key's public half. Each key itself goes where only the signing step reads it |
 | `make deploy ENV=pipeline` | Deploys the pipeline itself |

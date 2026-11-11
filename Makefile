@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -99,6 +99,11 @@ promote:
 
 release-tag:
 	@scripts/pipeline.sh tag
+
+# Lists what each surface serves and the versions kept: ENV=staging (default) or prod. With SURFACE=web|desktop|iphone
+# and VERSION=<version>, switches that surface to a version kept, such as the one before: docs/releasing.md.
+release-surface:
+	@scripts/pipeline.sh release-surface
 
 pipeline-config:
 	@scripts/pipeline.sh config

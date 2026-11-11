@@ -219,11 +219,13 @@ test('an unplanned week opens on the prompt to plan; skipping leaves a banner an
   const errors = await open(page, [fence]);
   await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
   await expect(page.getByText('1 one off due.')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Skip for now' }).click();
-  await expect(page.getByText("This week isn't planned")).toBeVisible();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
   const next = page.getByRole('region', { name: 'Next up' });
   await next.getByRole('button', { name: 'Start Paint the fence' }).click();
   await expect(page.getByRole('region', { name: 'Current block' }).getByText('Now, 2pm to 2:30pm')).toBeVisible();
+  // The skip is saved on the week's plan now, and phone WebKit's database saves 200ms after a change (platform/web.ts).
+  await page.waitForTimeout(600);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
   expect(errors).toEqual([]);

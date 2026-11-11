@@ -31,6 +31,8 @@ async function openSchedule(page: Page, phone: boolean) {
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
   await page.getByRole('button', { name: 'Start planning' }).first().click();
+  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
+  await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
   return errors;
 }

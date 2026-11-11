@@ -13,7 +13,7 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await firstRun(page, 'Write a novel');
   // A new install with nothing planned opens on the prompt to plan the week.
   await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
 
   await tab(page, phone, 'Goals');
   await addProject(page, phone, 'Write a novel', 'Finish the first draft', '2026-12-18');

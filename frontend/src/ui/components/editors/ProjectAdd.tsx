@@ -1,38 +1,55 @@
-// Adds a project under a goal. It needs a name and an end date on or after its start.
+// Adds a project under a goal. It needs a name and an end date on or after its start. Planning gives it the end of the
+// stretch it plans, and saves it its own way, so the project lands on its Undo line rather than in a toast.
 
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { addMonths, formatDate, isDay, today } from '../../../core/dates';
-import { currentStretch } from '../../../core/plan';
+import { currentStretch, planStretch } from '../../../core/plan';
 import { getSettings } from '../../../core/records';
+import type { Fields, LocalDate } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
 
 
-export function ProjectAdd(props: { objectiveId: string | null; goalTitle?: string; onClose(): void; onAdded?(id: string): void }) {
+export function ProjectAdd(props: {
+  objectiveId: string | null;
+  goalTitle?: string;
+  /** The end it starts with, in place of the stretch's. */
+  end?: LocalDate;
+  /** Saves the project instead of the form, resolving to its id. The caller then reports it. */
+  write?(fields: Fields<'project'>): Promise<string | undefined>;
+  onClose(): void;
+  onAdded?(id: string): void;
+  /** Saves the project in the caller's own change instead, with what goes with it, so one Undo takes it all back. True once saved. */
+  save?(fields: Fields<'project'> & { title: string }): Promise<boolean>;
+}) {
   const { clock } = useApp();
   const toast = useToast();
   const on = today(clock);
   const [title, setTitle] = useState('');
   const [start, setStart] = useState(on);
   const settings = useQuery((sql) => getSettings(sql), []).data;
-  // The end of the stretch being planned, or 3 months without a cadence, until the person picks one.
+  // The end of the stretch being planned, the next one once its planning opens, or 3 months without a cadence, until the
+  // person picks one.
   const [picked, setEnd] = useState<string | null>(null);
-  const end = picked ?? (settings && currentStretch(settings, on)?.end) ?? addMonths(on, 3);
+  const end = picked ?? props.end ?? (settings && currentStretch(settings, on) ? planStretch(settings, on).end : addMonths(on, 3));
   const [error, setError] = useState('');
-  const add = useMutation((w, name: string) =>
-    w.create('project', { objective_id: props.objectiveId, title: name, state: 'active', start, end }),
-  );
+  const add = useMutation((w, fields: Fields<'project'>) => w.create('project', fields));
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();
     if (!name) return setError('Give it a name.');
     if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-    const id = await add.run(name);
+    const fields: Fields<'project'> = { objective_id: props.objectiveId, title: name, state: 'active', start, end };
+    if (props.save) {
+      if (await props.save({ ...fields, title: name })) props.onClose();
+      return;
+    }
+    const id = props.write ? await props.write(fields) : await add.run(fields);
     if (!id) return;
-    toast.show(`Project added, ${formatDate(start)} to ${formatDate(end)}.`);
+    if (!props.write) toast.show(`Project added, ${formatDate(start)} to ${formatDate(end)}.`);
     props.onAdded?.(id);
     props.onClose();
   };

@@ -446,6 +446,19 @@ describe('Goals', () => {
       expect(within(screen.getByRole('form', { name: 'Add project' })).getByLabelText('Ends')).toHaveValue('2027-02-02');
     });
 
+    // Planning the next quarter, Jan 1 to Mar 31, opens a week before this one ends, on Dec 24.
+    it.each([
+      ['with this stretch before planning the next one opens', '2026-12-20T18:00:00Z', '2026-10-01', '2026-12-31'],
+      ['with the next stretch once its planning opens', '2026-12-26T18:00:00Z', '2026-10-01', '2027-03-31'],
+      ['with the next stretch once it has been planned', '2026-12-20T18:00:00Z', '2027-01-01', '2027-03-31'],
+    ])('ends a new project %s', async (_, now, lastPlanned, end) => {
+      const planned = async (w: Writer) => (await bread(w), updateSettings(w, { plan_stretch: { last_planned: lastPlanned } }));
+      await renderScreen('goals', { layout, now, seed: planned });
+      await userEvent.click(await screen.findByRole('button', { name: /Learn to bake bread/ }));
+      await userEvent.click(screen.getByRole('button', { name: layout === 'phone' ? '+ Project' : 'Add project' }));
+      expect(within(screen.getByRole('form', { name: 'Add project' })).getByLabelText('Ends')).toHaveValue(end);
+    });
+
     it('asks the overdue question: Move date previews the status, logs the change with Undo and a badge', async () => {
       const t = await project(layout);
       const fix = await screen.findByRole('group', { name: 'Make a starter was due Oct 25' });
@@ -1038,6 +1051,20 @@ describe('Goals', () => {
   });
 
   describe('practices', () => {
+    it('a link to a practice opens it, in its section on desktop and in its sheet on phone', async () => {
+      await renderScreen('goals', { seed: bread, params: { show: 'pr1' } });
+      expect(await screen.findByRole('button', { name: /^Stretch/, expanded: true })).toBeVisible();
+      expect(screen.getByRole('slider', { name: 'Target' })).toBeVisible();
+      cleanup();
+      await renderScreen('goals', { seed: bread, params: { show: 'pr1' }, layout: 'phone' });
+      expect(await screen.findByRole('dialog', { name: 'Edit practice' })).toBeVisible();
+    });
+
+    it('a link to a goal opens it', async () => {
+      await renderScreen('goals', { seed: bread, params: { show: 'g2' } });
+      expect(await screen.findByRole('button', { name: /^Run a 10k/, expanded: true })).toBeVisible();
+    });
+
     it('on desktop: no goal section, link to a goal, target slider, pause, end', async () => {
       const t = await renderScreen('goals', { seed: bread });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
@@ -1090,19 +1117,24 @@ describe('Goals', () => {
     });
   });
 
-  it('on phone, offers planning when it is due', async () => {
+  it("on phone, says when the stretch's planning is set, and leaves the asking to Today", async () => {
     const planned = async (w: Writer) => (await bread(w), w.create('settings', { plan_stretch: { last_planned: '2026-10-01' } }, 'settings'));
-    const t = await renderScreen('goals', { layout: 'phone', seed: planned, now: '2026-12-26T18:00:00Z' });
-    await userEvent.click(await screen.findByRole('button', { name: 'Time to plan the next stretch' }));
-    expect(t.nav().flow?.area).toBe('plan');
-    cleanup();
-    // Never planned, a first plan is due from the first day.
-    await renderScreen('goals', { layout: 'phone', seed: bread });
-    expect(await screen.findByRole('button', { name: 'Time to plan your first stretch' })).toBeVisible();
-    cleanup();
-    await renderScreen('goals', { layout: 'phone', seed: planned });
+    await renderScreen('goals', { layout: 'phone', seed: planned, now: '2026-12-26T18:00:00Z' });
     await screen.findByRole('heading', { level: 1, name: 'Goals' });
-    expect(screen.queryByRole('button', { name: /Time to plan/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Time to plan|^Planning:/ })).toBeNull();
+    cleanup();
+    const t = await renderScreen('goals', {
+      layout: 'phone',
+      now: '2026-12-26T18:00:00Z',
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'] }, 'planning:stretch:2027-01-01');
+        // Sunday, Dec 27 at 9am in Chicago.
+        await w.create('time_block', { task_id: 'planning:stretch:2027-01-01', start: '2026-12-27T15:00:00Z', end: '2026-12-27T15:45:00Z', tz: 'America/Chicago' });
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Planning: Sun Dec 27, 9am' }));
+    expect(t.nav().flow?.area).toBe('plan');
   });
 
   it('on phone, a project row opens its page', async () => {

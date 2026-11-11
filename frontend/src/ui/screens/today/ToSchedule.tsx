@@ -22,7 +22,8 @@ export function ToSchedule(props: { date: LocalDate }) {
   const [openId, setOpenId] = useState<string | null>(null);
   if (!model) return null;
   const phone = layout === 'phone';
-  const items = model.unscheduled.filter((x) => !x.dates || (x.dates.from <= props.date && props.date <= x.dates.to));
+  // Planning has its own row on Today.
+  const items = model.unscheduled.filter((x) => x.kind !== 'planning' && (!x.dates || (x.dates.from <= props.date && props.date <= x.dates.to)));
   const item = items.find((x) => x.id === openId);
   const close = () => setOpenId(null);
   const actions = item && (

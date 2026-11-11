@@ -45,6 +45,47 @@
   width: auto;
 }
 
+/* A field with its button, the button level with the field rather than its label. */
+[data-layout] .fieldandbtn {
+  align-items: flex-end;
+}
+
+[data-layout] .homeform .iconbtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 0;
+  color: var(--quiet);
+}
+
+[data-layout='phone'] .homeform .iconbtn {
+  min-width: var(--tap);
+}
+
+[data-layout] .homeform .iconbtn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+[data-layout] .homeline {
+  align-items: center;
+  gap: 6px;
+}
+
+/* On phone the sheet scrolls above the keyboard, and the button to add stays in view at its foot. */
+[data-layout='phone'] .homeform .homeacts {
+  position: sticky;
+  bottom: 0;
+  padding: var(--space-2) 0;
+  background: var(--white);
+}
+
 [data-layout='desktop'] .inlineform {
   margin: var(--space-2) 0;
 }

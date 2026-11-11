@@ -12,7 +12,7 @@ import type { LaneItem } from './data';
 // The card styles, for Today too.
 import './week.css';
 
-const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint' } as const;
+const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint', planning: 'k-planning' } as const;
 
 /** '4 · 5h 30m', after To schedule */
 export const laneCount = (items: readonly LaneItem[]) => `${items.length} · ${formatMinutes(items.reduce((sum, x) => sum + x.left, 0))}`;

@@ -137,6 +137,144 @@
   flex: 1 1 100%;
 }
 
+/* Does it fit, and the pinned Undo line, stay in view as the step scrolls. */
+[data-layout='desktop'] .planflow .planpin {
+  position: sticky;
+  top: calc(-1 * var(--space-6));
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  background: var(--ground);
+}
+
+[data-layout] .planflow .fitbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+[data-layout] .planflow .fitbar .mmeter {
+  flex: 0 1 140px;
+  background: var(--white);
+  box-shadow: inset 0 0 0 1px var(--card-line);
+}
+
+[data-layout='phone'] .planflow .flowtop .fitbar {
+  order: 3;
+  flex: 1 0 100%;
+}
+
+[data-layout] .planflow .fits {
+  color: var(--green);
+}
+
+[data-layout] .planflow .stepmark {
+  color: var(--quiet);
+}
+
+[data-layout='desktop'] .planflow .steptab .stepmark {
+  margin-left: 4px;
+}
+
+/* A goal's pen, as on the Goals page, whose styles may not have loaded yet. */
+[data-layout] .planflow .penbtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+
+[data-layout] .planflow .penbtn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The goal sits on a line of its own under the project's name. */
+[data-layout='desktop'] .planflow .qname .editrow {
+  flex: 1 0 100%;
+}
+
+[data-layout='phone'] .planflow .flowstep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+[data-layout='phone'] .planflow .flowstep .stepmark {
+  min-height: 1.2em;
+  font-size: var(--text-xs);
+}
+
+/* A project's goal, under its name: amber while it has none. */
+[data-layout] .planflow .plgoal {
+  min-height: 32px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--ink-2);
+}
+
+[data-layout='phone'] .planflow .plgoal {
+  min-height: var(--tap);
+}
+
+[data-layout] .planflow .plgoal.none {
+  border-color: var(--amber-line);
+  background: var(--amber-pale);
+  color: var(--amber-ink-2);
+}
+
+[data-layout] .planflow .goalpick .pickrow {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+[data-layout] .planflow .goalpick .pickrow[aria-pressed='true'] {
+  border-color: var(--blue);
+  background: var(--blue-tint);
+}
+
+/* Add hangs from its button's right edge, at the top right of the page. */
+[data-layout='desktop'] .planflow .addwrap .qpop {
+  left: auto;
+  right: 0;
+  width: 220px;
+}
+
+[data-layout='phone'] .planflow .addmenu .btn {
+  min-height: 56px;
+  justify-content: flex-start;
+}
+
+[data-layout] .planflow .planadd {
+  padding: var(--space-2) 0;
+}
+
+[data-layout] .planflow .changed {
+  min-height: 32px;
+  align-items: center;
+}
+
+[data-layout='phone'] .planflow .changed {
+  min-height: var(--tap);
+}
+
+/* On phone a new goal's name takes the whole row, with its buttons under it. */
+[data-layout='phone'] .planflow .newgoal .field {
+  flex: 1 1 100%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-layout] .planflow * {
     transition: none !important;

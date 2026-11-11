@@ -93,6 +93,82 @@ describe('reminders', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16, 30)));
   });
 
+  it("a planning block's Start starts it and opens planning on its week", async () => {
+    const t = await renderApp({
+      now: NOW,
+      zone: ZONE,
+      seed: async (w) => {
+        await seed(w);
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'] }, 'planning:week:2026-11-09');
+        await w.create('time_block', { task_id: 'planning:week:2026-11-09', start: at(17), end: at(17, 30), tz: ZONE }, 'p1');
+      },
+    });
+    await waitFor(async () => expect((await t.platform.notifications.scheduled()).filter((r) => r.block_id === 'p1').map((r) => r.kind)).toEqual(['block_start']));
+    const start = (await t.platform.notifications.scheduled()).find((r) => r.block_id === 'p1')!;
+    await act(() => t.platform.notifications.respond({ reminder_id: start.id, block_id: 'p1', action_id: REMINDER_ACTION.startPlanning }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'p1'))?.started_at).toBe(NOW));
+    expect(await screen.findByText('Nov 9 to 15')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Plan the week' })).toBeVisible();
+  });
+
+  it("a stretch's planning block's Start opens the stretch flow", async () => {
+    const t = await renderApp({
+      now: NOW,
+      zone: ZONE,
+      seed: async (w) => {
+        await seed(w);
+        await w.create('task', { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'] }, 'planning:stretch:2027-01-01');
+        await w.create('time_block', { task_id: 'planning:stretch:2027-01-01', start: at(17), end: at(17, 45), tz: ZONE }, 'sp');
+      },
+    });
+    await waitFor(async () => expect((await t.platform.notifications.scheduled()).some((r) => r.block_id === 'sp')).toBe(true));
+    const start = (await t.platform.notifications.scheduled()).find((r) => r.block_id === 'sp')!;
+    await act(() => t.platform.notifications.respond({ reminder_id: start.id, block_id: 'sp', action_id: REMINDER_ACTION.startPlanning }));
+    expect(await screen.findByRole('heading', { name: /^Plan (the next|your first) stretch$/ })).toBeVisible();
+  });
+
+  describe("the weekly reminder about next week's planning", () => {
+    // Friday, Nov 6 at 1pm: next week's row offers 5pm today, so the reminder comes at 2pm.
+    const FRIDAY = localToInstant('2026-11-06', 13 * 60, ZONE);
+    const weekly = async (t: Awaited<ReturnType<typeof renderApp>>) => (await t.platform.notifications.scheduled()).find((r) => r.kind === 'planning_unscheduled');
+
+    it('comes 3 hours before the time the row offers, and Choose a time opens Today on next week’s times', async () => {
+      const t = await renderApp({ now: FRIDAY, zone: ZONE, seed });
+      await waitFor(async () => expect(await weekly(t)).toMatchObject({ at: localToInstant('2026-11-06', 14 * 60, ZONE), title: "Next week isn't planned yet", body: 'About 30m. Fri 5pm is free.' }));
+      const r = (await weekly(t))!;
+      await act(() => t.platform.notifications.respond({ reminder_id: r.id, block_id: r.block_id, action_id: REMINDER_ACTION.choosePlanningTime }));
+      expect(await screen.findByRole('dialog', { name: 'When will you plan next week?' })).toBeVisible();
+    });
+
+    it('is not sent with its switch off', async () => {
+      const t = await renderApp({
+        now: FRIDAY,
+        zone: ZONE,
+        seed: async (w) => {
+          await seed(w);
+          await w.create('settings', { reminders: { block_start: true, check_in: true, check_in_delay_min: 5, block_end: true, planning: false } }, 'settings');
+        },
+      });
+      await waitFor(async () => expect((await t.platform.notifications.scheduled()).length).toBeGreaterThanOrEqual(0));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(await weekly(t)).toBeUndefined();
+    });
+
+    it("a planning block for a week an older app planned gets no start notification", async () => {
+      const t = await renderApp({
+        now: NOW,
+        zone: ZONE,
+        seed: async (w) => {
+          await seed(w);
+          await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 2', plans: ['week:2026-11-02'] }, 'planning:week:2026-11-02');
+          await w.create('time_block', { task_id: 'planning:week:2026-11-02', start: at(17), end: at(17, 30), tz: ZONE }, 'p1');
+        },
+      });
+      await waitFor(async () => expect(await t.platform.notifications.scheduled()).toHaveLength(3));
+      expect((await t.platform.notifications.scheduled()).some((r) => r.block_id === 'p1')).toBe(false);
+    });
+  });
+
   describe('a pause running to the end', () => {
     const paused = (w: Writer) => w.set('time_block', 'b1', { started_at: at(15), paused_at: at(15, 22) });
 

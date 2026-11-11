@@ -685,3 +685,43 @@ test('an old device changing a task keeps the attachments a new device added', a
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });
+
+test('an old and a new device of one user: planning begun on the new one is no trouble to the old, which finishes it, and the new one then has nothing to continue', async ({
+  browser,
+}) => {
+  // On staging's shared test user, planning may be under way from a run cut short and the stretch planned already, so
+  // the new device starts from Goals either way, and the old one finishes the plan again.
+  const run = randomUUID().slice(0, 8);
+  const oldDevice = await device(browser, `e2e-${run}`, on('old'));
+  const newDevice = await device(browser, `e2e-${run}`, on('new'));
+  consoleErrors(oldDevice.page, oldDevice.errors, 'old');
+  consoleErrors(newDevice.page, newDevice.errors, 'new');
+  await signIn(oldDevice.page);
+  await signIn(newDevice.page);
+  const plan = async (page: Page, name: RegExp) => {
+    await go(page, 'Plan');
+    await pane(page, 'Plan').getByRole('button', { name }).click();
+  };
+
+  // The new device begins planning and shares how far it got, a field the old one doesn't know.
+  const cta = /^(Continue planning|Plan (now|the next stretch|your first stretch|without a cadence))$/;
+  await plan(newDevice.page, cta);
+  await newDevice.page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Goals/ }).click();
+  await newDevice.page.getByRole('button', { name: /^(Goals look right|Continue without goals)$/ }).click();
+  await expect(newDevice.page.getByRole('heading', { name: /^Step \d of \d, Practices\./ })).toBeVisible();
+  await newDevice.page.getByRole('button', { name: 'Save and exit' }).click();
+  for (const d of [newDevice, oldDevice]) await syncNow(d.page);
+
+  // The old device plans and finishes as it always has.
+  await plan(oldDevice.page, cta);
+  await oldDevice.page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Finish/ }).click();
+  await oldDevice.page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(oldDevice.page.getByText(/^Your plan for .* is set\.$/)).toBeVisible();
+  for (const d of [oldDevice, newDevice]) await syncNow(d.page);
+
+  // On the new device, that plan is done: nothing to continue.
+  await go(newDevice.page, 'Plan');
+  await expect(pane(newDevice.page, 'Plan').getByRole('button', { name: 'Continue planning' })).toHaveCount(0);
+  expect(oldDevice.errors).toEqual([]);
+  expect(newDevice.errors).toEqual([]);
+});

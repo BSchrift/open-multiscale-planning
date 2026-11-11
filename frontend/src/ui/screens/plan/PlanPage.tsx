@@ -13,7 +13,7 @@ import { useApp, useMutation, useToday } from '../../app/store';
 import { diamondClass } from '../../components/MilestoneDiamond';
 import { CadenceEditor } from './Cadence';
 import type { PlanData } from './data';
-import { beginFlow, usePlanFlow } from './flowState';
+import { adoptProgress, beginFlow, readFlow, usePlanFlow, withProgress } from './flowState';
 import { planContext, planGroups, range, whereNow } from './model';
 import type { PlanGroup } from './model';
 import { usePlanningActions } from '../../components/planning/usePlanning';
@@ -75,17 +75,19 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
   const phone = props.layout === 'phone';
   const nav = useNav();
   const on = useToday();
-  const flow = usePlanFlow();
+  // Planning begun on another device counts as under way here too.
+  const flow = withProgress(usePlanFlow(), data.settings, on);
   const where = whereNow(data.settings, on, flow);
   const [editing, setEditing] = useState(props.params.cadence === 'edit');
   const save = useMutation((w, fields: Fields<'settings'>) => updateSettings(w, fields));
   const planning = useStretchPlanning();
   const act = usePlanningActions();
 
-  // Planning resumes where it was, or begins at its first step. A plan that's due gets a planning block from now, as
-  // every Start does.
+  // Planning resumes where it was, here or on another device, or begins at its first step. A plan that's due gets a
+  // planning block from now, as every Start does.
   const open = () => {
-    if (!flow.begun) beginFlow();
+    adoptProgress(data.settings, on);
+    if (!readFlow().begun) beginFlow();
     if (planning.due) void act.start(planning.due);
     else nav.openFlow('plan');
   };

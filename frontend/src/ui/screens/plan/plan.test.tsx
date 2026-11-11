@@ -970,3 +970,57 @@ describe('Planning ahead', () => {
     expect(plan_stretch).toMatchObject({ last_planned: '2026-11-05', one_offs: [{ start: '2026-11-05', end: '2027-02-05' }] });
   });
 });
+
+describe('Planning ahead, shared with your other devices', () => {
+  const elsewhere = { for: '2027-01-01', step: 'projects', done: ['goals', 'practices'], seen: ['goals', 'practices', 'projects'], note: 'Fewer projects', at: '2026-11-02T19:00:00.000Z' };
+  const begunElsewhere = async (w: Writer) => (await seed(w), updateSettings(w, { plan_progress: elsewhere }));
+
+  describe.each(['desktop', 'phone'] as const)('on %s', (layout) => {
+    it('offers to continue planning begun on another device, and opens where it was left', async () => {
+      const t = await page(layout, { seed: begunElsewhere });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue planning' }));
+      expect(t.nav().flow?.area).toBe('plan');
+      expect(readFlow()).toMatchObject({ begun: true, stepKey: 'projects', step: 2, done: ['goals', 'practices'], note: 'Fewer projects' });
+      cleanup();
+      localStorage.clear();
+      await renderScreen('plan', { layout, seed: begunElsewhere, presentation: 'flow' });
+      expect(await screen.findByRole('heading', { name: 'Step 3 of 5, Projects. What will you reach by Mar 31?' })).toBeVisible();
+      expect(screen.getByText('Welcome back. Goals and Practices are done. You were on Projects.', { selector: ':not(.sr)' })).toBeVisible();
+      expect(tab('Practices')).toHaveAccessibleName(layout === 'phone' ? 'Practices, done' : '2. Practices, done');
+    });
+
+    it('shares each step and done mark as it changes, the note as you leave it, and Finish ends it everywhere', async () => {
+      const { t, close } = await flow(layout);
+      await waitFor(async () => expect((await getSettings(t.db)).plan_progress).toMatchObject({ for: '2027-01-01', step: 'goals', done: [] }));
+      await userEvent.click(next(layout, 'Goals look right'));
+      await waitFor(async () => expect((await getSettings(t.db)).plan_progress).toMatchObject({ step: 'practices', done: ['goals'], seen: ['goals', 'practices'] }));
+      await userEvent.click(tab('Finish'));
+      const note = await screen.findByRole('textbox', { name: 'Anything to do differently this stretch? (optional)' });
+      await userEvent.type(note, 'Fewer projects');
+      await userEvent.tab();
+      await waitFor(async () => expect((await getSettings(t.db)).plan_progress).toMatchObject({ step: 'finish', note: 'Fewer projects' }));
+      await userEvent.click(layout === 'phone' ? within(document.querySelector('.flowdock:not(.plundo)') as HTMLElement).getByRole('button', { name: 'Finish' }) : screen.getByRole('button', { name: 'Finish' }));
+      await waitFor(() => expect(close).toHaveBeenCalled());
+      expect((await getSettings(t.db)).plan_progress).toBeNull();
+    });
+
+    it('goes on from another device’s progress even when that device’s clock is ahead of this one', async () => {
+      // Written with a clock well ahead of this device's.
+      const ahead = { ...elsewhere, at: '2099-01-01T00:00:00.000Z' };
+      await renderScreen('plan', { layout, presentation: 'flow', seed: async (w) => (await seed(w), updateSettings(w, { plan_progress: ahead })) });
+      expect(await screen.findByRole('heading', { name: /^Step 3 of 5, Projects\./ })).toBeVisible();
+      await userEvent.click(next(layout, 'Continue with 1 milestone'));
+      expect(await screen.findByRole('heading', { name: /^Step 4 of 5, Inbox\./ })).toBeVisible();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.getByRole('heading', { name: /^Step 4 of 5, Inbox\./ })).toBeVisible();
+      expect(readFlow()).toMatchObject({ stepKey: 'inbox', done: ['goals', 'practices', 'projects'] });
+    });
+
+    it('once another device has planned the stretch, has nothing here to continue', async () => {
+      writeFlow({ begun: true, for: '2027-01-01', stepKey: 'projects', step: 2, at: '2026-11-02T19:00:00.000Z' });
+      await page(layout, { seed: async (w) => (await seed(w), updateSettings(w, { plan_stretch: { last_planned: '2027-01-01' }, plan_progress: elsewhere })) });
+      expect(await screen.findByRole('heading', { name: 'Calendar quarters' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Continue planning' })).toBeNull();
+    });
+  });
+});

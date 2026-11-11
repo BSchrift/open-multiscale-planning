@@ -167,6 +167,7 @@ export const RECORD_FIELDS = {
     'one_offs_weekly_aim',
     'plan_cadence',
     'plan_stretch',
+    'plan_progress',
     'reminders',
     'avoided_slots',
     'setup_done_at',

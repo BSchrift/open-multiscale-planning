@@ -239,6 +239,24 @@ export interface PlanStretch {
   last_note?: string | null;
 }
 
+/**
+ * How far planning ahead has got, shared so it resumes on any device (ui/screens/plan/flowState.ts). Released apps keep
+ * it unread. It's over once its stretch is planned, and Finish clears it.
+ */
+export interface PlanProgress {
+  /** The start of the stretch being planned. */
+  for: LocalDate;
+  /** The step it's on, and those continued from and opened, by key. Strings, so a later app's step reads safely. */
+  step: string;
+  done: string[];
+  seen: string[];
+  /** The day a first plan began, which its stretch starts on. */
+  begun_on?: LocalDate | null;
+  note?: string | null;
+  /** When it last changed on the device that wrote it, so the newer of it and a device's own wins. */
+  at: Instant;
+}
+
 export interface ReminderSettings {
   block_start: boolean;
   check_in: boolean;
@@ -262,6 +280,8 @@ export interface Settings extends BaseRecord {
   /** null means no fixed schedule. */
   plan_cadence: PlanCadence | null;
   plan_stretch: PlanStretch;
+  /** Planning ahead under way, on any device, or null. */
+  plan_progress?: PlanProgress | null;
   reminders: ReminderSettings;
   avoided_slots: AvoidedSlot[];
   /** Set when first-run setup ends, here so a second device skips it. */

@@ -1,6 +1,7 @@
 // Planning ahead: Goals (before any stretch has started, how often to plan comes first), Practices, Projects, the
 // Inbox and Finish, as tabs that can be visited in any order. Decisions apply at once, each with Undo; Save and exit
-// resumes later at the same step. Does it fit stays in view until Finish, which shows all of it.
+// resumes later at the same step, on this device or another. Does it fit stays in view until Finish, which shows all
+// of it.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -12,7 +13,7 @@ import { addStretchMinutes, finishStretchPlanning, stopPlanning } from '../../..
 import { getRecord, SETTINGS_ID, updateSettings } from '../../../core/records';
 import { usePlanningTime } from '../planning/usePlanningTime';
 import type { Writer } from '../../../core/records';
-import type { Fields, Practice } from '../../../core/types';
+import type { Fields, PlanProgress, Practice } from '../../../core/types';
 import { useNav, useOverlay } from '../../app/nav';
 import type { Layout } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
@@ -28,7 +29,22 @@ import { CadenceFields, draftOf } from './Cadence';
 import type { CadenceDraft } from './Cadence';
 import { loadLookBack } from './data';
 import type { PlanData } from './data';
-import { beginFlow, goToStep, logChange, markDone, readFlow, resetFlow, stepOf, unlogChange, usePlanFlow, writeFlow } from './flowState';
+import {
+  adoptProgress,
+  beginFlow,
+  goToStep,
+  logChange,
+  markDone,
+  progressOf,
+  readFlow,
+  resetFlow,
+  settleNote,
+  stepOf,
+  unlogChange,
+  usePlanFlow,
+  withProgress,
+  writeFlow,
+} from './flowState';
 import type { StepKey } from './flowState';
 import { GoalField, NewGoalForm, useAdd } from './GoalPicker';
 import { GoalsStep, shownGoals } from './GoalsStep';
@@ -296,6 +312,8 @@ function FinishStep(props: {
   unseen: StepKey[];
   onGo(step: StepKey): void;
   onUndo(key: string): void;
+  /** The note is shared with your other devices once you leave it. */
+  onNoteDone(): void;
   onFinish(week: boolean): void;
 }) {
   const { data, ctx, st, fit, phone } = props;
@@ -408,7 +426,14 @@ function FinishStep(props: {
         <label className="small quiet" htmlFor={noteId}>
           Anything to do differently this stretch? (optional)
         </label>
-        <textarea id={noteId} className="field" rows={2} value={flow.note} onChange={(event) => writeFlow({ note: event.target.value })} />
+        <textarea
+          id={noteId}
+          className="field"
+          rows={2}
+          value={flow.note}
+          onChange={(event) => writeFlow({ note: event.target.value })}
+          onBlur={props.onNoteDone}
+        />
       </div>
       <p className="small quiet">{data.settings.plan_cadence ? `Next planning: ${formatDate(planningOpens(st))}.` : 'Plan again whenever you like.'}</p>
       {!phone && (
@@ -456,7 +481,11 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const overlay = useOverlay();
   const toast = useToast();
   const on = useToday();
-  const flow = usePlanFlow();
+  // Another device's progress is taken up as the flow opens, not while it's open, so the step never moves underfoot.
+  // Once taken up, this device's own goes on from it, whatever either device's clock says.
+  const [opened, setOpened] = useState<typeof props.data.settings | null>(() => props.data.settings);
+  const own = usePlanFlow();
+  const flow = opened ? withProgress(own, opened, on) : own;
   const where = whereNow(props.data.settings, on, flow);
   const first = where.firstPlan;
   // A first plan's dates are held here as if saved, with what was already put in this stretch, until Finish or Change
@@ -496,6 +525,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
     if (done.before) await w.set('settings', SETTINGS_ID, done.before);
     await applyPlanChange(w, done.pinned);
   });
+  const share = useMutation((w, progress: PlanProgress) => updateSettings(w, { plan_progress: progress }));
   const add = useAdd((...args) => act(...args));
   const head = useRef<HTMLHeadingElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -512,7 +542,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const processing = useRef(false);
   // Opened again after an earlier visit: say where planning was.
   const [welcome, setWelcome] = useState(() => {
-    const was = readFlow();
+    const was = withProgress(readFlow(), props.data.settings, on);
     if (!was.seen.length) return null;
     const done = steps.filter((s) => was.done.includes(s)).map((s) => NAMES[s]);
     const verb = done.length > 1 || done[0]?.endsWith('s') ? 'are' : 'is';
@@ -522,10 +552,28 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   // However the flow was opened, it now counts as begun, so leaving it offers Continue planning, and a first plan
   // keeps the day it began as its start.
   useEffect(() => {
+    if (opened) adoptProgress(opened, on);
+    setOpened(null);
     if (!readFlow().begun) beginFlow();
     if (!readFlow().begunOn) writeFlow({ begunOn: on });
     if (welcome) setSaid(welcome);
   }, []);
+
+  // Which stretch this planning is for, so it ends everywhere once that stretch is planned. A first plan's can change.
+  useEffect(() => {
+    if (readFlow().for !== st.start) writeFlow({ for: st.start });
+  }, [st.start]);
+
+  // Where planning is goes to your other devices as it changes. The note goes once you leave it.
+  const progress = progressOf(flow);
+  const shared = progress && JSON.stringify([progress.for, progress.step, progress.done, progress.seen, progress.begun_on]);
+  const shareNow = () => {
+    const now = progressOf(readFlow());
+    if (now) void share.run(now);
+  };
+  useEffect(() => {
+    if (shared) shareNow();
+  }, [shared]);
 
   // Each step starts at its top, with focus on its heading. Opening it writes its key, which also maps a released
   // app's step number once, and notes it as looked at.
@@ -584,7 +632,13 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
     const pinnedStretch = data.settings.plan_cadence ? data.settings.plan_stretch : pinStretch(data.settings, [], st, st).settings.plan_stretch;
     const note = flow.note.trim();
     await time.flush();
-    const done = await save.run({ plan_stretch: { ...pinnedStretch, last_planned: st.start, last_note: note || pinnedStretch.last_note || null } }, week);
+    const done = await save.run(
+      {
+        plan_stretch: { ...pinnedStretch, last_planned: st.start, last_note: note || pinnedStretch.last_note || null },
+        plan_progress: null,
+      },
+      week,
+    );
     if (done === undefined) return;
     // Nothing has reached the Inbox since its step was continued from, so weekly planning can start on Pick tasks.
     const sorted = flow.inbox !== null && data.inbox.every((i) => flow.inbox!.includes(i.id));
@@ -667,7 +721,21 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
       />
     ),
     finish: (
-      <FinishStep key="finish" data={data} ctx={ctx} st={st} fit={fit} phone={phone} head={stepHead} act={act} unseen={unseen} onGo={go} onUndo={undo} onFinish={finish} />
+      <FinishStep
+        key="finish"
+        data={data}
+        ctx={ctx}
+        st={st}
+        fit={fit}
+        phone={phone}
+        head={stepHead}
+        act={act}
+        unseen={unseen}
+        onGo={go}
+        onUndo={undo}
+        onNoteDone={() => (settleNote(), shareNow())}
+        onFinish={finish}
+      />
     ),
   }[step];
 

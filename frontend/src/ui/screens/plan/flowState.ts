@@ -1,14 +1,17 @@
-// Where planning ahead is up to, kept on this device only: the step, the steps continued from and opened, the note, and
-// what changed so far with each change's reverse. The Plan page, the flow and the More line all read it, so it's one
-// store rather than per-component state.
+// Where planning ahead is up to: the step, the steps continued from and opened, the note, and what changed so far with
+// each change's reverse. The Plan page, the flow and the More line all read it, so it's one store rather than
+// per-component state. It's kept on this device, and all but the changes are shared with your other devices through
+// settings.plan_progress, so planning begun on one resumes on another: the newer of the two wins, and either is over
+// once its stretch is planned, on any device.
 //
 // Released apps read the same key on the same origin, and know the step only as a number over their own steps: Look
 // back or Start, Practices, Projects, Time and Finish. So that number is still written beside the step's key, and a
 // number one of them has moved since wins over the key.
 
 import { useSyncExternalStore } from 'react';
-import type { PlanChange } from '../../../core/plan';
-import type { LocalDate } from '../../../core/types';
+import { currentStretch } from '../../../core/plan';
+import type { CadenceSettings, PlanChange } from '../../../core/plan';
+import type { Instant, LocalDate, PlanProgress } from '../../../core/types';
 
 export type StepKey = 'start' | 'goals' | 'practices' | 'projects' | 'inbox' | 'finish';
 
@@ -42,10 +45,28 @@ export interface PlanFlow {
   begunOn: LocalDate | null;
   /** The Inbox's items when its step was continued from, so weekly planning can tell whether any came in since. */
   inbox: string[] | null;
+  /** The start of the stretch being planned. Once that stretch is planned, on any device, this planning is over. */
+  for: LocalDate | null;
+  /** When the step, the done marks or the note last changed here, to weigh against another device's. */
+  at: Instant | null;
 }
 
 const KEY = 'multiscale.plan.flow';
-const EMPTY: PlanFlow = { begun: false, step: 0, stepKey: null, done: [], seen: [], note: '', changes: [], restart: false, begunOn: null, inbox: null };
+const EMPTY: PlanFlow = {
+  begun: false,
+  step: 0,
+  stepKey: null,
+  done: [],
+  seen: [],
+  note: '',
+  changes: [],
+  restart: false,
+  begunOn: null,
+  inbox: null,
+  for: null,
+  at: null,
+};
+const now = () => new Date().toISOString();
 const listeners = new Set<() => void>();
 let lastRaw: string | null = null;
 let last: PlanFlow = EMPTY;
@@ -88,7 +109,7 @@ export function writeFlow(patch: Partial<PlanFlow>): void {
  * rest too.
  */
 export function beginFlow(patch: Partial<PlanFlow> = {}): void {
-  writeFlow({ begun: true, step: 0, stepKey: null, done: [], seen: [], inbox: null, ...patch });
+  writeFlow({ begun: true, step: 0, stepKey: null, done: [], seen: [], inbox: null, for: null, at: now(), ...patch });
 }
 
 /** The step to show, of those on offer: its key, unless a released app has moved the step since. */
@@ -100,12 +121,12 @@ export function stepOf(flow: PlanFlow, steps: readonly StepKey[]): StepKey {
 
 export function goToStep(key: StepKey): void {
   const { seen } = readFlow();
-  writeFlow({ stepKey: key, step: OLD_NUMBER[key], seen: seen.includes(key) ? seen : [...seen, key] });
+  writeFlow({ stepKey: key, step: OLD_NUMBER[key], seen: seen.includes(key) ? seen : [...seen, key], at: now() });
 }
 
 export function markDone(key: StepKey): void {
   const { done } = readFlow();
-  if (!done.includes(key)) writeFlow({ done: [...done, key] });
+  if (!done.includes(key)) writeFlow({ done: [...done, key], at: now() });
 }
 
 /**
@@ -124,6 +145,51 @@ export function unlogChange(key: string): void {
   const { changes } = readFlow();
   const entry = changes.find((c) => c.key === key);
   writeFlow({ changes: [...changes.filter((c) => c.key !== key), ...(entry?.prev ? [entry.prev] : [])] });
+}
+
+/** The note, as you leave the field, when it's shared. */
+export const settleNote = () => writeFlow({ at: now() });
+
+/** What's shared of planning with your other devices, or null until it knows the stretch it's for. */
+export function progressOf(flow: PlanFlow): PlanProgress | null {
+  if (!flow.begun || !flow.for || !flow.stepKey || !flow.at) return null;
+  return { for: flow.for, step: flow.stepKey, done: flow.done, seen: flow.seen, begun_on: flow.begunOn, note: flow.note || null, at: flow.at };
+}
+
+const isStep = (s: unknown): s is StepKey => typeof s === 'string' && s in OLD_NUMBER;
+
+/**
+ * This device's planning with another device's progress brought in: the newer of the two. Planning whose stretch is
+ * planned is over, and progress from before the stretch under way began is left behind. It writes nothing.
+ */
+export function withProgress(flow: PlanFlow, settings: CadenceSettings & { plan_progress?: PlanProgress | null }, on: LocalDate): PlanFlow {
+  const last = settings.plan_stretch.last_planned;
+  const planned = (start: LocalDate | null) => !!start && !!last && last >= start;
+  const own = flow.begun && planned(flow.for) ? EMPTY : flow;
+  const p = settings.plan_progress;
+  if (!p || !isStep(p.step) || planned(p.for) || p.for < (currentStretch(settings, on)?.start ?? '')) return own;
+  if (own.begun && (own.at ?? '') >= p.at) return own;
+  return {
+    ...own,
+    begun: true,
+    for: p.for,
+    stepKey: p.step,
+    step: OLD_NUMBER[p.step],
+    done: p.done.filter(isStep),
+    seen: p.seen.filter(isStep),
+    begunOn: p.begun_on ?? own.begunOn,
+    note: p.note ?? own.note,
+    at: p.at,
+    // Another stretch's changes and Inbox aren't this one's.
+    ...(own.for !== p.for ? { changes: [], inbox: null, restart: false } : {}),
+  };
+}
+
+/** Takes up withProgress's view on this device, so planning goes on from it here. */
+export function adoptProgress(settings: CadenceSettings & { plan_progress?: PlanProgress | null }, on: LocalDate): void {
+  const flow = readFlow();
+  const view = withProgress(flow, settings, on);
+  if (view !== flow) writeFlow(view);
 }
 
 /** Back to nothing begun, once a plan is finished. */

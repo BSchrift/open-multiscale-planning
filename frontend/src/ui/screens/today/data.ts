@@ -2,7 +2,7 @@
 
 import type { Clock } from '../../../core/clock';
 import { addWeeks, dayRange, instantMs, thisWeek, toInstant, today } from '../../../core/dates';
-import { loadWeekPlanning } from '../../../core/planning';
+import { loadTaskPlanning, loadWeekPlanning, planningId, stretchPlanningDue } from '../../../core/planning';
 import type { Sql } from '../../../core/db';
 import { blocksInRange, completionsSince, inboxCount, needsNewTime } from '../../../core/queries';
 import { busyEvents, queueItems } from '../../../core/queue';
@@ -45,8 +45,18 @@ export async function loadToday(sql: Sql, clock: Clock) {
     queue: queueItems(await needsNewTime(sql), plans, picks, clock),
     inbox: await inboxCount(sql),
     // This week's planning, for the prompt to plan it, and next week's, for its row.
-    planning: { this: await loadWeekPlanning(sql, thisWeek(clock)), next: await loadWeekPlanning(sql, addWeeks(thisWeek(clock), 1)) },
+    planning: {
+      this: await loadWeekPlanning(sql, thisWeek(clock)),
+      next: await loadWeekPlanning(sql, addWeeks(thisWeek(clock), 1)),
+      stretch: await stretchPlanning(sql, date),
+    },
   };
+}
+
+/** The stretch whose planning is due, with its task and blocks. */
+async function stretchPlanning(sql: Sql, date: string) {
+  const due = stretchPlanningDue(await getSettings(sql), date);
+  return due ? { ...due, ...(await loadTaskPlanning(sql, planningId(due))) } : null;
 }
 
 export type TodayData = Awaited<ReturnType<typeof loadToday>>;

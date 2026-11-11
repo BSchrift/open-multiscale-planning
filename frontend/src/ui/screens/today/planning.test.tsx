@@ -312,3 +312,19 @@ describe('a planning block for a week planned on an older app', () => {
     expect(await screen.findByText('Freed 6pm to 6:30pm.')).toBeVisible();
   });
 });
+
+describe('a skipped week with only planning over today', () => {
+  it('offers Next up, as an empty day does', async () => {
+    await renderScreen('today', {
+      now: at(THIS, '11:00'),
+      zone: ZONE,
+      seed: async (w) => {
+        await w.create('week_plan', { week_start: THIS, planning_skipped_at: at(THIS, '08:00') }, weekPlanId(THIS));
+        await w.create('task', { kind: 'one_off', title: 'Paint the fence', estimate_min: 30 }, 't1');
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 2', plans: [`week:${THIS}`] }, THIS_ID);
+        await w.create('time_block', { task_id: THIS_ID, start: at(THIS, '09:00'), end: at(THIS, '09:30'), tz: ZONE, ended_at: at(THIS, '09:20') });
+      },
+    });
+    expect(within(await screen.findByRole('region', { name: 'Next up' })).getByText('Paint the fence')).toBeVisible();
+  });
+});

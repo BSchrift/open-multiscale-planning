@@ -5,7 +5,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { formatDate, formatMinutes, localDate, nowInstant, today } from '../../../core/dates';
-import { cadenceBefore, nextStretch, planningDue, restoreProject } from '../../../core/plan';
+import { cadenceBefore, nextStretch, restoreProject } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { status } from '../../../core/status';
 import type { ProjectStatus } from '../../../core/status';
@@ -21,6 +21,7 @@ import { useToast } from '../../components/Toast';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import type { GoalsData } from './data';
 import { ProjectBody } from './ProjectView';
+import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
 
 const NO_GOAL = 'nogoal';
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -453,12 +454,14 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
   const archivedCount = archivedGoals.length + archivedProjects.length;
   // On the page rather than in the row, so it stays open when its practice moves to another goal.
   const sheetPractice = practices.find((p) => p.id === practiceOpen);
+  const stretchPlanning = useStretchPlanning();
   return (
     <div className={phone ? 'stack goalspage' : 'wrap stack goalspage'}>
       <h1>Goals</h1>
-      {phone && planningDue(ctx.settings, on) && (
+      {/* Today's row asks to plan the stretch; here, once its planning has a time, only when. */}
+      {phone && stretchPlanning.at && (
         <button className="attn due" type="button" onClick={() => nav.openFlow('plan')}>
-          <span>Time to plan {ctx.settings.plan_stretch.last_planned ? 'the next' : 'your first'} stretch</span>
+          <span>{stretchPlanning.at}</span>
           <span aria-hidden="true">›</span>
         </button>
       )}

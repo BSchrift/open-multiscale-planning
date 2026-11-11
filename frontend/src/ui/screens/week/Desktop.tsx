@@ -166,7 +166,7 @@ export function DesktopWeek(props: WeekProps) {
       </div>
       {props.gated && <PlanPrompt week={data.week} />}
       {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
-      {planningFor && <PlanningTimes week={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
+      {planningFor && <PlanningTimes for={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
       {offset < 0 && <p className="small quiet">Past weeks can be viewed but not changed.</p>}
 
       {!editing && <TimeUse open={model.open} planned={model.planned} free={model.free} alerts={model.alerts} />}

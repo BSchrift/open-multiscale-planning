@@ -3,12 +3,24 @@
 
 import { useSyncExternalStore } from 'react';
 import type { Clock } from '../../../core/clock';
-import { formatDate, formatDayLong, formatTime, formatTimeOfDay, formatWeekday, thisWeek, weekRange } from '../../../core/dates';
+import { formatDate, formatDayLong, formatTime, formatTimeOfDay, formatWeekday, thisWeek, weekRange, weekStart } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
-import { deletePlanning, nowSlot, planningTimes, schedulePlanning, skipWeek, startPlanning, usualTime, weekEstimate } from '../../../core/planning';
-import type { Estimate } from '../../../core/planning';
+import {
+  deletePlanning,
+  isWeek,
+  nowSlot,
+  planningId,
+  planningTimes,
+  schedulePlanning,
+  skipWeek,
+  startPlanning,
+  stretchEstimate,
+  usualTime,
+  weekEstimate,
+} from '../../../core/planning';
+import type { Estimate, PlanningFor } from '../../../core/planning';
 import { blocksInRange, inboxCount } from '../../../core/queries';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
@@ -53,9 +65,11 @@ export function spokenMinutes(minutes: Minutes): string {
   return [h ? unit(h, 'hour') : '', m || !h ? unit(m, 'minute') : ''].filter(Boolean).join(' ');
 }
 
-async function loadInput(sql: Sql, clock: Clock, week: LocalDate) {
+async function loadInput(sql: Sql, clock: Clock, p: PlanningFor) {
   const current = thisWeek(clock);
   const zone = clock.zone();
+  // The week the times can reach: a week's own, or the one a stretch starts in.
+  const week = isWeek(p) ? p : weekStart(p.stretch.start);
   return {
     settings: await getSettings(sql),
     calendar: (await getRecord(sql, 'calendar', CALENDAR_ID)) ?? null,
@@ -68,20 +82,22 @@ async function loadInput(sql: Sql, clock: Clock, week: LocalDate) {
   };
 }
 
-/** The estimate, your usual time, and the times to offer for planning a week at a length. Null until loaded. */
-export function usePlanningTimes(week: LocalDate) {
+/** The estimate, your usual time, and the times to offer for planning a week or a stretch at a length. Null until loaded. */
+export function usePlanningTimes(p: PlanningFor) {
   const { clock } = useApp();
-  const data = useQuery((sql, c) => loadInput(sql, c, week), [week]).data;
+  const key = planningId(p);
+  const data = useQuery((sql, c) => loadInput(sql, c, p), [key]).data;
   if (!data) return null;
-  const estimate = weekEstimate(data.inbox, data.plans);
-  const usual = usualTime(data.plans, clock.zone());
+  const estimate = isWeek(p) ? weekEstimate(data.inbox, data.plans) : stretchEstimate(data.settings, p.first);
+  // Your usual time is the weekly habit; a stretch comes too seldom for one.
+  const usual = isWeek(p) ? usualTime(data.plans, clock.zone()) : null;
   const input = { ...data, clock };
   return {
     estimate,
     inbox: data.inbox,
     input,
     usual,
-    times: (minutes: Minutes) => planningTimes(week, minutes, input, usual),
+    times: (minutes: Minutes) => planningTimes(p, minutes, input, usual),
     now: (minutes: Minutes) => nowSlot(minutes, data.blocks, clock),
   };
 }
@@ -103,23 +119,28 @@ export function usePlanningActions() {
 
   return {
     pending,
-    schedule: (week: LocalDate, slot: Slot) =>
-      undoable((w) => schedulePlanning(w, week, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`),
-    remove: (week: LocalDate) => undoable((w) => deletePlanning(w, week, clock), `Planning for the week of ${formatDate(week)} deleted.`),
+    schedule: (p: PlanningFor, slot: Slot) =>
+      undoable((w) => schedulePlanning(w, p, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`),
+    remove: (p: PlanningFor) =>
+      undoable(
+        (w) => deletePlanning(w, p, clock),
+        `Planning for ${isWeek(p) ? `the week of ${formatDate(p)}` : `${formatDate(p.stretch.start)} to ${formatDate(p.stretch.end)}`} deleted.`,
+      ),
     skip: (week: LocalDate) => undoable((w) => skipWeek(w, week, clock), 'Skipped planning this week.'),
     /**
      * Places a block from now, for the estimate unless given a length, unless one is under way, there's no time or the
-     * week is planned already. Then opens planning on the week.
+     * week or stretch is planned already. Then opens planning on it.
      */
-    start: async (week: LocalDate, minutes?: Minutes) => {
+    start: async (p: PlanningFor, minutes?: Minutes) => {
       let until: string | null = null;
       const reverse = await run(async (w) => {
-        const started = await startPlanning(w, week, minutes, clock);
+        const started = await startPlanning(w, p, minutes, clock);
         until = started.until;
         return started.reverse;
       });
       if (reverse && until) toast.show(`Planning until ${formatTime(until, zone)}.`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
-      nav.openFlow('planning', { week });
+      if (isWeek(p)) nav.openFlow('planning', { week: p });
+      else nav.openFlow('plan');
     },
   };
 }

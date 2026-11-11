@@ -36,7 +36,7 @@ export function PlanPrompt(props: { week: string; line?: string | null }) {
       {props.line && <p className={phone ? 'small quiet' : 'quiet'}>{props.line}</p>}
     </>
   );
-  const times = choosing && <PlanningTimes week={week} name="this week" onClose={() => setChoosing(false)} />;
+  const times = choosing && <PlanningTimes for={week} name="this week" onClose={() => setChoosing(false)} />;
 
   if (phone) {
     return (

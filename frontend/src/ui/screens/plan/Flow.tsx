@@ -6,7 +6,10 @@ import type { FormEvent, Ref } from 'react';
 import { addDays, diffDays, formatDate, formatMinutes } from '../../../core/dates';
 import { applyPlanChange, doneInPlan, effectiveDue, msInPlan, msReached, pinStretch, planMinutes, plannable, planningOpens, planStretch, plannedIds, stretchError, withChange } from '../../../core/plan';
 import type { PlanChange, PlanContext, Stretch } from '../../../core/plan';
-import { updateSettings } from '../../../core/records';
+import { formatTime, formatWeekday, localDate } from '../../../core/dates';
+import { addStretchMinutes, finishStretchPlanning, stopPlanning } from '../../../core/planning';
+import { getRecord, SETTINGS_ID, updateSettings } from '../../../core/records';
+import { usePlanningTime } from '../planning/usePlanningTime';
 import type { Writer } from '../../../core/records';
 import type { Fields, Minutes, Practice } from '../../../core/types';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
@@ -448,9 +451,23 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const look = useQuery((sql, c) => loadLookBack(sql, c, behind), [behind?.start, behind?.end]).data;
   const [log, setLog] = useState<Entry[]>([]);
   const write = useMutation((w, build: (w: Writer) => Promise<PlanChange>) => build(w));
+  // The stretch's planning task is the plan being made: the stretch under way for a first plan, else the next.
+  const planning = { stretch: first && cur ? cur : st, first };
+  const time = usePlanningTime((w, minutes, began) => addStretchMinutes(w, planning.stretch.start, minutes, began));
+  const stop = useMutation((w) => stopPlanning(w, planning, clock));
+  const exit = () => void time.flush().then(() => stop.run()).then(close);
+  // Finishing saves the plan and finishes its planning task, freeing what's left of its block; Undo puts both back.
   const save = useMutation(async (w, fields: Fields<'settings'>) => {
-    if (held) await applyPlanChange(w, held.change);
-    return updateSettings(w, fields);
+    const pinned = held ? await applyPlanChange(w, held.change) : { writes: [] };
+    const before = (await getRecord(w.sql, 'settings', SETTINGS_ID)) ? await w.set('settings', SETTINGS_ID, fields) : null;
+    if (!before) await updateSettings(w, fields);
+    const closed = await finishStretchPlanning(w, planning.stretch.start, clock);
+    return { pinned, before, closed };
+  });
+  const unfinish = useMutation(async (w, done: NonNullable<Awaited<ReturnType<typeof save.run>>>) => {
+    await applyPlanChange(w, done.closed.reverse);
+    if (done.before) await w.set('settings', SETTINGS_ID, done.before);
+    await applyPlanChange(w, done.pinned);
   });
   const head = useRef<HTMLHeadingElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -491,10 +508,13 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
     // plan's held dates are already in data.settings, and save writes its milestones.
     const pinned = data.settings.plan_cadence ? data.settings.plan_stretch : pinStretch(data.settings, [], st, st).settings.plan_stretch;
     const note = flow.note.trim();
+    await time.flush();
     const done = await save.run({ plan_stretch: { ...pinned, last_planned: st.start, last_note: note || pinned.last_note || null } });
     if (done === undefined) return;
     resetFlow();
-    toast.show(`Your plan for ${range(st)} is set.`);
+    const zone = clock.zone();
+    const freed = done.closed.freed && ` ${formatWeekday(localDate(done.closed.freed, zone))} ${formatTime(done.closed.freed, zone)} is free again.`;
+    toast.show(`Your plan for ${range(st)} is set.${freed || ''}`, { undo: () => unfinish.run(done) });
     close();
     if (week) nav.openFlow('planning');
   };
@@ -558,7 +578,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
       <div ref={root} className="planflow">
         <h1 className="sr">{title}</h1>
         <div className="flowtop two">
-          <button className="btn" type="button" onClick={close}>
+          <button className="btn" type="button" onClick={exit}>
             Save and exit
           </button>
           {showEditGoals && (
@@ -609,7 +629,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
               Edit goals
             </button>
           )}
-          <button className="btn" type="button" onClick={close}>
+          <button className="btn" type="button" onClick={exit}>
             Save and exit
           </button>
         </div>

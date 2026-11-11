@@ -3,15 +3,14 @@
 
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { formatDate, formatDayLong, thisWeek } from '../../../core/dates';
-import { planningDue, planStretch } from '../../../core/plan';
+import { formatDayLong, instantMs, thisWeek } from '../../../core/dates';
 import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
-import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useNow, useQuery, useStickyState, useToday } from '../../app/store';
 import { PlanningRow, PlanningSet } from '../../components/planning/PlanningRow';
+import { StretchRow } from '../../components/planning/StretchRow';
 import { useFocusLanding } from '../../components/useFocusLanding';
-import { blockAhead, makeDuePlanningTasks, skipWeek, weekGate, weekRow } from '../../../core/planning';
+import { blockAhead, makeDuePlanningTasks, skipWeek, stretchRow, weekGate, weekRow } from '../../../core/planning';
 import { useCalendarCall } from '../settings/useCalendarCall';
 import { loadToday } from './data';
 import type { TodayData } from './data';
@@ -117,25 +116,14 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   const { data, unplanned } = props;
   const { clock, layout, sync } = useApp();
   const land = useFocusLanding();
-  const nav = useNav();
   const { prompt, missed } = usePrompts(data);
   const { call } = useCalendarCall();
   const [panel, setPanel] = useState<'shift' | 'queue' | null>(null);
-  const [skippedStretch, setSkippedStretch] = useStickyState<string | null>('today.skippedStretch', null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
   const phone = layout === 'phone';
 
   const shift = shiftRestOfToday(data.blocks, data.events, data.settings.availability, clock);
   const clash = shift && `${shift.conflict.block.title} conflicts with ${'event' in shift.conflict ? shift.conflict.event.title : shift.conflict.running.title}.`;
-  const next = planningDue(data.settings, data.date) ? planStretch(data.settings, data.date, true) : null;
-  // By its end, since a first plan's start is today until planning begins.
-  const stretchDue = next && skippedStretch !== next.end ? next : null;
-  // Never planned, the plan is for the stretch already under way.
-  const planText = !stretchDue
-    ? ''
-    : data.settings.plan_stretch.last_planned
-      ? `Plan the next stretch. It starts ${formatDate(stretchDue.start)}.`
-      : `Plan your first stretch. It ends ${formatDate(stretchDue.end)}.`;
   const queued = data.queue.length;
 
   const alerts: Alert[] = [];
@@ -147,9 +135,6 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
         ? { key: 'queue', title: `${queued} ${queued === 1 ? 'task needs' : 'tasks need'} a new time`, label: 'Review', act: () => setPanel('queue') }
         : { key: 'queue', title: 'Needs a new time', text: `${queued} ${queued === 1 ? 'task' : 'tasks'} that didn't get done. Choose when it suits you.`, label: 'Review', act: () => setPanel('queue') },
     );
-  }
-  if (stretchDue) {
-    alerts.push({ key: 'stretch', title: planText, label: 'Start', go: true, act: () => nav.openFlow('plan'), skip: () => setSkippedStretch(stretchDue.end) });
   }
   // Connecting needs a sign-in. Skipped, it asks again the next week.
   const week = thisWeek(clock);
@@ -168,6 +153,11 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
   // week's banner, since that week is nearly over.
   const set = weekGate(data.planning.this, clock) === 'set' ? blockAhead(data.planning.this, clock) : undefined;
   const nextRow = !set && weekRow(data.planning.next, clock);
+  // The stretch's row waits behind next week's.
+  const stretch = data.planning.stretch;
+  const stretchShown = !set && !nextRow && !!stretch && stretchRow(stretch, clock);
+  // An unplanned day with nothing on it but planning that's over offers Next up, as an empty day does.
+  const work = data.blocks.some((b) => b.task_kind !== 'planning' || (!b.ended_at && instantMs(b.end) > clock.now()));
   const skipped = unplanned && !!data.planning.this.plan?.planning_skipped_at;
 
   return (
@@ -188,16 +178,17 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       {phone ? alerts.map((a) => <AttnRow key={a.key} alert={a} />) : <Alerts alerts={alerts} />}
       {panel === 'shift' && shift && <ShiftPanel plan={shift} connected={data.connected} onClose={() => setPanel(null)} />}
       {panel === 'queue' && <QueuePanel items={data.queue} onClose={() => setPanel(null)} />}
-      {unplanned && data.blocks.length === 0 ? (
+      {unplanned && !work ? (
         <NextUp data={data} pick={props.pick} />
       ) : (
         <NowCard blocks={data.blocks} layout={layout} />
       )}
       {set && <PlanningSet week={data.planning.this.week} block={set} />}
       {nextRow && <PlanningRow planning={data.planning.next} onGone={(after) => land(() => firstControl(after))} />}
+      {stretchShown && <StretchRow stretch={stretch.stretch} first={stretch.first} onGone={(after) => land(() => firstControl(after))} />}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />
-      {(data.blocks.length > 0 || !unplanned) && <DayTimeline data={data} events={data.events} />}
+      {(work || !unplanned) && <DayTimeline data={data} events={data.events} />}
       {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
       {prompt}
     </div>

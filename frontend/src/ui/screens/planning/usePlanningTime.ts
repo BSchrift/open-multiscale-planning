@@ -4,17 +4,18 @@
 
 import { useEffect, useRef } from 'react';
 import { nowInstant } from '../../../core/dates';
-import { addPlanningMinutes } from '../../../core/planning';
-import type { LocalDate } from '../../../core/types';
+import type { Writer } from '../../../core/records';
+import type { Instant, Minutes } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 
 const IDLE_MS = 5 * 60_000;
 const MINUTE_MS = 60_000;
 const INPUTS = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'] as const;
 
-export function usePlanningTime(week: LocalDate) {
+/** add writes the minutes of one time in the flow where they belong: the week's plan, or the stretch being planned. */
+export function usePlanningTime(add: (w: Writer, minutes: Minutes, began: Instant) => Promise<void>) {
   const { clock } = useApp();
-  const add = useMutation((w, minutes: number, began: string) => addPlanningMinutes(w, week, minutes, began));
+  const write = useMutation(add);
   const opened = clock.now();
   const s = useRef({ began: nowInstant(clock), mark: opened, last: opened, active: 0, shown: true });
 
@@ -29,7 +30,7 @@ export function usePlanningTime(week: LocalDate) {
     credit();
     const minutes = Math.round(s.current.active / MINUTE_MS);
     s.current.active = 0;
-    await add.run(minutes, s.current.began);
+    await write.run(minutes, s.current.began);
   };
   const latest = useRef(flush);
   latest.current = flush;

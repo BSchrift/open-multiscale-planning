@@ -105,7 +105,7 @@ export function PlanningRow(props: { planning: WeekPlanning; onGone(after: Eleme
           Choose a time
         </button>
       </div>
-      {choosing && <PlanningTimes week={week} name="next week" onClose={() => setChoosing(false)} />}
+      {choosing && <PlanningTimes for={week} name="next week" onClose={() => setChoosing(false)} />}
     </section>
   );
 }

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addWeeks, formatMinutes, formatTime, formatWeekRange, formatWeekday, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange, autoPickedOneOffs, minutesLeft } from '../../../core/plan';
-import { finishWeek, stopPlanning } from '../../../core/planning';
+import { addPlanningMinutes, finishWeek, stopPlanning } from '../../../core/planning';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../core/records';
 import type { LocalDate } from '../../../core/types';
 import { PlusIcon } from '../../components/icons';
@@ -72,7 +72,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
     void autoPickRun();
   }, [autoPickRun]);
 
-  const time = usePlanningTime(week);
+  const time = usePlanningTime((w, minutes, began) => addPlanningMinutes(w, week, minutes, began));
   // Finishing the plan finishes its planning task, and frees what's left of its block, with Undo for all of it.
   const finish = useMutation((w) => finishWeek(w, week, clock));
   const undo = useMutation((w, reverse: Awaited<ReturnType<typeof finishWeek>>['reverse']) => applyPlanChange(w, reverse));

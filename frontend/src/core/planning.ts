@@ -28,12 +28,12 @@ import {
 } from './dates';
 import type { Sql } from './db';
 import { markDoneNow, placeBlock, startBlock } from './blocks';
-import { applyPlanChange } from './plan';
-import type { PlanChange, RecordWrite } from './plan';
+import { applyPlanChange, planningDue, planStretch } from './plan';
+import type { PlanChange, RecordWrite, Stretch } from './plan';
 import { blocksInRange, inboxCount, taskBlocks } from './queries';
 import { isAway } from './queue';
 import { REMINDER_ACTION } from './reminders';
-import { getRecord, weekPlanId } from './records';
+import { getRecord, getSettings, listRecords, SETTINGS_ID, weekPlanId } from './records';
 import type { Writer } from './records';
 import { fits, GRID, offers, slotContext, slotInstants } from './slots';
 import type { Offer, PlacedBlock, Slot } from './slots';
@@ -71,12 +71,24 @@ const SHORTEST_MEASURED_MIN = 5;
 /** Your usual time is when planning began in this many of the last few plans. */
 const USUAL_OF = 3;
 const USUAL_IN = 2;
+/** A stretch's first plan includes how often to plan, so it's longer. */
+const FIRST_STRETCH_MIN = 60;
+const STRETCH_GUESS_MIN = 45;
+const MEASURED_STRETCHES = 3;
 const MINUTE_MS = 60_000;
 
 export const weekPlanningId = (week: LocalDate) => `planning:week:${week}`;
 
 /** Absolute dates, because the block is read out of context: on Week, in older apps and in the Google mirror. */
 export const weekPlanningTitle = (week: LocalDate) => `Plan the week of ${formatDate(week)}`;
+
+export const stretchPlanningId = (start: LocalDate) => `planning:stretch:${start}`;
+export const stretchPlanningTitle = (st: Stretch) => `Plan ${formatDate(st.start)} to ${formatDate(st.end)}`;
+
+/** What a planning task is for: a week, by its Monday, or a stretch. */
+export type PlanningFor = LocalDate | { stretch: Stretch; first: boolean };
+export const isWeek = (p: PlanningFor): p is LocalDate => typeof p === 'string';
+export const planningId = (p: PlanningFor) => (isWeek(p) ? weekPlanningId(p) : stretchPlanningId(p.stretch.start));
 
 /** The week a planning task id is for, or null for any other task. */
 export function planningWeekOf(taskId: string | null | undefined): LocalDate | null {
@@ -117,6 +129,48 @@ export function weekEstimate(inbox: number, plans: readonly WeekPlan[] = []): Es
   return { minutes: bounded(middle), guess: false, from: measured.length };
 }
 
+/** The middle of some measured minutes, or null with none. */
+function middleOf(minutes: number[]): number | null {
+  const sorted = [...minutes].sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const mid = sorted.length / 2;
+  return sorted.length % 2 ? sorted[Math.floor(mid)]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * How long planning a stretch takes: the middle of the last 3 measured stretches, as for weeks. Until there's one, an
+ * hour for the first, which asks how often to plan, and 45 minutes after that.
+ */
+export function stretchEstimate(settings: Pick<Settings, 'stretch_planning'>, first: boolean): Estimate {
+  const measured = (settings.stretch_planning?.history ?? []).filter((m) => m >= SHORTEST_MEASURED_MIN).slice(-MEASURED_STRETCHES);
+  const middle = middleOf(measured);
+  if (middle === null) return { minutes: first ? FIRST_STRETCH_MIN : STRETCH_GUESS_MIN, guess: true };
+  return { minutes: bounded(middle), guess: false, from: measured.length };
+}
+
+/**
+ * The stretch whose planning task is due: a first plan's at once, for the stretch under way; the next one's from a week
+ * before the current one ends. None without a planning cadence.
+ */
+export function stretchPlanningDue(settings: Pick<Settings, 'plan_cadence' | 'plan_stretch'>, on: LocalDate): { stretch: Stretch; first: boolean } | null {
+  if (!planningDue(settings, on)) return null;
+  const st = planStretch(settings, on);
+  return { stretch: { start: st.start, end: st.end }, first: !settings.plan_stretch.last_planned };
+}
+
+/** Adds the minutes of one time in the stretch flow to the stretch being planned, noting when it began. */
+export async function addStretchMinutes(w: Writer, start: LocalDate, minutes: Minutes, began: Instant): Promise<void> {
+  const held = (await getSettings(w.sql)).stretch_planning;
+  const same = held?.start === start;
+  const next = {
+    start,
+    started_at: same && held?.started_at ? held.started_at : began,
+    min: (same ? (held?.min ?? 0) : 0) + minutes,
+    ...(held?.history ? { history: held.history } : {}),
+  };
+  await w.create('settings', { stretch_planning: next }, SETTINGS_ID);
+}
+
 /** After stopping early: the estimate less the minutes spent, rounded up, and at least 15m. */
 export const timeLeft = (estimate: Minutes, spent: Minutes): Minutes => bounded(estimate - spent);
 
@@ -148,10 +202,10 @@ export async function addPlanningMinutes(w: Writer, week: LocalDate, minutes: Mi
   if (Object.keys(fields).length > 0) await setWeekPlan(w, week, fields);
 }
 
-const taskFields = (week: LocalDate, minutes: Minutes): Fields<'task'> => ({
+const taskFields = (p: PlanningFor, minutes: Minutes): Fields<'task'> => ({
   kind: 'planning',
-  title: weekPlanningTitle(week),
-  plans: [`week:${week}`],
+  title: isWeek(p) ? weekPlanningTitle(p) : stretchPlanningTitle(p.stretch),
+  plans: [isWeek(p) ? `week:${p}` : `stretch:${p.stretch.start}`],
   estimate_min: minutes,
 });
 
@@ -161,11 +215,17 @@ const taskFields = (week: LocalDate, minutes: Minutes): Fields<'task'> => ({
  * clock: two devices make one task, and anyone's write, a delete included, wins over it. It places no time.
  */
 export async function makeDuePlanningTasks(w: Writer, clock: Clock): Promise<void> {
-  const week = planningWeekDue(today(clock));
-  if (!week) return;
-  if ((await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.finished_at) return;
-  if (await getRecord(w.sql, 'task', weekPlanningId(week))) return;
-  await w.automatic.create('task', taskFields(week, weekEstimate(await inboxCount(w.sql)).minutes), weekPlanningId(week));
+  const on = today(clock);
+  const week = planningWeekDue(on);
+  if (week && !(await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.finished_at && !(await getRecord(w.sql, 'task', weekPlanningId(week)))) {
+    const estimate = weekEstimate(await inboxCount(w.sql), await listRecords(w.sql, 'week_plan')).minutes;
+    await w.automatic.create('task', taskFields(week, estimate), weekPlanningId(week));
+  }
+  const settings = await getSettings(w.sql);
+  const due = stretchPlanningDue(settings, on);
+  if (due && !(await getRecord(w.sql, 'task', planningId(due)))) {
+    await w.automatic.create('task', taskFields(due, stretchEstimate(settings, due.first).minutes), planningId(due));
+  }
 }
 
 /** A week's planning as it stands: its plan, its task (deleted or not) and the task's blocks still on the calendar. */
@@ -186,11 +246,19 @@ export async function loadWeekPlanning(sql: Sql, week: LocalDate): Promise<WeekP
   };
 }
 
+/** A planning task, deleted or not, and its blocks still on the calendar. */
+export async function loadTaskPlanning(sql: Sql, id: string): Promise<Pick<WeekPlanning, 'task' | 'blocks'>> {
+  return { task: (await getRecord(sql, 'task', id)) ?? null, blocks: await taskBlocks(sql, { task_id: id }) };
+}
+
+/** A stretch's planning row: while its task is open and has no time. */
+export const stretchRow = (p: Pick<WeekPlanning, 'task' | 'blocks'>, clock: Clock) => isOpen(p.task) && !blockAhead(p, clock);
+
 const isOpen = (task: Task | null): task is Task => !!task && !task.deleted_at && !task.done_at && !task.cancelled_at;
 export const isPlanned = (p: WeekPlanning) => !!p.plan?.finished_at;
 
 /** The planning block under way or still to come, soonest first. Ended or stopped ones don't count. */
-export function blockAhead(p: WeekPlanning, clock: Clock): TimeBlock | undefined {
+export function blockAhead(p: Pick<WeekPlanning, 'task' | 'blocks'>, clock: Clock): TimeBlock | undefined {
   if (!isOpen(p.task)) return undefined;
   return p.blocks.find((b) => !b.ended_at && instantMs(b.end) > clock.now());
 }
@@ -244,22 +312,28 @@ export interface Time extends Slot {
  * offers(); Monday morning only when nothing earlier is free. Once the week has begun, the next free times from today,
  * one a day.
  */
-export function planningTimes(week: LocalDate, minutes: Minutes, input: TimesInput, usual: UsualTime | null = null): Time[] {
+export function planningTimes(p: PlanningFor, minutes: Minutes, input: TimesInput, usual: UsualTime | null = null): Time[] {
   const { settings, calendar, sources, blocks, clock } = input;
   // shortcut: an hour closed to projects by one block and to one offs by another reads as open; split blocks are rare.
   const availability = settings.availability.filter((b) => b.projects && b.one_offs);
   const ctx = (wk: LocalDate) => slotContext({ week: wk, availability, avoided: settings.avoided_slots, sources, calendar, blocks, clock });
   const current = thisWeek(clock);
-  const window = ctx(week > current ? current : week);
-  const day = usual && weekDates(window.week).find((d) => weekday(d) === usual.day && (week > current ? d < week : true));
+  const window = ctx(current);
+  // Ahead of a week, before it starts; ahead of a stretch, before it starts. A first stretch plan is under way already.
+  const before = isWeek(p) ? p : p.first ? today(clock) : p.stretch.start;
+  const ahead = before > today(clock);
+  const day = usual && weekDates(current).find((d) => weekday(d) === usual.day && (!ahead || d < before));
   const first: Time[] = day && fits(day, usual!.minutes, minutes, 'project', window) ? [{ date: day, start: usual!.minutes, end: usual!.minutes + minutes, usual: true }] : [];
   const rest = (slots: Slot[]) => [...first, ...slots.filter((s) => !first.some((f) => f.date === s.date))].slice(0, 3);
-  if (week > current) {
-    const before = offers(minutes, { kind: 'project' }, window).filter((o) => o.date < week);
-    if (before.length > 0 || first.length > 0) return rest(before.map(slotOf));
-    // Due the day before, so Monday's offer starts at its first open hour rather than the evening.
-    return offers(minutes, { kind: 'project', due: addDays(week, -1) }, ctx(week))
-      .filter((o) => o.date === week)
+  if (ahead) {
+    // This week's days, then the next week's when what's planned starts after it, as a stretch can.
+    const last = weekStart(addDays(before, -1));
+    const weeks = last > current ? [current, last] : [current];
+    const found = weeks.flatMap((wk) => offers(minutes, { kind: 'project' }, wk === current ? window : ctx(wk)).filter((o) => o.date < before));
+    if (found.length > 0 || first.length > 0) return rest(found.map(slotOf));
+    // Due the day before, so the first day's offer starts at its first open hour rather than the evening.
+    return offers(minutes, { kind: 'project', due: addDays(before, -1) }, ctx(weekStart(before)))
+      .filter((o) => o.date === before)
       .slice(0, 1)
       .map(slotOf);
   }
@@ -334,11 +408,11 @@ export function nowSlot(minutes: Minutes, blocks: readonly { start: Instant }[],
 }
 
 /** Makes the task, or brings it back, for an explicit action. Returns the writes that put it back as it was. */
-async function ensureTask(w: Writer, week: LocalDate, fields: Fields<'task'>): Promise<RecordWrite[]> {
-  const id = weekPlanningId(week);
+async function ensureTask(w: Writer, p: PlanningFor, fields: Fields<'task'>): Promise<RecordWrite[]> {
+  const id = planningId(p);
   const task = await getRecord(w.sql, 'task', id);
   if (!task) {
-    await w.create('task', { ...taskFields(week, fields.estimate_min ?? FIRST_GUESS_MIN), ...fields }, id);
+    await w.create('task', { ...taskFields(p, fields.estimate_min ?? FIRST_GUESS_MIN), ...fields }, id);
     return [];
   }
   const back = { ...(task.deleted_at ? { deleted_at: null } : {}), ...(task.done_at ? { done_at: null } : {}), ...fields };
@@ -347,21 +421,24 @@ async function ensureTask(w: Writer, week: LocalDate, fields: Fields<'task'>): P
 
 /**
  * Start: a started planning block from this minute, for the estimate unless given a length, made with the task if it
- * isn't there. A planning block already under way is never doubled; it's started if it wasn't. A week already planned
- * gets nothing: Start only opens planning. Returns the block's end, or null when no block was placed, and the reverse,
- * which takes the block away and leaves the task.
+ * isn't there. A planning block already under way is never doubled; it's started if it wasn't. A week or stretch
+ * already planned gets nothing: Start only opens planning. Returns the block's end, or null when no block was placed,
+ * and the reverse, which takes the block away and leaves the task.
  */
 export async function startPlanning(
   w: Writer,
-  week: LocalDate,
+  p: PlanningFor,
   length: Minutes | undefined,
   clock: Clock,
 ): Promise<{ reverse: PlanChange; until: Instant | null }> {
   const none = { reverse: { writes: [] }, until: null };
-  if ((await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.finished_at) return none;
-  const minutes = length ?? weekEstimate(await inboxCount(w.sql)).minutes;
-  const id = weekPlanningId(week);
-  await ensureTask(w, week, {});
+  const settings = await getSettings(w.sql);
+  const planned = isWeek(p) ? !!(await getRecord(w.sql, 'week_plan', weekPlanId(p)))?.finished_at : settings.plan_stretch.last_planned === p.stretch.start;
+  if (planned) return none;
+  const estimate = isWeek(p) ? weekEstimate(await inboxCount(w.sql), await listRecords(w.sql, 'week_plan')) : stretchEstimate(settings, p.first);
+  const minutes = length ?? estimate.minutes;
+  const id = planningId(p);
+  await ensureTask(w, p, {});
   const now = clock.now();
   const running = (await taskBlocks(w.sql, { task_id: id })).find((b) => !b.ended_at && instantMs(b.start) <= now && instantMs(b.end) > now);
   if (running) {
@@ -376,16 +453,16 @@ export async function startPlanning(
 }
 
 /** Schedule: places the planning block, bringing the task back if it was deleted. Undo takes the block and keeps the task. */
-export async function schedulePlanning(w: Writer, week: LocalDate, times: { start: Instant; end: Instant }, clock: Clock): Promise<PlanChange> {
-  const restored = await ensureTask(w, week, { estimate_min: blockMinutes(times) });
-  const placed = await placeBlock(w, weekPlanningId(week), times, clock);
+export async function schedulePlanning(w: Writer, p: PlanningFor, times: { start: Instant; end: Instant }, clock: Clock): Promise<PlanChange> {
+  const restored = await ensureTask(w, p, { estimate_min: blockMinutes(times) });
+  const placed = await placeBlock(w, planningId(p), times, clock);
   const estimate = restored.map((r) => ({ ...r, fields: 'estimate_min' in r.fields ? { estimate_min: r.fields.estimate_min } : {} }));
   return { writes: [...placed.writes, ...estimate.filter((r) => Object.keys(r.fields).length > 0)] };
 }
 
 /** Delete: the task goes on every device with its blocks not yet started. Undo puts both back. */
-export async function deletePlanning(w: Writer, week: LocalDate, clock: Clock): Promise<PlanChange> {
-  const task = await getRecord(w.sql, 'task', weekPlanningId(week));
+export async function deletePlanning(w: Writer, p: PlanningFor, clock: Clock): Promise<PlanChange> {
+  const task = await getRecord(w.sql, 'task', planningId(p));
   if (!isOpen(task ?? null)) return { writes: [] };
   return closeTask(w, task!.id, 'deleted', clock);
 }
@@ -417,24 +494,46 @@ export async function finishWeek(
 ): Promise<{ reverse: PlanChange; freed: Instant | null; minutes: Minutes | null }> {
   const planned = await setWeekPlan(w, week, { finished_at: nowInstant(clock) });
   const minutes = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.planning_min ?? null;
-  const task = await getRecord(w.sql, 'task', weekPlanningId(week));
-  if (!isOpen(task ?? null)) return { reverse: { writes: [planned] }, freed: null, minutes };
+  const closed = await closePlanning(w, weekPlanningId(week), clock);
+  return { reverse: { writes: [...closed.reverse.writes, planned] }, freed: closed.freed, minutes };
+}
+
+/**
+ * A planning task's plan is finished: its block under way ends at this minute, as Mark done now does, and any still to
+ * come is freed. Returns the reverse and the start of the block freed.
+ */
+async function closePlanning(w: Writer, id: string, clock: Clock): Promise<{ reverse: PlanChange; freed: Instant | null }> {
+  const task = await getRecord(w.sql, 'task', id);
+  if (!isOpen(task ?? null)) return { reverse: { writes: [] }, freed: null };
   const now = clock.now();
-  const live = (await taskBlocks(w.sql, { task_id: task!.id })).filter((b) => !b.ended_at && instantMs(b.end) > now);
+  const live = (await taskBlocks(w.sql, { task_id: id })).filter((b) => !b.ended_at && instantMs(b.end) > now);
   const running = live.find((b) => instantMs(b.start) <= now);
   const freed = live.find((b) => instantMs(b.start) > now && !b.started_at)?.start ?? null;
-  const closed = running ? await markDoneNow(w, running.id, clock) : await closeTask(w, task!.id, 'done', clock);
-  return { reverse: { writes: [...closed.writes, planned] }, freed, minutes };
+  return { reverse: running ? await markDoneNow(w, running.id, clock) : await closeTask(w, id, 'done', clock), freed };
+}
+
+/**
+ * Finishing a stretch's plan finishes its planning task, as finishWeek does, and keeps the minutes it took among the
+ * last 3 the estimate learns from. Returns the reverse, which reopens the task and its block, and the block freed.
+ */
+export async function finishStretchPlanning(w: Writer, start: LocalDate, clock: Clock): Promise<{ reverse: PlanChange; freed: Instant | null }> {
+  const closed = await closePlanning(w, stretchPlanningId(start), clock);
+  const held = (await getSettings(w.sql)).stretch_planning;
+  if (held?.start === start) {
+    const history = [...(held.history ?? []), ...(held.min ? [held.min] : [])].slice(-MEASURED_STRETCHES);
+    await w.create('settings', { stretch_planning: { start, history } }, SETTINGS_ID);
+  }
+  return closed;
 }
 
 /**
  * Save and exit: planning blocks under way end at this minute, so the rest of their time is free; one stopped in its
  * first minute held no time, and goes. Two, when two devices each started it before syncing. The task stays open.
  */
-export async function stopPlanning(w: Writer, week: LocalDate, clock: Clock): Promise<void> {
+export async function stopPlanning(w: Writer, p: PlanningFor, clock: Clock): Promise<void> {
   const now = clock.now();
   const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS;
-  const running = (await taskBlocks(w.sql, { task_id: weekPlanningId(week) })).filter(
+  const running = (await taskBlocks(w.sql, { task_id: planningId(p) })).filter(
     (b) => !b.ended_at && instantMs(b.start) <= now && instantMs(b.end) > now,
   );
   const writes: RecordWrite[] = running.map((b) => ({

@@ -170,6 +170,7 @@ export const RECORD_FIELDS = {
     'reminders',
     'avoided_slots',
     'setup_done_at',
+    'stretch_planning',
     'deleted_at',
   ],
   calendar: ['connected', 'calendar_id', 'events', 'synced_at', 'last_error', 'deleted_at'],

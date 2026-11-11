@@ -191,7 +191,7 @@ export function PhoneWeek(props: WeekProps) {
         </div>
         {props.gated && <PlanPrompt week={data.week} />}
         {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
-        {planningFor && <PlanningTimes week={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
+        {planningFor && <PlanningTimes for={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
         {!isThis && !placing && (
           <div className="wkcenter">
             <button className="btn" type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>

@@ -6,6 +6,8 @@ import { useId, useState } from 'react';
 import { addDays, formatMinutes, formatTime, localMinutes, today } from '../../../core/dates';
 import { GRID } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
+import { isWeek } from '../../../core/planning';
+import type { PlanningFor } from '../../../core/planning';
 import type { LocalDate } from '../../../core/types';
 import { useApp } from '../../app/store';
 import { Sheet } from '../Sheet';
@@ -23,8 +25,8 @@ const toMinutes = (time: string) => {
 const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 /** name is the week as the person reads it: 'this week', 'next week' or 'the week after'. */
-export function PlanningTimes(props: { week: LocalDate; name: string; onClose(): void }) {
-  const { week, onClose } = props;
+export function PlanningTimes(props: { for: PlanningFor; name: string; onClose(): void }) {
+  const { for: week, onClose } = props;
   const { clock } = useApp();
   const planning = usePlanningTimes(week);
   const act = usePlanningActions();
@@ -84,7 +86,7 @@ export function PlanningTimes(props: { week: LocalDate; name: string; onClose():
         {!now && times.length === 0 && <p className="small">No free time fits. Choose another time.</p>}
       </div>
       {choosing ? (
-        <AnyTime week={week} minutes={minutes} onSchedule={done} />
+        <AnyTime last={isWeek(week) ? addDays(week, 6) : week.stretch.end} minutes={minutes} onSchedule={done} />
       ) : (
         <button className="btn" type="button" onClick={() => setChoosing(true)}>
           Choose another time
@@ -129,8 +131,8 @@ function Length(props: { minutes: number; onChange(minutes: number): void }) {
   );
 }
 
-/** Any day from today to the week's end, and any time on the quarter hour. */
-function AnyTime(props: { week: LocalDate; minutes: number; onSchedule(slot: Slot): void }) {
+/** Any day from today to the week's or stretch's end, and any time on the quarter hour. */
+function AnyTime(props: { last: LocalDate; minutes: number; onSchedule(slot: Slot): void }) {
   const { clock } = useApp();
   const ids = useId();
   const first = today(clock);
@@ -139,14 +141,14 @@ function AnyTime(props: { week: LocalDate; minutes: number; onSchedule(slot: Slo
   const [time, setTime] = useState(toTime(next));
   const start = toMinutes(time);
   const slot: Slot = { date, start, end: Math.min(1440, start + props.minutes) };
-  const valid = date >= first && date <= addDays(props.week, 6) && !!time;
+  const valid = date >= first && date <= props.last && !!time;
   return (
     <div className="row planany">
       <label className="stack4">
         <span className="small quiet" id={`${ids}d`}>
           Day
         </span>
-        <input className="field" type="date" aria-labelledby={`${ids}d`} min={first} max={addDays(props.week, 6)} value={date} onChange={(e) => setDate(e.target.value)} />
+        <input className="field" type="date" aria-labelledby={`${ids}d`} min={first} max={props.last} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
       <label className="stack4">
         <span className="small quiet" id={`${ids}t`}>

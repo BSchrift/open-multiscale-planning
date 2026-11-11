@@ -594,56 +594,24 @@ describe('when the week is not planned', () => {
 
   const monthly = { plan_cadence: { every: 1, unit: 'months' as const, anchor: '2026-10-08' }, plan_stretch: { last_planned: '2026-10-08' } };
 
-  it('offers to plan the next stretch when it is due', async () => {
-    const t = await open(async (w) => {
+  // The stretch's planning row replaces the alert these asked with; planning-task.test.tsx in plan/ covers the row.
+  it('offers to plan the next stretch when it is due, as a row with its dates', async () => {
+    await open(async (w) => {
       await w.create('settings', monthly, 'settings');
     });
-    expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
-    expect(t.nav().flow?.area).toBe('plan');
+    const row = await screen.findByRole('region', { name: 'Plan the next stretch' });
+    expect(within(row).getByText(/Nov 8 to Dec 7 · About 45m/)).toBeVisible();
   });
 
-  it.each(['desktop', 'phone'] as const)('never planned, offers a first plan from the first day, on %s', async (layout) => {
+  it.each(['desktop', 'phone'] as const)('never planned, offers a first plan of the stretch under way, on %s', async (layout) => {
     await open(async () => undefined, { layout });
-    expect(await screen.findByText('Plan your first stretch. It ends Dec 31.')).toBeVisible();
+    expect(within(await screen.findByRole('region', { name: 'Plan your first stretch' })).getByText(/Ends Dec 31 · About 1h/)).toBeVisible();
   });
 
   it.each(['desktop', 'phone'] as const)('never planned, offers a first plan of this stretch instead, on %s', async (layout) => {
     await open((w) => w.create('settings', { plan_cadence: monthly.plan_cadence }, 'settings'), { layout });
-    expect(await screen.findByText('Plan your first stretch. It ends Nov 7.')).toBeVisible();
-    expect(screen.queryByText(/Plan the next stretch/)).toBeNull();
-  });
-
-  it('keeps a first plan skipped the next day, though it would start from that day', async () => {
-    const unplanned = (w: Writer) => w.create('settings', { plan_cadence: monthly.plan_cadence }, 'settings');
-    await open(unplanned);
-    await screen.findByText('Plan your first stretch. It ends Nov 7.');
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    cleanup();
-    await open(unplanned, { now: at('14:00', '2026-11-03') });
-    await screen.findByRole('heading', { level: 1, name: 'Today' });
-    expect(screen.queryByText('Plan your first stretch. It ends Nov 7.')).toBeNull();
-    localStorage.clear();
-  });
-
-  it('on phone, Start opens planning the stretch, and its × is named in full and puts it away', async () => {
-    const t = await open(async () => undefined, { layout: 'phone' });
-    const start = await screen.findByRole('button', { name: 'Plan your first stretch. It ends Dec 31. Start' });
-    expect(within(start).getByText('Start')).toHaveClass('attngo');
-    await userEvent.click(start);
-    expect(t.nav().flow?.area).toBe('plan');
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Plan your first stretch. It ends Dec 31.' }));
-    await waitFor(() => expect(screen.queryByText('Plan your first stretch. It ends Dec 31.')).toBeNull());
-    localStorage.clear();
-  });
-
-  it('lets the next stretch alert be skipped on desktop too', async () => {
-    await open(async (w) => {
-      await w.create('settings', monthly, 'settings');
-    });
-    expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    await waitFor(() => expect(screen.queryByText('Plan the next stretch. It starts Nov 8.')).toBeNull());
+    expect(within(await screen.findByRole('region', { name: 'Plan your first stretch' })).getByText('Ends Nov 7 · About 1h')).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Plan the next stretch' })).toBeNull();
   });
 });
 
@@ -672,9 +640,7 @@ describe('Google Calendar', () => {
     const sync = fakeSync();
     const t = await open(async () => undefined, { sync });
     await signIn(t);
-    // After the first plan's alert.
-    await userEvent.click(await screen.findByRole('button', { name: 'Show 1 more alert' }));
-    expect(screen.getByText('Connect Google Calendar')).toBeVisible();
+    expect(await screen.findByText('Connect Google Calendar')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect(sync.connectCalendar).toHaveBeenCalledOnce();
   });

@@ -223,6 +223,10 @@ test.describe('one device', () => {
       { type: 'task', id: 'planning:week:2026-11-09', fields: { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 30 } },
       { type: 'time_block', id: 'pb1', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:00'), end: at(6, '17:30'), tz } },
       { type: 'task', id: 'planning:week:2026-11-16', fields: { kind: 'planning', title: 'Plan the week of Nov 16', plans: ['week:2026-11-16'], estimate_min: 30 } },
+      // The next stretch's planning task, scheduled, and the minutes measured planning it.
+      { type: 'task', id: 'planning:stretch:2027-01-01', fields: { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'], estimate_min: 45 } },
+      { type: 'time_block', id: 'pb2', fields: { task_id: 'planning:stretch:2027-01-01', start: at(5, '17:00'), end: at(5, '17:45'), tz } },
+      { type: 'settings', id: 'settings', fields: { stretch_planning: { start: '2027-01-01', started_at: at(4, '09:00'), min: 12, history: [40, 55] } } },
       // Planning begun and stopped part way, as the update measures it.
       { type: 'week_plan', id: 'week:2026-11-09', fields: { week_start: '2026-11-09', planning_min: 12, planning_started_at: at(4, '09:00') } },
       {
@@ -239,6 +243,7 @@ test.describe('one device', () => {
     await everyScreen(page);
     await go(page, 'Week');
     await expect(pane(page, 'Week').getByRole('button', { name: /^Plan the week of Nov 9, Fri Nov 6, 5pm to 5:30pm/ })).toBeVisible();
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Plan Jan 1 to Mar 31, Thu Nov 5, 5pm to 5:45pm/ })).toBeVisible();
     for (const label of ['Inbox', 'One offs', 'Today']) {
       await go(page, label, /./);
       await expect(pane(page, label).getByText(/Plan the week of/)).toHaveCount(0);

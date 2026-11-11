@@ -16,6 +16,8 @@ import type { PlanData } from './data';
 import { usePlanFlow, writeFlow } from './flowState';
 import { planContext, planGroups, range, whereNow } from './model';
 import type { PlanGroup } from './model';
+import { usePlanningActions } from '../../components/planning/usePlanning';
+import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
 
 export function Diamond(props: { cls: string; phone: boolean }) {
   return props.phone ? (
@@ -77,10 +79,14 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
   const where = whereNow(data.settings, on, flow);
   const [editing, setEditing] = useState(props.params.cadence === 'edit');
   const save = useMutation((w, fields: Fields<'settings'>) => updateSettings(w, fields));
+  const planning = useStretchPlanning();
+  const act = usePlanningActions();
 
+  // Opening planning for a plan that's due places a planning block from now, as every Start does.
   const open = (step = flow.begun ? flow.step : 0) => {
     writeFlow({ begun: true, step });
-    nav.openFlow('plan');
+    if (planning.due) void act.start(planning.due);
+    else nav.openFlow('plan');
   };
   const startCadence = async () => {
     if ((await save.run({ plan_cadence: { every: 1, unit: 'quarters', anchor: addDays(on, 1) } })) === undefined) return;
@@ -109,6 +115,7 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
         <section className={`card stack8${where.due ? ' due' : ''}`} aria-label="Planning cadence">
           <h2>{cadenceLabel(data.settings.plan_cadence)}</h2>
           {data.settings.plan_cadence && <p className={phone ? 'small' : undefined}>{where.lineText}</p>}
+          {planning.at && <p className="small quiet">{planning.at}</p>}
           {editing ? (
             <CadenceEditor
               settings={data.settings}

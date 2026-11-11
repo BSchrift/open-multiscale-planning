@@ -63,7 +63,7 @@ describe('the planning task', () => {
   it('is not made before its window, nor for a week already planned', async () => {
     const early = await setup(at('2026-11-12', '10:00'));
     await early.run((w) => makeDuePlanningTasks(w, early.clock));
-    expect(await listRecords(early.db, 'task')).toEqual([]);
+    expect(await early.task()).toBeUndefined();
     const planned = await setup(FRIDAY, (w) => w.create('week_plan', { week_start: WEEK, finished_at: FRIDAY }, weekPlanId(WEEK)));
     await planned.run((w) => makeDuePlanningTasks(w, planned.clock));
     expect(await planned.task()).toBeUndefined();
@@ -85,7 +85,7 @@ describe('the planning task', () => {
     await transact(desk, clock, (w) => makeDuePlanningTasks(w, clock));
     await transact(desk, clock, (w) => deletePlanning(w, WEEK, clock));
     for (const db of [phone, desk, phone]) await runSync(db, server.send);
-    const tasks = await listRecords(phone, 'task', { includeDeleted: true });
+    const tasks = (await listRecords(phone, 'task', { includeDeleted: true })).filter((x) => x.id.startsWith('planning:week:'));
     expect(tasks.map((x) => [x.id, x.deleted_at])).toEqual([[ID, FRIDAY]]);
   });
 

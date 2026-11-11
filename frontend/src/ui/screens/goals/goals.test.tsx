@@ -1104,19 +1104,24 @@ describe('Goals', () => {
     });
   });
 
-  it('on phone, offers planning when it is due', async () => {
+  it("on phone, says when the stretch's planning is set, and leaves the asking to Today", async () => {
     const planned = async (w: Writer) => (await bread(w), w.create('settings', { plan_stretch: { last_planned: '2026-10-01' } }, 'settings'));
-    const t = await renderScreen('goals', { layout: 'phone', seed: planned, now: '2026-12-26T18:00:00Z' });
-    await userEvent.click(await screen.findByRole('button', { name: 'Time to plan the next stretch' }));
-    expect(t.nav().flow?.area).toBe('plan');
-    cleanup();
-    // Never planned, a first plan is due from the first day.
-    await renderScreen('goals', { layout: 'phone', seed: bread });
-    expect(await screen.findByRole('button', { name: 'Time to plan your first stretch' })).toBeVisible();
-    cleanup();
-    await renderScreen('goals', { layout: 'phone', seed: planned });
+    await renderScreen('goals', { layout: 'phone', seed: planned, now: '2026-12-26T18:00:00Z' });
     await screen.findByRole('heading', { level: 1, name: 'Goals' });
-    expect(screen.queryByRole('button', { name: /Time to plan/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Time to plan|^Planning:/ })).toBeNull();
+    cleanup();
+    const t = await renderScreen('goals', {
+      layout: 'phone',
+      now: '2026-12-26T18:00:00Z',
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'] }, 'planning:stretch:2027-01-01');
+        // Sunday, Dec 27 at 9am in Chicago.
+        await w.create('time_block', { task_id: 'planning:stretch:2027-01-01', start: '2026-12-27T15:00:00Z', end: '2026-12-27T15:45:00Z', tz: 'America/Chicago' });
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Planning: Sun Dec 27, 9am' }));
+    expect(t.nav().flow?.area).toBe('plan');
   });
 
   it('on phone, a project row opens its page', async () => {

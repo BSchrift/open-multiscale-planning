@@ -266,6 +266,12 @@ export interface Settings extends BaseRecord {
   avoided_slots: AvoidedSlot[];
   /** Set when first-run setup ends, here so a second device skips it. */
   setup_done_at?: Instant | null;
+  /**
+   * Minutes active in planning the stretch starting on start, and when it began, added each time the flow closes; and
+   * the last 3 finished stretches' minutes, which its estimate learns from. Its own field, so it can't clobber
+   * plan_stretch.
+   */
+  stretch_planning?: { start: LocalDate; started_at?: Instant | null; min?: Minutes | null; history?: Minutes[] } | null;
 }
 
 export interface CalendarEvent {

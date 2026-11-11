@@ -19,7 +19,7 @@ the Mac release's, which may only upload to the pipeline's inbox, through GitHub
 | **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves if the `release` environment asks | For each main commit, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | An approval the environment asks for doesn't come, or a build or notarization fails. The pipeline then stops at Staging |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Publishes the web app, any new Mac app, then the feed, and runs the web app, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
-| **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it. Then a wait until that time, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
+| **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, publishes the web app, any new Mac app the Staging stage checked, and the feed, and checks them | A release alarm rolls the canary back, or a suite fails |
 | **Nightly** | Staging | The full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed iPhone build from that tag, and the Mac app's too until the Mac release is set up | — |
@@ -133,12 +133,14 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | `make deploy ENV=pipeline` | Deploys the pipeline itself |
 
 **Promotion needs no approval.** When staging passes, a state machine (Step Functions, so the wait costs no build
-minutes) emails the commit and the time it goes to prod, then waits until that time. To keep it from prod, run `make
-pipeline-stop`, or choose **Stop execution** on the run in CodePipeline, before then. **An agent stops a run only when the
-owner asks in chat.** The window is `pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of whole days, hours,
-minutes and seconds up to 6 days: `PT2H` when it's left out, `PT0S` to go at once. Prod's canary and its alarms still
-guard the release. Failed runs and failed nightly runs are emailed to the same address. The pause switch is unchanged:
-it holds back new runs, not one already past staging.
+minutes) emails the commit and the time it goes to prod, then waits until that time. To send it sooner, open the
+email's link and choose **Promote now**: the run goes to prod at once. Opening the link alone changes nothing, since
+mail scanners open links, but anyone with it can promote that run, so don't forward the email. To keep it from prod,
+run `make pipeline-stop`, or choose **Stop execution** on the run in CodePipeline, before then. **An agent stops a run
+only when the owner asks in chat.** The window is `pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of
+whole days, hours, minutes and seconds up to 6 days: `PT2H` when it's left out, `PT0S` to go at once. Prod's canary and
+its alarms still guard the release. Failed runs and failed nightly runs are emailed to the same address. The pause
+switch is unchanged: it holds back new runs, not one already past staging.
 
 **The signed apps.** Each build names the native code it needs, and the pipeline compares that with the feed's. When
 the Mac app's changed, the pipeline publishes the Mac app GitHub Actions built and checked, then the feed, so an
@@ -398,7 +400,7 @@ install the new app on every device.
 | Two KMS keys: the artifacts', which prod's account reads them with, and the release keys' | $2 |
 | Ten or so more CloudWatch alarms | About $1 |
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
-| The window before prod, a two-state Step Functions run each release | Under $0.01 |
+| The window before prod, a three-state Step Functions run each release, and its link's Lambda | Under $0.01 |
 | The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite | About $0.45 a night |
 | The Mac app's check, a small build that waits for GitHub's build, only for a run that needs a new Mac app | Up to $0.60 a time, for a two-hour wait |
 | The Mac release's inbox, two disk images a time, kept 30 days | Under $0.05 |

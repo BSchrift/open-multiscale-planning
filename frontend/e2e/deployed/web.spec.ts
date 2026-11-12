@@ -10,6 +10,9 @@ import { syncNow } from '../seed';
 import { deployed } from './target';
 
 const d = deployed();
+// The prod Test step runs this checkout's checks against the web app prod still serves, the release before, since it
+// publishes only once they pass. Checks of screens new in this release skip there; release-prod runs them after publishing.
+const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 const NETWORK = { timeout: 60_000 };
 
 test.describe.configure({ mode: 'serial' });
@@ -118,14 +121,17 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await field.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
 
-  // Process: a practice made from the card takes the item with it, in one change that one Undo takes back.
+  // Process: a practice made from the card takes the item with it, in one change that one Undo takes back. New in the
+  // planning release, so the release before, which the prod Test step meets, opens the card without it.
   await nav.getByRole('button', { name: /Inbox/ }).click();
   await page.getByRole('button', { name: `Assign ${title}` }).click();
-  await page.getByRole('button', { name: 'New practice from this item' }).click();
-  await page.getByRole('button', { name: 'Make it a practice' }).click();
-  await expect(page.getByText(`"${title}" is now a practice, 30m a day. It left your Inbox.`)).toBeVisible();
-  await page.getByRole('button', { name: '‹ Undo and go back' }).click();
-  await expect(page.getByText(`Undone: ${title} removed, "${title}" is back in your Inbox.`)).toBeVisible();
+  if (!beforePublish) {
+    await page.getByRole('button', { name: 'New practice from this item' }).click();
+    await page.getByRole('button', { name: 'Make it a practice' }).click();
+    await expect(page.getByText(`"${title}" is now a practice, 30m a day. It left your Inbox.`)).toBeVisible();
+    await page.getByRole('button', { name: '‹ Undo and go back' }).click();
+    await expect(page.getByText(`Undone: ${title} removed, "${title}" is back in your Inbox.`)).toBeVisible();
+  }
 
   // Add to this week picks it for the week, and puts nothing on the calendar.
   await page.getByRole('button', { name: 'Add to this week' }).click();
@@ -188,6 +194,7 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
 });
 
 test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, with Does it fit in view, and saves and exits', async ({}, info) => {
+  test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");
   // Looking writes nothing to the plan: no Continue, no Finish, and Add is opened and closed.
   const phone = info.project.name === 'phone';
   const nav = page.getByRole('navigation', { name: 'Main' });
@@ -218,7 +225,9 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  await expect(page.getByRole('button', { name: 'Continue planning' })).toBeVisible();
+  // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
+  // earlier runs may have done, so any of its ways in will do.
+  await expect(page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first()).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

@@ -3,19 +3,22 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { go, pane, syncNow } from '../seed';
 import { closeDevices, device, signIn } from './devices';
+import { target } from './target';
 
 // Stretch planning's progress, through the backend: begun on one device, it resumes on another at the same step, with
-// the same steps done, and once one device finishes the plan, neither offers to continue it. On a deployment's shared
-// test user, planning may be under way from a run cut short, and the stretch may be planned already, so each run starts
-// from Goals; finishing leaves that user's next stretch planned, as any finished run would.
+// the same steps done, and once one device finishes the plan, neither offers to continue it. It needs a fresh user: on a
+// deployment's shared test user, the first run's finish leaves the stretch planned, and a planned stretch's progress is
+// over at once, so no later run would have a plan to continue.
 
 test.use({ baseURL: `http://localhost:${process.env.STACK_WEB_PORT}` });
+const t = target();
 test.afterEach(closeDevices);
 
 const steps = (page: Page) => page.getByRole('navigation', { name: 'Planning steps' });
 const CTA = /^(Continue planning|Plan (now|the next stretch|your first stretch|without a cadence))$/;
 
 test('planning begun on one device resumes on another at the same step, and a finish on either ends it on both', async ({ browser }) => {
+  test.skip(!t.localApi, 'needs: a fresh user each run');
   const run = randomUUID().slice(0, 8);
   const a = await device(browser, `e2e-${run}`);
   const b = await device(browser, `e2e-${run}`);

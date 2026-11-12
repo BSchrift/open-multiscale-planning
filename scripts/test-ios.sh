@@ -91,8 +91,9 @@ server=$!
 # From a result bundle, the tests that failed a run, retried or quarantined: in the log, and in CI's job summary, so a
 # test that passes only on a retry stays in sight.
 report() {
-  xcrun xcresulttool get test-results tests --path "$1" --compact >"$work/tests.json" 2>/dev/null || return 0
-  python3 - "$work/tests.json" "$2" <<'EOF' | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  # The tests pass or fail by xcodebuild's result, so a bundle that can't be read only says so.
+  xcrun xcresulttool get test-results tests --path "$1" --compact >"$work/tests.json" 2>/dev/null &&
+    python3 - "$work/tests.json" "$2" <<'EOF' | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}" || echo "The test report couldn't read $1"
 import json, sys
 
 def walk(node, kind):

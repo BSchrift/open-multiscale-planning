@@ -510,13 +510,17 @@ case "$command" in
         continue
       fi
       key="inbox/${COMMIT:?}/$env_name"
-      echo "Waiting up to $((MAC_WAIT_SECONDS / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
-      deadline=$((SECONDS + MAC_WAIT_SECONDS))
+      # shortcut: a new AWS account caps every CodeBuild build at 45 minutes whatever the project says, so the wait stops
+      # at 40 and says how to go on; drop CODEBUILD_LIMIT_SECONDS's default once AWS Support has lifted the cap.
+      wait=$((MAC_WAIT_SECONDS < ${CODEBUILD_LIMIT_SECONDS:-2400} ? MAC_WAIT_SECONDS : ${CODEBUILD_LIMIT_SECONDS:-2400}))
+      echo "Waiting up to $((wait / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
+      deadline=$((SECONDS + wait))
       until aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "$key/manifest.json" >/dev/null 2>&1; do
         if [ "$SECONDS" -ge "$deadline" ]; then
           echo "No Mac app for $env_name at $COMMIT reached the inbox in time, so this run stops before publishing anything." >&2
           echo "Approve the Mac release workflow's run for this commit, or start one: gh workflow run mac-release.yml -f commit=$COMMIT" >&2
-          echo "Then run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
+          echo "Once it has finished, retry this stage: aws codepipeline retry-stage-execution --pipeline-name $pipeline --stage-name Staging --pipeline-execution-id ${EXECUTION_ID:-<this run>} --retry-mode FAILED_ACTIONS" >&2
+          echo "Or run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
           exit 1
         fi
         sleep 30

@@ -118,7 +118,11 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
 const button = (label: string, run: () => Promise<string>) => {
   const element = document.createElement('button');
   element.textContent = label;
-  element.onclick = () => void run().then(log, (err: unknown) => log(`${label} failed: ${String(err)}`));
+  // Noted at once, so a test can tell a tap the page never heard, which it taps again, from a check still running.
+  element.onclick = () => {
+    log(`tapped:${label}`);
+    void run().then(log, (err: unknown) => log(`${label} failed: ${String(err)}`));
+  };
   document.getElementById('buttons')!.append(element);
 };
 

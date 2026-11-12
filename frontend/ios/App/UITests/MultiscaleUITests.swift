@@ -424,7 +424,8 @@ final class NativeUITests: XCTestCase {
 
     func testSignInLinkReturnsThroughTheURLSchemeAndClosesTheBrowser() {
         let browser = app.webButton("Browser")
-        tap("Browser")
+        // Tapped once only: the sheet hides the page from the tree, so tap(_:) couldn't see that it heard.
+        browser.tap()
         // Told by our own page being covered and uncovered, since the sheet's buttons are named differently across
         // iOS versions (Done, then Close).
         XCTAssertTrue(wait(for: browser, hittable: false), "the browser sheet never came up. On screen:\n\(app.debugDescription)")

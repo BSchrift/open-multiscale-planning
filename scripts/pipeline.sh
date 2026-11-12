@@ -530,8 +530,9 @@ case "$command" in
     outputs prod
     frontend_deps
     browsers
-    # The released apps against the promoted backend, before anything new is signed or published.
-    ENV=prod CONFIRM_PROD=yes SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    # The released apps against the promoted backend, before anything new is signed or published. The web app is still
+    # the release before this one, so checks of this release's own screens wait for release-prod.
+    ENV=prod CONFIRM_PROD=yes SKIP_IOS=1 DEPLOYED_BEFORE_PUBLISH=1 "$root/scripts/test-deployed.sh"
     ;;
   release-prod)
     fetch_config

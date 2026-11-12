@@ -8,9 +8,9 @@ import { gatherPlans, minutesLeft, oneOffCandidates, plannable, projectCandidate
 import type { BlockRow } from '../../../core/queries';
 import { returnMissedBlocks, welcomeOptions } from '../../../core/queue';
 import type { Task } from '../../../core/types';
-import { useNav } from '../../app/nav';
 import { useApp, useMutation } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
+import { usePlanningActions } from '../../components/planning/usePlanning';
 import type { TodayData } from './data';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -47,7 +47,7 @@ const minutesLabel = (t: Task) => (minutesLeft(t) ? formatMinutes(minutesLeft(t)
 export function PickOne(props: { data: TodayData; onPick(taskId: string): void }) {
   const { data } = props;
   const { clock, layout } = useApp();
-  const nav = useNav();
+  const planning = usePlanningActions();
   const options = welcomeOptions(data.tasks, data.milestones, data.projects, clock);
   return (
     <>
@@ -60,7 +60,7 @@ export function PickOne(props: { data: TodayData; onPick(taskId: string): void }
         ))}
       </div>
       <div>
-        <button className={layout === 'phone' ? 'btn' : 'link'} type="button" onClick={() => nav.openFlow('planning')}>
+        <button className={layout === 'phone' ? 'btn' : 'link'} type="button" onClick={() => void planning.start(thisWeek(clock))}>
           Plan the rest of the week instead
         </button>
       </div>
@@ -89,12 +89,12 @@ export function Gate(props: { data: TodayData }) {
 }
 
 export function Banner() {
-  const { layout } = useApp();
-  const nav = useNav();
+  const { clock, layout } = useApp();
+  const planning = usePlanningActions();
   return (
     <div className="attn">
       <span>This week isn't planned</span>
-      <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => nav.openFlow('planning')}>
+      <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => void planning.start(thisWeek(clock))}>
         Start planning
       </button>
     </div>

@@ -1,6 +1,7 @@
 // The checks a person would make by hand after a release, against the deployment itself: it serves the version
 // released, behind its security policy; the test user signs in through the hosted page and stays signed in; a second
-// tab is refused; and on desktop, the data is on OPFS, and work goes from Capture to the calendar and back.
+// tab is refused; on desktop, the data is on OPFS, and work goes from Capture to the calendar and back; and stretch
+// planning's steps open, each with Does it fit.
 // scripts/test-deployed.sh runs it.
 
 import { expect, test } from '@playwright/test';
@@ -9,6 +10,9 @@ import { syncNow } from '../seed';
 import { deployed } from './target';
 
 const d = deployed();
+// The prod Test step runs this checkout's checks against the web app prod still serves, the release before, since it
+// publishes only once they pass. Checks of screens new in this release skip there; release-prod runs them after publishing.
+const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 const NETWORK = { timeout: 60_000 };
 
 test.describe.configure({ mode: 'serial' });
@@ -117,9 +121,19 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await field.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
 
-  // Process: Add to this week picks it for the week, and puts nothing on the calendar.
+  // Process: a practice made from the card takes the item with it, in one change that one Undo takes back. New in the
+  // planning release, so the release before, which the prod Test step meets, opens the card without it.
   await nav.getByRole('button', { name: /Inbox/ }).click();
   await page.getByRole('button', { name: `Assign ${title}` }).click();
+  if (!beforePublish) {
+    await page.getByRole('button', { name: 'New practice from this item' }).click();
+    await page.getByRole('button', { name: 'Make it a practice' }).click();
+    await expect(page.getByText(`"${title}" is now a practice, 30m a day. It left your Inbox.`)).toBeVisible();
+    await page.getByRole('button', { name: '‹ Undo and go back' }).click();
+    await expect(page.getByText(`Undone: ${title} removed, "${title}" is back in your Inbox.`)).toBeVisible();
+  }
+
+  // Add to this week picks it for the week, and puts nothing on the calendar.
   await page.getByRole('button', { name: 'Add to this week' }).click();
   await page.getByRole('button', { name: 'One offs, add to this week' }).click();
   await expect(page.getByText('Sent to One offs and added to this week, not on the calendar yet.')).toBeVisible();
@@ -148,7 +162,10 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await expect(placed).toBeVisible();
 
   // While editing, dragged back onto To schedule, it comes off the calendar.
-  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) await page.getByRole('button', { name: 'Skip for now' }).click();
+  // Skip for now is × on desktop, and is kept on the week's plan for every device.
+  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) {
+    await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  }
   await page.getByRole('button', { name: "Edit this week's plan" }).click();
   const block = page.getByRole('group', { name: new RegExp(`^${title}, `) });
   const box = (await block.boundingBox())!;
@@ -174,6 +191,43 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   }
   // Sent before the browser closes, or the deployment keeps these checks as Inbox items for the next suite to trip on.
   await syncNow(page);
+});
+
+test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, with Does it fit in view, and saves and exits', async ({}, info) => {
+  test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");
+  // Looking writes nothing to the plan: no Continue, no Finish, and Add is opened and closed.
+  const phone = info.project.name === 'phone';
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  if (phone) {
+    await nav.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: /^Plan/ }).click();
+  } else {
+    await nav.getByRole('button', { name: 'Plan' }).click();
+  }
+  await page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first().click();
+  const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  const shown: [string, RegExp][] = [
+    ['Goals', /^Step \d of \d, Goals\. (Are these still your goals|What are your goals)\?$/],
+    ['Practices', /^Step \d of \d, Practices\. Your practices$/],
+    ['Projects', /^Step \d of \d, Projects\. What will you reach by /],
+    ['Inbox', /^Step \d of \d, Inbox\. Give each item a home$/],
+  ];
+  for (const [step, heading] of shown) {
+    await steps.getByRole('button', { name: new RegExp(`^(\\d\\. )?${step}`) }).click();
+    await expect(page.getByRole('heading', { name: heading })).toBeVisible(NETWORK);
+    await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
+  }
+  const add = page.getByRole('button', phone ? { name: 'Add a goal, practice, project or Inbox task' } : { name: '+ Add', exact: true });
+  await add.click();
+  await expect(page.getByRole('dialog', { name: 'Add' }).getByRole('button', { name: 'Task to Inbox' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await steps.getByRole('button', { name: /^(\d\. )?Finish/ }).click();
+  await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
+  // earlier runs may have done, so any of its ways in will do.
+  await expect(page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first()).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

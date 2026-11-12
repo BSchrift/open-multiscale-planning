@@ -58,7 +58,7 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION" >> "$LOG"\n');
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
@@ -345,6 +345,13 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop iphone shared SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1/);
     // Each profile signs in as its account's release role.
     assert.match(readFileSync(join(s.root, '.aws/config'), 'utf8'), /\[profile ms-staging\]\nrole_arn = arn:aws:iam::210987654321:role\/multiscale-release\ncredential_source = EcsContainer/);
+  });
+
+  it("tells the prod Test step's suites the web app is still the one before this release", () => {
+    const s = configured();
+    const r = s.run(['test-prod'], {});
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /test-deployed ENV=prod .*DEPLOYED_BEFORE_PUBLISH=1/);
   });
 
   it('adds each switch to the history after the ones before', () => {

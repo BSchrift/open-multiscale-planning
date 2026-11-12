@@ -18,6 +18,25 @@ import { capture, closeDevices, daysAhead, deleteFromInbox, device, oneOff, sign
 test.use({ baseURL: `http://localhost:${process.env.COMPAT_WEB_PORT}` });
 test.afterEach(closeDevices);
 
+// The two-device pause test's block is live for an hour on a deployment's shared test user, and one a failed run left
+// takes the Current block card from every run in that hour. So it's deleted even when the test fails, from a fresh
+// device, since a test that timed out has no page left to do it from.
+let live: { run: string; task: string; block: string } | null = null;
+test.afterEach(async ({ browser }) => {
+  if (!live) return;
+  const { run, task, block } = live;
+  live = null;
+  const gone = new Date().toISOString();
+  const d = await device(browser, `e2e-${run}`, on('new'));
+  await seed(d.page, [
+    { type: 'time_block', id: block, fields: { deleted_at: gone } },
+    { type: 'task', id: task, fields: { deleted_at: gone } },
+  ]);
+  await signIn(d.page);
+  await syncNow(d.page);
+  await d.page.context().close();
+});
+
 type Bundle = 'old' | 'new';
 const bundle = (name: Bundle) => ({ name: 'bundle', value: name, domain: 'localhost', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' as const });
 const on = (name: Bundle) => ({ storageState: { cookies: [bundle(name)], origins: [] } });
@@ -29,6 +48,12 @@ const oldPauses = () => {
   return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('unless you resume.'));
 };
 const noOlderThanPausing = 'The bundle before already pauses blocks, so there is no older one to run against.';
+// The same for the stretch flow from goals to the Inbox, once it's on main.
+const oldPlansToInbox = () => {
+  const assets = join(process.env.COMPAT_OLD ?? '', 'assets');
+  return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('Give each item a home'));
+};
+const noOlderThanInboxStep = 'The bundle before already plans a stretch through the Inbox, so there is no older one to run against.';
 
 /** Notes what the page logs as an error, such as a query the database refused. */
 function consoleErrors(page: Page, errors: string[], name: Bundle) {
@@ -214,6 +239,154 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('planning tasks the update saved are a block on Week in the bundle before, and never listed as work to do', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    // As the update saves them: one scheduled, one with no time yet, and one deleted.
+    const planning: Seed[] = [
+      { type: 'task', id: 'planning:week:2026-11-09', fields: { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 30 } },
+      { type: 'time_block', id: 'pb1', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:00'), end: at(6, '17:30'), tz } },
+      { type: 'task', id: 'planning:week:2026-11-16', fields: { kind: 'planning', title: 'Plan the week of Nov 16', plans: ['week:2026-11-16'], estimate_min: 30 } },
+      // The next stretch's planning task, scheduled, and the minutes measured planning it.
+      { type: 'task', id: 'planning:stretch:2027-01-01', fields: { kind: 'planning', title: 'Plan Jan 1 to Mar 31', plans: ['stretch:2027-01-01'], estimate_min: 45 } },
+      { type: 'time_block', id: 'pb2', fields: { task_id: 'planning:stretch:2027-01-01', start: at(5, '17:00'), end: at(5, '17:45'), tz } },
+      { type: 'settings', id: 'settings', fields: { stretch_planning: { start: '2027-01-01', started_at: at(4, '09:00'), min: 12, history: [40, 55] } } },
+      // Planning begun and stopped part way, as the update measures it.
+      { type: 'week_plan', id: 'week:2026-11-09', fields: { week_start: '2026-11-09', planning_min: 12, planning_started_at: at(4, '09:00') } },
+      {
+        type: 'task',
+        id: 'planning:week:2026-10-26',
+        fields: { kind: 'planning', title: 'Plan the week of Oct 26', plans: ['week:2026-10-26'], estimate_min: 30, deleted_at: at(2, '08:00') },
+      },
+    ];
+    await openSeeded(page, [...week, ...planning]);
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before shows the scheduled one on Week under its title, and lists none as work.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Plan the week of Nov 9, Fri Nov 6, 5pm to 5:30pm/ })).toBeVisible();
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Plan Jan 1 to Mar 31, Thu Nov 5, 5pm to 5:45pm/ })).toBeVisible();
+    for (const label of ['Inbox', 'One offs', 'Today']) {
+      await go(page, label, /./);
+      await expect(pane(page, label).getByText(/Plan the week of/)).toHaveCount(0);
+    }
+
+    // Updated again, nothing is lost.
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Plan the week of Nov 9, Fri Nov 6, 5pm to 5:30pm/ })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('an Inbox item the update made a practice is a finished task in the bundle before, which can reopen it', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    const finished = () => pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
+    const openFinished = async () => {
+      await go(page, 'One offs');
+      await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
+    };
+
+    // The update makes the item a practice from its card: it closes, with a link to the practice.
+    await go(page, 'Inbox');
+    await pane(page, 'Inbox').getByRole('button', { name: 'Assign Order more coffee beans' }).click();
+    const card = page.getByRole('dialog', { name: 'Process Inbox' });
+    await card.getByRole('button', { name: 'New practice from this item' }).click();
+    await card.getByRole('form', { name: 'New practice' }).getByRole('textbox', { name: 'Name' }).fill('Brew coffee at home');
+    await card.getByRole('button', { name: 'Make it a practice' }).click();
+    await expect(card.getByRole('status')).toHaveText('"Order more coffee beans" is now the practice Brew coffee at home, 30m a day. It left your Inbox.');
+    await page.keyboard.press('Escape');
+    await openFinished();
+    await expect(finished().getByRole('button', { name: 'Became the practice Brew coffee at home' })).toBeVisible();
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before knows nothing of the link: the item is a finished task, out of the Inbox,
+    // and unticking it there reopens it.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'Inbox');
+    await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toHaveCount(0);
+    await openFinished();
+    const box = finished().getByRole('checkbox', { name: 'Order more coffee beans done' });
+    await expect(box).toBeChecked();
+    await box.click();
+    await expect(box).not.toBeChecked();
+
+    // Updated again, the item is back in the Inbox, so neither finished nor linked, and the practice stays. One offs
+    // may now show no Finished tasks at all, since it hides them when there are none.
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Inbox');
+    await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toBeVisible();
+    await go(page, 'Goals');
+    await expect(pane(page, 'Goals').getByRole('button', { name: /Practices with no goal/ })).toContainText('1 practice');
+    await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
+  test("the weekly planning reminder's switch, off in the update, stays off when the bundle before changes another", async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    await go(page, 'Settings');
+    const weekly = () => pane(page, 'Settings').getByRole('checkbox', { name: "Remind me when next week's planning has no time" });
+    await weekly().click();
+    await expect(weekly()).not.toBeChecked();
+
+    // The bundle before writes the reminders back whole when it changes one.
+    page = await relaunch(page, 'old', errors);
+    await go(page, 'Settings');
+    await pane(page, 'Settings').getByRole('checkbox', { name: 'Ask at block end' }).click();
+    await expect(pane(page, 'Settings').getByRole('checkbox', { name: 'Ask at block end' })).not.toBeChecked();
+
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'Settings');
+    await expect(weekly()).not.toBeChecked();
+    await expect(pane(page, 'Settings').getByRole('checkbox', { name: 'Ask at block end' })).not.toBeChecked();
+    expect(errors).toEqual([]);
+  });
+
+  test('planning ahead left on a step the bundle before lacks resumes there on its nearest, and the update follows a step it moved to', async ({ context }) => {
+    test.skip(oldPlansToInbox(), noOlderThanInboxStep);
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    const steps = () => page.getByRole('navigation', { name: 'Planning steps' });
+    const plan = async () => {
+      await go(page, 'Plan');
+      await pane(page, 'Plan')
+        .getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch)$/ })
+        .click();
+    };
+    // The update keeps planning's step on the device as a key, beside the number the bundle before reads.
+    await plan();
+    await steps().getByRole('button', { name: /Inbox/ }).click();
+    await expect(page.getByRole('heading', { name: /Give each item a home$/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+
+    // The bundle before has no Inbox step, so it opens on Projects, the step before it, and moves on to Practices.
+    page = await relaunch(page, 'old', errors);
+    await plan();
+    await expect(page.getByRole('heading', { name: /What will you reach by Dec 31\?$/ })).toBeVisible();
+    await expect(steps().getByRole('button', { name: /Projects/ })).toHaveAttribute('aria-current', 'step');
+    await steps().getByRole('button', { name: /Practices/ }).click();
+    await expect(page.getByRole('heading', { name: /Your practices$/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Save and exit' }).click();
+
+    // Updated again, it opens where the bundle before left it.
+    page = await relaunch(page, 'new', errors);
+    await plan();
+    await expect(page.getByRole('heading', { name: /Your practices$/ })).toBeVisible();
+    await expect(steps().getByRole('button', { name: /Practices/ })).toHaveAttribute('aria-current', 'step');
+    expect(errors).toEqual([]);
+  });
+
   test('a block the update paused runs on in the bundle before, which keeps the pause through a change of its own', async ({ context }) => {
     test.skip(oldPauses(), noOlderThanPausing);
     const errors: string[] = [];
@@ -342,6 +515,11 @@ test('an old and a new device of one user: a block the new one paused runs on in
   const ids = { task: `e2e-${run}-gate`, block: `e2e-${run}-gate-block` };
   // Started on the minute, so the block is today's for the run's few minutes.
   const start = Math.floor(Date.now() / 60_000) * 60_000;
+  // The block runs an hour, and the bundle before can't move one that runs past the day's end.
+  const midnight = new Date(start);
+  midnight.setHours(24, 0, 0, 0);
+  test.skip(midnight.getTime() - start < 70 * 60_000, 'needs: an hour of the day left');
+  live = { run, ...ids };
   const iso = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
   const oldDevice = await device(browser, `e2e-${run}`, on('old'));
   const newDevice = await device(browser, `e2e-${run}`, on('new'));
@@ -359,7 +537,7 @@ test('an old and a new device of one user: a block the new one paused runs on in
   // Today, past the prompt to plan the week, which only this device remembers skipping.
   const today = async (d: typeof oldDevice) => {
     await go(d.page, 'Today', /^(Today|Plan your week)$/);
-    const skip = pane(d.page, 'Today').getByRole('button', { name: 'Skip for now' });
+    const skip = pane(d.page, 'Today').getByRole('button', { name: /^Skip (for now|planning this week)$/ });
     if (await skip.count()) await skip.click();
     await expect(pane(d.page, 'Today').getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
   };
@@ -399,6 +577,7 @@ test('an old and a new device of one user: a block the new one paused runs on in
   ]);
   await syncNow(oldDevice.page);
   await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
+  live = null;
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });
@@ -534,6 +713,46 @@ test('an old device changing a task keeps the attachments a new device added', a
   await syncNow(oldDevice.page);
   await expect(account(oldDevice.page).getByText('Synced', { exact: true })).toBeVisible();
 
+  expect(oldDevice.errors).toEqual([]);
+  expect(newDevice.errors).toEqual([]);
+});
+
+test('an old and a new device of one user: planning begun on the new one is no trouble to the old, which finishes it, and the new one then has nothing to continue', async ({
+  browser,
+}) => {
+  // On staging's shared test user, planning may be under way from a run cut short and the stretch planned already, so
+  // the new device starts from Goals either way, and the old one finishes the plan again.
+  const run = randomUUID().slice(0, 8);
+  const oldDevice = await device(browser, `e2e-${run}`, on('old'));
+  const newDevice = await device(browser, `e2e-${run}`, on('new'));
+  consoleErrors(oldDevice.page, oldDevice.errors, 'old');
+  consoleErrors(newDevice.page, newDevice.errors, 'new');
+  await signIn(oldDevice.page);
+  await signIn(newDevice.page);
+  const plan = async (page: Page, name: RegExp) => {
+    await go(page, 'Plan');
+    await pane(page, 'Plan').getByRole('button', { name }).click();
+  };
+
+  // The new device begins planning and shares how far it got, a field the old one doesn't know.
+  const cta = /^(Continue planning|Plan (now|the next stretch|your first stretch|without a cadence))$/;
+  await plan(newDevice.page, cta);
+  await newDevice.page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Goals/ }).click();
+  await newDevice.page.getByRole('button', { name: /^(Goals look right|Continue without goals)$/ }).click();
+  await expect(newDevice.page.getByRole('heading', { name: /^Step \d of \d, Practices\./ })).toBeVisible();
+  await newDevice.page.getByRole('button', { name: 'Save and exit' }).click();
+  for (const d of [newDevice, oldDevice]) await syncNow(d.page);
+
+  // The old device plans and finishes as it always has.
+  await plan(oldDevice.page, cta);
+  await oldDevice.page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Finish/ }).click();
+  await oldDevice.page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(oldDevice.page.getByText(/^Your plan for .* is set\.$/)).toBeVisible();
+  for (const d of [oldDevice, newDevice]) await syncNow(d.page);
+
+  // On the new device, that plan is done: nothing to continue.
+  await go(newDevice.page, 'Plan');
+  await expect(pane(newDevice.page, 'Plan').getByRole('button', { name: 'Continue planning' })).toHaveCount(0);
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
 });

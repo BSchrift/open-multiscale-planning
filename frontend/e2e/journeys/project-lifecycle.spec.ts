@@ -12,7 +12,7 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
   const goal = 'Keep the house in shape';
   const errors = await start(page, chicago('2026-11-02', '09:00')); // Monday.
   await firstRun(page, goal);
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
 
   await tab(page, phone, 'Goals');
   const fence = await addProject(page, phone, goal, 'Paint the garden fence', '2026-12-18');

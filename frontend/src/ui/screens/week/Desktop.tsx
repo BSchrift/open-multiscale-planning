@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { addWeeks, formatMinutes, formatTimeOfDay } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, otherOffers, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
@@ -13,6 +13,11 @@ import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
 import { PlanPrompt } from '../../components/PlanPrompt';
+import { PlanningSet } from '../../components/planning/PlanningRow';
+import { PlanningTimes } from '../../components/planning/PlanningTimes';
+import { planningWeekOf } from '../../../core/planning';
+import { KIND_WORD } from '../../components/blocks/describe';
+import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
 import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
@@ -28,8 +33,10 @@ export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
   const nav = useNav();
   const act = useWeekActions();
+  const planning = usePlanningActions();
   const [openBlock, setOpenBlock] = useState<string | null>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
+  const [planningFor, setPlanningFor] = useState<string | null>(null);
   /** A card being dragged over a day, and where it would land. */
   const [dropAt, setDropAt] = useState<{ item: LaneItem; slot: Slot } | null>(null);
   const [selected, setSelected] = useState<string | null>(props.place);
@@ -91,6 +98,8 @@ export function DesktopWeek(props: WeekProps) {
     void act.place(item, slot);
   };
   const toggleItem = (id: string) => {
+    // Planning opens its times, as it does on Today.
+    if (planningWeekOf(id)) return setPlanningFor(planningWeekOf(id));
     choose(null);
     setOpenItem(openItem === id ? null : id);
   };
@@ -125,6 +134,7 @@ export function DesktopWeek(props: WeekProps) {
           <WeekArrows week={props.week} current={props.model.current} onWeek={props.goWeek} />
           <div>
             <div className="date">{props.label}</div>
+            {props.planningAt && <div className="small quiet">{props.planningAt}</div>}
             <h1>{props.title}</h1>
           </div>
         </div>
@@ -148,13 +158,15 @@ export function DesktopWeek(props: WeekProps) {
             </button>
           )}
           {(offset === 0 || offset === 1) && !editing && !props.gated && (
-            <button className="btn" type="button" onClick={() => nav.openFlow('planning')}>
+            <button className="btn" type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
             </button>
           )}
         </div>
       </div>
       {props.gated && <PlanPrompt week={data.week} />}
+      {props.planningSet && <PlanningSet week={data.week} block={props.planningSet} />}
+      {planningFor && <PlanningTimes for={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
       {offset < 0 && <p className="small quiet">Past weeks can be viewed but not changed.</p>}
 
       {!editing && <TimeUse open={model.open} planned={model.planned} free={model.free} alerts={model.alerts} />}
@@ -297,7 +309,8 @@ export function DesktopWeek(props: WeekProps) {
                         title: x.title,
                         from: x.dates.from,
                         to: x.dates.to,
-                        alt: `One off: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
+                        alt: `${KIND_WORD[x.kind]}: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
+                        planning: x.kind === 'planning',
                         open: openItem === x.id,
                         onToggle: () => toggleItem(x.id),
                         ...(isThis ? { onPointerDown: (e: ReactPointerEvent<HTMLElement>) => dragCard(e, x, model.ctx, dragItem(x)) } : {}),

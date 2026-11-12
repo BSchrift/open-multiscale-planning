@@ -455,11 +455,16 @@ export function slotContext(input: {
 }): SlotContext {
   const { week, availability, avoided, sources, calendar, blocks, clock } = input;
   const zone = clock.zone();
+  const live = blocks.filter((b) => !b.cancelled && !b.deleted_at);
   return {
     week,
     availability,
     avoided,
-    busy: busyEvents(calendar ?? undefined, sources).flatMap((e) => daySpans(e.start, e.end, week, zone).map((s) => ({ ...s, id: e.id, title: e.title }))),
+    // Planning is busy time, as an event is: it takes open time rather than counting as work.
+    busy: [
+      ...busyEvents(calendar ?? undefined, sources).flatMap((e) => daySpans(e.start, e.end, week, zone).map((s) => ({ ...s, id: e.id, title: e.title }))),
+      ...live.filter((b) => b.task_kind === 'planning').flatMap((b) => daySpans(b.start, b.end, week, zone).map((s) => ({ ...s, id: b.id, title: b.title }))),
+    ],
     placed: blocks
       .filter((b) => !b.cancelled && !b.deleted_at)
       .flatMap((b) =>

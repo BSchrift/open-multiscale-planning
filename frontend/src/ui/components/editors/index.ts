@@ -6,10 +6,13 @@
 //   <OverdueFix plan={plan} ctx={ctx} />                                        renders nothing unless overdue
 //   <CloseProject plan={plan} ctx={ctx} onClosed={leave} />                     Finish, Change end date, Drop
 //   <PracticeFields practice={p} goals={objectives} />                          edits in place
+//   <HomeForm item={title} kind="project" ... onSave={make} />                  a new home for an Inbox item
 
 import './editors.css';
 
 export { CloseProject, CloseQuestion } from './CloseProject';
+export { HomeForm } from './HomeForm';
+export type { HomeKind } from './HomeForm';
 export { diamondFor, doneDiamond, MilestoneEditor } from './MilestoneEditor';
 export { OverdueFix, OverdueQuestion } from './OverdueFix';
 export { GoalSelect, PracticeAdd, PracticeFields, practiceRule, PracticeSheet } from './PracticeEditor';

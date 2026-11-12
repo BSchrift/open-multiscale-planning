@@ -7,6 +7,7 @@ import { finishedCount, finishedTasks } from '../../../core/queries';
 import type { FinishedRow } from '../../../core/queries';
 import { retickOneOff, untickOneOff } from '../../../core/tasks';
 import { useApp, useMutation, useQuery } from '../../app/store';
+import { Became } from '../../components/task/Became';
 import { useOpenTask } from '../../components/task/TaskName';
 import { TaskRow } from '../../components/TaskRow';
 
@@ -105,7 +106,9 @@ export function FinishedTasks() {
                   line={checked ? `Done ${formatDate(day)}` : 'Not done'}
                   onOpen={() => openTask(row.task_id)}
                   onToggle={() => void flip(row)}
-                />
+                >
+                  {checked && row.became_type && row.became_id && <Became became={{ type: row.became_type, id: row.became_id }} />}
+                </TaskRow>
               </div>
             );
           })}

@@ -7,8 +7,7 @@ import type { FormEvent } from 'react';
 import { formatDate, formatMinutes, localDate, nowInstant, today } from '../../../core/dates';
 import { cadenceBefore, nextStretch, restoreProject } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
-import { status } from '../../../core/status';
-import type { ProjectStatus } from '../../../core/status';
+import { shortWord, status } from '../../../core/status';
 import { deleteGoal, goalContents } from '../../../core/tasks';
 import type { Fields, Objective, Practice } from '../../../core/types';
 import { useNav } from '../../app/nav';
@@ -26,15 +25,6 @@ import { useStretchPlanning } from '../../components/planning/useStretchPlanning
 const NO_GOAL = 'nogoal';
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 const live = (plan: ProjectPlan) => plan.project.state === 'active' || plan.project.state === 'paused';
-
-/** The few words beside a project's pill on phone. */
-function shortWord(st: ProjectStatus): string {
-  if (st.pill === 'On track') return st.word.split(',')[0]!;
-  return st.word
-    .replace(' by now', '')
-    .replace(/^Should have ended (.*) ago; /, 'Ended $1 ago, ')
-    .replace(/^.* was due (.*) ago$/, '$1 late');
-}
 
 type Adding = { kind: 'project' | 'practice'; goal: string | null };
 

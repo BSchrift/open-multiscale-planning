@@ -1,17 +1,25 @@
 // The Goals step, which planning starts with: how the stretch is going, then one card per goal with what it got and
 // what's under it, so each can be kept, renamed, put off or archived, and given a project or practice in place. Below
 // them, what has no goal yet, and the goals put off for now. Every change goes through act, so each has Undo.
+// Each project under a goal is a block that opens a preview over the step, since opening the project itself leaves
+// planning; the preview offers that too, saving planning first.
 
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { addDays, formatDate, formatMinutes, localDate, today } from '../../../core/dates';
 import { applyPlanChange, cadenceBefore, lateMilestone } from '../../../core/plan';
 import type { PlanContext, ProjectPlan, Stretch } from '../../../core/plan';
+import { shortWord, status } from '../../../core/status';
 import type { Fields, Objective } from '../../../core/types';
 import { PracticeAdd, ProjectAdd } from '../../components/editors';
 import { PenIcon } from '../../components/icons';
+import { Pill } from '../../components/Pill';
 import { Popover } from '../../components/Popover';
+import { Sheet } from '../../components/Sheet';
 import { useFocusLanding } from '../../components/useFocusLanding';
+import { ProjectProgress } from '../goals/ProjectTimeline';
+// The project timeline's finer points live with the Goals screen, which may not have loaded yet.
+import '../goals/goals.css';
 import type { LookBack, PlanData } from './data';
 import { GoalPicker, NewGoalForm, useAdd } from './GoalPicker';
 import type { Linked } from './GoalPicker';
@@ -67,6 +75,40 @@ function Rename(props: { goal: Objective; phone: boolean; onSave(title: string):
   );
 }
 
+/** A project as its page begins: its goal, dates, status and how it's going, with a way to the page itself. */
+function ProjectPreview(props: { plan: ProjectPlan; goal: string; ctx: PlanContext; phone: boolean; onOpen(): void; onClose(): void }) {
+  const { plan, ctx } = props;
+  const { project } = plan;
+  const st = status(plan, ctx);
+  const noteId = useId();
+  const btn = props.phone ? 'btn grow' : 'btn';
+  return (
+    <Sheet label={project.title} onClose={props.onClose}>
+      <div>
+        <h2>{project.title}</h2>
+        <div className="small quiet">
+          Goal: {props.goal}. Runs {formatDate(project.start)} to {formatDate(project.end)}.
+        </div>
+      </div>
+      <div className="pillrow">
+        <Pill tone={st.tone}>{st.pill}</Pill> <span className="small">{st.word}</span>
+      </div>
+      <ProjectProgress plan={plan} ctx={ctx} st={st} />
+      <div className="row">
+        <button className={btn} type="button" aria-describedby={noteId} onClick={props.onOpen}>
+          Open project in Goals
+        </button>
+        <button className={btn} type="button" onClick={props.onClose}>
+          Close
+        </button>
+      </div>
+      <p id={noteId} className="small quiet">
+        Opening the project saves planning first, as Save and exit does.
+      </p>
+    </Sheet>
+  );
+}
+
 export function GoalsStep(props: {
   data: PlanData;
   ctx: PlanContext;
@@ -79,6 +121,8 @@ export function GoalsStep(props: {
   act: Act;
   continueLabel: string;
   onNext(): void;
+  /** Leaves planning, saved, for the project's own page. */
+  onOpenProject(id: string): void;
 }) {
   const { data, ctx, st, behind, look, phone, act } = props;
   const on = today(ctx.clock);
@@ -92,6 +136,7 @@ export function GoalsStep(props: {
   const [menu, setMenu] = useState<string | null>(null);
   const [picking, setPicking] = useState<{ item: Linked; at: number } | null>(null);
   const [notNowOpen, setNotNowOpen] = useState(false);
+  const [preview, setPreview] = useState<{ id: string; goal: string } | null>(null);
   const btn = phone ? 'btn' : 'btn sm';
 
   const goals = shownGoals(data.objectives, on);
@@ -119,6 +164,29 @@ export function GoalsStep(props: {
   };
   const notNowFields = { state: 'not_now' as const, not_now_until: askAgain };
   const notNowText = (g: Objective) => `${g.title}: not now, asking again ${formatDate(askAgain)}.`;
+
+  // In the project colour its blocks have on the week, with the status the Goals page gives it.
+  const block = (plan: ProjectPlan, g: Objective) => {
+    const { project } = plan;
+    const stat = status(plan, ctx);
+    const statId = `projst-${project.id}`;
+    return (
+      <button
+        className={`projblock ${phone ? 'c-project' : 'ev-project'}`}
+        type="button"
+        aria-haspopup="dialog"
+        aria-label={`Open project ${project.title}`}
+        aria-describedby={statId}
+        onClick={() => setPreview({ id: project.id, goal: g.title })}
+      >
+        <span className="strong">{project.title}</span>
+        <span id={statId} className="pillrow">
+          <Pill tone={stat.tone}>{stat.pill}</Pill> <span className="small">{phone ? shortWord(stat) : stat.word}</span>
+        </span>
+      </button>
+    );
+  };
+  const previewed = preview && plans.find((p) => p.project.id === preview.id);
 
   const card = (g: Objective) => {
     const projects = plans.filter((p) => p.project.objective_id === g.id);
@@ -183,12 +251,16 @@ export function GoalsStep(props: {
             </>
           )}
         </div>
-        <div className="small">
-          {own.length > 0 && <div>Practices: {own.map((p) => p.title).join(', ')}</div>}
-          {projects.length > 0 && <div>Projects: {projects.map((p) => p.project.title).join(', ')}</div>}
-          {!has && <div className="quiet">No practices or projects</div>}
-          {late > 0 && <div className="overtext">{plural(late, 'project')} late</div>}
-        </div>
+        {own.length > 0 && <div className="small">Practices: {own.map((p) => p.title).join(', ')}</div>}
+        {projects.length > 0 && (
+          <ul className="projblocks" aria-label={`Projects for ${g.title}`}>
+            {projects.map((p) => (
+              <li key={p.project.id}>{block(p, g)}</li>
+            ))}
+          </ul>
+        )}
+        {!has && <div className="small quiet">No practices or projects</div>}
+        {late > 0 && <div className="small overtext">{plural(late, 'project')} late</div>}
         {asks && (
           <div className="row" role="group" aria-label={`Still a goal: ${g.title}?`}>
             <span className="small quiet grow">Nothing active. Still a goal?</span>
@@ -278,6 +350,16 @@ export function GoalsStep(props: {
             land(() => others()[picking.at] ?? others()[picking.at - 1] ?? newRef.current);
             setPicking(null);
           }}
+        />
+      )}
+      {previewed && (
+        <ProjectPreview
+          plan={previewed}
+          goal={preview.goal}
+          ctx={ctx}
+          phone={phone}
+          onOpen={() => props.onOpenProject(previewed.project.id)}
+          onClose={() => setPreview(null)}
         />
       )}
       {notNow.length > 0 && (

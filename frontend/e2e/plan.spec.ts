@@ -175,6 +175,53 @@ test('types a date for a milestone, changes cadence in place, and resumes planni
   expect(errors).toEqual([]);
 });
 
+test('a goal’s projects are blocks that open a preview over Goals, and the project itself after saving planning', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await openPlan(page, phone);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  const heading = page.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' });
+  await expect(heading).toBeFocused();
+  const block = page.getByRole('region', { name: 'Learn to bake bread' }).getByRole('button', { name: 'Open project Bake a sourdough loaf' });
+  await expect(block).toContainText('On track');
+  await page.screenshot({ path: info.outputPath(`goals-step-${info.project.name}.png`) });
+
+  // From the keyboard on desktop, from a tap on phone; either way, closing gives focus back to the block.
+  if (phone) {
+    await expectTapTarget(block);
+    await block.click();
+  } else {
+    for (let i = 0; i < 10 && !(await block.evaluate((e) => e === document.activeElement)); i++) await page.keyboard.press('Tab');
+    await expect(block).toBeFocused();
+    await page.keyboard.press('Enter');
+  }
+  const sheet = page.getByRole('dialog', { name: 'Bake a sourdough loaf' });
+  await expect(sheet.getByText('Goal: Learn to bake bread. Runs Oct 1 to Jun 30.')).toBeVisible();
+  await expect(sheet.getByRole('img', { name: /Milestone First loaf, due Jan 20/ })).toBeVisible();
+  const close = sheet.getByRole('button', { name: 'Close', exact: true });
+  const open = sheet.getByRole('button', { name: 'Open project in Goals' });
+  if (phone) await Promise.all([expectTapTarget(close), expectTapTarget(open)]);
+  await expect(open).toBeInViewport();
+  await page.screenshot({ path: info.outputPath(`project-preview-${info.project.name}.png`) });
+  if (phone) await close.click();
+  else await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(block).toBeFocused();
+  await expect(heading).toBeVisible();
+
+  await block.click();
+  await open.click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Bake a sourdough loaf' })).toBeVisible();
+  await expect(page.getByText('Planning is saved, so you can continue it later.')).toBeVisible();
+  // Phone keeps the Plan page under More, as it was left.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: phone ? 'More' : 'Plan' }).click();
+  await page.getByRole('button', { name: 'Continue planning' }).click();
+  await expect(page.locator('.welcome').getByText('Welcome back. You were on Goals.')).toBeVisible();
+  await expect(heading).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('Goals asks for some when there are none, and the Inbox lists a big one whole, with Process over an inert flow', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors: string[] = [];

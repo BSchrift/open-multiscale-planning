@@ -1,12 +1,20 @@
 # Uploads the iPhone app to TestFlight from a GitHub-hosted Mac with Xcode 26, the oldest App Store Connect takes, by
-# running scripts/testflight.sh as make testflight does on a Mac (docs/setup.md, TestFlight). By hand, for main's latest
-# commit or a main commit named by its full hash:
+# running scripts/testflight.sh as make testflight does on a Mac (docs/setup.md, TestFlight).
+# On each push to main, it uploads only when the iPhone app's native code, its shell hash (scripts/shell-hash.ts),
+# differs from that of TestFlight's latest build, however that build was uploaded: Beta App Review sees each build,
+# GitHub's Macs are shared with CI's iPhone job, and builds are numbered by their commit's time. A build with the same
+# native code takes each release's bundle from the feed anyway. Once Beta App Review passes it, the TestFlight review
+# (testflight-review.yml) tells the release pipeline, which then switches the iPhone feed to bundles that need it.
+# By hand, it always uploads, main's latest commit or a main commit named by its full hash:
 #   gh workflow run testflight.yml --ref main [-f commit=<full commit hash>]
-# The job runs in the release environment, which needs the owner's approval and holds the App Store Connect key. Xcode
-# signs with the team's cloud-managed distribution certificate, so no certificate is stored here.
+# Both jobs run in the release environment, which holds the App Store Connect key. The owner took its required reviewer
+# off on purpose, so they run on their own; with a reviewer back, each push's run waits for approval. Xcode signs with
+# the team's cloud-managed distribution certificate, so no certificate is stored here.
 name: TestFlight
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       commit:
@@ -16,22 +24,18 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: testflight
-  cancel-in-progress: false
-
 jobs:
-  testflight:
+  # Whether to upload, on Linux, so a push that changes no native code holds none of the shared Macs.
+  decide:
     if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     environment: release
-    timeout-minutes: 60
+    timeout-minutes: 15
     permissions:
       contents: read
-    env:
-      # Pinned, so the image's default Xcode moving on doesn't change the build unseen. The macos-26 image's list:
-      # https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+      upload: ${{ steps.decide.outputs.upload }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,7 +43,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       # Before any of the commit's code runs.
-      - name: Check the commit is on main
+      - id: commit
+        name: Check the commit is on main
         env:
           INPUT_COMMIT: ${{ inputs.commit }}
         run: |
@@ -47,7 +52,64 @@ jobs:
             echo "::error::Only a commit on main is uploaded, named by its full hash."
             exit 1
           fi
-          echo "Uploading $(git rev-parse HEAD) with $(xcodebuild -version | head -n 1)"
+          echo "commit=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+      # testflight.ts uses Node's standard library alone, so nothing is installed.
+      - name: Write the key
+        if: github.event_name == 'push'
+        env:
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID || vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || vars.ASC_ISSUER_ID }}
+        run: |
+          for name in ASC_API_KEY ASC_KEY_ID ASC_ISSUER_ID; do
+            [ -n "${!name}" ] || { echo "::error::The release environment lacks $name. See docs/setup.md, TestFlight."; exit 1; }
+          done
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
+          mkdir -p "$RUNNER_TEMP/config"
+          (umask 077 && printf '%s\n' "$ASC_API_KEY" >"$RUNNER_TEMP/config/AuthKey_$ASC_KEY_ID.p8" && printf '%s\n' "$ASC_ISSUER_ID" >"$RUNNER_TEMP/config/asc-issuer-id")
+      - id: decide
+        name: Decide
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            node frontend/scripts/testflight.ts needed "$RUNNER_TEMP/config"
+          else
+            echo "Started by hand, so it uploads."
+            echo "upload=true" >>"$GITHUB_OUTPUT"
+          fi
+      - name: Delete the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/config"
+
+  testflight:
+    needs: decide
+    if: ${{ needs.decide.outputs.upload == 'true' }}
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    # One upload at a time, so each is numbered after the last. A push's run that waited here asks again before building,
+    # in case the upload it waited for had its native code.
+    concurrency:
+      group: testflight
+      cancel-in-progress: false
+    env:
+      # Pinned, so the image's default Xcode moving on doesn't change the build unseen. The macos-26 image's list:
+      # https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.decide.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: echo "Uploading $(git rev-parse HEAD) with $(xcodebuild -version | head -n 1)"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 25
@@ -87,10 +149,19 @@ jobs:
           (umask 077 && printf '%s\n' "$ASC_API_KEY" >"$CONFIG/AuthKey_$ASC_KEY_ID.p8" && printf '%s\n' "$ASC_ISSUER_ID" >"$CONFIG/asc-issuer-id")
           printf 'DEVELOPMENT_TEAM = %s\nMULTISCALE_EXTENSIONS = YES\n' "$APPLE_TEAM_ID" >frontend/ios/App/Config.local.xcconfig
 
+      # A push's run asks again, now that any upload it waited for is done.
+      - id: again
+        name: Check the upload is still needed
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = push ]; then node frontend/scripts/testflight.ts needed "$RUNNER_TEMP/config"; else echo "upload=true" >>"$GITHUB_OUTPUT"; fi
+
       # Capacitor's and SQLCipher's frameworks come from GitHub's release downloads, which fail now and then, so they're
       # resolved with retries first, where the archive looks for them. Only at the versions Package.resolved records, so
       # the checkout stays as committed for testflight.sh.
       - name: Resolve Swift packages
+        if: steps.again.outputs.upload == 'true'
         run: |
           for attempt in 1 2 3; do
             xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -onlyUsePackageVersionsFromResolvedFile && exit 0
@@ -100,6 +171,7 @@ jobs:
         working-directory: frontend
 
       - name: Upload to TestFlight
+        if: steps.again.outputs.upload == 'true'
         run: MULTISCALE_CONFIG_DIR="$RUNNER_TEMP/config" scripts/testflight.sh
 
       # Xcode makes a development certificate to sign the archive, its key in this runner's keychain, which goes with the

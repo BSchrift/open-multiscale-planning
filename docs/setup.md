@@ -443,7 +443,7 @@ A Simulator can't prove these, so check them once on a real phone:
 
 ## TestFlight
 
-With a paid membership, testers can install the iPhone app from TestFlight instead of Xcode. A TestFlight build is a prod build of one commit, so it takes prod's updates like any other prod build. `make testflight` archives it, signs it for App Store Connect and uploads it, and a prod release does the same as its last step. App Store Connect takes only builds made with Xcode 26 or later, so on a Mac with an older Xcode, upload [from GitHub Actions](#testflight-from-github-actions) instead.
+With a paid membership, testers can install the iPhone app from TestFlight instead of Xcode. A TestFlight build is a prod build of one commit, so it takes prod's updates like any other prod build. `make testflight` archives it, signs it for App Store Connect and uploads it, and a prod release does the same as its last step. App Store Connect takes only builds made with Xcode 26 or later, so on a Mac with an older Xcode, upload [from GitHub Actions](#testflight-from-github-actions) instead. Once that's set up, GitHub Actions uploads a build by itself for each push to main that changes the iPhone app's native code, and the release pipeline switches the iPhone feed once testers can install it.
 
 Once:
 
@@ -484,7 +484,7 @@ Then send them the **Testers** group's public link, which each upload prints and
 
 ### TestFlight from GitHub Actions
 
-`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs in the `release` environment, which holds the App Store Connect key and may need your approval ([releasing.md](releasing.md#the-release-environment)).
+`.github/workflows/testflight.yml` runs the same `scripts/testflight.sh` on one of GitHub's Macs, with Xcode 26, for a commit on `main`. It runs for each push to `main`, and uploads only when the iPhone app's native code differs from TestFlight's latest build's, however that was uploaded, since Beta App Review sees each build and GitHub's Macs are shared with CI. Every hour, `.github/workflows/testflight-review.yml` tells the release pipeline which build testers can install, so it can switch the iPhone feed: see [iPhone apps from TestFlight](releasing.md#iphone-apps-from-testflight). Both run in the `release` environment, which holds the App Store Connect key and may need your approval ([releasing.md](releasing.md#the-release-environment)).
 
 Once, after steps 1, 2 and 4 above:
 
@@ -497,14 +497,16 @@ Once, after steps 1, 2 and 4 above:
      --body "$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' frontend/ios/App/Config.local.xcconfig)"
    ```
 
-Each upload:
+3. **The release pipeline's part,** so it switches the iPhone feed: [Setting up TestFlight from GitHub Actions](releasing.md#setting-up-testflight-from-github-actions).
+
+By hand, it uploads whatever the native code:
 
 ```sh
 gh workflow run testflight.yml --ref main                               # main's latest commit
 gh workflow run testflight.yml --ref main -f commit=<full commit hash>  # a commit on main, such as prod's
 ```
 
-If `release` has a reviewer, approve the run's deployment to it, in the run's page on GitHub. The run builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
+If `release` has a reviewer, approve each run's deployment to it, in the run's page on GitHub, the runs each push starts included. The run builds the iPhone app as `make testflight` does, with the share sheet, and stops before building in the same cases. Xcode makes a development certificate on the runner to sign the archive, and the run revokes it at the end, so they don't pile up under the account's certificates. It revokes only certificates whose private key is on that runner, never yours. The upload itself is signed with the team's cloud-managed distribution certificate.
 
 ## Run it locally
 
@@ -559,7 +561,7 @@ The script prints these steps with the names filled in.
 
 ### Releasing updates
 
-Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md). With the Mac release set up too, the pipeline publishes each new Mac app that GitHub Actions builds, and this step is only for the iPhone.
+Once the release pipeline is set up, each main commit releases through it, and this is the step on your Mac for the signed apps: see [releasing.md](releasing.md). With the Mac release set up too, the pipeline publishes each new Mac app that GitHub Actions builds, and this step is only for the iPhone. With [TestFlight from GitHub Actions](#testflight-from-github-actions) as well, GitHub Actions uploads each new iPhone app and the pipeline switches its feed, so no step is left for the Mac.
 
 `make release ENV=<env>` builds the Mac app and the web bundle on your Mac from a clean checkout, signs the bundle, signs and notarizes the Mac app when step 15 is done, and uploads the disk image to `https://downloads.<zone>/Multiscale.dmg`, the update feed to `https://release.<zone>`, and the web app to `https://<zone>`. Link people to the disk image to install.
 

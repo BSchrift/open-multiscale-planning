@@ -10,6 +10,7 @@ import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
 import { renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
+import { noFiles } from '../../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -550,7 +551,7 @@ describe('when the week is not planned', () => {
   it('opens on a prompt to plan, which opens the planning flow', async () => {
     const t = await unplanned(work);
     expect(await screen.findByRole('heading', { name: 'Plan your week' })).toBeVisible();
-    expect(screen.getByText("This week isn't planned yet.")).toBeVisible();
+    expect(screen.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
     expect(screen.getByText(/1 in your Inbox/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
     expect(t.nav().flow?.area).toBe('planning');
@@ -567,7 +568,7 @@ describe('when the week is not planned', () => {
 
   it('can be skipped, leaving a banner and what to do next, and Start puts it on the clock', async () => {
     const t = await unplanned(work);
-    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip planning this week' }));
     expect(await screen.findByText("This week isn't planned")).toBeVisible();
     const next = screen.getByRole('region', { name: 'Next up' });
     expect(within(next).getByText('Paint the fence')).toBeVisible();
@@ -593,56 +594,24 @@ describe('when the week is not planned', () => {
 
   const monthly = { plan_cadence: { every: 1, unit: 'months' as const, anchor: '2026-10-08' }, plan_stretch: { last_planned: '2026-10-08' } };
 
-  it('offers to plan the next stretch when it is due', async () => {
-    const t = await open(async (w) => {
+  // The stretch's planning row replaces the alert these asked with; planning-task.test.tsx in plan/ covers the row.
+  it('offers to plan the next stretch when it is due, as a row with its dates', async () => {
+    await open(async (w) => {
       await w.create('settings', monthly, 'settings');
     });
-    expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
-    expect(t.nav().flow?.area).toBe('plan');
+    const row = await screen.findByRole('region', { name: 'Plan the next stretch' });
+    expect(within(row).getByText(/Nov 8 to Dec 7 · About 45m/)).toBeVisible();
   });
 
-  it.each(['desktop', 'phone'] as const)('never planned, offers a first plan from the first day, on %s', async (layout) => {
+  it.each(['desktop', 'phone'] as const)('never planned, offers a first plan of the stretch under way, on %s', async (layout) => {
     await open(async () => undefined, { layout });
-    expect(await screen.findByText('Plan your first stretch. It ends Dec 31.')).toBeVisible();
+    expect(within(await screen.findByRole('region', { name: 'Plan your first stretch' })).getByText(/Ends Dec 31 · About 1h/)).toBeVisible();
   });
 
   it.each(['desktop', 'phone'] as const)('never planned, offers a first plan of this stretch instead, on %s', async (layout) => {
     await open((w) => w.create('settings', { plan_cadence: monthly.plan_cadence }, 'settings'), { layout });
-    expect(await screen.findByText('Plan your first stretch. It ends Nov 7.')).toBeVisible();
-    expect(screen.queryByText(/Plan the next stretch/)).toBeNull();
-  });
-
-  it('keeps a first plan skipped the next day, though it would start from that day', async () => {
-    const unplanned = (w: Writer) => w.create('settings', { plan_cadence: monthly.plan_cadence }, 'settings');
-    await open(unplanned);
-    await screen.findByText('Plan your first stretch. It ends Nov 7.');
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    cleanup();
-    await open(unplanned, { now: at('14:00', '2026-11-03') });
-    await screen.findByRole('heading', { level: 1, name: 'Today' });
-    expect(screen.queryByText('Plan your first stretch. It ends Nov 7.')).toBeNull();
-    localStorage.clear();
-  });
-
-  it('on phone, Start opens planning the stretch, and its × is named in full and puts it away', async () => {
-    const t = await open(async () => undefined, { layout: 'phone' });
-    const start = await screen.findByRole('button', { name: 'Plan your first stretch. It ends Dec 31. Start' });
-    expect(within(start).getByText('Start')).toHaveClass('attngo');
-    await userEvent.click(start);
-    expect(t.nav().flow?.area).toBe('plan');
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Plan your first stretch. It ends Dec 31.' }));
-    await waitFor(() => expect(screen.queryByText('Plan your first stretch. It ends Dec 31.')).toBeNull());
-    localStorage.clear();
-  });
-
-  it('lets the next stretch alert be skipped on desktop too', async () => {
-    await open(async (w) => {
-      await w.create('settings', monthly, 'settings');
-    });
-    expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    await waitFor(() => expect(screen.queryByText('Plan the next stretch. It starts Nov 8.')).toBeNull());
+    expect(within(await screen.findByRole('region', { name: 'Plan your first stretch' })).getByText('Ends Nov 7 · About 1h')).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Plan the next stretch' })).toBeNull();
   });
 });
 
@@ -658,6 +627,7 @@ describe('Google Calendar', () => {
       stop: vi.fn(),
       email: vi.fn(async () => null),
       eraseAndSignIn: vi.fn(async () => undefined),
+      files: noFiles(),
     }) satisfies AppSync;
   const signIn = (t: Harness) =>
     act(async () => {
@@ -670,9 +640,7 @@ describe('Google Calendar', () => {
     const sync = fakeSync();
     const t = await open(async () => undefined, { sync });
     await signIn(t);
-    // After the first plan's alert.
-    await userEvent.click(await screen.findByRole('button', { name: 'Show 1 more alert' }));
-    expect(screen.getByText('Connect Google Calendar')).toBeVisible();
+    expect(await screen.findByText('Connect Google Calendar')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect(sync.connectCalendar).toHaveBeenCalledOnce();
   });
@@ -808,11 +776,13 @@ describe('the timeline', () => {
     await open(day);
     await userEvent.click(await screen.findByRole('button', { name: 'List' }));
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
-    const row = screen.getByRole('button', { name: /Write the report/ });
-    expect(row).toHaveTextContent('4pm to 5pm');
+    const row = screen.getByRole('button', { name: /^4pm to 5pm/ });
     await userEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
     expect(await within(row.parentElement!).findByText('Write more > Finish the essay')).toBeVisible();
+    // Open task opens its popup.
+    await userEvent.click(within(row.parentElement!).getByRole('button', { name: 'Open Write the report' }));
+    expect(await screen.findByRole('dialog', { name: 'Write the report' })).toBeVisible();
   });
 
   it('zooms in and out', async () => {
@@ -907,6 +877,29 @@ describe('moving a block on the timeline', () => {
         expect(await saved(t)).toMatchObject({ start: at('16:30'), end: at('17:45') });
         // Now after Paint the fence, and still the one with focus.
         expect(await movable(/^Write the report, 4:30pm to 5:45pm/)).toHaveFocus();
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
+      });
+
+      it('a step pressed while the one before is still saving counts on from it, and Undo takes them all back', async () => {
+        const t = await open(day, { layout });
+        const el = await movable();
+        el.focus();
+        // The second step's save waits, as on a slow device, so the first step's position shows while it does.
+        const transaction = t.db.transaction.bind(t.db);
+        let writes = 0;
+        let release = () => undefined as void;
+        vi.spyOn(t.db, 'transaction').mockImplementation(async (fn) => {
+          if (++writes === 2) await new Promise<void>((r) => (release = r));
+          return transaction(fn);
+        });
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        expect(await movable(/^Write the report, 4:15pm to 5:15pm/)).toBe(el);
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        release();
+        expect(await screen.findByText('Write the report is now 4:45pm to 5:45pm.')).toBeVisible();
+        expect(await saved(t)).toMatchObject({ start: at('16:45'), end: at('17:45') });
         await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
         await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
       });

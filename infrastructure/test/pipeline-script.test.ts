@@ -19,7 +19,7 @@ const shell = { electron: 'e1', ios: 'i1' };
 const feedWith = (s: object) => JSON.stringify({ manifest: JSON.stringify({ version: 'old', build: 0, shell: s, files: [] }), signature: 'x' });
 
 // aws answers get-parameter from $PARAMS, a folder of files named like the parameter with / as _, and s3 from a folder
-// per bucket under $PARAMS/s3 (fake-s3.ts).
+// per bucket under $PARAMS/s3 (fake-s3.ts), the record of a checked Mac app on a downloads host included.
 const fakeS3 = join(import.meta.dirname, 'fake-s3.ts');
 function sandbox() {
   const s = sandboxRepo('pipeline.sh');
@@ -30,6 +30,8 @@ case "$*" in
   *get-pipeline-state*) cat "$PARAMS/state.json" 2>/dev/null || echo '{"stageStates":[]}';;
   *get-pipeline-execution*) echo abc1234;;
   *"sts get-caller-identity"*) echo "\${ACCOUNT:-210987654321}";;
+  *list-state-machines*) echo arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc;;
+  *list-executions*) echo arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1;;
   *describe-stacks*) [ -n "$OLD_STACK" ] && echo '${stackOutputs.replace(/,\s*\{[^}]*ReleaseAlarms[^}]*\}/, '')}' || echo '${stackOutputs}';;
   *"cloudwatch describe-alarms"*) cat "$PARAMS/alarming" 2>/dev/null || true;;
   *"s3api head-object"*) [ -f "$PARAMS/s3/$(echo "$*" | sed -E 's|.*--bucket ([^ ]+) --key ([^ ]+).*|\\1/\\2|')" ] || exit 254;;
@@ -56,7 +58,7 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION FEEDS_ONLY=$FEEDS_ONLY" >> "$LOG"\n');
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION FEEDS_ONLY=$FEEDS_ONLY DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
@@ -150,6 +152,9 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     // A stop keeps what a surface has, so it says how to go back, reading prod's bucket as prod's profile.
     assert.match(r.stdout, /Stopped run exec-6, at abc1234, in the Web stage's bake\. prod's web keeps 0\.1\.0-ccc; to go back: make release-surface ENV=prod SURFACE=web VERSION=0\.1\.0-bbb/);
     assert.match(s.log(), /aws AWS_PROFILE=ms-prod s3 cp s3:\/\/bucket\/state\/history\.json -/);
+    // And the window's own wait, so the email's Promote now link no longer promotes anything.
+    assert.match(s.log(), /stepfunctions list-executions --state-machine-arn arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc --status-filter RUNNING/);
+    assert.match(s.log(), /stepfunctions stop-execution --execution-arn arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1/);
   });
 
   it('stops nothing when no run is waiting', () => {
@@ -159,7 +164,7 @@ describe('scripts/pipeline.sh, from a Mac', () => {
       const r = s.run(['stop']);
       assert.equal(r.status, 0, r.stderr);
       assert.match(r.stdout, /No run is waiting/);
-      assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
+      assert.doesNotMatch(s.log(), /stop-pipeline-execution|stop-execution/);
     }
   });
 
@@ -375,6 +380,13 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(readFileSync(join(s.root, '.aws/config'), 'utf8'), /\[profile ms-staging\]\nrole_arn = arn:aws:iam::210987654321:role\/multiscale-release\ncredential_source = EcsContainer/);
   });
 
+  it("tells the prod Test step's suites the web app is still the one before this release", () => {
+    const s = configured();
+    const r = s.run(['test-prod'], {});
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /test-deployed ENV=prod .*DEPLOYED_BEFORE_PUBLISH=1/);
+  });
+
   it('adds each switch to the history after the ones before', () => {
     const s = configured();
     s.put(FEEDS.shared, feedWith(shell));
@@ -478,7 +490,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.equal(served(s, 'web/version.json'), VERSION);
     for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), feedOf('0.1.0-ccc', 3));
-    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS= SKIP_IOS=1 .*FEEDS_ONLY=\n/);
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS= SKIP_IOS=1 .*FEEDS_ONLY= DEPLOYED_BEFORE_PUBLISH=\n/);
   });
 
   it('publishes a checked Mac app, then switches the desktop and shared feeds in the Desktop stage, and checks them', () => {
@@ -487,9 +499,12 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     writeFileSync(join(env.CODEBUILD_SRC_DIR_Built!, 'web/prod/version.json'), JSON.stringify({ version: VERSION, build: 5, shell: { electron: 'e2', ios: 'i1' } }));
     mkdirSync(join(s.root, 'mac-apps/prod'), { recursive: true });
     writeFileSync(join(s.root, 'mac-apps/prod/Multiscale.dmg'), 'disk image');
+    writeFileSync(join(s.root, 'mac-apps/prod/manifest.json'), '{}');
     const r = s.run(['release-desktop'], { ...env, CODEBUILD_SRC_DIR_MacApps: join(s.root, 'mac-apps') });
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /s3:\/\/bucket\/downloads\/Multiscale\.dmg(.*\n)*.*s3:\/\/bucket\/release\/desktop\/release\.json/);
+    // With the record that the downloads host serves a checked app.
+    assert.equal(s.get('s3://bucket/mac/manifest.json'), '{}');
     assert.equal(s.get(FEEDS.desktop), release);
     assert.equal(s.get(FEEDS.shared), release);
     assert.equal(s.get(FEEDS.iphone), feedOf('0.1.0-ccc', 3));
@@ -534,12 +549,14 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     return { CODEBUILD_SRC_DIR_Built: builtDir, COMMIT, MAC_INBOX_BUCKET: 'inbox-bucket', MAC_TEAM_ID: 'ABCDE12345', MAC_WAIT_SECONDS: '600', SEVENZIP: '/bin/true' };
   };
 
-  it("checks no Mac app when every feed can take this build's", () => {
+  it("checks no Mac app when every feed can take this build's and the downloads host serves one the pipeline checked", () => {
     const s = configured();
     s.put(FEEDS.shared, feedWith(shell));
+    s.put('s3://bucket/mac/manifest.json', '{}');
     const r = s.run(['mac'], macStep(s, { built: shell, inbox: false }));
     assert.equal(r.status, 0, r.stderr);
-    assert.doesNotMatch(s.log(), /head-object|mac-inbox/);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3api head-object --bucket bucket --key mac\/manifest\.json/);
+    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox/);
     assert.equal(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), 'staging: no new Mac app needed\nprod: no new Mac app needed\n');
   });
 
@@ -547,9 +564,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     const s = configured();
     s.put(FEEDS.desktop, feedWith({ electron: 'e2', ios: 'i1' }));
     s.put(FEEDS.shared, feedWith(shell));
+    s.put('s3://bucket/mac/manifest.json', '{}');
     const r = s.run(['mac'], macStep(s, { inbox: false }));
     assert.equal(r.status, 0, r.stderr);
-    assert.doesNotMatch(s.log(), /head-object|mac-inbox/);
+    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox/);
   });
 
   it("waits for GitHub Actions' Mac app of this commit, checks it against the Build output, and hands on what passed", () => {
@@ -565,6 +583,18 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     }
   });
 
+  it("checks this commit's Mac app when the downloads host serves none the pipeline checked, though the feed can take the build", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['mac'], macStep(s, { built: shell }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /staging's downloads host serves no Mac app the pipeline checked/);
+    for (const env of ['staging', 'prod']) {
+      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} `));
+      assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
+    }
+  });
+
   it('stops the run, saying what to do, when no Mac app arrives in time', () => {
     const s = configured();
     s.put(FEEDS.shared, feedWith(shell));
@@ -573,6 +603,15 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(r.stderr, new RegExp(`No Mac app for staging at ${COMMIT} reached the inbox in time`));
     assert.match(r.stderr, new RegExp(`gh workflow run mac-release\\.yml -f commit=${COMMIT}`));
     assert.doesNotMatch(s.log(), /mac-inbox/);
+  });
+
+  it("stops waiting before CodeBuild's own limit, however long the wait, and says how to retry the stage", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['mac'], { ...macStep(s, { inbox: false }), MAC_WAIT_SECONDS: '7200', CODEBUILD_LIMIT_SECONDS: '0', EXECUTION_ID: 'exec-1' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stdout, /Waiting up to 0 minutes/);
+    assert.match(r.stderr, /retry-stage-execution --pipeline-name Multiscale --stage-name Staging --pipeline-execution-id exec-1 --retry-mode FAILED_ACTIONS/);
   });
 
   it('stops the run, handing on nothing, when a Mac app fails its checks', () => {
@@ -587,7 +626,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
   const withMac = (s: ReturnType<typeof sandbox>, built: object, dmg: boolean) => {
     const mac = join(s.root, 'mac-apps');
     mkdirSync(join(mac, 'staging'), { recursive: true });
-    if (dmg) writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+    if (dmg) {
+      writeFileSync(join(mac, 'staging/Multiscale.dmg'), 'disk image');
+      writeFileSync(join(mac, 'staging/manifest.json'), '{}');
+    }
     return { ...artifacts(s, built), CODEBUILD_SRC_DIR_MacApps: mac };
   };
 
@@ -598,6 +640,18 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3 cp \S+\/mac-apps\/staging\/Multiscale\.dmg s3:\/\/bucket\/downloads\/Multiscale\.dmg --cache-control public, max-age=300 --content-type application\/x-apple-diskimage\n(.*\n)*.*s3:\/\/bucket\/release\/desktop\/release\.json/);
     assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), 'disk image');
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    // And then the record that the downloads host serves a checked app, so later runs need none until a feed does.
+    assert.equal(s.get('s3://bucket/mac/manifest.json'), '{}');
+  });
+
+  it('publishes a checked Mac app when the feeds can take the build too, as when the downloads host had none the pipeline checked', () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['release-staging'], withMac(s, shell, true));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), 'disk image');
+    assert.equal(s.get('s3://bucket/mac/manifest.json'), '{}');
     for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
   });
 
@@ -632,6 +686,82 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(s.log(), /downloads/);
     assert.equal(s.get(FEEDS.shared), release);
+  });
+
+  // The TestFlight review workflow's record, in the inbox, of the newest TestFlight build testers can install, which
+  // Beta App Review approved for the Testers group, and its iPhone shell.
+  const testflight = (s: ReturnType<typeof sandbox>, record: object) => s.put('s3://inbox-bucket/inbox/testflight/latest.json', JSON.stringify(record));
+  const needsIphone = { electron: 'e1', ios: 'i2' };
+  const out = { build: 1794000000, commit: COMMIT, shell: 'i2' };
+
+  it("switches staging's iPhone and shared feeds to a build that needs a newer iPhone app once the newest TestFlight build testers can install has its native code", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    testflight(s, out);
+    const r = s.run(['release-staging'], { ...artifacts(s, needsIphone), MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+    assert.equal(r.status, 0, r.stderr);
+    // As the pipeline's own role, which may only read the inbox.
+    assert.match(s.log(), /aws AWS_PROFILE= s3 cp s3:\/\/inbox-bucket\/inbox\/testflight\/latest\.json -\n/);
+    assert.match(r.stdout, /Testers can install TestFlight build 1794000000, which has this build's iPhone native code, so staging's iPhone feed takes it/);
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    assert.match(s.log(), new RegExp(`test-deployed ENV=staging EXPECT_VERSION=${VERSION} EXPECT_FEEDS=desktop iphone shared `));
+  });
+
+  it("moves prod's shared feed in the Desktop stage, and its iPhone feed in the iPhone stage, once the newest TestFlight build testers can install has the build's iPhone native code", () => {
+    const s = configured();
+    const env = released(s, ['web']);
+    writeFileSync(join(env.CODEBUILD_SRC_DIR_Built!, 'web/prod/version.json'), JSON.stringify({ version: VERSION, build: 5, shell: needsIphone }));
+    testflight(s, out);
+    const desktop = s.run(['release-desktop'], { ...env, MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+    assert.equal(desktop.status, 0, desktop.stderr);
+    assert.equal(s.get(FEEDS.desktop), release);
+    assert.equal(s.get(FEEDS.shared), release);
+    assert.equal(s.get(FEEDS.iphone), feedOf('0.1.0-ccc', 3));
+    assert.doesNotMatch(desktop.stdout, /Testers can install/);
+    const iphone = s.run(['release-iphone'], { ...env, MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+    assert.equal(iphone.status, 0, iphone.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE= s3 cp s3:\/\/inbox-bucket\/inbox\/testflight\/latest\.json -\n/);
+    assert.match(iphone.stdout, /Testers can install TestFlight build 1794000000, which has this build's iPhone native code, so prod's iPhone feed takes it/);
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=iphone .*FEEDS_ONLY=1/);
+  });
+
+  for (const [why, record, inbox] of [
+    ['no TestFlight build has been recorded', () => {}, 'inbox-bucket'],
+    // As when an older build with it is still out but a newer one isn't: TestFlight updates testers to the newest.
+    ['the newest TestFlight build testers can install has other native code', (s: ReturnType<typeof sandbox>) => testflight(s, { ...out, shell: 'i3' }), 'inbox-bucket'],
+    ["the newest build's native code couldn't be told", (s: ReturnType<typeof sandbox>) => testflight(s, { ...out, commit: null, shell: null }), 'inbox-bucket'],
+    ['testers can install no build', (s: ReturnType<typeof sandbox>) => testflight(s, { build: null, commit: null, shell: null }), 'inbox-bucket'],
+    ['the record names no build', (s: ReturnType<typeof sandbox>) => testflight(s, { shell: 'i2' }), 'inbox-bucket'],
+    ['the run has no inbox to read', (s: ReturnType<typeof sandbox>) => testflight(s, out), ''],
+  ] as const) {
+    it(`keeps the iPhone and shared feeds as they are for a build that needs a newer iPhone app when ${why}`, () => {
+      const s = configured();
+      s.put(FEEDS.shared, feedWith(shell));
+      record(s);
+      const r = s.run(['release-staging'], { ...artifacts(s, needsIphone), MAC_INBOX_BUCKET: inbox });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /needs a newer iPhone app than staging's feeds serve, so those feeds and the shared one stay as they are/);
+      assert.match(r.stdout, /The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed/);
+      assert.doesNotMatch(r.stdout, /make release ENV=staging/);
+      assert.equal(s.get(FEEDS.desktop), release);
+      assert.equal(s.get(FEEDS.iphone), null);
+      assert.equal(s.get(FEEDS.shared), feedWith(shell));
+      assert.match(s.log(), /EXPECT_FEEDS=desktop SKIP_IOS/);
+    });
+  }
+
+  it('switches the iPhone feed but not the shared one when the build also needs a Mac app the run has no way to check', () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    testflight(s, out);
+    const r = s.run(['release-staging'], { ...artifacts(s, { electron: 'e2', ios: 'i2' }), MAC_INBOX_BUCKET: 'inbox-bucket' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /needs a newer Mac app than staging's feeds serve(.*\n)*.*make release ENV=staging/);
+    assert.equal(s.get(FEEDS.desktop), null);
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.equal(s.get(FEEDS.shared), feedWith(shell));
+    assert.match(s.log(), /EXPECT_FEEDS= iphone SKIP_IOS/);
   });
 
   // Prod as a run's surface stage leaves it: the surfaces named switched from 0.1.0-ccc to this run's version.

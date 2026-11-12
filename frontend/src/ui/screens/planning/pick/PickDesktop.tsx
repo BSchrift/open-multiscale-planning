@@ -10,13 +10,14 @@ import { formatDate, formatMinutes, formatWeekRange } from '../../../../core/dat
 import { minutesLeft } from '../../../../core/plan';
 import { EstimateSlider } from '../../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
+import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
 import { Popover } from '../../../components/Popover';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
+import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { Aims } from './Aims';
-import { EditTask } from './EditTask';
 import { aimWords } from './model';
 import type { PickGroup, PickProject, PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
@@ -59,14 +60,9 @@ function SkipAim(props: PickProps & { aim?: AimRow; rows: PickTask[] }) {
 
 function TaskLine(props: PickProps & { row: PickTask }) {
   const { row: r } = props;
-  const [editing, setEditing] = useState(false);
   const [estOpen, setEstOpen] = useState(false);
-  const titleRef = useRef<HTMLButtonElement>(null);
+  const openTask = useOpenTask();
   const estRef = useRef<HTMLButtonElement>(null);
-  const close = () => {
-    setEditing(false);
-    titleRef.current?.focus();
-  };
   const closeEst = () => {
     setEstOpen(false);
     estRef.current?.focus();
@@ -77,15 +73,9 @@ function TaskLine(props: PickProps & { row: PickTask }) {
     <div className="editrow">
       <div className={`pickrow${done ? ' isdone' : ''}`}>
         <div className="pickinfo">
-          <button
-            ref={titleRef}
-            className="picktitle subline"
-            type="button"
-            aria-expanded={editing}
-            aria-label={`Edit task ${r.title}`}
-            onClick={() => (editing ? close() : setEditing(true))}
-          >
+          <button className="picktitle subline" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => openTask(r.c.task.id)}>
             {r.title}
+            {r.c.task.notes && <NoteMark />}
           </button>
           {r.meta && <span className="subline small quiet">{r.meta}</span>}
         </div>
@@ -117,7 +107,6 @@ function TaskLine(props: PickProps & { row: PickTask }) {
           )}
         </span>
       </div>
-      {editing && <EditTask row={r} view={props.view} ctx={props.model.ctx} onClose={close} />}
       {estOpen && !done && (
         <Popover label={`Estimate for ${r.title}`} onClose={closeEst}>
           <EstimateSlider label={r.c.task.remaining_min != null ? 'Time left' : 'Estimate'} value={minutesLeft(r.c.task)} onChange={(m) => props.setEstimate(r, m)} />

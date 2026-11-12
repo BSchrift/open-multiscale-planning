@@ -93,7 +93,8 @@ export interface Milestone extends BaseRecord {
   dropped_at?: Instant | null;
 }
 
-export type TaskKind = 'inbox' | 'one_off' | 'project';
+/** planning: the app's own task for planning a week, made with no time placed (planning.ts). */
+export type TaskKind = 'inbox' | 'one_off' | 'project' | 'planning';
 export type RepeatUnit = 'day' | 'week' | 'month' | 'year';
 
 /** How a one off comes due. A recurring task stays one record whose next_due moves along. */
@@ -132,6 +133,13 @@ export interface Task extends BaseRecord {
   moved_from?: string | null;
   /** Its description: plain text with a little Markdown (notes.ts), up to MAX_NOTES. */
   notes?: string | null;
+  /** A planning task's plans, such as ['week:2026-11-16']. */
+  plans?: string[] | null;
+  /**
+   * What an Inbox item became when Process made it a project, practice or goal: set with done_at, so the finished item
+   * links to it. Apps from before it see a finished task.
+   */
+  became?: { type: 'project' | 'practice' | 'objective'; id: string } | null;
 }
 
 /** One per finish of a one off. */
@@ -182,6 +190,12 @@ export interface WeekPlan extends BaseRecord {
   skipped_aims?: string[];
   skipped_practices?: string[];
   skipped_past_end?: string[];
+  /** Skip for now on this week's prompt to plan, on every device. */
+  planning_skipped_at?: Instant | null;
+  /** Minutes active in planning this week, added each time the flow closes. Written whole. */
+  planning_min?: Minutes | null;
+  /** When planning first opened for this week: it gives your usual time and Review's same time as today. */
+  planning_started_at?: Instant | null;
 }
 
 /** A task added in Pick tasks. Keyed by weekPickId(week_start, task_id). */
@@ -225,11 +239,31 @@ export interface PlanStretch {
   last_note?: string | null;
 }
 
+/**
+ * How far planning ahead has got, shared so it resumes on any device (ui/screens/plan/flowState.ts). Released apps keep
+ * it unread. It's over once its stretch is planned, and Finish clears it.
+ */
+export interface PlanProgress {
+  /** The start of the stretch being planned. */
+  for: LocalDate;
+  /** The step it's on, and those continued from and opened, by key. Strings, so a later app's step reads safely. */
+  step: string;
+  done: string[];
+  seen: string[];
+  /** The day a first plan began, which its stretch starts on. */
+  begun_on?: LocalDate | null;
+  note?: string | null;
+  /** When it last changed on the device that wrote it, so the newer of it and a device's own wins. */
+  at: Instant;
+}
+
 export interface ReminderSettings {
   block_start: boolean;
   check_in: boolean;
   check_in_delay_min: Minutes;
   block_end: boolean;
+  /** The weekly reminder while next week's planning has no time. Missing means on. */
+  planning?: boolean;
 }
 
 /** A time pattern no longer suggested. */
@@ -246,10 +280,18 @@ export interface Settings extends BaseRecord {
   /** null means no fixed schedule. */
   plan_cadence: PlanCadence | null;
   plan_stretch: PlanStretch;
+  /** Planning ahead under way, on any device, or null. */
+  plan_progress?: PlanProgress | null;
   reminders: ReminderSettings;
   avoided_slots: AvoidedSlot[];
   /** Set when first-run setup ends, here so a second device skips it. */
   setup_done_at?: Instant | null;
+  /**
+   * Minutes active in planning the stretch starting on start, and when it began, added each time the flow closes; and
+   * the last 3 finished stretches' minutes, which its estimate learns from. Its own field, so it can't clobber
+   * plan_stretch.
+   */
+  stretch_planning?: { start: LocalDate; started_at?: Instant | null; min?: Minutes | null; history?: Minutes[] } | null;
 }
 
 export interface CalendarEvent {
@@ -293,6 +335,29 @@ export interface Practice extends BaseRecord {
   state: PracticeState;
 }
 
+export type AttachmentKind = 'link' | 'photo' | 'file';
+
+/**
+ * A link, photo or file on a task, as a record of its own. A photo's or file's bytes go to private storage through the
+ * API, which checks them against size, type and sha256 here; this device keeps a copy once it has them (files.ts).
+ */
+export interface Attachment extends BaseRecord {
+  task_id: string;
+  kind: AttachmentKind;
+  /** What it's called: a page's address or a file's name. */
+  name: string;
+  /** A link's address. */
+  url?: string | null;
+  /** A photo's or file's size in bytes. */
+  size?: number | null;
+  /** A photo's or file's content type. */
+  type?: string | null;
+  /** The SHA-256 of a photo's or file's bytes, in base64, as the upload signs it. */
+  sha256?: string | null;
+  /** When its upload finished, so other devices know they can fetch it. */
+  uploaded_at?: Instant | null;
+}
+
 export interface RecordMap {
   objective: Objective;
   project: Project;
@@ -308,6 +373,7 @@ export interface RecordMap {
   calendar: CalendarState;
   calendar_source: CalendarSource;
   practice: Practice;
+  attachment: Attachment;
 }
 
 export type RecordType = keyof RecordMap;
@@ -330,6 +396,7 @@ export const RECORD_TYPES = [
   'calendar',
   'calendar_source',
   'practice',
+  'attachment',
 ] as const satisfies readonly RecordType[];
 
 /** The bucket aims and meters use for all one offs together, beside project ids. */
@@ -348,7 +415,7 @@ export interface RecordChange {
   fields: Record<string, FieldChange>;
 }
 
-export type ReminderKind = 'block_start' | 'check_in' | 'block_end' | 'still_paused';
+export type ReminderKind = 'block_start' | 'check_in' | 'block_end' | 'still_paused' | 'planning_unscheduled';
 
 export interface ReminderAction {
   id: string;
@@ -362,6 +429,7 @@ export interface Reminder {
   /** Stable, so that rescheduling replaces rather than duplicates. */
   id: string;
   kind: ReminderKind;
+  /** The block it's about, or for planning_unscheduled the week's planning task. */
   block_id: string;
   at: Instant;
   title: string;

@@ -4,6 +4,8 @@
 //   expect(await screen.findByText('Paint the fence')).toBeVisible();
 //   await t.write((w) => ...);    // anything rendered picks it up, as with a sync
 //
+// A task's popup, opened from the screen, renders over it as in the app.
+//
 // Tests import this file; the app never does.
 
 import { render } from '@testing-library/react';
@@ -45,6 +47,8 @@ export interface HarnessOptions {
   kind?: PlatformKind;
   /** The desktop's global capture shortcut. Absent by default, as in a browser. */
   captureShortcut?: CaptureShortcut;
+  /** As on a Mac app whose content policy is from before attachments. */
+  filesBlocked?: true;
 }
 
 export interface Harness extends RenderResult {
@@ -63,6 +67,7 @@ async function prepare(options: HarnessOptions) {
     options.nativeUpdates ? { updates: options.nativeUpdates } : {},
     options.kind ? { kind: options.kind } : {},
     options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
+    options.filesBlocked ? { filesBlocked: true as const } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));
@@ -98,6 +103,15 @@ export async function renderScreen(
     nav = { ...useNav(), overlay: useOverlay() };
     return null;
   };
+  // A task's popup opens over whatever showed the task, so it renders here as the shell renders it. Other overlays,
+  // such as Process, are screens of their own, tested on their own.
+  const TaskPopup = () => {
+    const overlay = useOverlay();
+    const { closeOverlay } = useNav();
+    if (overlay?.area !== 'task') return null;
+    const { Screen: Popup } = AREAS.task;
+    return <Popup params={overlay.params} layout={layout} presentation="overlay" close={closeOverlay} />;
+  };
   return harness(
     <div data-layout={layout}>
       <ToastProvider>
@@ -110,6 +124,7 @@ export async function renderScreen(
               presentation={options.presentation ?? 'page'}
               close={options.close ?? (() => undefined)}
             />
+            {area !== 'task' && <TaskPopup />}
           </Suspense>
         </NavProvider>
       </ToastProvider>

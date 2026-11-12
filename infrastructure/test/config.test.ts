@@ -261,6 +261,8 @@ describe('loadControl', () => {
     const own = withField(withField(withMac, 'pipeline.mac.waitFor', 'PT5H'), 'pipeline.mac.githubOidcProvider', 'existing');
     assert.deepEqual(loadControl(dirWith({ control: own }), true).pipeline?.mac, { teamId: 'ABCDE12345', waitFor: 'PT5H', githubOidcProvider: 'existing' });
     assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.mac, undefined);
+    const subject = 'repo:someone@1/open-multiscale-planning@2:environment:release';
+    assert.equal(loadControl(dirWith({ control: withField(withMac, 'pipeline.mac.githubSubject', subject) }), true).pipeline?.mac?.githubSubject, subject);
   });
 
   for (const [path, bad] of [
@@ -271,6 +273,9 @@ describe('loadControl', () => {
     ['pipeline.mac.waitFor', 'PT0S'],
     ['pipeline.mac.waitFor', '2h'],
     ['pipeline.mac.githubOidcProvider', 'yes'],
+    // Only the release environment's jobs, which need the owner's approval.
+    ['pipeline.mac.githubSubject', 'repo:someone/open-multiscale-planning:ref:refs/heads/main'],
+    ['pipeline.mac.githubSubject', 'repo:*:environment:release'],
   ] as const) {
     it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
       assert.throws(() => loadControl(dirWith({ control: withField(withMac, path, bad) }), false), new RegExp(path.replaceAll('.', '\\.')));

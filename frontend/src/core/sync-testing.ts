@@ -1,6 +1,8 @@
 // An in-memory stand-in for the sync API, for tests. Tests import this file; the app never does.
 
 import { clockWins, parseClock } from './clock';
+import { OpenError } from './files';
+import type { Files } from './files';
 import { SyncError } from './sync';
 import type { SyncRequest, SyncResponse } from './sync';
 import type { FieldChange, RecordChange } from './types';
@@ -103,4 +105,16 @@ export function fakeSyncServer(options: { pageSize?: number; now?: () => number 
   }
 
   return server;
+}
+
+/** Attachments' files for a stub AppSync, where the server has none: no usage, so only links are offered. */
+export function noFiles(): Files {
+  return {
+    run: async () => undefined,
+    state: () => null,
+    subscribe: () => () => undefined,
+    retry: async () => undefined,
+    usage: async () => null,
+    open: async () => Promise.reject(new OpenError('offline')),
+  };
 }

@@ -84,7 +84,9 @@ describe('shell on desktop', () => {
       },
     });
     await showsPane('Today');
-    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    // Its row's times start it now, with a planning block from this minute.
+    await userEvent.click(await screen.findByRole('button', { name: 'Choose a time to plan the next stretch' }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'When will you plan the next stretch?' })).getByRole('button', { name: 'Start planning now' }));
     expect(await screen.findByRole('heading', { name: 'Plan the next stretch' })).toBeInTheDocument();
     await waitFor(() => expect(document.querySelector('.flowpane')).not.toBeNull());
   });
@@ -316,7 +318,9 @@ describe('first run', () => {
 describe('registry', () => {
   it.each(Object.keys(AREAS) as AreaId[])('renders %s on both layouts', async (area) => {
     for (const layout of ['desktop', 'phone'] as const) {
-      const t = await renderScreen(area, { layout });
+      // A task's popup needs its task.
+      const task = area === 'task' ? { params: { task: 't1' }, seed: (w: Writer) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 't1') } : {};
+      const t = await renderScreen(area, { layout, ...task });
       // More than the toast region the layout always holds.
       await waitFor(() => expect(t.container.querySelector(`[data-layout='${layout}']`)?.childElementCount ?? 0).toBeGreaterThan(1));
       cleanup();

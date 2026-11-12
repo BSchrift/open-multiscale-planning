@@ -26,6 +26,9 @@ so Undo brings back both, and counts against its owner's quota until it goes.
 
 Never removed: open tasks and Inbox items, active and paused projects and their milestones, goals that aren't archived,
 practices, settings, and the calendar records. A time block, pick or finish that expires never takes its task with it.
+A week's planning task that was neither done nor deleted is an open task too: hidden once its week has passed, and kept.
+A deleted one goes after the deleted period, on prod long after the three days the app makes it in, so no device makes it
+again; on staging, whose period is minutes, a device can make it again within those three days.
 
 Dates count from the end of the day in UTC, so every device works out the same expiry wherever it is. A project's and a
 goal's close time is when their `state` was last written, from that field's clock, since neither has a closed date of

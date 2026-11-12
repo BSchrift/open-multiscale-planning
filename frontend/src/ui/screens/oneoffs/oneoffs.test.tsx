@@ -66,7 +66,7 @@ describe('One offs on desktop', () => {
     await userEvent.click(show);
     expect(show).toHaveAccessibleName('Hide completed in One offs');
     expect(box('Return the drill')).toBeChecked();
-    expect(screen.getByText('Return the drill')).toHaveClass('done');
+    expect(screen.getByRole('button', { name: 'Return the drill' }).parentElement).toHaveClass('done');
     expect(lineOf('Return the drill')).toBe('Done today');
     expect(screen.queryByRole('button', { name: /date for Return the drill/ })).toBeNull();
 
@@ -252,6 +252,29 @@ describe('Finished tasks', () => {
     await waitFor(() => expect(checkboxes(finished())[1]).toBe('Feed the fish done'));
     await userEvent.click(within(finished()).getAllByRole('checkbox', { name: 'Feed the fish done' })[0]!);
     await waitFor(async () => expect((await getRecord(t.db, 'task', 'weekly'))?.next_due).toBe('2026-10-24'));
+  });
+
+  it('links an Inbox item Process made a practice or project to what it became', async () => {
+    const t = await renderScreen('oneoffs', {
+      seed: async (w) => {
+        await w.create('practice', { title: 'Meditate', target_min: 30, per: 'day', state: 'active' }, 'pr1');
+        await w.create('project', { title: 'Japan trip', state: 'active', start: '2026-11-01', end: '2026-12-31' }, 'p1');
+        const became = (id: string, title: string, type: 'practice' | 'project', ref: string) =>
+          Promise.all([
+            w.create('task', { kind: 'inbox', title, done_at: '2026-11-01T15:00:00Z', became: { type, id: ref } }, id),
+            w.create('task_completion', { task_id: id, done_at: '2026-11-01T15:00:00Z', previous_next: null }, `${id}-done`),
+          ]);
+        await became('i1', 'Try meditating', 'practice', 'pr1');
+        await became('i2', 'Plan the Japan trip', 'project', 'p1');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Finished tasks' }));
+    const link = await within(finished()).findByRole('button', { name: 'Became the practice Meditate' });
+    expect(link.closest('.maintrow')).toHaveTextContent('Done Nov 1');
+    await userEvent.click(link);
+    expect(t.nav().route).toMatchObject({ area: 'goals', params: { show: 'pr1' } });
+    await userEvent.click(within(finished()).getByRole('button', { name: 'Became the project Japan trip' }));
+    expect(t.nav().route).toMatchObject({ area: 'goals', params: { project: 'p1' } });
   });
 });
 

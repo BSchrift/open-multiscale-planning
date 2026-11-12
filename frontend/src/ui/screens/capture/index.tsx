@@ -1,15 +1,20 @@
-// Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away: choosing a
-// project, and then one of its milestones, or One offs skips the Inbox, and a time estimate travels with the task.
+// Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away. It opens with
+// Time first, right under the name, then Send to, where choosing a project, and then one of its milestones, or One offs
+// skips the Inbox, then a description, in which Enter makes a new line and ⌘Enter saves, then attachments, which upload
+// once the task is saved.
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
 import { inboxCount } from '../../../core/queries';
 import { listRecords } from '../../../core/records';
 import type { Fields, LocalDate, Minutes } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
-import { useMutation, useQuery, useToday } from '../../app/store';
+import { useApp, useMutation, useQuery, useToday } from '../../app/store';
+import { DraftAttachments, recordOf } from '../../components/attachments/Attachments';
+import type { NewAttachment } from '../../components/attachments/Attachments';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { NotesField } from '../../components/notes/NotesField';
 // From draft rather than the folder's index, so the app's first chunk doesn't carry the one off form and row.
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
@@ -22,16 +27,18 @@ const ONE_OFFS = 'oneoffs';
 const SAVED_MS = 700;
 const FADE_MS = 120;
 
-function fieldsFor(title: string, where: string, milestone: string, est: Minutes, today: LocalDate): Fields<'task'> {
-  if (where === ONE_OFFS) return oneOffFields({ ...emptyDraft(today), title, estimate: est }, today);
-  if (where) return { kind: 'project', project_id: where, milestone_id: milestone || null, title, estimate_min: est || null };
-  return { kind: 'inbox', title, estimate_min: est || null };
+function fieldsFor(title: string, where: string, milestone: string, est: Minutes, notes: string, today: LocalDate): Fields<'task'> {
+  const described = notes.trim() ? { notes } : {};
+  if (where === ONE_OFFS) return { ...oneOffFields({ ...emptyDraft(today), title, estimate: est }, today), ...described };
+  if (where) return { kind: 'project', project_id: where, milestone_id: milestone || null, title, estimate_min: est || null, ...described };
+  return { kind: 'inbox', title, estimate_min: est || null, ...described };
 }
 
 export default function Screen(props: ScreenProps) {
   const { layout, close } = props;
   const today = useToday();
   const toast = useToast();
+  const { platform } = useApp();
   const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active') ?? [];
   const [text, setText] = useState('');
   const [details, setDetails] = useState(false);
@@ -49,12 +56,21 @@ export default function Screen(props: ScreenProps) {
       [where],
     ).data ?? [];
   const [est, setEst] = useState<Minutes>(0);
+  const [notes, setNotes] = useState('');
+  const [drafts, setDrafts] = useState<NewAttachment[]>([]);
+  const form = useRef<HTMLFormElement>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [fade, setFade] = useState(false);
   const ids = { field: useId(), where: useId(), milestone: useId() };
-  const save = useMutation(async (w, fields: Fields<'task'>) => {
-    await w.create('task', fields);
-    return inboxCount(w.sql);
+  const save = useMutation(async (w, fields: Fields<'task'>, drafts: readonly NewAttachment[]) => {
+    const task = await w.create('task', fields);
+    // Each attachment goes in with the task; a photo's bytes are kept once both are saved.
+    const kept: [string, Blob][] = [];
+    for (const a of drafts) {
+      const id = await w.create('attachment', { task_id: task, ...recordOf(a) });
+      if (a.kind === 'photo') kept.push([id, a.file]);
+    }
+    return { waiting: await inboxCount(w.sql), kept };
   });
 
   const project = projects.find((p) => p.id === where)?.title;
@@ -72,14 +88,18 @@ export default function Screen(props: ScreenProps) {
     event.preventDefault();
     const title = captureTitle(text);
     if (!title || saved || save.pending) return;
-    const waiting = await save.run(fieldsFor(title, where, milestone, est, today));
-    if (waiting === undefined) return;
+    const done = await save.run(fieldsFor(title, where, milestone, est, notes, today), drafts);
+    if (done === undefined) return;
+    const { waiting, kept } = done;
+    for (const [id, file] of kept) await platform.files.put(id, file);
     const message = where ? `Saved to ${place}` : phone ? 'Saved to Inbox' : `Saved to Inbox, ${waiting} waiting`;
     if (phone) {
       toast.show(message);
       close();
     } else {
       setText('');
+      setNotes('');
+      setDrafts([]);
       setSaved(message);
     }
   };
@@ -118,6 +138,8 @@ export default function Screen(props: ScreenProps) {
     </select>
   );
   const slider = <EstimateSlider label="Time" value={est} onChange={setEst} />;
+  const description = <NotesField value={notes} onChange={setNotes} onSubmit={() => form.current?.requestSubmit()} />;
+  const attachments = <DraftAttachments drafts={drafts} onChange={setDrafts} />;
   const detailsToggle = (className: string) => (
     <button className={className} type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
       {details ? 'Hide details' : 'Add details'}
@@ -127,7 +149,7 @@ export default function Screen(props: ScreenProps) {
   if (phone) {
     return (
       <Sheet label="Capture" onClose={close}>
-        <form className="stack" onSubmit={submit}>
+        <form ref={form} className="stack capform" onSubmit={submit}>
           <label className="strong" htmlFor={ids.field}>
             Capture to {place}
           </label>
@@ -143,6 +165,7 @@ export default function Screen(props: ScreenProps) {
           <div>{detailsToggle('link')}</div>
           {details && (
             <>
+              {slider}
               <div className="stack8">
                 <label className="small quiet" htmlFor={ids.where}>
                   Send to
@@ -157,7 +180,8 @@ export default function Screen(props: ScreenProps) {
                   {milestoneSelect}
                 </div>
               )}
-              {slider}
+              {description}
+              {attachments}
             </>
           )}
           <button className="btn pri" type="submit">
@@ -171,7 +195,7 @@ export default function Screen(props: ScreenProps) {
   return (
     <div className="capoverlay" onMouseDown={(e) => e.target === e.currentTarget && !text.trim() && close()}>
       <DesktopSheet fade={fade} onClose={close}>
-        <form onSubmit={submit}>
+        <form ref={form} onSubmit={submit}>
           <input
             className="capinput"
             autoFocus
@@ -184,17 +208,21 @@ export default function Screen(props: ScreenProps) {
           />
           {details && !saved && (
             <div className="capdetails">
-              <div className="capfield">
-                <label htmlFor={ids.where}>Send to</label>
-                {whereSelect}
-              </div>
-              {milestoneSelect && (
-                <div className="capfield">
-                  <label htmlFor={ids.milestone}>Milestone</label>
-                  {milestoneSelect}
-                </div>
-              )}
               {slider}
+              <div className="capplace">
+                <div className="capfield">
+                  <label htmlFor={ids.where}>Send to</label>
+                  {whereSelect}
+                </div>
+                {milestoneSelect && (
+                  <div className="capfield">
+                    <label htmlFor={ids.milestone}>Milestone</label>
+                    {milestoneSelect}
+                  </div>
+                )}
+              </div>
+              {description}
+              {attachments}
             </div>
           )}
           <div className="capfoot">

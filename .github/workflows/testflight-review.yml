@@ -1,0 +1,84 @@
+# Tells the release pipeline which iPhone app testers can install. Every hour it asks App Store Connect for the newest
+# TestFlight build Beta App Review has passed for the Testers group, which TestFlight offers them, works out its iPhone
+# native code, its shell hash (scripts/shell-hash.ts), from the main commit it was built from, since a build's number is
+# its commit's time, and writes them to the pipeline's inbox as inbox/testflight/latest.json. A release whose bundle
+# needs that native code then switches the iPhone feed to it (scripts/pipeline.sh, publish). Builds uploaded by hand
+# count too. By hand: gh workflow run testflight-review.yml
+# Only this job holds the App Store Connect key, never the pipeline. It runs in the release environment, which takes only
+# main and whose required reviewer the owner took off on purpose, so it runs on its own; with a reviewer back, each run
+# would wait for approval. Its one AWS permission is writing to the inbox, through GitHub's OIDC token.
+name: TestFlight review
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: testflight-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # All of main's history, which tells each build's commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+
+      # testflight.ts uses Node's standard library alone, so nothing is installed. The key id, issuer id and role ARN may
+      # be secrets or variables. As secrets they stay out of this public log.
+      - name: Write the key
+        env:
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID || vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || vars.ASC_ISSUER_ID }}
+          AWS_INBOX_ROLE_ARN: ${{ secrets.AWS_INBOX_ROLE_ARN || vars.AWS_INBOX_ROLE_ARN }}
+          AWS_INBOX_BUCKET: ${{ vars.AWS_INBOX_BUCKET }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          missing=""
+          for name in ASC_API_KEY ASC_KEY_ID ASC_ISSUER_ID AWS_INBOX_ROLE_ARN AWS_INBOX_BUCKET AWS_REGION; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The release environment lacks$missing. See docs/releasing.md."
+            exit 1
+          fi
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
+          mkdir -p "$RUNNER_TEMP/config"
+          (umask 077 && printf '%s\n' "$ASC_API_KEY" >"$RUNNER_TEMP/config/AuthKey_$ASC_KEY_ID.p8" && printf '%s\n' "$ASC_ISSUER_ID" >"$RUNNER_TEMP/config/asc-issuer-id")
+
+      - name: Find the newest build testers can install
+        run: node frontend/scripts/testflight.ts latest "$RUNNER_TEMP/config" "$RUNNER_TEMP/latest.json"
+
+      - name: Delete the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/config"
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_INBOX_ROLE_ARN || vars.AWS_INBOX_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+
+      # Written every hour, even when nothing changed, so it's never older than that, and the inbox, which forgets an
+      # upload after 30 days, always has it.
+      - name: Write the record to the inbox
+        env:
+          BUCKET: ${{ vars.AWS_INBOX_BUCKET }}
+        run: aws s3 cp "$RUNNER_TEMP/latest.json" "s3://$BUCKET/inbox/testflight/latest.json" --content-type application/json --no-progress

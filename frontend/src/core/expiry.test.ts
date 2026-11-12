@@ -70,6 +70,22 @@ describe('backfillExpiry', () => {
     expect((await outbox(id)).find((r) => r.field === 'expires_at')!.clock).not.toMatch(/^0000000000000-/);
   });
 
+  it("gives a task's attachments the expiry an app from before gave the task, which it doesn't pass on", async () => {
+    const task = await transact(db, clock, (w) => w.create('task', { kind: 'one_off', title: 'Paint the fence', done_at: NOW }));
+    const photo = await transact(db, clock, (w) => w.create('attachment', { task_id: task, kind: 'photo', name: 'Fence.jpg' }));
+    expect((await data(photo))!.expires_at).toBe('2031-11-02T15:00:00Z');
+    // Another device on an older app deletes the task, which sets the task's expiry and leaves its attachment's.
+    await applyRemote(db, [
+      { type: 'task', id: task, fields: { deleted_at: { v: NOW, c: other(NOW) }, expires_at: { v: '2026-12-02T15:00:00Z', c: other(NOW) } } },
+    ]);
+    expect(await backfillExpiry(db, clock)).toBe(1);
+    expect((await data(photo))!.expires_at).toBe('2026-12-02T15:00:00Z');
+    // An attachment removed on its own keeps its own expiry, and the next launch writes nothing.
+    await transact(db, clock, (w) => w.set('task', task, { deleted_at: null }));
+    await transact(db, clock, (w) => w.delete('attachment', photo));
+    expect(await backfillExpiry(db, clock)).toBe(0);
+  });
+
   it('does nothing without a policy', async () => {
     configureRetention(null);
     await transact(db, clock, (w) => w.create('task', { kind: 'one_off', title: 'x', done_at: NOW }));

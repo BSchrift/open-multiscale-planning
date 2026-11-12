@@ -1,14 +1,12 @@
-import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { fakeBuild, makeIdentity, trustOf } from './fake-mac-build';
 import type { FakeBuild } from './fake-mac-build';
-import { buildConfig, nativeSources, notarizations, parsePlist, readManifest, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
+import { buildConfig, notarizations, parsePlist, readManifest, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
 import type { Manifest } from './mac-inbox';
-import { SHELL_SOURCES } from './shell-hash';
 
 const TEAM = 'TEAMID0001';
 const COMMIT = 'c0ffee'.padEnd(40, '0');
@@ -174,41 +172,37 @@ describe('the build config for GitHub Actions', () => {
     expect(hidden).toEqual(expect.arrayContaining(['https://api.prod.example.net', 'api.prod.example.net', 'client', 'net.example.multiscale']));
     expect(() => unpackConfig(Buffer.from('{}').toString('base64'), out)).toThrow('MAC_BUILD_CONFIG lacks staging.outputs.json');
   });
-});
 
-describe('nativeSources', () => {
-  it("changes with the files the Mac app's shell hash covers and its native packages, and nothing else", () => {
-    const repo = mkdtempSync(join(tmpdir(), 'native-'));
-    const frontend = join(repo, 'frontend');
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
-    git('init', '-q');
-    const commit = (files: Record<string, string>) => {
-      for (const [path, text] of Object.entries(files)) {
-        mkdirSync(join(repo, path, '..'), { recursive: true });
-        writeFileSync(join(repo, path), text);
-      }
-      git('add', '-A');
-      git('-c', 'user.email=t@example.net', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'c');
-      return nativeSources(git('rev-parse', 'HEAD'), frontend);
-    };
-    const lock = (electron: string, react: string) => JSON.stringify({ packages: { 'node_modules/electron': { version: electron }, 'node_modules/react': { version: react } } });
-    const first = commit({ 'frontend/electron/main.ts': '1', 'frontend/src/ui/App.tsx': '1', 'frontend/package-lock.json': lock('45.0.0', '19.0.0') });
-    expect(commit({ 'frontend/src/ui/App.tsx': '2', 'frontend/electron/main.test.ts': '2', 'frontend/package-lock.json': lock('45.0.0', '19.1.0') })).toBe(first);
-    expect(commit({ 'frontend/package-lock.json': lock('45.1.0', '19.1.0') })).not.toBe(first);
-    const second = commit({ 'frontend/src/core/captureTitle.ts': '1' });
-    expect(commit({ 'frontend/electron/main.ts': '2' })).not.toBe(second);
-  }, 30_000);
+  // Otherwise the Mac app GitHub Actions builds differs from the pipeline's, as it did once attachments added FilesUrl.
+  it('loads to the same app config as the folder it was made from, with every output the build reads', async () => {
+    const { loadAppConfig } = await import('../src/core/appConfig');
+    const dir = mkdtempSync(join(tmpdir(), 'mac-config-'));
+    for (const env of ['staging', 'prod']) {
+      writeFileSync(join(dir, `${env}.outputs.json`), JSON.stringify({
+        ApiUrl: `https://api.${env}.example.net`, CognitoDomain: `https://auth.${env}.example.net`, AppClientId: 'client',
+        ReleaseUrl: `https://release.${env}.example.net`, DownloadsUrl: `https://downloads.${env}.example.net`,
+        FilesUrl: `https://files.${env}.example.net`, FilesUploadUrl: `https://upload.${env}.example.net`, ReleaseBucket: 'private-bucket',
+      }));
+      writeFileSync(join(dir, `${env}.yaml`), `aws:\n  account: "123456789012"\napp:\n  bundleId: net.example.multiscale\n`);
+      writeFileSync(join(dir, `${env}.release-key.pub`), 'cHVibGlj');
+    }
+    const out = mkdtempSync(join(tmpdir(), 'mac-unpacked-'));
+    unpackConfig(Buffer.from(JSON.stringify(await buildConfig(dir))).toString('base64'), out);
+    const read = (path: string) => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+    for (const env of ['staging', 'prod']) expect(loadAppConfig(env, read, out)).toEqual(loadAppConfig(env, read, dir));
+  });
 });
 
 describe('the Mac release workflow', () => {
   const workflow = parse(readFileSync(join(import.meta.dirname, '../../.github/workflows/mac-release.yml'), 'utf8')) as {
-    on: Record<string, { paths?: string[] }>;
+    on: Record<string, object>;
     permissions: object;
     jobs: Record<string, { environment?: string; steps: { uses?: string }[] }>;
   };
 
-  it("starts for pushes that change what the Mac app's shell hash covers, and never for pull requests", () => {
-    expect(workflow.on.push!.paths!.sort()).toEqual([...SHELL_SOURCES.electron.paths.map((p) => (p.includes('.') ? `frontend/${p}` : `frontend/${p}/**`)), 'frontend/package-lock.json'].sort());
+  // Every push, so the app is in the inbox whenever the pipeline needs one, as when the downloads host serves none it checked.
+  it('starts for every push to main, and never for pull requests', () => {
+    expect(workflow.on.push).toEqual({ branches: ['main'] });
     expect(Object.keys(workflow.on).sort()).toEqual(['push', 'workflow_dispatch']);
     expect(workflow.permissions).toEqual({});
   });

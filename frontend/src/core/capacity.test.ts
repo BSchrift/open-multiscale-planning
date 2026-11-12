@@ -14,6 +14,7 @@ import {
 } from './capacity';
 import type { AnalyticsData } from './analytics';
 import { fixedClock } from './clock';
+import { slotContext } from './slots';
 import type { SlotContext, Span } from './slots';
 import type { AvailabilityBlock, Project } from './types';
 
@@ -81,6 +82,13 @@ describe('plannedByKind', () => {
       span(TUE, 500, 515),
     ];
     expect(plannedByKind(spans)).toEqual({ project: 75, one_off: 30, practice: 60, total: 165 });
+  });
+
+  it('leaves planning out: it is busy time, which takes open time instead', () => {
+    const blocks = [{ id: 'p', start: '2026-11-02T16:00:00Z', end: '2026-11-02T17:00:00Z', task_kind: 'planning' as const }];
+    const c = slotContext({ week: MON, availability: [NIGHT], avoided: [], sources: [], calendar: null, blocks, clock: fixedClock('2026-11-01T00:00:00Z') });
+    expect(plannedByKind(c.placed)).toEqual({ project: 0, one_off: 0, practice: 0, total: 0 });
+    expect(openTime(c)).toBe(105 * 60 - 60);
   });
 });
 

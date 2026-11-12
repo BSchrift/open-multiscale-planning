@@ -1,7 +1,8 @@
-// A task with its check circle. Ticking fills the circle and strikes through the title.
+// A task with its check circle. Ticking fills the circle and strikes through the title, and the title opens the task.
 
 import type { ReactNode } from 'react';
 import { NoteMark } from './notes/NoteMark';
+import './task/task.css';
 
 /** The circle alone. Its 44pt target surrounds the visible circle. */
 export function CheckCircle(props: { checked: boolean; label: string; onChange(checked: boolean, box: HTMLInputElement): void }) {
@@ -26,6 +27,8 @@ export function TaskRow(props: {
   line?: ReactNode;
   /** Whether it has details, such as a description, which a mark beside the title shows. */
   details?: boolean;
+  /** Opens the task, from its title. */
+  onOpen?(): void;
   /** Actions or details under the title. */
   children?: ReactNode;
 }) {
@@ -34,8 +37,17 @@ export function TaskRow(props: {
       <CheckCircle checked={props.checked} label={`${props.title} done`} onChange={props.onToggle} />
       <div className="grow">
         <div className={props.checked ? 'done' : undefined}>
-          {props.title}
-          {props.details && <NoteMark />}
+          {props.onOpen ? (
+            <button className="taskname rowname" type="button" onClick={props.onOpen}>
+              {props.title}
+              {props.details && <NoteMark />}
+            </button>
+          ) : (
+            <>
+              {props.title}
+              {props.details && <NoteMark />}
+            </>
+          )}
         </div>
         {props.line && <div className="small quiet">{props.line}</div>}
         {props.children}

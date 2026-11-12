@@ -6,27 +6,31 @@ can stop it, promotes the same build to prod. No one needs to approve it. Prod's
 canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. Then prod's surfaces take it one at
 a time: the web app, a two-hour bake, the Mac, a two-hour bake, then the iPhone. A commit that changes the Mac app's native
 code gets a new Mac app from GitHub Actions, which the pipeline checks and publishes, once
-[set up](#mac-apps-from-github-actions). The signed iPhone app stays a step on the Mac.
+[set up](#mac-apps-from-github-actions). One that changes the iPhone app's gets a new TestFlight build from GitHub
+Actions, and the pipeline switches the iPhone feed once testers can install it
+([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
 
 The pipeline is AWS CodePipeline and CodeBuild in the control account (`infrastructure/lib/pipeline-stack.ts`), and its
-steps are `scripts/pipeline.sh`. Deploy rights stay in AWS: GitHub's CI holds no AWS credentials. The one exception is
-the Mac release's, which may only upload to the pipeline's inbox, through GitHub's OIDC token, with no long-lived key.
+steps are `scripts/pipeline.sh`. Deploy rights stay in AWS: GitHub's CI holds no AWS credentials. The exceptions are the
+Mac release and the TestFlight review, which may only upload to the pipeline's inbox, through GitHub's OIDC token, with
+no long-lived key.
 
 ## The flow
 
 | Stage | Runs against | What happens | Stops the release when |
 | --- | --- | --- | --- |
 | **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, iOS | A check fails. Every check must pass before a merge |
-| **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves | For a main commit that changes the Mac app's native code, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | The owner doesn't approve it, or a build or notarization fails. The pipeline then stops at Staging |
+| **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves if the `release` environment asks | For each main commit, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | An approval the environment asks for doesn't come, or a build or notarization fails. The pipeline then stops at Staging |
+| **TestFlight** | Nothing: GitHub Actions, on macOS to upload and on Linux every hour | For a main commit whose iPhone native code differs from TestFlight's latest build's, uploads the iPhone app to TestFlight for Beta App Review. Every hour, records in the pipeline's inbox the newest build testers can install | Nothing. Until testers can install a build with a release's iPhone native code, the iPhone and shared feeds wait |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
-| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
-| **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it. Then a wait until that time, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window. The email names the stages after it, and whether the run skips the canary or the bakes or turns the alarms off |
+| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
+| **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window. The email names the stages after it, and whether the run skips the canary or the bakes or turns the alarms off |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step and uploads the [version](#versions-and-feeds), which changes nothing anyone sees | A release alarm rolls the canary back, or a suite fails |
 | **Web** | Prod | Switches the web app to the version and runs the web app, feed, integration and smoke suites. Then [bakes](#bakes): a wait, two hours unless `control.yaml`'s `pipeline.bakeWeb` says otherwise, and a check that no release alarm is in ALARM | A suite fails, or a release alarm is in ALARM after the bake, which first switches web back |
 | **Desktop** | Prod | Publishes any new Mac app the Staging stage checked, switches the desktop feed and the shared one, checks the feeds, then bakes: `pipeline.bakeDesktop`, two hours unless it says otherwise | The feed check fails, or a release alarm is in ALARM after the bake, which first switches both feeds back |
-| **iPhone** | Prod | Switches the iPhone feed, checks the feeds, and records the commit for `make release-tag`, since every surface has it now | The feed check fails |
+| **iPhone** | Prod | Switches the iPhone feed when it can take the build ([iPhone apps from TestFlight](#iphone-apps-from-testflight)), checks the feeds, and records the commit for `make release-tag`, since every surface has it now | The feed check fails |
 | **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
-| **On the Mac** | Prod | `make release-tag`, then the signed iPhone build from that tag, and the Mac app's too until the Mac release is set up | — |
+| **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
 because it sets off prod's throttle alarm. The iPhone's signed-in test needs a Mac, so it runs there: `make test-ios`,
@@ -60,7 +64,8 @@ its `release.json`, and each device takes it at its next check.
 
 A feed takes a build only when its app can. The desktop feed compares the Mac app's native code with what it serves,
 and takes the build when it's unchanged or a Mac app from GitHub Actions is published first. The iPhone feed compares
-the iPhone app's. The shared feed takes the build only when both do. Until an app's own feed exists, it compares with
+the iPhone app's, and takes the build when it's unchanged or the newest TestFlight build testers can install has it.
+The shared feed takes the build only when both do. Until an app's own feed exists, it compares with
 the shared one. Each release checks every feed it switched: the manifest checks out with the environment's release
 key, names the version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
 
@@ -233,7 +238,7 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | --- | --- |
 | `make pipeline-pause` | Main commits stop at Build: each run they start stops itself. The switch is the SSM parameter `/multiscale/pipeline/paused` |
 | `make pipeline-resume` | Each main commit releases to staging again |
-| `make pipeline-stop` | Stops every run that is waiting, abandoning it: in its window before prod, in a bake, or for a stage to be free. It names each commit, and for a bake, how to switch that surface back. A run at work, deploying, publishing or testing, is named and left alone, since stopping it could leave a surface half switched |
+| `make pipeline-stop` | Stops every run that is waiting, abandoning it: in its window before prod, in a bake, or for a stage to be free. A run stopped in its window also has its window ended, so its Promote now link no longer works. It names each commit, and for a bake, how to switch that surface back. A run at work, deploying, publishing or testing, is named and left alone, since stopping it could leave a surface half switched |
 | `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip`, `BAKES=skip` and `ALARMS=off` are above |
 | `make release-surface` | Lists what each surface serves and the versions kept, or switches one surface to a version kept: [One surface at a time](#one-surface-at-a-time) |
 | `make release-tag` | Tags the commit the iPhone stage last released, which every surface has, as `release-<date>`, noting a skipped canary or bakes or the alarms off, and pushes the tag |
@@ -241,23 +246,28 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | `make deploy ENV=pipeline` | Deploys the pipeline itself |
 
 **Promotion needs no approval.** When staging passes, a state machine (Step Functions, so the wait costs no build
-minutes) emails the commit and the time it goes to prod, then waits until that time. To keep it from prod, run `make
-pipeline-stop`, or choose **Stop execution** on the run in CodePipeline, before then. The same command stops a run in
-a bake, before the next surface. **An agent stops a run only when the
-owner asks in chat.** The window is `pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of whole days, hours,
-minutes and seconds up to 6 days: `PT2H` when it's left out, `PT0S` to go at once. Prod's canary and its alarms still
-guard the release. Failed runs and failed nightly runs are emailed to the same address. The pause switch is unchanged:
-it holds back new runs, not one already past staging.
+minutes) emails the commit and the time it goes to prod, then waits until that time. To send it sooner, open the
+email's link and choose **Promote now**: the run goes to prod at once. Opening the link alone changes nothing, since
+mail scanners open links, but anyone with it can promote that run, so don't forward the email. To keep it from prod,
+run `make pipeline-stop` before then: it also ends the window, so the link stops working. **Stop execution** on the run
+in CodePipeline keeps it from prod too, but leaves the link saying it promoted. The same command stops a run in a bake,
+before the next surface. **An agent stops a run only when the owner asks in chat.** The window is
+`pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of whole days, hours, minutes and seconds up to 6 days:
+`PT2H` when it's left out, `PT0S` to go at once. Prod's canary and its alarms still guard the release. Failed runs and
+failed nightly runs are emailed to the same address. The pause switch is unchanged: it holds back new runs, not one
+already past staging.
 
 **The signed apps.** Each build names the native code it needs, and the pipeline compares that with the feed's. When
 the Mac app's changed, the pipeline publishes the Mac app GitHub Actions built and checked, then the feed, so an
 older app that can't take the new bundle is offered the new app instead
-([Mac apps from GitHub Actions](#mac-apps-from-github-actions)). When the iPhone app's changed, or the Mac app's
-without the Mac release set up, the pipeline leaves the feed alone and says so. Then, after the release reaches prod,
-run `make release-tag`, then `git checkout <tag>` and `make release ENV=prod`. That builds and signs the Mac app on the
-Mac and uploads it, then the feed. Once its tests pass, it uploads the iPhone app from the same commit to TestFlight,
-so testers' builds take the same updates; `SKIP_TESTFLIGHT=1` leaves that out, and GitHub Actions can upload it instead,
-as [setup.md](setup.md#testflight) explains.
+([Mac apps from GitHub Actions](#mac-apps-from-github-actions)). When the iPhone app's changed, the pipeline switches
+the iPhone feed once testers can install a TestFlight build with the new native code, which GitHub Actions uploads, so
+an older app is told to update from TestFlight ([iPhone apps from TestFlight](#iphone-apps-from-testflight)). Until
+then, and when the Mac app's changed without the Mac release set up, the pipeline leaves the feed alone and says so.
+For the Mac app, after the release reaches prod, run `make release-tag`, then `git checkout <tag>` and
+`make release ENV=prod`. That builds and signs the Mac app on the Mac and uploads it, then the feed. Once its tests
+pass, it uploads the iPhone app from the same commit to TestFlight; `SKIP_TESTFLIGHT=1` leaves that out, as it may once
+GitHub Actions uploads them ([setup.md](setup.md#testflight)).
 
 ## Setting it up
 
@@ -293,28 +303,33 @@ Once. The steps marked **by hand** need the AWS console or your own credentials.
 ## Mac apps from GitHub Actions
 
 A commit that changes the Mac app's native code, such as Electron's main process, a native package's version, or the
-backend addresses the app allows, needs a new Mac app before installed apps can take its bundle. GitHub Actions builds
-it, since signing and notarizing need macOS, and the pipeline checks it on Linux before publishing it. The pipeline
-never trusts GitHub's word for any of it.
+backend addresses the app allows, needs a new Mac app before installed apps can take its bundle. So does an
+environment whose downloads host serves no Mac app the pipeline checked, such as one released before GitHub Actions
+built them. GitHub Actions builds it, since signing and notarizing need macOS, and the pipeline checks it on Linux
+before publishing it. The pipeline never trusts GitHub's word for any of it.
 
-1. **GitHub Actions builds it.** `.github/workflows/mac-release.yml` runs for a push to main that changes what the Mac
-   app's shell hash covers (`frontend/scripts/shell-hash.ts`), or by hand for a main commit:
+1. **GitHub Actions builds it.** `.github/workflows/mac-release.yml` runs for every push to main, so the app is in the
+   inbox whenever a release needs one, or by hand for a main commit:
    `gh workflow run mac-release.yml -f commit=<full commit hash>`. A first job, with no secrets, checks that the commit
-   is on main and that its native code really changed. The signing job then waits for the owner's approval in the
-   `release` environment. It installs the lockfile's packages with no install scripts, imports the Developer ID into a
-   keychain of its own, builds the staging and prod apps with `scripts/mac-app.sh` (signed, notarized, stapled, opened
-   by `spctl` and started, as `make release` does), and writes a manifest beside each disk image: the commit, the
-   versions, the shell hash, SHA-256s and the notary submissions. It uploads both to
-   `s3://<inbox bucket>/inbox/<commit>/<env>/`, the manifest last, and deletes the keychain and the notary key.
+   is on main. The signing job then runs in the `release` environment, after the owner's approval if the environment
+   has a reviewer. It installs the lockfile's packages with no install scripts, imports the Developer ID into a keychain
+   of its own, builds the staging and prod apps with `scripts/mac-app.sh` (signed, notarized, stapled, opened by
+   `spctl` and started, as `make release` does), and writes a manifest beside each disk image: the commit, the versions,
+   the shell hash, SHA-256s and the notary submissions. It uploads both to `s3://<inbox bucket>/inbox/<commit>/<env>/`,
+   the manifest last, and deletes the keychain and the notary key.
 2. **The pipeline waits for it.** The Staging stage's MacApp step, beside staging's deploy, compares each
-   environment's feed with this build. For each that needs a new Mac app, it waits for that environment's manifest in
-   the inbox, up to `pipeline.mac.waitFor` (two hours unless `control.yaml` says), then checks the upload
-   (`frontend/scripts/mac-inbox.ts verify`). If nothing arrives in time, or the check fails, the run stops before
-   anything is published, and before prod.
-3. **The releases publish it.** Staging's and prod's releases upload the checked disk image to
-   `downloads.<zone>/Multiscale.dmg`, then the feed, as `make release` does. An environment whose feed can take the
-   build as its Mac app is gets no new Mac app, and nothing changes. A build that also needs a new iPhone app still
-   leaves the feed for a release from the Mac.
+   environment's feed with this build, and looks for the record of a checked Mac app beside its downloads. For each
+   that needs a new Mac app, it waits for that environment's manifest in the inbox, up to `pipeline.mac.waitFor` (two
+   hours unless `control.yaml` says), then checks the upload (`frontend/scripts/mac-inbox.ts verify`). If nothing
+   arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
+   caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
+   waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
+3. **The releases publish it.** Staging's release, and prod's Desktop stage, upload the checked disk image to
+   `downloads.<zone>/Multiscale.dmg`, then its manifest to `mac/manifest.json` in the release bucket, which nothing
+   serves, as the record that the app is a checked one, then the feed, as `make release` does. An environment whose
+   feed can take the build as its Mac app is, and which serves a checked one, gets no new Mac app, and nothing changes.
+   A build that also needs a new iPhone app leaves the iPhone and shared feeds until testers can install one
+   ([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
 
 ### What the check proves
 
@@ -352,8 +367,8 @@ For each environment's upload, on Linux, with OpenSSL and 7-Zip:
 
 ### The release environment
 
-The signing job runs in the GitHub environment `release`, which needs the owner's approval, takes deployments only from
-`main`, and holds the only copies of the signing secrets:
+The signing job, like the TestFlight workflows' jobs, runs in the GitHub environment `release`, which takes deployments
+only from `main`, may need the owner's approval, and holds the only copies of the signing secrets:
 
 | Name | Kind | Holds |
 | --- | --- | --- |
@@ -362,7 +377,7 @@ The signing job runs in the GitHub environment `release`, which needs the owner'
 | `ASC_API_KEY` | Secret | The App Store Connect API key that notarizes, the `.p8` file's contents |
 | `ASC_KEY_ID` | Secret or variable | That key's id |
 | `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
-| `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, sign-in client, bundle id and release key's public half |
+| `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, attachment hosts, sign-in client, bundle id and release key's public half |
 | `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
 | `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
 | `AWS_REGION` | Variable | The control account's region |
@@ -371,7 +386,10 @@ The key id, issuer id and role ARN work as either, but a variable's value is pri
 read on a public repository, and the role's ARN names the control account. Secrets are masked.
 
 The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
-`repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included. It may
+`repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included, or the
+subject in `pipeline.mac.githubSubject`. A repository with GitHub's immutable subjects gets tokens that also name its
+owner's and its own ids, `repo:<owner>@<id>/<repo>@<id>:environment:release`, and the role refuses them until
+`githubSubject` says so: `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` shows the prefix. It may
 put objects under `inbox/` in the inbox bucket and do nothing else, for an hour at most; an infrastructure test checks
 that. The bucket is private and encrypted, and forgets each upload after 30 days. Pull requests never run the workflow,
 and a fork's runs stop before any job.
@@ -382,8 +400,9 @@ Once, after `make release` has notarized a Mac app from your Mac ([setup, step 1
 with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
 
 1. **The config.** In `control.yaml`, under `pipeline`, add `mac` with your team id, as `config/control.example.yaml`
-   shows. If the control account already has GitHub's OIDC provider, which this lists, add
-   `githubOidcProvider: existing`:
+   shows. If `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` shows `"use_immutable_subject": true`, add
+   `githubSubject:` with its `sub_claim_prefix` followed by `:environment:release`. If the control account already has
+   GitHub's OIDC provider, which this lists, add `githubOidcProvider: existing`:
 
    ```sh
    aws iam list-open-id-connect-providers --profile <control profile>
@@ -402,6 +421,12 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
    ```
 
    `prevent_self_review` stays off, since the run you approve is the one your merge started.
+
+   The reviewer is optional while you're the only one who can push to `main` or start workflows. Every commit there has
+   then come through your merge, and a pull request from a fork never gets the environment's secrets. With
+   `"reviewers": []`, a run from `main` starts at once. Add the reviewer back before anyone else gets write access. The
+   TestFlight workflows' jobs run in the environment too, each push's and the review's every hour, so with a reviewer
+   each of those waits for approval as well.
 4. **The Developer ID.** In **Keychain Access**, under **login > My Certificates**, select
    **Developer ID Application: …** with its key, choose **File > Export Items**, and save it as `DeveloperID.p12` with
    a new password. Then, typing that password when asked:
@@ -423,7 +448,7 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
    ```
 
 6. **The build's config.** Again whenever a backend address, the sign-in client, the bundle id or a release key
-   changes. Until then the check fails, saying the build's settings differ:
+   changes, and when attachments are turned on, which adds their hosts. Until then the check fails, saying the build's settings differ:
 
    ```sh
    (cd frontend && node scripts/mac-inbox.ts build-config "$MULTISCALE_CONFIG_DIR") | gh secret set MAC_BUILD_CONFIG --env release --repo "$repo"
@@ -438,17 +463,82 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
    gh variable set AWS_REGION --env release --repo "$repo" --body <control region>
    ```
 
-8. **A first build.** `gh workflow run mac-release.yml -f commit="$(git rev-parse origin/main)"`, then approve it under
-   the run's **Review deployments**. It stops at once, naming anything missing from the environment.
+8. **A first build.** `gh workflow run mac-release.yml -f commit="$(git rev-parse origin/main)"`, then, if the
+   environment has a reviewer, approve it under the run's **Review deployments**. It stops at once, naming anything
+   missing from the environment.
 
 ### When a run stops for the Mac app
 
-- **No Mac app in time.** The MacApp step's log says which commit. Approve the waiting workflow run, or start one for
-  that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, run the pipeline again:
-  `make promote COMMIT=<sha>`. A push whose native code didn't change starts no build, so a run for it can need one
-  when the feed is older still, such as after a failed run.
+- **No Mac app in time.** The MacApp step's log says which commit. Approve the workflow run if it waits for you, or
+  start one for that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, retry the
+  Staging stage, which its log prints the command for (`aws codepipeline retry-stage-execution ... --retry-mode
+  FAILED_ACTIONS`), or run the pipeline again: `make promote COMMIT=<sha>`. GitHub's macOS runners are shared with the
+  PRs' iPhone job, so a Mac build can queue for a while when many PRs are open. Every push to main starts a build, so one that didn't arrive failed or
+  is still queued behind another: its run's log says which.
 - **The check failed.** The MacApp step's log lists every problem. Nothing was published. "The build's settings
   differ" means `MAC_BUILD_CONFIG` is out of date: make it again (step 6 above) and build again.
+
+## iPhone apps from TestFlight
+
+A commit that changes the iPhone app's native code, such as a Capacitor plugin, its version, or anything under
+`frontend/ios`, needs a new iPhone app before installed apps can take its bundle. Testers get the app from TestFlight,
+so GitHub Actions uploads one, Beta App Review passes it, and the pipeline then switches the iPhone feed. A TestFlight
+build is a prod build, numbered by its commit's time, and its native code is named by the iPhone app's shell hash
+(`frontend/scripts/shell-hash.ts`), as each bundle's is.
+
+1. **GitHub Actions uploads it.** `.github/workflows/testflight.yml` runs for every push to main. A first job, on
+   Linux so that most pushes hold none of the Macs CI's iPhone job shares, asks App Store Connect for TestFlight's latest
+   build, finds the main commit with its number, and hashes that commit's native code with that commit's own
+   `shell-hash.ts`. Only when this commit's differs does a Mac build the app and upload it, as
+   [setup.md](setup.md#testflight-from-github-actions) describes, and submit it for Beta App Review. A build uploaded
+   any other way counts the same, whether from the workflow by hand or with `make testflight` on a Mac. Uploads go one
+   at a time, and a push's upload that waited for another asks again first, so two pushes with the same new native code
+   upload once. By hand it always uploads: `gh workflow run testflight.yml --ref main [-f commit=<full commit hash>]`.
+2. **The TestFlight review records what testers can install.** `.github/workflows/testflight-review.yml` runs every
+   hour on Linux. It asks App Store Connect for the newest build in the **Testers** group that Beta App Review has
+   passed, so that it's in beta testing, and that hasn't expired. That's the build TestFlight offers testers. It hashes
+   its commit's native code the same way, and writes `inbox/testflight/latest.json` to the pipeline's inbox: the build,
+   its commit and its shell hash, or nulls when testers have no build or no main commit has its number, as for one
+   uploaded from a branch. It writes it every hour, so the record is never more than an hour old.
+3. **The releases switch the iPhone feed.** Staging's release, and prod's Desktop and iPhone stages, read that record.
+   When a build needs other iPhone native code than the iPhone feed serves, the feed takes it only if the record names
+   that native code, and the shared feed then follows if the desktop feed can take it too: on prod, the shared feed in
+   the Desktop stage and the iPhone feed in the iPhone stage. Otherwise both stay as they are, and the release says
+   so. Only the newest build counts: an older one with this native code may still be out, but testers are offered the
+   newest.
+
+**A run doesn't wait for Beta App Review.** Apple can take a day, and a CodeBuild step can't wait more than about 40
+minutes, so waiting would stop the run, holding up the web app and the backend. Instead each release checks the record
+as it publishes: staging's when it reaches staging, and prod's hours later, so prod can switch the iPhone feed in a run
+whose staging release didn't. Otherwise the first run after Beta App Review passes the build switches it, with that
+run's own build. Main moves most days; `make promote` starts a run sooner.
+
+**What it trusts.** The record is GitHub's word: the pipeline never gets the App Store Connect key, so it can't ask Apple
+itself, as it checks a Mac app. Only a job in the `release` environment may write to the inbox. A wrong record could at
+worst switch the feed early, and then an installed app still checks each bundle's native code against its own and
+skips one it can't run, saying it needs a new version of the app (`frontend/src/core/updates.ts`).
+
+**Staging** reads the same record, since there's no staging TestFlight build, so its switch rehearses prod's. An iPhone
+app built for staging comes from Xcode: run it from Xcode again.
+
+### Setting up TestFlight from GitHub Actions
+
+Once, after [Setting up the Mac release](#setting-up-the-mac-release), whose inbox and environment it shares, and
+[TestFlight from GitHub Actions](setup.md#testflight-from-github-actions), whose secrets it reads:
+
+1. **The releases' inbox.** `make deploy ENV=pipeline`, which names the inbox to the releases. Until then they never
+   switch the iPhone feed for a new native code.
+2. **A first record.** `gh workflow run testflight-review.yml`, or wait for the hour. Its log says which build testers
+   can install and its native code.
+
+### When the iPhone feed waits
+
+- **No build with the new native code yet.** The TestFlight workflow's run for the commit that changed it says whether
+  it uploaded, and the TestFlight review's last run which build testers can install. Beta App Review usually takes a
+  few hours, and a later build of the same version often passes at once.
+- **Apple refused or rejected the build.** A push with the same native code doesn't upload again. Fix what Apple said,
+  or for a passing reason, upload by hand: `gh workflow run testflight.yml --ref main`.
+- **The record has no native code.** The newest build came from a commit that isn't on main. Upload one from main.
 
 ## The release keys
 
@@ -496,8 +586,9 @@ install the new app on every device.
 | Two KMS keys: the artifacts', which prod's account reads them with, and the release keys' | $2 |
 | Ten or so more CloudWatch alarms | About $1 |
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
-| The window before prod, a two-state Step Functions run each release | Under $0.01 |
+| The window before prod, a three-state Step Functions run each release, and its link's Lambda | Under $0.01 |
 | The two bakes, a one-state Step Functions run each, and two short checks | Under $0.10 |
 | The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite | About $0.45 a night |
-| The Mac app's check, a small build that waits for GitHub's build, only for a commit that changes native code | Up to $0.60 a time, for a two-hour wait |
+| The Mac app's check, a small build that waits for GitHub's build, only for a run that needs a new Mac app | Up to $0.60 a time, for a two-hour wait |
 | The Mac release's inbox, two disk images a time, kept 30 days | Under $0.05 |
+| The TestFlight review's record, written to the inbox every hour, on GitHub's runners, which a public repository doesn't pay for | Under $0.01 |

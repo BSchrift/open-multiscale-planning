@@ -107,6 +107,25 @@ live_shell() {
   echo "$shell"
 }
 
+# Whether an environment's downloads host serves a Mac app the MacApp step checked, as publish records it. A Mac app
+# from before GitHub Actions built them, such as one released unsigned, has no record, so the next run replaces it.
+checked_mac_live() {
+  local env_name="$1" account region profile
+  read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
+  AWS_PROFILE="$profile" aws s3api head-object --bucket "$(release_bucket "$env_name")" --key mac/manifest.json >/dev/null 2>&1
+}
+
+# The newest TestFlight build testers can install, which Beta App Review approved for the Testers group, when it has a
+# build's iPhone native code, given the build's shell as shell_of prints it; otherwise nothing. Only the newest, since
+# TestFlight offers testers the newest build: an older one with this native code still out doesn't count. The
+# TestFlight review workflow records it in the inbox every hour (.github/workflows/testflight-review.yml). Read as the
+# pipeline's own role, which may read the inbox: the App Store Connect key stays in GitHub.
+testflight_build() {
+  [ -n "${MAC_INBOX_BUCKET:-}" ] || return 0
+  aws s3 cp "s3://$MAC_INBOX_BUCKET/inbox/testflight/latest.json" - 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const r = JSON.parse(s); const ios = JSON.parse(process.argv[1]).ios; if (typeof ios === "string" && r.shell === ios && Number.isInteger(r.build) && r.build > 0) console.log(r.build); } catch {} });' "$1" || true
+}
+
 # One of an environment's stack outputs, from <env>.outputs.json in the config folder.
 output() { node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[process.argv[2]] ?? "")' "$MULTISCALE_CONFIG_DIR/$1.outputs.json" "$2"; }
 release_bucket() { output "$1" ReleaseBucket; }
@@ -274,29 +293,36 @@ as_release() {
 }
 
 # Which feeds can take an environment's build, from the Build output. Sets version; feeds, those that can, with shared
-# only when both apps' can; waiting, the apps the others wait for; and dmg, a Mac app the MacApp step checked, to publish
-# before the desktop feed. Each feed compares only its own app's native code with what it serves now: the desktop feed
-# takes the build when the Mac app's is unchanged or a checked Mac app is published first, the iPhone feed when the
-# iPhone app's is unchanged (an iPhone app is still released from the Mac). Exits when the build needs a Mac app this
-# run didn't check.
+# only when both apps' can; waiting, the apps the others wait for; testflight, the TestFlight build that lets the iPhone
+# feed take it; and dmg, a Mac app the MacApp step checked, to publish before the desktop feed. Each feed compares only
+# its own app's native code with what it serves now: the desktop feed takes the build when the Mac app's is unchanged or
+# a checked Mac app is published first, the iPhone feed when the iPhone app's is unchanged or the newest TestFlight build
+# testers can install has the new one. A run doesn't wait for Beta App Review, which can take a day: the first run after
+# it passes the build switches the iPhone feed. The MacApp step hands on a checked Mac app whenever it checked one, as
+# when the downloads host served none it checked. Exits when the build needs a Mac app this run didn't check.
 plan() {
   local env_name="$1" mac="${CODEBUILD_SRC_DIR_MacApps:-}" build
   build="$(shell_of <"$(built)/web/$env_name/version.json")"
   version="$(version_of "$(built)/web/$env_name")"
-  feeds="" waiting="" dmg=""
+  feeds="" waiting="" dmg="" testflight=""
+  if [ -n "$mac" ] && [ -f "$mac/$env_name/Multiscale.dmg" ]; then dmg="$mac/$env_name/Multiscale.dmg"; fi
   if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
   elif [ -z "$mac" ]; then
     waiting="Mac"
-  elif [ -f "$mac/$env_name/Multiscale.dmg" ]; then
-    dmg="$mac/$env_name/Multiscale.dmg"
+  elif [ -n "$dmg" ]; then
     feeds=desktop
   else
     echo "This build needs a newer Mac app than $env_name's desktop feed, but this run checked none for $env_name, so nothing is published." >&2
     echo "Run the Mac release workflow for this commit (docs/releasing.md), then run the pipeline again." >&2
     exit 1
   fi
-  if differs "$(live_shell "$env_name" iphone)" "$build" ios; then waiting="${waiting:+$waiting and }iPhone"; else feeds="$feeds iphone"; fi
+  if ! differs "$(live_shell "$env_name" iphone)" "$build" ios; then
+    feeds="$feeds iphone"
+  else
+    testflight="$(testflight_build "$build")"
+    if [ -n "$testflight" ]; then feeds="$feeds iphone"; else waiting="${waiting:+$waiting and }iPhone"; fi
+  fi
   [ -n "$waiting" ] || feeds="$feeds shared"
 }
 
@@ -308,19 +334,25 @@ taking() {
 }
 
 # Switches the planned build's feeds among those named, as the environment's release role, publishing a checked Mac app
-# before the desktop feed. Says which feeds wait for an app.
+# before the desktop feed, with the record that it's a checked one. Says which feeds wait for an app.
 release_feeds() {
   local env_name="$1" feed
   shift
   if [ -n "$dmg" ] && [ -n "$(taking desktop)" ] && [[ " $* " == *" desktop "* ]]; then
     # Before the feed, which then links apps that can't take it to this app.
     as_release "$env_name" aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
+    # Then the record that it's a checked app, which the downloads host doesn't serve.
+    as_release "$env_name" aws s3 cp "$(dirname "$dmg")/manifest.json" "s3://$(release_bucket "$env_name")/mac/manifest.json" --content-type application/json
     echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
   fi
   for feed in $(taking "$@"); do as_release "$env_name" switch "$env_name" "$feed" "$version"; done
+  if [ -n "$testflight" ] && [ -n "$(taking iphone)" ] && [[ " $* " == *" iphone "* ]]; then
+    echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
+  fi
   if [ "$(taking "$@")" != "$*" ]; then
     echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds and the shared one stay as they are."
-    echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name."
+    case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
+    case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
 }
 
@@ -394,7 +426,16 @@ case "$command" in
       aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped by make pipeline-stop" >/dev/null
       stopped=yes
       case "$kind" in
-        window) echo "Stopped run $id, at $commit, in its window before prod. Staging keeps it; prod doesn't get it." ;;
+        window)
+          # Abandoning leaves the window's own wait running, and its email's Promote now link would still answer it.
+          machine="$(aws stepfunctions list-state-machines --query "stateMachines[?starts_with(name, 'Promotion')].stateMachineArn | [0]" --output text)"
+          if [ -n "$machine" ] && [ "$machine" != None ]; then
+            for execution in $(aws stepfunctions list-executions --state-machine-arn "$machine" --status-filter RUNNING --query 'executions[].executionArn' --output text); do
+              aws stepfunctions stop-execution --execution-arn "$execution" --cause "Stopped before prod by make pipeline-stop" >/dev/null
+            done
+          fi
+          echo "Stopped run $id, at $commit, in its window before prod. Staging keeps it; prod doesn't get it."
+          ;;
         queued) echo "Stopped run $id, at $commit, waiting for the $stage stage." ;;
         bake)
           # A stop keeps what the surface has, so say how to go back, read with prod's own profile.
@@ -507,8 +548,9 @@ case "$command" in
     (cd "$root/infrastructure" && npx cdk deploy --app "$(built)/infrastructure/cdk.out/staging" Multiscale-staging --require-approval never)
     ;;
   mac)
-    # For each environment whose feed needs a newer Mac app than this build's, the Mac app GitHub Actions built from
-    # this commit: waited for in the inbox, checked, and handed to the releases (frontend/scripts/mac-inbox.ts).
+    # For each environment whose feed needs a newer Mac app than this build's, or whose downloads host serves none the
+    # pipeline checked, the Mac app GitHub Actions built from this commit: waited for in the inbox, checked, and handed to
+    # the releases (frontend/scripts/mac-inbox.ts).
     fetch_config
     profiles
     frontend_deps
@@ -517,19 +559,27 @@ case "$command" in
     mkdir -p "$checked"
     for env_name in "${environments[@]}"; do
       outputs "$env_name"
-      if ! differs "$(live_shell "$env_name" desktop)" "$(shell_of <"$(built)/web/$env_name/version.json")" electron; then
+      if differs "$(live_shell "$env_name" desktop)" "$(shell_of <"$(built)/web/$env_name/version.json")" electron; then
+        echo "$env_name's desktop feed needs a newer Mac app than this build's."
+      elif ! checked_mac_live "$env_name"; then
+        echo "$env_name's downloads host serves no Mac app the pipeline checked, so it gets this build's."
+      else
         echo "$env_name's desktop feed can take this build as its Mac app is, so it needs no new one."
         echo "$env_name: no new Mac app needed" >>"$checked/checked.txt"
         continue
       fi
       key="inbox/${COMMIT:?}/$env_name"
-      echo "$env_name needs a new Mac app. Waiting up to $((MAC_WAIT_SECONDS / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
-      deadline=$((SECONDS + MAC_WAIT_SECONDS))
+      # shortcut: a new AWS account caps every CodeBuild build at 45 minutes whatever the project says, so the wait stops
+      # at 40 and says how to go on; drop CODEBUILD_LIMIT_SECONDS's default once AWS Support has lifted the cap.
+      wait=$((MAC_WAIT_SECONDS < ${CODEBUILD_LIMIT_SECONDS:-2400} ? MAC_WAIT_SECONDS : ${CODEBUILD_LIMIT_SECONDS:-2400}))
+      echo "Waiting up to $((wait / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
+      deadline=$((SECONDS + wait))
       until aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "$key/manifest.json" >/dev/null 2>&1; do
         if [ "$SECONDS" -ge "$deadline" ]; then
           echo "No Mac app for $env_name at $COMMIT reached the inbox in time, so this run stops before publishing anything." >&2
           echo "Approve the Mac release workflow's run for this commit, or start one: gh workflow run mac-release.yml -f commit=$COMMIT" >&2
-          echo "Then run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
+          echo "Once it has finished, retry this stage: aws codepipeline retry-stage-execution --pipeline-name $pipeline --stage-name Staging --pipeline-execution-id ${EXECUTION_ID:-<this run>} --retry-mode FAILED_ACTIONS" >&2
+          echo "Or run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
           exit 1
         fi
         sleep 30
@@ -565,8 +615,9 @@ case "$command" in
     outputs prod
     frontend_deps
     browsers
-    # The released apps against the promoted backend, before anything new is signed or published.
-    ENV=prod CONFIRM_PROD=yes SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    # The released apps against the promoted backend, before anything new is signed or published. The web app is still
+    # the release before this one, so checks of this release's own screens wait for release-web.
+    ENV=prod CONFIRM_PROD=yes SKIP_IOS=1 DEPLOYED_BEFORE_PUBLISH=1 "$root/scripts/test-deployed.sh"
     ;;
   upload-prod)
     fetch_config

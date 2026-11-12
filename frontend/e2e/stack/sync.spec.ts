@@ -19,7 +19,9 @@ test('two devices sign in, sync, merge edits made offline, and sync deletes', as
   const oil = `Oil the hinges ${run}`;
   const brushes = `Buy brushes ${run}`;
   const boards = `Sand the boards ${run}`;
-  const ids = [`e2e-${run}-paint`, `e2e-${run}-oil`];
+  const stamps = `Buy stamps ${run}`;
+  const bank = `Call the bank ${run}`;
+  const ids = [`e2e-${run}-paint`, `e2e-${run}-oil`, `e2e-${run}-stamps`, `e2e-${run}-bank`];
 
   // Work made before signing in goes up with the first sync.
   const a = await device(browser, `e2e-${run}`);
@@ -80,6 +82,22 @@ test('two devices sign in, sync, merge edits made offline, and sync deletes', as
     await expect(pane(d.page, 'Inbox').getByText(brushes)).toHaveCount(0);
     await expect(pane(d.page, 'Inbox').getByText(boards)).toHaveCount(0);
   }
+
+  // Select mode's batch, one transaction, reaches the other device whole.
+  await seed(a.page, [
+    { type: 'task', id: ids[2]!, fields: { kind: 'inbox', title: stamps } },
+    { type: 'task', id: ids[3]!, fields: { kind: 'inbox', title: bank } },
+  ]);
+  await go(a.page, 'Inbox');
+  const inbox = pane(a.page, 'Inbox');
+  await inbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await inbox.getByRole('checkbox', { name: stamps }).check();
+  await inbox.getByRole('checkbox', { name: bank }).check();
+  await inbox.getByRole('button', { name: 'Make one offs' }).click();
+  await expect(a.page.getByText('Made 2 one offs.')).toBeVisible();
+  for (const d of [a, b]) await syncNow(d.page);
+  await go(b.page, 'One offs');
+  for (const title of [stamps, bank]) await expect(pane(b.page, 'One offs').getByRole('checkbox', { name: `${title} done` })).toBeVisible();
 
   // Signing out keeps this device's data and offers sign-in again.
   await go(b.page, 'Settings');

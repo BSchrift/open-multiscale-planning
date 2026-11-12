@@ -39,3 +39,7 @@ pipeline:
   #   waitFor: PT2H
   #   # existing if the account already has GitHub's OIDC provider, token.actions.githubusercontent.com.
   #   githubOidcProvider: create
+  #   # The subject of GitHub's tokens for the release environment, if GitHub gives this repository immutable subjects:
+  #   # gh api repos/<owner>/<repo>/actions/oidc/customization/sub shows its sub_claim_prefix, and this is that prefix
+  #   # followed by :environment:release. Left out, repo:<repository>:environment:release.
+  #   githubSubject: repo:your-github-user@12345/open-multiscale-planning@67890:environment:release

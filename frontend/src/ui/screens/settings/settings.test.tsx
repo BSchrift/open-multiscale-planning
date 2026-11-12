@@ -12,6 +12,7 @@ import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
 import { parsePeriod } from '../../../../../config/retention';
+import { noFiles } from '../../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -26,6 +27,7 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    files: noFiles(),
   } satisfies AppSync;
 }
 
@@ -75,6 +77,23 @@ describe('Settings', () => {
       expect(link).toHaveAttribute('href', 'https://github.com/BSchrift/open-multiscale-planning');
       expect(link).toHaveAttribute('target', '_blank');
     });
+  });
+
+  it("offers single-key shortcuts in Process on desktop, off until switched on, and keeps the choice on this device's storage", async () => {
+    await renderScreen('settings');
+    const keys = await screen.findByRole('checkbox', { name: 'Single-key shortcuts in Process' });
+    expect(keys).not.toBeChecked();
+    await userEvent.click(keys);
+    expect(keys).toBeChecked();
+    expect(localStorage.getItem('multiscale.processKeys')).toBe('true');
+    await userEvent.click(keys);
+    expect(localStorage.getItem('multiscale.processKeys')).toBe('false');
+  });
+
+  it("has no keyboard setting on phone, which has no keyboard", async () => {
+    await renderScreen('settings', { layout: 'phone' });
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    expect(screen.queryByRole('checkbox', { name: 'Single-key shortcuts in Process' })).toBeNull();
   });
 
   describe('account and sync', () => {
@@ -366,6 +385,18 @@ describe('Settings', () => {
       await userEvent.click(within(rem).getByRole('checkbox', { name: "Ask if I've started, unless I already tapped Start" }));
       await waitFor(() => expect(within(rem).queryByRole('slider', { name: 'After' })).toBeNull());
       expect((await stored(t)).reminders).toEqual({ block_start: false, check_in: false, check_in_delay_min: 15, block_end: false });
+    });
+
+    it("has a switch for the weekly reminder about next week's planning, on until switched off, kept when another changes", async () => {
+      const t = await renderScreen('settings');
+      const rem = await screen.findByRole('region', { name: 'Reminders' });
+      const weekly = within(rem).getByRole('checkbox', { name: "Remind me when next week's planning has no time" });
+      expect(weekly).toBeChecked();
+      await userEvent.click(weekly);
+      await waitFor(async () => expect((await stored(t)).reminders?.planning).toBe(false));
+      await userEvent.click(within(rem).getByRole('checkbox', { name: 'Ask at block end' }));
+      await waitFor(async () => expect((await stored(t)).reminders).toMatchObject({ block_end: false, planning: false }));
+      expect(within(rem).getByRole('checkbox', { name: "Remind me when next week's planning has no time" })).not.toBeChecked();
     });
   });
 

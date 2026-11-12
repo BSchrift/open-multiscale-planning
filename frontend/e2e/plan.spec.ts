@@ -34,6 +34,8 @@ async function openPlan(page: Page, phone: boolean, seeds: readonly Seed[] = [..
 }
 
 const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+const finish = (page: Page, phone: boolean) => (phone ? page.locator('.flowdock').getByRole('button', { name: 'Finish' }) : page.getByRole('button', { name: 'Finish', exact: true }));
+const main = (page: Page, phone: boolean, name: string) => (phone ? page.locator('.flowbot').getByRole('button', { name }) : page.getByRole('button', { name }));
 
 test('plans the next stretch: a milestone in by name and by dragging, then Finish', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
@@ -44,11 +46,11 @@ test('plans the next stretch: a milestone in by name and by dragging, then Finis
   await expect(page.getByRole('region', { name: 'Current plan, Oct 1 to Dec 31' })).toContainText('No milestones in this plan.');
 
   await page.getByRole('button', { name: 'Plan now' }).click();
-  await expect(page.getByRole('heading', { name: 'How is Oct 1 to Dec 31 going?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' })).toBeFocused();
   if (phone) await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
-  await steps.getByRole('button', { name: /Projects$/ }).click();
-  await expect(page.getByRole('heading', { name: 'What will you reach by Mar 31?' })).toBeVisible();
+  await steps.getByRole('button', { name: /Projects/ }).click();
+  await expect(page.getByRole('heading', { name: 'Step 3 of 5, Projects. What will you reach by Mar 31?' })).toBeFocused();
 
   // By name, with the pinned Undo.
   const add = page.getByRole('button', { name: 'Add milestone Share a loaf to this plan' });
@@ -79,10 +81,10 @@ test('plans the next stretch: a milestone in by name and by dragging, then Finis
   await expect(phone ? page.locator('.flowbot').getByRole('button', { name: 'Continue with 2 milestones' }) : page.getByRole('button', { name: 'Continue with 2 milestones' })).toBeVisible();
   await page.screenshot({ path: info.outputPath('projects.png') });
 
-  await steps.getByRole('button', { name: /Finish$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Ready for Jan 1 to Mar 31' })).toBeVisible();
+  await steps.getByRole('button', { name: /Finish/ }).click();
+  await expect(page.getByRole('heading', { name: /Ready for Jan 1 to Mar 31$/ })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toContainText('Added Share a loaf to this plan');
-  await (phone ? page.locator('.flowdock').getByRole('button', { name: 'Finish' }) : page.getByRole('button', { name: 'Finish', exact: true })).click();
+  await finish(page, phone).click();
   await expect(page.getByText('Your plan for Jan 1 to Mar 31 is set.')).toBeVisible();
   const nextPlan = page.getByRole('region', { name: 'Next plan, Jan 1 to Mar 31' });
   await expect(nextPlan).toContainText('Share a loaf');
@@ -99,7 +101,7 @@ test('never planned, plans this stretch from today, its end changed, then the ne
 
   await expect(page.getByText('This stretch: Nov 2 to Dec 31. Time to plan your first stretch.')).toBeVisible();
   await page.getByRole('button', { name: 'Plan your first stretch' }).click();
-  await expect(page.getByRole('heading', { name: 'How have the last few weeks gone?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Are these still your goals\?$/ })).toBeVisible();
   await expect(page.getByText('Your first stretch: Nov 2 to Dec 31')).toBeVisible();
   await page.getByRole('button', { name: 'Change' }).click();
   const dates = page.getByRole('form', { name: 'First stretch dates' });
@@ -108,19 +110,19 @@ test('never planned, plans this stretch from today, its end changed, then the ne
   await expect(page.getByText('Your first stretch: Nov 2 to Jan 31')).toBeVisible();
 
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
-  await steps.getByRole('button', { name: /Projects$/ }).click();
-  await expect(page.getByRole('heading', { name: 'What will you reach by Jan 31?' })).toBeVisible();
+  await steps.getByRole('button', { name: /Projects/ }).click();
+  await expect(page.getByRole('heading', { name: /What will you reach by Jan 31\?$/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Take milestone First loaf out of this plan' })).toHaveAttribute('aria-pressed', 'true');
-  await steps.getByRole('button', { name: /Finish$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Ready for Nov 2 to Jan 31' })).toBeVisible();
-  await (phone ? page.locator('.flowdock').getByRole('button', { name: 'Finish' }) : page.getByRole('button', { name: 'Finish', exact: true })).click();
+  await steps.getByRole('button', { name: /Finish/ }).click();
+  await expect(page.getByRole('heading', { name: /Ready for Nov 2 to Jan 31$/ })).toBeVisible();
+  await finish(page, phone).click();
   await expect(page.getByText('Your plan for Nov 2 to Jan 31 is set.')).toBeVisible();
   await expect(page.getByText('This stretch: Nov 2 to Jan 31. Next planning: Jan 24.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Current plan, Nov 2 to Jan 31' })).toContainText('First loaf');
   expect(errors).toEqual([]);
 });
 
-test('types a date for a milestone, changes cadence in place, and resumes planning', async ({ page }, info) => {
+test('types a date for a milestone, changes cadence in place, and resumes planning where it was, with Undo still there', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -138,8 +140,10 @@ test('types a date for a milestone, changes cadence in place, and resumes planni
   await expect(page.getByText('Your new cadence starts Jan 1.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Plan now' }).click();
-  await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Projects$/ }).click();
-  await expect(page.getByRole('heading', { name: 'What will you reach by Feb 11?' })).toBeVisible();
+  const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  await main(page, phone, 'Goals look right').click();
+  await steps.getByRole('button', { name: /Projects/ }).click();
+  await expect(page.getByRole('heading', { name: /What will you reach by Feb 11\?$/ })).toBeVisible();
   await page.getByRole('button', { name: 'Change the date of First loaf, Jan 20' }).click();
   const form = page.getByRole('form', { name: 'Date for First loaf' });
   await form.getByLabel('Date for First loaf').fill('2027-02-01');
@@ -149,7 +153,109 @@ test('types a date for a milestone, changes cadence in place, and resumes planni
 
   await page.getByRole('button', { name: 'Save and exit' }).click();
   await expect(page.getByRole('button', { name: 'Continue planning' })).toBeVisible();
+  // Kept on the device: after a reload too, planning comes back to the same step, with the same Undo.
+  await page.waitForTimeout(600);
+  await page.reload();
+  if (phone) {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: /^Plan/ }).click();
+  } else {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Plan' }).click();
+  }
   await page.getByRole('button', { name: 'Continue planning' }).click();
-  await expect(page.getByRole('heading', { name: 'What will you reach by Feb 11?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /What will you reach by Feb 11\?$/ })).toBeVisible();
+  await expect(page.locator('.welcome').getByText('Welcome back. Goals are done. You were on Projects.')).toBeVisible();
+  await expect(steps.getByRole('button', { name: /Goals, done$/ })).toBeVisible();
+  await steps.getByRole('button', { name: /Finish/ }).click();
+  const changed = page.getByRole('region', { name: 'What changed' });
+  await changed.getByRole('button', { name: 'Undo: First loaf, Feb 1.' }).click();
+  await expect(changed).toContainText('You kept everything as it was.');
+  await steps.getByRole('button', { name: /Projects/ }).click();
+  await expect(page.getByRole('button', { name: 'Change the date of First loaf, Jan 20' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('Goals asks for some when there are none, and the Inbox lists a big one whole, with Process over an inert flow', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const inbox: Seed[] = Array.from({ length: 214 }, (_, i) => ({ type: 'task', id: `i${i}`, fields: { kind: 'inbox', title: `Inbox item ${i + 1}` } }));
+  await openPlan(page, phone, [planned, ...inbox]);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  await expect(page.getByRole('heading', { name: 'Step 1 of 5, Goals. What are your goals?' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'New goal' })).toBeVisible();
+  const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  await expect(steps.getByRole('button', { name: /Inbox, 214 items$/ })).toBeVisible();
+  await main(page, phone, 'Continue without goals').click();
+  await steps.getByRole('button', { name: /Inbox/ }).click();
+  await expect(page.getByText('214 items. If one needs a new project, practice or goal, make it from its card.')).toBeVisible();
+  await expect(page.getByText('Inbox item 214', { exact: true })).toBeAttached();
+  await main(page, phone, 'Process 214 items').click();
+  const cards = page.getByRole('dialog', { name: 'Process Inbox' });
+  await expect(cards).toBeVisible();
+  // Behind Process the flow is inert, so a screen reader stays on the cards.
+  await expect(page.locator('.planflow')).toHaveAttribute('inert', '');
+  await cards.getByRole('button', { name: /^One offs/ }).click();
+  await expect(cards.getByText('Sent to One offs.')).toBeVisible();
+  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
+  await expect(page.getByText('1 sorted. 213 still in your Inbox.')).toBeFocused();
+  await expect(steps.getByRole('button', { name: /Inbox, 213 items$/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('an empty Inbox says so, and goes on to Finish', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await openPlan(page, phone);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  await steps.getByRole('button', { name: /Inbox/ }).click();
+  await expect(page.getByText('Your Inbox is empty. Anything you capture lands here.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Process/ })).toHaveCount(0);
+  await main(page, phone, 'Continue to Finish').click();
+  await expect(page.getByRole('heading', { name: /Ready for Jan 1 to Mar 31$/ })).toBeFocused();
+});
+
+test('Add makes a goal from any step, Esc gives focus back to it, and Undo takes it back', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await openPlan(page, phone);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  await steps.getByRole('button', { name: /Practices/ }).click();
+  const add = page.getByRole('button', phone ? { name: 'Add a goal, practice, project or Inbox task' } : { name: '+ Add', exact: true });
+  if (phone) await expectTapTarget(add);
+  await add.click();
+  const menu = page.getByRole('dialog', { name: 'Add' });
+  await expect(menu.getByRole('button').first()).toHaveText('Practice');
+  if (phone) await expectTapTarget(menu.getByRole('button', { name: 'Goal' }));
+  await page.keyboard.press('Escape');
+  await expect(add).toBeFocused();
+  await add.click();
+  await menu.getByRole('button', { name: 'Goal' }).click();
+  await page.getByRole('textbox', { name: 'New goal' }).fill('Keep fit');
+  await page.getByRole('form', { name: 'Add goal' }).getByRole('button', { name: 'Add goal' }).click();
+  await expect(add).toBeFocused();
+  await page.getByRole('button', { name: 'Undo: Added goal Keep fit.' }).click();
+  await steps.getByRole('button', { name: /Goals/ }).click();
+  await expect(page.getByRole('region', { name: 'Learn to bake bread' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Keep fit' })).toHaveCount(0);
+});
+
+test('Add opens over the pinned Does it fit line, so every kind can be picked where it is drawn', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await openPlan(page, phone);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
+  await page.getByRole('button', phone ? { name: 'Add a goal, practice, project or Inbox task' } : { name: '+ Add', exact: true }).click();
+  const kinds = page.getByRole('dialog', { name: 'Add' }).locator('.addmenu').getByRole('button');
+  await expect(kinds).toHaveText(['Goal', 'Task to Inbox', 'Project', 'Practice']);
+  // What's drawn at each button's centre is that button, not the pinned line over it, so a click there picks it.
+  for (const kind of await kinds.all()) {
+    const hit = await kind.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return el.contains(top) ? 'itself' : (top?.closest('[class]')?.className ?? 'nothing');
+    });
+    expect(hit, `what's drawn over ${await kind.textContent()}`).toBe('itself');
+  }
+});
+

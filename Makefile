@@ -78,7 +78,8 @@ release:
 # Uploads a prod build of this commit's iPhone app to TestFlight, signing in to Apple with the App Store Connect key in
 # the config folder. make release ENV=prod runs it last, unless SKIP_TESTFLIGHT=1, which instead warns when testers'
 # build is over 60 days old. EXPORT_ONLY=1 archives and exports it without uploading. It needs Xcode 26 or later; without
-# it, gh workflow run testflight.yml --ref main uploads from GitHub Actions (docs/setup.md, TestFlight).
+# it, gh workflow run testflight.yml --ref main uploads from GitHub Actions, which also uploads by itself for each push to
+# main that changes the iPhone app's native code (docs/setup.md, TestFlight).
 testflight:
 	@scripts/testflight.sh
 

@@ -513,6 +513,15 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.doesNotMatch(s.log(), /mac-inbox/);
   });
 
+  it("stops waiting before CodeBuild's own limit, however long the wait, and says how to retry the stage", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    const r = s.run(['mac'], { ...macStep(s, { inbox: false }), MAC_WAIT_SECONDS: '7200', CODEBUILD_LIMIT_SECONDS: '0', EXECUTION_ID: 'exec-1' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stdout, /Waiting up to 0 minutes/);
+    assert.match(r.stderr, /retry-stage-execution --pipeline-name Multiscale --stage-name Staging --pipeline-execution-id exec-1 --retry-mode FAILED_ACTIONS/);
+  });
+
   it('stops the run, handing on nothing, when a Mac app fails its checks', () => {
     const s = configured();
     s.put(FEEDS.shared, feedWith(shell));
@@ -585,6 +594,65 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(s.log(), /downloads/);
     assert.equal(s.get(FEEDS.shared), release);
+  });
+
+  // The TestFlight review workflow's record, in the inbox, of the newest TestFlight build testers can install, which
+  // Beta App Review approved for the Testers group, and its iPhone shell.
+  const testflight = (s: ReturnType<typeof sandbox>, record: object) => s.put('s3://inbox-bucket/inbox/testflight/latest.json', JSON.stringify(record));
+  const needsIphone = { electron: 'e1', ios: 'i2' };
+  const out = { build: 1794000000, commit: COMMIT, shell: 'i2' };
+
+  for (const [env, step] of [['staging', 'release-staging'], ['prod', 'release-prod']] as const) {
+    it(`switches ${env}'s iPhone and shared feeds to a build that needs a newer iPhone app once the newest TestFlight build testers can install has its native code`, () => {
+      const s = configured();
+      s.put(FEEDS.shared, feedWith(shell));
+      testflight(s, out);
+      const r = s.run([step], { ...artifacts(s, needsIphone, env), MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+      assert.equal(r.status, 0, r.stderr);
+      // As the pipeline's own role, which may only read the inbox.
+      assert.match(s.log(), /aws AWS_PROFILE= s3 cp s3:\/\/inbox-bucket\/inbox\/testflight\/latest\.json -\n/);
+      assert.match(r.stdout, new RegExp(`Testers can install TestFlight build 1794000000, which has this build's iPhone native code, so ${env}'s iPhone feed takes it`));
+      for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+      assert.match(s.log(), new RegExp(`test-deployed ENV=${env} EXPECT_VERSION=${VERSION} EXPECT_FEEDS=desktop iphone shared `));
+    });
+  }
+
+  for (const [why, record, inbox] of [
+    ['no TestFlight build has been recorded', () => {}, 'inbox-bucket'],
+    // As when an older build with it is still out but a newer one isn't: TestFlight updates testers to the newest.
+    ['the newest TestFlight build testers can install has other native code', (s: ReturnType<typeof sandbox>) => testflight(s, { ...out, shell: 'i3' }), 'inbox-bucket'],
+    ["the newest build's native code couldn't be told", (s: ReturnType<typeof sandbox>) => testflight(s, { ...out, commit: null, shell: null }), 'inbox-bucket'],
+    ['testers can install no build', (s: ReturnType<typeof sandbox>) => testflight(s, { build: null, commit: null, shell: null }), 'inbox-bucket'],
+    ['the record names no build', (s: ReturnType<typeof sandbox>) => testflight(s, { shell: 'i2' }), 'inbox-bucket'],
+    ['the run has no inbox to read', (s: ReturnType<typeof sandbox>) => testflight(s, out), ''],
+  ] as const) {
+    it(`keeps the iPhone and shared feeds as they are for a build that needs a newer iPhone app when ${why}`, () => {
+      const s = configured();
+      s.put(FEEDS.shared, feedWith(shell));
+      record(s);
+      const r = s.run(['release-staging'], { ...artifacts(s, needsIphone), MAC_INBOX_BUCKET: inbox });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /needs a newer iPhone app than staging's feeds serve, so those feeds and the shared one stay as they are/);
+      assert.match(r.stdout, /The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed/);
+      assert.doesNotMatch(r.stdout, /make release ENV=staging/);
+      assert.equal(s.get(FEEDS.desktop), release);
+      assert.equal(s.get(FEEDS.iphone), null);
+      assert.equal(s.get(FEEDS.shared), feedWith(shell));
+      assert.match(s.log(), /EXPECT_FEEDS=desktop SKIP_IOS/);
+    });
+  }
+
+  it('switches the iPhone feed but not the shared one when the build also needs a Mac app the run has no way to check', () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    testflight(s, out);
+    const r = s.run(['release-staging'], { ...artifacts(s, { electron: 'e2', ios: 'i2' }), MAC_INBOX_BUCKET: 'inbox-bucket' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /needs a newer Mac app than staging's feeds serve(.*\n)*.*make release ENV=staging/);
+    assert.equal(s.get(FEEDS.desktop), null);
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.equal(s.get(FEEDS.shared), feedWith(shell));
+    assert.match(s.log(), /EXPECT_FEEDS= iphone SKIP_IOS/);
   });
 
   // Prod as a run's surface stage leaves it: the surfaces named switched from 0.1.0-ccc to this run's version.

@@ -6,7 +6,7 @@
 import { join } from 'node:path';
 import { CfnCapabilities, CfnOutput, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
+import { type BuildEnvironmentVariable, BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
 import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import {
   CloudFormationCreateReplaceChangeSetAction, CloudFormationExecuteChangeSetAction, CodeBuildAction, CodeStarConnectionsSourceAction, StateMachineInput,
@@ -101,10 +101,24 @@ export class PipelineStack extends Stack {
     const signedProd = new Artifact('SignedProd');
     const environment = { buildImage: LinuxBuildImage.STANDARD_7_0, computeType: ComputeType.MEDIUM };
     const install = ['scripts/pipeline.sh install'];
+
+    // What GitHub Actions hands the pipeline, and all GitHub may do in AWS: Mac apps it built, signed and notarized, which
+    // the MacApp step checks (below), and the TestFlight review's record of the newest iPhone app testers can install,
+    // which the releases read. Created with the Mac release.
+    const inbox = mac ? new Bucket(this, 'MacInbox', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      // Each build is checked within hours of its upload. Prod's run reads it up to 6 days later, at most. The TestFlight
+      // review writes its record again every hour.
+      lifecycleRules: [{ expiration: Duration.days(30) }],
+    }) : undefined;
+
     // Each step's work is scripts/pipeline.sh $STEP, so the steps are read and reviewed in one file.
-    const project = (projectId: string, artifacts?: object) => new PipelineProject(this, projectId, {
+    const project = (projectId: string, artifacts?: object, environmentVariables?: Record<string, BuildEnvironmentVariable>) => new PipelineProject(this, projectId, {
       role,
       environment,
+      environmentVariables,
       timeout: Duration.hours(2),
       logging: { cloudWatch: { logGroup } },
       buildSpec: BuildSpec.fromObject({
@@ -118,7 +132,9 @@ export class PipelineStack extends Stack {
     // environment's web build and the script that signs it.
     // mac/ holds each environment's main process, to check a Mac app GitHub Actions built against.
     const builder = project('Build', { files: ['infrastructure/cdk.out/**/*', 'web/**/*', 'mac/**/*'] });
-    const releaser = project('Release');
+    // The releases switch the iPhone feed to a build with new native code once the TestFlight review's record in the
+    // inbox says testers can install an iPhone app with it (scripts/pipeline.sh, publish).
+    const releaser = project('Release', undefined, inbox && { MAC_INBOX_BUCKET: { value: inbox.bucketName } });
 
     // Signing. Only this step reads a release key: its own project and role, which may read the keys and nothing else
     // but its artifacts. It installs nothing and runs nothing from the repo but the signing script, taken with the web
@@ -238,18 +254,11 @@ export class PipelineStack extends Stack {
     });
 
     // Mac apps from GitHub Actions. For a commit that needs a new Mac app, the workflow builds, signs and notarizes it,
-    // and uploads it to this inbox: all GitHub may do in AWS. The MacApp step checks it on Linux (scripts/pipeline.sh
-    // mac) and hands what passed to the releases, which publish the disk image before the feed.
+    // and uploads it to the inbox. The MacApp step checks it on Linux (scripts/pipeline.sh mac) and hands what passed to
+    // the releases, which publish the disk image before the feed.
     const macApps: Artifact[] = [];
     let macProject: Project | undefined;
-    if (mac) {
-      const inbox = new Bucket(this, 'MacInbox', {
-        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-        encryption: BucketEncryption.S3_MANAGED,
-        enforceSSL: true,
-        // Each build is checked within hours of its upload. Prod's run reads it up to 6 days later, at most.
-        lifecycleRules: [{ expiration: Duration.days(30) }],
-      });
+    if (mac && inbox) {
       // An account has at most one provider for GitHub's tokens. control.yaml says when it has one already.
       const providerArn = mac.githubOidcProvider === 'existing'
         ? this.formatArn({ service: 'iam', region: '', resource: 'oidc-provider', resourceName: GITHUB_OIDC })
@@ -257,7 +266,7 @@ export class PipelineStack extends Stack {
       // Only a job in this repository's release environment, which needs the owner's approval and runs only from main.
       const inboxRole = new Role(this, 'MacInboxRole', {
         roleName: MAC_INBOX_ROLE_NAME,
-        description: "GitHub Actions' Mac release: uploads to the release pipeline's inbox, and nothing else",
+        description: "GitHub Actions' Mac release and TestFlight review: upload to the release pipeline's inbox, and nothing else",
         maxSessionDuration: Duration.hours(1),
         assumedBy: new WebIdentityPrincipal(providerArn, {
           StringEquals: { [`${GITHUB_OIDC}:aud`]: 'sts.amazonaws.com', [`${GITHUB_OIDC}:sub`]: mac.githubSubject ?? `repo:${repository}:environment:${MAC_RELEASE_ENVIRONMENT}` },

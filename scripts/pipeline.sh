@@ -115,6 +115,17 @@ checked_mac_live() {
   AWS_PROFILE="$profile" aws s3api head-object --bucket "$(release_bucket "$env_name")" --key mac/manifest.json >/dev/null 2>&1
 }
 
+# The newest TestFlight build testers can install, which Beta App Review approved for the Testers group, when it has a
+# build's iPhone native code, given the build's shell as shell_of prints it; otherwise nothing. Only the newest, since
+# TestFlight offers testers the newest build: an older one with this native code still out doesn't count. The
+# TestFlight review workflow records it in the inbox every hour (.github/workflows/testflight-review.yml). Read as the
+# pipeline's own role, which may read the inbox: the App Store Connect key stays in GitHub.
+testflight_build() {
+  [ -n "${MAC_INBOX_BUCKET:-}" ] || return 0
+  aws s3 cp "s3://$MAC_INBOX_BUCKET/inbox/testflight/latest.json" - 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const r = JSON.parse(s); const ios = JSON.parse(process.argv[1]).ios; if (typeof ios === "string" && r.shell === ios && Number.isInteger(r.build) && r.build > 0) console.log(r.build); } catch {} });' "$1" || true
+}
+
 # One of an environment's stack outputs, from <env>.outputs.json in the config folder.
 output() { node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[process.argv[2]] ?? "")' "$MULTISCALE_CONFIG_DIR/$1.outputs.json" "$2"; }
 release_bucket() { output "$1" ReleaseBucket; }
@@ -274,11 +285,13 @@ round_trip() {
 # every surface that can take it, and sets version and feeds to the version and the feeds it switched. The web app
 # always switches. Each feed compares only its own app's native code with what it serves now: the desktop feed switches
 # when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, the iPhone feed when the
-# iPhone app's is unchanged (an iPhone app is still released from the Mac), and the shared feed only when both do, so
-# no installed app is told it needs an app that isn't out. A Mac app the MacApp step checked is published whenever it
-# hands one on, as when the downloads host served none it checked, with the record that it's a checked one.
+# iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, and the shared feed only
+# when both do, so no installed app is told it needs an app that isn't out. A run doesn't wait for Beta App Review,
+# which can take a day: the first run after it passes the build switches the iPhone feed. A Mac app the MacApp step
+# checked is published whenever it hands one on, as when the downloads host served none it checked, with the record
+# that it's a checked one.
 publish() {
-  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" waiting="" feed
+  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" waiting="" feed testflight=""
   web="$(built)/web/$env_name"
   read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
   [ -n "$(release_bucket "$env_name")" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
@@ -297,7 +310,12 @@ publish() {
     echo "Run the Mac release workflow for this commit (docs/releasing.md), then run the pipeline again." >&2
     exit 1
   fi
-  if differs "$(live_shell "$env_name" iphone)" "$build" ios; then waiting="${waiting:+$waiting and }iPhone"; else feeds="$feeds iphone"; fi
+  if ! differs "$(live_shell "$env_name" iphone)" "$build" ios; then
+    feeds="$feeds iphone"
+  else
+    testflight="$(testflight_build "$build")"
+    if [ -n "$testflight" ]; then feeds="$feeds iphone"; else waiting="${waiting:+$waiting and }iPhone"; fi
+  fi
   [ -n "$waiting" ] || feeds="$feeds shared"
   (
     export AWS_PROFILE="$profile"
@@ -312,9 +330,13 @@ publish() {
     fi
     for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
   )
+  if [ -n "$testflight" ]; then
+    echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
+  fi
   if [ -n "$waiting" ]; then
     echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds and the shared one stay as they are."
-    echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name."
+    case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
+    case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
 }
 
@@ -488,13 +510,17 @@ case "$command" in
         continue
       fi
       key="inbox/${COMMIT:?}/$env_name"
-      echo "Waiting up to $((MAC_WAIT_SECONDS / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
-      deadline=$((SECONDS + MAC_WAIT_SECONDS))
+      # shortcut: a new AWS account caps every CodeBuild build at 45 minutes whatever the project says, so the wait stops
+      # at 40 and says how to go on; drop CODEBUILD_LIMIT_SECONDS's default once AWS Support has lifted the cap.
+      wait=$((MAC_WAIT_SECONDS < ${CODEBUILD_LIMIT_SECONDS:-2400} ? MAC_WAIT_SECONDS : ${CODEBUILD_LIMIT_SECONDS:-2400}))
+      echo "Waiting up to $((wait / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
+      deadline=$((SECONDS + wait))
       until aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "$key/manifest.json" >/dev/null 2>&1; do
         if [ "$SECONDS" -ge "$deadline" ]; then
           echo "No Mac app for $env_name at $COMMIT reached the inbox in time, so this run stops before publishing anything." >&2
           echo "Approve the Mac release workflow's run for this commit, or start one: gh workflow run mac-release.yml -f commit=$COMMIT" >&2
-          echo "Then run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
+          echo "Once it has finished, retry this stage: aws codepipeline retry-stage-execution --pipeline-name $pipeline --stage-name Staging --pipeline-execution-id ${EXECUTION_ID:-<this run>} --retry-mode FAILED_ACTIONS" >&2
+          echo "Or run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
           exit 1
         fi
         sleep 30

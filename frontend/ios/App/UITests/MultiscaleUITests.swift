@@ -1,10 +1,12 @@
 import CryptoKit
 import XCTest
 
-private let patience: TimeInterval = 30
-/// For the first page after a launch, when the web view starts WebKit's processes. CI's Simulator now and then holds
-/// every process it starts for 25 to 32 s (its logs show them all waiting, then starting together), on top of the page's
-/// own second or two.
+/// CI's Simulator now and then holds every process it starts for up to 40 s: its logs show each one waiting between
+/// xpcproxy_sim and exec, then all starting together. Anything that needs a process started meanwhile, such as the
+/// keychain or a web view's network process, waits that out, so a wait allows longer than the longest hold seen.
+private let patience: TimeInterval = 60
+/// For the first page after a launch, when the web view starts WebKit's processes, which that hold can delay on top of
+/// the page's own second or two.
 private let launchPatience: TimeInterval = 60
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
@@ -31,6 +33,14 @@ private extension XCUIApplication {
         MultiscaleUITests.exists(button, file: file, line: line)
         button.tap()
     }
+    /// Taps, then waits for what the tap brings. On CI's iOS 26 Simulator a tap on the page is now and then lost, most
+    /// often the first after a launch, so a button still there a few seconds on is tapped again, as a person would.
+    func tapWeb(_ label: String, until effect: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        tapWeb(label, file: file, line: line)
+        let button = webButton(label)
+        if !effect.waitForExistence(timeout: 5), button.exists, button.isHittable { button.tap() }
+        MultiscaleUITests.exists(effect, file: file, line: line)
+    }
 }
 
 private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
@@ -46,8 +56,7 @@ private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIAppl
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launch()
     exists(checks.webText("ready"), timeout: launchPatience)
-    checks.tapWeb("Erase")
-    exists(checks.webText("erased"))
+    checks.tapWeb("Erase", until: checks.webText("erased"))
     if let seed {
         let at = seedTime(now: Date(), reach: reach)
         if at > Date() {
@@ -99,8 +108,7 @@ final class SeedTimeTests: XCTestCase {
  */
 private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
-    app.tapWeb("Week", file: file, line: line)
-    exists(app.webButton("Previous week"), file: file, line: line)
+    app.tapWeb("Week", until: app.webButton("Previous week"), file: file, line: line)
     app.tapWeb("Today", file: file, line: line)
     exists(element, file: file, line: line)
 }
@@ -124,8 +132,7 @@ final class ShellUITests: XCTestCase {
     func testFirstRunSetupThenItRemembersAfterARestart() {
         let app = launchApp()
         exists(app.webText("Welcome"))
-        app.tapWeb("Skip")
-        exists(app.webText("Unavailable hours"))
+        app.tapWeb("Skip", until: app.webText("Unavailable hours"))
         app.tapWeb("Next")
         let first = app.page.textFields["A goal or a thought"]
         exists(first)
@@ -147,11 +154,8 @@ final class ShellUITests: XCTestCase {
     func testCaptureFromThePlusButtonThenProcessToAMilestoneAndAOneOff() {
         let app = launchApp(seed: "Seed plan")
         for title in ["Buy a proofing basket", "Return the library books"] {
-            app.tapWeb("Capture a task")
             let field = app.page.textFields["Capture to Inbox"]
-            // On CI's iOS 26 Simulator the first tap after launch is sometimes lost; a person would tap again.
-            if !field.waitForExistence(timeout: 5) { app.tapWeb("Capture a task") }
-            exists(field)
+            app.tapWeb("Capture a task", until: field)
             field.tap()
             field.typeText(title + "\n")
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
@@ -183,9 +187,7 @@ final class ShellUITests: XCTestCase {
 
     func testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBarWithTheKeyboardUp() {
         let app = launchApp(seed: "Seed to schedule")
-        app.tapWeb("Goals")
-        // On CI's iOS 26 Simulator the first tap after launch is sometimes lost; a person would tap again.
-        if !app.webButton(startingWith: "Learn to bake bread").waitForExistence(timeout: 5) { app.tapWeb("Goals") }
+        app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
         app.tapWeb(startingWith: "Edit task Mix the dough")
@@ -278,9 +280,8 @@ final class ShellUITests: XCTestCase {
 
         // The block that ended half an hour ago asks first. Partly opens the slider at the time left.
         exists(app.webText("Feed the starter"))
-        app.tapWeb("Partly")
         let left = app.page.sliders["Time left"]
-        exists(left)
+        app.tapWeb("Partly", until: left)
         XCTAssertEqual(left.value as? String, "1h")
         // XCUITest can't set a web slider's value, so the thumb is dragged: 1h is step 4 of 19, toward step 3.
         let thumb = left.coordinate(withNormalizedOffset: CGVector(dx: 4.0 / 19, dy: 0.5))
@@ -349,10 +350,22 @@ final class NativeUITests: XCTestCase {
         exists(app.webText("ready"), timeout: launchPatience)
     }
 
-    private func run(_ button: String, expect result: String, timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
-        let before = app.webText(result).exists ? app.page.staticTexts.matching(identifier: result).count : 0
+    /// How many lines on the page read `text`, and the one after that many.
+    private func count(_ text: String) -> Int { app.webText(text).exists ? app.page.staticTexts.matching(identifier: text).count : 0 }
+    private func logged(_ text: String, after count: Int) -> XCUIElement { app.page.staticTexts.matching(identifier: text).element(boundBy: count) }
+
+    /// The page notes each tap it hears. CI's iOS 26 Simulator now and then loses a tap, most often the first after a
+    /// launch, so one the page didn't hear is tapped again, while one it did is never repeated.
+    private func tap(_ button: String) {
+        let heard = count("tapped:\(button)")
         app.webButton(button).tap()
-        let arrived = app.page.staticTexts.matching(identifier: result).element(boundBy: before).waitForExistence(timeout: timeout)
+        if !logged("tapped:\(button)", after: heard).waitForExistence(timeout: 5) { app.webButton(button).tap() }
+    }
+
+    private func run(_ button: String, expect result: String, timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
+        let before = count(result)
+        tap(button)
+        let arrived = logged(result, after: before).waitForExistence(timeout: timeout)
         let page = app.page.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n")
         XCTAssertTrue(arrived, "\(result) did not appear. The page says:\n\(page)", file: file, line: line)
     }
@@ -367,12 +380,15 @@ final class NativeUITests: XCTestCase {
     }
 
     func testNotificationPermissionThenCancelThenActionReachesTheApp() {
-        // The script gives each run a new Simulator, and only this test asks, so the dialog must show.
+        // The script gives each run a new Simulator, and only this test asks, so the dialog shows, unless this is a retry
+        // of a first attempt that already allowed it. Tapped once only: a second tap could land with the dialog up.
         app.webButton("Ask").tap()
         let allow = springboard.alerts.buttons["Allow"]
-        exists(allow)
-        allow.tap()
-        exists(app.webText("permission:true"))
+        let granted = app.webText("permission:true")
+        let answered = NSPredicate { _, _ in allow.exists || granted.exists }
+        _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: answered, object: nil)], timeout: patience)
+        if allow.exists { allow.tap() }
+        exists(granted)
 
         run("Remind", expect: "pending:check-block:end")
         run("Cancel", expect: "pending:0")
@@ -408,6 +424,7 @@ final class NativeUITests: XCTestCase {
 
     func testSignInLinkReturnsThroughTheURLSchemeAndClosesTheBrowser() {
         let browser = app.webButton("Browser")
+        // Tapped once only: the sheet hides the page from the tree, so tap(_:) couldn't see that it heard.
         browser.tap()
         // Told by our own page being covered and uncovered, since the sheet's buttons are named differently across
         // iOS versions (Done, then Close).
@@ -474,15 +491,24 @@ final class NativeUITests: XCTestCase {
         try XCTSkipUnless(extensionsEnabled, "extensions are off")
         XCUIDevice.shared.press(.home)
         openControlCenter()
-        addCaptureControl()
+        let capture = springboard.buttons["Capture"].firstMatch
+        // A retry finds the control its first attempt added.
+        if !capture.waitForExistence(timeout: 3) { addCaptureControl() }
         // Opened again, as a person would use it: tapped a moment after Control Center left editing, the control now and
         // then didn't open the app.
         XCUIDevice.shared.press(.home)
         openControlCenter()
-        let capture = springboard.buttons["Capture"].firstMatch
         exists(capture, in: springboard)
-        capture.tap()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        // iOS gives the control's extension 15 s to start, and a control whose extension missed that does nothing when
+        // tapped until iOS has started it. CI's Simulator now and then holds every process it starts for up to 40 s, so
+        // there the first taps can do nothing: the logs say "begin request watchdogged after 15.000000s", and the
+        // extension starts after the tap. So it's tapped until the app comes up, as a person would.
+        var taps = 0
+        repeat {
+            capture.tap()
+            taps += 1
+        } while !app.wait(for: .runningForeground, timeout: 15) && taps < 4 && capture.exists && capture.isHittable
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience), "the control didn't open the app. On screen:\n\(springboard.debugDescription)")
         exists(app.webText("capture"))
     }
 

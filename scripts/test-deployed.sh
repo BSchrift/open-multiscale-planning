@@ -14,6 +14,7 @@
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve, and
 #   EXPECT_FEEDS the feeds that must serve it too: desktop, iphone and shared, as a release switched them.
+#   FEEDS_ONLY=1 checks the feeds alone, after a release that switched only feeds.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
 #   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
@@ -65,6 +66,11 @@ run() {
     failed+=("$name")
   fi
 }
+if [ "${FEEDS_ONLY:-}" = 1 ]; then
+  run "feeds" npx playwright test -c e2e/deployed/playwright.config.ts feed.spec.ts --project=desktop
+  [ ${#failed[@]} -eq 0 ] || exit 1
+  exit 0
+fi
 run "web app" npx playwright test -c e2e/deployed/playwright.config.ts
 # Off local, e2e.sh runs only the signed-in specs, against this deployment.
 if [ "$env_name" = prod ]; then

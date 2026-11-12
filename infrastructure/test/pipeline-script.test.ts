@@ -27,7 +27,7 @@ function sandbox() {
 case "$*" in
   *get-parameter*) name="$(echo "$*" | sed -E 's/.*--name ([^ ]+).*/\\1/' | tr / _)"; [ -f "$PARAMS/$name" ] && cat "$PARAMS/$name" || exit 254;;
   *start-pipeline-execution*) echo exec-1;;
-  *get-pipeline-state*) [ -f "$PARAMS/promote" ] && cat "$PARAMS/promote" || printf 'None\tNone\n';;
+  *get-pipeline-state*) cat "$PARAMS/state.json" 2>/dev/null || echo '{"stageStates":[]}';;
   *get-pipeline-execution*) echo abc1234;;
   *"sts get-caller-identity"*) echo "\${ACCOUNT:-210987654321}";;
   *list-state-machines*) echo arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc;;
@@ -58,7 +58,7 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION FEEDS_ONLY=$FEEDS_ONLY DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
@@ -114,31 +114,56 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     const s = sandbox();
     const r = s.run(['run']);
     assert.equal(r.status, 0, r.stderr);
-    assert.match(s.log(), /codepipeline start-pipeline-execution --name Multiscale --variables name=RUN,value=hand name=CANARY,value=on name=ALARMS,value=on --query/);
+    assert.match(s.log(), /codepipeline start-pipeline-execution --name Multiscale --variables name=RUN,value=hand name=CANARY,value=on name=ALARMS,value=on name=BAKES,value=on --query/);
     const skip = sandbox();
     assert.equal(skip.run(['run'], { COMMIT: 'abc123', CANARY: 'skip', ENV: 'prod' }).status, 0);
-    assert.match(skip.log(), /name=CANARY,value=skip name=ALARMS,value=on --source-revisions actionName=GitHub,revisionType=COMMIT_ID,revisionValue=abc123/);
+    assert.match(skip.log(), /name=CANARY,value=skip name=ALARMS,value=on name=BAKES,value=on --source-revisions actionName=GitHub,revisionType=COMMIT_ID,revisionValue=abc123/);
   });
 
-  it('stops the run waiting in its window before prod, and says which commit', () => {
+  // The pipeline as get-pipeline-state shows it: a run in each stage named, and what its actions are doing.
+  const stateWith = (stages: { name: string; run?: string; status?: string; acting?: string; inbound?: string }[]) => JSON.stringify({
+    stageStates: stages.map(({ name, run, status = 'InProgress', acting, inbound }) => ({
+      stageName: name,
+      ...(inbound ? { inboundExecution: { pipelineExecutionId: inbound, status: 'InProgress' } } : {}),
+      ...(run ? { latestExecution: { pipelineExecutionId: run, status } } : {}),
+      actionStates: acting ? [{ actionName: acting, latestExecution: { status: 'InProgress' } }] : [],
+    })),
+  });
+
+  it('stops every run that is waiting, in the window, a bake or for a stage, says which commit, and leaves one at work', () => {
     const s = sandbox();
-    writeFileSync(join(s.params, 'promote'), 'exec-7\tInProgress\n');
+    writeFileSync(join(s.config, 'prod.outputs.json'), JSON.stringify({ ReleaseBucket: 'bucket' }));
+    kept(s);
+    writeFileSync(join(s.params, 'state.json'), stateWith([
+      { name: 'Promote', run: 'exec-7', acting: 'Wait' },
+      { name: 'Prod', run: 'exec-8', acting: 'Deploy' },
+      { name: 'Web', run: 'exec-6', acting: 'Bake' },
+      { name: 'Desktop', run: 'exec-4', status: 'Succeeded', inbound: 'exec-5' },
+    ]));
     const r = s.run(['stop']);
     assert.equal(r.status, 0, r.stderr);
-    assert.match(s.log(), /aws AWS_PROFILE=ms-control codepipeline stop-pipeline-execution --pipeline-name Multiscale --pipeline-execution-id exec-7 --abandon/);
-    assert.match(r.stdout, /Stopped run exec-7, at abc1234, before prod/);
-    // And its window, so the email's Promote now link no longer promotes anything.
+    for (const id of ['exec-7', 'exec-6', 'exec-5']) {
+      assert.match(s.log(), new RegExp(`aws AWS_PROFILE=ms-control codepipeline stop-pipeline-execution --pipeline-name Multiscale --pipeline-execution-id ${id} --abandon`));
+    }
+    assert.doesNotMatch(s.log(), /--pipeline-execution-id exec-[48] --abandon/);
+    assert.match(r.stdout, /Stopped run exec-7, at abc1234, in its window before prod/);
+    assert.match(r.stdout, /Stopped run exec-5, at abc1234, waiting for the Desktop stage/);
+    assert.match(r.stdout, /Run exec-8, at abc1234, is at work in the Prod stage, so it goes on/);
+    // A stop keeps what a surface has, so it says how to go back, reading prod's bucket as prod's profile.
+    assert.match(r.stdout, /Stopped run exec-6, at abc1234, in the Web stage's bake\. prod's web keeps 0\.1\.0-ccc; to go back: make release-surface ENV=prod SURFACE=web VERSION=0\.1\.0-bbb/);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-prod s3 cp s3:\/\/bucket\/state\/history\.json -/);
+    // And the window's own wait, so the email's Promote now link no longer promotes anything.
     assert.match(s.log(), /stepfunctions list-executions --state-machine-arn arn:aws:states:us-west-2:111111111111:stateMachine:Promotion03C22B74-abc --status-filter RUNNING/);
     assert.match(s.log(), /stepfunctions stop-execution --execution-arn arn:aws:states:us-west-2:111111111111:execution:Promotion03C22B74-abc:run-1/);
   });
 
-  it('stops nothing when no run is waiting before prod', () => {
-    for (const promote of [null, 'exec-7\tSucceeded\n']) {
+  it('stops nothing when no run is waiting', () => {
+    for (const state of [null, stateWith([{ name: 'Promote', run: 'exec-7', status: 'Succeeded' }])]) {
       const s = sandbox();
-      if (promote) writeFileSync(join(s.params, 'promote'), promote);
+      if (state) writeFileSync(join(s.params, 'state.json'), state);
       const r = s.run(['stop']);
       assert.equal(r.status, 0, r.stderr);
-      assert.match(r.stdout, /No run is waiting to go to prod/);
+      assert.match(r.stdout, /No run is waiting/);
       assert.doesNotMatch(s.log(), /stop-pipeline-execution|stop-execution/);
     }
   });
@@ -151,8 +176,16 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     assert.match(r.stdout, /with the release alarms off/);
   });
 
-  it('refuses any other CANARY, ALARMS or ENV before calling AWS', () => {
-    for (const env of [{ CANARY: 'off' }, { ALARMS: 'no' }, { ENV: 'staging' }] as Record<string, string>[]) {
+  it("starts a run that doesn't wait out prod's bakes when asked", () => {
+    const s = sandbox();
+    const r = s.run(['run'], { BAKES: 'skip' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /name=ALARMS,value=on name=BAKES,value=skip/);
+    assert.match(r.stdout, /without waiting out the bakes/);
+  });
+
+  it('refuses any other CANARY, ALARMS, BAKES or ENV before calling AWS', () => {
+    for (const env of [{ CANARY: 'off' }, { ALARMS: 'no' }, { BAKES: 'off' }, { ENV: 'staging' }] as Record<string, string>[]) {
       const s = sandbox();
       assert.notEqual(s.run(['run'], env).status, 0);
       assert.doesNotMatch(s.log(), /^aws /m);
@@ -431,13 +464,72 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.doesNotMatch(next.log(), /alarms=off/);
   });
 
-  it("records what a prod release skipped beside its commit, for the release tag's note", () => {
+  it("records what a prod release skipped beside its commit once the iPhone has it, for the release tag's note", () => {
     const s = configured();
-    assert.equal(s.run(['release-prod'], { ...artifacts(s, shell, 'prod'), COMMIT: 'abc123', CANARY: 'skip', ALARMS: 'off' }).status, 0);
-    assert.match(s.log(), /put-parameter --name \/multiscale\/pipeline\/released --type String --overwrite --value abc123 Canary skipped\. Release alarms off\./);
+    assert.equal(s.run(['release-iphone'], { ...released(s, []), COMMIT: 'abc123', CANARY: 'skip', ALARMS: 'off', BAKES: 'skip' }).status, 0);
+    assert.match(s.log(), /put-parameter --name \/multiscale\/pipeline\/released --type String --overwrite --value abc123 Canary skipped\. Release alarms off\. Bakes skipped\./);
     const plain = configured();
-    assert.equal(plain.run(['release-prod'], { ...artifacts(plain, shell, 'prod'), COMMIT: 'abc123' }).status, 0);
+    assert.equal(plain.run(['release-iphone'], { ...released(plain, []), COMMIT: 'abc123' }).status, 0);
     assert.match(plain.log(), /--name \/multiscale\/pipeline\/released --type String --overwrite --value abc123\n/);
+  });
+
+  it("uploads prod's version in the Prod stage, and switches nothing", () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['upload-prod'], artifacts(s, shell, 'prod'));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get(`s3://bucket/versions/${VERSION}/release.json`), release);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-prod s3 cp \S+\/signed\/release\.json s3:\/\/bucket\/versions\/0\.1\.0-abc\/release\.json/);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-ccc');
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), feedOf('0.1.0-ccc', 3));
+  });
+
+  it('switches web alone in the Web stage, then runs its suites against that version', () => {
+    const s = configured();
+    const r = s.run(['release-web'], released(s, []));
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(served(s, 'web/version.json'), VERSION);
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), feedOf('0.1.0-ccc', 3));
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS= SKIP_IOS=1 .*FEEDS_ONLY= DEPLOYED_BEFORE_PUBLISH=\n/);
+  });
+
+  it('publishes a checked Mac app, then switches the desktop and shared feeds in the Desktop stage, and checks them', () => {
+    const s = configured();
+    const env = released(s, []);
+    writeFileSync(join(env.CODEBUILD_SRC_DIR_Built!, 'web/prod/version.json'), JSON.stringify({ version: VERSION, build: 5, shell: { electron: 'e2', ios: 'i1' } }));
+    mkdirSync(join(s.root, 'mac-apps/prod'), { recursive: true });
+    writeFileSync(join(s.root, 'mac-apps/prod/Multiscale.dmg'), 'disk image');
+    writeFileSync(join(s.root, 'mac-apps/prod/manifest.json'), '{}');
+    const r = s.run(['release-desktop'], { ...env, CODEBUILD_SRC_DIR_MacApps: join(s.root, 'mac-apps') });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /s3:\/\/bucket\/downloads\/Multiscale\.dmg(.*\n)*.*s3:\/\/bucket\/release\/desktop\/release\.json/);
+    // With the record that the downloads host serves a checked app.
+    assert.equal(s.get('s3://bucket/mac/manifest.json'), '{}');
+    assert.equal(s.get(FEEDS.desktop), release);
+    assert.equal(s.get(FEEDS.shared), release);
+    assert.equal(s.get(FEEDS.iphone), feedOf('0.1.0-ccc', 3));
+    assert.equal(served(s, 'web/version.json'), '0.1.0-ccc');
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop shared .*FEEDS_ONLY=1/);
+  });
+
+  it('switches the desktop feed and holds the shared one when the build needs a new iPhone app', () => {
+    const s = configured();
+    const env = released(s, []);
+    writeFileSync(join(env.CODEBUILD_SRC_DIR_Built!, 'web/prod/version.json'), JSON.stringify({ version: VERSION, build: 5, shell: { electron: 'e1', ios: 'i2' } }));
+    const r = s.run(['release-desktop'], env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get(FEEDS.desktop), release);
+    assert.equal(s.get(FEEDS.shared), feedOf('0.1.0-ccc', 3));
+    assert.match(r.stdout, /needs a newer iPhone app/);
+    assert.match(s.log(), /EXPECT_FEEDS=desktop SKIP_IOS/);
+  });
+
+  it('switches the iPhone feed in the iPhone stage and checks it', () => {
+    const s = configured();
+    const r = s.run(['release-iphone'], { ...released(s, ['web', 'desktop', 'shared']), COMMIT: 'abc123' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=iphone .*FEEDS_ONLY=1/);
   });
 
   // The Build output for both environments, as the MacApp step reads it, and GitHub Actions' upload in the inbox.
@@ -602,20 +694,37 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
   const needsIphone = { electron: 'e1', ios: 'i2' };
   const out = { build: 1794000000, commit: COMMIT, shell: 'i2' };
 
-  for (const [env, step] of [['staging', 'release-staging'], ['prod', 'release-prod']] as const) {
-    it(`switches ${env}'s iPhone and shared feeds to a build that needs a newer iPhone app once the newest TestFlight build testers can install has its native code`, () => {
-      const s = configured();
-      s.put(FEEDS.shared, feedWith(shell));
-      testflight(s, out);
-      const r = s.run([step], { ...artifacts(s, needsIphone, env), MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
-      assert.equal(r.status, 0, r.stderr);
-      // As the pipeline's own role, which may only read the inbox.
-      assert.match(s.log(), /aws AWS_PROFILE= s3 cp s3:\/\/inbox-bucket\/inbox\/testflight\/latest\.json -\n/);
-      assert.match(r.stdout, new RegExp(`Testers can install TestFlight build 1794000000, which has this build's iPhone native code, so ${env}'s iPhone feed takes it`));
-      for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
-      assert.match(s.log(), new RegExp(`test-deployed ENV=${env} EXPECT_VERSION=${VERSION} EXPECT_FEEDS=desktop iphone shared `));
-    });
-  }
+  it("switches staging's iPhone and shared feeds to a build that needs a newer iPhone app once the newest TestFlight build testers can install has its native code", () => {
+    const s = configured();
+    s.put(FEEDS.shared, feedWith(shell));
+    testflight(s, out);
+    const r = s.run(['release-staging'], { ...artifacts(s, needsIphone), MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+    assert.equal(r.status, 0, r.stderr);
+    // As the pipeline's own role, which may only read the inbox.
+    assert.match(s.log(), /aws AWS_PROFILE= s3 cp s3:\/\/inbox-bucket\/inbox\/testflight\/latest\.json -\n/);
+    assert.match(r.stdout, /Testers can install TestFlight build 1794000000, which has this build's iPhone native code, so staging's iPhone feed takes it/);
+    for (const feed of Object.values(FEEDS)) assert.equal(s.get(feed), release);
+    assert.match(s.log(), new RegExp(`test-deployed ENV=staging EXPECT_VERSION=${VERSION} EXPECT_FEEDS=desktop iphone shared `));
+  });
+
+  it("moves prod's shared feed in the Desktop stage, and its iPhone feed in the iPhone stage, once the newest TestFlight build testers can install has the build's iPhone native code", () => {
+    const s = configured();
+    const env = released(s, ['web']);
+    writeFileSync(join(env.CODEBUILD_SRC_DIR_Built!, 'web/prod/version.json'), JSON.stringify({ version: VERSION, build: 5, shell: needsIphone }));
+    testflight(s, out);
+    const desktop = s.run(['release-desktop'], { ...env, MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+    assert.equal(desktop.status, 0, desktop.stderr);
+    assert.equal(s.get(FEEDS.desktop), release);
+    assert.equal(s.get(FEEDS.shared), release);
+    assert.equal(s.get(FEEDS.iphone), feedOf('0.1.0-ccc', 3));
+    assert.doesNotMatch(desktop.stdout, /Testers can install/);
+    const iphone = s.run(['release-iphone'], { ...env, MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT });
+    assert.equal(iphone.status, 0, iphone.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE= s3 cp s3:\/\/inbox-bucket\/inbox\/testflight\/latest\.json -\n/);
+    assert.match(iphone.stdout, /Testers can install TestFlight build 1794000000, which has this build's iPhone native code, so prod's iPhone feed takes it/);
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=iphone .*FEEDS_ONLY=1/);
+  });
 
   for (const [why, record, inbox] of [
     ['no TestFlight build has been recorded', () => {}, 'inbox-bucket'],
@@ -700,6 +809,14 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
     assert.match(r.stdout, /prod's shared serves 0\.1\.0-ccc, not this run's 0\.1\.0-abc, so it stays as it is/);
     assert.doesNotMatch(s.log(), /s3:\/\/bucket\/release\/release\.json --/);
+  });
+
+  it('reads the surface it baked from SURFACE, as the Check action sets it', () => {
+    const s = configured();
+    writeFileSync(join(s.params, 'alarming'), 'Api5xxRate-1\n');
+    const r = s.run(['bake-check'], { ...released(s, ['web']), SURFACE: 'web' });
+    assert.notEqual(r.status, 0);
+    assert.equal(served(s, 'web/version.json'), '0.1.0-ccc');
   });
 
   it('only reports an alarm in ALARM when the run has the release alarms off', () => {

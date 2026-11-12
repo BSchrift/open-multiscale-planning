@@ -3,7 +3,8 @@
 Every change reaches prod the same way: green CI before it merges to main, then a pipeline that builds that main
 commit once, deploys it to staging and tests it there, emails that it passed, and after a window in which the owner
 can stop it, promotes the same build to prod. No one needs to approve it. Prod's backend then takes the new version by
-canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. A commit that changes the Mac app's native
+canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. Then prod's surfaces take it one at
+a time: the web app, a two-hour bake, the Mac, a two-hour bake, then the iPhone. A commit that changes the Mac app's native
 code gets a new Mac app from GitHub Actions, which the pipeline checks and publishes, once
 [set up](#mac-apps-from-github-actions). One that changes the iPhone app's gets a new TestFlight build from GitHub
 Actions, and the pipeline switches the iPhone feed once testers can install it
@@ -23,8 +24,11 @@ no long-lived key.
 | **TestFlight** | Nothing: GitHub Actions, on macOS to upload and on Linux every hour | For a main commit whose iPhone native code differs from TestFlight's latest build's, uploads the iPhone app to TestFlight for Beta App Review. Every hour, records in the pipeline's inbox the newest build testers can install | Nothing. Until testers can install a build with a release's iPhone native code, the iPhone and shared feeds wait |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
-| **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
-| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
+| **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window. The email names the stages after it, and whether the run skips the canary or the bakes or turns the alarms off |
+| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step and uploads the [version](#versions-and-feeds), which changes nothing anyone sees | A release alarm rolls the canary back, or a suite fails |
+| **Web** | Prod | Switches the web app to the version and runs the web app, feed, integration and smoke suites. Then [bakes](#bakes): a wait, two hours unless `control.yaml`'s `pipeline.bakeWeb` says otherwise, and a check that no release alarm is in ALARM | A suite fails, or a release alarm is in ALARM after the bake, which first switches web back |
+| **Desktop** | Prod | Publishes any new Mac app the Staging stage checked, switches the desktop feed and the shared one, checks the feeds, then bakes: `pipeline.bakeDesktop`, two hours unless it says otherwise | The feed check fails, or a release alarm is in ALARM after the bake, which first switches both feeds back |
+| **iPhone** | Prod | Switches the iPhone feed when it can take the build ([iPhone apps from TestFlight](#iphone-apps-from-testflight)), checks the feeds, and records the commit for `make release-tag`, since every surface has it now | The feed check fails |
 | **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
@@ -65,7 +69,38 @@ The shared feed takes the build only when both do. Until an app's own feed exist
 the shared one. Each release checks every feed it switched: the manifest checks out with the environment's release
 key, names the version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
 
-For now every surface switches in one step, staging's and prod's Release, and bundles still read the shared feed.
+Staging switches every surface in one step, with no bakes, and its suites test each one. Prod takes them one at a
+time, as the flow above shows. Bundles still read the shared feed.
+
+## Bakes
+
+Once prod's backend passes its canary and its tests, each surface takes the release in a stage of its own: the web app,
+then the Mac, then the iPhone. The web app and the Mac each bake before the next surface gets the release: a wait on
+Step Functions, which costs nothing, then a check (`scripts/pipeline.sh bake-check`) that no release alarm is in ALARM,
+as prod's release role reads them from the `ReleaseAlarms` output.
+
+- **When one is in ALARM,** the surface that baked switches back by itself to the version it served before this run
+  switched it: web's page, or the desktop feed and the shared one, each to its own version before. Then the run stops
+  before the next surface, and the failed run is emailed. A surface someone switched by hand since stays as it is. The
+  Mac's disk image isn't versioned, so a Mac app the run published stays on the downloads host.
+- **With `ALARMS=off`,** the check only reports, since that release went out with its alarms off.
+- **The durations** are `pipeline.bakeWeb` and `pipeline.bakeDesktop` in `control.yaml`, in the same format as
+  `pipeline.promoteAfter`: `PT2H` when left out, `PT0S` for none. A change takes effect with `make deploy ENV=pipeline`.
+- **What a bake sees** is only what the backend's release alarms see, and what the owner notices: nothing measures the
+  web app's or the Mac's errors yet. An alarm from a newer run's canary fails an older run's check too, which errs
+  toward stopping; `make promote COMMIT=<sha>` runs a commit again.
+
+**One run per stage.** The pipeline runs in SUPERSEDED mode, so each stage holds one run, and a bake watches exactly the
+version its stage switched to. A run that finishes a stage waits for the next one to be free. If a newer run reaches the
+same point, it takes the older one's place, and the older one ends as superseded. So each surface only moves forward,
+to the newest version that has baked, and the Mac and iPhone get the newest version that baked rather than every one.
+The backend can run ahead of the surfaces, which the rule that the backend serves every released app allows.
+
+**Timing.** After staging passes: the 2-hour window, the 90-minute canary and prod's tests, the web app, 2 hours, the
+Mac, 2 hours, then the iPhone: about 8 hours.
+
+**Recording the release.** The iPhone stage writes the commit for `make release-tag`, so a release tag names a commit
+every surface has.
 
 ## The backend canary
 
@@ -120,6 +155,15 @@ PR or the release notes.
 
 `make deploy ENV=prod CANARY=skip` does the same for a deploy from the Mac.
 
+## Skipping the bakes
+
+`make promote BAKES=skip` starts a run whose prod surfaces take the release one after another without waiting. Each
+check after a bake still runs, at once. It's for a revert that has to reach the Mac and the iPhone sooner than the
+bakes allow, about 4 hours.
+
+**An agent skips the bakes only with the owner's explicit go-ahead, for that release, each time.** Say why in the PR
+or the release notes. The email before prod shows it, and the release tag's note says "Bakes skipped."
+
 ## Shipping while a release alarm fires
 
 `make promote ALARMS=off` starts a run whose deploys turn the release alarms off, on staging and prod, so CodeDeploy
@@ -145,7 +189,9 @@ The release records it: the email before prod shows the run's canary and alarm s
   deployment** on the deployment in CodeDeploy, in prod's account. The pipeline's run then fails, and nothing after it
   is published.
 - **After promotion:** revert the bad commit on main and let it release. A fix that can't wait 90 minutes can skip
-  the canary.
+  the canary, and one that can't wait for the bakes can skip those.
+- **At the end of a bake:** a release alarm in ALARM switches the surface back by itself and stops the run
+  ([Bakes](#bakes)).
 - **The web app, or one app's feed:** switch it back to a version kept, as below.
 
 ### One surface at a time
@@ -174,6 +220,10 @@ is the owner's call, and the command says so.
 While bundles from before the per-app feeds are about, `SURFACE=shared` switches the shared feed they read, with both
 apps' native code checked.
 
+**Stopping, then rolling back.** A switch doesn't stop a run. If a run is baking a bad version of the web app, run
+`make pipeline-stop` first, so the run doesn't go on to the Mac, then `make release-surface`. The stop prints that
+command with the version the surface had before.
+
 Every night, staging's run switches the web app and each app's feed back one version and forward again with the same
 code, and reads each back from its host.
 
@@ -188,10 +238,10 @@ All of these run on the Mac, signed in with `control.yaml`'s profile:
 | --- | --- |
 | `make pipeline-pause` | Main commits stop at Build: each run they start stops itself. The switch is the SSM parameter `/multiscale/pipeline/paused` |
 | `make pipeline-resume` | Each main commit releases to staging again |
-| `make pipeline-stop` | Stops the run waiting in its window before prod, abandoning it and ending its window, so its Promote now link no longer works, and says which commit it stopped. Staging keeps that commit; prod never gets it |
-| `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip` and `ALARMS=off` are above |
+| `make pipeline-stop` | Stops every run that is waiting, abandoning it: in its window before prod, in a bake, or for a stage to be free. A run stopped in its window also has its window ended, so its Promote now link no longer works. It names each commit, and for a bake, how to switch that surface back. A run at work, deploying, publishing or testing, is named and left alone, since stopping it could leave a surface half switched |
+| `make promote` | Starts a run by hand, which the pause lets through. `COMMIT=<sha>` picks the commit (default: the branch's latest). `CANARY=skip`, `BAKES=skip` and `ALARMS=off` are above |
 | `make release-surface` | Lists what each surface serves and the versions kept, or switches one surface to a version kept: [One surface at a time](#one-surface-at-a-time) |
-| `make release-tag` | Tags the commit prod last released as `release-<date>`, noting a skipped canary or the alarms off, and pushes the tag |
+| `make release-tag` | Tags the commit the iPhone stage last released, which every surface has, as `release-<date>`, noting a skipped canary or bakes or the alarms off, and pushes the tag |
 | `make pipeline-config` | Uploads the config folder's files the pipeline reads: `control.yaml`, `staging.yaml`, `prod.yaml`, and each release key's public half. Each key itself goes where only the signing step reads it |
 | `make deploy ENV=pipeline` | Deploys the pipeline itself |
 
@@ -200,11 +250,12 @@ minutes) emails the commit and the time it goes to prod, then waits until that t
 email's link and choose **Promote now**: the run goes to prod at once. Opening the link alone changes nothing, since
 mail scanners open links, but anyone with it can promote that run, so don't forward the email. To keep it from prod,
 run `make pipeline-stop` before then: it also ends the window, so the link stops working. **Stop execution** on the run
-in CodePipeline keeps it from prod too, but leaves the link saying it promoted. **An agent stops a run only when the
-owner asks in chat.** The window is `pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of
-whole days, hours, minutes and seconds up to 6 days: `PT2H` when it's left out, `PT0S` to go at once. Prod's canary and
-its alarms still guard the release. Failed runs and failed nightly runs are emailed to the same address. The pause
-switch is unchanged: it holds back new runs, not one already past staging.
+in CodePipeline keeps it from prod too, but leaves the link saying it promoted. The same command stops a run in a bake,
+before the next surface. **An agent stops a run only when the owner asks in chat.** The window is
+`pipeline.promoteAfter` in `control.yaml`, an ISO 8601 duration of whole days, hours, minutes and seconds up to 6 days:
+`PT2H` when it's left out, `PT0S` to go at once. Prod's canary and its alarms still guard the release. Failed runs and
+failed nightly runs are emailed to the same address. The pause switch is unchanged: it holds back new runs, not one
+already past staging.
 
 **The signed apps.** Each build names the native code it needs, and the pipeline compares that with the feed's. When
 the Mac app's changed, the pipeline publishes the Mac app GitHub Actions built and checked, then the feed, so an
@@ -273,7 +324,7 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
    caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
    waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
-3. **The releases publish it.** Staging's and prod's releases upload the checked disk image to
+3. **The releases publish it.** Staging's release, and prod's Desktop stage, upload the checked disk image to
    `downloads.<zone>/Multiscale.dmg`, then its manifest to `mac/manifest.json` in the release bucket, which nothing
    serves, as the record that the app is a checked one, then the feed, as `make release` does. An environment whose
    feed can take the build as its Mac app is, and which serves a checked one, gets no new Mac app, and nothing changes.
@@ -449,9 +500,10 @@ build is a prod build, numbered by its commit's time, and its native code is nam
    its commit's native code the same way, and writes `inbox/testflight/latest.json` to the pipeline's inbox: the build,
    its commit and its shell hash, or nulls when testers have no build or no main commit has its number, as for one
    uploaded from a branch. It writes it every hour, so the record is never more than an hour old.
-3. **The releases switch the iPhone feed.** Staging's and prod's releases read that record. When a build needs other
-   iPhone native code than the iPhone feed serves, the feed takes it only if the record names that native code, and the
-   shared feed then follows if the desktop feed can take it too. Otherwise both stay as they are, and the release says
+3. **The releases switch the iPhone feed.** Staging's release, and prod's Desktop and iPhone stages, read that record.
+   When a build needs other iPhone native code than the iPhone feed serves, the feed takes it only if the record names
+   that native code, and the shared feed then follows if the desktop feed can take it too: on prod, the shared feed in
+   the Desktop stage and the iPhone feed in the iPhone stage. Otherwise both stay as they are, and the release says
    so. Only the newest build counts: an older one with this native code may still be out, but testers are offered the
    newest.
 
@@ -535,6 +587,7 @@ install the new app on every device.
 | Ten or so more CloudWatch alarms | About $1 |
 | The release canary, about 8,600 short Lambda runs | Under $0.10 |
 | The window before prod, a three-state Step Functions run each release, and its link's Lambda | Under $0.01 |
+| The two bakes, a one-state Step Functions run each, and two short checks | Under $0.10 |
 | The nightly suites, about 90 small build minutes on each day main moved, half of it the retention suite | About $0.45 a night |
 | The Mac app's check, a small build that waits for GitHub's build, only for a run that needs a new Mac app | Up to $0.60 a time, for a two-hour wait |
 | The Mac release's inbox, two disk images a time, kept 30 days | Under $0.05 |

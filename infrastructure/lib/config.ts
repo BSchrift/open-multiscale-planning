@@ -26,6 +26,10 @@ export interface PipelineConfig {
   email: string;
   /** How long after staging passes a run goes to prod, as an ISO 8601 duration: PT2H unless set, PT0S for no wait. */
   promoteAfter?: string;
+  /** How long prod's web app bakes before the Mac gets the release, in the same format: PT2H unless set, PT0S for none. */
+  bakeWeb?: string;
+  /** How long the Mac's release bakes before the iPhone gets it, in the same format. */
+  bakeDesktop?: string;
   /** Mac apps that GitHub Actions builds for commits that need them, which the pipeline checks and publishes. */
   mac?: MacReleaseConfig;
 }
@@ -54,6 +58,8 @@ export const MAX_MAC_WAIT_SECONDS = 7 * 3600;
 
 /** The window before prod when control.yaml doesn't set one: time to read the email and stop the run, the same day. */
 export const DEFAULT_PROMOTE_AFTER = 'PT2H';
+/** Each surface's bake when control.yaml doesn't set one: an afternoon of use before the next surface gets the release. */
+export const DEFAULT_BAKE = 'PT2H';
 // The pipeline waits on Step Functions, which CodePipeline allows 7 days, and prod's canary takes another.
 const MAX_PROMOTE_AFTER_SECONDS = 6 * 24 * 3600;
 
@@ -160,6 +166,12 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
     c.pipeline.promoteAfter ??= DEFAULT_PROMOTE_AFTER;
     if (promoteAfterSeconds(c.pipeline.promoteAfter) === undefined) {
       problems.push('pipeline.promoteAfter must be whole days, hours, minutes or seconds up to 6 days, such as PT2H, or PT0S for no wait');
+    }
+    for (const key of ['bakeWeb', 'bakeDesktop'] as const) {
+      c.pipeline[key] ??= DEFAULT_BAKE;
+      if (promoteAfterSeconds(c.pipeline[key]) === undefined) {
+        problems.push(`pipeline.${key} must be whole days, hours, minutes or seconds up to 6 days, such as PT2H, or PT0S for no bake`);
+      }
     }
     const mac = c.pipeline.mac;
     if (mac != null) {

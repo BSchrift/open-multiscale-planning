@@ -125,15 +125,19 @@ Then wait for CI. A PR merges only with every check green.
   | Merge to main | Only with every CI check green | Owner |
   | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
   | Window before prod | An email says the commit passed staging and when it goes to prod, with a link to send it sooner. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
-  | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
+  | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, and the version uploaded | The pipeline |
+  | Web, the Mac, the iPhone | One surface at a time: the web app, a 2-hour bake, the Mac's feed, a 2-hour bake, the iPhone's feed. A release alarm in ALARM after a bake switches that surface back by itself and stops the run | The pipeline |
   | Signed apps | `make release-tag`, then `make release ENV=prod` from the tag | Owner, on the Mac |
 
   To roll back, revert on main and let it release. `make release-surface` switches the web app or one app's feed back
   to a version kept. `make pipeline-pause` holds main's commits back, and `make promote` starts a run by hand.
-- **Stop a run before prod only when the owner asks in chat.** `make pipeline-stop` stops the run waiting in its window
-  before prod, so it never reaches prod. Say which commit it stopped.
+- **Stop a run only when the owner asks in chat.** `make pipeline-stop` stops every run that is waiting: in its window
+  before prod, so it never reaches prod, or in a bake, so the next surface never gets it. Say which commits it stopped.
 - **Skip the canary only with the owner's explicit go-ahead, each time.** `CANARY=skip` sends prod's new backend all its
   traffic at once. Ask for each release, say why, and note it in the PR or release notes.
+- **Skip the bakes only with the owner's explicit go-ahead, each time.** `make promote BAKES=skip` starts a run whose
+  prod surfaces take the release one after another without waiting out the bakes between them. Ask for each release,
+  say why, and note it in the PR or release notes; the release tag notes it too.
 - **Turn the release alarms off only with the owner's explicit go-ahead, each time.** `ALARMS=off` lets a release start
   while a release alarm is firing, to ship the fix for it; nothing then rolls it back on an alarm. Ask for each release,
   say which alarm fires and why the release fixes it, and note it in the PR or release notes.

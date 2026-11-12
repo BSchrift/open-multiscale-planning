@@ -8,15 +8,15 @@
 #   pause    make pipeline-pause     main commits stop releasing; a run started by hand still goes
 #   resume   make pipeline-resume    they release again
 #   run      make promote            starts a run by hand: COMMIT=<sha> (default: the branch's latest), CANARY=skip,
-#                                    ALARMS=off
-#   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
+#                                    ALARMS=off, BAKES=skip
+#   stop     make pipeline-stop      stops every run that is waiting: in its window before prod, in a bake, or for a stage
 #   release-surface  make release-surface  ENV=staging|prod, signed in with that environment's profile: lists what each
 #                                    surface serves and the versions kept, or with SURFACE=web|desktop|iphone|shared and
 #                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
-# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check
-# and nightly.
+# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, upload-prod, release-web,
+# bake-check, release-desktop, release-iphone and nightly.
 # The signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
 set -euo pipefail
 
@@ -281,23 +281,30 @@ round_trip() {
   [ -z "$failed" ] || { echo "Going back one version and forward again failed for:$failed." >&2; return 1; }
 }
 
-# Publishes one environment's build in today's single step, as release.sh does from a Mac: uploads it, then switches
-# every surface that can take it, and sets version and feeds to the version and the feeds it switched. The web app
-# always switches. Each feed compares only its own app's native code with what it serves now: the desktop feed switches
-# when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, the iPhone feed when the
-# iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, and the shared feed only
-# when both do, so no installed app is told it needs an app that isn't out. A run doesn't wait for Beta App Review,
-# which can take a day: the first run after it passes the build switches the iPhone feed. A Mac app the MacApp step
-# checked is published whenever it hands one on, as when the downloads host served none it checked, with the record
-# that it's a checked one.
-publish() {
-  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" waiting="" feed testflight=""
-  web="$(built)/web/$env_name"
-  read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
-  [ -n "$(release_bucket "$env_name")" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
-  build="$(shell_of <"$web/version.json")"
-  version="$(version_of "$web")"
-  feeds=""
+# Runs a command signed in as an environment's release role.
+as_release() {
+  local account region profile
+  read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$1")"
+  shift
+  (
+    export AWS_PROFILE="$profile"
+    "$@"
+  )
+}
+
+# Which feeds can take an environment's build, from the Build output. Sets version; feeds, those that can, with shared
+# only when both apps' can; waiting, the apps the others wait for; testflight, the TestFlight build that lets the iPhone
+# feed take it; and dmg, a Mac app the MacApp step checked, to publish before the desktop feed. Each feed compares only
+# its own app's native code with what it serves now: the desktop feed takes the build when the Mac app's is unchanged or
+# a checked Mac app is published first, the iPhone feed when the iPhone app's is unchanged or the newest TestFlight build
+# testers can install has the new one. A run doesn't wait for Beta App Review, which can take a day: the first run after
+# it passes the build switches the iPhone feed. The MacApp step hands on a checked Mac app whenever it checked one, as
+# when the downloads host served none it checked. Exits when the build needs a Mac app this run didn't check.
+plan() {
+  local env_name="$1" mac="${CODEBUILD_SRC_DIR_MacApps:-}" build
+  build="$(shell_of <"$(built)/web/$env_name/version.json")"
+  version="$(version_of "$(built)/web/$env_name")"
+  feeds="" waiting="" dmg="" testflight=""
   if [ -n "$mac" ] && [ -f "$mac/$env_name/Multiscale.dmg" ]; then dmg="$mac/$env_name/Multiscale.dmg"; fi
   if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
@@ -317,27 +324,47 @@ publish() {
     if [ -n "$testflight" ]; then feeds="$feeds iphone"; else waiting="${waiting:+$waiting and }iPhone"; fi
   fi
   [ -n "$waiting" ] || feeds="$feeds shared"
-  (
-    export AWS_PROFILE="$profile"
-    upload "$env_name" "$web" "$signed"
-    switch "$env_name" web "$version"
-    if [ -n "$dmg" ]; then
-      # Before the feed, which then links apps that can't take it to this app.
-      aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage || exit 1
-      # Then the record that it's a checked app, which the downloads host doesn't serve.
-      aws s3 cp "$(dirname "$dmg")/manifest.json" "s3://$(release_bucket "$env_name")/mac/manifest.json" --content-type application/json || exit 1
-      echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
-    fi
-    for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
-  )
-  if [ -n "$testflight" ]; then
+}
+
+# Of the feeds named, those plan found can take the build.
+taking() {
+  local feed out=""
+  for feed in "$@"; do case " $feeds " in *" $feed "*) out="${out:+$out }$feed" ;; esac; done
+  echo "$out"
+}
+
+# Switches the planned build's feeds among those named, as the environment's release role, publishing a checked Mac app
+# before the desktop feed, with the record that it's a checked one. Says which feeds wait for an app.
+release_feeds() {
+  local env_name="$1" feed
+  shift
+  if [ -n "$dmg" ] && [ -n "$(taking desktop)" ] && [[ " $* " == *" desktop "* ]]; then
+    # Before the feed, which then links apps that can't take it to this app.
+    as_release "$env_name" aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
+    # Then the record that it's a checked app, which the downloads host doesn't serve.
+    as_release "$env_name" aws s3 cp "$(dirname "$dmg")/manifest.json" "s3://$(release_bucket "$env_name")/mac/manifest.json" --content-type application/json
+    echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
+  fi
+  for feed in $(taking "$@"); do as_release "$env_name" switch "$env_name" "$feed" "$version"; done
+  if [ -n "$testflight" ] && [ -n "$(taking iphone)" ] && [[ " $* " == *" iphone "* ]]; then
     echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
   fi
-  if [ -n "$waiting" ]; then
+  if [ "$(taking "$@")" != "$*" ]; then
     echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds and the shared one stay as they are."
     case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
     case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
+}
+
+# Publishes staging's build in one step, as release.sh does from a Mac: uploads it, then switches the web app and every
+# feed that can take it. Sets version and feeds.
+publish() {
+  local env_name="$1" signed="$2"
+  [ -n "$(release_bucket "$env_name")" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
+  plan "$env_name"
+  as_release "$env_name" upload "$env_name" "$(built)/web/$env_name" "$signed"
+  as_release "$env_name" switch "$env_name" web "$version"
+  release_feeds "$env_name" desktop iphone shared
 }
 
 case "$command" in
@@ -371,35 +398,67 @@ case "$command" in
   run)
     case "${CANARY:-}" in "" | skip) ;; *) echo "CANARY must be skip or unset, not $CANARY" >&2; exit 1 ;; esac
     case "${ALARMS:-}" in "" | off) ;; *) echo "ALARMS must be off or unset, not $ALARMS" >&2; exit 1 ;; esac
+    case "${BAKES:-}" in "" | skip) ;; *) echo "BAKES must be skip or unset, not $BAKES" >&2; exit 1 ;; esac
     case "${ENV:-prod}" in prod) ;; *) echo "A run promotes to prod, so ENV can only be prod, not $ENV" >&2; exit 1 ;; esac
     control
-    args=(--name "$pipeline" --variables "name=RUN,value=hand" "name=CANARY,value=${CANARY:-on}" "name=ALARMS,value=${ALARMS:-on}")
+    args=(--name "$pipeline" --variables "name=RUN,value=hand" "name=CANARY,value=${CANARY:-on}" "name=ALARMS,value=${ALARMS:-on}" "name=BAKES,value=${BAKES:-on}")
     [ -z "${COMMIT:-}" ] || args+=(--source-revisions "actionName=GitHub,revisionType=COMMIT_ID,revisionValue=$COMMIT")
     id="$(aws codepipeline start-pipeline-execution "${args[@]}" --query pipelineExecutionId --output text)"
     skipping=""
     [ -z "${CANARY:-}" ] || skipping=", sending prod all traffic at once"
     [ -z "${ALARMS:-}" ] || skipping="$skipping, with the release alarms off"
+    [ -z "${BAKES:-}" ] || skipping="$skipping, without waiting out the bakes"
     echo "Started run $id${COMMIT:+ at $COMMIT}$skipping. After staging it waits out its window before prod: make pipeline-stop stops it."
     ;;
   stop)
     control
-    # The run in the Promote stage, if one is waiting there. Stopping abandons it: its window's wait ends, and nothing
-    # after it runs.
-    read -r id status <<<"$(aws codepipeline get-pipeline-state --name "$pipeline" --query "stageStates[?stageName=='Promote'].latestExecution.[pipelineExecutionId,status] | [0]" --output text)"
-    if [ "${status:-}" != InProgress ]; then
-      echo "No run is waiting to go to prod."
-      exit 0
-    fi
-    commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
-    aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped before prod by make pipeline-stop" >/dev/null
-    # Abandoning leaves the window's own wait running, and its email's Promote now link would still answer it.
-    machine="$(aws stepfunctions list-state-machines --query "stateMachines[?starts_with(name, 'Promotion')].stateMachineArn | [0]" --output text)"
-    if [ -n "$machine" ] && [ "$machine" != None ]; then
-      for execution in $(aws stepfunctions list-executions --state-machine-arn "$machine" --status-filter RUNNING --query 'executions[].executionArn' --output text); do
-        aws stepfunctions stop-execution --execution-arn "$execution" --cause "Stopped before prod by make pipeline-stop" >/dev/null
-      done
-    fi
-    echo "Stopped run $id, at $commit, before prod. Staging keeps it; prod doesn't get it."
+    # Every run that is waiting: in the window before prod, in a bake, or for a stage to be free. Stopping abandons it,
+    # so nothing after its wait runs. A run at work, deploying, publishing or testing, is named and left alone, since
+    # abandoning it could leave a surface half switched; it reaches its next wait within minutes.
+    stopped=""
+    while read -r kind stage id; do
+      [ -n "$kind" ] || continue
+      commit="$(aws codepipeline get-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --query 'pipelineExecution.artifactRevisions[0].revisionId' --output text)"
+      if [ "$kind" = working ]; then
+        echo "Run $id, at $commit, is at work in the $stage stage, so it goes on. It stops at its next wait if you run this again then."
+        continue
+      fi
+      aws codepipeline stop-pipeline-execution --pipeline-name "$pipeline" --pipeline-execution-id "$id" --abandon --reason "Stopped by make pipeline-stop" >/dev/null
+      stopped=yes
+      case "$kind" in
+        window)
+          # Abandoning leaves the window's own wait running, and its email's Promote now link would still answer it.
+          machine="$(aws stepfunctions list-state-machines --query "stateMachines[?starts_with(name, 'Promotion')].stateMachineArn | [0]" --output text)"
+          if [ -n "$machine" ] && [ "$machine" != None ]; then
+            for execution in $(aws stepfunctions list-executions --state-machine-arn "$machine" --status-filter RUNNING --query 'executions[].executionArn' --output text); do
+              aws stepfunctions stop-execution --execution-arn "$execution" --cause "Stopped before prod by make pipeline-stop" >/dev/null
+            done
+          fi
+          echo "Stopped run $id, at $commit, in its window before prod. Staging keeps it; prod doesn't get it."
+          ;;
+        queued) echo "Stopped run $id, at $commit, waiting for the $stage stage." ;;
+        bake)
+          # A stop keeps what the surface has, so say how to go back, read with prod's own profile.
+          surface="$( [ "$stage" = Web ] && echo web || echo desktop)"
+          read -r _ _ prod_profile <<<"$(cd "$root/infrastructure" && node bin/target.ts prod)"
+          bucket="$(release_bucket prod 2>/dev/null || true)"
+          now="$( [ -z "$bucket" ] || AWS_PROFILE="$prod_profile" serves "$bucket" "$surface")"
+          before="$( [ -z "$now" ] || AWS_PROFILE="$prod_profile" served_before "$bucket" "$surface" "$now")"
+          echo "Stopped run $id, at $commit, in the $stage stage's bake. prod's $surface keeps ${now:-what it has}; to go back: make release-surface ENV=prod SURFACE=$surface VERSION=${before:-<version>}"
+          ;;
+      esac
+    done < <(aws codepipeline get-pipeline-state --name "$pipeline" --output json |
+      node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        for (const stage of JSON.parse(s).stageStates ?? []) {
+          if (stage.inboundExecution?.status === "InProgress") console.log(`queued ${stage.stageName} ${stage.inboundExecution.pipelineExecutionId}`);
+          const run = stage.latestExecution;
+          if (run?.status !== "InProgress") continue;
+          const acting = (stage.actionStates ?? []).filter((a) => a.latestExecution?.status === "InProgress").map((a) => a.actionName);
+          const kind = stage.stageName === "Promote" ? "window" : acting.includes("Bake") ? "bake" : "working";
+          console.log(`${kind} ${stage.stageName} ${run.pipelineExecutionId}`);
+        }
+      });')
+    [ -n "$stopped" ] || echo "No run is waiting, so none was stopped."
     ;;
   release-surface)
     env_name="${ENV:-staging}"
@@ -557,22 +616,43 @@ case "$command" in
     frontend_deps
     browsers
     # The released apps against the promoted backend, before anything new is signed or published. The web app is still
-    # the release before this one, so checks of this release's own screens wait for release-prod.
+    # the release before this one, so checks of this release's own screens wait for release-web.
     ENV=prod CONFIRM_PROD=yes SKIP_IOS=1 DEPLOYED_BEFORE_PUBLISH=1 "$root/scripts/test-deployed.sh"
     ;;
-  release-prod)
+  upload-prod)
+    fetch_config
+    profiles
+    outputs prod
+    # The version, where no host serves it. The stages after switch prod's surfaces to it one at a time.
+    as_release prod upload prod "$(built)/web/prod" "${CODEBUILD_SRC_DIR_SignedProd:?}"
+    ;;
+  release-web)
     fetch_config
     profiles
     outputs prod
     frontend_deps
     browsers
-    publish prod "${CODEBUILD_SRC_DIR_SignedProd:?}"
-    ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 "$root/scripts/test-deployed.sh"
-    # For make release-tag, and the signed apps built from that tag.
-    # With the release's notes: whether it skipped the canary or ran without the release alarms.
+    version="$(version_of "$(built)/web/prod")"
+    as_release prod switch prod web "$version"
+    ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="" SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    ;;
+  release-desktop | release-iphone)
+    fetch_config
+    profiles
+    outputs prod
+    frontend_deps
+    plan prod
+    # The Mac's stage moves the shared feed too, for bundles from before the apps' own feeds.
+    if [ "$command" = release-desktop ]; then surfaces="desktop shared"; else surfaces=iphone; fi
+    release_feeds prod $surfaces
+    ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="$(taking $surfaces)" FEEDS_ONLY=1 "$root/scripts/test-deployed.sh"
+    [ "$command" = release-iphone ] || exit 0
+    # For make release-tag, and the signed apps built from that tag: a commit every surface has now.
+    # With the release's notes: whether it skipped the canary or the bakes, or ran without the release alarms.
     notes=""
     [ "${CANARY:-on}" != skip ] || notes="Canary skipped."
     [ "${ALARMS:-on}" != off ] || notes="${notes:+$notes }Release alarms off."
+    [ "${BAKES:-on}" != skip ] || notes="${notes:+$notes }Bakes skipped."
     aws ssm put-parameter --name "$parameters/released" --type String --overwrite --value "${COMMIT:?}${notes:+ $notes}" >/dev/null
     ;;
   bake-check)
@@ -581,7 +661,8 @@ case "$command" in
     # next surface and emails. Desktop is its feed and the shared one, each back to its own version before. A surface no
     # longer on this run's version, switched since by hand, stays. A run with ALARMS=off only reports, since its release
     # went out with the alarms off.
-    case "${2:-}" in web) surfaces=web ;; desktop) surfaces="desktop shared" ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop" >&2; exit 1 ;; esac
+    baked="${2:-${SURFACE:-}}"
+    case "$baked" in web) surfaces=web ;; desktop) surfaces="desktop shared" ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop, or SURFACE=web|desktop" >&2; exit 1 ;; esac
     fetch_config
     profiles
     outputs prod
@@ -591,11 +672,11 @@ case "$command" in
     [ -n "$names" ] || { echo "prod's stack has no ReleaseAlarms output yet, so its alarms can't be checked. A run that deploys it adds it." >&2; exit 1; }
     firing="$(aws cloudwatch describe-alarms --alarm-names ${names//,/ } --state-value ALARM --query 'MetricAlarms[].AlarmName' --output text | tr -s '\t\n' ' ' | sed 's/ *$//')"
     if [ -z "$firing" ] || [ "$firing" = None ]; then
-      echo "No release alarm is in ALARM after $2's bake."
+      echo "No release alarm is in ALARM after $baked's bake."
       exit 0
     fi
     if [ "${ALARMS:-on}" = off ]; then
-      echo "$firing in ALARM after $2's bake, but this run has the release alarms off, so it goes on."
+      echo "$firing in ALARM after $baked's bake, but this run has the release alarms off, so it goes on."
       exit 0
     fi
     version="$(version_of "$(built)/web/prod")"
@@ -610,7 +691,7 @@ case "$command" in
         echo "prod's $surface serves ${now:-nothing}, not this run's $version, so it stays as it is."
       fi
     done
-    echo "$firing in ALARM after $2's bake, so the run stops here. Look at the alarms in prod's account; make release-surface ENV=prod lists what each surface serves." >&2
+    echo "$firing in ALARM after $baked's bake, so the run stops here. Look at the alarms in prod's account; make release-surface ENV=prod lists what each surface serves." >&2
     exit 1
     ;;
   nightly)

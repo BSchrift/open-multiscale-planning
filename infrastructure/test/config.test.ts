@@ -217,6 +217,14 @@ describe('loadControl', () => {
     assert.equal(loadControl(dirWith({ control: withField(withPipeline, 'pipeline.promoteAfter', 'P1DT30M') }), true).pipeline?.promoteAfter, 'P1DT30M');
   });
 
+  it("reads the bakes after web and after the Mac, two hours each unless it says, and none with PT0S", () => {
+    const loaded = loadControl(dirWith({ control: withPipeline }), true).pipeline!;
+    assert.deepEqual([loaded.bakeWeb, loaded.bakeDesktop], ['PT2H', 'PT2H']);
+    const own = withField(withField(withPipeline, 'pipeline.bakeWeb', 'PT30M'), 'pipeline.bakeDesktop', 'PT0S');
+    const set = loadControl(dirWith({ control: own }), true).pipeline!;
+    assert.deepEqual([set.bakeWeb, set.bakeDesktop], ['PT30M', 'PT0S']);
+  });
+
   it('reads the optional pipeline section', () => {
     assert.equal(loadControl(dirWith({ control: withPipeline }), true).pipeline?.repository, 'someone/open-multiscale-planning');
     assert.equal(loadControl(dirWith({ control: goodControl }), true).pipeline, undefined);
@@ -238,6 +246,8 @@ describe('loadControl', () => {
     ['pipeline.promoteAfter', 'PT'],
     ['pipeline.promoteAfter', 'P7D'],
     ['pipeline.promoteAfter', 7200],
+    ['pipeline.bakeWeb', '2h'],
+    ['pipeline.bakeDesktop', 'P7D'],
   ] as const) {
     it(`rejects ${path} = ${JSON.stringify(bad)}`, () => {
       assert.throws(() => loadControl(dirWith({ control: withField(withPipeline, path, bad) }), false), new RegExp(path.replace('.', '\\.')));

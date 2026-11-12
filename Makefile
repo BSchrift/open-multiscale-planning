@@ -92,9 +92,10 @@ review-user:
 	@scripts/accounts.sh review
 
 # The release pipeline, from this Mac with control.yaml's profile: docs/releasing.md. promote starts a run by hand,
-# COMMIT=<sha> (default: the branch's latest), CANARY=skip to send prod all traffic at once, and ALARMS=off to ship
-# while a release alarm fires. An agent uses either only with the owner's go-ahead, each time. It still waits out its
-# window before prod. release-tag tags what prod last released, with what the run skipped.
+# COMMIT=<sha> (default: the branch's latest), CANARY=skip to send prod all traffic at once, ALARMS=off to ship while a
+# release alarm fires, and BAKES=skip to release prod's surfaces one after another without waiting. An agent uses each
+# only with the owner's go-ahead, each time. It still waits out its window before prod. release-tag tags what prod
+# last released, with what the run skipped.
 promote:
 	@scripts/pipeline.sh run
 
@@ -115,7 +116,7 @@ pipeline-pause:
 pipeline-resume:
 	@scripts/pipeline.sh resume
 
-# Stops the run waiting in its window before prod, after staging passed, so it never reaches prod.
+# Stops every run that is waiting: in its window before prod, in a bake, or for a stage. It names each commit.
 pipeline-stop:
 	@scripts/pipeline.sh stop
 

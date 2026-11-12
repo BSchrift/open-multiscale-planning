@@ -11,7 +11,8 @@ import { deployed } from './target';
 
 const d = deployed();
 // The prod Test step runs this checkout's checks against the web app prod still serves, the release before, since it
-// publishes only once they pass. Checks of screens new in this release skip there; release-prod runs them after publishing.
+// publishes only once they pass. Checks of screens new in this release skip there; release-web runs them once it has
+// switched the web app.
 const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 const NETWORK = { timeout: 60_000 };
 
@@ -194,7 +195,7 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
 });
 
 test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, with Does it fit in view, and saves and exits', async ({}, info) => {
-  test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");
+  test.skip(beforePublish, "needs: this release's web app, which release-web checks once it has switched it");
   // Looking writes nothing to the plan: no Continue, no Finish, and Add is opened and closed.
   const phone = info.project.name === 'phone';
   const nav = page.getByRole('navigation', { name: 'Main' });

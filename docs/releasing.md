@@ -263,7 +263,9 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    environment's feed with this build, and looks for the record of a checked Mac app beside its downloads. For each
    that needs a new Mac app, it waits for that environment's manifest in the inbox, up to `pipeline.mac.waitFor` (two
    hours unless `control.yaml` says), then checks the upload (`frontend/scripts/mac-inbox.ts verify`). If nothing
-   arrives in time, or the check fails, the run stops before anything is published, and before prod.
+   arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
+   caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
+   waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
 3. **The releases publish it.** Staging's and prod's releases upload the checked disk image to
    `downloads.<zone>/Multiscale.dmg`, then its manifest to `mac/manifest.json` in the release bucket, which nothing
    serves, as the record that the app is a checked one, then the feed, as `make release` does. An environment whose
@@ -407,8 +409,10 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
 ### When a run stops for the Mac app
 
 - **No Mac app in time.** The MacApp step's log says which commit. Approve the workflow run if it waits for you, or
-  start one for that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, run the
-  pipeline again: `make promote COMMIT=<sha>`. Every push to main starts a build, so one that didn't arrive failed or
+  start one for that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, retry the
+  Staging stage, which its log prints the command for (`aws codepipeline retry-stage-execution ... --retry-mode
+  FAILED_ACTIONS`), or run the pipeline again: `make promote COMMIT=<sha>`. GitHub's macOS runners are shared with the
+  PRs' iPhone job, so a Mac build can queue for a while when many PRs are open. Every push to main starts a build, so one that didn't arrive failed or
   is still queued behind another: its run's log says which.
 - **The check failed.** The MacApp step's log lists every problem. Nothing was published. "The build's settings
   differ" means `MAC_BUILD_CONFIG` is out of date: make it again (step 6 above) and build again.

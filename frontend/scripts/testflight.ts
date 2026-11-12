@@ -9,11 +9,19 @@
 //   node scripts/testflight.ts testers <config folder> <build> once <build> is processed, gives it to the Testers group,
 //                                                             whose public link anyone can join, submits it for Beta App
 //                                                             Review, and prints the link
+//   node scripts/testflight.ts needed <config folder>         whether this checkout's commit needs an upload: only when
+//                                                             its iPhone native code differs from TestFlight's latest
+//                                                             build's, as upload=true|false in $GITHUB_OUTPUT
+//   node scripts/testflight.ts latest <config folder> <file>  writes the newest build testers can install, with its
+//                                                             iPhone shell hash, to <file>, for the release pipeline's
+//                                                             inbox (.github/workflows/testflight-review.yml)
+// A build's number is its commit's time, so git's history tells which commit a build came from, and so its shell hash.
 // None of this is in ios/, so none of it is in the iPhone app's shell hash (scripts/shell-hash.ts).
 
 import { execFileSync } from 'node:child_process';
 import { createHash, sign } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -24,6 +32,8 @@ const EXPIRES_AFTER_DAYS = 90;
 const WARN_AFTER_DAYS = 60;
 // App Store Connect refuses builds made with an older SDK than Xcode 26's.
 const MIN_XCODE = 26;
+// The repository's root, whose git history tells which commit a TestFlight build came from.
+const REPO = join(import.meta.dirname, '../..');
 
 export interface AscKey {
   path: string;
@@ -258,6 +268,126 @@ export async function publishToTesters(
   return group.attributes.publicLink;
 }
 
+/** The commits a build number names, from git log --format='%H %ct': testflight.sh numbers a build by its commit's time. */
+export function commitsBuiltAs(log: string, build: number): string[] {
+  return log.split('\n').flatMap((line) => {
+    const [commit, time] = line.split(' ');
+    return commit && Number(time) === build ? [commit] : [];
+  });
+}
+
+// Run on the commit's own shell-hash.ts, in a process of its own. The iPhone app's hash doesn't depend on the Mac build.
+const IOS_SHELL = "const [url, root] = process.argv.slice(1); const { shellHashes } = await import(url); console.log(shellHashes(root, { name: '', scheme: '', backendOrigins: [] }).ios);";
+
+/**
+ * The iPhone app's shell hash at <commit>, which its build carried and which the bundles it takes must match: from a
+ * checkout of that commit, by that commit's own scripts/shell-hash.ts, so a build from before the hash changed is named
+ * as it was. Throws when it can't tell.
+ */
+export function iosShellAt(repo: string, commit: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'testflight-shell-'));
+  const checkout = join(dir, 'checkout');
+  const frontend = join(checkout, 'frontend');
+  try {
+    execFileSync('git', ['worktree', 'add', '--quiet', '--detach', checkout, commit], { cwd: repo, stdio: 'ignore' });
+    const shell = execFileSync(process.execPath, ['--input-type=module', '-e', IOS_SHELL, pathToFileURL(join(frontend, 'scripts/shell-hash.ts')).href, frontend], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (!/^\w+$/.test(shell)) throw new Error(`${commit}'s shell-hash.ts gave no iPhone shell hash`);
+    return shell;
+  } finally {
+    // The checkout and git's note of it, so none pile up in the repository.
+    try {
+      execFileSync('git', ['worktree', 'remove', '--force', checkout], { cwd: repo, stdio: 'ignore' });
+    } catch {
+      // Never made: the commit isn't in the repository.
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The main commit TestFlight build <build> came from, and its iPhone shell hash, whoever uploaded it: GitHub Actions or
+ * a Mac. Undefined when no commit on <ref> has its number, as for one uploaded from a branch, or the commits that share
+ * the number have different native code.
+ */
+export function builtFrom(repo: string, build: number, ref = 'origin/main'): { commit: string; shell: string } | undefined {
+  const commits = commitsBuiltAs(execFileSync('git', ['log', '--format=%H %ct', ref], { cwd: repo, encoding: 'utf8' }), build);
+  const shells = new Set<string>();
+  for (const commit of commits) {
+    try {
+      shells.add(iosShellAt(repo, commit));
+    } catch {
+      return undefined;
+    }
+  }
+  return commits.length > 0 && shells.size === 1 ? { commit: commits[0]!, shell: [...shells][0]! } : undefined;
+}
+
+/**
+ * Whether a push's commit, <build> by its number, needs a TestFlight upload, and why. Only when its iPhone native code
+ * differs from TestFlight's latest build's, <last> as builtFrom found it: Beta App Review sees each build, GitHub's Macs
+ * are shared with CI, and a build of the same native code takes the same updates from the feed anyway.
+ */
+export function uploadDecision(state: TestflightState, build: number, shell: string, last: { commit: string; shell: string } | undefined): { upload: boolean; why: string } {
+  if (!state.app) return { upload: false, why: 'App Store Connect has no app for the iPhone app yet, so nothing uploads. See docs/setup.md, TestFlight.' };
+  if (!state.last) return { upload: true, why: 'TestFlight has no build of the iPhone app yet.' };
+  if (build <= state.last.build) return { upload: false, why: `TestFlight already has build ${state.last.build}, this commit’s or a newer one, so nothing uploads.` };
+  if (!last) return { upload: true, why: `Couldn't tell which main commit TestFlight's build ${state.last.build} came from, so this one uploads.` };
+  const from = `TestFlight's build ${state.last.build}, from ${last.commit.slice(0, 7)}`;
+  if (last.shell === shell) return { upload: false, why: `${from}, has this commit's iPhone native code, ${shell}, so nothing uploads.` };
+  return { upload: true, why: `The iPhone app's native code changed since ${from}: ${last.shell} then, ${shell} now.` };
+}
+
+/**
+ * The TestFlight builds testers can install now, newest first: those in the Testers group that Beta App Review has
+ * passed, so they're in beta testing, and that haven't expired.
+ */
+export async function availableBuilds(get: Get, bundleId: string): Promise<number[]> {
+  const apps = await get('/v1/apps', { 'filter[bundleId]': bundleId, 'fields[apps]': 'bundleId' });
+  const app = apps.data.find((a) => a.attributes.bundleId === bundleId);
+  if (!app) throw new Error(`App Store Connect has no app with the bundle id ${bundleId}.`);
+  const groups = (await get(`/v1/apps/${app.id}/betaGroups`, { 'fields[betaGroups]': 'name,isInternalGroup' })) as unknown as { data: BetaGroup[] };
+  const group = groups.data.find((g) => g.attributes.name === TESTERS && !g.attributes.isInternalGroup);
+  if (!group) return [];
+  const builds = (await get('/v1/builds', {
+    'filter[app]': app.id,
+    'filter[betaGroups]': group.id,
+    'filter[expired]': 'false',
+    sort: '-uploadedDate',
+    limit: '20',
+    include: 'buildBetaDetail',
+    'fields[builds]': 'version,expired,buildBetaDetail',
+    'fields[buildBetaDetails]': 'externalBuildState',
+  })) as unknown as {
+    data: { attributes: { version: string; expired: boolean }; relationships?: { buildBetaDetail?: { data: { id: string } | null } } }[];
+    included?: { type: string; id: string; attributes: { externalBuildState?: string } }[];
+  };
+  const states = new Map((builds.included ?? []).filter((i) => i.type === 'buildBetaDetails').map((i) => [i.id, i.attributes.externalBuildState]));
+  return builds.data
+    .filter((b) => !b.attributes.expired && states.get(b.relationships?.buildBetaDetail?.data?.id ?? '') === 'IN_BETA_TESTING')
+    .map((b) => Number(b.attributes.version));
+}
+
+/**
+ * What the release pipeline reads to switch the iPhone feed: the newest TestFlight build testers can install, the one
+ * TestFlight offers them, with its commit and iPhone shell hash. Null where testers have no build, or its commit can't
+ * be told, so the pipeline switches to nothing.
+ */
+export interface TestersBuild {
+  build: number | null;
+  commit: string | null;
+  shell: string | null;
+}
+
+export function newestRecord(builds: number[], from: (build: number) => { commit: string; shell: string } | undefined): TestersBuild {
+  if (builds.length === 0) return { build: null, commit: null, shell: null };
+  const build = Math.max(...builds);
+  const found = from(build);
+  return { build, commit: found?.commit ?? null, shell: found?.shell ?? null };
+}
+
 function tokenFor(configDir: string) {
   const key = ascKey(configDir);
   return ascToken({ ...key, pem: readFileSync(key.path, 'utf8') });
@@ -274,7 +404,9 @@ function exportLines(key: AscKey): string {
   return `export ASC_KEY_PATH=${quote(key.path)} ASC_KEY_ID=${quote(key.keyId)} ASC_ISSUER_ID=${quote(key.issuerId)}\n`;
 }
 
-async function main([command, configDir, build]: string[]) {
+async function main([command, configDir, arg]: string[]) {
+  const build = arg;
+  const out = arg;
   if (command === 'key' && configDir) {
     process.stdout.write(exportLines(ascKey(configDir)));
   } else if (command === 'check' && configDir && build) {
@@ -311,8 +443,23 @@ async function main([command, configDir, build]: string[]) {
     const line = `Build ${build} is with the ${TESTERS} group and submitted for Beta App Review. Once it passes, anyone can install it from ${link}`;
     console.log(line);
     if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`, { flag: 'a' });
+  } else if (command === 'needed' && configDir) {
+    const head = execFileSync('git', ['log', '-1', '--format=%H %ct'], { cwd: REPO, encoding: 'utf8' }).trim().split(' ');
+    const { state: s } = await state(configDir);
+    const decision = uploadDecision(s, Number(head[1]), iosShellAt(REPO, head[0]!), s.last && builtFrom(REPO, s.last.build));
+    console.log(decision.why);
+    if (process.env.GITHUB_OUTPUT) writeFileSync(process.env.GITHUB_OUTPUT, `upload=${decision.upload}\n`, { flag: 'a' });
+    if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${decision.why}\n`, { flag: 'a' });
+  } else if (command === 'latest' && configDir && out) {
+    const record = newestRecord(await availableBuilds(ascGet(tokenFor(configDir)), projectBundleId()), (build) => builtFrom(REPO, build));
+    writeFileSync(out, `${JSON.stringify(record)}\n`);
+    if (record.build === null) console.log(`Testers can install no TestFlight build: none is with the ${TESTERS} group, passed by Beta App Review and unexpired.`);
+    else if (record.shell === null) console.log(`Testers can install build ${record.build}, but no main commit tells its iPhone native code, so no release switches to it.`);
+    else console.log(`Testers can install build ${record.build}, from ${record.commit!.slice(0, 7)}, with the iPhone native code ${record.shell}.`);
   } else {
-    throw new Error('Use: testflight.ts key <config folder> | check <config folder> <build> | age <config folder> | revoke-runner <config folder> | testers <config folder> <build>');
+    throw new Error(
+      'Use: testflight.ts key <config folder> | check <config folder> <build> | age <config folder> | revoke-runner <config folder> | testers <config folder> <build> | needed <config folder> | latest <config folder> <file>',
+    );
   }
 }
 

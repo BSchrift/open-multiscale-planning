@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { parse } from 'yaml';
@@ -390,6 +390,18 @@ describe("the Mac release's inbox", () => {
     assert.match(project.Properties.Source.BuildSpec, /"base-directory": "mac-checked"/);
   });
 
+  it("names the inbox to both releases, which read the TestFlight review's record there, and to nothing without it", () => {
+    const releaseProject = (resources: Record<string, any>, stages: { Name: string; Actions: any[] }[]) => {
+      const refs = [['Staging', 'ReleaseAndTest'], ['Prod', 'Release']].map(([stage, name]) => stages.find((s) => s.Name === stage)!.Actions.find((a) => a.Name === name).Configuration.ProjectName.Ref);
+      assert.equal(new Set(refs).size, 1);
+      return resources[refs[0]]!.Properties.Environment.EnvironmentVariables as { Name: string; Value: unknown }[] | undefined;
+    };
+    const [[, pipe]] = m.ofType('AWS::CodePipeline::Pipeline');
+    assert.deepEqual(releaseProject(m.resources, pipe.Properties.Stages), [{ Name: 'MAC_INBOX_BUCKET', Type: 'PLAINTEXT', Value: { Ref: bucketId } }]);
+    const [[, plain]] = ofType('AWS::CodePipeline::Pipeline');
+    assert.equal(releaseProject(all, plain.Properties.Stages), undefined);
+  });
+
   it('gives the role ARN and bucket the release environment needs', () => {
     m.template.hasOutput('MacInboxBucket', { Value: { Ref: bucketId } });
     m.template.hasOutput('MacInboxRoleArn', { Value: { 'Fn::GetAtt': [inboxRoleId, 'Arn'] } });
@@ -400,5 +412,16 @@ describe("the Mac release's inbox", () => {
     const signing = Object.values(workflow.jobs).filter((job) => job.environment);
     assert.deepEqual(signing.map((job) => job.environment), [MAC_RELEASE_ENVIRONMENT]);
     assert.equal(signing[0]!.permissions!['id-token'], 'write');
+  });
+
+  it("is reached only by the workflow jobs in that environment: the Mac release's signing and the TestFlight review", () => {
+    const dir = join(import.meta.dirname, '../../.github/workflows');
+    const oidc = readdirSync(dir).sort().flatMap((file) => {
+      const workflow = parse(readFileSync(join(dir, file), 'utf8')) as { permissions?: unknown; jobs: Record<string, { environment?: string; permissions?: Record<string, string> }> };
+      // A token for AWS only where a job asks for one, never for a whole workflow.
+      assert.ok(!JSON.stringify(workflow.permissions ?? {}).includes('id-token'), file);
+      return Object.entries(workflow.jobs).filter(([, job]) => job.permissions?.['id-token'] === 'write').map(([name, job]) => [file, name, job.environment]);
+    });
+    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
   });
 });

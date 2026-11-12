@@ -240,3 +240,22 @@ test('Add makes a goal from any step, Esc gives focus back to it, and Undo takes
   await expect(page.getByRole('region', { name: 'Keep fit' })).toHaveCount(0);
 });
 
+test('Add opens over the pinned Does it fit line, so every kind can be picked where it is drawn', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await openPlan(page, phone);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
+  await page.getByRole('button', phone ? { name: 'Add a goal, practice, project or Inbox task' } : { name: '+ Add', exact: true }).click();
+  const kinds = page.getByRole('dialog', { name: 'Add' }).locator('.addmenu').getByRole('button');
+  await expect(kinds).toHaveText(['Goal', 'Task to Inbox', 'Project', 'Practice']);
+  // What's drawn at each button's centre is that button, not the pinned line over it, so a click there picks it.
+  for (const kind of await kinds.all()) {
+    const hit = await kind.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return el.contains(top) ? 'itself' : (top?.closest('[class]')?.className ?? 'nothing');
+    });
+    expect(hit, `what's drawn over ${await kind.textContent()}`).toBe('itself');
+  }
+});
+

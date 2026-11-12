@@ -93,14 +93,14 @@ describe('which reminders a block gets', () => {
     expect(paused.actions[0]!.id).toBe(REMINDER_ACTION.resume);
   });
 
-  it('a pause gets one reminder 15 minutes in, with Resume, while the check-in is on and it would land before the end', () => {
+  it('a pause gets one reminder 30 minutes in, with Resume, while the check-in is on and it would land before the end', () => {
     const paused = (at: string, over: Partial<BlockRow> = {}) => block('a', day('10:00'), day('11:00'), { started_at: day('10:00'), paused_at: day(at), ...over });
     const still = (b: BlockRow, s = settings) => remindersToSchedule([b], s, [], clock).filter((r) => r.kind === 'still_paused');
     const [reminder] = still(paused('10:22'));
-    expect(reminder).toMatchObject({ at: day('10:37'), title: 'Still paused: Paint the fence', body: 'Paused since 10:22am. It ends at 11am unless you resume.' });
+    expect(reminder).toMatchObject({ at: day('10:52'), title: 'Paint the fence has been paused for 30 min', body: 'It ends at 11am unless you resume.' });
     expect(reminder!.actions).toEqual([{ id: REMINDER_ACTION.resume, title: 'Resume' }]);
-    // Fifteen minutes would reach the end, whose own notification asks then.
-    expect(still(paused('10:45'))).toEqual([]);
+    // Thirty minutes would reach the end, whose own notification asks then.
+    expect(still(paused('10:30'))).toEqual([]);
     expect(still(paused('10:22'), { ...settings, check_in: false })).toEqual([]);
     expect(still(paused('10:22', { ended_at: day('10:30') }))).toEqual([]);
     expect(still(block('a', day('10:00'), day('11:09'), { started_at: day('10:00'), paused_min: 9 }))).toEqual([]);

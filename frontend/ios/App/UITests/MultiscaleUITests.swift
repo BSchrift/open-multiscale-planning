@@ -170,14 +170,15 @@ final class ShellUITests: XCTestCase {
 
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 2 items")
-        exists(app.webText("Buy a proofing basket"))
+        // The card's title is a button, which edits it.
+        exists(app.webButton("Buy a proofing basket"))
         // Add to opens a sheet of places, ready to search; a tap on one adds the item there.
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
         exists(app.webText("Added Buy a proofing basket to Bake a sourdough loaf."))
         choose("A starter that rises", in: "Milestone for Buy a proofing basket", app: app)
 
-        exists(app.webText("Return the library books"))
+        exists(app.webButton("Return the library books"))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
         exists(app.webText("Inbox clear"))

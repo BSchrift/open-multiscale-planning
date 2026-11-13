@@ -65,7 +65,7 @@ describe('the planning frame', () => {
     expect(await screen.findByRole('button', { name: '4. Review' })).toHaveAttribute('aria-current', 'step');
   });
 
-  it('on phone has tappable steps, a Continue button that names the next step, and Capture', async () => {
+  it('on phone has tappable steps, a Continue button that names the next step, and Capture, which Pick makes Add', async () => {
     const t = await openPlanning({ layout: 'phone' });
     const steps = await screen.findByRole('navigation', { name: 'Planning steps' });
     // Named for screen readers, as on desktop, though phone has no room to show it.
@@ -75,7 +75,12 @@ describe('the planning frame', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue to picking tasks' }));
     expect(within(steps).getByRole('button', { name: 'Pick' })).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('button', { name: 'Continue to scheduling' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Capture a task' }));
+    // On Pick, + adds where you are, and Task to Inbox keeps capture one tap away.
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a task, one off, milestone or project' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Add' })).getByRole('button', { name: 'Task to Inbox' }));
+    expect(t.nav().overlay?.area).toBe('capture');
+    await userEvent.click(within(steps).getByRole('button', { name: 'Inbox' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Capture a task' }));
     expect(t.nav().overlay?.area).toBe('capture');
   });
 

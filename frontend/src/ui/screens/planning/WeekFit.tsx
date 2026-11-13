@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { formatMinutes } from '../../../core/dates';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useApp, useQuery } from '../../app/store';
+import type { AddItem } from '../../components/AddMenu';
 import { loadFit, weekFit } from './model';
 
 const DELTA_MS = 3000;
@@ -20,9 +21,24 @@ interface FitHooks {
   preview(p: FitPreview | null): void;
   /** What the phone's fit line opens on this step, if anything. */
   show(open: (() => void) | null): void;
+  /** What + Add offers on this step, if anything; without it the phone's + captures to the Inbox. */
+  add(items: readonly AddItem[] | null): void;
 }
 
-export const FitContext = createContext<FitHooks>({ preview: () => {}, show: () => {} });
+export const FitContext = createContext<FitHooks>({ preview: () => {}, show: () => {}, add: () => {} });
+
+/** For a step: what + Add offers while it's showing. Each item's action is read when it's picked. */
+export function useAddItems(items: readonly AddItem[]) {
+  const hooks = useContext(FitContext);
+  const latest = useRef(items);
+  latest.current = items;
+  const labels = items.map((i) => i.label).join('|');
+  useEffect(() => {
+    hooks.add(latest.current.map((item, i) => ({ label: item.label, onPick: () => latest.current[i]?.onPick() })));
+    return () => hooks.add(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labels]);
+}
 
 /** For a step: shows its preview while it has one, and gives the phone's fit line something to open. */
 export function useFit(preview: FitPreview | null, open?: () => void) {

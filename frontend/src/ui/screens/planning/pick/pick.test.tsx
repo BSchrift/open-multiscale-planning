@@ -2,7 +2,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { localToInstant } from '../../../../core/dates';
-import { getRecord, outcomeId, weekPickId, weekPlanId } from '../../../../core/records';
+import { getRecord, listRecords, outcomeId, weekPickId, weekPlanId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { EST_STEPS } from '../../../components/EstimateSlider';
 import { openPlanning, seedWeek } from '../testing';
@@ -67,7 +67,7 @@ describe('Pick tasks: project cards', () => {
   it('shows a card per project, soonest first, with its pill, aim and timeline, then One offs, then quiet cards for paused ones', async () => {
     await openPlanning({ step: 1, seed: seedWeek });
     await screen.findByRole('region', { name: 'Write the report' });
-    const cards = [...document.querySelectorAll('.pcd')].map((c) => c.getAttribute('aria-label'));
+    const cards = [...document.querySelectorAll('.pcd[aria-label]')].map((c) => c.getAttribute('aria-label'));
     expect(cards).toEqual(['Write the report', 'Learn to bake bread', 'One offs', 'Plan the garden']);
     const report = cardOf('Write the report');
     expect(within(report).getByText('Overdue')).toHaveClass('pill');
@@ -802,5 +802,139 @@ describe('Pick tasks: the row', () => {
     const pop = screen.getByRole('dialog', { name: 'Collect the sources' });
     expect(pop).toHaveClass('sheet');
     expect(within(pop).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
+  });
+});
+
+describe('Pick tasks: adding while you pick', () => {
+  const tasksNamed = async (t: { db: Parameters<typeof getRecord>[0] }, title: string) =>
+    (await listRecords(t.db, 'task')).filter((x) => x.title === title && !x.deleted_at);
+
+  it('+ Task at a card’s foot adds a task under the last milestone used, in this week, with Undo that deletes it', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    const report = await screen.findByRole('region', { name: 'Write the report' });
+    expect(within(report).getByRole('button', { name: 'Add milestone to Write the report' })).toBeInTheDocument();
+    await userEvent.click(within(report).getByRole('button', { name: 'Add task to Write the report' }));
+    const form = within(report).getByRole('form', { name: 'New task in Write the report' });
+    const title = within(form).getByRole('textbox', { name: 'Title' });
+    expect(title).toHaveFocus();
+    expect(within(form).getByRole('checkbox', { name: 'This week' })).toBeChecked();
+    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Milestone' }), 'Draft chapters');
+    await userEvent.type(title, 'Outline chapter three{Enter}');
+    expect(await screen.findByText('Added Outline chapter three to Draft chapters, 1h in this week.')).toBeInTheDocument();
+    const [added] = await tasksNamed(t, 'Outline chapter three');
+    expect(added).toMatchObject({ project_id: 'report', milestone_id: 'm2', estimate_min: 60 });
+    expect(await minutesOf(t, added!.id)).toBe(60);
+    // Enter adds and keeps the field open for the next one.
+    expect(title).toHaveValue('');
+    expect(title).toHaveFocus();
+    expect(await within(report).findByRole('button', { name: '1h this week: Outline chapter three' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await tasksNamed(t, 'Outline chapter three')).toEqual([]));
+    expect(await minutesOf(t, added!.id)).toBeNull();
+
+    await userEvent.click(within(form).getByRole('checkbox', { name: 'This week' }));
+    await userEvent.type(title, 'Make the index{Enter}');
+    expect(await screen.findByText('Added Make the index to Draft chapters.')).toBeInTheDocument();
+    const [index] = await tasksNamed(t, 'Make the index');
+    expect(await minutesOf(t, index!.id)).toBeNull();
+    await userEvent.click(within(form).getByRole('button', { name: 'Close' }));
+    expect(within(report).queryByRole('form', { name: 'New task in Write the report' })).toBeNull();
+    expect(within(report).getByRole('button', { name: 'Add task to Write the report' })).toHaveFocus();
+
+    // The milestone starts on the last one used.
+    await userEvent.click(within(report).getByRole('button', { name: 'Add task to Write the report' }));
+    expect(within(report).getByRole('combobox', { name: 'Milestone' })).toHaveDisplayValue('Draft chapters');
+  });
+
+  it('+ Milestone adds one with an optional date, then opens the task form with it chosen', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    const report = await screen.findByRole('region', { name: 'Write the report' });
+    await userEvent.click(within(report).getByRole('button', { name: 'Add milestone to Write the report' }));
+    const form = within(report).getByRole('form', { name: 'New milestone in Write the report' });
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Milestone name' }), 'Print and bind');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(await screen.findByText('Added milestone Print and bind to Write the report.')).toBeInTheDocument();
+    const ms = (await listRecords(t.db, 'milestone')).find((m) => m.title === 'Print and bind')!;
+    expect(ms.due ?? null).toBeNull();
+    const tasks = within(report).getByRole('form', { name: 'New task in Write the report' });
+    expect(within(tasks).getByRole('combobox', { name: 'Milestone' })).toHaveDisplayValue('Print and bind');
+    await userEvent.click(within(tasks).getByRole('button', { name: 'Close' }));
+
+    await userEvent.click(within(report).getByRole('button', { name: 'Add milestone to Write the report' }));
+    const dated = within(report).getByRole('form', { name: 'New milestone in Write the report' });
+    await userEvent.type(within(dated).getByRole('textbox', { name: 'Milestone name' }), 'Send it out');
+    fireEvent.change(within(dated).getByLabelText('Date (optional)'), { target: { value: '2026-12-10' } });
+    await userEvent.click(within(dated).getByRole('button', { name: 'Add' }));
+    await waitFor(async () => expect((await listRecords(t.db, 'milestone')).find((m) => m.title === 'Send it out')?.due).toBe('2026-12-10'));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await listRecords(t.db, 'milestone')).some((m) => m.title === 'Send it out')).toBe(false));
+  });
+
+  it('+ Add project, with a goal, adds a project whose card opens on its task form, with Undo', async () => {
+    const t = await openPlanning({
+      step: 1,
+      seed: async (w) => {
+        await seedWeek(w);
+        await w.create('objective', { title: 'Make a home we love', state: 'active' }, 'g1');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: '+ Add project' }));
+    const form = screen.getByRole('form', { name: 'Add project' });
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Name' }), 'Plan the trip');
+    await userEvent.selectOptions(within(form).getByRole('combobox', { name: 'Goal' }), 'Make a home we love');
+    await userEvent.click(within(form).getByRole('button', { name: 'Add project' }));
+    expect(await screen.findByText(/^Added project Plan the trip, Nov 2 to /)).toBeInTheDocument();
+    const project = (await listRecords(t.db, 'project')).find((p) => p.title === 'Plan the trip')!;
+    expect(project.objective_id).toBe('g1');
+    const card = await screen.findByRole('region', { name: 'Plan the trip' });
+    await waitFor(() => expect(within(card).getByRole('textbox', { name: 'Title' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'project', project.id))?.deleted_at).toBeTruthy());
+  });
+
+  it('+ Add ▾ by Save and exit adds a task to the open card, a one off in this week, a milestone or a project', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    const add = await screen.findByRole('button', { name: '+ Add' });
+    await userEvent.click(add);
+    const menu = screen.getByRole('dialog', { name: 'Add' });
+    expect(within(menu).getAllByRole('button').map((b) => b.textContent)).toEqual(['Task in Write the report', 'One off', 'Milestone in Write the report', 'Project', 'Task to Inbox']);
+    await userEvent.click(within(menu).getByRole('button', { name: 'One off' }));
+    const form = screen.getByRole('form', { name: 'Add a one off' });
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Title' }), 'Buy stamps');
+    expect(within(form).getByRole('checkbox', { name: 'This week' })).toBeChecked();
+    await userEvent.click(within(form).getByRole('button', { name: 'Add one off' }));
+    expect(await screen.findByText(/^Added Buy stamps to One offs/)).toBeInTheDocument();
+    const [stamps] = await tasksNamed(t, 'Buy stamps');
+    expect(stamps).toMatchObject({ kind: 'one_off' });
+    expect(await minutesOf(t, stamps!.id)).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await tasksNamed(t, 'Buy stamps')).toEqual([]));
+
+    await userEvent.click(add);
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Add' })).getByRole('button', { name: 'Task in Write the report' }));
+    expect(within(screen.getByRole('region', { name: 'Write the report' })).getByRole('form', { name: 'New task in Write the report' })).toBeInTheDocument();
+  });
+
+  it('select mode hides the adders', async () => {
+    await openPlanning({ step: 1, seed: seedWeek });
+    await userEvent.click(await screen.findByRole('button', { name: 'Select' }));
+    expect(screen.queryByRole('button', { name: /^Add task to / })).toBeNull();
+  });
+
+  it('on phone, + becomes the Add sheet, naming the project in view, with Task to Inbox', async () => {
+    await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a task, one off, milestone or project' }));
+    const sheet = screen.getByRole('dialog', { name: 'Add' });
+    expect(within(sheet).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Task in Write the report',
+      'One off',
+      'Milestone in Write the report',
+      'Project',
+      'Task to Inbox',
+      'Cancel',
+    ]);
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Task in Write the report' }));
+    expect(screen.getByRole('dialog', { name: 'New task in Write the report' })).toBeInTheDocument();
   });
 });

@@ -139,6 +139,8 @@
 
 [data-layout='phone'] .attachadds .btn {
   flex: 1 1 0;
+  /* Its 15px text left the button a fraction of a pixel under 44pt. */
+  min-height: 44px;
   justify-content: flex-start;
   padding-inline: 12px;
   font-size: 15px;

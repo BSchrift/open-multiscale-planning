@@ -261,6 +261,17 @@ export const MIGRATIONS: Migration[] = [
   { version: 4, statements: [] },
 ];
 
+/**
+ * Indexes made at open, as the views are, rather than by a migration, which bundles up to c88b04d would refuse. A bundle
+ * from before one never reads it, and SQLite keeps it up to date through that bundle's writes, so one left behind after
+ * a rollback does no harm. They let Done read a day's finishes without reading every task.
+ */
+export const INDEXES: Readonly<Record<string, string>> = {
+  task_done: "CREATE INDEX task_done ON records (json_extract(data, '$.done_at')) WHERE type = 'task'",
+  completion_done: "CREATE INDEX completion_done ON records (json_extract(data, '$.done_at')) WHERE type = 'task_completion'",
+  milestone_met: "CREATE INDEX milestone_met ON records (json_extract(data, '$.met_at')) WHERE type = 'milestone'",
+};
+
 /** Keys in the meta table. */
 export const META = {
   cursor: 'cursor',
@@ -318,7 +329,8 @@ function randomDeviceId(): string {
 
 /**
  * Prepares a raw connection and returns the Db: applies pending migrations, each in its own transaction, rebuilds any
- * view that differs from this code's, makes sure this device has an id, and refreshes planner statistics. A database a
+ * view that differs from this code's, makes any index in INDEXES that's missing, makes sure this device has an id, and
+ * refreshes planner statistics. A database a
  * newer bundle migrated still opens, since an update that fails its trial goes back to the bundle before it. Throws
  * only when a breaking migration says this app can't use the database, rather than risk damaging it.
  */
@@ -340,6 +352,10 @@ export async function openDb(driver: SqlDriver, migrations: readonly Migration[]
   const views = await driver.all("SELECT name, sql FROM sqlite_master WHERE type = 'view'", []);
   const stale = RECORD_TYPES.filter((type) => views.find((v) => v.name === type)?.sql !== viewSql(type));
   if (stale.length) await inTransaction(driver, () => driver.exec(stale.map((type) => `DROP VIEW IF EXISTS ${type}; ${viewSql(type)}`).join(';\n')));
+  // Likewise only those missing.
+  const indexes = await driver.all("SELECT name FROM sqlite_master WHERE type = 'index'", []);
+  const missing = Object.entries(INDEXES).filter(([name]) => !indexes.some((i) => i.name === name));
+  if (missing.length) await inTransaction(driver, () => driver.exec(missing.map(([, sql]) => sql).join(';\n')));
 
   const db = createDb(driver);
   if (!(await getMeta(db, META.deviceId))) await setMeta(db, META.deviceId, randomDeviceId());

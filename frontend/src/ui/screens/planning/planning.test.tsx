@@ -65,7 +65,7 @@ describe('the planning frame', () => {
     expect(await screen.findByRole('button', { name: '4. Review' })).toHaveAttribute('aria-current', 'step');
   });
 
-  it('on phone has tappable steps, a Continue button that names the next step, and Capture', async () => {
+  it('on phone has tappable steps, a Continue button that names the next step, and Capture, which Pick makes Add', async () => {
     const t = await openPlanning({ layout: 'phone' });
     const steps = await screen.findByRole('navigation', { name: 'Planning steps' });
     // Named for screen readers, as on desktop, though phone has no room to show it.
@@ -75,7 +75,12 @@ describe('the planning frame', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue to picking tasks' }));
     expect(within(steps).getByRole('button', { name: 'Pick' })).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('button', { name: 'Continue to scheduling' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Capture a task' }));
+    // On Pick, + adds where you are, and Task to Inbox keeps capture one tap away.
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a task, one off, milestone or project' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Add' })).getByRole('button', { name: 'Task to Inbox' }));
+    expect(t.nav().overlay?.area).toBe('capture');
+    await userEvent.click(within(steps).getByRole('button', { name: 'Inbox' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Capture a task' }));
     expect(t.nav().overlay?.area).toBe('capture');
   });
 
@@ -90,8 +95,7 @@ describe('the planning frame', () => {
       step: 1,
       seed: (w) => w.create('practice', { title: 'Morning stretch', target_min: 15, per: 'day', days: [2, 3], preferred_times: [7 * 60], state: 'active' }, 'pr'),
     });
-    const line = (await screen.findByText('Practices and repeating work')).parentElement!;
-    await waitFor(() => expect(line).toHaveTextContent('30m'));
+    expect(await screen.findByText('Practices and repeating work 30m')).toBeInTheDocument();
     expect(await listRecords(t.db, 'time_block')).toEqual([]);
   });
 
@@ -125,6 +129,46 @@ describe('the planning frame', () => {
     for (const db of [t.db, other]) {
       expect((await getRecord(db, 'week_pick', weekPickId(WEEK, 'o1')))?.deleted_at).toEqual(expect.any(String));
     }
+  });
+});
+
+describe('Does it fit?', () => {
+  const fit = () => screen.getByRole('region', { name: 'Does it fit?' });
+
+  it('stays under the steps on every step, and shows each change beside it', async () => {
+    await openPlanning({ step: 1, seed: seedWeek });
+    // Paint the fence is dated this week, so it starts picked: 1h 30m of the 98h left.
+    await waitFor(() => expect(fit()).toHaveTextContent('1h 30m of 98h · 96h 30m free'));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
+    await waitFor(() => expect(fit()).toHaveTextContent('3h 30m of 98h · 94h 30m free'));
+    const delta = within(fit()).getByText('+2h');
+    expect(delta).toHaveAttribute('aria-hidden', 'true');
+    for (const step of ['1. Inbox', '3. Schedule', '4. Review']) {
+      await userEvent.click(within(screen.getByRole('navigation', { name: 'Planning steps' })).getByRole('button', { name: step }));
+      await waitFor(() => expect(fit()).toHaveTextContent('3h 30m of 98h · 94h 30m free'));
+    }
+  });
+
+  it('says how far over the week goes, and what happens to the rest', async () => {
+    const big = async (w: Writer) => {
+      await seedWeek(w);
+      await w.create('task', { kind: 'one_off', title: 'Paint the house', estimate_min: 6000, schedule: { type: 'once', from: '2026-11-03' } }, 'o9');
+    };
+    await openPlanning({ step: 0, seed: big });
+    await waitFor(() => expect(fit()).toHaveTextContent('101h 30m of 98h · 3h 30m over'));
+    expect(within(fit()).getByText('101h 30m of 98h · 3h 30m over')).toHaveClass('over');
+    expect(within(fit()).getByText("What doesn't fit stays on its project or in One offs.")).toBeInTheDocument();
+  });
+
+  it('on phone, sits in the top bar, and on Pick shows This week', async () => {
+    await openPlanning({ step: 0, layout: 'phone', seed: seedWeek });
+    await waitFor(() => expect(fit()).toHaveTextContent('1h 30m of 98h · 96h 30m free'));
+    expect(fit().closest('.flowtop')).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Pick' }));
+    const open = await screen.findByRole('button', { name: 'Does it fit? 1h 30m of 98h, 96h 30m free. Show This week' });
+    expect(open.closest('.flowtop')).not.toBeNull();
+    await userEvent.click(open);
+    expect(await screen.findByRole('button', { name: 'This week, 1 task', pressed: true })).toBeInTheDocument();
   });
 });
 

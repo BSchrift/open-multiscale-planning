@@ -20,6 +20,8 @@ interface ToastOptions {
   undo?: () => void | Promise<unknown>;
   /** Moves focus to Undo, for when the control that made the change has gone. */
   focusUndo?: boolean;
+  /** Said after the message but not shown, such as what the change leaves free. */
+  spoken?: string;
 }
 
 interface ToastApi {
@@ -135,7 +137,10 @@ export function ToastProvider(props: { children: ReactNode }) {
             onPointerEnter={(e) => e.pointerType === 'mouse' && setHeld((h) => ({ ...h, hover: true }))}
             onPointerLeave={(e) => e.pointerType === 'mouse' && setHeld((h) => ({ ...h, hover: false }))}
           >
-            <span>{current.message}</span>
+            <span>
+              {current.message}
+              {current.spoken && <span className="sr"> {current.spoken}</span>}
+            </span>
             {current.undo && (
               <button
                 className="toastact"

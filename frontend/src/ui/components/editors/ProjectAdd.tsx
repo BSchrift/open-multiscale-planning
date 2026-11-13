@@ -6,7 +6,7 @@ import type { FormEvent } from 'react';
 import { addMonths, formatDate, isDay, today } from '../../../core/dates';
 import { currentStretch, planStretch } from '../../../core/plan';
 import { getSettings } from '../../../core/records';
-import type { Fields, LocalDate } from '../../../core/types';
+import type { Fields, LocalDate, Objective } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
@@ -23,6 +23,8 @@ export function ProjectAdd(props: {
   onAdded?(id: string): void;
   /** Saves the project in the caller's own change instead, with what goes with it, so one Undo takes it all back. True once saved. */
   save?(fields: Fields<'project'> & { title: string }): Promise<boolean>;
+  /** Goals to put it under, which shows a Goal field. */
+  goals?: readonly Objective[];
 }) {
   const { clock } = useApp();
   const toast = useToast();
@@ -35,6 +37,7 @@ export function ProjectAdd(props: {
   const [picked, setEnd] = useState<string | null>(null);
   const end = picked ?? props.end ?? (settings && currentStretch(settings, on) ? planStretch(settings, on).end : addMonths(on, 3));
   const [error, setError] = useState('');
+  const [goal, setGoal] = useState(props.objectiveId ?? '');
   const add = useMutation((w, fields: Fields<'project'>) => w.create('project', fields));
 
   const save = async (event: FormEvent) => {
@@ -42,7 +45,7 @@ export function ProjectAdd(props: {
     const name = title.trim();
     if (!name) return setError('Give it a name.');
     if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-    const fields: Fields<'project'> = { objective_id: props.objectiveId, title: name, state: 'active', start, end };
+    const fields: Fields<'project'> = { objective_id: props.goals ? goal || null : props.objectiveId, title: name, state: 'active', start, end };
     if (props.save) {
       if (await props.save({ ...fields, title: name })) props.onClose();
       return;
@@ -70,6 +73,21 @@ export function ProjectAdd(props: {
           Name
           <input className="field" autoFocus value={title} onChange={change(setTitle)} />
         </label>
+        {props.goals && (
+          <label className="popfield">
+            Goal
+            <select className="field" value={goal} onChange={change(setGoal)}>
+              <option value="">No goal</option>
+              {props.goals
+                .filter((g) => g.state !== 'archived' && !g.deleted_at)
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <div className="row nowrap">
           <label className="popfield grow">
             Starts

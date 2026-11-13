@@ -2,7 +2,7 @@
 // inside a Sheet, with Cancel. Given a task, it changes that one instead.
 
 import { useId, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import type { Fields, RepeatUnit, Task } from '../../../core/types';
 import { useApp, useToday } from '../../app/store';
 import { DayChips } from '../DayChips';
@@ -81,6 +81,8 @@ export function OneOffForm(props: {
   onDelete?(): void;
   /** A one off to change rather than add. */
   task?: Task;
+  /** More fields for where it's added from, above the buttons. */
+  extra?: ReactNode;
 }) {
   const { layout } = useApp();
   const today = useToday();
@@ -227,6 +229,7 @@ export function OneOffForm(props: {
           {error}
         </div>
       )}
+      {props.extra}
       <div className="row">
         <button className={phone ? 'btn pri grow' : 'btn pri'} type="submit">
           {props.task ? 'Save' : 'Add one off'}

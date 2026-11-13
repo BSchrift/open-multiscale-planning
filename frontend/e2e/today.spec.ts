@@ -344,6 +344,28 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
   expect(errors).toEqual([]);
 });
 
+test('on desktop, a 15-minute block moves from wherever it is pressed, even right by its bottom edge', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'Phone holds first, and draws no handle on a short block');
+  const errors = await open(page, [planned, report, block('b1', 't1', '16:00', '16:15')]);
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  const b = page.getByRole('button', { name: /^Write the report, 4pm to 4:15pm/ });
+  await b.scrollIntoViewIfNeeded();
+  const box = (await b.boundingBox())!;
+  expect(box.height).toBeLessThan(24);
+  // 2px from its bottom, where a handle to change its length used to take most of a block this short.
+  const x = box.x + box.width / 3;
+  const y = box.y + box.height - 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  // 15px is half an hour: start and end both move.
+  await page.mouse.move(x, y + 8, { steps: 3 });
+  await page.mouse.move(x, y + 15, { steps: 3 });
+  await page.mouse.up();
+  await expect(page.getByText('Write the report is now 4:30pm to 4:45pm.')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('a clash with the calendar shifts the rest of today', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const calendar: Seed = {

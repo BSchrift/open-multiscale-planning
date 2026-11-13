@@ -162,6 +162,18 @@ describe('the week grid', () => {
     expect(t.onChange).toHaveBeenLastCalledWith('b1', { date: '2026-11-05', start: 17 * 60, end: 17 * 60 + 15 });
   });
 
+  it('a 15-minute block has no edge to drag, so a press anywhere on it moves it; a 30-minute one keeps its edge', () => {
+    const t = draw({ editing: true, blocks: [{ ...piano, end: piano.start + 15 }] });
+    const el = block(/^Piano practice/);
+    expect(el.querySelector('.evh')).toBeNull();
+    // 20px is half an hour at 40px an hour: start and end both move.
+    drag(el, { x: 50, y: 100 }, { x: 50, y: 120 });
+    expect(t.onChange).toHaveBeenCalledWith('b2', { date: '2026-11-06', start: 7 * 60 + 30, end: 7 * 60 + 45 });
+    cleanup();
+    draw({ editing: true });
+    expect(block(/^Piano practice/).querySelector('.evh')).not.toBeNull();
+  });
+
   it('a press that does not move opens the block', () => {
     const t = draw({ editing: true });
     drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 52, y: 103 });

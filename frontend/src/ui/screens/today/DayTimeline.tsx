@@ -253,6 +253,27 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     });
   };
 
+  // What a block says it does: one still to come moves, and the one under way only changes its end. A short block has
+  // no edge or handle to drag, since on desktop it would take most of the block, and a press there would change the
+  // length instead of moving it.
+  const help: Record<string, string> = phone
+    ? {
+        move: 'Tap to open it. Hold it, then drag to move it, or hold its handle and drag to change its length.',
+        'move-short': 'Tap to open it. Hold it, then drag to move it.',
+        end: 'Hold its handle and drag to change its length.',
+      }
+    : {
+        move: 'Drag to move it, or drag its bottom edge to change its length. Up and down arrow keys move it, and Shift and arrows change its length.',
+        'move-short': 'Drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.',
+        end: 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.',
+        'end-short': 'Use Shift and the up and down arrow keys to change its length.',
+      };
+  const helpOf = (move: boolean, resize: boolean, short: boolean) => {
+    const key = move ? 'move' : resize ? 'end' : '';
+    const full = `${key}${short ? '-short' : ''}`;
+    return key && full in help ? `${helpId}-${full}` : undefined;
+  };
+
   const calendar = (
     <div
       className="daywrap"
@@ -267,14 +288,11 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       }}
     >
       {/* No arrow keys on phone, where VoiceOver's swipes move a block as a slider. */}
-      <span id={helpId} hidden>
-        {phone
-          ? 'Tap to open it. Hold it, then drag to move it, or hold its handle and drag to change its length.'
-          : 'Drag to move it, or drag its bottom edge to change its length. Up and down arrow keys move it, and Shift and arrows change its length.'}
-      </span>
-      <span id={`${helpId}-end`} hidden>
-        {phone ? 'Hold its handle and drag to change its length.' : 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.'}
-      </span>
+      {Object.entries(help).map(([key, text]) => (
+        <span key={key} id={`${helpId}-${key}`} hidden>
+          {text}
+        </span>
+      ))}
       <div
         className="day"
         style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}
@@ -341,7 +359,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               title={i.time}
               style={style}
               aria-label={alt(i)}
-              aria-describedby={move ? helpId : resize ? `${helpId}-end` : undefined}
+              aria-describedby={helpOf(move, resize, !!compact)}
               // The release after a drag also clicks the block; that click shouldn't open it.
               onClick={() => Date.now() - droppedAt.current >= HOLD_MS && openItem(i)}
               onPointerDown={move ? press(i, 'move') : undefined}
@@ -351,7 +369,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             >
               <span className="cevt">{phone && lifted ? `${i.time}, ${i.title}` : i.title}</span>
               {time}
-              {resize && !phone && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
+              {resize && !phone && !compact && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
               {resize && phone && !compact && (
                 <span className="rz" aria-hidden="true" onPointerDown={press(i, 'resize')}>
                   <i />

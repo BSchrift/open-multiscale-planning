@@ -54,6 +54,10 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
 
   await page.getByRole('button', { name: "Edit this week's plan" }).click();
   await expect(page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
+  // A half-hour block keeps its edge to drag, no more than a quarter of it, so most of it still moves the block.
+  const piano = page.getByRole('group', { name: /^Piano practice/ });
+  const [pianoBox, pianoEdge] = [(await piano.boundingBox())!, (await piano.locator('.evh').boundingBox())!];
+  expect(pianoEdge.height).toBeLessThanOrEqual(pianoBox.height / 4);
   const block = page.getByRole('group', { name: /^Draft the summary/ });
   const box = (await block.boundingBox())!;
   const column = (await page.locator('.colbody').first().boundingBox())!;

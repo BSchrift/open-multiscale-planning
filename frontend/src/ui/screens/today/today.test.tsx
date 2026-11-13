@@ -1280,6 +1280,49 @@ describe('moving a block on the timeline', () => {
     }
   });
 
+  describe('a 15-minute block, drawn too short for an edge to drag', () => {
+    const short = async (w: Writer) => {
+      await task(w, 't1', 'Write the report');
+      await block(w, 'b1', 't1', '16:00', '16:15');
+    };
+
+    it('on desktop moves from wherever it is pressed, and Shift and arrows change its length', async () => {
+      const t = await open(short);
+      const el = await report();
+      expect(el).toHaveClass('compact');
+      expect(el.querySelector('.evh')).toBeNull();
+      expect(el).toHaveAccessibleDescription('Drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.');
+      // 15px is half an hour: start and end both move.
+      await drag(el, 15, 'desktop');
+      expect(await screen.findByText('Write the report is now 4:30pm to 4:45pm.')).toBeVisible();
+      expect(await saved(t)).toMatchObject({ start: at('16:30'), end: at('16:45') });
+      const moved = await report(/^Write the report, 4:30pm to 4:45pm/);
+      moved.focus();
+      await userEvent.keyboard('{Shift>}{ArrowDown}{/Shift}');
+      expect(await screen.findByText('Write the report is now 4:30pm to 5pm.')).toBeVisible();
+    });
+
+    it('under way on desktop, says Shift and arrows change its length', async () => {
+      await open(async (w) => {
+        await task(w, 't1', 'Write the report');
+        await block(w, 'b1', 't1', '13:45', '14:15');
+      });
+      const el = await report(/^Write the report, 1:45pm to 2:15pm/);
+      expect(el.querySelector('.evh')).toBeNull();
+      expect(el).toHaveAccessibleDescription('Use Shift and the up and down arrow keys to change its length.');
+    });
+
+    it('on phone is held, then dragged, as a taller one is', async () => {
+      const t = await open(short, { layout: 'phone' });
+      const el = await report(undefined, 'slider');
+      expect(el.querySelector('.rz')).toBeNull();
+      expect(el).toHaveAccessibleDescription('Tap to open it. Hold it, then drag to move it.');
+      await drag(el, 15, 'phone');
+      expect(await screen.findByText('Write the report is now 4:30pm to 4:45pm.')).toBeVisible();
+      expect(await saved(t)).toMatchObject({ start: at('16:30'), end: at('16:45') });
+    });
+  });
+
   describe('on desktop', () => {
     it('a press that moves less than a few pixels is still a click: it opens the task, and nothing moves', async () => {
       const t = await open(day);

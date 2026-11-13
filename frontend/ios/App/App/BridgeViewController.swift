@@ -9,12 +9,25 @@ class BridgeViewController: CAPBridgeViewController {
     private var backgroundAt: Date?
     /// Kept until the page loaded after the rollback asks, so telemetry can report it.
     var rolledBack: Int?
+    #if DEBUG
+    private var loading: NSKeyValueObservation?
+    #endif
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
         bridge?.registerPluginInstance(UpdatesPlugin())
+        #if DEBUG
+        bridge?.registerPluginInstance(ChecksPlugin())
+        // XCUITest waits for this before it reads the page: reading a web view whose WebKit processes the Simulator is
+        // still starting fails at once, rather than waiting.
+        loading = webView?.observe(\.isLoading) { webView, _ in
+            guard !webView.isLoading else { return }
+            let name = CFNotificationName("io.github.bschrift.multiscale.page-loaded" as CFString)
+            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
+        }
+        #endif
         startTrial()
         let center = NotificationCenter.default
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.backgroundAt = Date() }
@@ -336,6 +349,31 @@ class DiagnosticsPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 }
+
+#if DEBUG
+/// For XCUITest's test page only: what iOS otherwise starts on its own, run here as iOS runs it.
+@objc(MultiscaleChecksPlugin)
+class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
+    let identifier = "MultiscaleChecksPlugin"
+    let jsName = "MultiscaleChecks"
+    let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "openCapture", returnType: CAPPluginReturnPromise),
+    ]
+
+    /// The Control Center button's intent, which iOS runs in the app's process when the button is tapped.
+    @objc func openCapture(_ call: CAPPluginCall) {
+        guard #available(iOS 18.0, *) else { return call.reject("the Control Center button needs iOS 18") }
+        Task { @MainActor in
+            do {
+                _ = try await OpenCapture().perform()
+                call.resolve()
+            } catch {
+                call.reject(String(describing: error))
+            }
+        }
+    }
+}
+#endif
 
 /// Settings > Appearance. Light or Dark overrides the phone's setting for the whole window, so the status bar, the
 /// keyboard and the web view's background match the page; System goes back to following the phone.

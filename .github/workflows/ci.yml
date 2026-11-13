@@ -286,8 +286,8 @@ jobs:
       - run: make test-ios
         env:
           IOS_RESULTS: ${{ runner.temp }}/ios-results
-      # Kept even when the job passes, since a test that passes on a retry, or one marked as an expected failure, passes
-      # the job with its screenshots. The job's summary lists them.
+      # Kept even when the job passes, since a test marked as an expected failure passes the job with its screenshots. The
+      # job's summary lists them.
       - uses: actions/upload-artifact@v4
         if: always()
         with:

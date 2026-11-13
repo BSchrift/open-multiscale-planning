@@ -1,6 +1,7 @@
 // A test page for XCUITest: buttons that drive the real adapter and real plugins, and print what happened. The test
 // script builds it into the app's test copy only, so it never ships.
 
+import { registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
 import { systemClock } from '../core/clock';
@@ -13,6 +14,9 @@ import { getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
+
+/** The debug build's hooks for this page (ChecksPlugin in BridgeViewController.swift). */
+const Checks = registerPlugin<{ openCapture(): Promise<void> }>('MultiscaleChecks');
 
 const output = document.getElementById('log')!;
 const log = (line: string) => {
@@ -141,13 +145,13 @@ platform.lifecycle.onForeground(() => log('foreground'));
 platform.notifications.onResponse((r) => log(`response:${r.reminder_id}:${r.action_id}`));
 
 button('Ask', async () => `permission:${await platform.notifications.requestPermission()}`);
-button('Remind', async () => {
+const remind = async (inMs: number) => {
   await platform.notifications.replaceAll([
     {
       id: 'check-block:end',
       kind: 'block_end',
       block_id: 'check-block',
-      at: new Date(Date.now() + 4000).toISOString(),
+      at: new Date(Date.now() + inMs).toISOString(),
       title: 'Paint the fence',
       body: 'How did it go?',
       actions: [
@@ -157,7 +161,10 @@ button('Remind', async () => {
     },
   ]);
   return `pending:${(await platform.notifications.scheduled()).map((r) => r.id).join(',')}`;
-});
+};
+button('Remind', () => remind(4000));
+// Still waiting however slow the Simulator, for a test of what happens before it's due.
+button('Remind later', () => remind(60 * MINUTE_MS));
 button('Cancel', async () => {
   await platform.notifications.cancel(['check-block:end']);
   return `pending:${(await platform.notifications.scheduled()).length}`;
@@ -181,6 +188,11 @@ button('Shared', async () => {
   const items = await share.peek();
   await share.remove(items.map((item) => item.id));
   return `shared:${items.map((item) => item.text).join('|')}`;
+});
+// The Control Center button's intent, through the debug build's hook, which logs capture as the button would.
+button('Control', async () => {
+  await Checks.openCapture();
+  return 'control:ran';
 });
 button('Diagnostics', async () => {
   const snap = await platform.diagnostics!.snapshot();

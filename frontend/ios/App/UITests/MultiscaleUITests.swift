@@ -7,7 +7,9 @@ import XCTest
 private let patience: TimeInterval = 60
 /// For the first page after a launch, when the web view starts WebKit's processes, which that hold can delay on top of
 /// the page's own second or two.
-private let launchPatience: TimeInterval = 60
+private let launchPatience: TimeInterval = 120
+/// Posted by the debug build each time its web view finishes loading a page (BridgeViewController.swift).
+private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
 private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
@@ -48,6 +50,30 @@ private extension XCUIApplication {
         if !effect.waitForExistence(timeout: 5), button.exists, button.isHittable { button.tap() }
         MultiscaleUITests.exists(effect, file: file, line: line)
     }
+
+    /// Taps a field, then types with the keyboard. WebKit now and then drops the page from the tree for a moment as the
+    /// keyboard comes up, and typing into the field by name fails at once when the field can't be found then. The
+    /// keyboard types into whatever has focus, which the tap gave the field.
+    func type(_ text: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        MultiscaleUITests.exists(field, file: file, line: line)
+        field.tap()
+        XCTAssertTrue(keyboards.element.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(debugDescription)", file: file, line: line)
+        typeText(text)
+    }
+
+    /// Launches, then waits for the web view to load its page before anything reads the page. Reading a web view whose
+    /// WebKit processes the Simulator is still holding fails the test at once ("Timed out while evaluating UI query"),
+    /// however long the wait around it allows, so the wait is for the app's own word instead.
+    func launchLoaded(file: StaticString = #filePath, line: UInt = #line) {
+        let loaded = XCTDarwinNotificationExpectation(notificationName: pageLoaded)
+        launch()
+        waitForPage(loaded, file: file, line: line)
+    }
+}
+
+/// Waits for an expectation made, before whatever opens the page, from the debug build's page-loaded notification.
+private func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: launchPatience), .completed, "the web view never loaded its page", file: file, line: line)
 }
 
 private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
@@ -61,7 +87,7 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
 private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIApplication {
     let checks = XCUIApplication()
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
-    checks.launch()
+    checks.launchLoaded()
     exists(checks.webText("ready"), timeout: launchPatience)
     checks.tapWeb("Erase", until: checks.webText("erased"))
     if let seed {
@@ -70,12 +96,12 @@ private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIAppl
             print("Waiting until \(at) so \(seed) fits in one day")
             Thread.sleep(until: at)
         }
-        checks.tapWeb(seed)
-        exists(checks.webText("seeded"))
+        // A tap after that wait, like the first after a launch, can be lost.
+        checks.tapWeb(seed, until: checks.webText("seeded"))
     }
     checks.terminate()
     let app = XCUIApplication()
-    app.launch()
+    app.launchLoaded()
     return app
 }
 
@@ -120,6 +146,29 @@ private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: Stat
     exists(element, file: file, line: line)
 }
 
+/**
+ * Answers a notification from Notification Center, where it waits until it's answered, whether it arrived with the app
+ * in front, at the Home Screen or with Notification Center open. Its banner shows for a few seconds only, and one that
+ * arrives over the app goes when the app does, so a test that waits for the banner misses it whenever the notification
+ * comes before the test reaches the Home Screen.
+ */
+private func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
+                                within timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
+    XCUIDevice.shared.press(.home)
+    // Down from the top edge left of the Dynamic Island: from the right it's Control Center.
+    let window = springboard.windows.firstMatch
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.0))
+        .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.6)))
+    let notification = springboard.descendants(matching: .any)["NotificationShortLookView"]
+    exists(notification, timeout: timeout, in: springboard, file: file, line: line)
+    notification.press(forDuration: 1.5)
+    let button = springboard.buttons[action]
+    exists(button, in: springboard, file: file, line: line)
+    for other in others { XCTAssertTrue(springboard.buttons[other].exists, "\(other) isn't offered", file: file, line: line) }
+    for other in absent { XCTAssertFalse(springboard.buttons[other].exists, "\(other) is offered", file: file, line: line) }
+    button.tap()
+}
+
 /// The app asks once there's a block to remind about. Whichever test gets there first answers.
 private func allowNotificationsIfAsked() {
     let allow = springboard.alerts.buttons["Allow"]
@@ -141,17 +190,14 @@ final class ShellUITests: XCTestCase {
         exists(app.webText("Welcome"))
         app.tapWeb("Skip", until: app.webText("Unavailable hours"))
         app.tapWeb("Next")
-        let first = app.page.textFields["A goal or a thought"]
-        exists(first)
-        first.tap()
-        first.typeText("Learn to bake bread")
+        app.type("Learn to bake bread", into: app.page.textFields["A goal or a thought"])
         app.tapWeb("Add goal")
         for tab in ["Today", "Week", "Goals", "More"] { exists(app.webButton(tab)) }
         exists(app.webButton("Capture a task"))
 
         // Setup finished in the plugin's database, so a new process goes straight to the shell, goal and all.
         app.terminate()
-        app.launch()
+        app.launchLoaded()
         exists(app.webButton("Goals"), timeout: launchPatience)
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
@@ -163,8 +209,7 @@ final class ShellUITests: XCTestCase {
         for title in ["Buy a proofing basket", "Return the library books"] {
             let field = app.page.textFields["Capture to Inbox"]
             app.tapWeb("Capture a task", until: field)
-            field.tap()
-            field.typeText(title + "\n")
+            app.type(title + "\n", into: field)
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
         }
 
@@ -202,10 +247,7 @@ final class ShellUITests: XCTestCase {
         let add = app.page.buttons.matching(NSPredicate(format: "label == '+ Practice'")).firstMatch
         exists(add)
         add.tap()
-        let name = app.page.textFields["Name"]
-        exists(name)
-        name.tap()
-        name.typeText("Morning run")
+        app.type("Morning run", into: app.page.textFields["Name"])
         app.tapWeb("Add practice", until: app.webButton(startingWith: "Morning run"))
 
         // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full.
@@ -241,11 +283,12 @@ final class ShellUITests: XCTestCase {
         exists(field)
         field.tap()
         XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(app.debugDescription)")
-        field.typeText("Use ")
+        // With the keyboard, as type(_:into:) does, since the field can drop from the tree as the keyboard comes up.
+        app.typeText("Use ")
         // The bar's buttons leave the field focused, so the keyboard stays up and typing goes on between the marks.
         app.tapWeb("Bold")
         XCTAssertTrue(keyboard.exists, "Bold put the keyboard away")
-        field.typeText("rye")
+        app.typeText("rye")
         XCTAssertEqual(field.value as? String, "Use **rye**")
         app.tapWeb("Save")
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "the editor is still open")
@@ -261,9 +304,11 @@ final class ShellUITests: XCTestCase {
         exists(app.webButton("Capture a task"))
         // The link the Control Center button opens, so a cold launch from either goes the same way.
         app.terminate()
+        let loaded = XCTDarwinNotificationExpectation(notificationName: pageLoaded)
         XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
         openLinkPrompt()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
+        waitForPage(loaded)
         exists(app.page.textFields["Capture to Inbox"], timeout: launchPatience)
         captureAboveTheKeyboard(app, saving: "Buy rye flour")
 
@@ -289,7 +334,7 @@ final class ShellUITests: XCTestCase {
         }
         let risen = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: above, object: nil)], timeout: patience) == .completed
         XCTAssertTrue(risen, "Capture's field at \(field.frame) and Save at \(save.frame) are not both clear above the keyboard at \(keyboard.frame)", file: file, line: line)
-        field.typeText(title)
+        app.typeText(title)
         save.tap()
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open", file: file, line: line)
     }
@@ -346,18 +391,8 @@ final class ShellUITests: XCTestCase {
         allowNotificationsIfAsked()
         onToday(app.webText("In progress, time left"), in: app)
 
-        XCUIDevice.shared.press(.home)
-        let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
-        // The block ends two minutes after it was seeded.
-        exists(banner, timeout: 180)
-        banner.press(forDuration: 1.5)
-        let notDone = springboard.buttons["Not done"]
-        exists(notDone)
-        XCTAssertTrue(springboard.buttons["Still going"].exists)
-        XCTAssertTrue(springboard.buttons["Partly"].exists)
-        // A task is never finished from a notification.
-        XCTAssertFalse(springboard.buttons["Done"].exists)
-        notDone.tap()
+        // The block ends two minutes after it was seeded. A task is never finished from a notification, so there's no Done.
+        answerNotification(with: "Not done", alsoOffering: ["Still going", "Partly"], notOffering: ["Done"], within: 180)
 
         app.activate()
         let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
@@ -388,7 +423,7 @@ final class NativeUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
-        app.launch()
+        app.launchLoaded()
         exists(app.webText("ready"), timeout: launchPatience)
     }
 
@@ -416,14 +451,14 @@ final class NativeUITests: XCTestCase {
         run("Diagnostics", expect: "diagnostics:ok")
         // Killed while open, as iOS does at a memory limit: the next run reports it once.
         app.terminate()
-        app.launch()
+        app.launchLoaded()
         exists(app.webText("ready"), timeout: launchPatience)
         run("Diagnostics", expect: "previous:active")
     }
 
     func testNotificationPermissionThenCancelThenActionReachesTheApp() {
-        // The script gives each run a new Simulator, and only this test asks, so the dialog shows, unless this is a retry
-        // of a first attempt that already allowed it. Tapped once only: a second tap could land with the dialog up.
+        // The script gives each run a new Simulator, so the dialog shows, unless a test that ran first already allowed
+        // it. Tapped once only: a second tap could land with the dialog up.
         app.webButton("Ask").tap()
         let allow = springboard.alerts.buttons["Allow"]
         let granted = app.webText("permission:true")
@@ -432,18 +467,14 @@ final class NativeUITests: XCTestCase {
         if allow.exists { allow.tap() }
         exists(granted)
 
-        run("Remind", expect: "pending:check-block:end")
+        // An hour out, so it's still waiting when Cancel comes, however slow the Simulator. One due in seconds could
+        // arrive first, and then Cancel took back a notification already shown.
+        run("Remind later", expect: "pending:check-block:end")
         run("Cancel", expect: "pending:0")
 
+        // Due in seconds, answered wherever the test is when it arrives.
         run("Remind", expect: "pending:check-block:end")
-        XCUIDevice.shared.press(.home)
-        let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
-        exists(banner)
-        banner.press(forDuration: 1.5)
-        let done = springboard.buttons["Done"]
-        exists(done)
-        XCTAssertTrue(springboard.buttons["Partly"].exists)
-        done.tap()
+        answerNotification(with: "Done", alsoOffering: ["Partly"])
 
         app.activate()
         exists(app.webText("response:check-block:end:done"))
@@ -529,53 +560,14 @@ final class NativeUITests: XCTestCase {
         run("Shared", expect: "shared:")
     }
 
-    func testControlCenterWidgetOpensCapture() throws {
+    /// The Control Center button's intent, run in the app's process as iOS runs it when the button is tapped, opens
+    /// Capture. The script checks the button's extension is in the app.
+    // shortcut: Control Center itself isn't driven. On CI's Simulator a tapped control now and then never opened the app,
+    // on every try (the logs say "begin request watchdogged after 15.000000s"), so the debug build runs the intent
+    // instead. Drive Control Center again once a Simulator starts a control's extension reliably.
+    func testControlCenterButtonsIntentOpensCapture() throws {
         try XCTSkipUnless(extensionsEnabled, "extensions are off")
-        XCUIDevice.shared.press(.home)
-        openControlCenter()
-        let capture = springboard.buttons["Capture"].firstMatch
-        // A retry finds the control its first attempt added.
-        if !capture.waitForExistence(timeout: 3) { addCaptureControl() }
-        // Opened again, as a person would use it: tapped a moment after Control Center left editing, the control now and
-        // then didn't open the app.
-        XCUIDevice.shared.press(.home)
-        openControlCenter()
-        exists(capture, in: springboard)
-        // iOS gives the control's extension 15 s to start, and a control whose extension missed that does nothing when
-        // tapped until iOS has started it. CI's Simulator now and then holds every process it starts for up to 40 s, so
-        // there the first taps can do nothing: the logs say "begin request watchdogged after 15.000000s", and the
-        // extension starts after the tap. So it's tapped until the app comes up, as a person would.
-        var taps = 0
-        repeat {
-            capture.tap()
-            taps += 1
-        } while !app.wait(for: .runningForeground, timeout: 15) && taps < 4 && capture.exists && capture.isHittable
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience), "the control didn't open the app. On screen:\n\(springboard.debugDescription)")
-        exists(app.webText("capture"))
-    }
-
-    private func openControlCenter() {
-        let window = springboard.windows.firstMatch
-        let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.0))
-        from.press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
-    }
-
-    private func addCaptureControl() {
-        let window = springboard.windows.firstMatch
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).press(forDuration: 1.5)
-        let add = springboard.buttons["Add a Control"]
-        exists(add)
-        add.tap()
-        let search = springboard.searchFields.firstMatch
-        exists(search)
-        search.tap()
-        search.typeText("Capture")
-        let control = springboard.buttons["Capture"].firstMatch
-        exists(control)
-        control.tap()
-        // Leave editing, and wait for it to end: a control tapped while editing doesn't run.
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
-        XCTAssertTrue(add.waitForNonExistence(timeout: patience), "Control Center is still editing")
+        run("Control", expect: "capture")
     }
 }
 
@@ -744,10 +736,7 @@ final class SignedInUITests: XCTestCase {
         let other = try SecondDevice(target)
 
         app.tapWeb("Capture a task")
-        let field = app.page.textFields["Capture to Inbox"]
-        exists(field)
-        field.tap()
-        field.typeText(title + "\n")
+        app.type(title + "\n", into: app.page.textFields["Capture to Inbox"])
 
         other.eventually("the capture") { $0["title"] as? String == title && !($0["deleted_at"] is String) }
 
@@ -848,7 +837,7 @@ final class HistoryUITests: XCTestCase {
         app.terminate()
         let checks = XCUIApplication()
         checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
-        checks.launch()
+        checks.launchLoaded()
         exists(checks.webText("ready"), timeout: launchPatience)
         checks.tapWeb("History")
         let line = checks.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'history:'")).firstMatch

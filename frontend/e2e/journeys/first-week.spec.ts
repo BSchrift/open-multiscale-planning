@@ -49,7 +49,7 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   const picks = ['Sketch the chapter list', 'Write the opening scene', 'Draft chapter one'];
   if (phone) {
     const sheet = page.getByRole('region', { name: 'Tasks in Finish the first draft' });
-    for (const t of picks) await sheet.getByRole('button', { name: `Add ${t}` }).click();
+    for (const t of picks) await sheet.getByRole('button', { name: `Add ${t} to the plan` }).click();
     await expect(page.locator('.donut .dlabel')).toHaveText('+4h 30m');
   } else {
     await page.getByRole('button', { name: /^Finish the first draft,/ }).click();

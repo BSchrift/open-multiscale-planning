@@ -16,17 +16,18 @@ import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { Aims } from './Aims';
 import { EstimatePopover } from './EstimatePopover';
-import { aimWords } from './model';
+import { aimWords, stopIndex, weekStops } from './model';
 import type { PickGroup, PickProject, PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
 import { PastEnd } from './PastEnd';
 import type { PickProps } from './PickStep';
 
-/** Its estimate as Pick counts it, or, with all of it on the calendar this week, that. */
+/** Its estimate as Pick counts it, or, with all of it on the calendar this week, that. Only the figure shows; the
+ * button's name says it's the estimate. */
 export function estWords(r: PickTask): string {
   const t = r.c.task;
   if (t.estimate_min == null && t.remaining_min == null) return 'No estimate';
-  return r.c.left || !r.c.placed ? `${formatMinutes(r.c.left)} estimate` : 'On the calendar';
+  return r.c.left || !r.c.placed ? formatMinutes(r.c.left) : 'On the calendar';
 }
 
 function AimMeter(props: { aim: AimRow }) {
@@ -68,10 +69,10 @@ function TaskLine(props: PickProps & { row: PickTask }) {
   const done = props.isDone(r);
   const full = !r.c.picked && !r.c.left && r.c.placed && estWords(r) === 'On the calendar';
   return (
-    <div className="editrow">
+    <li className="editrow">
       <div className={`pickrow${done ? ' isdone' : ''}`}>
         <div className="pickinfo">
-          <button className="picktitle subline" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => openTask(r.c.task.id)}>
+          <button className="picktitle subline" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}${done ? ', done' : ''}`} onClick={() => openTask(r.c.task.id)}>
             {r.title}
             {r.c.task.notes && <NoteMark />}
           </button>
@@ -80,7 +81,15 @@ function TaskLine(props: PickProps & { row: PickTask }) {
         {done ? (
           <span className="small quiet pickest">Done</span>
         ) : (
-          <button ref={estRef} className="small quiet pickest pickestbtn" type="button" aria-expanded={estOpen} aria-label={`Estimate for ${r.title}: ${estWords(r)}`} onClick={() => setEstOpen(!estOpen)}>
+          <button
+            ref={estRef}
+            className="small quiet pickest pickestbtn"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={estOpen}
+            aria-label={`Estimate for ${r.title}: ${estWords(r)}`}
+            onClick={() => setEstOpen(!estOpen)}
+          >
             {estWords(r)}
           </button>
         )}
@@ -90,7 +99,7 @@ function TaskLine(props: PickProps & { row: PickTask }) {
               Undo
             </button>
           ) : (
-            <button className="btn sm pickbtn" type="button" aria-label={`Mark ${r.title} done`} onClick={() => props.markDone(r)}>
+            <button className="btn sm pickbtn" type="button" aria-label={`Mark done: ${r.title}`} onClick={() => props.markDone(r)}>
               Mark done
             </button>
           )}
@@ -108,7 +117,7 @@ function TaskLine(props: PickProps & { row: PickTask }) {
       {estOpen && !done && (
         <EstimatePopover row={r} phone={false} onSave={(m) => props.setEstimate(r, m)} onClose={closeEst} />
       )}
-    </div>
+    </li>
   );
 }
 
@@ -116,7 +125,7 @@ function Group(props: PickProps & { group: PickGroup }) {
   const { group: g } = props;
   return (
     <>
-      <div className={`pmshead small strong${g.late ? ' latetext' : ''}`}>
+      <h4 className={`pmshead small strong${g.late ? ' latetext' : ''}`}>
         {g.isMs && (
           <>
             <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />
@@ -125,10 +134,12 @@ function Group(props: PickProps & { group: PickGroup }) {
         )}
         {g.head}
         {g.isMs && g.planned > 0 && `: ${formatMinutes(g.planned)} planned`}
-      </div>
-      {g.rows.map((r) => (
-        <TaskLine key={r.c.task.id} {...props} row={r} />
-      ))}
+      </h4>
+      <ul className="picklist">
+        {g.rows.map((r) => (
+          <TaskLine key={r.c.task.id} {...props} row={r} />
+        ))}
+      </ul>
     </>
   );
 }
@@ -185,7 +196,7 @@ function ProjectLine(props: PickProps & { s: PickProject; open: boolean; toggle(
         </div>
       </div>
       {open && (
-        <div className="pcard">
+        <div className="pcard" role="group" aria-label={`${project.title} tasks`}>
           <div className="small">
             {s.goal && <span className="quiet">{s.goal}. </span>}
             {formatDate(project.start)} to {formatDate(project.end)}. {s.lateText && <span className="latetext">{s.lateText}</span>} {s.next}
@@ -318,11 +329,13 @@ export function PickDesktop(props: PickProps) {
             {view.oneOffs.aim ? <AimMeter aim={view.oneOffs.aim} /> : <span className="small quiet">{formatMinutes(view.oneOffs.planned)} planned</span>}
           </div>
           {open.oneOffs && (
-            <div className="pcard">
+            <div className="pcard" role="group" aria-label="One offs tasks">
               <SkipAim {...props} {...(view.oneOffs.aim ? { aim: view.oneOffs.aim } : {})} rows={view.oneOffs.rows} />
-              {view.oneOffs.rows.map((r) => (
-                <TaskLine key={r.c.task.id} {...props} row={r} />
-              ))}
+              <ul className="picklist">
+                {view.oneOffs.rows.map((r) => (
+                  <TaskLine key={r.c.task.id} {...props} row={r} />
+                ))}
+              </ul>
               {view.oneOffs.rows.length === 0 && <p className="small quiet">Nothing due.</p>}
             </div>
           )}
@@ -350,6 +363,7 @@ export function PickDesktop(props: PickProps) {
         {view.planned.map((r) => {
           const { week: minutes, left } = r.c;
           const text = `${formatMinutes(minutes)} of ${formatMinutes(left)}`;
+          const stops = weekStops(left);
           return (
             <div key={r.c.task.id} className={`planitem${r.oneOff ? ' is-maint' : ''}`}>
               <div className="small">{r.title}</div>
@@ -374,13 +388,13 @@ export function PickDesktop(props: PickProps) {
                 <input
                   type="range"
                   className="wide-range"
-                  min={15}
-                  max={left}
-                  step={15}
-                  value={minutes}
+                  min={0}
+                  max={stops.length - 1}
+                  step={1}
+                  value={stopIndex(stops, minutes)}
                   aria-label={`Time this week for ${r.title}`}
                   aria-valuetext={text}
-                  onChange={(event) => props.setMinutes(r, Number(event.target.value))}
+                  onChange={(event) => props.setMinutes(r, stops[Number(event.target.value)]!)}
                 />
               )}
             </div>
@@ -398,9 +412,9 @@ export function PickDesktop(props: PickProps) {
           <span>Tasks you added</span>
           <span className="strong">{formatMinutes(view.picked)}</span>
         </div>
-        <div className="between small">
-          <span>Left free</span>
-          <span className="strong">{formatMinutes(Math.max(0, free))}</span>
+        <div className={`between small${free < 0 ? ' overtext' : ''}`}>
+          <span>{free < 0 ? 'Over by' : 'Left free'}</span>
+          <span className="strong">{formatMinutes(Math.abs(free))}</span>
         </div>
         {warn && <div className="warn small">{warn}</div>}
         <div>

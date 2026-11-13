@@ -3,7 +3,7 @@
 // + adds the suggested part. Tapping a task's title edits it. The dock shows the week's numbers, and the ring pops up
 // above it on each change.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { formatMinutes, formatWeekRange } from '../../../../core/dates';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Minutes } from '../../../../core/types';
@@ -12,19 +12,18 @@ import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { Sheet } from '../../../components/Sheet';
+import { useToast } from '../../../components/Toast';
 import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { pickWarning } from '../../../../core/capacity';
 import { Aims } from './Aims';
 import { EstimatePopover } from './EstimatePopover';
-import { aimWords } from './model';
+import { aimWords, stopIndex, weekStops } from './model';
 import type { PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
 import { PastEnd, pastEndLine } from './PastEnd';
 import { estWords, Legend } from './PickDesktop';
 import type { PickProps } from './PickStep';
-
-const TOAST_MS = 5000;
 
 function estText(r: PickTask): string {
   const left = r.c.left;
@@ -42,7 +41,7 @@ function AddButton(props: PickProps & { row: PickTask }) {
     <button
       className={`tadd${picked ? ' on' : ''}`}
       type="button"
-      aria-label={`${picked ? 'Remove' : 'Add'} ${r.title}`}
+      aria-label={`Add ${r.title} to the plan`}
       aria-pressed={picked}
       onClick={() => (picked ? props.remove(r) : props.add(r))}
     >
@@ -61,16 +60,12 @@ export function PickPhone(props: PickProps) {
   const openTask = useOpenTask();
   const [sheet, setSheet] = useState<string | null>(null);
   const [fixFor, setFixFor] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ text: string; ids: string[] } | null>(null);
+  const toast = useToast();
   // Listed as they were when Suggest opened, so rows don't vanish as adding one changes what's suggested.
   const [listed, setListed] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), TOAST_MS);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   const show = (id: string | null) => setChosen(id);
+  const nameOf = (id: string) => (id === ONE_OFFS_BUCKET ? 'One offs' : (view.projects.find((p) => p.plan.project.id === id)?.plan.project.title ?? ''));
   const closeSheet = () => setSheet(null);
   const weekLabel = formatWeekRange(week);
   const { used, free } = model.use;
@@ -88,8 +83,8 @@ export function PickPhone(props: PickProps) {
     const done = props.isDone(r);
     const full = !r.c.picked && estText(r) === 'On the calendar';
     return (
-      <div key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}${done ? ' isdone' : ''}`}>
-        <button className="tmain" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => openTask(r.c.task.id, r.note)}>
+      <li key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}${done ? ' isdone' : ''}`}>
+        <button className="tmain" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}${done ? ', done' : ''}`} onClick={() => openTask(r.c.task.id, r.note)}>
           {r.title}
           {r.c.task.notes && <NoteMark />}
         </button>
@@ -106,19 +101,20 @@ export function PickPhone(props: PickProps) {
             {estText(r)}
           </button>
         )}
-        <button className="tdone" type="button" aria-label={done ? `Undo finishing ${r.title}` : `Mark ${r.title} done`} onClick={() => (done ? props.undoDone(r) : props.markDone(r))}>
+        <button className="tdone" type="button" aria-label={done ? `Undo finishing ${r.title}` : `Mark done: ${r.title}`} onClick={() => (done ? props.undoDone(r) : props.markDone(r))}>
           {done ? 'Undo' : 'Mark done'}
         </button>
         {done || full ? <span className="tadd" aria-hidden="true" /> : <AddButton {...props} row={r} />}
-      </div>
+      </li>
     );
   };
 
+  // Add all goes with its sheet, so focus goes to Undo.
   const addAll = async () => {
-    const text = `Added ${formatMinutes(view.hintMin)}`;
+    const text = `Added ${formatMinutes(view.hintMin)}.`;
     closeSheet();
     const ids = await props.addSuggested();
-    setToast({ text, ids });
+    toast.show(text, { undo: () => props.removeAll(ids), focusUndo: true });
   };
 
   return (
@@ -248,10 +244,16 @@ export function PickPhone(props: PickProps) {
         {at >= 0 && (
           <section className={`tsheet${isOneOffs ? ' purple' : ''}`} aria-label={`Tasks in ${isOneOffs ? 'One offs' : trayProject!.plan.project.title}`}>
             <div className="thead">
-              <button type="button" aria-label="Previous project" disabled={at === 0} onClick={() => show(seq[at - 1]!)}>
+              {/* Named for where they go. At either end they stay focusable, so focus isn't dropped there. */}
+              <button type="button" aria-label={at === 0 ? 'Previous project' : `Previous project: ${nameOf(seq[at - 1]!)}`} aria-disabled={at === 0} onClick={() => at > 0 && show(seq[at - 1]!)}>
                 ‹
               </button>
-              <button type="button" aria-label="Next project" disabled={at === seq.length - 1} onClick={() => show(seq[at + 1]!)}>
+              <button
+                type="button"
+                aria-label={at === seq.length - 1 ? 'Next project' : `Next project: ${nameOf(seq[at + 1]!)}`}
+                aria-disabled={at === seq.length - 1}
+                onClick={() => at < seq.length - 1 && show(seq[at + 1]!)}
+              >
                 ›
               </button>
               <div className="ttl">
@@ -271,23 +273,25 @@ export function PickPhone(props: PickProps) {
                   </button>
                 </div>
               )}
-              {isOneOffs
-                ? view.oneOffs.rows.map(taskRow)
-                : trayProject!.groups.map((g) => (
-                    <div key={g.key}>
-                      <div className={`tghead${g.late ? ' latetext' : ''}`}>
-                        {g.isMs && (
-                          <>
-                            <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />
-                            Milestone:{' '}
-                          </>
-                        )}
-                        {g.head}
-                        {g.isMs && g.planned > 0 && `: ${formatMinutes(g.planned)} planned`}
-                      </div>
-                      {g.rows.map(taskRow)}
-                    </div>
-                  ))}
+              {isOneOffs ? (
+                <ul className="picklist">{view.oneOffs.rows.map(taskRow)}</ul>
+              ) : (
+                trayProject!.groups.map((g) => (
+                  <div key={g.key}>
+                    <h3 className={`tghead${g.late ? ' latetext' : ''}`}>
+                      {g.isMs && (
+                        <>
+                          <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />
+                          Milestone:{' '}
+                        </>
+                      )}
+                      {g.head}
+                      {g.isMs && g.planned > 0 && `: ${formatMinutes(g.planned)} planned`}
+                    </h3>
+                    <ul className="picklist">{g.rows.map(taskRow)}</ul>
+                  </div>
+                ))
+              )}
               {(isOneOffs ? view.oneOffs.rows.length === 0 : trayProject!.groups.length === 0) && (
                 <p className="small quiet">{isOneOffs ? 'Nothing due.' : 'No open tasks.'}</p>
               )}
@@ -295,20 +299,6 @@ export function PickPhone(props: PickProps) {
           </section>
         )}
         <div className="pksum">
-          {toast && (
-            <div className="pktoast" role="status">
-              <span>{toast.text}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  props.removeAll(toast.ids);
-                  setToast(null);
-                }}
-              >
-                Undo
-              </button>
-            </div>
-          )}
           <div className="flowdock">
             <button className="flowsum" type="button" aria-label={`Planned for ${weekLabel}, ${view.dockLine}. Open the list`} onClick={() => setSheet('planned')}>
               <span className="small strong">
@@ -335,6 +325,7 @@ export function PickPhone(props: PickProps) {
           {view.planned.length === 0 && <p className="small quiet">Nothing yet. Add tasks from your projects or One offs.</p>}
           {view.planned.map((r) => {
             const text = `${formatMinutes(r.c.week)} of ${formatMinutes(r.c.left)}`;
+            const stops = weekStops(r.c.left);
             return (
               <div key={r.c.task.id} className={`rowline${r.oneOff ? ' mhead' : ''}`}>
                 <div className="between">
@@ -352,13 +343,13 @@ export function PickPhone(props: PickProps) {
                     <input
                       type="range"
                       className="wide-range"
-                      min={15}
-                      max={r.c.left}
-                      step={15}
-                      value={r.c.week}
+                      min={0}
+                      max={stops.length - 1}
+                      step={1}
+                      value={stopIndex(stops, r.c.week)}
                       aria-label={`Time this week for ${r.title}`}
                       aria-valuetext={text}
-                      onChange={(event) => props.setMinutes(r, Number(event.target.value))}
+                      onChange={(event) => props.setMinutes(r, stops[Number(event.target.value)]!)}
                     />
                   </div>
                 ) : (
@@ -380,9 +371,9 @@ export function PickPhone(props: PickProps) {
               <span>Tasks you added</span>
               <span className="strong">{formatMinutes(view.picked)}</span>
             </div>
-            <div className="between small">
-              <span>Left free</span>
-              <span className="strong">{formatMinutes(Math.max(0, free))}</span>
+            <div className={`between small${free < 0 ? ' overtext' : ''}`}>
+              <span>{free < 0 ? 'Over by' : 'Left free'}</span>
+              <span className="strong">{formatMinutes(Math.abs(free))}</span>
             </div>
           </div>
           {warn && <div className="warn">{warn}</div>}

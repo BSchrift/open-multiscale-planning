@@ -5,7 +5,17 @@
 :where([data-layout]) .planning .pklegend .lg-stretch{background:var(--stretch);border:1px solid var(--tick)}
 :where([data-layout]) .pklegend .msdia{margin:0 2px}
 :where([data-layout]) .pklegend.col{flex-direction:column;align-items:flex-start}
-:where([data-layout]) .planning .wide-range{width:100%}
+:where([data-layout]) .planning .wide-range{width:100%;accent-color:var(--blue)}
+/* Milestone heads are headings and rows a list, for VoiceOver; neither looks any different. */
+:where([data-layout]) .planning .picklist{margin:0;padding:0;list-style:none}
+:where([data-layout]) .planning :is(h4.pmshead,h3.tghead){margin:0}
+:where([data-layout='desktop']) .planning h4.pmshead{font-size:13px}
+/* The done circle's grey edge is under 3:1 on a tint, so it takes the quiet ink there. */
+:where([data-layout]) :is(.mband,.added,.oo,.is-maint) .checkcircle:not(:checked){border-color:var(--quiet)}
+/* The ring sits in the Planned card's corner, clear of its heading and Add suggested. */
+:where([data-layout='desktop']) .planning .pickside>h3{padding-right:72px}
+/* An open project nests under a rule rather than a fill, which barely shows in dark mode. */
+:where([data-layout='desktop']) .planning .pickmain>section.card .pcard{margin:0 0 12px 15px;padding:4px 0 4px 14px;border-radius:0;border-left:2px solid var(--grey);background:transparent}
 
 :where([data-layout='desktop']) .planning .qpad{padding-left:40px}
 /* A task's title reads as text and opens its editor. */

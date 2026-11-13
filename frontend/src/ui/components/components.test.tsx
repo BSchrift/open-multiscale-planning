@@ -303,6 +303,8 @@ describe('Pill', () => {
     );
     expect(screen.getByText('On track')).toHaveClass('pill', 'p-g');
     expect(screen.queryByRole('button', { name: 'On track' })).toBeNull();
+    // Its question opens in a popover, so it says it opens a dialog.
+    expect(screen.getByRole('button', { name: 'Overdue: move the date' })).toHaveAttribute('aria-haspopup', 'dialog');
     await userEvent.click(screen.getByRole('button', { name: 'Overdue: move the date' }));
     expect(onClick).toHaveBeenCalledOnce();
     expect(screen.getByText('Overdue')).toHaveClass('p-r');

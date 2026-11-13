@@ -94,6 +94,18 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     tasks
       .filter((t) => t.done_at && !t.deleted_at && localDate(t.done_at, clock.zone()) === on)
       .map((t) => ({ task: t, left: 0, picked: false, week: 0, carried: false, stale: false, placed: false }));
+  // Each finished one goes back before the first open one that came after it in the tasks' own order, so it stays
+  // where it was, and focus and the pointer stay on the row that was ticked. The open ones keep their order.
+  const inPlace = (rows: PickTask[], tasks: readonly Task[]) => {
+    const at = new Map(tasks.map((t, i) => [t.id, i]));
+    const idx = (r: PickTask) => at.get(r.c.task.id) ?? 0;
+    const out = rows.filter((r) => !r.done);
+    for (const d of rows.filter((r) => r.done).sort((a, b) => idx(a) - idx(b))) {
+      const i = out.findIndex((r) => !r.done && idx(r) > idx(d));
+      out.splice(i < 0 ? out.length : i, 0, d);
+    }
+    return out;
+  };
 
   const marksOf = (plan: ProjectPlan) =>
     plan.milestones
@@ -130,6 +142,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       g.rows.push(task(c));
       g.planned += c.week;
     }
+    for (const g of groups) g.rows = inPlace(g.rows, plan.tasks);
     const s = status(plan, ctx);
     const marks = marksOf(plan);
     const { project } = plan;
@@ -151,7 +164,10 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     };
   });
 
-  const oneOffRows = [...oneOffCandidates(m.oneOffs, input, ctx, true), ...doneToday(m.oneOffs)].map(task);
+  // Those due this week come first, as oneOffCandidates puts them, each part in the tasks' own order.
+  const dueFirst = (c: Candidate) => (taskDue(c.task, null, input.weekStart, ctx).dueDay != null ? 0 : 1);
+  const oneOffCands = [...oneOffCandidates(m.oneOffs, input, ctx, true), ...doneToday(m.oneOffs)];
+  const oneOffRows = [0, 1].flatMap((part) => inPlace(oneOffCands.filter((c) => dueFirst(c) === part).map(task), m.oneOffs));
   const oneOffs = {
     rows: oneOffRows,
     aim: aimOf(ONE_OFFS_BUCKET),
@@ -183,11 +199,26 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     axis: { start: addDays(on, -28), end: addDays(on, 181) },
     stretch: d.settings.plan_cadence ? st : undefined,
     weekSpan: { start: input.weekStart, end: addDays(input.weekStart, 6) },
-    dockLine: planned.length
-      ? `${planned.length} ${planned.length === 1 ? 'task' : 'tasks'}, ${formatMinutes(picked)}, ${formatMinutes(Math.max(0, free))} left free`
-      : `Nothing yet, ${formatMinutes(Math.max(0, free))} left free`,
+    dockLine: `${planned.length ? `${planned.length} ${planned.length === 1 ? 'task' : 'tasks'}, ${formatMinutes(picked)}` : 'Nothing yet'}, ${freeWords(free)}`,
   };
 }
+
+/** What's left of the week, or how far over it is: '23h 55m left free', 'over by 1h 20m'. */
+export const freeWords = (free: Minutes) => (free < 0 ? `over by ${formatMinutes(-free)}` : `${formatMinutes(free)} left free`);
+
+/**
+ * The stops a week's time for a task can take: each quarter hour under its time, then all of it, so a 20 minute task
+ * reaches 20m rather than stopping at 15m.
+ */
+export function weekStops(left: Minutes): Minutes[] {
+  const stops: Minutes[] = [];
+  for (let m = 15; m < left; m += 15) stops.push(m);
+  return [...stops, left];
+}
+
+/** The stop nearest a time, for a slider's value. */
+export const stopIndex = (stops: readonly Minutes[], minutes: Minutes) =>
+  stops.reduce((best, m, i) => (Math.abs(m - minutes) < Math.abs(stops[best]! - minutes) ? i : best), 0);
 
 export type PickView = ReturnType<typeof pickModel>;
 

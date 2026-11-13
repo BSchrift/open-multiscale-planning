@@ -9,9 +9,28 @@
 [data-layout='phone'] .schmark { flex: none; width: 20px; text-align: center; }
 [data-layout='phone'] .schname { min-width: 0; }
 /* The task list, the week and the day each sit in a card. On phone the sticky header is ground, as on Week, holding the days as a card. */
-[data-layout='desktop'] .planning .schedlist.card { padding: 6px; }
+[data-layout='desktop'] .planning .schedcard.card { padding: 6px; }
 [data-layout='desktop'] .planning .planright.card { padding: var(--space-3) var(--space-4) var(--space-4) var(--space-2); }
 [data-layout='phone'] .planning .weektop { border-bottom: 0; background: var(--ground); }
 [data-layout='phone'] .planning .weektop > .card { padding: var(--space-3) 10px; }
 [data-layout='phone'] .planning .card > .daywrap { padding: var(--space-3) var(--space-3) var(--space-3) 60px; }
 [data-layout='phone'] .planning .card .dragday { margin-bottom: 0; }
+/* The task being placed, pinned under Now above the list, below the pinned Does it fit bar, so its controls stay in reach
+   however long the list is. A popover from a row below still opens over it. */
+[data-layout='desktop'] .planning .schednow { position: sticky; top: 16px; z-index: 1; padding: var(--space-2) var(--space-3) var(--space-3); background: var(--blue-pale); }
+[data-layout='desktop'] .planning .schedcard button { scroll-margin-top: calc(var(--now-h, 0px) + 48px); }
+[data-layout] .planning .schedgh { margin: 0; padding: 6px 8px 2px; font-size: 12px; font-weight: 600; color: var(--quiet); }
+[data-layout='desktop'] .planning .schednow .schedgh { padding: 0 0 2px; }
+[data-layout] .schedtitle { margin: 0; font-size: inherit; font-weight: 600; }
+[data-layout='desktop'] .schedx { flex: none; width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--quiet); font-size: 18px; }
+[data-layout='desktop'] .schedx:hover { background: var(--closed); color: var(--ink); }
+/* Practices, drawn as Week draws them: teal with a double edge, and a mark of their own rather than a number. */
+[data-layout='desktop'] .schedrow.is-practice { border-left: 4px double var(--teal); border-radius: 0 8px 8px 0; background: var(--teal-soft); color: var(--teal-ink); }
+[data-layout='desktop'] .schednow.is-practice { border-left: 4px double var(--teal); }
+[data-layout='desktop'] .schednow.is-maint { border-left: 4px solid var(--purple); }
+[data-layout] .is-practice :is(.schedmark, .schmark) { color: var(--teal); }
+[data-layout='phone'] .schsheet { margin: 0; padding: 0; list-style: none; }
+[data-layout='phone'] .schsheet > li { display: flex; align-items: center; border-top: 1px solid var(--line-soft); }
+[data-layout='phone'] .schsheet .morerow { flex: 1; min-width: 0; border-top: 0; }
+[data-layout='phone'] .schsheet > .is-practice .schname { padding-left: 10px; border-left: 4px double var(--teal); }
+[data-layout='phone'] .schedx { flex: none; width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; color: var(--quiet); font-size: 18px; }

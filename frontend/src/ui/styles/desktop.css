@@ -203,13 +203,12 @@
 :where([data-layout='desktop']) .ev-ghost:hover{background:var(--blue-soft)}
 :where([data-layout='desktop']) .ev-info{background:transparent;border:1px dashed var(--info-line);color:var(--ink-2)}
 :where([data-layout='desktop']) .schedlist{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}
-:where([data-layout='desktop']) .schedrow{border-radius:8px;color:var(--quiet)}
-:where([data-layout='desktop']) .schedrow.cur{padding-bottom:10px;background:var(--blue-pale);color:var(--ink)}
-:where([data-layout='desktop']) .schedbtn{display:flex;gap:8px;width:100%;min-height:36px;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left}
+:where([data-layout='desktop']) .schedrow{display:flex;align-items:flex-start;border-radius:8px;color:var(--quiet)}
+:where([data-layout='desktop']) .schedrow.cur{background:var(--blue-pale);color:var(--ink)}
+:where([data-layout='desktop']) .schedbtn{display:flex;flex:1;min-width:0;gap:8px;min-height:36px;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left}
 :where([data-layout='desktop']) .schedbtn:hover{background:var(--closed)}
 :where([data-layout='desktop']) .schedrow.cur .schedbtn:hover{background:transparent}
 :where([data-layout='desktop']) .schedmark{flex:none;width:18px;text-align:center}
-:where([data-layout='desktop']) .scheddetail{padding:0 10px 0 34px}
 :where([data-layout='desktop']) .evdrag{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 :where([data-layout='desktop']) .evdrag:focus-visible{outline:2px solid var(--blue);outline-offset:1px;z-index:4}
 :where([data-layout='desktop']) .evh{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize;opacity:.35}

@@ -5,12 +5,17 @@
 :where([data-layout]) .planning .pklegend .lg-stretch{background:var(--stretch);border:1px solid var(--tick)}
 :where([data-layout]) .pklegend .msdia{margin:0 2px}
 :where([data-layout]) .pklegend.col{flex-direction:column;align-items:flex-start}
-:where([data-layout]) .planning .wide-range{width:100%}
+:where([data-layout]) .planning .wide-range{width:100%;accent-color:var(--blue)}
+/* Milestone heads are headings and rows a list, for VoiceOver; neither looks any different. */
+:where([data-layout]) .planning .picklist{margin:0;padding:0;list-style:none}
+:where([data-layout]) .planning :is(h4.pmshead,h3.tghead){margin:0}
+:where([data-layout='desktop']) .planning h4.pmshead{font-size:13px}
+/* The done circle's grey edge is under 3:1 on a tint, so it takes the quiet ink there, and on every row here. */
+:where([data-layout]) :is(.mband,.added,.oo,.is-maint,.tk) .checkcircle:not(:checked){border-color:var(--quiet)}
+/* An open project nests under a rule rather than a fill, which barely shows in dark mode. */
+:where([data-layout='desktop']) .planning .pickmain>section.card .pcard{margin:0 0 12px 15px;padding:4px 0 4px 14px;border-radius:0;border-left:2px solid var(--grey);background:transparent}
 
 :where([data-layout='desktop']) .planning .qpad{padding-left:40px}
-/* A task's title reads as text and opens its editor. */
-:where([data-layout='desktop']) .planning .picktitle{padding:0;border:0;background:transparent;text-align:left}
-:where([data-layout='desktop']) .planning .picktitle:hover{text-decoration:underline;text-underline-offset:2px}
 :where([data-layout='desktop']) .planning .pklegend{margin-top:4px}
 :where([data-layout='desktop']) .planning .pickmain>section.card{padding:12px 16px}
 /* One offs stay a purple band, raised like the cards beside it. */
@@ -19,7 +24,6 @@
 :where([data-layout='phone']) .pklegend{display:flex;gap:8px;font-size:14px;color:var(--ink-2)}
 :where([data-layout='phone']) .pklegend span{display:inline-flex;align-items:center;gap:6px}
 :where([data-layout='phone']) .pklegend i{display:inline-block;width:10px;height:10px;border-radius:2px}
-:where([data-layout='phone']) .planning button.tmain{min-height:var(--tap)}
 :where([data-layout='phone']) .sheet .fixacts{flex-direction:column;align-items:stretch}
 :where([data-layout='phone']) .sheet .pastacts .btn{flex:1 1 auto}
 /* The board is a card under Pick's header, its axis pinned along the card's top. */
@@ -29,11 +33,55 @@
 :where([data-layout='phone']) .planning .card>.brow:last-child{border-bottom:0}
 /* The card clips its sides and the axis covers its top, so a row's ring goes inside it. */
 :where([data-layout='phone']) .planning .card>.brow:focus-visible{outline-offset:-2px}
-/* The estimate opens a slider; a row finished here is struck through in green, with Undo. */
-:where([data-layout='desktop']) .planning .pickestbtn{padding:2px 4px;border:0;border-radius:4px;background:transparent;text-decoration:underline dotted;text-underline-offset:3px}
-:where([data-layout='desktop']) .planning .pickestbtn:hover{background:var(--fill)}
-:where([data-layout]) .planning .isdone :is(.picktitle,.tmain){text-decoration:line-through;color:var(--green)}
-:where([data-layout]) .planning .isdone{background:var(--green-soft)}
-:where([data-layout='phone']) .planning .testb{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 6px;border:0;background:transparent;color:var(--quiet);font-size:13px;text-decoration:underline dotted;text-underline-offset:3px}
-:where([data-layout='phone']) .planning span.testb{display:flex;align-items:center;text-decoration:none}
-:where([data-layout='phone']) .planning .tdone{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 6px;border:0;background:transparent;color:var(--green);font-size:13px;font-weight:600}
+/* Type, the right way up: project names 15px semibold, tasks 14px, the line under them 13px. */
+:where([data-layout='desktop']) .planning .qbtn .pname{font-size:15px;font-weight:600}
+
+/* A task row: done circle, title and why, and one time button. Picked is a tint, blue or purple for a one off. */
+:where([data-layout]) .planning .tk{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:6px;min-height:48px;padding:2px 6px 2px 0;border-radius:8px}
+:where([data-layout]) .planning .tk.on{background:var(--blue-added)}
+:where([data-layout]) .planning .tk.oo.on{background:var(--purple-soft)}
+:where([data-layout]) .planning .tk .ckt{position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px}
+:where([data-layout]) .planning .tk .tkw{min-width:0;display:flex;flex-direction:column;align-items:flex-start;padding:4px 0}
+:where([data-layout]) .planning .tk .tt{padding:0;border:0;background:transparent;color:inherit;font-size:14px;line-height:1.35;text-align:left}
+:where([data-layout]) .planning .tk .tt:hover{text-decoration:underline;text-underline-offset:2px}
+:where([data-layout]) .planning .tk .tm{font-size:13px;line-height:1.35;color:var(--quiet)}
+:where([data-layout]) .planning .tk .tm .why{color:var(--blue-ink)}
+:where([data-layout]) .planning .tk.oo .tm .why{color:var(--purple-ink)}
+:where([data-layout]) .planning .tk.done .tt{color:var(--quiet);text-decoration:line-through}
+:where([data-layout]) .planning .tk .tq{padding-right:6px;font-size:13px;color:var(--quiet);white-space:nowrap}
+:where([data-layout]) .planning .tp{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:84px;height:32px;padding:0 12px;border:1px solid var(--blue-line);border-radius:999px;background:var(--white);color:var(--blue);font-size:14px;font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* Picked, a soft fill, so solid blue is left for Continue. */
+:where([data-layout]) .planning .tp.on{background:var(--blue-soft);color:var(--blue-ink)}
+:where([data-layout]) .planning .tp.oo{border-color:var(--purple-line);color:var(--purple)}
+:where([data-layout]) .planning .tp.oo.on{background:var(--purple-line);color:var(--purple-ink)}
+:where([data-layout]) .planning .tp .tv{font-size:10px;opacity:.85}
+:where([data-layout]) .planning .tp:hover{box-shadow:0 0 0 3px var(--blue-soft)}
+/* Its tooltip, on hover and on keyboard focus, beside the circle so the row above stays in view. Esc puts it away. */
+:where([data-layout]) .planning .tk .tip{position:absolute;left:40px;top:50%;z-index:5;transform:translateY(-50%);padding:4px 8px;border-radius:6px;background:var(--ink);color:var(--white);font-size:12px;white-space:nowrap;pointer-events:none;visibility:hidden}
+:where([data-layout]) .planning .tk .ckt:is(:hover,:has(:focus-visible)):not(.tipoff) .tip{visibility:visible}
+/* The time popover hangs below the button, right-aligned to it, so every title stays in view. */
+:where([data-layout='desktop']) .planning .tk>.qpop{left:auto;right:0;width:300px}
+:where([data-layout]) .planning .timeacts{gap:4px 16px}
+/* Its sliders stack: the label and value on a line, the slider under them. */
+:where([data-layout='desktop']) .planning .tk>.qpop .estslider{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;max-width:none}
+:where([data-layout='desktop']) .planning .tk>.qpop .estslider>label{grid-column:1;grid-row:1}
+:where([data-layout='desktop']) .planning .tk>.qpop .estslider>.estval{grid-column:2;grid-row:1;min-width:0;text-align:right}
+:where([data-layout='desktop']) .planning .tk>.qpop .estslider>input{grid-column:1/3;grid-row:2;min-width:0}
+:where([data-layout='phone']) .planning .tk{min-height:52px}
+:where([data-layout='phone']) .planning .tk .tt{display:flex;align-items:center;min-height:var(--tap);font-size:15px}
+:where([data-layout='phone']) .planning .tk .tkw{padding:0}
+:where([data-layout='phone']) .planning .tk .tpw{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px}
+:where([data-layout='phone']) .planning .tp{min-width:64px;padding:0 10px}
+:where([data-layout='phone']) .planning .tk .tip{display:none}
+
+/* Toasts never cover a row. On phone the toast takes a strip of its own above the bottom bar, and the list above shrinks
+   while it shows. On desktop it sits at the foot of the column the change was made in, and a focused row scrolls clear. */
+[data-layout='phone']:has(.planning.pflow):not(:has(.sheet)) .toast{bottom:calc(61px + max(20px,env(safe-area-inset-bottom)))}
+[data-layout='phone']:has(.toast):not(:has(.sheet)) .planning.pflow .flowbot{margin-top:72px}
+/* The half sheet gives up the strip from its foot, so its rows stay where they were under the finger. */
+[data-layout='phone']:has(.toast):not(:has(.sheet)) .planning .tsheet{height:calc(min(300px,45vh) - 72px);height:calc(min(300px,45dvh) - 72px)}
+[data-layout='desktop'] .flowpane:has(.planning){scroll-padding-bottom:72px}
+@supports (anchor-name:--pickcol){
+  [data-layout='desktop'] .planning .pickmain{anchor-name:--pickcol}
+  [data-layout='desktop']:has(.planning .pickmain) .toast{position-anchor:--pickcol;left:anchor(center)}
+}

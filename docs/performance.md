@@ -13,8 +13,11 @@ reports, as `make test-deployed` does on staging.
 | An edit saved | Web | 50 ms |
 | Today query | Web, Mac, iPhone Simulator | 100 ms |
 | Week query | Web, Mac, iPhone Simulator | 100 ms |
+| Pick estimate drag, slowest step (report only) | Web, Mac | 50 ms |
+| Done query (report only) | Web, Mac, iPhone Simulator | 100 ms |
 
-`frontend/scripts/history-report.ts` holds the same budgets and checks every run against them.
+`frontend/scripts/history-report.ts` holds the same budgets and checks every run against them. A report-only budget is
+shown in the report but never fails a run, missed or not measured, until it has a baseline of its own.
 
 ## Baseline
 
@@ -88,7 +91,17 @@ iPhone app is erased first.
 until the edit's transaction has committed in the web app's database worker, which keeps the database on the browser's
 private file system (OPFS), so a committed change is on disk.
 
-**Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. Each is the median
+**Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. **Done** is
+`loadDoneDay` for the account's last day, which reads only that day's records, through indexes. Each is the median
 of five runs as of the account's end, in the app's own page through the app's own driver: the web app's worker, with
 SQLite on OPFS; the Mac app's bridge to SQLite in the main process; and on iPhone the Capacitor SQLite plugin, from
 the test page the app's test copy carries.
+
+**Pick estimate drag** is weekly planning's Pick step, the first project's first task, its estimate slider dragged with
+the mouse across ten steps and then put back with the toast's Undo: the slowest step, from its input event until the
+frame after it. Before the slider saved only once it was let go, each step saved, and every save read every mounted
+screen's data again. On this account that made the Mac app take 430 ms a step (the median), and the web app show the
+let-go value 6 seconds after letting go, measured on a production build with this history loaded straight into its
+database rather than synced. On 12 November 2026, `HISTORY_REPORT_ONLY=1 SKIP_IOS=1 make test-history` on the shared
+Mac measured the slowest step at 397 ms on the web and 820 ms in the Mac app with every step saving, and 16 ms and
+8 ms once the slider saved only when let go.

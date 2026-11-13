@@ -22,13 +22,29 @@ const showsPane = (label: string) =>
     expect(paneOf(label)).not.toHaveAttribute('aria-hidden', 'true');
   });
 
+const planned = (w: Writer) => w.create('week_plan', { week_start: '2026-11-02', finished_at: '2026-11-02T14:00:00Z' }, weekPlanId('2026-11-02'));
+
 describe('shell on desktop', () => {
   it('shows the side navigation in order, with Today current', async () => {
     await renderApp();
     await showsPane('Today');
     const labels = within(main()).getAllByRole('button').map((b) => b.textContent);
-    expect(labels.slice(2)).toEqual(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Settings']);
+    expect(labels.slice(2)).toEqual(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']);
     expect(tab('Today')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('opens Done from the side navigation, after Analytics, on today, and Today’s line opens it too', async () => {
+    await renderApp({ seed: planned });
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: nothing finished yet today' }));
+    // Opened on a day, it's a page above Done's own, which stays hidden.
+    expect(await screen.findByRole('region', { name: 'Done' })).toBeVisible();
+    expect(tab('Done')).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('heading', { name: 'Monday, Nov 2', level: 1 })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    expect(await screen.findByRole('heading', { name: 'Sunday, Nov 1', level: 1 })).toBeVisible();
+    // Choosing Done again comes back to today.
+    await userEvent.click(tab('Done'));
+    expect(await screen.findByRole('heading', { name: 'Monday, Nov 2', level: 1 })).toBeVisible();
   });
 
   it('switches tabs, and keeps the old one mounted but hidden', async () => {
@@ -203,7 +219,7 @@ describe('shell on phone', () => {
     await renderApp({ layout: 'phone' });
     await userEvent.click(await screen.findByRole('button', { name: 'More' }));
     // A row's name starts with its label and goes on with its live line.
-    for (const name of ['Plan', 'One offs', 'Analytics', 'Settings']) expect(await screen.findByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    for (const name of ['Plan', 'One offs', 'Analytics', 'Done', 'Settings']) expect(await screen.findByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Settings/ }));
     await showsPane('Settings');
     expect(tab('More')).toHaveAttribute('aria-current', 'page');
@@ -213,6 +229,18 @@ describe('shell on phone', () => {
     await userEvent.click(back);
     await screen.findByRole('heading', { name: 'More' });
     expect(screen.queryByRole('button', { name: 'Back to More' })).toBeNull();
+  });
+
+  it('has Done under More with today’s line, and Today’s Done line opens it with a way back to Today', async () => {
+    await renderApp({ layout: 'phone', seed: planned });
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: nothing finished yet today' }));
+    await showsPane('Done');
+    expect(tab('More')).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('heading', { name: 'Monday, Nov 2' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Back to Today' }));
+    await showsPane('Today');
+    await userEvent.click(tab('More'));
+    expect(await screen.findByText('Nothing finished yet today', { selector: '.morerow .small' })).toBeVisible();
   });
 
   it('tapping the current tab returns to its root, and other tabs keep their page', async () => {

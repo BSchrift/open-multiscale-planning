@@ -3,7 +3,7 @@
 // week on Schedule, or 'pick', to open on Pick tasks, as stretch planning does when nothing new has reached the Inbox
 // since its own Inbox step. The step is kept on this device per week, so leaving part way resumes there.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { addWeeks, formatMinutes, formatTime, formatWeekRange, formatWeekday, localDate, weekStart } from '../../../core/dates';
 import { applyPlanChange, autoPickedOneOffs, minutesLeft } from '../../../core/plan';
 import { addPlanningMinutes, finishWeek, stopPlanning } from '../../../core/planning';
@@ -20,6 +20,8 @@ import { PickStep } from './pick/PickStep';
 import { ReviewStep } from './review/ReviewStep';
 import { ScheduleStep } from './schedule';
 import { usePlanningTime } from './usePlanningTime';
+import { FitContext, WeekFit } from './WeekFit';
+import type { FitPreview } from './WeekFit';
 import './planning.css';
 
 const STEPS = ['1. Inbox', '2. Pick tasks', '3. Schedule', '4. Review'] as const;
@@ -53,6 +55,10 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const root = useRef<HTMLDivElement>(null);
+  // What the current step previews on Does it fit, and what the phone's fit line opens there.
+  const [preview, setPreview] = useState<FitPreview | null>(null);
+  const [onShow, setOnShow] = useState<(() => void) | null>(null);
+  const fitHooks = useMemo(() => ({ preview: setPreview, show: (open: (() => void) | null) => setOnShow(() => open) }), []);
   // Each step starts at its top. Focus left behind, by the screen underneath or a step's own button that went away,
   // goes to the current step's tab, which names the step.
   useEffect(() => {
@@ -92,12 +98,19 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
   const exit = () => void time.flush().then(() => stop.run()).then(close);
 
   const go = (n: number) => setStep(Math.max(0, Math.min(STEPS.length - 1, n)));
-  const body = [
-    <InboxStep key="inbox" week={week} layout={layout} onNext={() => go(1)} />,
-    <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} />,
-    <ScheduleStep key="schedule" week={week} layout={layout} onContinue={() => go(3)} />,
-    <ReviewStep key="review" week={week} began={time.began} layout={layout} onFinish={onFinish} />,
-  ][step];
+  const body = (
+    <FitContext.Provider value={fitHooks}>
+      {
+        [
+          <InboxStep key="inbox" week={week} layout={layout} onNext={() => go(1)} />,
+          <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} />,
+          <ScheduleStep key="schedule" week={week} layout={layout} onContinue={() => go(3)} />,
+          <ReviewStep key="review" week={week} began={time.began} layout={layout} onFinish={onFinish} />,
+        ][step]
+      }
+    </FitContext.Provider>
+  );
+  const fit = <WeekFit week={week} phone={layout === 'phone'} preview={preview} onShow={onShow} />;
   const tabs = (labels: readonly string[], className: string) => (
     <nav className={className} aria-label="Planning steps">
       {labels.map((label, i) => (
@@ -123,6 +136,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
             Save and exit
           </button>
           {tabs(PHONE_STEPS, 'flowsteps')}
+          {fit}
         </div>
         <div className="pwk">
           <span className="small strong">{formatWeekRange(week)}</span>
@@ -167,6 +181,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
           ›
         </button>
       </div>
+      <div className="planpin">{fit}</div>
       {body}
     </div>
   );

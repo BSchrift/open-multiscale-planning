@@ -20,11 +20,11 @@ async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   if (phone) {
     const sheet = page.getByRole('region', { name: 'Tasks in Finish the first draft' });
-    for (const t of picks) await sheet.getByRole('button', { name: `Add ${t}` }).click();
+    for (const t of picks) await sheet.getByRole('button', { name: new RegExp(`^Add .*to this week: ${t}$`) }).click();
   } else {
     const row = page.getByRole('button', { name: /^Finish the first draft,/ });
     if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
-    for (const t of picks) await page.getByRole('button', { name: `Add ${t} to the plan` }).click();
+    for (const t of picks) await page.getByRole('button', { name: new RegExp(`^Add .*to this week: ${t}$`) }).click();
   }
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
   await steps.getByRole('button', { name: /Schedule/ }).click();

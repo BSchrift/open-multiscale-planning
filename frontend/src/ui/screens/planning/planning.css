@@ -11,3 +11,20 @@
 :where([data-layout]) .planning h3{color:var(--ink-2)}
 :where([data-layout]) .planning .card>:first-child{border-top:0}
 :where([data-layout='phone']) .planning .card>.morerow{padding:6px 16px}
+/* Does it fit, as the stretch flow has it: under the steps and kept in view on desktop, in the top bar on phone. */
+:where([data-layout='desktop']) .planning .planpin{position:sticky;top:-24px;z-index:6;margin:-16px 0;padding:8px 0;background:var(--ground)}
+:where([data-layout]) .planning :is(.fitbar,.fitline){display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:14px}
+:where([data-layout]) .planning :is(.fitbar,.fitline) .mmeter{flex:0 1 180px;background:var(--white);box-shadow:inset 0 0 0 1px var(--grey)}
+:where([data-layout]) .planning .mnew{position:absolute;top:0;bottom:0;border-radius:0 4px 4px 0;background:var(--blue);opacity:.45}
+:where([data-layout]) .planning .mgone{position:absolute;top:0;bottom:0;border:1.5px dashed var(--blue);border-left:0;border-radius:0 4px 4px 0}
+:where([data-layout]) .planning .fdelta{font-weight:600;color:var(--blue-ink);animation:fitin .2s ease-out}
+:where([data-layout]) .planning :is(.fitbar,.fitline) .over{font-weight:600;color:var(--amber-ink)}
+:where([data-layout]) .planning .fwhy{color:var(--amber-ink)}
+@keyframes fitin{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){:where([data-layout]) .planning .fdelta{animation:none}}
+/* On phone it takes the top bar's second line, and wraps rather than clipping at 320px or at 200% text. */
+:where([data-layout='phone']) .planning .flowtop{flex-wrap:wrap}
+:where([data-layout='phone']) .planning .fitline{flex:1 0 100%;gap:2px 6px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:13px;text-align:left}
+:where([data-layout='phone']) .planning .fitline .mmeter{flex:0 1 72px;min-width:28px}
+:where([data-layout='phone']) .planning .fitline .fend{margin-left:auto;color:var(--quiet);font-size:15px}
+@media (max-width:359px){:where([data-layout='phone']) .planning .fitline .fitname{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}

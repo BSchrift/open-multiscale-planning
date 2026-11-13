@@ -168,7 +168,12 @@ interface Fact {
 const minutesBetween = (from: Instant, to: Instant) => Math.round((instantMs(to) - instantMs(from)) / 60_000);
 const cappedPct = (part: number, whole: number) => (whole > 0 ? Math.min(100, Math.round((part / whole) * 100)) : 0);
 
-function deliveredMinutes(block: TimeBlock, outcome: BlockOutcome | undefined, planned: Minutes): Minutes {
+/** The time a block delivered: what was logged, else the time spent on it, else what was planned. */
+export function deliveredMinutes(
+  block: Parameters<typeof timeSpentMs>[0],
+  outcome: Pick<BlockOutcome, 'result' | 'logged_min'> | undefined,
+  planned: Minutes,
+): Minutes {
   if (!outcome || outcome.result === 'not') return 0;
   if (outcome.logged_min != null) return outcome.logged_min;
   // shortcut: a Partly with no logged minutes counts the whole time spent, upgrade if the prompt stops logging them.
@@ -391,12 +396,17 @@ function milestonesMet(data: AnalyticsData, zone: string, from: LocalDate, to: L
   return { met, total, early };
 }
 
-/** When a milestone was met: marked met, or else reached when the last of its tasks was done. */
-function metOn(m: Milestone, project: Project, tasks: readonly Task[], zone: string): LocalDate | null {
-  if (m.met_at) return localDate(m.met_at, zone);
+/** When a milestone was met: marked met, or else reached when the last of its tasks was done. Pass tasks not deleted. */
+export function metAt(m: Milestone, project: Project, tasks: readonly Task[]): Instant | null {
+  if (m.met_at) return m.met_at;
   const own = msTasks({ project, tasks }, m);
   if (m.dropped_at || !own.length || !own.every((t) => t.done_at)) return null;
-  return localDate(own.reduce((last, t) => (instantMs(t.done_at!) > instantMs(last) ? t.done_at! : last), own[0]!.done_at!), zone);
+  return own.reduce((last, t) => (instantMs(t.done_at!) > instantMs(last) ? t.done_at! : last), own[0]!.done_at!);
+}
+
+function metOn(m: Milestone, project: Project, tasks: readonly Task[], zone: string): LocalDate | null {
+  const at = metAt(m, project, tasks);
+  return at && localDate(at, zone);
 }
 
 function deliveredByTask(data: AnalyticsData, zone: string): Map<string, Minutes> {

@@ -2,7 +2,7 @@
 // say what to offer. Every add or removal pops up the capacity ring. Two layouts over the same rows: a timeline
 // beside the Planned list on desktop, and a board of bars over a half-height sheet on phone.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatMinutes } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, ProjectPlan } from '../../../../core/plan';
@@ -14,6 +14,7 @@ import type { Fields, LocalDate, Minutes } from '../../../../core/types';
 import { useRingPop } from '../../../components/ring/CapacityRing';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
+import { usePlanChange } from '../../../components/editors';
 import { loadPlanning, weekModel } from '../model';
 import type { WeekModel } from '../model';
 import { aimWords, pickModel } from './model';
@@ -73,12 +74,19 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const planWrite = useMutation((w, fields: Fields<'week_plan'>) => w.create('week_plan', { week_start: week, ...fields }, weekPlanId(week)));
   const undo = useMutation((w, plan: ProjectPlan) => undoProjectChange(w, plan, clock));
   const taskWrite = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
+  const apply = usePlanChange();
   // What each Mark done here wrote, so Undo puts back the picks and blocks it freed, and a repeating one off's date.
   const [doneHere, setDoneHere] = useState<Record<string, PlanChange>>({});
 
-  if (!data) return null;
-  const model = weekModel(data, clock);
-  const view = pickModel(data, model, clock);
+  // Both read the whole history, so they're worked out only when the data changes, not on every render: a live region
+  // line, a ring pulse or a save's pending state. On a five-year account each took about 200 ms.
+  const models = useMemo(() => {
+    if (!data) return null;
+    const model = weekModel(data, clock);
+    return { model, view: pickModel(data, model, clock) };
+  }, [data, clock]);
+  if (!data || !models) return null;
+  const { model, view } = models;
   const { open, use, weekPlan } = model;
 
   // Each change pops the ring and is said aloud, from the time used before it.
@@ -137,8 +145,10 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     undoChange: (plan) => void undo.run(plan),
     setEstimate: (row, minutes) => {
       const t = row.c.task;
-      const fields = t.remaining_min != null ? { remaining_min: minutes || null } : { estimate_min: minutes || null };
-      void taskWrite.run((w) => applyPlanChange(w, { writes: [{ type: 'task', id: t.id, fields }] }));
+      const left = t.remaining_min != null;
+      const fields = left ? { remaining_min: minutes || null } : { estimate_min: minutes || null };
+      const text = minutes ? `${t.title}, ${formatMinutes(minutes)} ${left ? 'left' : 'estimate'}.` : `${t.title}, no estimate.`;
+      void apply(() => ({ writes: [{ type: 'task', id: t.id, fields }] }), { message: text });
     },
     isDone: (row) => row.done || !!doneHere[row.c.task.id],
     markDone: async (row) => {

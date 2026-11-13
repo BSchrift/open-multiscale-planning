@@ -121,6 +121,8 @@
 :where([data-layout='phone']) .planning.pflow{position:relative}
 :where([data-layout='phone']) .planning .selbar.ph{position:absolute;left:0;right:0;bottom:0;z-index:5;flex-direction:column;align-items:stretch;gap:6px;padding:8px 16px max(20px,env(safe-area-inset-bottom));border:0;border-top:1px solid var(--blue-line);border-radius:0}
 :where([data-layout='phone']) .planning .selbar.ph .link{min-height:var(--tap);padding:0 6px}
+/* The bar is taller than the bottom bar it covers, so the list's foot scrolls clear of it. */
+:where([data-layout='phone']) .planning.pflow:has(.selbar.ph) .pkscroll{padding-bottom:112px}
 :where([data-layout='phone']) .planning .selbar.ph .selacts .btn{flex:1 1 auto;padding-inline:8px}
 
 /* A task row: done circle, title and why, and one time button. Picked is a tint, blue or purple for a one off. */

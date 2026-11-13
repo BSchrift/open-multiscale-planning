@@ -23,7 +23,9 @@ export function ToSchedule(props: { date: LocalDate }) {
   if (!model) return null;
   const phone = layout === 'phone';
   // Planning has its own row on Today.
-  const items = model.unscheduled.filter((x) => x.kind !== 'planning' && (!x.dates || (x.dates.from <= props.date && props.date <= x.dates.to)));
+  // A count's sessions wait on any day without one of its sessions; a set day's, on its own day only.
+  const hasSession = (x: (typeof model.unscheduled)[number]) => !!x.practice && !x.dates && model.blocks.some((b) => b.practice_id === x.practice!.id && b.date === props.date);
+  const items = model.unscheduled.filter((x) => x.kind !== 'planning' && !hasSession(x) && (!x.dates || (x.dates.from <= props.date && props.date <= x.dates.to)));
   const item = items.find((x) => x.id === openId);
   const close = () => setOpenId(null);
   const actions = item && (
@@ -35,6 +37,10 @@ export function ToSchedule(props: { date: LocalDate }) {
         void act.place(item, slot);
       }}
       onChoose={item.task ? () => nav.go('week', { place: item.id }) : undefined}
+      onSkipDay={() => {
+        close();
+        void act.skipDay(item, week);
+      }}
       onTakeOut={() => {
         close();
         void act.takeOut(item, week);

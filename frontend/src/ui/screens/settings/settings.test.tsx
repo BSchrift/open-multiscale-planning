@@ -83,6 +83,8 @@ describe('Settings', () => {
     await renderScreen('settings');
     const keys = await screen.findByRole('checkbox', { name: 'Single-key shortcuts in Process' });
     expect(keys).not.toBeChecked();
+    // Process has no number keys now: letters typed in its Add to field search.
+    expect(screen.getByText(/^Keys such as S to skip and W for this week work on their own, away from a field\./)).toBeInTheDocument();
     await userEvent.click(keys);
     expect(keys).toBeChecked();
     expect(localStorage.getItem('multiscale.processKeys')).toBe('true');

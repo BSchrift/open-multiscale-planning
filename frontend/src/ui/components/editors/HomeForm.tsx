@@ -1,7 +1,8 @@
 // The quick form that gives an Inbox item a home: a new project, practice or goal, one form switching between the
-// three. Only the name is needed, and it starts as the item's title. In place on desktop, where Process puts it instead
-// of the destinations, and a sheet on phone, its button above the keyboard. It writes nothing itself: the caller makes
-// the home and files the item in one change, and closes it once that's saved.
+// three. Only the name is needed, and it starts as the item's title, or as what was typed in Process's picker. A project
+// can name a milestone to put the item under. In place on desktop, where Process puts it instead of the picker, and a
+// sheet on phone, its button above the keyboard. It writes nothing itself: the caller makes the home in one change, and
+// closes it once that's saved.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -25,7 +26,7 @@ export function HomeForm(props: {
   /** The item's title. */
   item: string;
   kind: HomeKind;
-  /** The name to start with, if not the item's title. */
+  /** The name to start with, if not the item's title: what was typed, with the caret after it. */
   name?: string;
   goals: readonly Objective[];
   /** The goal a project or practice starts under, or '' for none. */
@@ -51,6 +52,7 @@ export function HomeForm(props: {
   const [per, setPer] = useState<Practice['per']>('day');
   const [timing, setTiming] = useState(false);
   const [firstTask, setFirstTask] = useState(true);
+  const [milestone, setMilestone] = useState('');
   const [onCard, setOnCard] = useState(false);
   const [error, setError] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
@@ -58,12 +60,12 @@ export function HomeForm(props: {
   const nameId = useId();
   const goalId = useId();
 
-  // Desktop selects the name to type over; on touch the caret goes after it, to add to it.
+  // Desktop selects the item's title to type over; on touch, or after what was typed, the caret goes at the end.
   useEffect(() => {
     const field = nameRef.current;
     if (!field) return;
     field.focus();
-    if (phone) field.setSelectionRange(field.value.length, field.value.length);
+    if (phone || props.name !== undefined) field.setSelectionRange(field.value.length, field.value.length);
     else field.select();
   }, []);
 
@@ -96,7 +98,7 @@ export function HomeForm(props: {
     let home: Home;
     if (kind === 'project') {
       if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-      home = { kind, title: name, goal: pick, start, end, keep: firstTask };
+      home = { kind, title: name, goal: pick, start, end, keep: firstTask, milestone: (firstTask && milestone.trim()) || null };
     } else if (kind === 'practice') {
       home = { kind, title: name, goal: pick, target_min: target, per, keep: onCard };
     } else {
@@ -107,8 +109,14 @@ export function HomeForm(props: {
 
   const btn = phone ? 'btn' : 'btn sm';
   const label = `New ${kind}`;
-  const submit =
-    kind === 'project' ? (firstTask ? 'Add project and send it there' : 'Add project') : onCard ? `Add ${kind}` : `Make it a ${kind}`;
+  // Adding the item is the next step, so a project's button only makes it.
+  const submit = kind === 'project' ? 'Add project' : onCard ? `Add ${kind}` : `Make it a ${kind}`;
+  const cap = (k: string) =>
+    !phone && (
+      <kbd className="keycap" aria-hidden="true">
+        {k}
+      </kbd>
+    );
   const ruleText = `${formatMinutes(target)} a ${per}`;
 
   const form = (
@@ -211,6 +219,15 @@ export function HomeForm(props: {
         )}
         <span>{kind === 'project' ? `Keep "${props.item}" as its first task` : 'Keep it on this card to file next'}</span>
       </label>
+      {kind === 'project' && firstTask && (
+        <div className="homems">
+          <label className="popfield">
+            Milestone to put it under, if any
+            <input className="field" value={milestone} onChange={(event) => change(setMilestone)(event.target.value)} />
+          </label>
+          {!phone && <span className="small quiet">With none, it goes under the project’s Done, as now.</span>}
+        </div>
+      )}
       {error && (
         <div className="fielderr" role="alert">
           {error}
@@ -219,9 +236,11 @@ export function HomeForm(props: {
       <div className="row homeacts">
         <button className={`${btn} pri grow`} type="submit">
           {submit}
+          {cap('↩')}
         </button>
         <button className={btn} type="button" onClick={props.onClose}>
           Cancel
+          {cap('esc')}
         </button>
       </div>
     </form>

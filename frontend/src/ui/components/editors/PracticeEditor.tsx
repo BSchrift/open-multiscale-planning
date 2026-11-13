@@ -1,38 +1,29 @@
 // A practice's settings, changed as a draft that Save writes in one go and Cancel drops: name, goal (or none, never a
-// project), target, days and preferred times. Pause and End act at once. Planning places sessions from these, so
-// changes apply from the next plan.
+// project) and its schedule (PracticeSchedule). Pause and End act at once. Sessions already placed stay put; those
+// still to place follow the schedule.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { formatMinutes, instantMs, localDate, thisWeek, weekday, weekRange } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
+import { weekPractices } from '../../../core/queries';
+import { sessionDay } from '../../../core/records';
 import { endPractice } from '../../../core/tasks';
-import type { Fields, Objective, Practice, TimeOfDay, Weekday } from '../../../core/types';
-import { useApp, useMutation } from '../../app/store';
+import type { Fields, LocalDate, Objective, Practice } from '../../../core/types';
+import { useApp, useMutation, useQuery } from '../../app/store';
 import { Sheet } from '../Sheet';
 import { useToast } from '../Toast';
+import { DAY_NAMES, newSchedule, practiceRule, scheduleFields, ScheduleFields, scheduleOf } from './PracticeSchedule';
+import type { ScheduleDraft } from './PracticeSchedule';
 import { SheetOnPhone } from './SheetOnPhone';
 import { useLeave } from './useLeave';
 import { usePlanChange } from './usePlanChange';
 
-type DaysKey = 'all' | 'weekdays' | 'weekends';
-const DAYS: Record<DaysKey, Weekday[]> = { all: [0, 1, 2, 3, 4, 5, 6], weekdays: [0, 1, 2, 3, 4], weekends: [5, 6] };
-
-function daysKey(days: readonly Weekday[] | null | undefined): DaysKey {
-  const set = [...(days ?? [])].sort().join();
-  return set === DAYS.weekdays.join() ? 'weekdays' : set === DAYS.weekends.join() ? 'weekends' : 'all';
-}
+export { practiceRule };
 
 export const targetMax = (per: Practice['per']) => (per === 'day' ? 240 : 1200);
-const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-
-/** "15m a day, weekdays, around 7am" */
-export function practiceRule(p: Practice): string {
-  const times = (p.preferred_times ?? []).map(formatTimeOfDay).join(' or ') || 'any time';
-  const when = p.per === 'day' ? ` a day, ${{ all: 'every day', weekdays: 'weekdays', weekends: 'weekends' }[daysKey(p.days)]}` : ' a week';
-  return `${formatMinutes(p.target_min)}${when}, around ${times}`;
-}
+const NO_DAYS = 'Choose at least one day.';
 
 /** Goals a practice or project can link to: any that isn't archived. */
 const linkable = (goals: readonly Objective[]) => goals.filter((g) => g.state !== 'archived' && !g.deleted_at);
@@ -89,19 +80,42 @@ export function TargetSlider(props: { per: Practice['per']; value: number; onCha
   );
 }
 
-/** What the fields hold: days by which choice they are, so a practice saved with none reads as every day. */
+
 interface Draft {
   title: string;
   objective_id: string | null;
-  target_min: number;
-  per: Practice['per'];
-  days: DaysKey;
-  preferred_times: TimeOfDay[];
+  schedule: ScheduleDraft;
+}
+
+const SCHEDULE_KEYS = ['per', 'target_min', 'sessions', 'days', 'preferred_times', 'day_times'] as const;
+const TARGET: readonly string[] = ['per', 'target_min', 'sessions'];
+
+/**
+ * The schedule fields an edit writes: those that read differently, with per, target and count together so they never
+ * part. Comparing the fields the opening schedule would write, not the record, means opening an older weekly practice
+ * and saving rewrites nothing it didn't change.
+ */
+function scheduleChanges(p: Practice, before: ScheduleDraft, after: ScheduleDraft): Fields<'practice'> {
+  const backups = (p.preferred_times ?? []).slice(1);
+  const was = scheduleFields(before, backups);
+  const now = scheduleFields(after, backups);
+  const keys = SCHEDULE_KEYS.filter((k) => JSON.stringify(was[k] ?? null) !== JSON.stringify(now[k] ?? null));
+  const target = keys.some((k) => TARGET.includes(k));
+  const written = SCHEDULE_KEYS.filter((k) => keys.includes(k) || (target && TARGET.includes(k) && !(k === 'sessions' && now.sessions == null && p.sessions == null)));
+  return Object.fromEntries(written.map((k) => [k, now[k]])) as Fields<'practice'>;
+}
+
+/** "Thursday's placed session stays.", for sessions still ahead this week on days the new set days leave out. */
+function staysLine(placed: readonly LocalDate[], s: ScheduleDraft): string {
+  const days = s.mode === 'days' ? [...new Set(placed.filter((d) => !s.days.includes(weekday(d))))].sort() : [];
+  if (!days.length) return '';
+  const names = new Intl.ListFormat('en-GB').format(days.map((d) => `${DAY_NAMES[weekday(d)]}'s`));
+  return days.length === 1 ? ` ${names} placed session stays.` : ` ${names} placed sessions stay.`;
 }
 
 /**
  * Edits a practice as a draft. Nothing is written until Save, which writes every change at once, with Undo; Cancel
- * drops them. A blank name is never saved. Pause and End act at once, apart from Save and Cancel.
+ * drops them. A blank name or no days is never saved. Pause and End act at once, apart from Save and Cancel.
  */
 export function PracticeFields(props: {
   practice: Practice;
@@ -123,29 +137,19 @@ export function PracticeFields(props: {
   const { clock, layout } = useApp();
   const toast = useToast();
   const apply = usePlanChange();
-  const live: Draft = {
-    title: p.title,
-    objective_id: p.objective_id ?? null,
-    target_min: p.target_min,
-    per: p.per,
-    days: daysKey(p.days),
-    preferred_times: p.preferred_times ?? [],
-  };
+  const live: Draft = { title: p.title, objective_id: p.objective_id ?? null, schedule: scheduleOf(p) };
   // Only the fields edited here are kept, so the rest show the practice as it is now, after a sync or Pause.
   const [edits, setEdits] = useState<Partial<Draft>>({});
-  const [time, setTime] = useState('');
   const [error, setError] = useState('');
+  const [daysError, setDaysError] = useState('');
+  const monday = useRef<HTMLInputElement>(null);
   const form = { ...live, ...edits };
   const edit = (fields: Partial<Draft>) => {
     setEdits({ ...edits, ...fields });
     setError('');
+    setDaysError('');
   };
-  const withTime = (text: string, list: readonly TimeOfDay[]) => {
-    const minutes = toMinutes(text);
-    return text && !list.includes(minutes) ? [...list, minutes].sort((a, b) => a - b) : [...list];
-  };
-  // What Save writes: a time typed but not added is added, as everything else on screen is kept.
-  const next: Draft = { ...form, title: form.title.trim(), preferred_times: withTime(time, form.preferred_times) };
+  const next: Draft = { ...form, title: form.title.trim() };
   const changed = (Object.keys(next) as (keyof Draft)[]).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(live[k]));
   const { saveRef, leave } = useLeave(changed.length > 0, () => props.onClose(), setError);
   const { leaveRef } = props;
@@ -164,14 +168,34 @@ export function PracticeFields(props: {
       }),
     [p.objective_id],
   );
+  // This week's sessions still ahead, by the day each is for, so Save can say which stay off the new days.
+  const ahead =
+    useQuery(
+      async (sql, c) =>
+        (await weekPractices(sql, weekRange(thisWeek(c), c.zone())))
+          .filter((b) => b.practice_id === p.id && !b.cancelled && instantMs(b.start) > c.now())
+          .map((b) => sessionDay(b.id, p.id) ?? localDate(b.start, c.zone())),
+      [p.id],
+    ).data ?? [];
 
   const write = props.write ?? (async (text: string, change: PlanChange) => !!(await apply(() => change, { message: text })));
   const save = async () => {
     if (!next.title) return setError('Give it a name.');
-    if (!changed.length) return props.onClose();
-    const fields = Object.fromEntries(changed.map((k) => [k, k === 'days' ? DAYS[next.days] : next[k]])) as Fields<'practice'>;
+    if (!next.schedule.days.length) {
+      setDaysError(NO_DAYS);
+      monday.current?.focus();
+      return;
+    }
+    const fields: Fields<'practice'> = {
+      ...(changed.includes('title') ? { title: next.title } : {}),
+      ...(changed.includes('objective_id') ? { objective_id: next.objective_id } : {}),
+      ...(changed.includes('schedule') ? scheduleChanges(p, live.schedule, next.schedule) : {}),
+    };
+    if (!Object.keys(fields).length) return props.onClose();
+    const scheduled = SCHEDULE_KEYS.some((k) => k in fields);
+    const text = scheduled ? `Saved ${next.title}: ${practiceRule({ ...p, ...fields })}.${staysLine(ahead, next.schedule)}` : `Saved ${next.title}.`;
     // A failed save keeps the fields as they were, and has said so.
-    if (await write(`Saved ${next.title}.`, { writes: [{ type: 'practice', id: p.id, fields }] })) props.onClose(fields);
+    if (await write(text, { writes: [{ type: 'practice', id: p.id, fields }] })) props.onClose(fields);
   };
 
   const pause = useMutation((w, state: Practice['state']) => w.set('practice', p.id, { state }));
@@ -209,75 +233,7 @@ export function PracticeFields(props: {
       {props.goalField?.(form.objective_id, (id) => edit({ objective_id: id })) ?? (
         <GoalSelect goals={props.goals} value={form.objective_id ?? ''} onChange={(id) => edit({ objective_id: id || null })} />
       )}
-      <TargetSlider per={form.per} value={form.target_min} onChange={(target_min) => edit({ target_min })} />
-      <div className="row nowrap">
-        <label className="popfield grow">
-          Per
-          <select
-            className="field"
-            aria-label="Per"
-            value={form.per}
-            onChange={(event) => {
-              const per = event.target.value as Practice['per'];
-              edit({ per, target_min: Math.min(targetMax(per), form.target_min) });
-            }}
-          >
-            <option value="day">Day</option>
-            <option value="week">Week</option>
-          </select>
-        </label>
-        {form.per === 'day' && (
-          <label className="popfield grow">
-            On
-            <select className="field" aria-label="On" value={form.days} onChange={(event) => edit({ days: event.target.value as DaysKey })}>
-              <option value="all">Every day</option>
-              <option value="weekdays">Weekdays</option>
-              <option value="weekends">Weekends</option>
-            </select>
-          </label>
-        )}
-      </div>
-      <div className="stack8">
-        <div className="small quiet">Preferred times</div>
-        {form.preferred_times.length > 0 && (
-          <div className="row">
-            {form.preferred_times.map((t) => (
-              <button
-                key={t}
-                className="dchip"
-                type="button"
-                aria-label={`Remove ${formatTimeOfDay(t)}`}
-                onClick={() => edit({ preferred_times: form.preferred_times.filter((x) => x !== t) })}
-              >
-                {formatTimeOfDay(t)} ×
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="row nowrap">
-          <input
-            className="field grow"
-            type="time"
-            aria-label="New preferred time"
-            value={time}
-            onChange={(event) => {
-              setTime(event.target.value);
-              setError('');
-            }}
-          />
-          <button
-            className="btn sm"
-            type="button"
-            onClick={() => {
-              edit({ preferred_times: withTime(time, form.preferred_times) });
-              setTime('');
-            }}
-          >
-            Add time
-          </button>
-        </div>
-      </div>
-      <p className="small quiet">Changes apply from your next plan.</p>
+      <ScheduleFields value={form.schedule} onChange={(schedule) => edit({ schedule })} daysError={daysError} mondayRef={monday} />
       {error && (
         <div className="fielderr" role="alert">
           {error}
@@ -320,7 +276,7 @@ export function PracticeSheet(props: { practice: Practice; goals: readonly Objec
   );
 }
 
-/** Adds a practice, linked to a goal or to nothing. */
+/** Adds a practice, linked to a goal or to nothing, starting at every day around 7am. */
 export function PracticeAdd(props: {
   goals: readonly Objective[];
   objectiveId: string | null;
@@ -332,24 +288,24 @@ export function PracticeAdd(props: {
   const toast = useToast();
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState(props.objectiveId ?? '');
-  const [target, setTarget] = useState(30);
-  const [per, setPer] = useState<Practice['per']>('day');
-  const [time, setTime] = useState('07:00');
+  const [schedule, setSchedule] = useState(newSchedule);
   const [error, setError] = useState('');
+  const [daysError, setDaysError] = useState('');
+  const monday = useRef<HTMLInputElement>(null);
   const add = useMutation((w, fields: Fields<'practice'>) => w.create('practice', fields));
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();
     if (!name) return setError('Give it a name.');
-    const fields: Fields<'practice'> = {
-      title: name,
-      objective_id: goal || null,
-      target_min: target,
-      per,
-      preferred_times: time ? [toMinutes(time)] : [],
-      state: 'active',
-    };
+    if (!schedule.days.length) {
+      setDaysError(NO_DAYS);
+      monday.current?.focus();
+      return;
+    }
+    // A new practice stores only what its schedule uses.
+    const stored = Object.fromEntries(Object.entries(scheduleFields(schedule)).filter(([, v]) => v !== null));
+    const fields: Fields<'practice'> = { title: name, objective_id: goal || null, ...stored, state: 'active' };
     const id = props.write ? await props.write(fields) : await add.run(fields);
     if (!id) return;
     props.onAdded?.(id);
@@ -374,29 +330,15 @@ export function PracticeAdd(props: {
           />
         </label>
         <GoalSelect goals={props.goals} value={goal} onChange={setGoal} />
-        <TargetSlider per={per} value={target} onChange={setTarget} />
-        <div className="row nowrap">
-          <label className="popfield grow">
-            Per
-            <select
-              className="field"
-              aria-label="Per"
-              value={per}
-              onChange={(event) => {
-                const next = event.target.value as Practice['per'];
-                setPer(next);
-                setTarget(Math.min(targetMax(next), target));
-              }}
-            >
-              <option value="day">Day</option>
-              <option value="week">Week</option>
-            </select>
-          </label>
-          <label className="popfield grow">
-            Preferred time
-            <input className="field" type="time" value={time} onChange={(event) => setTime(event.target.value)} />
-          </label>
-        </div>
+        <ScheduleFields
+          value={schedule}
+          onChange={(s) => {
+            setSchedule(s);
+            setDaysError('');
+          }}
+          daysError={daysError}
+          mondayRef={monday}
+        />
         {error && (
           <div className="fielderr" role="alert">
             {error}

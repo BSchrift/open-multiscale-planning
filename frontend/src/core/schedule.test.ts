@@ -544,8 +544,12 @@ describe('wording', () => {
   it.each<[string, TaskSchedule]>([
     ['Daily', { type: 'recurring', every: 1, unit: 'day', anchor: '2026-01-01' }],
     ['Weekly', weekly],
-    ['Weekly on Mon, Thu', { ...weekly, days: [0, 3] }],
+    ['Weekly on Mon and Thu', { ...weekly, days: [0, 3] }],
+    ['Weekly on Mon, Tue and Fri', { ...weekly, days: [4, 0, 1] }],
+    ['Every weekday', { ...weekly, days: [0, 1, 2, 3, 4] }],
+    ['Daily', { ...weekly, days: [0, 1, 2, 3, 4, 5, 6] }],
     ['Every 2 weeks', { ...weekly, every: 2 }],
+    ['Every 2 weeks on Mon and Thu', { ...weekly, every: 2, days: [0, 3] }],
     ['Monthly on the 28th', monthly28],
     ['Monthly on the 1st', { type: 'recurring', every: 1, unit: 'month', anchor: '2026-01-01' }],
     ['Monthly on the 2nd', { type: 'recurring', every: 1, unit: 'month', anchor: '2026-01-02' }],

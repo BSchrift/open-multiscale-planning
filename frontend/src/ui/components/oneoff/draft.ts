@@ -1,8 +1,9 @@
 // What the one off form holds while it's being filled in, and the task it becomes. The rules for dates live in
 // core/schedule.ts; this only turns the form's choices into a schedule.
 
+import { weekday } from '../../../core/dates';
 import { firstDue, setOnceDates, validateSchedule } from '../../../core/schedule';
-import type { Fields, LocalDate, Minutes, RepeatUnit, Task, TaskSchedule } from '../../../core/types';
+import type { Fields, LocalDate, Minutes, RepeatUnit, Task, TaskSchedule, Weekday } from '../../../core/types';
 
 export type RepeatType = TaskSchedule['type'];
 
@@ -31,6 +32,8 @@ export interface OneOffDraft {
   /** Regular schedule. */
   unit: RepeatUnit;
   starts: LocalDate;
+  /** Weekly: the days it's on, or null for the day it starts, as before there were days to choose. */
+  days: Weekday[] | null;
   /** Float. */
   weeks: number;
   /** Flexible window, in months. */
@@ -55,6 +58,7 @@ export function emptyDraft(today: LocalDate): OneOffDraft {
     ranged: false,
     unit: 'week',
     starts: today,
+    days: null,
     weeks: 6,
     winMin: 2,
     winMax: 3,
@@ -66,11 +70,16 @@ export function emptyDraft(today: LocalDate): OneOffDraft {
   };
 }
 
+const sortedDays = (days: readonly Weekday[]): Weekday[] => [...new Set(days)].sort((a, b) => a - b);
+
+/** The days a weekly draft is on: those chosen, or the day it starts. */
+export const draftDays = (d: OneOffDraft): Weekday[] => d.days ?? [weekday(d.starts)];
+
 /**
  * The form filled in from a saved one off, to change it.
- * shortcut: the form shows only what it can make (every 1 day, week, month or year; floats in weeks; windows in months),
- * so a schedule with more, such as every 2 weeks, is replaced by the nearest one the form offers when saved; add those
- * controls to the form if such schedules start coming from somewhere.
+ * shortcut: the form shows only what it can make (every 1 day, week on chosen days, month or year; floats in weeks;
+ * windows in months), so a schedule with more, such as every 2 weeks, is replaced by the nearest one the form offers when
+ * saved; add those controls to the form if such schedules start coming from somewhere.
  */
 export function draftOf(task: Task, today: LocalDate): OneOffDraft {
   const d: OneOffDraft = { ...emptyDraft(today), title: task.title, estimate: task.estimate_min ?? 0, notes: task.notes ?? '' };
@@ -79,7 +88,7 @@ export function draftOf(task: Task, today: LocalDate): OneOffDraft {
     case 'once':
       return { ...d, from: s.from ?? '', to: s.to ?? '', ranged: !!s.to };
     case 'recurring':
-      return { ...d, type: s.type, unit: s.unit, starts: s.anchor };
+      return { ...d, type: s.type, unit: s.unit, starts: s.anchor, days: s.days?.length ? sortedDays(s.days) : null };
     case 'float':
       return { ...d, type: s.type, weeks: s.every };
     case 'window':
@@ -118,8 +127,12 @@ export function draftSchedule(d: OneOffDraft): TaskSchedule {
   switch (d.type) {
     case 'once':
       return setOnceDates(d.from || null, d.ranged ? d.to || null : null).schedule!;
-    case 'recurring':
-      return { type: 'recurring', every: 1, unit: d.unit, anchor: d.starts };
+    case 'recurring': {
+      // The day it starts alone needs no days, so that weekly task reads and repeats as it always has.
+      const days = d.unit === 'week' && d.days ? sortedDays(d.days) : null;
+      const own = days && !(days.length === 1 && days[0] === weekday(d.starts));
+      return { type: 'recurring', every: 1, unit: d.unit, anchor: d.starts, ...(own ? { days } : {}) };
+    }
     case 'float':
       return { type: 'float', every: d.weeks, unit: 'week' };
     case 'window':
@@ -135,6 +148,7 @@ export function draftSchedule(d: OneOffDraft): TaskSchedule {
 export function draftError(d: OneOffDraft): string | null {
   if (!d.title.trim()) return 'Give it a title.';
   if (d.type === 'once' && d.ranged && d.to && !d.from) return 'Pick a date.';
+  if (d.type === 'recurring' && d.unit === 'week' && d.days?.length === 0) return 'Choose at least one day.';
   return validateSchedule(draftSchedule(d));
 }
 

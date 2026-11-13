@@ -1,5 +1,6 @@
-// What the Schedule step shows: every picked task in scheduling order, then each practice, with what's left to place,
-// and the week's blocks. The order and the rules come from core; this only joins them up.
+// What the Schedule step shows: each practice, then every picked task in scheduling order, with what's left to place,
+// and the week's blocks. Practices come first since their days and times are set. The order and the rules come from
+// core; this only joins them up.
 
 import type { Clock } from '../../../../core/clock';
 import { blockMinutes, formatMinutes } from '../../../../core/dates';
@@ -45,7 +46,7 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
   const now = clock.now();
   const blocks = placedBlocks(m.slot.placed, d.blocks, now);
 
-  const list: SchedRow[] = scheduleOrder(m.plans, m.oneOffs, m.input, m.ctx).map((c) => {
+  const tasks: SchedRow[] = scheduleOrder(m.plans, m.oneOffs, m.input, m.ctx).map((c) => {
     const oneOff = c.task.kind === 'one_off';
     const plan = oneOff ? null : (m.plans.find((p) => p.project.id === c.task.project_id) ?? null);
     const due = taskDue(c.task, plan, d.week, m.ctx);
@@ -67,6 +68,7 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
   const skipped = m.weekPlan?.skipped_practices ?? [];
   const active = d.records.practices.filter((p) => p.state === 'active');
   const left = new Map(practicesLeft(active, m.slot, skipped, m.weekPlan?.skipped_sessions ?? []).map((x) => [x.practice.id, x]));
+  const list: SchedRow[] = [];
   for (const p of active.filter((x) => !skipped.includes(x.id))) {
     const own = blocks.filter((b) => b.practice_id === p.id);
     if (!left.has(p.id) && own.length === 0) continue;
@@ -94,5 +96,5 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
     };
   });
 
-  return { blocks, rows: list, practices };
+  return { blocks, rows: [...list, ...tasks], practices };
 }

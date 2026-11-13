@@ -33,6 +33,13 @@ private extension XCUIApplication {
         MultiscaleUITests.exists(button, file: file, line: line)
         button.tap()
     }
+    /// Any kind of element by the start of its label, for one WebKit doesn't call a button: a row of a list, or a button
+    /// that opens a dialog, such as Process's Add to.
+    func tapWeb(anyStartingWith prefix: String, file: StaticString = #filePath, line: UInt = #line) {
+        let row = page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        MultiscaleUITests.exists(row, file: file, line: line)
+        row.tap()
+    }
     /// Taps, then waits for what the tap brings. On CI's iOS 26 Simulator a tap on the page is now and then lost, most
     /// often the first after a launch, so a button still there a few seconds on is tapped again, as a person would.
     func tapWeb(_ label: String, until effect: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
@@ -151,7 +158,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webButton(startingWith: "Learn to bake bread"))
     }
 
-    func testCaptureFromThePlusButtonThenProcessToAMilestoneAndAOneOff() {
+    func testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff() {
         let app = launchApp(seed: "Seed plan")
         for title in ["Buy a proofing basket", "Return the library books"] {
             let field = app.page.textFields["Capture to Inbox"]
@@ -163,23 +170,25 @@ final class ShellUITests: XCTestCase {
 
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 2 items")
-        exists(app.webText("Buy a proofing basket"))
-        app.tapWeb("Bake a sourdough loaf")
-        exists(app.webText("Sent to Bake a sourdough loaf."))
-        choose("A starter that rises", in: "Milestone for Buy a proofing basket", app: app)
+        // The card's title is a button, which edits it.
+        exists(app.webButton("Buy a proofing basket"))
+        // Add to opens a sheet of places, ready to search; a tap on one adds the item there.
+        app.tapWeb(anyStartingWith: "Add to a project or One offs")
+        app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        exists(app.webText("Added Buy a proofing basket to Bake a sourdough loaf."))
 
-        exists(app.webText("Return the library books"))
-        app.tapWeb("One offs")
-        exists(app.webText("Inbox clear"))
-        app.tapWeb("Done")
+        exists(app.webButton("Return the library books"))
+        app.tapWeb(anyStartingWith: "Add to a project or One offs")
+        app.tapWeb(anyStartingWith: "One offs")
+        // Process closes itself on the last item; its check fades, then the last item's toast shows.
+        exists(app.webText("Added Return the library books to One offs."))
 
-        // Each landed where it was sent.
+        // Each landed where it was sent: the project's task under its Done, which opens folded behind its milestone.
         app.tapWeb("Goals")
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
-        let milestone = app.webElement("Milestone: A starter that rises")
-        exists(milestone)
-        exists(milestone.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Edit task Buy a proofing basket'")).firstMatch)
+        app.tapWeb(anyStartingWith: "Done tasks")
+        exists(app.webButton(startingWith: "Edit task Buy a proofing basket"))
         app.tapWeb("More")
         app.tapWeb(startingWith: "One offs")
         exists(app.webElement("Return the library books done"))

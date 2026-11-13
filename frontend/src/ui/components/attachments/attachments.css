@@ -113,8 +113,37 @@
   min-height: 28px;
 }
 
-[data-layout='phone'] .attachchoices .btn {
-  width: 100%;
+/* Add link and Add photo: two iconned buttons side by side, each 44pt on phone. */
+[data-layout] .attachadds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+[data-layout] .attachadd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-layout] .attachadd svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-layout='phone'] .attachadds .btn {
+  flex: 1 1 0;
+  /* Its 15px text left the button a fraction of a pixel under 44pt. */
+  min-height: 44px;
+  justify-content: flex-start;
+  padding-inline: 12px;
+  font-size: 15px;
 }
 
 [data-layout] .sheet.attachview img {

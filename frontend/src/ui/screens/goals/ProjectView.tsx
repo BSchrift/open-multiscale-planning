@@ -8,6 +8,7 @@ import { formatDate, formatMinutes, isDay, localDate } from '../../../core/dates
 import {
   applyPlanChange,
   doneDateError,
+  dueAfter,
   effectiveDue,
   moveDone,
   msReached,
@@ -18,6 +19,7 @@ import {
   sortedMilestones,
 } from '../../../core/plan';
 import type { PlanChange, PlanContext, ProjectPlan } from '../../../core/plan';
+import { onceWhen } from '../../../core/schedule';
 import { status } from '../../../core/status';
 import { closeTask, undoProjectChange } from '../../../core/tasks';
 import type { Milestone, Objective, Task } from '../../../core/types';
@@ -25,6 +27,7 @@ import { useShowCompleted } from '../../app/showCompleted';
 import { useApp, useMutation } from '../../app/store';
 import { CloseProject, diamondFor, doneDiamond, GoalSelect, MilestoneEditor, OverdueFix, TaskEditor, useLeave, usePlanChange } from '../../components/editors';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { LateWarning, lateSaid, lateText } from '../../components/LateWarning';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
@@ -154,6 +157,10 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
   const taskRow = (t: Task, locked: boolean) => {
     const from = t.moved_from ? plan.milestones.find((m) => m.id === t.moved_from)?.title : undefined;
     const meta = t.cancelled_at ? 'Cancelled' : `${t.estimate_min ? formatMinutes(t.estimate_min) : 'No estimate'}${from ? `, from ${from}` : ''}`;
+    // Its own date, a day or a range, beside its estimate, with a warning when it falls after its deadline.
+    const when = t.schedule?.type === 'once' ? onceWhen(t.schedule) : '';
+    const lateBy = when && !t.done_at && !t.cancelled_at ? dueAfter(plan, t, ctx) : null;
+    const late = lateBy && lateText(lateBy);
     const editable = !locked && !t.cancelled_at && !t.done_at;
     const cls = t.done_at || t.cancelled_at ? 'done' : undefined;
     return (
@@ -174,7 +181,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
           <button
             className="rowbtn"
             type="button"
-            aria-label={`Edit task ${t.title}, ${meta}${t.notes ? ', has details' : ''}`}
+            aria-label={`Edit task ${t.title}, ${when ? `${when}, ` : ''}${meta}${lateSaid(late)}${t.notes ? ', has details' : ''}`}
             onPointerDown={phone ? press(t.id, t.title) : undefined}
             onClick={() => !justDropped() && openTask(t.id)}
           >
@@ -182,15 +189,16 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
               {t.title}
               {t.notes && <NoteMark />}
             </span>
-            <span className="small quiet">{meta}</span>
+            <span className="small quiet">{when ? `${when} · ${meta}` : meta}</span>
             <span className="editcue" aria-hidden="true">
               Edit
             </span>
+            {late && <LateWarning text={late} />}
           </button>
         ) : (
           <div className="rowstatic taskstatic grow">
             <span className={`grow ${cls ?? ''}`.trim()}>{t.title}</span>
-            <span className="small quiet">{meta}</span>
+            <span className="small quiet">{when ? `${when} · ${meta}` : meta}</span>
           </div>
         )}
       </div>

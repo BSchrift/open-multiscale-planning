@@ -26,6 +26,8 @@ async function report(w: Writer) {
   );
   await w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1');
   await w.create('task', { kind: 'one_off', title: 'Return the drill', schedule: { type: 'once', from: '2026-11-07' }, next_due: '2026-11-07' }, 'o1');
+  await w.create('task', { kind: 'one_off', title: 'Water the plants', schedule: { type: 'float', every: 1, unit: 'week' }, next_due: '2026-11-09' }, 'o2');
+  await w.create('task', { kind: 'inbox', title: 'Renew the passport', schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' }, next_due: '2026-11-16' }, 'i2');
 }
 
 const open = (task: string, options: { layout?: Layout; note?: string } = {}) => {
@@ -71,7 +73,10 @@ describe('the task popup', () => {
   it('saves the name, estimate and description together, with Undo', async () => {
     const { t, close } = await open('t1');
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
-    await userEvent.click(within(popup).getByRole('button', { name: 'Rename Draft the summary' }));
+    // The name shows a pencil, as Process's title does, so it reads as editable.
+    const rename = within(popup).getByRole('button', { name: 'Rename Draft the summary' });
+    expect(rename.querySelector('.pen svg')).not.toBeNull();
+    await userEvent.click(rename);
     const name = within(popup).getByRole('textbox', { name: 'Name' });
     expect(name).toHaveFocus();
     await userEvent.clear(name);
@@ -165,6 +170,32 @@ describe('the task popup', () => {
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await screen.findByText('Moved Return the drill to Inbox.');
     expect(await record(second.t, 'o1')).toMatchObject({ kind: 'inbox', schedule: null, next_due: null });
+  });
+
+  it('keeps a one off’s date as it moves to a project, but not a repeat, and says so', async () => {
+    const dated = await open('o1');
+    let popup = await screen.findByRole('dialog', { name: 'Return the drill' });
+    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Report, Drafts');
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Moved Return the drill to Report, Drafts.')).toBeVisible();
+    expect(await record(dated.t, 'o1')).toMatchObject({ kind: 'project', milestone_id: 'm1', schedule: { type: 'once', from: '2026-11-07', to: null }, next_due: '2026-11-07' });
+    cleanup();
+
+    const repeating = await open('o2');
+    popup = await screen.findByRole('dialog', { name: 'Water the plants' });
+    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Report, Done');
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText("Moved Water the plants to Report, Done. Repeats stay with One offs, so it won't repeat.")).toBeVisible();
+    expect(await record(repeating.t, 'o2')).toMatchObject({ kind: 'project', schedule: null, next_due: null });
+  });
+
+  it('keeps the date an Inbox item has as it becomes a one off', async () => {
+    const { t } = await open('i2');
+    const popup = await screen.findByRole('dialog', { name: 'Renew the passport' });
+    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'One offs');
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    await screen.findByText('Moved Renew the passport to One offs.');
+    expect(await record(t, 'i2')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' }, next_due: '2026-11-16' });
   });
 
   it('deletes the task, with Undo taking focus', async () => {

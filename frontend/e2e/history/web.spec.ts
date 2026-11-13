@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { historyFacts } from '../../src/core/history-testing';
 import { account, go, pane } from '../seed';
-import { historyTarget, keptChanges, NETWORK, record, timeQueries, usableAt } from './history';
+import { historyTarget, keptChanges, NETWORK, record, timeEstimateDrag, timeQueries, usableAt } from './history';
 
 const t = historyTarget();
 
@@ -127,5 +127,7 @@ test('a new browser of the five-year account: first sync, Today and Week, and sa
   const editSave = Math.round(((edits[1]! + edits[2]!) / 2) * 10) / 10;
 
   record('web', { edit_save_ms: editSave });
+
+  record('web', { estimate_drag_ms: await timeEstimateDrag(page) });
   expect(errors).toEqual([]);
 });

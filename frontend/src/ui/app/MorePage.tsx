@@ -3,6 +3,7 @@
 import type { Clock } from '../../core/clock';
 import type { Sql } from '../../core/db';
 import { moreLine as analyticsLine } from '../screens/analytics/moreLine';
+import { moreLine as doneLine } from '../screens/done/moreLine';
 import { moreLine as oneoffsLine } from '../screens/oneoffs/moreLine';
 import { moreLine as planLine } from '../screens/plan/moreLine';
 import { moreLine as settingsLine } from '../screens/settings/moreLine';
@@ -15,6 +16,7 @@ const LINES: Partial<Record<AreaId, (sql: Sql, clock: Clock) => Promise<string |
   plan: planLine,
   oneoffs: oneoffsLine,
   analytics: analyticsLine,
+  done: doneLine,
   settings: settingsLine,
 };
 

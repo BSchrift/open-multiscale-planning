@@ -1,4 +1,4 @@
-// Bundled by history.ts and evaluated in the app's page: times Today and Week on the database the app itself reads.
+// Bundled by history.ts and evaluated in the app's page: times Today, Week and Done on the database the app itself reads.
 
 import type { ElectronBridge } from '../../electron/bridge';
 import { createDb } from '../../src/core/db';

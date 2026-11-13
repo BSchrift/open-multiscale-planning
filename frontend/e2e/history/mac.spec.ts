@@ -10,7 +10,7 @@ import { appIdentity } from '../../electron/identity';
 import type { AppEnv } from '../../src/core/appConfig';
 import { historyFacts } from '../../src/core/history-testing';
 import { account, go } from '../seed';
-import { historyTarget, keptChanges, NETWORK, record, timeQueries, usableAt } from './history';
+import { historyTarget, keptChanges, NETWORK, record, timeEstimateDrag, timeQueries, usableAt } from './history';
 
 declare global {
   var browserUrls: string[];
@@ -72,6 +72,7 @@ test('a new install of the five-year account: first sync, then Today and Week', 
     // Recorded before the count is checked, so the report sees a short count even when only reporting.
     record('mac', { first_sync_ms: firstSync, ...queries });
     expect(queries.records).toBeGreaterThanOrEqual(historyFacts(keptChanges()).records);
+    record('mac', { estimate_drag_ms: await timeEstimateDrag(page) });
     expect(errors).toEqual([]);
   } finally {
     await app.close();

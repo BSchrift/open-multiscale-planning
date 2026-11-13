@@ -570,6 +570,29 @@ describe('Goals', () => {
     expect(screen.getByRole('img', { name: /Milestone Share a loaf, due Dec 10, in the plan\. Milestone Done, due Dec 15, in the plan\.$/ })).toBeInTheDocument();
   });
 
+  it("shows a task's date beside its estimate, and warns, blocking nothing, when it falls after its milestone or the project's end", async () => {
+    const t = await project('desktop', async (w) => {
+      await bread(w);
+      const dated = (id: string, milestone_id: string | null, title: string, from: string, to: string | null = null) =>
+        w.create('task', { kind: 'project', project_id: 'p1', milestone_id, title, estimate_min: 60, schedule: { type: 'once', from, to }, next_due: from }, id);
+      await dated('d1', 'm2', 'Buy a banneton', '2026-11-12');
+      await dated('d2', 'm2', 'Bake the test loaf', '2026-11-21', '2026-11-23');
+      await dated('d3', null, 'Write up the recipe', '2026-12-20');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'First loaf tasks' }));
+    const onTime = await screen.findByRole('button', { name: 'Edit task Buy a banneton, Nov 12, 1h' });
+    expect(onTime).toHaveTextContent('Nov 12 · 1h');
+    expect(onTime.querySelector('.latewarn')).toBeNull();
+    const late = screen.getByRole('button', { name: 'Edit task Bake the test loaf, Nov 21 to Nov 23, 1h, due after First loaf (Nov 20)' });
+    expect(within(late).getByText('Due after First loaf (Nov 20)').querySelector('svg')).not.toBeNull();
+    // Under Done, its deadline is the project's end.
+    await userEvent.click(screen.getByRole('button', { name: 'Done tasks' }));
+    expect(screen.getByRole('button', { name: 'Edit task Write up the recipe, Dec 20, 1h, due after the project ends (Dec 15)' })).toBeVisible();
+    // Nothing is blocked: it still ticks.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Bake the test loaf done' }));
+    await waitFor(async () => expect((await record(t, 'task', 'd2'))?.done_at).toBeTruthy());
+  });
+
   it('task rows show the same Edit cue as milestone rows', async () => {
     await project();
     expect(within(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' })).getByText('Edit')).toHaveClass('editcue');

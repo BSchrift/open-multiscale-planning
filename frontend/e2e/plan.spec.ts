@@ -249,9 +249,12 @@ test('Goals asks for some when there are none, and the Inbox lists a big one who
   await expect(cards).toBeVisible();
   // Behind Process the flow is inert, so a screen reader stays on the cards.
   await expect(page.locator('.planflow')).toHaveAttribute('inert', '');
-  await cards.getByRole('button', { name: /^One offs/ }).click();
-  await expect(cards.getByText('Sent to One offs.')).toBeVisible();
-  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
+  if (phone) await cards.getByRole('button', { name: 'Add to a project or One offs' }).click();
+  await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.toast')).toContainText(/Added Inbox item \d+ to One offs\./);
+  // Esc leaves Add to, then closes Process.
+  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape').then(() => page.keyboard.press('Escape')));
   await expect(page.getByText('1 sorted. 213 still in your Inbox.')).toBeFocused();
   await expect(steps.getByRole('button', { name: /Inbox, 213 items$/ })).toBeVisible();
   expect(errors).toEqual([]);

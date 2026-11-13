@@ -11,6 +11,7 @@ import {
   doneInPlan,
   doneOf,
   dropMilestone,
+  dueAfter,
   effectiveDue,
   FIRST_BLOCK_MIN,
   gatherPlans,
@@ -433,7 +434,7 @@ describe('the candidates for a week', () => {
     const p = reportPlan();
     const placed = block('t5', '2026-11-03T10:00:00Z', '2026-11-03T11:00:00Z');
     expect(projectCandidates(p, week({ blocks: [placed] }), ctx).map((c) => c.task.id)).not.toContain('t5');
-    expect(projectCandidates(p, week({ blocks: [placed] }), ctx, true).find((c) => c.task.id === 't5')).toMatchObject({ left: 0, placed: true });
+    expect(projectCandidates(p, week({ blocks: [placed] }), ctx, true).find((c) => c.task.id === 't5')).toMatchObject({ left: 0, placed: true, ahead: 60 });
   });
 
   it('counts only what is still ahead as placed, since a past block already changed what remains', () => {
@@ -1024,6 +1025,27 @@ describe('replanning a project', () => {
     saved = await load();
     expect(saved.milestones.find((m) => m.id === 'm2')?.due).toBe('2026-11-09');
     expect(saved.project.slip_log).toEqual([]);
+  });
+});
+
+describe('a project task dated after its deadline', () => {
+  const ctx = context();
+  const plan = reportPlan();
+  const dated = (milestone_id: string | null, from: string, to: string | null = null) => task('d', milestone_id, 1, { schedule: { type: 'once', from, to } });
+
+  it("is late after its milestone's date", () => {
+    expect(dueAfter(plan, dated('m2', '2026-11-12'), ctx)).toEqual({ milestone: plan.milestones[1], due: '2026-11-09' });
+    expect(dueAfter(plan, dated('m2', '2026-11-09'), ctx)).toBeNull();
+  });
+
+  it("is late after the project's end with no milestone, going by a range's last day", () => {
+    expect(dueAfter(plan, dated(null, '2026-12-10', '2026-12-20'), ctx)).toEqual({ milestone: null, due: '2026-12-15' });
+    expect(dueAfter(plan, dated(null, '2026-12-10', '2026-12-15'), ctx)).toBeNull();
+  });
+
+  it('has nothing to miss with no date, or with a repeat', () => {
+    expect(dueAfter(plan, task('u', 'm2', 1), ctx)).toBeNull();
+    expect(dueAfter(plan, task('r', null, 1, { schedule: { type: 'float', every: 1, unit: 'week' } }), ctx)).toBeNull();
   });
 });
 

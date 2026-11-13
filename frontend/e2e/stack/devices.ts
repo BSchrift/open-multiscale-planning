@@ -78,7 +78,8 @@ export async function deleteFromInbox(page: Page, title: string) {
   await card.getByRole('button', { name: 'Delete/done' }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card.getByRole('heading', { name: title })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  // Process closes by itself after the last item; otherwise Exit.
+  if (await card.count()) await card.getByRole('button', { name: 'Exit' }).click();
   await expect(card).toHaveCount(0);
 }
 

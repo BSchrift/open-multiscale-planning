@@ -5,7 +5,7 @@ let pressed: HTMLElement | null = null;
 document.addEventListener('pointerdown', (event) => void (pressed = (event.target as Element).closest?.<HTMLElement>('button,a[href]') ?? null), true);
 document.addEventListener('keydown', () => void (pressed = null), true);
 
-/** Traps Tab inside a dialog, closes on Esc, and returns focus to where it was on close. */
+/** Traps Tab inside a dialog, but for a toast's Undo, closes on Esc, and returns focus to where it was on close. */
 export function useDialogFocus<E extends HTMLElement>(onClose: () => void) {
   const ref = useRef<E>(null);
   const close = useRef(onClose);
@@ -36,7 +36,9 @@ export function useDialogFocus<E extends HTMLElement>(onClose: () => void) {
           last.focus();
         } else if (!event.shiftKey && document.activeElement === last) {
           event.preventDefault();
-          first.focus();
+          // A toast's Undo sits outside, after the last control, so Tab reaches it before going round.
+          const undo = document.querySelector<HTMLElement>('.toast .toastact');
+          (undo && !element.contains(undo) ? undo : first).focus();
         }
       }
     };

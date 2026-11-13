@@ -62,6 +62,20 @@ describe('the Inbox select mode, many items at once', () => {
     expect(await getRecord(db, 'task', 'i3')).toMatchObject({ kind: 'inbox', schedule: null, next_due: null });
   });
 
+  it('keeps the date an item has, a day or a range, wherever it goes, and drops a repeat going to a project', async () => {
+    const { clock, db } = await setup();
+    await transact(db, clock, async (w) => {
+      await w.set('task', 'i1', { schedule: { type: 'once', from: '2026-11-20', to: null }, next_due: '2026-11-20' });
+      await w.set('task', 'i2', { schedule: { type: 'float', every: 2, unit: 'week' }, next_due: '2026-11-16' });
+      await w.set('task', 'i3', { schedule: { type: 'once', from: '2026-11-16', to: '2026-11-18' }, next_due: '2026-11-16' });
+    });
+    await transact(db, clock, (w) => sendInboxItems(w, ['i1', 'i2'], 'p1'));
+    expect(await getRecord(db, 'task', 'i1')).toMatchObject({ kind: 'project', schedule: { type: 'once', from: '2026-11-20', to: null }, next_due: '2026-11-20' });
+    expect(await getRecord(db, 'task', 'i2')).toMatchObject({ kind: 'project', schedule: null, next_due: null });
+    await transact(db, clock, (w) => sendInboxItems(w, ['i3'], null));
+    expect(await getRecord(db, 'task', 'i3')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-16', to: '2026-11-18' }, next_due: '2026-11-16' });
+  });
+
   it("deletes items as Process's Delete/done does each, freeing their picks, with one reverse", async () => {
     const { clock, db, titles } = await setup();
     const undo = await transact(db, clock, (w) => deleteInboxItems(w, ['i2', 'i3'], clock));

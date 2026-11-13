@@ -299,8 +299,8 @@ test.describe('one device', () => {
     await card.getByRole('button', { name: 'New practice from this item' }).click();
     await card.getByRole('form', { name: 'New practice' }).getByRole('textbox', { name: 'Name' }).fill('Brew coffee at home');
     await card.getByRole('button', { name: 'Make it a practice' }).click();
-    await expect(card.getByRole('status')).toHaveText('"Order more coffee beans" is now the practice Brew coffee at home, 30m a day. It left your Inbox.');
-    await page.keyboard.press('Escape');
+    await expect(page.locator('.toast')).toContainText('Order more coffee beans is now the practice Brew coffee at home.');
+    await card.getByRole('button', { name: 'Exit' }).click();
     await openFinished();
     await expect(finished().getByRole('button', { name: 'Became the practice Brew coffee at home' })).toBeVisible();
     await everyScreen(page);
@@ -324,6 +324,39 @@ test.describe('one device', () => {
     await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toBeVisible();
     await go(page, 'Goals');
     await expect(pane(page, 'Goals').getByRole('button', { name: /Practices with no goal/ })).toContainText('1 practice');
+    await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('a project task the update dated shows no date in the bundle before, which can edit it and keep the date', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    const dated: Seed = {
+      type: 'task',
+      id: 'dated',
+      fields: { kind: 'project', project_id: 'p1', milestone_id: 'm1', title: 'Order the cover proofs', estimate_min: 60, schedule: { type: 'once', from: '2026-11-27', to: null }, next_due: '2026-11-27' },
+    };
+    await openSeeded(page, [...week, dated]);
+    // The update shows its date on the project page, warned as after its milestone.
+    await openProject(page, false, 'Write a book', 'Finish the first draft');
+    await expect(page.getByRole('button', { name: 'Edit task Order the cover proofs, Nov 27, 1h, due after Half the chapters (Nov 20)' })).toBeVisible();
+    await everyScreen(page);
+
+    // The bundle before reads no date on a project task, and its popup's Save keeps the one there.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await openProject(page, false, 'Write a book', 'Finish the first draft');
+    await page.getByRole('button', { name: /^Edit task Order the cover proofs/ }).click();
+    const popup = page.locator('.sheet.taskpop');
+    await popup.getByRole('button', { name: 'Rename Order the cover proofs' }).click();
+    await popup.getByRole('textbox', { name: 'Name' }).fill('Order the cover proofs early');
+    await popup.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved Order the cover proofs early.')).toBeVisible();
+
+    page = await relaunch(page, 'new', errors);
+    await openProject(page, false, 'Write a book', 'Finish the first draft');
+    await expect(page.getByRole('button', { name: /^Edit task Order the cover proofs early, Nov 27, 1h/ })).toBeVisible();
     await everyScreen(page);
     expect(errors).toEqual([]);
   });
@@ -740,8 +773,7 @@ test('an old device changing a task keeps the attachments a new device added', a
     return newDevice.page.locator(`.sheet.taskpop[aria-label="${title}"]`);
   };
   let popup = await openPopup();
-  await popup.getByRole('button', { name: /^\+ Add a link/ }).click();
-  await popup.getByRole('button', { name: 'Paste a link' }).click();
+  await popup.getByRole('button', { name: 'Add link' }).click();
   await popup.getByRole('textbox', { name: 'Address' }).fill('https://example.com/skip-hire');
   await popup.getByRole('button', { name: 'Add link' }).click();
   await expect(popup.getByRole('link', { name: 'example.com' })).toBeVisible();

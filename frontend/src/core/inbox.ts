@@ -4,18 +4,28 @@
 import type { Clock } from './clock';
 import { applyPlanChange } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
+import { getRecord } from './records';
 import type { Writer } from './records';
-import { setOnceDates } from './schedule';
+import { projectDates, setOnceDates } from './schedule';
 import { closeTask } from './tasks';
 import type { Fields } from './types';
 
-/** Sends items to a project, or to One offs when projectId is null, keeping each title and estimate. */
-export function sendInboxItems(w: Writer, ids: readonly string[], projectId: string | null): Promise<PlanChange> {
-  // Fields merge one by one, so each kind clears the other's: another device may have sent an item the other way.
-  const fields: Fields<'task'> = projectId
-    ? { kind: 'project', project_id: projectId, milestone_id: null, schedule: null, next_due: null }
-    : { kind: 'one_off', project_id: null, milestone_id: null, ...setOnceDates(null, null) };
-  return applyPlanChange(w, { writes: ids.map((id): RecordWrite => ({ type: 'task', id, fields })) });
+/**
+ * Sends items to a project, or to One offs when projectId is null, keeping each title, estimate and date: a day or a
+ * range either way, a repeat only in One offs.
+ */
+export async function sendInboxItems(w: Writer, ids: readonly string[], projectId: string | null): Promise<PlanChange> {
+  const writes: RecordWrite[] = [];
+  for (const id of ids) {
+    const task = await getRecord(w.sql, 'task', id);
+    const once = task?.schedule?.type === 'once' ? task.schedule : null;
+    // Fields merge one by one, so each kind clears the other's: another device may have sent an item the other way.
+    const fields: Fields<'task'> = projectId
+      ? { kind: 'project', project_id: projectId, milestone_id: null, ...projectDates(task ?? {}) }
+      : { kind: 'one_off', project_id: null, milestone_id: null, ...setOnceDates(once?.from ?? null, once?.to ?? null) };
+    writes.push({ type: 'task', id, fields });
+  }
+  return applyPlanChange(w, { writes });
 }
 
 /** Deletes items as Process's Delete/done does each, freeing what they had picked or placed. */

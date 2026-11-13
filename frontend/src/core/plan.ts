@@ -218,6 +218,18 @@ export function effectiveDue({ project }: ProjectPlan, m: Milestone, ctx: PlanCo
   return m.stretch ? earlier(stretchEnd(m.stretch, ctx.settings, today(ctx.clock)), project.end) : project.end;
 }
 
+/**
+ * What a project task dated after its deadline is due by: its milestone's date, or with none the project's end. A range
+ * goes by its last day. Null when it isn't late, or has no date. It only warns: nothing is blocked by it.
+ */
+export function dueAfter(plan: ProjectPlan, task: Pick<Task, 'schedule' | 'milestone_id'>, ctx: PlanContext): { milestone: Milestone | null; due: LocalDate } | null {
+  const s = task.schedule;
+  if (s?.type !== 'once' || !s.from) return null;
+  const milestone = (task.milestone_id && plan.milestones.find((m) => m.id === task.milestone_id)) || null;
+  const due = milestone ? effectiveDue(plan, milestone, ctx) : plan.project.end;
+  return (s.to ?? s.from) > due ? { milestone, due } : null;
+}
+
 /** Undated means by the stretch's end, so it can't be overdue until that stretch has passed. */
 export function msLate(m: Milestone, ctx: PlanContext): boolean {
   const on = today(ctx.clock);
@@ -405,6 +417,8 @@ export interface Candidate {
   task: Task;
   /** Minutes not yet placed. */
   left: Minutes;
+  /** Minutes on this week's calendar still to come, which a new estimate leaves placed. */
+  ahead: Minutes;
   picked: boolean;
   /** Minutes picked for this week. */
   week: Minutes;
@@ -426,6 +440,7 @@ function candidate(t: Task, week: WeekInput, ctx: PlanContext): Candidate {
   return {
     task: t,
     left: Math.max(0, minutesLeft(t) - ahead),
+    ahead,
     picked: !!pick,
     week: pick?.minutes ?? 0,
     carried: !!week.carried?.has(t.id),
@@ -587,7 +602,7 @@ export function pickToPlace(c: Candidate, drawn: readonly { task_id?: string | n
 
 /** One record's new field values. */
 export interface RecordWrite {
-  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice';
+  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice' | 'attachment';
   id: string;
   fields: Record<string, unknown>;
 }

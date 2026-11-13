@@ -11,6 +11,7 @@ import type { Sql } from '../../../core/db';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import { getRecord, listRecords } from '../../../core/records';
+import { isRepeating, projectDates } from '../../../core/schedule';
 import { closeTask } from '../../../core/tasks';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
@@ -19,7 +20,7 @@ import { Attachments } from '../../components/attachments/Attachments';
 import { useLeave } from '../../components/editors/useLeave';
 import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
-import { CloseIcon } from '../../components/icons';
+import { CloseIcon, PenIcon } from '../../components/icons';
 import { NotesField } from '../../components/notes/NotesField';
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
@@ -61,14 +62,19 @@ async function loadTask(sql: Sql, id: string) {
   return { task, places };
 }
 
-/** The fields that move a task to a place. Fields merge one by one, so each kind clears the others'. */
+/**
+ * The fields that move a task to a place. Fields merge one by one, so each kind clears the others'. A date goes with it,
+ * a day or a range, but a repeat stays with One offs, and the Inbox holds none.
+ */
 function moveFields(place: Place, task: Task, today: LocalDate): Fields<'task'> {
   if (place.value === INBOX) return { kind: 'inbox', project_id: null, milestone_id: null, schedule: null, next_due: null };
   if (place.value === ONE_OFFS) {
-    const { kind, project_id, milestone_id, schedule, next_due } = oneOffFields({ ...emptyDraft(today), title: task.title }, today);
+    const once = task.schedule?.type === 'once' ? task.schedule : null;
+    const draft = { ...emptyDraft(today), title: task.title, ...(once?.from ? { from: once.from, to: once.to ?? '', ranged: !!once.to } : {}) };
+    const { kind, project_id, milestone_id, schedule, next_due } = oneOffFields(draft, today);
     return { kind, project_id, milestone_id, schedule, next_due };
   }
-  return { kind: 'project', project_id: place.projectId!, milestone_id: place.milestoneId ?? null, moved_from: null, schedule: null, next_due: null };
+  return { kind: 'project', project_id: place.projectId!, milestone_id: place.milestoneId ?? null, moved_from: null, ...projectDates(task) };
 }
 
 export default function Screen(props: ScreenProps) {
@@ -121,7 +127,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
     if (Object.keys(fields).length === 0) return close();
     // A failed save keeps the popup open as it was, and has said so.
     const saved = await apply(() => ({ writes: [{ type: 'task', id: task.id, fields }] }), {
-      message: moved ? `Moved ${name} to ${moved.label}.` : `Saved ${name}.`,
+      message: moved ? `Moved ${name} to ${moved.label}.${moved.projectId && isRepeating(task) ? " Repeats stay with One offs, so it won't repeat." : ''}` : `Saved ${name}.`,
     });
     if (saved) close();
   };
@@ -156,7 +162,10 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
             ) : (
               <h2 ref={head} tabIndex={-1}>
                 <button className="taskpopname" type="button" aria-label={`Rename ${title}`} onClick={() => setRenaming(true)}>
-                  {title}
+                  <span>{title}</span>
+                  <span className="pen" aria-hidden="true">
+                    <PenIcon />
+                  </span>
                 </button>
               </h2>
             )}

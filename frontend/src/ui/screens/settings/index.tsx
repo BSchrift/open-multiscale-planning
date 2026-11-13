@@ -424,7 +424,7 @@ function ProcessKeys() {
         </label>
       </div>
       <p className="quiet">
-        Keys such as S to skip and 1 to send to a project work on their own. Off, hold Option or Alt with the key, so speech input can't press them.
+        Keys such as S to skip and W for this week work on their own, away from a field. Off, hold Option or Alt with the key, so speech input can't press them.
         For this device only.
       </p>
     </Section>

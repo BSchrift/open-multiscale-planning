@@ -101,10 +101,13 @@ export async function openProject(page: Page, phone: boolean, goal: string, proj
   return scope;
 }
 
+/** The page a scope is on: a sheet draws from the layout's root, outside the page that opened it. */
+export const pageOf = (scope: Page | Locator): Page => ('page' in scope ? scope.page() : scope);
+
 /** Adds milestones to the open project, from its + Milestone popover. */
 export async function addMilestones(page: Page | Locator, milestones: readonly { name: string; due: string }[]) {
   await page.getByRole('button', { name: /^(\+ Milestone|Add milestone)$/ }).click();
-  const editor = page.getByRole('dialog', { name: 'Add milestone' });
+  const editor = pageOf(page).getByRole('dialog', { name: 'Add milestone' });
   for (const m of milestones) {
     await editor.getByLabel('Name').fill(m.name);
     await editor.getByLabel('Due date').fill(m.due);
@@ -122,7 +125,7 @@ export async function addTasks(page: Page | Locator, milestone: string, tasks: r
   const fold = page.getByRole('button', { name: `${milestone} tasks` });
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click();
   await page.getByRole('button', { name: `Add task to ${milestone}` }).click();
-  const editor = page.getByRole('dialog', { name: 'Add task' });
+  const editor = pageOf(page).getByRole('dialog', { name: 'Add task' });
   for (const t of tasks) {
     await editor.getByLabel('Title').fill(t.title);
     await slide(editor.getByRole('slider', { name: 'Time estimate' }), t.step, t.estimate);

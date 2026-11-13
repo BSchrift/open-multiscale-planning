@@ -1,28 +1,23 @@
 // Choose a time: when to plan a week, as a sheet on phone and a centred dialog on desktop. Now (when a block fits from
-// this minute), then the times offered, each one button that says what it does. Choose another time takes any day and
-// time; Change length sets this block's length only.
+// this minute), then the times offered, each one button that says what it does. Choose another time takes the block to
+// Week, to place by hand beside what's busy; Change length sets this block's length only.
 
 import { useId, useState } from 'react';
-import { addDays, formatMinutes, formatTime, localMinutes, today } from '../../../core/dates';
+import { formatMinutes, formatTime } from '../../../core/dates';
 import { GRID } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import { isWeek } from '../../../core/planning';
 import type { PlanningFor } from '../../../core/planning';
 import type { LocalDate } from '../../../core/types';
+import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
 import { Sheet } from '../Sheet';
 import { About } from './About';
-import { estimateSource, longTime, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
+import { estimateSource, longTime, placePlanningParams, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
 import './planning.css';
 
 /** The longest planning block, the same cap a first block and Start have. */
 const LONGEST_MIN = 120;
-
-const toMinutes = (time: string) => {
-  const [h, m] = time.split(':').map(Number);
-  return (h ?? 0) * 60 + (m ?? 0);
-};
-const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 /** name is the week as the person reads it: 'this week', 'next week' or 'the week after'. */
 export function PlanningTimes(props: {
@@ -30,15 +25,17 @@ export function PlanningTimes(props: {
   name: string;
   /** Both plans in one block: the week the stretch's block covers, their combined length, and parting them. */
   both?: { week: LocalDate; minutes: number; onSeparate(): void };
+  /** The week of the planning flow this opened in, which Week comes back to after Choose another time. */
+  flow?: LocalDate;
   onClose(): void;
 }) {
   const { for: week, onClose } = props;
   const { clock } = useApp();
+  const nav = useNav();
   const planning = usePlanningTimes(week);
   const act = usePlanningActions();
   const [length, setLength] = useState<number | null>(null);
   const [changing, setChanging] = useState(false);
-  const [choosing, setChoosing] = useState(false);
   const title = `When will you plan ${props.name}?`;
   if (!planning) return null;
   const { estimate } = planning;
@@ -49,6 +46,21 @@ export function PlanningTimes(props: {
   const done = (slot: Slot) => {
     onClose();
     void (both ? act.scheduleBoth(both.s, both.week, slot) : act.schedule(week, slot));
+  };
+  // On Week, the block waits at the best time offered, ready to drag beside what's busy, until Place here.
+  const another = () => {
+    onClose();
+    const best = times[0];
+    nav.go(
+      'week',
+      placePlanningParams({
+        for: week,
+        minutes,
+        ...(both ? { both: both.week } : {}),
+        ...(best ? { at: { date: best.date, start: best.start, end: best.end } } : {}),
+        ...(props.flow ? { flow: props.flow } : {}),
+      }),
+    );
   };
 
   return (
@@ -92,13 +104,9 @@ export function PlanningTimes(props: {
         ))}
         {!now && times.length === 0 && <p className="small">No free time fits. Choose another time.</p>}
       </div>
-      {choosing ? (
-        <AnyTime last={isWeek(week) ? addDays(week, 6) : week.stretch.end} minutes={minutes} onSchedule={done} />
-      ) : (
-        <button className="btn" type="button" onClick={() => setChoosing(true)}>
-          Choose another time
-        </button>
-      )}
+      <button className="btn" type="button" onClick={another}>
+        Choose another time
+      </button>
       {changing ? (
         <Length minutes={minutes} onChange={setLength} />
       ) : (
@@ -146,38 +154,6 @@ function Length(props: { minutes: number; onChange(minutes: number): void }) {
         aria-valuetext={formatMinutes(props.minutes)}
         onChange={(e) => props.onChange(Number(e.target.value))}
       />
-    </div>
-  );
-}
-
-/** Any day from today to the week's or stretch's end, and any time on the quarter hour. */
-function AnyTime(props: { last: LocalDate; minutes: number; onSchedule(slot: Slot): void }) {
-  const { clock } = useApp();
-  const ids = useId();
-  const first = today(clock);
-  const next = Math.min(23 * 60 + 45, Math.ceil(localMinutes(clock.now(), clock.zone()) / GRID) * GRID);
-  const [date, setDate] = useState<LocalDate>(first);
-  const [time, setTime] = useState(toTime(next));
-  const start = toMinutes(time);
-  const slot: Slot = { date, start, end: Math.min(1440, start + props.minutes) };
-  const valid = date >= first && date <= props.last && !!time;
-  return (
-    <div className="row planany">
-      <label className="stack4">
-        <span className="small quiet" id={`${ids}d`}>
-          Day
-        </span>
-        <input className="field" type="date" aria-labelledby={`${ids}d`} min={first} max={props.last} value={date} onChange={(e) => setDate(e.target.value)} />
-      </label>
-      <label className="stack4">
-        <span className="small quiet" id={`${ids}t`}>
-          Time
-        </span>
-        <input className="field" type="time" aria-labelledby={`${ids}t`} step={GRID * 60} value={time} onChange={(e) => setTime(e.target.value)} />
-      </label>
-      <button className="btn pri" type="button" disabled={!valid} aria-label={`Schedule planning for ${longTime(slot)}`} onClick={() => props.onSchedule(slot)}>
-        Schedule
-      </button>
     </div>
   );
 }

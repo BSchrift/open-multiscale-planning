@@ -8,7 +8,7 @@ import { addDays, localDate, localToMs, toInstant, weekStart } from './dates';
 import { occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
 import { addPeriod } from './retention';
 import type { Period } from './retention';
-import type { BlockResult, LocalDate, RecordChange, RecordMap, RecordType, TaskSchedule, Weekday } from './types';
+import type { BlockResult, LocalDate, Practice, RecordChange, RecordMap, RecordType, TaskSchedule, Weekday } from './types';
 
 export const HISTORY = {
   /** When the history ends, a Wednesday noon, and the moment Today and Week are timed at. */
@@ -135,14 +135,17 @@ function build(): Draft[] {
       if (other % 26 === 2) {
         const id = uuid(made);
         const ends = made + r.int(26, 80) * 7 * DAY_MS;
-        const added = add('practice', id, made, {
-          objective_id: objectives.length ? r.pick(objectives) : null,
-          title: r.pick(PRACTICES),
-          target_min: 30 * r.int(1, 4),
-          per: 'week',
-          days: [1, 3, 5] as Weekday[],
-          state: ends < NOW_MS ? 'ended' : 'active',
-        }, false);
+        const objective_id = objectives.length ? r.pick(objectives) : null;
+        const title = r.pick(PRACTICES);
+        const target_min = 30 * r.int(1, 4);
+        // Every kind of schedule in turn, without another random draw, so the rest of the history stays as it was.
+        const schedules: Omit<Practice, 'id' | 'title' | 'state'>[] = [
+          { per: 'week', target_min, days: [1, 3, 5] },
+          { per: 'week', target_min: 3 * target_min, sessions: 3, preferred_times: [18 * 60] },
+          { per: 'day', target_min, days: [0, 1, 4], preferred_times: [7 * 60], day_times: [null, null, null, null, 9 * 60 + 30, null, null] },
+        ];
+        const schedule = schedules[Math.floor(other / 26) % 3]!;
+        const added = add('practice', id, made, { objective_id, title, ...schedule, state: ends < NOW_MS ? 'ended' : 'active' }, false);
         if (added) practices.push({ id, from: made, until: ends });
       } else if (other % 104 === 5) {
         add('calendar_source', `history-calendar-${other}@group.calendar.google.com`, made, { google_id: `history-calendar-${other}@group.calendar.google.com`, name: r.pick(['Family', 'Work', 'Holidays', 'Football club']), mode: r.pick(['block', 'info', 'ignore'] as const) }, false);

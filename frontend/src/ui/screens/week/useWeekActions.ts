@@ -9,7 +9,7 @@ import type { Writer } from '../../../core/records';
 import { slotInstants } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import { closeTask, tickOneOff } from '../../../core/tasks';
-import type { LocalDate, Minutes, Task } from '../../../core/types';
+import type { LocalDate, Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import { useToast } from '../../components/Toast';
 import { dayName } from '../../components/weekgrid';
@@ -49,8 +49,8 @@ export function useWeekActions() {
         return { writes: [{ type: 'week_pick', id, fields: await w.set('week_pick', id, { deleted_at: nowInstant(clock) }) }] };
       }, `Took ${item.title} out of this week`),
     markDone: (task: Task) => withUndo((w) => (task.kind === 'one_off' ? tickOneOff(w, task.id, clock) : closeTask(w, task.id, 'done', clock)), `${task.title} done`),
-    keepPractice: async (blockId: string, wasMin: Minutes, title: string) => {
-      if (await run((w) => keepPracticeChange(w, blockId, wasMin, clock))) toast.show(`${title} changed for every week. Edit it any time in Goals.`);
+    keepPractice: async (blockId: string, title: string) => {
+      if (await run((w) => keepPracticeChange(w, blockId, { time: 'every', length: true }, clock))) toast.show(`${title} changed for every week. Edit it any time in Goals.`);
     },
   };
 }

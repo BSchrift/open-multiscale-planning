@@ -6,7 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { BUDGETS, report } from './history-report';
 
 const script = join(import.meta.dirname, 'history-report.ts');
-const within = { web: { first_sync_ms: 4000, edit_save_ms: 20, today_query_ms: 30, week_query_ms: 60 }, mac: { first_sync_ms: 8000, today_query_ms: 40, week_query_ms: 90 }, iphone: { first_sync_ms: 15000, today_query_ms: 80, week_query_ms: 99 } };
+const within = {
+  web: { first_sync_ms: 4000, edit_save_ms: 20, today_query_ms: 30, week_query_ms: 60, done_query_ms: 10 },
+  mac: { first_sync_ms: 8000, today_query_ms: 40, week_query_ms: 90, done_query_ms: 12 },
+  iphone: { first_sync_ms: 15000, today_query_ms: 80, week_query_ms: 99, done_query_ms: 30 },
+};
 
 const facts = { records: 38836 };
 
@@ -19,7 +23,7 @@ function run(results: Record<string, object | undefined>, env: Record<string, st
 
 describe('history-report', () => {
   it('has the budgets the plan sets', () => {
-    expect(BUDGETS.map((b) => `${b.measure} ${b.surface} ${b.budget}`)).toEqual([
+    expect(BUDGETS.map((b) => `${b.measure} ${b.surface} ${b.budget}${b.reportOnly ? ' report only' : ''}`)).toEqual([
       'first_sync_ms web 10000',
       'first_sync_ms mac 10000',
       'first_sync_ms iphone 20000',
@@ -30,7 +34,19 @@ describe('history-report', () => {
       'week_query_ms web 100',
       'week_query_ms mac 100',
       'week_query_ms iphone 100',
+      'done_query_ms web 100 report only',
+      'done_query_ms mac 100 report only',
+      'done_query_ms iphone 100 report only',
     ]);
+  });
+
+  it('reports a report-only budget, missed or not measured, without failing on it', () => {
+    const slow = { ...within, web: { ...within.web, done_query_ms: 140 }, mac: { ...within.mac, done_query_ms: undefined } };
+    const result = run(slow);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/Done query\s+web\s+140 ms\s+100 ms\s+missed, report only/);
+    expect(result.stdout).toMatch(/Done query\s+mac\s+not measured\s+100 ms\s+report only/);
+    expect(result.stdout).toContain('Every budget met.');
   });
 
   it('reports each number against its budget and passes when all are within', () => {

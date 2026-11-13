@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 type Surface = 'web' | 'mac' | 'iphone';
-type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms';
+type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'done_query_ms';
 type Results = Partial<Record<Surface, Partial<Record<Measure | 'records', number>>>>;
 
 const LABELS: Record<Measure, string> = {
@@ -18,15 +18,22 @@ const LABELS: Record<Measure, string> = {
   edit_save_ms: 'Edit saved',
   today_query_ms: 'Today query',
   week_query_ms: 'Week query',
+  done_query_ms: 'Done query',
 };
 
-/** The plan's budgets. docs/performance.md lists them with the baseline. */
-export const BUDGETS: { measure: Measure; surface: Surface; budget: number }[] = [
+const SURFACES = ['web', 'mac', 'iphone'] as const;
+
+/**
+ * The plan's budgets. docs/performance.md lists them with the baseline. A report-only one is shown against its budget
+ * but never fails a run, missed or not measured.
+ */
+export const BUDGETS: { measure: Measure; surface: Surface; budget: number; reportOnly?: true }[] = [
   { measure: 'first_sync_ms', surface: 'web', budget: 10_000 },
   { measure: 'first_sync_ms', surface: 'mac', budget: 10_000 },
   { measure: 'first_sync_ms', surface: 'iphone', budget: 20_000 },
   { measure: 'edit_save_ms', surface: 'web', budget: 50 },
-  ...(['today_query_ms', 'week_query_ms'] as const).flatMap((measure) => (['web', 'mac', 'iphone'] as const).map((surface) => ({ measure, surface, budget: 100 }))),
+  ...(['today_query_ms', 'week_query_ms'] as const).flatMap((measure) => SURFACES.map((surface) => ({ measure, surface, budget: 100 }))),
+  ...SURFACES.map((surface) => ({ measure: 'done_query_ms' as const, surface, budget: 100, reportOnly: true as const })),
 ];
 
 /** Seconds for a first sync, milliseconds for the rest. */
@@ -37,17 +44,18 @@ export function report(results: Results, skip: readonly string[]) {
   const rows = [['Budget', 'Surface', 'Measured', 'Budget', '']];
   let missed = 0;
   let missing = 0;
-  for (const { measure, surface, budget } of BUDGETS) {
+  for (const { measure, surface, budget, reportOnly } of BUDGETS) {
     if (skip.includes(surface)) continue;
     const value = results[surface]?.[measure];
     if (typeof value !== 'number') {
-      missing++;
-      rows.push([LABELS[measure], surface, 'not measured', formatBudget(measure, budget), '']);
+      if (!reportOnly) missing++;
+      rows.push([LABELS[measure], surface, 'not measured', formatBudget(measure, budget), reportOnly ? 'report only' : '']);
       continue;
     }
     const over = value > budget;
-    if (over) missed++;
-    rows.push([LABELS[measure], surface, format(measure, value), formatBudget(measure, budget), over ? 'MISSED' : 'ok']);
+    if (over && !reportOnly) missed++;
+    const verdict = reportOnly ? (over ? 'missed, report only' : 'ok, report only') : over ? 'MISSED' : 'ok';
+    rows.push([LABELS[measure], surface, format(measure, value), formatBudget(measure, budget), verdict]);
   }
   const widths = rows[0]!.map((_, i) => Math.max(...rows.map((row) => row[i]!.length)));
   const lines = rows.map((row) => row.map((cell, i) => cell.padEnd(widths[i]!)).join('  ').trimEnd());
@@ -64,7 +72,7 @@ function main(argv: string[]) {
     return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, number>) : undefined;
   };
   const results: Results = {};
-  for (const surface of ['web', 'mac', 'iphone'] as const) results[surface] = read(surface);
+  for (const surface of SURFACES) results[surface] = read(surface);
   const { lines, missed, missing } = report(results, skip);
   console.log(lines.join('\n'));
   const reportOnly = process.env.HISTORY_REPORT_ONLY === '1';

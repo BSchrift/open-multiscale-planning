@@ -134,6 +134,7 @@ export async function timeQueries(page: Page, surface: 'web' | 'electron'): Prom
 export interface HistoryTimes {
   today_query_ms: number;
   week_query_ms: number;
+  done_query_ms: number;
   records: number;
 }
 

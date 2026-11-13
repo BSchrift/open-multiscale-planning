@@ -61,3 +61,7 @@
   [data-layout] .lanecard { transition: none; }
   .cardghost { transform: none; }
 }
+/* Phone: the chosen day's heading, with what was finished on a day gone by or today, which opens Done. */
+[data-layout='phone'] .dnday { min-height: 44px; margin: 0 0 4px; }
+[data-layout='phone'] .dnday .wkday { margin: 0; }
+[data-layout='phone'] .dnday .dnlink { min-height: 44px; font-size: 14px; font-weight: 600; text-decoration: none; }

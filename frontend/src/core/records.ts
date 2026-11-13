@@ -406,6 +406,23 @@ export async function getRecord<T extends RecordType>(sql: Sql, type: T, id: str
   return row && toRecord<RecordMap[T]>(row);
 }
 
+/** Under the fewest variables any SQLite the app runs on allows in one statement. */
+const IDS_PER_READ = 500;
+
+/** Records of a type by id, deleted ones too, in any order. Those that don't exist are left out. */
+export async function getRecords<T extends RecordType>(sql: Sql, type: T, ids: readonly string[]): Promise<RecordMap[T][]> {
+  const unique = [...new Set(ids)];
+  const found: RecordMap[T][] = [];
+  for (let i = 0; i < unique.length; i += IDS_PER_READ) {
+    const some = unique.slice(i, i + IDS_PER_READ);
+    const params = Object.fromEntries(some.map((id, n) => [`id${n}`, id]));
+    const list = some.map((_, n) => `:id${n}`).join(', ');
+    const rows = await sql.all<DataRow>(`SELECT id, data FROM records WHERE type = :type AND id IN (${list})`, { type, ...params });
+    found.push(...rows.map((row) => toRecord<RecordMap[T]>(row)));
+  }
+  return found;
+}
+
 /** Every record of a type, oldest first, without deleted ones unless asked. This is what domain modules take. */
 export async function listRecords<T extends RecordType>(
   sql: Sql,

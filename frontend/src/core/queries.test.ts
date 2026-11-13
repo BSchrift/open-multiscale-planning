@@ -4,20 +4,24 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
 import { sqliteWasmDriver } from '../platform/sqlite-wasm-driver';
 import { sqlJsDriver } from '../platform/sqljs-driver';
-import { openDb, refreshStatistics } from './db';
+import { INDEXES, openDb, refreshStatistics } from './db';
 import type { Db } from './db';
 import {
   blocksInRange,
   completionsSince,
+  doneCompletions,
+  doneTasks,
   finishedCount,
   finishedTasks,
   goalChanges,
   inboxCount,
   inboxTasks,
+  metMilestones,
   needsNewTime,
   oneOffTasks,
   placedMinutes,
   projectTasks,
+  tasksOfProject,
 } from './queries';
 import { addRecord, planProblems, seedLarge } from './queries-testing';
 import { outcomeId } from './records';
@@ -43,6 +47,7 @@ async function seedSmall(db: Db) {
     await add(tx, 't6', 'task', { kind: 'project', project_id: 'p1', milestone_id: 'm1', title: 'Old', done_at: '2026-10-01T10:00:00Z' });
     await add(tx, 't7', 'task', { kind: 'one_off', title: 'Clean the windows', estimate_min: 60, order: 2 });
     await add(tx, 't8', 'task', { kind: 'one_off', title: 'Done last month', done_at: '2026-10-01T10:00:00Z' });
+    await add(tx, 't9', 'task', { kind: 'one_off', title: 'Deleted since', done_at: '2026-10-02T10:00:00Z', deleted_at: '2026-10-03T10:00:00Z' });
     await add(tx, 'w1', 'week_pick', { week_start: '2026-11-02', task_id: 't1', minutes: 120 });
     await add(tx, 'w2', 'week_pick', { week_start: '2026-11-02', task_id: 't4', minutes: 60 });
     await add(tx, 'w3', 'week_pick', { week_start: '2026-11-02', task_id: 't2', minutes: 60, deleted_at: '2026-11-01T00:00:00Z' });
@@ -107,6 +112,17 @@ function answers(open: () => Promise<Db>) {
     expect((await oneOffTasks(db, { since: '2026-09-30T05:00:00Z' })).map((t) => t.id)).toContain('t8');
     expect((await completionsSince(db, { since: '2026-10-01T00:00:00Z' })).map((c) => c.id)).toEqual(['c1']);
     expect(await completionsSince(db, { since: '2026-10-21T00:00:00Z' })).toEqual([]);
+  });
+
+  it('finishes, completions and milestones met in a range, a deleted task’s finish too, and one project’s tasks', async () => {
+    const october = { from_utc: '2026-10-01T05:00:00Z', to_utc: '2026-10-21T05:00:00Z' };
+    expect((await doneTasks(db, october)).map((t) => t.id).sort()).toEqual(['t6', 't8', 't9']);
+    expect((await doneTasks(db, october)).find((t) => t.id === 't9')).toMatchObject({ title: 'Deleted since', deleted_at: '2026-10-03T10:00:00Z' });
+    expect(await doneTasks(db, week)).toEqual([]);
+    expect((await doneCompletions(db, october)).map((c) => c.id)).toEqual(['c1']);
+    expect((await doneCompletions(db, { from_utc: '2026-09-01T00:00:00Z', to_utc: '2026-10-01T00:00:00Z' })).map((c) => c.id)).toEqual([]);
+    expect((await metMilestones(db, { from_utc: '2026-09-01T00:00:00Z', to_utc: '2026-09-02T00:00:00Z' })).map((m) => [m.id, m.title])).toEqual([['m3', 'Done early']]);
+    expect((await tasksOfProject(db, 'p1')).map((t) => t.id).sort()).toEqual(['t1', 't2', 't3', 't6']);
   });
 
   it('tasks of active and paused projects, done ones too, as whole records', async () => {
@@ -209,4 +225,16 @@ describe('query plans on sql.js', () => {
 
 describe('query plans on SQLite Wasm', () => {
   plans(async () => openDb(sqliteWasmDriver(new (await sqlite3InitModule()).oo1.DB(':memory:'))));
+});
+
+describe('query plans on an install from before the indexes made at open', () => {
+  it('uses them as soon as an open has made them', async () => {
+    const driver = nodeSqliteDriver();
+    const db = await openDb(driver);
+    await seedLarge(db);
+    for (const name of Object.keys(INDEXES)) await db.run(`DROP INDEX ${name}`);
+    await refreshStatistics(db);
+    expect(await planProblems(db)).not.toEqual([]);
+    expect(await planProblems(await openDb(driver))).toEqual([]);
+  }, 120_000);
 });

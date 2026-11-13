@@ -1,4 +1,4 @@
-// Times what Today and Week read on a device's own database, after the history-scale test's first sync. The iPhone
+// Times what Today, Week and Done read on a device's own database, after the history-scale test's first sync. The iPhone
 // check page and the browser and Mac specs (frontend/e2e/history) run it in the app's page, so it goes through the same
 // driver the app does. Never shipped in the app.
 
@@ -6,6 +6,7 @@ import { fixedClock } from '../core/clock';
 import { localDate, weekStart } from '../core/dates';
 import type { Sql } from '../core/db';
 import { HISTORY } from '../core/history-testing';
+import { loadDoneDay } from '../ui/screens/done/data';
 import { loadToday } from '../ui/screens/today/data';
 import { loadWeek } from '../ui/screens/week/data';
 
@@ -35,6 +36,7 @@ export async function timeHistoryQueries(sql: Sql, now: () => number = () => per
   return {
     today_query_ms: await time(() => loadToday(sql, clock)),
     week_query_ms: await time(() => loadWeek(sql, clock, week)),
+    done_query_ms: await time(() => loadDoneDay(sql, clock, localDate(clock.now(), HISTORY.zone))),
     records: (await sql.get<{ n: number }>('SELECT COUNT(*) AS n FROM records'))!.n,
   };
 }

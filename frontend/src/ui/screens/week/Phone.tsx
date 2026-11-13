@@ -22,7 +22,7 @@ import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
 import { KIND_WORD } from '../../components/blocks/describe';
-import { clearLane, dayName, overLane, slotRange } from '../../components/weekgrid';
+import { clearLane, dayName, finishedCount, overLane, slotRange } from '../../components/weekgrid';
 import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
@@ -343,7 +343,17 @@ export function PhoneWeek(props: WeekProps) {
         </div>
       ) : (
         <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          <h3 className="wkday">{dayTitle}</h3>
+          {props.finished[selDay] !== undefined ? (
+            // Today or a day gone by: what was finished, which opens Done on that day.
+            <div className="between dnday">
+              <h3 className="wkday">{dayTitle}</h3>
+              <button className="link dnlink" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
+                {finishedCount(props.finished[selDay])} <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          ) : (
+            <h3 className="wkday">{dayTitle}</h3>
+          )}
           <div className="card wkdaycard">
             <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={(id) => setOpen({ kind: 'block', id })} />
           </div>

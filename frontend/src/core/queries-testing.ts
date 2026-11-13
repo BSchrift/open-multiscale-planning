@@ -30,7 +30,8 @@ export async function seedLarge(db: Db) {
       const project = `project-${p}`;
       await add(tx, project, 'project', { title: `Project ${p}`, state: p < 6 ? 'active' : 'finished', start: '2024-11-01', end: '2027-01-01' });
       for (let m = 0; m < 6; m++) {
-        await add(tx, `ms-${p}-${m}`, 'milestone', { project_id: project, title: `Milestone ${m}`, due: addDays('2024-12-01', p * 15 + m * 20) });
+        const due = addDays('2024-12-01', p * 15 + m * 20);
+        await add(tx, `ms-${p}-${m}`, 'milestone', { project_id: project, title: `Milestone ${m}`, due, met_at: m < 3 ? `${due}T17:00:00Z` : null });
       }
       for (let t = 0; t < 50; t++) {
         await add(tx, `task-${p}-${t}`, 'task', {
@@ -54,6 +55,7 @@ export async function seedLarge(db: Db) {
         await add(tx, id, 'time_block', { task_id: `task-${d % 40}-${(d + n) % 50}`, start: toInstant(startMs), end: toInstant(startMs + 3_600_000), tz: 'UTC' });
         await add(tx, outcomeId(id), 'block_outcome', { result: n % 5 === 0 ? 'partly' : 'done', remaining_min: 30 });
       }
+      await add(tx, `completion-${d}`, 'task_completion', { task_id: `one-off-${d % 300}`, done_at: toInstant(start + d * 86_400_000 + 18 * 3_600_000) });
     }
     for (let w = 0; w < 104; w++) {
       const weekStart = addDays('2024-11-04', w * 7);
@@ -73,6 +75,7 @@ const PLAN_PARAMS: Params = {
   offset: 0,
   since: '2026-11-02T05:00:00Z',
   task_id: 'task-3-45',
+  project_id: 'project-3',
   now: '2026-11-02T05:00:00Z',
 };
 

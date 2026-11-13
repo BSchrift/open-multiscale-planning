@@ -446,3 +446,36 @@ describe('Pick tasks: estimates and Mark done', () => {
     expect(within(tray).getByRole('button', { name: 'Edit task Collect the sources' }).closest('.trow')).toHaveClass('isdone');
   });
 });
+
+describe('Pick tasks: dragging an estimate', () => {
+  it('saves a drag once, when it is let go, with the slider following it throughout, and Undo puts the estimate back', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    await userEvent.click(await screen.findByRole('button', { name: /^Write the report,/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Estimate for Collect the sources: 2h estimate' }));
+    const slider = within(screen.getByRole('dialog', { name: 'Estimate for Collect the sources' })).getByRole('slider', { name: 'Estimate' });
+    let saves = 0;
+    const stop = t.db.subscribe((change) => void (change.source === 'local' && saves++));
+    // A drag from 2h up past 3h and back: an input event at each step, then a change event when it's let go.
+    for (const [minutes, text] of [
+      [150, '2h 30m'],
+      [180, '3h'],
+      [210, '3h 30m'],
+      [180, '3h'],
+    ] as const) {
+      fireEvent.input(slider, { target: { value: String(EST_STEPS.indexOf(minutes)) } });
+      expect(slider).toHaveAttribute('aria-valuetext', text);
+    }
+    expect(saves).toBe(0);
+    // Letting go sets the popover's draft; Save writes it, once.
+    fireEvent.change(slider);
+    expect(slider).toHaveAttribute('aria-valuetext', '3h');
+    expect(saves).toBe(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Collect the sources, 3h estimate.')).toBeVisible();
+    expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(180);
+    expect(saves).toBe(1);
+    stop();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(120));
+  });
+});

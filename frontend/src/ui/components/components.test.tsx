@@ -6,6 +6,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { fixedClock } from '../../core/clock';
 import { createTestPlatform } from '../../platform/testing';
+import { PaneShown } from '../app/nav';
 import { AppProvider } from '../app/store';
 import type { Layout } from '../app/registry';
 import { EST_STEPS, estIndex, EstimateSlider } from './EstimateSlider';
@@ -195,6 +196,54 @@ describe('Sheet', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(opener).toHaveFocus();
+  });
+
+  it.each(['desktop', 'phone'] as const)('opened from a page, draws from the layout root, so a sticky header there never holds it under the tab bar or +, on %s', async (layout) => {
+    const view = await inApp(
+      <PaneShown.Provider value>
+        <div className="weektop" style={{ position: 'sticky', zIndex: 3 }}>
+          <Host layout={layout} />
+        </div>
+      </PaneShown.Provider>,
+      layout,
+    );
+    await userEvent.click(screen.getByText('open'));
+    const sheet = screen.getByRole('dialog', { name: 'Edit' });
+    expect(sheet.closest('.weektop')).toBeNull();
+    expect(sheet.closest('[data-layout]')).toBe(view.container.querySelector('[data-layout]'));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it.each(['desktop', 'phone'] as const)('in an overlay or a flow, draws in place, above what opened it, on %s', async (layout) => {
+    await inApp(
+      <div className="pxflow">
+        <Host layout={layout} />
+      </div>,
+      layout,
+    );
+    await userEvent.click(screen.getByText('open'));
+    expect(screen.getByRole('dialog', { name: 'Edit' }).closest('.pxflow')).not.toBeNull();
+  });
+
+  it.each(['desktop', 'phone'] as const)('hides with a pane out of sight, as it did inside it, on %s', async (layout) => {
+    function Pane() {
+      const [shown, setShown] = useState(true);
+      return (
+        <PaneShown.Provider value={shown}>
+          <button onClick={() => setShown(false)}>leave</button>
+          <Host layout={layout} />
+        </PaneShown.Provider>
+      );
+    }
+    await inApp(<Pane />, layout);
+    await userEvent.click(screen.getByText('open'));
+    const sheet = screen.getByRole('dialog', { name: 'Edit' });
+    expect(sheet).toBeVisible();
+    act(() => screen.getByText('leave').click());
+    expect(sheet).toBeInTheDocument();
+    expect(sheet).not.toBeVisible();
+    if (layout === 'phone') expect(document.querySelector('.scrim')).not.toBeVisible();
   });
 
   it('closes from the backdrop but not from inside', async () => {

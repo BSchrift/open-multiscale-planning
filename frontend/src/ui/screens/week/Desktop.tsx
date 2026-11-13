@@ -1,13 +1,14 @@
 // Week on desktop: the header with week arrows, how the week's time is used, and the grid with To schedule above
 // it. Its cards drag onto a day, or open with suggested times. Editing adds a list of tasks to place on the left, and
-// the grid's blocks drag, resize, come off with ×, or drag back to To schedule.
+// the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning from Choose another time
+// waits on the grid with Place here above it, and the week arrows carry it to another week.
 
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { addWeeks, formatMinutes, formatTimeOfDay } from '../../../core/dates';
+import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, weekStart } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
-import { defaultSlot, otherOffers, slotNotes } from '../../../core/slots';
-import type { Slot } from '../../../core/slots';
+import { defaultSlot, DRAWN_DAY, GRID, otherOffers, slotNotes } from '../../../core/slots';
+import type { Slot, Work } from '../../../core/slots';
 import { onceWhen } from '../../../core/schedule';
 import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
@@ -21,13 +22,16 @@ import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
 import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
-import { rowItem } from './data';
+import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+
+/** The grid's id for the planning block being placed. */
+const PLANNING = 'planning';
 
 export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
@@ -55,6 +59,33 @@ export function DesktopWeek(props: WeekProps) {
   const right = useRef<HTMLDivElement>(null);
   const isThis = offset === 0;
 
+  // Choose another time for planning: its block waits at the time it was given or carried to, on today if that day has
+  // gone, beside the week's blocks, which stay put meanwhile. Focus goes to it, so keys move it at once.
+  const plan = props.planning;
+  const [planAt, setPlanAt] = useState<Slot | null>(() => {
+    if (!plan) return null;
+    const from = plan.at;
+    if (!from) return defaultSlot(plan.minutes, { kind: 'project' }, model.ctx);
+    const { earliest } = model.ctx;
+    const date = from.date < earliest.date ? earliest.date : from.date > plan.last ? plan.last : from.date;
+    return landOn(date, from, 'project', model.ctx, date === earliest.date ? Math.ceil(earliest.minutes / GRID) * GRID : DRAWN_DAY.from);
+  });
+  useEffect(() => {
+    if (plan) right.current?.querySelector<HTMLElement>(`[data-id="${PLANNING}"]`)?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const late = !!plan && !!planAt && planAt.date > plan.last;
+  const placePlanning = async () => {
+    if (!plan || !planAt || late || !(await planning.place(plan, planAt))) return;
+    setPlanAt(null);
+    props.donePlacing();
+    if (plan.flow) props.close();
+  };
+  const cancelPlanning = () => {
+    props.donePlacing();
+    props.close();
+  };
+
   const rows = model.addGroups.flatMap((g) => g.rows);
   const cur = editing && selected ? rows.find((r) => r.task.id === selected) : undefined;
   // A new pick starts at its best time, which never overlaps an event or another block.
@@ -80,6 +111,7 @@ export function DesktopWeek(props: WeekProps) {
 
   const onChange = (id: string, slot: Slot) => {
     if (id === 'draft') return setDraft(slot);
+    if (id === PLANNING) return setPlanAt(slot);
     const b = model.blocks.find((x) => x.id === id);
     if (!b) return;
     const saved = act.move(id, slot);
@@ -105,7 +137,8 @@ export function DesktopWeek(props: WeekProps) {
   };
   const dragItem = (item: LaneItem) => ({ preview: (slot: Slot | null) => setDropAt(slot && { item, slot }), drop: (slot: Slot) => placeItem(item, slot) });
 
-  const gridBlocks: GridBlock[] = [...model.blocks];
+  const gridBlocks: GridBlock[] = plan ? model.blocks.map((b) => ({ ...b, fixed: true })) : [...model.blocks];
+  if (plan && planAt) gridBlocks.push({ ...planAt, id: PLANNING, title: plan.title, kind: 'planning', draft: true });
   let ghosts: GridGhost[] = [];
   const item = model.unscheduled.find((x) => x.id === openItem);
   if (item && isThis) {
@@ -131,7 +164,13 @@ export function DesktopWeek(props: WeekProps) {
     <div className="wide stack24 week">
       <div className="between">
         <div className="row wkhead">
-          <WeekArrows week={props.week} current={props.model.current} onWeek={props.goWeek} />
+          {/* Planning being placed goes to another week keeping its day and time, from this week to the week of its last day. */}
+          <WeekArrows
+            week={props.week}
+            current={model.current}
+            {...(plan ? { first: model.current, last: weekStart(plan.last) } : {})}
+            onWeek={(to) => props.goWeek(to, plan && planAt ? { ...planAt, date: addDays(planAt.date, diffDays(props.week, to)) } : undefined)}
+          />
           <div>
             <div className="date">{props.label}</div>
             {props.planningAt && <div className="small quiet">{props.planningAt}</div>}
@@ -144,7 +183,7 @@ export function DesktopWeek(props: WeekProps) {
               See this week's analytics
             </button>
           )}
-          {isThis && !editing && !props.gated && (
+          {isThis && !editing && !props.gated && !plan && (
             <button
               ref={editBtn}
               className="btn pri"
@@ -157,7 +196,7 @@ export function DesktopWeek(props: WeekProps) {
               Edit this week's plan
             </button>
           )}
-          {(offset === 0 || offset === 1) && !editing && !props.gated && (
+          {(offset === 0 || offset === 1) && !editing && !props.gated && !plan && (
             <button className="btn" type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
             </button>
@@ -218,7 +257,18 @@ export function DesktopWeek(props: WeekProps) {
                               {!on && <span className="subline small">{sub}</span>}
                             </span>
                           </button>
-                          {on && draft && <Placing row={r} draft={draft} model={model} onPlace={() => place(r, draft)} onCancel={() => choose(null)} />}
+                          {on && draft && (
+                            <Placing
+                              context={r.context}
+                              draft={draft}
+                              work={r.work}
+                              model={model}
+                              left={r.left}
+                              hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
+                              onPlace={() => void place(r, draft)}
+                              onCancel={() => choose(null)}
+                            />
+                          )}
                         </li>
                       );
                     })}
@@ -229,6 +279,20 @@ export function DesktopWeek(props: WeekProps) {
           </div>
         )}
         <div className="planright" ref={right}>
+          {plan && planAt && (
+            <div className="panel wkpanel" role="group" aria-label={`Placing ${plan.title}`}>
+              <Placing
+                context={plan.title}
+                draft={planAt}
+                work={{ kind: 'project' }}
+                model={model}
+                problem={late ? `Too late: plan it by ${dayName(plan.last)}.` : undefined}
+                hint="Drag the block anywhere, or use the arrow keys and Enter. The week arrows take it to another week. Drag its bottom edge to change its length."
+                onPlace={() => void placePlanning()}
+                onCancel={cancelPlanning}
+              />
+            </div>
+          )}
           {item && (
             <div className="panel stack8 wkpanel" role="group" aria-label={item.title}>
               <LaneActions
@@ -267,7 +331,7 @@ export function DesktopWeek(props: WeekProps) {
             </div>
           )}
           <div className="card wkgrid">
-            {offset >= 0 && (
+            {offset >= 0 && !plan && (
               <section className="tosched stack8" aria-label="To schedule" data-unscheduled>
                 <div className="between">
                   <div className="small">
@@ -299,10 +363,11 @@ export function DesktopWeek(props: WeekProps) {
               blocks={gridBlocks}
               info={model.info}
               ghosts={ghosts}
-              editing={editing}
-              lockPast={editing}
+              editing={editing || !!plan}
+              lockPast={editing || !!plan}
               lane={model.unscheduled.flatMap((x) =>
-                x.dates
+                // The planning being placed is the block, not a card waiting above its days.
+                x.dates && x.id !== props.place
                   ? [
                       {
                         id: x.id,
@@ -330,6 +395,7 @@ export function DesktopWeek(props: WeekProps) {
               }}
               onOpen={(id) => {
                 if (id === 'draft' && cur && draft) void place(cur, draft);
+                else if (id === PLANNING) void placePlanning();
                 else if (!editing) setOpenBlock(openBlock === id ? null : id);
               }}
             />
@@ -368,32 +434,45 @@ export function DesktopWeek(props: WeekProps) {
   );
 }
 
-/** The task being placed: where its block sits, what's off about that spot, and Place here. */
-function Placing(props: { row: AddRow; draft: Slot; model: WeekProps['model']; onPlace(): void; onCancel(): void }) {
-  const { row, draft, model } = props;
+/**
+ * A task or planning being placed: where its block sits, what's off about that spot, and Place here. left: a task's
+ * minutes still to place. problem: why it can't go there, in place of the notes.
+ */
+function Placing(props: {
+  context: string;
+  draft: Slot;
+  work: Work;
+  model: WeekProps['model'];
+  left?: Minutes;
+  problem?: string | undefined;
+  hint: string;
+  onPlace(): void;
+  onCancel(): void;
+}) {
+  const { draft, model, left } = props;
   const len = draft.end - draft.start;
-  const notes = slotNotes({ ...draft, id: 'draft' }, row.work, model.ctx);
+  const notes = props.problem ? [props.problem] : slotNotes({ ...draft, id: 'draft' }, props.work, model.ctx);
   return (
     <div className="scheddetail stack8">
-      <div className="small quiet">{row.context}</div>
+      <div className="small quiet">{props.context}</div>
       <div className="strong">
         {dayName(draft.date)}, {slotRange(draft)} ({formatMinutes(len)})
       </div>
-      {len < row.left && <div className="small">{formatMinutes(row.left - len)} more of this task stays to place</div>}
+      {left !== undefined && len < left && <div className="small">{formatMinutes(left - len)} more of this task stays to place</div>}
       {notes.map((n) => (
         <div key={n} className="small wknote">
           {n}
         </div>
       ))}
       <div className="row">
-        <button className="btn sm pri" type="button" onClick={props.onPlace}>
+        <button className="btn sm pri" type="button" disabled={!!props.problem} onClick={props.onPlace}>
           Place here
         </button>
         <button className="btn sm" type="button" onClick={props.onCancel}>
           Cancel
         </button>
       </div>
-      <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
+      <p className="small quiet">{props.hint}</p>
     </div>
   );
 }

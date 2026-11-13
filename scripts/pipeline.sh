@@ -80,7 +80,15 @@ outputs() {
 built() { echo "${CODEBUILD_SRC_DIR_Built:?the Built artifact is missing}"; }
 
 frontend_deps() { (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund); }
-browsers() { (cd "$root/frontend" && npx playwright install --with-deps chromium webkit); }
+# --with-deps runs apt-get update, which fails while any of the image's package mirrors is mid-sync, so it tries again.
+browsers() {
+  local try
+  for try in 1 2 3; do
+    (cd "$root/frontend" && npx playwright install --with-deps chromium webkit) && return 0
+    [ "$try" = 3 ] || { echo "The browser install failed (try $try of 3). Trying again in a minute." >&2; sleep 60; }
+  done
+  return 1
+}
 
 # The shell (native code) a build or a feed's manifest needs, from stdin.
 shell_of() {

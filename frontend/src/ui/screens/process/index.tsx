@@ -328,8 +328,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
 
   const total = queue.length;
-  const pos = `${item ? s.idx + 1 : total} of ${total}`;
-  const pct = Math.round((s.idx / Math.max(1, total)) * 100);
+  // The bar and the count say the same: on the third of four it's three quarters full.
+  const at = item ? s.idx + 1 : total;
+  const pos = `${at} of ${total}`;
+  const pct = Math.round((at / Math.max(1, total)) * 100);
   const planLabel = planning
     ? `${s.planOn ? 'Adding' : 'Add'} to the plan for ${formatWeekRange(planning)}`
     : s.planOn
@@ -354,10 +356,12 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     </span>
   );
   const followUp = s.sent && <FollowUp key={s.sent.id} sent={s.sent} />;
-  // Every button on the desktop card shows its key.
+  // Every button on the desktop card shows its key, with the Option or Alt it needs until Settings makes keys work alone.
+  const held = useHeld();
   const cap = (k: string) =>
     !phone && (
       <kbd className="keycap" aria-hidden="true">
+        {held}
         {k}
       </kbd>
     );
@@ -495,6 +499,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               {data.shown.map((d, i) => (
                 <button key={d.plan.project.id} className={`pxdest${s.planOn ? ' tagged' : ''}`} type="button" aria-label={alt(d.title)} onClick={() => send(d)}>
                   <span className="pxkey" aria-hidden="true">
+                    {held}
                     {i + 1}
                   </span>
                   <span className="pxmin">
@@ -700,6 +705,12 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
 }
 
 /** A destination on the desktop card: its key, what it is, and the week's tag while that's on. */
+/** What a key needs held, shown on its cap: nothing once Settings makes single keys work. */
+function useHeld() {
+  const [keysOn] = useProcessKeys();
+  return keysOn ? '' : /Mac/.test(navigator.userAgent) ? '⌥' : 'Alt ';
+}
+
 function Dest(props: {
   k: string;
   label?: string;
@@ -709,9 +720,11 @@ function Dest(props: {
   onClick(): void;
   children: ReactNode;
 }) {
+  const held = useHeld();
   return (
     <button ref={props.ref} className={`pxdest${props.className ? ` ${props.className}` : ''}`} type="button" aria-label={props.label} onClick={props.onClick}>
       <span className="pxkey" aria-hidden="true">
+        {held}
         {props.k}
       </span>
       {props.children}

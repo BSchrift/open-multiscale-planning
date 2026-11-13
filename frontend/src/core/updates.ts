@@ -1,5 +1,6 @@
-// Over-the-air updates of the web bundle. The page checks release.json and downloads the files it lists; native code
-// checks the signature and every file before installing, and picks when the app switches over.
+// Over-the-air updates of the web bundle. The page checks its app's feed, release.json under desktop/ or iphone/, and
+// downloads the files it lists from the store both feeds share; native code checks the signature and every file before
+// installing, and picks when the app switches over. Each feed moves on its own (docs/releasing.md).
 
 /** release.json's manifest. scripts/sign-release.mjs writes it and the native installers read it. */
 export interface Manifest {
@@ -59,6 +60,8 @@ export interface Updater {
   stop(): void;
 }
 
+/** Each app's feed on the release host. Bundles from before these read the shared release.json at its root. */
+const FEEDS = { electron: 'desktop', ios: 'iphone' } as const;
 const FIRST_CHECK_MS = 10_000;
 const CHECK_EVERY_MS = 6 * 60 * 60_000;
 const RECHECK_AFTER_MS = 60 * 60_000;
@@ -98,7 +101,7 @@ export function createUpdater(deps: {
     let failure = 'fetch';
     let build: number | undefined;
     try {
-      const release = (await (await fetchOk(`${deps.url}/release.json`, { cache: 'no-store' })).json()) as { manifest: string; signature: string };
+      const release = (await (await fetchOk(`${deps.url}/${FEEDS[deps.platform]}/release.json`, { cache: 'no-store' })).json()) as { manifest: string; signature: string };
       const manifest = JSON.parse(release.manifest) as Manifest;
       if (manifest.build <= deps.build) return set({ state: 'current' });
       build = manifest.build;

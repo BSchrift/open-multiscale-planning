@@ -51,6 +51,12 @@ export interface Nav {
   closeOverlay(): void;
 }
 
+/**
+ * Inside a page's pane, whether it's in sight, so what it draws outside itself, such as a sheet, hides with it. Null
+ * outside the panes: in a flow or an overlay.
+ */
+export const PaneShown = createContext<boolean | null>(null);
+
 const NavContext = createContext<Nav | null>(null);
 // Kept out of Nav, so opening or closing Capture or Process doesn't render every pane and screen again, none of which
 // shows it. That took most of the time Capture took to open.

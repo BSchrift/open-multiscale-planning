@@ -213,8 +213,29 @@ describe('Process on desktop', () => {
     await userEvent.keyboard('{Escape}');
     expect(picker()).toHaveValue('');
     await userEvent.keyboard('{Escape}');
-    expect(title()).toHaveFocus();
+    expect(within(title()).getByRole('button')).toHaveFocus();
     expect(close).not.toHaveBeenCalled();
+    await userEvent.keyboard('{Escape}');
+    expect(close).toHaveBeenCalled();
+  });
+
+  it('keeps focus where Esc put it while an add is still saving, so the next Esc closes Process', async () => {
+    const close = vi.fn();
+    const t = await open({ close });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const transaction = t.db.transaction.bind(t.db);
+    vi.spyOn(t.db, 'transaction').mockImplementationOnce(async (fn) => {
+      await held;
+      return transaction(fn);
+    });
+    await userEvent.type(picker(), 'One offs{Enter}');
+    await userEvent.keyboard('{Escape}');
+    expect(within(title()).getByRole('button')).toHaveFocus();
+    release();
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(within(title()).getByRole('button')).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(close).toHaveBeenCalled();
   });
@@ -424,12 +445,12 @@ describe('Process on desktop', () => {
     const caps = () => [...card().querySelectorAll('.keycap')].map((k) => k.textContent).filter((c) => c !== '↩');
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['⌥D', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
+    expect(caps().sort()).toEqual(['⌥D', '⌥E', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
     cleanup();
     keysOn();
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['D', 'G', 'P', 'S', 'W', 'Z']);
+    expect(caps().sort()).toEqual(['D', 'E', 'G', 'P', 'S', 'W', 'Z']);
   });
 
   it('labels the held key Alt away from a Mac', async () => {
@@ -774,6 +795,168 @@ describe('Making a home from the card', () => {
   });
 });
 
+describe('Editing the item on the card', () => {
+  /** The title, a button in the heading that edits it. */
+  const pen = () => within(title()).getByRole('button');
+
+  it('edits the title in place from its pencil or Option E, with Save and Cancel, and focus back on the title', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(pen()).toHaveAccessibleName('Call the bank');
+    expect(pen()).toHaveAccessibleDescription('Edit title');
+    expect(pen().querySelector('.pen svg')).not.toBeNull();
+    expect(card().querySelector('.pxhead .keycap')).toHaveTextContent('Alt E');
+    await userEvent.click(pen());
+    const field = within(card()).getByRole('textbox', { name: 'Title' }) as HTMLInputElement;
+    expect(field).toHaveFocus();
+    expect([field.selectionStart, field.selectionEnd]).toEqual([13, 13]);
+    expect(within(card()).getByText('Up to 2,000 characters.')).toBeInTheDocument();
+    expect(btn('Save')).toHaveTextContent('↩');
+    expect(btn('Cancel')).toHaveTextContent('esc');
+    // Esc or Cancel puts the old title back.
+    await userEvent.type(field, ' about the loan');
+    await userEvent.keyboard('{Escape}');
+    expect(title()).toHaveTextContent('Call the bank');
+    expect(pen()).toHaveFocus();
+    expect((await task(t.db, 'i1'))?.title).toBe('Call the bank');
+
+    // Option E edits it from anywhere on the card, Add to included; Enter saves.
+    altKey('KeyE', picker());
+    await userEvent.clear(within(card()).getByRole('textbox', { name: 'Title' }));
+    await userEvent.keyboard('{Enter}');
+    expect(within(card()).getByRole('alert')).toHaveTextContent('Give it a title.');
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), 'Call the bank about the loan{Enter}');
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.title).toBe('Call the bank about the loan'));
+    await waitFor(() => expect(title()).toHaveTextContent('Call the bank about the loan'));
+    expect(pen()).toHaveFocus();
+    // The toast names it as it is now.
+    await addTo('One offs');
+    expect(toast()).toHaveTextContent('Added Call the bank about the loan to One offs.');
+  });
+
+  it("writes the description with the popup's field: Enter makes a new line, Cmd or Ctrl Enter or Save keeps it, Esc drops it", async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(btn('Add description').querySelector('svg')).not.toBeNull();
+    await userEvent.click(btn('Add description'));
+    const box = () => within(card()).getByRole('textbox', { name: 'Description' });
+    expect(box()).toHaveFocus();
+    expect(within(card()).getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+    expect(btn('Save')).toHaveTextContent('↩');
+    await userEvent.type(box(), 'Ask about{Enter}the rate');
+    expect(box()).toHaveValue('Ask about\nthe rate');
+    await userEvent.keyboard('{Escape}');
+    expect(within(card()).queryByRole('textbox', { name: 'Description' })).toBeNull();
+    expect(pen()).toHaveFocus();
+    expect((await task(t.db, 'i1'))?.notes ?? null).toBeNull();
+
+    await userEvent.click(btn('Add description'));
+    await userEvent.type(box(), 'Ask about **rates**');
+    fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true });
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.notes).toBe('Ask about **rates**'));
+    // Shown formatted where it was written, with Edit; Add description has gone.
+    expect((await within(card()).findByText('rates')).tagName).toBe('STRONG');
+    expect(within(card()).queryByRole('button', { name: 'Add description' })).toBeNull();
+    await userEvent.click(btn('Edit description'));
+    await userEvent.type(box(), ' today');
+    await userEvent.click(btn('Save'));
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.notes).toBe('Ask about **rates** today'));
+  });
+
+  it('adds a link on the card at once, with Add link beside the others, and removes it with its own Undo', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    // Not signed in here, so there's nowhere to keep a photo.
+    expect(within(card()).queryByRole('button', { name: 'Add photo' })).toBeNull();
+    await userEvent.click(btn('Add link'));
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Address' }), 'https://bank.example.com/loans{Enter}');
+    expect(await within(card()).findByRole('link', { name: 'bank.example.com' })).toBeVisible();
+    const [link] = await listRecords(t.db, 'attachment');
+    expect(link).toMatchObject({ task_id: 'i1', kind: 'link' });
+    // With one, it's listed under Attachments, with Add link under it.
+    expect(within(within(card()).getByRole('region', { name: 'Attachments' })).getByRole('button', { name: 'Add link' })).toBeInTheDocument();
+    await userEvent.click(btn('Remove bank.example.com'));
+    expect(await screen.findByText('Removed bank.example.com.')).toBeVisible();
+    await userEvent.click(toastUndo());
+    expect(await within(card()).findByRole('link', { name: 'bank.example.com' })).toBeVisible();
+  });
+
+  it('saves Time as it moves, so an item skipped keeps it', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    slide(90);
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.estimate_min).toBe(90));
+    await userEvent.click(btn('Skip'));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect((await task(t.db, 'i1'))?.estimate_min).toBe(90);
+  });
+
+  it("puts the item back as it arrived with one Undo before stepping back, and the toast's Undo after adding takes back only the add", async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await addTo('Learn to bake bread');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    await userEvent.click(pen());
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), ' latch{Enter}');
+    await waitFor(() => expect(title()).toHaveTextContent('Fix the gate latch'));
+    await userEvent.click(btn('Add description'));
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Description' }), 'Hinges');
+    await userEvent.click(btn('Save'));
+    slide(30);
+    await userEvent.click(btn('Add link'));
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Address' }), 'https://hinges.example.com{Enter}');
+    await within(card()).findByRole('link', { name: 'hinges.example.com' });
+    await waitFor(async () => expect(await task(t.db, 'i2')).toMatchObject({ title: 'Fix the gate latch', notes: 'Hinges', estimate_min: 30 }));
+
+    await addTo('One offs');
+    await screen.findByRole('heading', { name: 'Read the article' });
+    await userEvent.click(toastUndo());
+    await screen.findByRole('heading', { name: 'Fix the gate latch' });
+    expect(await task(t.db, 'i2')).toMatchObject({ kind: 'inbox', title: 'Fix the gate latch', notes: 'Hinges', estimate_min: 30 });
+
+    await userEvent.click(btn('‹ Undo and go back'));
+    await waitFor(() => expect(title()).toHaveTextContent(/^Fix the gate$/));
+    expect(await task(t.db, 'i2')).toMatchObject({ kind: 'inbox', title: 'Fix the gate', notes: null, estimate_min: 120 });
+    expect((await listRecords(t.db, 'attachment')).filter((a) => a.task_id === 'i2')).toEqual([]);
+    expect(toast()).toHaveTextContent('Fix the gate is back as it arrived.');
+    // Then it steps back to the item before.
+    await userEvent.click(btn('‹ Undo and go back'));
+    await screen.findByRole('heading', { name: 'Call the bank' });
+  });
+
+  it('keeps focus in order: the title, the add buttons, Time, Add to, the week, New practice and goal, Skip, Delete/done', async () => {
+    await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    const stops = Array.from(card().querySelectorAll<HTMLElement>('button, input, textarea, select'))
+      .filter((e) => !e.hidden && !(e as HTMLButtonElement).disabled)
+      .map((e) => (e.tagName === 'INPUT' && (e as HTMLInputElement).type === 'range' ? 'Time' : (e.getAttribute('aria-label') ?? e.textContent)));
+    expect(stops.slice(stops.indexOf('Call the bank'))).toEqual([
+      'Call the bank',
+      'Add description',
+      'Add link',
+      'Time',
+      'Add to a project or One offs',
+      '+Add to this weekAlt W',
+      'New practice from this item',
+      'New goal from this item',
+      'SkipAlt S',
+      'Delete/doneAlt D',
+    ]);
+  });
+
+  it('on phone: the title edits with Save and Cancel under it, and the add buttons sit two by two', async () => {
+    const t = await open({ layout: 'phone' });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(within(card().querySelector<HTMLElement>('.pxfour')!).getAllByRole('button').map((b) => b.textContent)).toEqual(['Add description', 'Add link']);
+    await userEvent.click(pen());
+    const field = within(card()).getByRole('textbox', { name: 'Title' });
+    await userEvent.type(field, ' today');
+    expect(btn('Cancel')).toBeInTheDocument();
+    await userEvent.click(btn('Save'));
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.title).toBe('Call the bank today'));
+  });
+});
+
 describe('Process for planning a stretch', () => {
   async function seedStretch(w: Writer) {
     await w.create('objective', { title: 'Keep the house', state: 'active' }, 'g1');
@@ -820,6 +1003,9 @@ describe('Process on phone', () => {
     expect(order).toEqual([
       'Exit',
       'title',
+      'Call the bank',
+      'Add description',
+      'Add link',
       'Time',
       '+Add to this week',
       'Add to a project or One offs',

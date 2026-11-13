@@ -48,7 +48,6 @@ test('a link and a photo added on one device reach another, which opens the phot
 
   let popup = await openTask(a.page, title);
   const section = popup.getByRole('region', { name: 'Attachments' });
-  await section.getByRole('button', { name: /^\+ Add a link/ }).click();
   // A deployment whose config has no files key yet stores no photos, and offers links alone; the local stack always
   // stores them.
   const photos = await section
@@ -59,7 +58,7 @@ test('a link and a photo added on one device reach another, which opens the phot
       () => false,
     );
   if (!photos) expect(t.env, 'the local stack stores photos').not.toBe('local');
-  await section.getByRole('button', { name: 'Paste a link' }).click();
+  await section.getByRole('button', { name: 'Add link' }).click();
   await section.getByRole('textbox', { name: 'Address' }).fill('https://example.com/hinges');
   await section.getByRole('textbox', { name: 'Name (optional)' }).fill('Hinges');
   await section.getByRole('button', { name: 'Add link' }).click();
@@ -76,8 +75,7 @@ test('a link and a photo added on one device reach another, which opens the phot
     await syncNow(a.page);
     return;
   }
-  await section.getByRole('button', { name: '+ Add a link or photo' }).click();
-  await section.getByLabel('Choose a photo', { exact: true }).and(a.page.locator('input')).setInputFiles({ name: 'gate.png', mimeType: 'image/png', buffer: Buffer.from(await png(a.page)) });
+  await section.getByLabel('Add photo', { exact: true }).and(a.page.locator('input')).setInputFiles({ name: 'gate.png', mimeType: 'image/png', buffer: Buffer.from(await png(a.page)) });
   await expect(section.getByRole('button', { name: 'Open gate.jpg' })).toBeVisible();
   await expect(section.getByText('Waiting to upload')).toBeVisible();
   await a.page.keyboard.press('Escape');

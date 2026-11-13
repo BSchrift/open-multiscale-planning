@@ -155,6 +155,42 @@ test('a new project from the picker: the form, a Created toast, then a second En
 });
 
 // The owner's request for a long Inbox: select many items and give them a home at once, each action with one Undo.
+test('edits the item on the card: its title, a description and a link, and Undo puts it back as it arrived', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
+  const title = card(page).getByRole('heading', { name: 'Call the bank', level: 1 }).getByRole('button');
+  await expect(title).toBeVisible();
+  if (phone) {
+    await expectTapTarget(card(page).locator('.pxedit .pen'));
+    for (const name of ['Add description', 'Add link']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
+  }
+  await title.click();
+  const field = card(page).getByRole('textbox', { name: 'Title' });
+  await expect(field).toBeFocused();
+  await field.press('End');
+  await field.pressSequentially(' about the loan');
+  await card(page).getByRole('button', { name: 'Save' }).click();
+  await expect(card(page).getByRole('heading', { name: 'Call the bank about the loan', level: 1 })).toBeVisible();
+
+  await card(page).getByRole('button', { name: 'Add description' }).click();
+  await card(page).getByRole('textbox', { name: 'Description' }).fill('Ask about the **rate**');
+  await card(page).getByRole('button', { name: 'Save' }).click();
+  await expect(card(page).locator('.pxnotes strong')).toHaveText('rate');
+
+  await card(page).getByRole('button', { name: 'Add link' }).click();
+  await card(page).getByRole('textbox', { name: 'Address' }).fill('https://bank.example.com/loans');
+  await card(page).getByRole('textbox', { name: 'Address' }).press('Enter');
+  await expect(card(page).getByRole('link', { name: 'bank.example.com' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('process-edited.png') });
+
+  await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
+  await expect(page.locator('.toast')).toContainText('Call the bank is back as it arrived.');
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  await expect(card(page).getByRole('link', { name: 'bank.example.com' })).toHaveCount(0);
+  await expect(card(page).getByRole('button', { name: 'Add description' })).toBeVisible();
+});
+
 test('select mode sends, deletes and makes one offs of many items at once', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);
@@ -248,7 +284,7 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   await expect(picker).toBeFocused();
   // Single keys work once focus leaves the field.
   await page.keyboard.press('Escape');
-  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeFocused();
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 }).getByRole('button')).toBeFocused();
   await page.keyboard.press('s');
   await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
   // Each new item puts focus back in Add to, where a letter searches; Esc leaves it.

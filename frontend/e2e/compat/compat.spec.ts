@@ -740,8 +740,7 @@ test('an old device changing a task keeps the attachments a new device added', a
     return newDevice.page.locator(`.sheet.taskpop[aria-label="${title}"]`);
   };
   let popup = await openPopup();
-  await popup.getByRole('button', { name: /^\+ Add a link/ }).click();
-  await popup.getByRole('button', { name: 'Paste a link' }).click();
+  await popup.getByRole('button', { name: 'Add link' }).click();
   await popup.getByRole('textbox', { name: 'Address' }).fill('https://example.com/skip-hire');
   await popup.getByRole('button', { name: 'Add link' }).click();
   await expect(popup.getByRole('link', { name: 'example.com' })).toBeVisible();

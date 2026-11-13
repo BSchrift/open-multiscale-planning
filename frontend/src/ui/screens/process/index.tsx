@@ -8,16 +8,16 @@
 // and the week isn't offered, since weekly planning follows.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 import { formatDate, formatWeekRange, isDay, nowInstant, thisWeek } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
-import type { PlanChange, ProjectPlan, Stretch } from '../../../core/plan';
+import type { PlanChange, ProjectPlan, RecordWrite, Stretch } from '../../../core/plan';
 import type { InboxRow } from '../../../core/queries';
 import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { closeTask, makeHome, undoHome } from '../../../core/tasks';
 import type { Home, Made } from '../../../core/tasks';
-import type { Fields, LocalDate, Minutes } from '../../../core/types';
+import type { Fields, LocalDate, Minutes, Task } from '../../../core/types';
 import { useProcessKeys } from '../../app/processKeys';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useStickyState, useToday } from '../../app/store';
@@ -29,6 +29,8 @@ import { emptyDraft, OneOffDates, oneOffFields } from '../../components/oneoff';
 import { useDialogFocus } from '../../components/useDialogFocus';
 import { useToast } from '../../components/Toast';
 import { loadProcess } from './data';
+import { Item } from './Item';
+import type { Editing } from './Item';
 import type { ProcessData } from './data';
 import { ONE_OFFS, Picker, placeKey, placeName } from './Picker';
 import type { Place } from './Picker';
@@ -61,9 +63,11 @@ interface Step {
   /** A project just made from the card, which the picker holds until the item is added, with the milestone named with it. */
   made: { id: string; milestone: string | null; under: string | null } | null;
   sent: Sent | null;
+  /** The exact reverse of what's been changed on this item, latest first, which puts it back as it arrived. */
+  edits: RecordWrite[];
 }
 
-const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, deleted: 0, made: null, sent: null };
+const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, deleted: 0, made: null, sent: null, edits: [] };
 
 /** A home made from the card, for its Undo and the toast that reports it. */
 interface HomeUndo {
@@ -82,6 +86,8 @@ interface Entry {
   step: Step;
   reverse: PlanChange | null;
   home?: HomeUndo;
+  /** The item's title then, for the toast once it's back. */
+  title: string;
 }
 
 /** Where Process remembers the place last added to, on this device. */
@@ -138,7 +144,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const openers = useRef<Record<string, HTMLButtonElement | null>>({});
   // Where focus goes once the next render has drawn it: the picker, its Add to button, the title, or a form's opener.
   const refocus = useRef<string | null>('pick');
-  const titleRef = useRef<HTMLHeadingElement>(null);
+  const titleRef = useRef<HTMLElement | null>(null);
   const pickRef = useRef<HTMLElement | null>(null);
   const addRef = useRef<HTMLButtonElement | null>(null);
   // A toast's Undo can come after Process has closed, or after the step it reports has been stepped back over.
@@ -152,7 +158,14 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   }, []);
 
   const item = queue[s.idx];
-  const est = s.est ?? item?.estimate_min ?? 0;
+  // The item as it is now, with any changes made on the card.
+  const task = useQuery((sql) => (item ? getRecord(sql, 'task', item.id) : Promise.resolve(undefined)), [item?.id]).data;
+  // shortcut: until its record loads, a moment after it shows, the card draws the item from its Inbox row, with no
+  // description; load whole records with the Inbox if that moment ever shows.
+  const current = task?.id === item?.id ? task : item && ({ id: item.id, kind: 'inbox', title: item.title, estimate_min: item.estimate_min ?? null } as Task);
+  const name = current?.title ?? '';
+  const est = s.est ?? current?.estimate_min ?? item?.estimate_min ?? 0;
+  const [editing, setEditing] = useState<Editing>(null);
   const focusTitle = () => titleRef.current?.focus();
   const focusPicker = () => pickRef.current?.focus();
   const dests = data.groups.flatMap((g) => g.dests);
@@ -164,8 +177,14 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     refocus.current = form?.opener ?? null;
     setForm(null);
   };
+  // A field on the card closes with focus back on the title, where the keys work again.
+  const closeEditing = () => {
+    refocus.current = 'title';
+    setEditing(null);
+  };
   const ref = useDialogFocus<HTMLDivElement>(() => {
     if (form) closeForm();
+    else if (editing) closeEditing();
     else if (delAsk) setDelAsk(false);
     // From Add to a project just made, back into the picker to put the item somewhere else.
     else if (addRef.current && document.activeElement === addRef.current) focusPicker();
@@ -190,9 +209,39 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     return false;
   });
 
+  /** Changes to the item on the card, each saved as it's made. Its reverse joins the item's, for one Undo. */
+  const edit = useMutation((w, fields: Fields<'task'>) => w.set('task', item!.id, fields));
+  const keepReverse = (reverse: RecordWrite) =>
+    setS((now) => {
+      // Only the first change to a field matters: its reverse is what the item arrived with.
+      const known = new Set(now.edits.filter((r) => r.id === reverse.id).flatMap((r) => Object.keys(r.fields)));
+      const fields = Object.fromEntries(Object.entries(reverse.fields).filter(([f]) => !known.has(f)));
+      return Object.keys(fields).length ? { ...now, edits: [{ ...reverse, fields }, ...now.edits] } : now;
+    });
+  const save = async (fields: Fields<'task'>) => {
+    if (!item) return false;
+    const previous = await edit.run(fields);
+    if (!previous) return false;
+    keepReverse({ type: 'task', id: item.id, fields: previous });
+    return true;
+  };
+  const revertEdits = useMutation((w, writes: RecordWrite[]) => applyPlanChange(w, { writes }));
+
   const back = history[history.length - 1];
   const undo = async () => {
-    if (!back || busy.current) return;
+    if (busy.current) return;
+    // First the item goes back as it arrived, then the step before.
+    if (s.edits.length) {
+      busy.current = true;
+      const done = await revertEdits.run(s.edits);
+      busy.current = false;
+      if (!done) return;
+      setS({ ...s, est: null, edits: [] });
+      setEditing(null);
+      refocus.current = 'pick';
+      return toast.show(`${item?.title} is back as it arrived.`);
+    }
+    if (!back) return;
     busy.current = true;
     const kept = await revert.run(back);
     busy.current = false;
@@ -201,8 +250,9 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     setS(back.step);
     setDelAsk(false);
     setForm(null);
+    setEditing(null);
     refocus.current = 'pick';
-    toast.show(back.home ? undoneLine(back.home, kept) : `${queue[back.step.idx]?.title} is back.`);
+    toast.show(back.home ? undoneLine(back.home, kept) : `${back.title} is back.`);
   };
   const undoRef = useRef(undo);
   undoRef.current = undo;
@@ -225,20 +275,23 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   ) => {
     if (busy.current) return false;
     busy.current = true;
+    const from = document.activeElement;
     const reverse = run ? await write.run(run) : null;
     busy.current = false;
     if (reverse === undefined) return false;
-    const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, sent: null, ...next() };
+    // Focus moved on the card while it saved, as by Esc, stays where it was put.
+    const moved = document.activeElement !== from && !!ref.current?.contains(document.activeElement);
+    const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, sent: null, edits: [], ...next() };
     if (step.idx !== s.idx) swipeAway(ref.current);
     const prev = history[history.length - 1];
     const merged = options.merge && prev?.home;
     const entry: Entry = merged
-      ? { step: prev.step, reverse: { writes: [...(reverse?.writes ?? []), ...(prev.reverse?.writes ?? [])] }, home: { ...merged, left: true } }
-      : { step: s, reverse, ...(options.home ? { home: options.home() } : {}) };
+      ? { step: prev.step, reverse: { writes: [...(reverse?.writes ?? []), ...(prev.reverse?.writes ?? [])] }, home: { ...merged, left: true }, title: prev.title }
+      : { step: s, reverse, title: name, ...(options.home ? { home: options.home() } : {}) };
     setHistory((h) => [...(merged ? h.slice(0, -1) : h), entry]);
     setS(step);
     setDelAsk(false);
-    refocus.current = step.made ? 'add' : 'pick';
+    if (step.made || !moved) refocus.current = step.made ? 'add' : 'pick';
     toast.show(says(), { undo: () => undoFromToast(entry) });
     return true;
   };
@@ -261,12 +314,12 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       // Fields merge one by one, so each kind clears the other's: another device may have sent this item the other way.
       const fields: Fields<'task'> = dest
         ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: made?.milestone ?? null, schedule: null, next_due: null, estimate_min: est || null }
-        : oneOffFields({ ...emptyDraft(today), title: item.title, estimate: est }, today);
+        : oneOffFields({ ...emptyDraft(today), title: name, estimate: est }, today);
       const filed = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
       return s.planOn ? addToWeek(w, minutes, filed) : filed;
     };
-    const says = () => `Added ${item.title} to ${placeName(dest)}${made?.under ? `, under ${made.under}` : ''}${s.planOn ? ` ${weekWords}` : ''}.`;
-    const sent = { id: item.id, title: item.title, project: dest?.plan ?? null };
+    const says = () => `Added ${name} to ${placeName(dest)}${made?.under ? `, under ${made.under}` : ''}${s.planOn ? ` ${weekWords}` : ''}.`;
+    const sent = { id: item.id, title: name, project: dest?.plan ?? null };
     return commit(run, () => ({ sorted: s.sorted + 1, sent }), says, { merge: !!made }).then((done) => {
       if (done) setLastKey(placeKey(dest));
       return done;
@@ -295,11 +348,12 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               idx: s.idx,
               est: s.est,
               planOn: s.planOn,
+              edits: s.edits,
               made: made!.type === 'project' ? { id: made!.id, milestone: made!.milestone ?? null, under: home.kind === 'project' ? (home.milestone ?? null) : null } : null,
             }
           : { sorted: s.sorted + 1 },
-      () => homeLine(home, item.title, goal),
-      { home: () => ({ made: made!, itemId: item.id, item: item.title, title: home.title, goal: made!.goal ? goal : null, left: !home.keep }) },
+      () => homeLine(home, name, goal),
+      { home: () => ({ made: made!, itemId: item.id, item: name, title: home.title, goal: made!.goal ? goal : null, left: !home.keep }) },
     );
     if (!done || !made) return false;
     if (home.kind !== 'goal') setLastGoal(made.goal ?? (home.goal && 'id' in home.goal ? home.goal.id : ''));
@@ -309,8 +363,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
 
   const openForm = (kind: HomeKind, opener: string, name?: string) => setForm({ kind, opener, ...(name !== undefined ? { name } : {}) });
 
-  const skip = () => item && void commit(null, () => ({}), () => `Skipped ${item.title}. It stays in your Inbox.`);
-  const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ deleted: s.deleted + 1 }), () => `Deleted ${item.title}.`);
+  const skip = () => item && void commit(null, () => ({}), () => `Skipped ${name}. It stays in your Inbox.`);
+  const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ deleted: s.deleted + 1 }), () => `Deleted ${name}.`);
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
 
   // Single keys need the device setting, since speech input can type them; with Option or Alt they always work, in Add
@@ -334,6 +388,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     if (!item) return k === 'enter' && target.tagName !== 'BUTTON' ? run(close) : undefined;
     if (!single) return;
     const keys: Record<string, () => unknown> = {
+      e: () => setEditing('title'),
       s: skip,
       d: () => setDelAsk(true),
       p: () => openForm('practice', 'p'),
@@ -360,7 +415,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const doneText = `${[`${s.sorted} sorted`, s.deleted ? `${s.deleted} deleted` : '', skipped ? `${skipped} skipped, still in your Inbox` : ''].filter(Boolean).join(', ')}.`;
 
   const titleEl = (text: string) => (
-    <h1 ref={titleRef} className="pxtitle" tabIndex={-1} aria-live="polite">
+    <h1 ref={titleRef as RefObject<HTMLHeadingElement>} className="pxtitle" tabIndex={-1} aria-live="polite">
       {text}
     </h1>
   );
@@ -415,7 +470,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     </div>
   );
   const homeForm = form && item && (
-    <HomeForm key={item.id} item={item.title} kind={form.kind} name={form.name} goals={data.goals} goal={lastGoal} end={data.end} onSave={addHome} onClose={closeForm} />
+    <HomeForm key={item.id} item={name} kind={form.kind} name={form.name} goals={data.goals} goal={lastGoal} end={data.end} onSave={addHome} onClose={closeForm} />
   );
   const picker = item && (
     <Picker
@@ -440,7 +495,33 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       {!phone && weekToggle}
     </Picker>
   );
-  const slider = <EstimateSlider label="Time" value={est} onChange={(m) => setS({ ...s, est: m })} />;
+  // Time saves as it moves, so the item keeps it however it's handled.
+  const slider = (
+    <EstimateSlider
+      label="Time"
+      value={est}
+      onChange={(m) => {
+        setS({ ...s, est: m });
+        void save({ estimate_min: m || null });
+      }}
+    />
+  );
+  const itemCard = (children?: ReactNode) =>
+    current && (
+      <Item
+        task={current}
+        phone={phone}
+        editing={editing}
+        setEditing={(next) => (next ? setEditing(next) : closeEditing())}
+        titleRef={titleRef}
+        save={save}
+        onAttachment={keepReverse}
+        cap={cap}
+        slider={slider}
+      >
+        {children}
+      </Item>
+    );
   const deleteAsk = (
     <span className={phone ? 'pxacts' : 'row small'} role="alert">
       <span className="strong small grow">Delete this item?</span>
@@ -471,12 +552,12 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         </div>
         {item ? (
           <>
-            <div className="card stack pxitem">
-              {titleEl(item.title)}
-              {followUp}
-              {slider}
-              {weekToggle}
-            </div>
+            {itemCard(
+              <>
+                {followUp}
+                {weekToggle}
+              </>,
+            )}
             <div className="pxspace" />
             {picker}
             {makeOne}
@@ -485,7 +566,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               deleteAsk
             ) : (
               <div className="pxacts">
-                <button className="btn" type="button" disabled={!back} onClick={() => void undo()}>
+                <button className="btn" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()}>
                   ‹ Undo
                 </button>
                 <button className="btn" type="button" onClick={skip}>
@@ -503,7 +584,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
             <div className="card stack">{doneCard}</div>
             <div className="pxspace" />
             <div className="pxacts">
-              <button className="btn" type="button" disabled={!back} onClick={() => void undo()}>
+              <button className="btn" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()}>
                 ‹ Undo
               </button>
               <button className="btn pri" type="button" onClick={close}>
@@ -520,7 +601,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     <div className="pxwrap">
       <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="pxtop">
-          <button className="btn sm" type="button" disabled={!back} onClick={() => void undo()}>
+          <button className="btn sm" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()}>
             ‹ Undo and go back
             {cap('Z')}
           </button>
@@ -533,10 +614,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         </div>
         {item ? (
           <>
-            <div className="pxitem">
-              {titleEl(item.title)}
-              <div className="pxfacts">{slider}</div>
-            </div>
+            {itemCard()}
             {homeForm || (
               <>
                 {picker}

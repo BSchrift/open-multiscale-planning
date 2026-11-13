@@ -545,6 +545,16 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const time = usePlanningTime((w, minutes, began) => addStretchMinutes(w, planning.stretch.start, minutes, began));
   const stop = useMutation((w) => stopPlanning(w, planning, clock));
   const exit = () => void time.flush().then(() => stop.run()).then(close);
+  // A project's page is outside planning, so going there saves planning as Save and exit does, to continue later.
+  const openProject = (id: string) =>
+    void time
+      .flush()
+      .then(() => stop.run())
+      .then(() => {
+        close();
+        nav.go('goals', { project: id });
+        toast.show('Planning is saved, so you can continue it later.');
+      });
   // Finishing saves the plan and finishes its planning task, freeing what's left of its block; Undo puts both back.
   const save = useMutation(async (w, fields: Fields<'settings'>, andWeek: boolean) => {
     const pinned = held ? await applyPlanChange(w, held.change) : { writes: [] };
@@ -737,6 +747,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
         act={act}
         continueLabel={goalsLabel}
         onNext={next}
+        onOpenProject={openProject}
       />
     ),
     practices: <PracticesStep key="practices" data={data} phone={phone} head={stepHead} act={act} onNext={next} />,

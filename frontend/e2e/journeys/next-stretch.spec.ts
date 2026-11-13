@@ -65,7 +65,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(page.getByText('1 of 1 milestones due in this time were met.')).toBeVisible();
   const bread = page.getByRole('region', { name: goal });
   await expect(bread).toContainText('30m this stretch');
-  await expect(bread).toContainText('Projects: Bake a sourdough loaf');
+  await expect(bread.getByRole('button', { name: 'Open project Bake a sourdough loaf' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Does it fit?' })).toContainText(/About \dh planned, about \dh at your recent pace\./);
   await page.getByRole('button', { name: '+ New goal' }).click();
   await page.getByRole('textbox', { name: 'New goal' }).fill('Keep fit');

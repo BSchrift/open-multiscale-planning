@@ -318,8 +318,10 @@ describe('Planning ahead', () => {
       expect(await screen.findByText('0 of 1 milestones due in this time were met.')).toBeVisible();
       expect(screen.getByText('About 30m a week went to your goals.')).toBeVisible();
       const bread = screen.getByRole('region', { name: 'Learn to bake bread' });
+      // The goal is the card's heading, under the step's; its projects are buttons beneath it.
+      expect(within(bread).getByRole('heading', { level: 3, name: 'Learn to bake bread' })).toBeVisible();
       expect(within(bread).getByText('2h this stretch')).toBeVisible();
-      expect(within(bread).getByText('Projects: Bake a sourdough loaf')).toBeVisible();
+      expect(within(bread).getByRole('button', { name: 'Open project Bake a sourdough loaf' })).toBeVisible();
       expect(within(bread).getByText('1 project late')).toBeVisible();
       expect(within(bread).getByRole('button', { name: 'Add project to Learn to bake bread' })).toBeVisible();
       expect(within(bread).getByRole('button', { name: 'Add practice to Learn to bake bread' })).toBeVisible();
@@ -327,6 +329,64 @@ describe('Planning ahead', () => {
       const loose = screen.getByRole('region', { name: 'No goal' });
       expect(within(loose).getByText('Stretch')).toBeVisible();
       expect(next(layout, 'Goals look right')).toBeVisible();
+    });
+
+    it('shows each project under a goal as a block with its status, which opens a preview over the step', async () => {
+      const { close } = await flow(layout);
+      const run = await screen.findByRole('region', { name: 'Run a 10k' });
+      // Phone's narrower block has the Goals page's shorter words.
+      expect(within(run).getByRole('button', { name: 'Open project Train for the race' })).toHaveAccessibleDescription(
+        layout === 'phone' ? 'Past end date Ended 13 days ago, 3h left' : 'Past end date Should have ended 13 days ago; 3h left',
+      );
+      expect(within(run).getByRole('button', { name: 'Open project Fix the bike' })).toHaveAccessibleDescription(/^Paused/);
+      expect(screen.queryByText(/^Projects:/)).toBeNull();
+
+      const block = within(screen.getByRole('region', { name: 'Learn to bake bread' })).getByRole('button', { name: 'Open project Bake a sourdough loaf' });
+      await userEvent.click(block);
+      const sheet = screen.getByRole('dialog', { name: 'Bake a sourdough loaf' });
+      expect(within(sheet).getByRole('heading', { name: 'Bake a sourdough loaf' })).toBeVisible();
+      expect(within(sheet).getByText('Goal: Learn to bake bread. Runs Oct 1 to Jun 30.')).toBeVisible();
+      expect(within(sheet).getByText('Overdue', { selector: '.pill' })).toBeVisible();
+      expect(within(sheet).getByText('Make a starter was due 8 days ago')).toBeVisible();
+      // The project page's own timeline: progress, then each milestone.
+      expect(within(sheet).getByRole('img', { name: /Whole project, .* done, .* left\. Milestone Make a starter, overdue since Oct 25\./ })).toBeVisible();
+
+      // Closing comes back to the same block, on the same step, with nothing left.
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await waitFor(() => expect(block).toHaveFocus());
+      await userEvent.keyboard('{Enter}');
+      expect(screen.getByRole('dialog', { name: 'Bake a sourdough loaf' })).toBeVisible();
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await waitFor(() => expect(block).toHaveFocus());
+      expect(screen.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' })).toBeVisible();
+      expect(readFlow()).toMatchObject({ stepKey: 'goals' });
+      expect(close).not.toHaveBeenCalled();
+    });
+
+    it('opens the whole project from its preview, saving planning first, so Continue planning comes back to Goals', async () => {
+      writeFlow({ begun: true });
+      goToStep('goals');
+      const t = await renderApp({ layout, seed, initial: { area: 'plan', params: {} } });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue planning' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Open project Bake a sourdough loaf' }));
+      // Four minutes in planning, which leaving for the project counts, as Save and exit does.
+      t.clock.set('2026-11-02T20:04:00.000Z');
+      const sheet = screen.getByRole('dialog', { name: 'Bake a sourdough loaf' });
+      const open = within(sheet).getByRole('button', { name: 'Open project in Goals' });
+      expect(open).toHaveAccessibleDescription('Opening the project saves planning first, as Save and exit does.');
+      await userEvent.click(open);
+      expect(await screen.findByRole('heading', { level: 1, name: 'Bake a sourdough loaf' })).toBeVisible();
+      expect(screen.queryByRole('navigation', { name: 'Planning steps' })).toBeNull();
+      expect(await screen.findByText('Planning is saved, so you can continue it later.')).toBeVisible();
+      await waitFor(async () => expect((await getSettings(t.db)).stretch_planning).toMatchObject({ start: '2027-01-01', min: 4 }));
+
+      // Phone keeps Plan under More, as it was left.
+      await userEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: layout === 'phone' ? 'More' : 'Plan' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue planning' }));
+      expect(await screen.findByText('Welcome back. You were on Goals.', { selector: ':not(.sr)' })).toBeVisible();
+      expect(screen.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' })).toBeVisible();
     });
 
     it.each([

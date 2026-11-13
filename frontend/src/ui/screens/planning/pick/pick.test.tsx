@@ -44,6 +44,8 @@ const renameIn = async (popup: HTMLElement, from: string, to: string) => {
   await rename(within(popup).getByRole('textbox', { name: 'Name' }), to);
 };
 const setEstimate = (slider: HTMLElement, minutes: number) => fireEvent.change(slider, { target: { value: String(EST_STEPS.indexOf(minutes)) } });
+/** A task's row, found by its done circle. */
+const rowOf = (title: string) => screen.getByRole('checkbox', { name: `Already done: ${title}` }).closest('li')!;
 
 describe('Pick tasks on desktop', () => {
   it('lists projects soonest first on one timeline, collapsed, with status and aim, and paused ones apart', async () => {
@@ -62,17 +64,16 @@ describe('Pick tasks on desktop', () => {
     const t = await openPlanning({ step: 1, seed: seedWeek });
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report,/ }));
     expect(document.querySelector('.pmshead')).toHaveTextContent('Milestone: Gather notes, overdue since Oct 18');
-    expect(screen.getByText('Suggested: milestone overdue')).toBeInTheDocument();
-    expect(screen.getByText('Suggested: due Nov 9')).toBeInTheDocument();
+    expect(within(rowOf('Collect the sources')).getByText(/milestone overdue/)).toBeInTheDocument();
+    expect(within(rowOf('Write chapter one')).getByText(/due Nov 9/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add Collect the sources to the plan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
     const planned = screen.getByRole('complementary', { name: 'Time this week' });
     expect(await within(planned).findByText('Collect the sources')).toBeInTheDocument();
     expect(within(planned).getByText('Paint the fence')).toBeInTheDocument();
     expect(await screen.findByRole('img', { name: 'Weekly aim 4h, 2h planned, 2h short' })).toBeInTheDocument();
     expect(screen.getByText(/Gather notes, overdue since Oct 18: 2h planned/)).toBeInTheDocument();
-    expect(document.querySelector('.pickside .donut')).not.toBeNull();
 
     const slider = within(planned).getByRole('slider', { name: 'Time this week for Collect the sources' });
     expect(slider).toHaveAttribute('aria-valuetext', '2h of 2h');
@@ -81,7 +82,7 @@ describe('Pick tasks on desktop', () => {
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(90));
     await userEvent.click(within(planned).getByRole('button', { name: 'Remove Collect the sources from the plan' }));
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBeNull());
-    expect(await screen.findByRole('button', { name: 'Add Collect the sources to the plan' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Add 2h to this week: Collect the sources' })).toBeInTheDocument();
   });
 
   it("puts a project's tasks with no milestone under its Done, as Goals does", async () => {
@@ -217,7 +218,7 @@ describe('Pick tasks on desktop', () => {
     const renamed = await screen.findByRole('button', { name: 'Edit task Collect the papers' });
     await waitFor(() => expect(renamed).toHaveFocus());
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add Collect the papers to the plan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the papers' }));
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(within(screen.getByRole('complementary', { name: 'Time this week' })).getByText('Collect the papers')).toBeInTheDocument();
@@ -227,7 +228,7 @@ describe('Pick tasks on desktop', () => {
     const t = await openPlanning({ step: 1, seed: seedUnestimated });
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report,/ }));
     const open = screen.getByRole('button', { name: 'Edit task Outline chapter two' });
-    const row = open.closest<HTMLElement>('.pickrow')!;
+    const row = open.closest<HTMLElement>('li')!;
     expect(within(row).getByText('No estimate')).toBeInTheDocument();
     await userEvent.click(open);
     const popup = await popupOf('Outline chapter two');
@@ -235,8 +236,7 @@ describe('Pick tasks on desktop', () => {
     setEstimate(within(popup).getByRole('slider', { name: 'Time estimate' }), 90);
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(90));
-    expect(await within(row).findByText('1h 30m')).toBeInTheDocument();
-    await userEvent.click(within(row).getByRole('button', { name: 'Add Outline chapter two to the plan' }));
+    await userEvent.click(await within(row).findByRole('button', { name: 'Add 1h 30m to this week: Outline chapter two' }));
     await waitFor(async () => expect(await minutesOf(t, 't3')).toBe(90));
   });
 
@@ -253,7 +253,7 @@ describe('Pick tasks on desktop', () => {
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect(await getRecord(t.db, 'task', 'o3')).toMatchObject({ title: 'Call the electrician', estimate_min: 30 }));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(await within(oneOffs).findByText('30m')).toBeInTheDocument();
+    expect(await within(oneOffs).findByRole('button', { name: 'Add 30m to this week: Call the electrician' })).toBeInTheDocument();
     await waitFor(() => expect(within(oneOffs).getByRole('button', { name: 'Edit task Call the electrician' })).toHaveFocus());
   });
 });
@@ -263,19 +263,15 @@ describe('Pick tasks on phone', () => {
     const t = await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
     const sheet = await screen.findByRole('region', { name: 'Tasks in Write the report' });
     expect(screen.getByRole('button', { name: /^Write the report, Overdue/ })).toHaveTextContent('★2');
-    expect(within(sheet).getByText('★ 2h')).toBeInTheDocument();
-    await userEvent.click(within(sheet).getByRole('button', { name: 'Add Collect the sources to the plan' }));
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
-    expect(await within(sheet).findByRole('button', { name: 'Add Collect the sources to the plan', pressed: true })).toBeInTheDocument();
-    expect(document.querySelector('.donut .dlabel')).toHaveTextContent('+2h');
+    expect(await within(sheet).findByRole('button', { name: '2h this week: Collect the sources' })).toBeInTheDocument();
     expect(screen.getByText('Collect the sources added. 3h 30m of 98h.')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Next project: Learn to bake bread' }));
     const bread = await screen.findByRole('region', { name: 'Tasks in Learn to bake bread' });
-    expect(within(bread).getByText('★ 2h of 3h')).toBeInTheDocument();
-    await userEvent.click(within(bread).getByRole('button', { name: 'Add Bake a test loaf to the plan' }));
+    await userEvent.click(within(bread).getByRole('button', { name: 'Add 2h to this week: Bake a test loaf' }));
     await waitFor(async () => expect(await minutesOf(t, 'b1')).toBe(120));
-    expect(document.querySelector('.donut .dlabel')).toHaveTextContent('+4h');
 
     await userEvent.click(screen.getByRole('button', { name: /^One offs/ }));
     expect(await screen.findByRole('region', { name: 'Tasks in One offs' })).toBeInTheDocument();
@@ -296,10 +292,10 @@ describe('Pick tasks on phone', () => {
     expect(await minutesOf(t, 'o1')).toBe(90);
   });
 
-  it('the dock opens the Planned list, where a slider lowers the time for this week', async () => {
+  it('Does it fit opens In this week, where a slider lowers the time for this week', async () => {
     const t = await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
-    await userEvent.click(await screen.findByRole('button', { name: 'Planned for Nov 2 to 8, 1 task, 1h 30m, 96h 30m left free. Open the list' }));
-    const sheet = screen.getByRole('dialog', { name: 'Planned for Nov 2 to 8' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Does it fit? 1h 30m of 98h, 96h 30m free. Show In this week' }));
+    const sheet = screen.getByRole('dialog', { name: 'In this week' });
     // Its quarter-hour stops: 60m is the fourth.
     fireEvent.change(within(sheet).getByLabelText('Time this week for Paint the fence'), { target: { value: '3' } });
     await waitFor(async () => expect(await minutesOf(t, 'o1')).toBe(60));
@@ -337,10 +333,9 @@ describe('Pick tasks on phone', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.title).toBe('Collect the papers'));
     expect(screen.queryByRole('dialog', { name: /Collect the/ })).toBeNull();
     const renamed = await within(tray).findByRole('button', { name: 'Edit task Collect the papers' });
-    expect(within(tray).getByRole('button', { name: 'Estimate for Collect the papers: Suggested 2h' })).toBeInTheDocument();
     await waitFor(() => expect(renamed).toHaveFocus());
 
-    await userEvent.click(within(tray).getByRole('button', { name: 'Add Collect the papers to the plan' }));
+    await userEvent.click(within(tray).getByRole('button', { name: 'Add 2h to this week: Collect the papers' }));
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -353,8 +348,7 @@ describe('Pick tasks on phone', () => {
     setEstimate(within(popup).getByRole('slider', { name: 'Time estimate' }), 90);
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(90));
-    expect(await within(tray).findByRole('button', { name: /^Estimate for Outline chapter two: .*1h 30m$/ })).toBeInTheDocument();
-    await userEvent.click(within(tray).getByRole('button', { name: 'Add Outline chapter two to the plan' }));
+    await userEvent.click(await within(tray).findByRole('button', { name: 'Add 1h 30m to this week: Outline chapter two' }));
     await waitFor(async () => expect(await minutesOf(t, 't3')).toBe(90));
   });
 
@@ -368,7 +362,7 @@ describe('Pick tasks on phone', () => {
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 'o3'))?.estimate_min).toBe(30));
     expect(screen.queryByRole('dialog', { name: 'Call the plumber' })).toBeNull();
-    expect(await within(tray).findByRole('button', { name: 'Estimate for Call the plumber: 30m' })).toBeInTheDocument();
+    expect(await within(tray).findByRole('button', { name: 'Add 30m to this week: Call the plumber' })).toBeInTheDocument();
   });
 });
 
@@ -383,69 +377,59 @@ describe('Pick tasks: estimates and Mark done', () => {
   it('a task stays listed when its new estimate is all on the calendar, saying so', async () => {
     const t = await openPlanning({ step: 1, seed: placed });
     await openReport();
-    await userEvent.click(screen.getByRole('button', { name: 'Estimate for Outline chapter two: No estimate' }));
-    const pop = screen.getByRole('dialog', { name: 'Estimate for Outline chapter two' });
-    setEstimate(within(pop).getByRole('slider'), 60);
+    await userEvent.click(screen.getByRole('button', { name: 'Add to this week: Outline chapter two' }));
+    const pop = screen.getByRole('dialog', { name: 'Outline chapter two' });
+    setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 60);
+    expect(within(pop).getByRole('slider', { name: 'This week' })).toHaveAttribute('aria-valuetext', '0m of 0m');
     await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(60));
-    expect(await screen.findByRole('button', { name: 'Estimate for Outline chapter two: On the calendar' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Add Outline chapter two to the plan' })).toBeNull();
+    expect(await within(rowOf('Outline chapter two')).findByText('On the calendar')).toBeInTheDocument();
+    expect(await minutesOf(t, 't3')).toBeNull();
+    expect(within(rowOf('Outline chapter two')).queryByRole('button', { name: /to this week/ })).toBeNull();
   });
 
-  it('the estimate opens a slider that waits for Save, with Undo; Esc keeps a change, and Cancel drops it', async () => {
+  it('the time popover waits for Save, with Undo; Esc keeps a change, and Cancel drops it', async () => {
     const t = await openPlanning({ step: 1, seed: seedWeek });
     await openReport();
-    const est = screen.getByRole('button', { name: 'Estimate for Collect the sources: 2h' });
-    await userEvent.click(est);
-    let pop = screen.getByRole('dialog', { name: 'Estimate for Collect the sources' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
+    const time = await screen.findByRole('button', { name: '2h this week: Collect the sources' });
+    await userEvent.click(time);
+    let pop = screen.getByRole('dialog', { name: 'Collect the sources' });
     setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 60);
     await userEvent.keyboard('{Escape}');
     expect(within(pop).getByRole('alert')).toHaveTextContent("Your changes aren't saved. Save them, or Cancel to drop them.");
     expect(within(pop).getByRole('button', { name: 'Save' })).toHaveFocus();
     await userEvent.click(within(pop).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog', { name: 'Estimate for Collect the sources' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Collect the sources' })).toBeNull();
     expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(120);
 
-    await userEvent.click(est);
-    pop = screen.getByRole('dialog', { name: 'Estimate for Collect the sources' });
+    await userEvent.click(time);
+    pop = screen.getByRole('dialog', { name: 'Collect the sources' });
+    // All of it was in the week, so the week's share follows the estimate.
     setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 180);
     expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(120);
     await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Collect the sources, 3h estimate.')).toBeVisible();
+    expect(await screen.findByText('Collect the sources, 3h this week, 3h estimate.')).toBeVisible();
     expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(180);
-    expect(screen.queryByRole('dialog', { name: 'Estimate for Collect the sources' })).toBeNull();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Estimate for Collect the sources: 3h' })).toHaveFocus());
+    expect(await minutesOf(t, 't1')).toBe(180);
+    expect(screen.queryByRole('dialog', { name: 'Collect the sources' })).toBeNull();
+    await waitFor(() => expect(screen.getByRole('button', { name: '3h this week: Collect the sources' })).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(120));
-  });
-
-  it('Mark done finishes a task in place, struck through, and Undo opens it again with its pick back', async () => {
-    const t = await openPlanning({ step: 1, seed: seedWeek });
-    await openReport();
-    await userEvent.click(screen.getByRole('button', { name: 'Add Collect the sources to the plan' }));
-    await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
-    await userEvent.click(screen.getByRole('button', { name: 'Mark done: Collect the sources' }));
-    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeTruthy());
-    const undo = await screen.findByRole('button', { name: 'Undo finishing Collect the sources' });
-    expect(undo.closest('.pickrow')).toHaveClass('isdone');
-    expect(await minutesOf(t, 't1')).toBeNull();
-    await userEvent.click(undo);
-    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeFalsy());
     expect(await minutesOf(t, 't1')).toBe(120);
-    expect(await screen.findByRole('button', { name: 'Mark done: Collect the sources' })).toBeInTheDocument();
   });
 
-  it('on phone, the estimate opens a slider sheet that Save writes, and Mark done toggles to Undo', async () => {
+  it('on phone, the time popover is a sheet that Save writes, and the circle ticks it in place', async () => {
     const t = await openPlanning({ step: 1, seed: seedWeek, layout: 'phone' });
     const tray = await screen.findByRole('region', { name: /Write the report/ });
-    await userEvent.click(within(tray).getByRole('button', { name: /^Estimate for Collect the sources:/ }));
-    const sheet = screen.getByRole('dialog', { name: 'Estimate for Collect the sources' });
+    await userEvent.click(within(tray).getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
+    await userEvent.click(await within(tray).findByRole('button', { name: '2h this week: Collect the sources' }));
+    const sheet = screen.getByRole('dialog', { name: 'Collect the sources' });
     setEstimate(within(sheet).getByRole('slider', { name: 'Estimate' }), 60);
     await userEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(60));
-    await userEvent.click(within(tray).getByRole('button', { name: 'Mark done: Collect the sources' }));
-    expect(await within(tray).findByRole('button', { name: 'Undo finishing Collect the sources' })).toBeInTheDocument();
-    expect(within(tray).getByRole('button', { name: 'Edit task Collect the sources, done' }).closest('.trow')).toHaveClass('isdone');
+    await userEvent.click(within(tray).getByRole('checkbox', { name: 'Already done: Collect the sources' }));
+    await waitFor(() => expect(within(tray).getByRole('button', { name: 'Edit task Collect the sources, done' }).closest('li')).toHaveClass('done'));
   });
 });
 
@@ -453,8 +437,9 @@ describe('Pick tasks: dragging an estimate', () => {
   it('saves a drag once, when it is let go, with the slider following it throughout, and Undo puts the estimate back', async () => {
     const t = await openPlanning({ step: 1, seed: seedWeek });
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report,/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Estimate for Collect the sources: 2h' }));
-    const slider = within(screen.getByRole('dialog', { name: 'Estimate for Collect the sources' })).getByRole('slider', { name: 'Estimate' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
+    await userEvent.click(await screen.findByRole('button', { name: '2h this week: Collect the sources' }));
+    const slider = within(screen.getByRole('dialog', { name: 'Collect the sources' })).getByRole('slider', { name: 'Estimate' });
     let saves = 0;
     const stop = t.db.subscribe((change) => void (change.source === 'local' && saves++));
     // A drag from 2h up past 3h and back: an input event at each step, then a change event when it's let go.
@@ -473,7 +458,7 @@ describe('Pick tasks: dragging an estimate', () => {
     expect(slider).toHaveAttribute('aria-valuetext', '3h');
     expect(saves).toBe(0);
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Collect the sources, 3h estimate.')).toBeVisible();
+    expect(await screen.findByText('Collect the sources, 3h this week, 3h estimate.')).toBeVisible();
     expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(180);
     expect(saves).toBe(1);
     stop();
@@ -506,20 +491,17 @@ describe('Pick tasks: quick fixes', () => {
     const tasks = screen.getByRole('group', { name: 'Write the report tasks' });
     expect(within(tasks).getByRole('heading', { name: /^Milestone: Gather notes, overdue since Oct 18/ })).toBeInTheDocument();
     expect(firstButtons(tasks, 'text')).toEqual(['Collect the sources', 'Read the old reports', 'Write chapter one']);
-    const est = within(tasks).getByRole('button', { name: 'Estimate for Collect the sources: 2h' });
-    expect(est).toHaveTextContent(/^2h$/);
-    expect(est).toHaveAttribute('aria-haspopup', 'dialog');
-    expect(within(tasks).getByRole('button', { name: 'Mark done: Collect the sources' })).toHaveTextContent('Mark done');
+    expect(within(tasks).getByRole('button', { name: 'Add 2h to this week: Collect the sources' })).toHaveTextContent('+ 2h');
   });
 
   it('keeps a finished row where it was, says what it freed, and names it done', async () => {
     const t = await openPlanning({ step: 1, seed: twoInGroup });
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report,/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Add Collect the sources to the plan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
     await waitFor(() => expect(said()).toBe('Collect the sources added. 3h 30m of 98h.'));
-    await userEvent.click(screen.getByRole('button', { name: 'Mark done: Collect the sources' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Already done: Collect the sources' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeTruthy());
-    await waitFor(() => expect(said()).toBe('Collect the sources done. 2h freed, 96h 30m free.'));
+    expect((await screen.findByText('Collect the sources done. 2h freed.')).closest('.toast')).toHaveTextContent('2h freed. 96h 30m free.');
     const tasks = screen.getByRole('group', { name: 'Write the report tasks' });
     expect(firstButtons(tasks, 'name')).toEqual(['Edit task Collect the sources, done', 'Edit task Read the old reports', 'Edit task Write chapter one']);
   });
@@ -529,7 +511,7 @@ describe('Pick tasks: quick fixes', () => {
     const oneOffs = await screen.findByRole('region', { name: 'One offs' });
     const band = await within(oneOffs).findByRole('button', { name: /^One offs, / });
     if (band.getAttribute('aria-expanded') === 'false') await userEvent.click(band);
-    await userEvent.click(within(oneOffs).getByRole('button', { name: 'Add Paint the house to the plan' }));
+    await userEvent.click(within(oneOffs).getByRole('button', { name: 'Add 100h to this week: Paint the house' }));
     const planned = screen.getByRole('complementary', { name: 'Time this week' });
     expect(await within(planned).findByText('Over by')).toBeInTheDocument();
     expect(within(planned).getByText('3h 30m')).toBeInTheDocument();
@@ -556,15 +538,17 @@ describe('Pick tasks: quick fixes', () => {
     await waitFor(async () => expect(await minutesOf(t, 'o4')).toBe(20));
   });
 
-  it('on phone, + keeps one name and says it with pressed, and the arrows name where they go', async () => {
+  it("on phone, Suggest's + keeps one name and says it with pressed, and the arrows name where they go", async () => {
     const t = await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
-    const sheet = await screen.findByRole('region', { name: 'Tasks in Write the report' });
-    const add = within(sheet).getByRole('button', { name: 'Add Collect the sources to the plan' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Suggest 8h' }));
+    const suggested = screen.getByRole('dialog', { name: 'Suggested' });
+    const add = within(suggested).getByRole('button', { name: 'Add Collect the sources to the plan' });
     expect(add).toHaveAttribute('aria-pressed', 'false');
     await userEvent.click(add);
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
-    expect(await within(sheet).findByRole('button', { name: 'Add Collect the sources to the plan', pressed: true })).toBeInTheDocument();
-    expect(within(sheet).getByRole('button', { name: 'Mark done: Collect the sources' })).toBeInTheDocument();
+    expect(await within(suggested).findByRole('button', { name: 'Add Collect the sources to the plan', pressed: true })).toBeInTheDocument();
+    await userEvent.click(within(suggested).getByRole('button', { name: 'Close' }));
+    const sheet = screen.getByRole('region', { name: 'Tasks in Write the report' });
 
     const back = within(sheet).getByRole('button', { name: 'Previous project' });
     expect(back).toHaveAttribute('aria-disabled', 'true');
@@ -583,8 +567,146 @@ describe('Pick tasks: quick fixes', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus());
   });
 
-  it('on phone, the dock says over capacity as a number', async () => {
+  it('on phone, Does it fit says over capacity as a number', async () => {
     await openPlanning({ step: 1, layout: 'phone', seed: big('2026-11-03') });
-    expect(await screen.findByRole('button', { name: 'Planned for Nov 2 to 8, 2 tasks, 101h 30m, over by 3h 30m. Open the list' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Does it fit? 101h 30m of 98h, 3h 30m over. Show In this week' })).toBeInTheDocument();
+  });
+});
+
+describe('Pick tasks: the row', () => {
+  const openReport = async () => userEvent.click(await screen.findByRole('button', { name: /^Write the report,/ }));
+  const said = () => document.querySelector('.planning .sr[role=status]')?.textContent ?? '';
+  const timeOf = (title: string) => screen.getByRole('button', { name: new RegExp(`(^Add .*to this week|this week): ${title}$`) });
+
+  it('has a done circle, the title and why, and one time button that adds the suggested part', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    await openReport();
+    const circle = screen.getByRole('checkbox', { name: 'Already done: Collect the sources' });
+    expect(circle).not.toBeChecked();
+    const row = circle.closest('li')!;
+    expect(within(row).getByText(/milestone overdue/)).toBeInTheDocument();
+    const add = within(row).getByRole('button', { name: 'Add 2h to this week: Collect the sources' });
+    expect(add).toHaveTextContent('+ 2h');
+    await userEvent.click(screen.getByRole('button', { name: /^Learn to bake bread,/ }));
+    // Only the part the aim needs is suggested, so that's what it adds.
+    expect(screen.getByRole('button', { name: 'Add 2h to this week: Bake a test loaf' })).toHaveTextContent('+ 2h');
+
+    await userEvent.click(add);
+    await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
+    const time = await screen.findByRole('button', { name: '2h this week: Collect the sources' });
+    expect(time).toHaveTextContent('2h ▾');
+    expect(time).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(time).toHaveAttribute('aria-expanded', 'false');
+    expect(time).toHaveFocus();
+    expect(row).toHaveClass('on');
+    expect(within(row).queryByText(/milestone overdue/)).toBeNull();
+    await waitFor(() => expect(said()).toBe('Collect the sources added. 3h 30m of 98h.'));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Bake a test loaf' }));
+    expect(await screen.findByRole('button', { name: '2h of 3h this week: Bake a test loaf' })).toHaveTextContent('2h of 3h ▾');
+  });
+
+  it('the time button opens This week and the estimate, which Save writes as one change with Undo, and Cancel drops', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    await openReport();
+    await userEvent.click(timeOf('Collect the sources'));
+    await userEvent.click(await screen.findByRole('button', { name: '2h this week: Collect the sources' }));
+    const pop = screen.getByRole('dialog', { name: 'Collect the sources' });
+    const week = within(pop).getByRole('slider', { name: 'This week' });
+    await waitFor(() => expect(week).toHaveFocus());
+    expect(week).toHaveAttribute('aria-valuetext', '2h of 2h');
+    // Quarter-hour stops: 1h is the fourth.
+    fireEvent.change(week, { target: { value: '3' } });
+    setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 180);
+    expect(week).toHaveAttribute('aria-valuetext', '1h of 3h');
+    expect(await minutesOf(t, 't1')).toBe(120);
+    await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Collect the sources, 1h this week, 3h estimate.')).toBeInTheDocument();
+    expect(await minutesOf(t, 't1')).toBe(60);
+    expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(180);
+    await waitFor(() => expect(screen.getByRole('button', { name: '1h of 3h this week: Collect the sources' })).toHaveFocus());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
+    expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(120);
+
+    await userEvent.click(await screen.findByRole('button', { name: '2h this week: Collect the sources' }));
+    fireEvent.change(within(screen.getByRole('dialog', { name: 'Collect the sources' })).getByRole('slider', { name: 'This week' }), { target: { value: '0' } });
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Collect the sources' })).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Collect the sources' })).toBeNull();
+    expect(await minutesOf(t, 't1')).toBe(120);
+    expect(screen.getByRole('button', { name: '2h this week: Collect the sources' })).toHaveFocus();
+  });
+
+  it("the popover's Already done and Remove from this week act at once, each with Undo", async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    await openReport();
+    await userEvent.click(timeOf('Collect the sources'));
+    await userEvent.click(await screen.findByRole('button', { name: '2h this week: Collect the sources' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Collect the sources' })).getByRole('button', { name: 'Remove from this week' }));
+    expect(screen.queryByRole('dialog', { name: 'Collect the sources' })).toBeNull();
+    await waitFor(async () => expect(await minutesOf(t, 't1')).toBeNull());
+    expect(await screen.findByText('Removed Collect the sources from this week.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
+
+    await userEvent.click(await screen.findByRole('button', { name: '2h this week: Collect the sources' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Collect the sources' })).getByRole('button', { name: 'Already done' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeTruthy());
+    expect(await screen.findByText('Collect the sources done. 2h freed.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeFalsy());
+    expect(await minutesOf(t, 't1')).toBe(120);
+  });
+
+  it('ticking the circle strikes the row through where it is, with a toast that says what it freed, and unticking undoes it', async () => {
+    const t = await openPlanning({ step: 1, seed: seedWeek });
+    await openReport();
+    await userEvent.click(timeOf('Collect the sources'));
+    await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
+    const circle = screen.getByRole('checkbox', { name: 'Already done: Collect the sources' });
+    await userEvent.click(circle);
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeTruthy());
+    const toast = await screen.findByText('Collect the sources done. 2h freed.');
+    // The toast is the announcement, and it ends with the fit.
+    expect(toast.closest('.toast')).toHaveTextContent('Collect the sources done. 2h freed. 96h 30m free.');
+    expect(said()).not.toMatch(/done/);
+    expect(await minutesOf(t, 't1')).toBeNull();
+    const ticked = screen.getByRole('checkbox', { name: 'Already done: Collect the sources' });
+    expect(ticked).toBeChecked();
+    expect(ticked).toHaveFocus();
+    expect(ticked.closest('li')).toHaveClass('done');
+    expect(screen.getByRole('button', { name: 'Edit task Collect the sources, done' })).toBeInTheDocument();
+    await userEvent.click(ticked);
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeFalsy());
+    expect(await minutesOf(t, 't1')).toBe(120);
+  });
+
+  it('a task with no estimate offers + Add, which opens the popover to set its time and adds it', async () => {
+    const t = await openPlanning({ step: 1, seed: seedUnestimated });
+    await openReport();
+    const add = screen.getByRole('button', { name: 'Add to this week: Outline chapter two' });
+    expect(add).toHaveTextContent('+ Add');
+    expect(add).toHaveAttribute('aria-haspopup', 'dialog');
+    await userEvent.click(add);
+    const pop = screen.getByRole('dialog', { name: 'Outline chapter two' });
+    setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 90);
+    expect(within(pop).getByRole('slider', { name: 'This week' })).toHaveAttribute('aria-valuetext', '1h 30m of 1h 30m');
+    await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect(await minutesOf(t, 't3')).toBe(90));
+    expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(90);
+    expect(await screen.findByText('Outline chapter two, 1h 30m this week, 1h 30m estimate.')).toBeInTheDocument();
+  });
+
+  it('on phone, the row is the same, with the time button inside a 44pt box and its popover as a sheet', async () => {
+    const t = await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
+    const sheet = await screen.findByRole('region', { name: 'Tasks in Write the report' });
+    expect(within(sheet).getByRole('checkbox', { name: 'Already done: Collect the sources' })).toBeInTheDocument();
+    const add = within(sheet).getByRole('button', { name: 'Add 2h to this week: Collect the sources' });
+    expect(add.closest('.tpw')).not.toBeNull();
+    await userEvent.click(add);
+    await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
+    await userEvent.click(await within(sheet).findByRole('button', { name: '2h this week: Collect the sources' }));
+    const pop = screen.getByRole('dialog', { name: 'Collect the sources' });
+    expect(pop).toHaveClass('sheet');
+    expect(within(pop).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
   });
 });

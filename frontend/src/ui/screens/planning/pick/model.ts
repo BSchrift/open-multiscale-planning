@@ -93,7 +93,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
   const doneToday = (tasks: readonly Task[]): Candidate[] =>
     tasks
       .filter((t) => t.done_at && !t.deleted_at && localDate(t.done_at, clock.zone()) === on)
-      .map((t) => ({ task: t, left: 0, picked: false, week: 0, carried: false, stale: false, placed: false }));
+      .map((t) => ({ task: t, left: 0, ahead: 0, picked: false, week: 0, carried: false, stale: false, placed: false }));
   // Each finished one goes back before the first open one that came after it in the tasks' own order, so it stays
   // where it was, and focus and the pointer stay on the row that was ticked. The open ones keep their order.
   const inPlace = (rows: PickTask[], tasks: readonly Task[]) => {
@@ -187,7 +187,6 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
   const planned = [...projects.flatMap((p) => p.groups.flatMap((g) => g.rows)), ...oneOffRows].filter((r) => r.c.picked);
   const hintMin = Object.values(hints).reduce((sum, h) => sum + h.minutes, 0);
   const picked = m.picks.reduce((sum, p) => sum + p.minutes, 0);
-  const free = m.use.free;
   return {
     projects,
     oneOffs,
@@ -199,12 +198,8 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     axis: { start: addDays(on, -28), end: addDays(on, 181) },
     stretch: d.settings.plan_cadence ? st : undefined,
     weekSpan: { start: input.weekStart, end: addDays(input.weekStart, 6) },
-    dockLine: `${planned.length ? `${planned.length} ${planned.length === 1 ? 'task' : 'tasks'}, ${formatMinutes(picked)}` : 'Nothing yet'}, ${freeWords(free)}`,
   };
 }
-
-/** What's left of the week, or how far over it is: '23h 55m left free', 'over by 1h 20m'. */
-export const freeWords = (free: Minutes) => (free < 0 ? `over by ${formatMinutes(-free)}` : `${formatMinutes(free)} left free`);
 
 /**
  * The stops a week's time for a task can take: each quarter hour under its time, then all of it, so a 20 minute task

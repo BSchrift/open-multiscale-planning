@@ -1,34 +1,30 @@
 // Pick tasks on phone: a board of project bars that compare at a glance, over a half-height sheet of the open
-// project's tasks with ‹ › to the next. Pills show only when something needs you. A star marks suggested work, and
-// + adds the suggested part. Tapping a task's title edits it. The dock shows the week's numbers, and the ring pops up
-// above it on each change.
+// project's tasks with ‹ › to the next. Pills show only when something needs you, and a star marks suggested work.
+// Each task is a PickRow. Does it fit, in the top bar, opens In this week.
 
 import { useState } from 'react';
 import { formatMinutes, formatWeekRange } from '../../../../core/dates';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Minutes } from '../../../../core/types';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
-import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
-import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
-import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { pickWarning } from '../../../../core/capacity';
 import { Aims } from './Aims';
-import { EstimatePopover } from './EstimatePopover';
 import { aimWords, stopIndex, weekStops } from './model';
 import type { PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
 import { PastEnd, pastEndLine } from './PastEnd';
-import { estWords, Legend } from './PickDesktop';
+import { Legend } from './PickDesktop';
+import { PickRow } from './PickRow';
 import type { PickProps } from './PickStep';
+import { useFit } from '../WeekFit';
 
+/** What's suggested of a task in the Suggest sheet, '★ 2h of 3h'. */
 function estText(r: PickTask): string {
   const left = r.c.left;
-  if (r.done) return 'Done';
-  if (!left && r.c.placed && estWords(r) === 'On the calendar') return 'On the calendar';
   const of = (m: Minutes) => (m < left ? `${formatMinutes(m)} of ${formatMinutes(left)}` : left ? formatMinutes(left) : 'No estimate');
   if (r.c.picked) return of(r.c.week);
   return r.hint ? `★ ${of(r.hint.minutes)}` : of(left);
@@ -51,14 +47,14 @@ function AddButton(props: PickProps & { row: PickTask }) {
 }
 
 export function PickPhone(props: PickProps) {
-  const { view, model, week, ring } = props;
+  const { view, model, week } = props;
   const seq = [...view.projects.map((p) => p.plan.project.id), ONE_OFFS_BUCKET];
   // Opens on the first project; after that it's whatever was tapped, or closed.
   const [chosen, setChosen] = useState<string | null | undefined>(undefined);
   const active = chosen === undefined ? seq[0]! : chosen;
   const at = active ? seq.indexOf(active) : -1;
-  const openTask = useOpenTask();
   const [sheet, setSheet] = useState<string | null>(null);
+  useFit(null, () => setSheet('planned'));
   const [fixFor, setFixFor] = useState<string | null>(null);
   const toast = useToast();
   // Listed as they were when Suggest opened, so rows don't vanish as adding one changes what's suggested.
@@ -68,7 +64,7 @@ export function PickPhone(props: PickProps) {
   const nameOf = (id: string) => (id === ONE_OFFS_BUCKET ? 'One offs' : (view.projects.find((p) => p.plan.project.id === id)?.plan.project.title ?? ''));
   const closeSheet = () => setSheet(null);
   const weekLabel = formatWeekRange(week);
-  const { used, free } = model.use;
+  const { free } = model.use;
   const isOneOffs = active === ONE_OFFS_BUCKET;
   const trayProject = at >= 0 && !isOneOffs ? view.projects[at] : undefined;
   const trayAim = isOneOffs ? view.oneOffs.aim : trayProject?.aim;
@@ -76,38 +72,8 @@ export function PickPhone(props: PickProps) {
   const warn = pickWarning(free, model.pushback);
   const fixProject = view.projects.find((p) => p.plan.project.id === fixFor);
   const pastNow = view.pastEnd.find((p) => sheet === `past:${p.plan.project.id}`);
-  const [estFor, setEstFor] = useState<string | null>(null);
-  const estRow = allRows.find((r) => r.c.task.id === estFor);
 
-  const taskRow = (r: PickTask) => {
-    const done = props.isDone(r);
-    const full = !r.c.picked && estText(r) === 'On the calendar';
-    return (
-      <li key={r.c.task.id} className={`trow${r.c.picked ? ' added' : ''}${r.oneOff ? ' oo' : ''}${done ? ' isdone' : ''}`}>
-        <button className="tmain" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}${done ? ', done' : ''}`} onClick={() => openTask(r.c.task.id, r.note)}>
-          {r.title}
-          {r.c.task.notes && <NoteMark />}
-        </button>
-        {done ? (
-          <span className="testb">Done</span>
-        ) : (
-          <button
-            className="testb"
-            type="button"
-            aria-haspopup="dialog"
-            aria-label={`Estimate for ${r.title}: ${estText(r).replace('★', 'Suggested')}`}
-            onClick={() => setEstFor(r.c.task.id)}
-          >
-            {estText(r)}
-          </button>
-        )}
-        <button className="tdone" type="button" aria-label={done ? `Undo finishing ${r.title}` : `Mark done: ${r.title}`} onClick={() => (done ? props.undoDone(r) : props.markDone(r))}>
-          {done ? 'Undo' : 'Mark done'}
-        </button>
-        {done || full ? <span className="tadd" aria-hidden="true" /> : <AddButton {...props} row={r} />}
-      </li>
-    );
-  };
+  const taskRow = (r: PickTask) => <PickRow key={r.c.task.id} {...props} row={r} phone />;
 
   // Add all goes with its sheet, so focus goes to Undo.
   const addAll = async () => {
@@ -298,26 +264,15 @@ export function PickPhone(props: PickProps) {
             </div>
           </section>
         )}
-        <div className="pksum">
-          <div className="flowdock">
-            <button className="flowsum" type="button" aria-label={`Planned for ${weekLabel}, ${view.dockLine}. Open the list`} onClick={() => setSheet('planned')}>
-              <span className="small strong">
-                {formatMinutes(used)} of {formatMinutes(model.open)}
-              </span>
-              <span className="small quiet">{free < 0 ? `${formatMinutes(-free)} over` : `${formatMinutes(free)} free`} ›</span>
-            </button>
-          </div>
-        </div>
-        {ring.pop && <CapacityRing pop={ring.pop} open={model.open} small={at >= 0} />}
         <div className="sr" role="status">
           {props.said}
         </div>
       </div>
 
       {sheet === 'planned' && (
-        <Sheet key="planned" label={`Planned for ${weekLabel}`} onClose={closeSheet} tall>
+        <Sheet key="planned" label="In this week" onClose={closeSheet} tall>
           <div className="between">
-            <h2>Planned for {weekLabel}</h2>
+            <h2>In this week</h2>
             <button className="btn" type="button" onClick={closeSheet}>
               Close
             </button>
@@ -478,9 +433,6 @@ export function PickPhone(props: PickProps) {
         />
       )}
 
-      {estRow && (
-        <EstimatePopover row={estRow} phone onSave={(m) => props.setEstimate(estRow, m)} onClose={() => setEstFor(null)} />
-      )}
     </>
   );
 }

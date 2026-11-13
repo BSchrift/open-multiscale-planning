@@ -12,10 +12,10 @@ import type { PlanContext, WeekInput } from '../../../core/plan';
 import { blocksInRange, needsNewTime, placedMinutes } from '../../../core/queries';
 import type { BlockRow, QueueRow } from '../../../core/queries';
 import { queueItems } from '../../../core/queue';
-import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
+import { CALENDAR_ID, getRecord, getSettings, listRecords, weekPlanId } from '../../../core/records';
 import { practicesLeft, slotContext } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
-import type { CalendarSource, CalendarState, LocalDate, Minutes, Settings, TimeBlock, WeekPick, WeekPlan } from '../../../core/types';
+import type { CalendarSource, CalendarState, LocalDate, Minutes, Practice, Settings, TimeBlock, WeekPick, WeekPlan } from '../../../core/types';
 
 export interface PlanningData {
   week: LocalDate;
@@ -50,6 +50,66 @@ export async function loadPlanning(sql: Sql, clock: Clock, week: LocalDate): Pro
   return { week, settings, records, picks, weekPlans, blocks, queue, calendar: calendar ?? null, sources, placed };
 }
 
+/** What the week's open time and its use are worked out from: a little of what loadPlanning reads. */
+export interface FitData {
+  week: LocalDate;
+  settings: Settings;
+  /** This week's picks. */
+  picks: WeekPick[];
+  weekPlan: WeekPlan | null;
+  practices: Practice[];
+  blocks: BlockRow[];
+  calendar: CalendarState | null;
+  sources: CalendarSource[];
+  placed: Minutes;
+}
+
+/** Only what the fit needs, so Does it fit can show on every step without reading the whole history again. */
+export async function loadFit(sql: Sql, clock: Clock, week: LocalDate): Promise<FitData> {
+  const range = weekRange(week, clock.zone());
+  const [settings, picks, weekPlan, practices, blocks, calendar, sources, placed] = await Promise.all([
+    getSettings(sql),
+    listRecords(sql, 'week_pick'),
+    getRecord(sql, 'week_plan', weekPlanId(week)),
+    listRecords(sql, 'practice'),
+    blocksInRange(sql, range),
+    getRecord(sql, 'calendar', CALENDAR_ID),
+    listRecords(sql, 'calendar_source'),
+    placedMinutes(sql, { ...range, week_start: week, now: nowInstant(clock) }),
+  ]);
+  return {
+    week,
+    settings,
+    picks: picks.filter((p) => p.week_start === week),
+    weekPlan: weekPlan && !weekPlan.deleted_at ? weekPlan : null,
+    practices,
+    blocks,
+    calendar: calendar ?? null,
+    sources,
+    placed,
+  };
+}
+
+/** The week's open time, and how much of it practices, repeating work and picks use. */
+export function weekFit(d: FitData, clock: Clock) {
+  const slot = slotContext({
+    week: d.week,
+    availability: d.settings.availability,
+    avoided: d.settings.avoided_slots,
+    sources: d.sources,
+    calendar: d.calendar,
+    blocks: d.blocks,
+    clock,
+  });
+  const open = openTime(slot);
+  // shortcut: picks count in full in a week under way, work already done on them too; take off their past blocks if replanning mid-week reads too full.
+  const picked = d.picks.reduce((sum, p) => sum + p.minutes, 0);
+  // Practices still to place take their time too, so Pick tasks counts them before Schedule.
+  const practices = practicesLeft(d.practices, slot, d.weekPlan?.skipped_practices ?? []).reduce((sum, p) => sum + p.minutes, 0);
+  const repeating = d.placed + practices;
+  return { slot, open, repeating, use: weekUse({ open, placed: repeating, picked }) };
+}
+
 /** The figures Pick tasks and Review share. */
 export function weekModel(d: PlanningData, clock: Clock) {
   const { week, settings, records } = d;
@@ -60,22 +120,7 @@ export function weekModel(d: PlanningData, clock: Clock) {
   const queue = queueItems(d.queue, d.weekPlans, d.picks, clock);
   const picks = d.picks.filter((p) => p.week_start === week);
   const blocks: TimeBlock[] = d.blocks.map((b) => ({ ...b, tz: b.tz ?? clock.zone() }));
-  const slot = slotContext({
-    week,
-    availability: settings.availability,
-    avoided: settings.avoided_slots,
-    sources: d.sources,
-    calendar: d.calendar,
-    blocks: d.blocks,
-    clock,
-  });
-  const open = openTime(slot);
-  // shortcut: picks count in full in a week under way, work already done on them too; take off their past blocks if replanning mid-week reads too full.
-  const picked = picks.reduce((sum, p) => sum + p.minutes, 0);
-  // Practices still to place take their time too, so Pick tasks counts them before Schedule.
-  const practices = practicesLeft(records.practices, slot, weekPlan?.skipped_practices ?? []).reduce((sum, p) => sum + p.minutes, 0);
-  const repeating = d.placed + practices;
-  const use = weekUse({ open, placed: repeating, picked });
+  const { slot, open, repeating, use } = weekFit({ ...d, picks, weekPlan, practices: records.practices }, clock);
   const input: WeekInput = {
     weekStart: week,
     picks,

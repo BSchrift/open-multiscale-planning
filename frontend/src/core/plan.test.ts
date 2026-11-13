@@ -433,7 +433,7 @@ describe('the candidates for a week', () => {
     const p = reportPlan();
     const placed = block('t5', '2026-11-03T10:00:00Z', '2026-11-03T11:00:00Z');
     expect(projectCandidates(p, week({ blocks: [placed] }), ctx).map((c) => c.task.id)).not.toContain('t5');
-    expect(projectCandidates(p, week({ blocks: [placed] }), ctx, true).find((c) => c.task.id === 't5')).toMatchObject({ left: 0, placed: true });
+    expect(projectCandidates(p, week({ blocks: [placed] }), ctx, true).find((c) => c.task.id === 't5')).toMatchObject({ left: 0, placed: true, ahead: 60 });
   });
 
   it('counts only what is still ahead as placed, since a past block already changed what remains', () => {

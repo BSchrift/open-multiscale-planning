@@ -1,20 +1,20 @@
 // Pick tasks: add the week's work from projects and One offs. Nothing is picked until added, and suggestions only
-// say what to offer. Every add or removal pops up the capacity ring. Two layouts over the same rows: a timeline
-// beside the Planned list on desktop, and a board of bars over a half-height sheet on phone.
+// say what to offer. Does it fit, above every step, shows what each change does to the week. Two layouts over the same
+// rows: a timeline beside the Planned list on desktop, and a board of bars over a half-height sheet on phone.
 
 import { useMemo, useState } from 'react';
-import { formatMinutes } from '../../../../core/dates';
-import { applyPlanChange } from '../../../../core/plan';
+import type { Clock } from '../../../../core/clock';
+import { formatMinutes, nowInstant } from '../../../../core/dates';
+import { applyPlanChange, minutesLeft } from '../../../../core/plan';
 import type { PlanChange, ProjectPlan } from '../../../../core/plan';
-import { removeWeekPick, setWeekPick, weekPlanId } from '../../../../core/records';
+import { getRecord, removeWeekPick, setWeekPick, weekPickId, weekPlanId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { closeTask, tickOneOff, undoProjectChange } from '../../../../core/tasks';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Fields, LocalDate, Minutes } from '../../../../core/types';
-import { useRingPop } from '../../../components/ring/CapacityRing';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
-import { usePlanChange } from '../../../components/editors';
+import { useToast } from '../../../components/Toast';
 import { loadPlanning, weekModel } from '../model';
 import type { WeekModel } from '../model';
 import { aimWords, pickModel } from './model';
@@ -31,24 +31,40 @@ interface AimSetting {
   skipped: boolean;
 }
 
+/** A pick put in, changed or taken out, with what puts it back. */
+async function pickChange(w: Writer, week: LocalDate, taskId: string, minutes: Minutes | null, clock: Clock): Promise<PlanChange> {
+  const id = weekPickId(week, taskId);
+  const had = await getRecord(w.sql, 'week_pick', id);
+  if (!had || had.deleted_at) {
+    if (minutes === null) return { writes: [] };
+    await setWeekPick(w, week, taskId, minutes);
+    return { writes: [{ type: 'week_pick', id, fields: { deleted_at: nowInstant(clock) } }] };
+  }
+  return applyPlanChange(w, { writes: [{ type: 'week_pick', id, fields: minutes === null ? { deleted_at: nowInstant(clock) } : { minutes } }] });
+}
+
 /** Everything a layout needs: the rows, the figures, and the actions. */
 export interface PickProps {
   week: LocalDate;
   model: WeekModel;
   view: PickView;
-  ring: ReturnType<typeof useRingPop>;
   /** What the live region last said. */
   said: string;
   aims: AimSetting[];
   aimsChanged: boolean;
+  /** Adds the suggested part, or all that's left, at once. */
   add(row: PickTask): void;
   remove(row: PickTask): void;
   setMinutes(row: PickTask, minutes: Minutes): void;
-  /** The time the task takes: its time left when it has some recorded, else its estimate. */
-  setEstimate(row: PickTask, minutes: Minutes): void;
-  /** Finished here, so the row shows Undo. */
+  /** The time popover's Save: this week's share and the time the task takes, its time left when it has some recorded,
+   * else its estimate, as one change with Undo. */
+  saveTime(row: PickTask, week: Minutes, estimate: Minutes): void;
+  /** Takes it out of the week, with Undo. */
+  dropFromWeek(row: PickTask): void;
+  /** Finished here, so the row stays, struck through. */
   isDone(row: PickTask): boolean;
-  markDone(row: PickTask): void;
+  /** Finishes it, with a toast to undo it; focusUndo when what was pressed has gone. */
+  markDone(row: PickTask, focusUndo?: boolean): void;
   undoDone(row: PickTask): void;
   /** Adds every suggestion and resolves to the ids added, for Undo. */
   addSuggested(): Promise<string[]>;
@@ -65,7 +81,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const { week } = props;
   const { clock } = useApp();
   const data = useQuery((sql) => loadPlanning(sql, clock, week), [week]).data;
-  const ring = useRingPop();
+  const toast = useToast();
   const [said, setSaid] = useState('');
 
   const pickWrite = useMutation(async (w, picks: readonly { id: string; minutes: Minutes | null }[]) => {
@@ -74,7 +90,6 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const planWrite = useMutation((w, fields: Fields<'week_plan'>) => w.create('week_plan', { week_start: week, ...fields }, weekPlanId(week)));
   const undo = useMutation((w, plan: ProjectPlan) => undoProjectChange(w, plan, clock));
   const taskWrite = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
-  const apply = usePlanChange();
   // What each Mark done here wrote, so Undo puts back the picks and blocks it freed, and a repeating one off's date.
   const [doneHere, setDoneHere] = useState<Record<string, PlanChange>>({});
 
@@ -91,12 +106,14 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
 
   // The week's time once a change is made, ending with how far over it goes: '7h 5m of 30h', '25h 20m of 24h, 1h 20m over'.
   const fitWords = (after: Minutes) => `${formatMinutes(after)} of ${formatMinutes(open)}${after > open ? `, ${formatMinutes(after - open)} over` : ''}`;
-  // Each change pops the ring, from the time used before it. Adding and removing are said aloud; a slider's steps
-  // aren't, since the slider says its own value.
+  // Adding and removing are said aloud, from the time used before. A slider's steps aren't, since the slider says its
+  // own value, and a change with a toast isn't, since the toast says it.
   const changeBy = (title: string, delta: Minutes, verb?: 'added' | 'removed') => {
-    const after = use.used + delta;
-    ring.pulse(use.used, after, after > open);
-    if (verb) setSaid(`${title} ${verb}. ${fitWords(after)}.`);
+    if (verb) setSaid(`${title} ${verb}. ${fitWords(use.used + delta)}.`);
+  };
+  const freeWords = (free: Minutes) => (free < 0 ? `${formatMinutes(-free)} over` : `${formatMinutes(free)} free`);
+  const undoable = (reverse: PlanChange | undefined, message: string, options: { spoken?: string; focusUndo?: boolean } = {}) => {
+    if (reverse) toast.show(message, { ...options, undo: () => taskWrite.run((w) => applyPlanChange(w, reverse)) });
   };
   const aimsNow = weekPlan?.aims ?? {};
   const skipped = weekPlan?.skipped_aims ?? [];
@@ -110,7 +127,6 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     week,
     model,
     view,
-    ring,
     said,
     aims: [
       ...model.ranked.map((p) => aimSetting(p.project.id, p.project.title, p.project.weekly_aim)),
@@ -131,7 +147,6 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     },
     addSuggested: async () => {
       const hints = Object.entries(model.hints);
-      ring.pulse(use.used, use.used + view.hintMin, use.used + view.hintMin > open);
       setSaid(`Added ${formatMinutes(view.hintMin)}. ${fitWords(use.used + view.hintMin)}.`);
       await pickWrite.run(hints.map(([id, h]) => ({ id, minutes: h.minutes })));
       return hints.map(([id]) => id);
@@ -146,31 +161,50 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       void planWrite.run({ skipped_aims: skipped.includes(bucket) ? skipped.filter((b) => b !== bucket) : [...skipped, bucket] }),
     skipPastEnd: (id) => void planWrite.run({ skipped_past_end: [...(weekPlan?.skipped_past_end ?? []), id] }),
     undoChange: (plan) => void undo.run(plan),
-    setEstimate: (row, minutes) => {
+    saveTime: async (row, minutes, estimate) => {
       const t = row.c.task;
       const left = t.remaining_min != null;
-      const fields = left ? { remaining_min: minutes || null } : { estimate_min: minutes || null };
-      const text = minutes ? `${t.title}, ${formatMinutes(minutes)} ${left ? 'left' : 'estimate'}.` : `${t.title}, no estimate.`;
-      void apply(() => ({ writes: [{ type: 'task', id: t.id, fields }] }), { message: text });
+      const estChanged = estimate !== minutesLeft(t);
+      // An estimate that's all on the calendar already leaves nothing to add.
+      const weekChanged = row.c.picked ? minutes !== row.c.week : !(minutes === 0 && estimate > 0);
+      const reverse = await taskWrite.run(async (w) => {
+        const back = estChanged
+          ? await applyPlanChange(w, { writes: [{ type: 'task', id: t.id, fields: left ? { remaining_min: estimate || null } : { estimate_min: estimate || null } }] })
+          : { writes: [] };
+        const picked = weekChanged ? await pickChange(w, week, t.id, minutes, clock) : { writes: [] };
+        return { writes: [...picked.writes, ...back.writes] };
+      });
+      const parts = [
+        weekChanged && `${formatMinutes(minutes)} this week`,
+        estChanged && (estimate ? `${formatMinutes(estimate)} ${left ? 'left' : 'estimate'}` : 'no estimate'),
+      ].filter(Boolean);
+      undoable(reverse, `${t.title}, ${parts.join(', ')}.`);
+    },
+    dropFromWeek: async (row) => {
+      const reverse = await taskWrite.run((w) => pickChange(w, week, row.c.task.id, null, clock));
+      undoable(reverse, `Removed ${row.title} from this week.`, { spoken: `${freeWords(use.free + row.c.week)}.` });
     },
     isDone: (row) => row.done || !!doneHere[row.c.task.id],
-    markDone: async (row) => {
+    markDone: async (row, focusUndo = false) => {
       const t = row.c.task;
       const reverse = await taskWrite.run((w) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock)));
       if (!reverse) return;
       setDoneHere((d) => ({ ...d, [t.id]: reverse }));
-      // Its pick goes with it, so say what that freed.
+      // Its pick goes with it, so say what that freed. The toast is the announcement; its spoken words end with the fit.
       const freed = row.c.picked ? row.c.week : 0;
-      const free = use.free + freed;
-      const left = free < 0 ? `${formatMinutes(-free)} over` : `${formatMinutes(free)} free`;
-      setSaid(freed ? `${row.title} done. ${formatMinutes(freed)} freed, ${left}.` : `${row.title} done.`);
+      toast.show(freed ? `${row.title} done. ${formatMinutes(freed)} freed.` : `${row.title} done.`, {
+        spoken: `${freeWords(use.free + freed)}.`,
+        focusUndo,
+        undo: async () => {
+          if (await taskWrite.run((w) => applyPlanChange(w, reverse))) setDoneHere(({ [t.id]: _, ...rest }) => rest);
+        },
+      });
     },
     undoDone: async (row) => {
       const t = row.c.task;
       const reverse = doneHere[t.id] ?? { writes: [{ type: 'task', id: t.id, fields: { done_at: null } }] };
       if (!(await taskWrite.run((w) => applyPlanChange(w, reverse)))) return;
       setDoneHere(({ [t.id]: _, ...rest }) => rest);
-      setSaid(`${row.title} not done.`);
     },
     onNext: props.onNext,
   };

@@ -1,5 +1,5 @@
-// Today: the block in progress or next, what needs attention, one offs due today and the day's timeline. When the
-// week isn't planned it opens on a prompt to plan, and after time away on Welcome back.
+// Today: the block in progress or next, what needs attention, one offs due today and the day's timeline, then a line
+// into Done. When the week isn't planned it opens on a prompt to plan, and after time away on Welcome back.
 
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -12,6 +12,7 @@ import { StretchRow } from '../../components/planning/StretchRow';
 import { BothRows } from '../../components/planning/BothRow';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import { blockAhead, coveredWeek, makeDuePlanningTasks, skipWeek, stretchRow, weekGate, weekRow } from '../../../core/planning';
+import { DoneLine } from '../done/DoneLine';
 import { useCalendarCall } from '../settings/useCalendarCall';
 import { loadToday } from './data';
 import type { TodayData } from './data';
@@ -198,6 +199,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />
       {(work || !unplanned) && <DayTimeline data={data} events={data.events} />}
+      <DoneLine />
       {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
       {prompt}
     </div>

@@ -128,16 +128,23 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   if (!beforePublish) {
     await page.getByRole('button', { name: 'New practice from this item' }).click();
     await page.getByRole('button', { name: 'Make it a practice' }).click();
-    await expect(page.getByText(`"${title}" is now a practice, 30m a day. It left your Inbox.`)).toBeVisible();
+    await expect(page.getByText(`${title} is now a practice.`)).toBeVisible();
     await page.getByRole('button', { name: '‹ Undo and go back' }).click();
-    await expect(page.getByText(`Undone: ${title} removed, "${title}" is back in your Inbox.`)).toBeVisible();
+    await expect(page.getByText(`Undone: ${title} removed. ${title} is back.`)).toBeVisible();
   }
 
-  // Add to this week picks it for the week, and puts nothing on the calendar.
+  // Add to this week picks it for the week, and puts nothing on the calendar. The release before has a button for One
+  // offs where this one has the picker.
   await page.getByRole('button', { name: 'Add to this week' }).click();
-  await page.getByRole('button', { name: 'One offs, add to this week' }).click();
-  await expect(page.getByText('Sent to One offs and added to this week, not on the calendar yet.')).toBeVisible();
-  await page.keyboard.press('Escape');
+  if (beforePublish) {
+    await page.getByRole('button', { name: 'One offs, add to this week' }).click();
+    await expect(page.getByText('Sent to One offs and added to this week, not on the calendar yet.')).toBeVisible();
+  } else {
+    await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
+    await page.keyboard.press('Enter');
+    await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
+  }
+  await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
 
   // Week: it waits in To schedule; a suggestion places it, and Undo brings it back.
   await nav.getByRole('button', { name: 'Week' }).click();
@@ -187,7 +194,7 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
     await left.first().click();
     await page.getByRole('button', { name: 'Delete/done' }).click();
     await page.getByRole('button', { name: 'Yes, delete' }).click();
-    await page.keyboard.press('Escape');
+    await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
   }
   // Sent before the browser closes, or the deployment keeps these checks as Inbox items for the next suite to trip on.
   await syncNow(page);

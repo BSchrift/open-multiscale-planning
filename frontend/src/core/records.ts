@@ -12,7 +12,7 @@
 // then stands (retention.ts), so every writer keeps it right.
 
 import { protocol } from '@multiscale/config';
-import { nowInstant } from './dates';
+import { isDay, nowInstant } from './dates';
 import { clockWins, formatClock, isClock, nextClock, observeClock, parseClock } from './clock';
 import type { Clock } from './clock';
 import { getMeta, META, setMeta } from './db';
@@ -81,6 +81,13 @@ export function weekPlanId(weekStart: LocalDate): string {
 /** A practice has at most one placed session a day, so two devices placing the same week merge into one record. */
 export function practiceSessionId(practiceId: string, date: LocalDate): string {
   return `session:${practiceId}:${date}`;
+}
+
+/** The day a practice session is for, from an id practiceSessionId made for it, else null. */
+export function sessionDay(id: string, practiceId: string): LocalDate | null {
+  const prefix = `session:${practiceId}:`;
+  const date = id.startsWith(prefix) ? id.slice(prefix.length) : '';
+  return isDay(date) ? date : null;
 }
 
 /** The id of one finish of a recurring task, so that two offline devices finishing the same occurrence merge. */
@@ -397,6 +404,23 @@ const toRecord = <T>({ id, data }: DataRow) => ({ ...parse(data), id }) as T;
 export async function getRecord<T extends RecordType>(sql: Sql, type: T, id: string): Promise<RecordMap[T] | undefined> {
   const row = await sql.get<DataRow>('SELECT id, data FROM records WHERE id = :id AND type = :type', { id, type });
   return row && toRecord<RecordMap[T]>(row);
+}
+
+/** Under the fewest variables any SQLite the app runs on allows in one statement. */
+const IDS_PER_READ = 500;
+
+/** Records of a type by id, deleted ones too, in any order. Those that don't exist are left out. */
+export async function getRecords<T extends RecordType>(sql: Sql, type: T, ids: readonly string[]): Promise<RecordMap[T][]> {
+  const unique = [...new Set(ids)];
+  const found: RecordMap[T][] = [];
+  for (let i = 0; i < unique.length; i += IDS_PER_READ) {
+    const some = unique.slice(i, i + IDS_PER_READ);
+    const params = Object.fromEntries(some.map((id, n) => [`id${n}`, id]));
+    const list = some.map((_, n) => `:id${n}`).join(', ');
+    const rows = await sql.all<DataRow>(`SELECT id, data FROM records WHERE type = :type AND id IN (${list})`, { type, ...params });
+    found.push(...rows.map((row) => toRecord<RecordMap[T]>(row)));
+  }
+  return found;
 }
 
 /** Every record of a type, oldest first, without deleted ones unless asked. This is what domain modules take. */

@@ -299,8 +299,8 @@ test.describe('one device', () => {
     await card.getByRole('button', { name: 'New practice from this item' }).click();
     await card.getByRole('form', { name: 'New practice' }).getByRole('textbox', { name: 'Name' }).fill('Brew coffee at home');
     await card.getByRole('button', { name: 'Make it a practice' }).click();
-    await expect(card.getByRole('status')).toHaveText('"Order more coffee beans" is now the practice Brew coffee at home, 30m a day. It left your Inbox.');
-    await page.keyboard.press('Escape');
+    await expect(page.locator('.toast')).toContainText('Order more coffee beans is now the practice Brew coffee at home.');
+    await card.getByRole('button', { name: 'Exit' }).click();
     await openFinished();
     await expect(finished().getByRole('button', { name: 'Became the practice Brew coffee at home' })).toBeVisible();
     await everyScreen(page);
@@ -324,6 +324,57 @@ test.describe('one device', () => {
     await expect(pane(page, 'Inbox').getByText('Order more coffee beans')).toBeVisible();
     await go(page, 'Goals');
     await expect(pane(page, 'Goals').getByRole('button', { name: /Practices with no goal/ })).toContainText('1 practice');
+    await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('practices on set days, a count and a time of their own on one day: the bundle before shows them, and its rename keeps them', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    // As the update stores each: Monday, Tuesday, Thursday and Friday with Friday at 9:30 and this Thursday skipped,
+    // and three 30-minute sessions a week.
+    const irregular: Seed[] = [
+      {
+        type: 'practice',
+        id: 'pr2',
+        fields: { title: 'Morning run', target_min: 30, per: 'day', days: [0, 1, 3, 4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' },
+      },
+      { type: 'practice', id: 'pr3', fields: { title: 'Climbing', target_min: 90, per: 'week', sessions: 3, preferred_times: [1080], state: 'active' } },
+      { type: 'week_plan', id: `week:${WEEK}`, fields: { skipped_sessions: ['pr2:2026-11-05'] } },
+    ];
+    await openSeeded(page, [...week, ...irregular]);
+    const lane = () => pane(page, 'Week').getByRole('region', { name: 'To schedule' });
+    const card = (title: string, line: string) => lane().getByRole('button', { name: `${title}, Practice, ${line}, to schedule` });
+    // The count waits above the week; of the set days, Thursday is skipped, so only Friday's waits, above its day.
+    const expectUpdate = async (title: string) => {
+      await go(page, 'Week');
+      await expect(card('Climbing', '3 more this week, 30m each')).toBeVisible();
+      await expect(pane(page, 'Week').getByRole('button', { name: /, Practice, 30 minutes on Thursday/ })).toHaveCount(0);
+      await pane(page, 'Week').getByRole('button', { name: `${title}, Practice, 30 minutes on Friday around 9:30 AM, to schedule` }).click();
+      await expect(pane(page, 'Week').getByRole('button', { name: '1 · Fri 9:30am to 10am' })).toBeVisible();
+    };
+    await expectUpdate('Morning run');
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before plans them as it understands them, which depends on how old it is, so this
+    // only asks that Week shows them with no errors. It renames the run.
+    page = await relaunch(page, 'old', errors);
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByText('Climbing').first()).toBeVisible();
+    await expect(pane(page, 'Week').getByText('Morning run').first()).toBeVisible();
+    await go(page, 'Goals');
+    await pane(page, 'Goals').getByRole('button', { name: /^Practices with no goal/ }).click();
+    await pane(page, 'Goals').getByRole('button', { name: /^Morning run/ }).click();
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Morning jog');
+    // Editors that save on Save, once the bundle before has them.
+    const save = page.getByRole('button', { name: 'Save', exact: true });
+    if (await save.isVisible()) await save.click();
+    await everyScreen(page);
+
+    // Updated again, the days' own times, the count and the skip are all still there.
+    page = await relaunch(page, 'new', errors);
+    await expectUpdate('Morning jog');
     await everyScreen(page);
     expect(errors).toEqual([]);
   });

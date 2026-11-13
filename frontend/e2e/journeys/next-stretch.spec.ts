@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, start, tab, TZ } from './journey';
+import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
 // shows what each got and adds one, Practices edit in place, Projects puts milestones in the plan and adds a project
@@ -39,8 +39,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await page.getByRole('button', { name: phone ? '+ Practice' : 'Add practice' }).first().click();
   const add = page.getByRole('form', { name: 'Add practice' });
   await add.getByLabel('Name').fill('Read about baking');
-  await add.getByRole('slider', { name: 'Target' }).fill('15');
-  await add.getByLabel('Preferred time').fill('07:30');
+  await add.getByRole('slider', { name: 'Each session' }).fill('15');
+  await add.getByLabel('Usual time').fill('07:30');
   await add.getByRole('button', { name: 'Add practice' }).click();
   await expect(page.getByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
 
@@ -77,15 +77,15 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   // Practices: each a summary, whose Edit opens its fields in place until Save or Cancel.
   await expect(page.getByRole('heading', { name: 'Step 2 of 5, Practices. Your practices' })).toBeFocused();
   await expect(steps.getByRole('button', { name: /Goals, done$/ })).toBeVisible();
-  await expect(page.getByText('15m a day, every day, around 7:30am')).toBeVisible();
+  await expect(page.getByText('15m every day, around 7:30am', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit Read about baking' }).click();
   const editor = page.getByRole('group', { name: /^Edit Read about/ });
   await editor.getByLabel('Name', { exact: true }).fill('Read about bread');
-  const target = editor.getByRole('slider', { name: 'Target' });
+  const target = editor.getByRole('slider', { name: 'Each session' });
   await target.fill('20');
-  await expect(target).toHaveAttribute('aria-valuetext', '20m');
+  await expect(target).toHaveAttribute('aria-valuetext', '20 minutes');
   await editor.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('20m a day, every day, around 7:30am')).toBeVisible();
+  await expect(page.getByText('20m every day, around 7:30am', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit Read about bread' })).toBeFocused();
   await next('Practices look right');
 
@@ -142,8 +142,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(page.getByRole('heading', { name: 'Step 4 of 5, Inbox. Give each item a home' })).toBeFocused();
   await (phone ? next('Process 1 item') : page.getByRole('button', { name: 'Process 1 item' }).click());
   const cards = page.getByRole('dialog', { name: 'Process Inbox' });
-  await cards.getByRole('button', { name: 'Bake a sourdough loaf' }).click();
-  await expect(cards.getByText('Sent to Bake a sourdough loaf.')).toBeVisible();
+  await processTo(page, phone, 'Bake a sourdough loaf');
+  await expect(page.locator('.toast')).toContainText('to Bake a sourdough loaf.');
   await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
   await expect(page.getByText('1 sorted. Your Inbox is clear.')).toBeFocused();
   await next('Continue to Finish');

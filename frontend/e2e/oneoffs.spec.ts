@@ -121,6 +121,44 @@ test('adds one offs of each kind, and dates one in place', async ({ page }, info
   expect(names.slice(0, 3)).toEqual(['Mend the gate done', 'Tidy the shed done', 'Return the drill done']);
 });
 
+test('repeats weekly on chosen days, and changing it keeps them', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await openOneOffs(page, phone);
+  if (phone) await pane(page, 'One offs').getByRole('button', { name: 'Add one off' }).click();
+  let form = phone ? page.getByRole('dialog', { name: 'Add a one off' }) : pane(page, 'One offs').getByRole('form', { name: 'Add a one off' });
+  await form.getByLabel('Title').fill('Put the bins out');
+  await form.getByLabel('Repeats').selectOption('recurring');
+  const on = form.getByRole('group', { name: 'On' });
+  await on.getByRole('button', { name: 'Weekdays' }).click();
+  for (const day of ['Tuesday', 'Wednesday', 'Friday']) await on.getByRole('checkbox', { name: day }).click();
+  await expect(on.getByRole('checkbox', { checked: true })).toHaveCount(2);
+  if (phone) {
+    for (const target of [...(await on.locator('.daychip').all()), on.getByRole('button', { name: 'Weekends' })]) await expectTapTarget(target);
+  }
+  await form.screenshot({ path: info.outputPath(`oneoff-days-${info.project.name}.png`) });
+  if (phone) {
+    // Below 332pt the chips wrap four and three, still 44pt each, rather than squeeze.
+    await page.setViewportSize({ width: 320, height: 844 });
+    const [mon, fri] = [await on.getByText('Mon', { exact: true }).boundingBox(), await on.getByText('Fri', { exact: true }).boundingBox()];
+    expect(fri!.y).toBeGreaterThan(mon!.y);
+    for (const chip of await on.locator('.daychip').all()) await expectTapTarget(chip);
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
+  await form.getByRole('button', { name: 'Add one off' }).click();
+  await expect(pane(page, 'One offs').getByText(/^Weekly on Mon and Thu/)).toBeVisible();
+
+  // Changed, it keeps its days, and Mon to Fri reads as every weekday.
+  await pane(page, 'One offs').getByRole('button', { name: 'Change repeat for Put the bins out' }).click();
+  form = page.getByRole('form', { name: 'Change Put the bins out' });
+  const kept = form.getByRole('group', { name: 'On' });
+  await expect(kept.getByRole('checkbox', { name: 'Monday' })).toBeChecked();
+  await expect(kept.getByRole('checkbox', { name: 'Thursday' })).toBeChecked();
+  await expect(kept.getByRole('checkbox', { name: 'Tuesday' })).not.toBeChecked();
+  await kept.getByRole('button', { name: 'Weekdays' }).click();
+  await form.getByRole('button', { name: 'Save' }).click();
+  await expect(pane(page, 'One offs').getByText(/^Every weekday/)).toBeVisible();
+});
+
 test('phone: a tall sheet rises above the keyboard without its top going off the screen', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The keyboard is a phone matter');
   await openOneOffs(page, true);

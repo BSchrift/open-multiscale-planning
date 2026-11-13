@@ -122,3 +122,13 @@ export function PhotoIcon() {
     </svg>
   );
 }
+
+/** A magnifying glass, for a field that searches. */
+export function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6" />
+      <path d="M15 15l5 5" />
+    </svg>
+  );
+}

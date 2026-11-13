@@ -7,6 +7,7 @@ import { FIRST_BLOCK_MIN, pickToPlace, scheduleOrder, taskDue, taskWork } from '
 import { practicesLeft } from '../../../../core/slots';
 import type { Work } from '../../../../core/slots';
 import type { Minutes, Practice, Task, TimeBlock } from '../../../../core/types';
+import { practiceRule } from '../../../components/editors/PracticeSchedule';
 import { placedBlocks } from '../../../components/weekgrid';
 import type { PlacedBlock } from '../../../components/weekgrid';
 import type { PlanningData, WeekModel } from '../model';
@@ -65,7 +66,7 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
 
   const skipped = m.weekPlan?.skipped_practices ?? [];
   const active = d.records.practices.filter((p) => p.state === 'active');
-  const left = new Map(practicesLeft(active, m.slot, skipped).map((x) => [x.practice.id, x]));
+  const left = new Map(practicesLeft(active, m.slot, skipped, m.weekPlan?.skipped_sessions ?? []).map((x) => [x.practice.id, x]));
   for (const p of active.filter((x) => !skipped.includes(x.id))) {
     const own = blocks.filter((b) => b.practice_id === p.id);
     if (!left.has(p.id) && own.length === 0) continue;
@@ -74,7 +75,7 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
       title: p.title,
       practice: p,
       work: { kind: 'project' },
-      context: `Practice, ${formatMinutes(p.target_min)} a ${p.per}`,
+      context: `Practice, ${practiceRule(p)}`,
       oneOff: false,
       toPlace: left.get(p.id)?.minutes ?? 0,
       estimateLeft: null,

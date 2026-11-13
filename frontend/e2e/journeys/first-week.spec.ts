@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addMilestones, addProject, addTasks, chicago, firstRun, jumpTo, openProject, pane, slide, start, tab, TZ } from './journey';
+import { addMilestones, addProject, addTasks, chicago, firstRun, jumpTo, openProject, pane, processTo, slide, start, tab, TZ } from './journey';
 
 // From an empty first run to a planned week, then the day itself: check-in, end-of-block answers, and rescheduling.
 
@@ -41,7 +41,7 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await page.getByRole('button', { name: 'Process 1 item' }).click();
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
   await expect(card.getByRole('heading', { name: 'Find a title for the novel' })).toBeVisible();
-  await card.getByRole('button', { name: 'Finish the first draft' }).click();
+  await processTo(page, phone, 'Finish the first draft');
   await expect(card.getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
   await card.getByRole('button', { name: 'Done' }).click();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();

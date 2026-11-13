@@ -14,6 +14,7 @@ import {
   placePractices,
   placeRest,
   practicesLeft,
+  sessionOffers,
   slotContext,
   slotInstants,
   slotNotes,
@@ -426,6 +427,8 @@ describe('placePractices', () => {
     state: 'active',
     ...over,
   });
+  const at = (sessions: { date: string; start: number }[]) => sessions.map((s) => [s.date, s.start]);
+  const FRI_930 = [null, null, null, null, 570, null, null];
 
   it('places a daily practice at its preferred time on its days', () => {
     const out = placePractices([practice({ days: [0, 2] })], ctx());
@@ -439,39 +442,94 @@ describe('placePractices', () => {
     expect(placePractices([practice()], ctx()).map((s) => s.date)).toEqual(DAYS);
   });
 
-  it('tries each preferred time, then the first open slot that day', () => {
+  it('places set days on those days only, each at its own time where it has one', () => {
+    expect(at(placePractices([practice({ days: [0, 1, 4], day_times: FRI_930 })], ctx()))).toEqual([
+      [MON, 420],
+      [TUE, 420],
+      [FRI, 570],
+    ]);
+  });
+
+  it("ignores a day's own time on a day not in its days, so days decide which days", () => {
+    expect(at(placePractices([practice({ days: [0, 1], day_times: FRI_930 })], ctx()))).toEqual([
+      [MON, 420],
+      [TUE, 420],
+    ]);
+  });
+
+  it('tries each preferred time, then the nearest open time that day, saying why', () => {
     const c = ctx({ busy: [span(MON, 420, 450)] });
     const second = placePractices([practice({ days: [0], preferred_times: [420, 600] })], c);
-    expect(second[0]).toMatchObject({ start: 600 });
+    expect(second[0]).toMatchObject({ start: 600, note: '7am is taken, so 10am' });
     const first = placePractices([practice({ days: [0] })], c);
-    expect(first[0]).toMatchObject({ start: 450 });
+    expect(first[0]).toMatchObject({ start: 450, note: '7am is taken, so 7:30am' });
+    // Earlier or later, whichever is nearer.
+    const friday = placePractices([practice({ days: [4], day_times: FRI_930 })], ctx({ busy: [span(FRI, 540, 600)] }));
+    expect(friday[0]).toMatchObject({ start: 600, note: '9:30am is taken, so 10am' });
+    const evening = placePractices([practice({ days: [0], preferred_times: [1350] })], ctx());
+    expect(evening[0]).toMatchObject({ start: 1290, note: '10:30pm is outside your available hours, so 9:30pm' });
+  });
+
+  it('never suggests a time that has passed', () => {
+    const out = placePractices([practice({ days: [1] })], ctx({ earliest: { date: TUE, minutes: 545 } }));
+    expect(out).toEqual([{ practice_id: 'p1', date: TUE, start: 555, end: 585, note: '7am has passed, so 9:15am' }]);
+  });
+
+  it('with no time, takes the first open time from the morning', () => {
+    const out = placePractices([practice({ days: [0], preferred_times: [] })], ctx({ busy: [span(MON, 420, 480)] }));
+    expect(out).toEqual([{ practice_id: 'p1', date: MON, start: 480, end: 510 }]);
+  });
+
+  it('suggests a time the clocks skip at the first time that exists', () => {
+    // America/New_York goes from 2am to 3am on Sunday, Mar 14 2027.
+    const spring = ctx({ week: '2027-03-08', availability: [], earliest: { date: '2027-03-01', minutes: 0 }, zone: 'America/New_York' });
+    expect(placePractices([practice({ days: [6], preferred_times: [150] })], spring)).toEqual([{ practice_id: 'p1', date: '2027-03-14', start: 180, end: 210 }]);
   });
 
   it('leaves the session out when the day has no room', () => {
     expect(placePractices([practice({ days: [0] })], ctx({ busy: [allDay(MON)] }))).toEqual([]);
   });
 
-  it('splits a weekly target into sessions of up to an hour on the first days', () => {
+  it('splits an older weekly target into equal sessions, spread over its days', () => {
     const out = placePractices([practice({ per: 'week', target_min: 150, days: [1, 3, 5, 6] })], ctx());
     expect(out.map((s) => [s.date, s.end - s.start])).toEqual([
-      [TUE, 60],
-      [THU, 60],
-      [SAT, 60],
+      [TUE, 50],
+      [SAT, 50],
+      [SUN, 50],
     ]);
+  });
+
+  it('spreads a count over the days left, one a day at most', () => {
+    const tuesday = ctx({ earliest: { date: TUE, minutes: 400 } });
+    const out = placePractices([practice({ per: 'week', target_min: 90, sessions: 3 })], tuesday);
+    expect(out.map((s) => [s.date, s.start, s.end - s.start])).toEqual([
+      [WED, 420, 30],
+      [FRI, 420, 30],
+      [SUN, 420, 30],
+    ]);
+    // Wednesday has its session, so the other two go elsewhere.
+    const placed = [span(WED, 420, 450, { id: 'b1', kind: 'practice', practice_id: 'p1' })];
+    expect(placePractices([practice({ per: 'week', target_min: 90, sessions: 3 })], { ...tuesday, placed }).map((s) => s.date)).toEqual([THU, SAT]);
+  });
+
+  it('a count fills its preferred days first, then the others', () => {
+    const p = (sessions: number) => practice({ per: 'week', target_min: 30 * sessions, sessions, days: [0, 2] });
+    expect(placePractices([p(2)], ctx()).map((s) => s.date)).toEqual([MON, WED]);
+    expect(placePractices([p(3)], ctx()).map((s) => s.date)).toEqual([MON, WED, FRI]);
   });
 
   it('puts a weekly practice on the days still ahead once the week has begun', () => {
     const thursday = ctx({ earliest: { date: THU, minutes: 600 } });
     const out = placePractices([practice({ per: 'week', target_min: 120 })], thursday);
     expect(out.map((s) => [s.date, s.start])).toEqual([
-      [THU, 600],
       [FRI, 420],
+      [SUN, 420],
     ]);
     const wednesday = ctx({ earliest: { date: WED, minutes: 600 } });
-    expect(placePractices([practice({ per: 'week', target_min: 180 })], wednesday).map((s) => s.date)).toEqual([WED, THU, FRI]);
+    expect(placePractices([practice({ per: 'week', target_min: 180 })], wednesday).map((s) => s.date)).toEqual([WED, FRI, SUN]);
   });
 
-  it('moves a weekly session to its next day when a day has no room', () => {
+  it('moves a weekly session to another day when a day has no room', () => {
     const out = placePractices([practice({ per: 'week', target_min: 120, days: [0, 2, 4] })], ctx({ busy: [allDay(MON)] }));
     expect(out.map((s) => s.date)).toEqual([WED, FRI]);
   });
@@ -495,33 +553,82 @@ describe('placePractices', () => {
     expect(placePractices(list, ctx(), { skipped: ['d'] })).toEqual([]);
   });
 
-  it('leaves an edited session alone, and works around it', () => {
-    const edited = span(MON, 420, 450, { id: 'b1', kind: 'practice' });
-    const out = placePractices([practice({ id: 'p1', days: [0, 1] })], ctx({ placed: [edited] }), {
-      edited: [{ practice_id: 'p1', date: MON }],
-    });
+  it('leaves out a session skipped this week, and keeps the others', () => {
+    expect(placePractices([practice({ days: [0, 1, 4] })], ctx(), { skippedSessions: [`p1:${FRI}`] }).map((s) => s.date)).toEqual([MON, TUE]);
+  });
+
+  it('leaves a placed session alone, and works around it', () => {
+    const placed = span(MON, 420, 450, { id: 'b1', kind: 'practice', practice_id: 'p1' });
+    const out = placePractices([practice({ id: 'p1', days: [0, 1] })], ctx({ placed: [placed] }));
     expect(out.map((s) => s.date)).toEqual([TUE]);
+  });
+
+  it('a session counts for the day in its id, wherever it was moved', () => {
+    // Tuesday's session, moved to Wednesday: Tuesday doesn't come back, and Wednesday already has one.
+    const moved = span(WED, 480, 510, { id: 'session:p1:2026-11-03', kind: 'practice', practice_id: 'p1', for: TUE });
+    expect(placePractices([practice({ days: [1, 2, 4] })], ctx({ placed: [moved] })).map((s) => s.date)).toEqual([FRI]);
+  });
+
+  it('ignores a count or day times it cannot read, as if they were not there', () => {
+    for (const sessions of [0, 8, 2.5, '3' as unknown as number]) {
+      expect(placePractices([practice({ per: 'week', target_min: 120, sessions })], ctx())).toHaveLength(2);
+    }
+    for (const day_times of [[570], [null, null, null, null, 1440, null, null], [null, null, null, null, '9:30', null, null]] as unknown as Practice['day_times'][]) {
+      expect(at(placePractices([practice({ days: [4], day_times })], ctx()))).toEqual([[FRI, 420]]);
+    }
+  });
+});
+
+describe('sessionOffers', () => {
+  const practice: Practice = { id: 'p1', title: 'Run', target_min: 30, per: 'day', days: [4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' };
+
+  it("offers a day's session at its time, then later times that day half an hour apart, saying why the first moved", () => {
+    expect(sessionOffers(practice, FRI, ctx()).map((o) => o.start)).toEqual([570, 600, 630]);
+    const taken = sessionOffers(practice, FRI, ctx({ busy: [span(FRI, 540, 600)] }));
+    expect(taken[0]).toMatchObject({ start: 600, note: '9:30am is taken, so 10am' });
+    expect(sessionOffers(practice, FRI, ctx({ busy: [allDay(FRI)] }))).toEqual([]);
   });
 });
 
 describe('practicesLeft', () => {
   const practice = (over: Partial<Practice> = {}): Practice => ({ id: 'p1', title: 'Stretch', target_min: 30, per: 'day', state: 'active', ...over });
-  const session = (date: string, start: number, end: number, id = 'p1') => span(date, start, end, { kind: 'practice', practice_id: id });
+  const session = (date: string, start: number, end: number, more: Partial<Span> = {}) => span(date, start, end, { kind: 'practice', practice_id: 'p1', ...more });
 
   it("a daily practice needs a session on each of its days still to come that hasn't one", () => {
     const c = ctx({ earliest: { date: TUE, minutes: 600 }, placed: [session(WED, 420, 450), span(THU, 420, 450, { kind: 'project' })] });
-    expect(practicesLeft([practice({ days: [0, 1, 2, 3] })], c)).toEqual([{ practice: practice({ days: [0, 1, 2, 3] }), length: 30, sessions: 2, minutes: 60 }]);
+    expect(practicesLeft([practice({ days: [0, 1, 2, 3] })], c)).toEqual([{ practice: practice({ days: [0, 1, 2, 3] }), length: 30, sessions: 2, minutes: 60, dates: [TUE, THU] }]);
   });
 
-  it('a weekly one needs its target less the time placed, an hour a session, the last one shorter', () => {
-    const c = ctx({ placed: [session(MON, 420, 480)] });
-    expect(practicesLeft([practice({ per: 'week', target_min: 150 })], c)[0]).toMatchObject({ length: 60, sessions: 2, minutes: 90 });
-    expect(practicesLeft([practice({ per: 'week', target_min: 90 })], c)[0]).toMatchObject({ length: 30, sessions: 1, minutes: 30 });
+  it('set days: not a session skipped this week, nor a day whose session moved', () => {
+    const c = ctx({ placed: [session(WED, 420, 450, { id: 'session:p1:2026-11-03', for: TUE })] });
+    expect(practicesLeft([practice({ days: [1, 4] })], c, [], [`p1:${FRI}`])).toEqual([]);
+    expect(practicesLeft([practice({ days: [1, 4] })], c)[0]?.dates).toEqual([FRI]);
+  });
+
+  it('a count needs its sessions less those placed, whatever their length', () => {
+    const c = ctx({ placed: [session(MON, 420, 435)] });
+    expect(practicesLeft([practice({ per: 'week', target_min: 90, sessions: 3 })], c)[0]).toMatchObject({ length: 30, sessions: 2, minutes: 60, missed: 0 });
+  });
+
+  it('an older weekly one reads as the equal sessions it works out to', () => {
+    expect(practicesLeft([practice({ per: 'week', target_min: 130 })], ctx())[0]).toMatchObject({ length: 45, sessions: 3, minutes: 135 });
+    expect(practicesLeft([practice({ per: 'week', target_min: 150 })], ctx({ placed: [session(MON, 420, 480)] }))[0]).toMatchObject({ length: 50, sessions: 2, minutes: 100 });
+  });
+
+  it('a count with more sessions than days left says how many are missed', () => {
+    const saturday = ctx({ earliest: { date: SAT, minutes: 600 } });
+    expect(practicesLeft([practice({ per: 'week', target_min: 90, sessions: 3 })], saturday)[0]).toMatchObject({ sessions: 2, minutes: 60, missed: 1 });
+  });
+
+  it('a session answered Skipped no longer counts toward a count', () => {
+    const c = ctx({ earliest: { date: TUE, minutes: 0 }, placed: [session(MON, 420, 450, { id: 'b1', skipped: true }), session(TUE, 420, 450, { id: 'b2' })] });
+    expect(practicesLeft([practice({ per: 'week', target_min: 60, sessions: 2 })], c)[0]).toMatchObject({ sessions: 1 });
   });
 
   it('nothing for a practice met, skipped, paused, or a week gone by', () => {
     const c = ctx({ placed: [session(MON, 420, 480)] });
     expect(practicesLeft([practice({ per: 'week', target_min: 60 })], c)).toEqual([]);
+    expect(practicesLeft([practice({ per: 'week', target_min: 90, sessions: 1 })], c)).toEqual([]);
     expect(practicesLeft([practice()], c, ['p1'])).toEqual([]);
     expect(practicesLeft([practice({ state: 'paused' })], c)).toEqual([]);
     expect(practicesLeft([practice()], ctx({ earliest: { date: '2026-11-09', minutes: 0 } }))).toEqual([]);
@@ -597,8 +704,27 @@ describe('slotContext', () => {
     });
     expect(c.placed).toEqual([
       { date: TUE, start: 540, end: 600, id: 'b1', title: 'Write the report', kind: 'project', practice_id: null },
-      { date: TUE, start: 660, end: 720, id: 'b2', title: 'Stretch', kind: 'practice', practice_id: 'p1' },
+      { date: TUE, start: 660, end: 720, id: 'b2', title: 'Stretch', kind: 'practice', practice_id: 'p1', for: TUE },
     ]);
+  });
+
+  it('marks the day a practice session is for, from its id or else its start, and whether it was answered Skipped', () => {
+    const c = slotContext({
+      ...base,
+      blocks: [
+        { id: 'session:p1:2026-11-03', start: '2026-11-04T15:00:00Z', end: '2026-11-04T15:30:00Z', practice_id: 'p1', result: 'not' },
+        { id: 'session:p2:2026-11-03', start: '2026-11-05T15:00:00Z', end: '2026-11-05T15:30:00Z', practice_id: 'p1' },
+        // Late on Thursday, past midnight.
+        { id: 'b3', start: '2026-11-06T05:30:00Z', end: '2026-11-06T06:30:00Z', practice_id: 'p1', result: 'done' },
+      ],
+    });
+    expect(c.placed.map((s) => [s.date, s.for, s.skipped ?? false])).toEqual([
+      [WED, TUE, true],
+      [THU, THU, false],
+      [THU, THU, false],
+      [FRI, THU, false],
+    ]);
+    expect(c.zone).toBe('America/Chicago');
   });
 });
 

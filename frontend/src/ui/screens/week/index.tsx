@@ -16,6 +16,7 @@ import type { ScreenProps } from '../../app/registry';
 import { useApp, useQuery, useToday } from '../../app/store';
 import { blockAhead, bothPlanningTitle, isWeek, stretchPlanningTitle, weekGate, weekPlanningTitle } from '../../../core/planning';
 import type { TimeBlock } from '../../../core/types';
+import { loadDoneWeek } from '../done/data';
 import { loadWeek, weekModel } from './data';
 import type { WeekData, WeekModel } from './data';
 import { DesktopWeek } from './Desktop';
@@ -52,6 +53,9 @@ export interface WeekProps {
   donePlacing(): void;
   /** Back to where Week was opened from: the planning flow, for planning taken from it. */
   close(): void;
+  /** How many things were finished each day up to today, whose headings open Done on that day. */
+  finished: Readonly<Record<LocalDate, number>>;
+  openDone(date: LocalDate): void;
 }
 
 /** Planning from Choose another time, with where it waits in this week. */
@@ -87,6 +91,7 @@ export default function WeekScreen(props: ScreenProps) {
   // A task is placed while editing this week. Placing planning isn't editing a week, which may not be planned yet.
   const [editing, setEditing] = useState((!!props.params.place && !plan) || props.params.edit === 'this');
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
+  const finished = useQuery((sql, c) => loadDoneWeek(sql, c, week), [week]).data;
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
 
   // Tapping Week again comes back to this week.
@@ -139,6 +144,8 @@ export default function WeekScreen(props: ScreenProps) {
       props.close();
       if (plan?.flow) nav.openFlow('planning', { week: plan.flow });
     },
+    finished: finished ?? {},
+    openDone: (date) => nav.go('done', { day: date }),
   };
   // Keyed by week, so what's open on one week doesn't carry to the next.
   return props.layout === 'phone' ? <PhoneWeek key={data.week} {...shared} /> : <DesktopWeek key={data.week} {...shared} />;

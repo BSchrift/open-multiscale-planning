@@ -7,6 +7,7 @@ import { formatMinutes } from '../../../../core/dates';
 import type { Minutes } from '../../../../core/types';
 import { AimsPopover } from './Aims';
 import { AimMeter } from './Cards';
+import { weekText } from './model';
 import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
 import { SuggestPreview } from './Suggest';
@@ -121,8 +122,8 @@ export function WeekList(props: PickProps) {
             {g.rows.map((r) => (
               <li key={r.c.task.id} className={`pi${r.oneOff ? ' oo' : ''}`}>
                 <span className="pit">{r.title}</span>
-                <button className="pim" type="button" aria-haspopup="dialog" aria-label={`Change time: ${r.title}, ${formatMinutes(r.c.week)}`} onClick={() => setTimeFor(r)}>
-                  {formatMinutes(r.c.week)}
+                <button className="pim" type="button" aria-haspopup="dialog" aria-label={`Change time: ${r.title}, ${weekText(r.c)}`} onClick={() => setTimeFor(r)}>
+                  {weekText(r.c)}
                 </button>
                 <button className="pix" type="button" aria-label={`Remove ${r.title} from this week`} onClick={() => props.dropFromWeek(r, true)}>
                   ×

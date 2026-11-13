@@ -2,7 +2,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { localToInstant } from '../../../../core/dates';
-import { getRecord, listRecords, outcomeId, weekPickId, weekPlanId } from '../../../../core/records';
+import { getRecord, listRecords, outcomeId, setWeekPick, weekPickId, weekPlanId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { EST_STEPS } from '../../../components/EstimateSlider';
 import { openPlanning, seedWeek } from '../testing';
@@ -524,13 +524,90 @@ describe('Pick tasks: estimates and Mark done', () => {
     await openReport();
     await userEvent.click(screen.getByRole('button', { name: 'Add to this week: Outline chapter two' }));
     const pop = screen.getByRole('dialog', { name: 'Outline chapter two' });
+    // With no estimate there's nothing to take a share of, so it says what's on the calendar.
+    expect(within(pop).getByText('1h is on your calendar this week.')).toBeInTheDocument();
+    expect(within(pop).queryByRole('slider', { name: 'This week' })).toBeNull();
     setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 60);
-    expect(within(pop).getByRole('slider', { name: 'This week' })).toHaveAttribute('aria-valuetext', '0m of 0m');
+    expect(within(pop).getByText('All 1h is on your calendar this week.')).toBeInTheDocument();
+    expect(within(pop).queryByRole('slider', { name: 'This week' })).toBeNull();
     await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.estimate_min).toBe(60));
     expect(await within(rowOf('Outline chapter two')).findByText('On the calendar')).toBeInTheDocument();
     expect(await minutesOf(t, 't3')).toBeNull();
     expect(within(rowOf('Outline chapter two')).queryByRole('button', { name: /to this week/ })).toBeNull();
+    // Select mode says the same, not that it has no estimate.
+    await userEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const selected = screen.getByRole('checkbox', { name: 'Select Outline chapter two' }).closest('li');
+    expect(selected).toHaveTextContent('On the calendar');
+    expect(selected).not.toHaveTextContent('No estimate');
+  });
+
+  // Write the abstract is in this week, and its whole 15 minutes are on Wednesday's calendar.
+  const allPlaced = (minutes: number) => async (w: Writer) => {
+    await seedWeek(w);
+    await w.create('task', { kind: 'project', project_id: 'report', milestone_id: 'm2', title: 'Write the abstract', estimate_min: 15 }, 't4');
+    await w.create('time_block', { task_id: 't4', start: localToInstant('2026-11-04', 18 * 60, 'America/Chicago'), end: localToInstant('2026-11-04', 18 * 60 + 15, 'America/Chicago'), tz: 'America/Chicago' });
+    await setWeekPick(w, WEEK, 't4', minutes);
+  };
+
+  it("a task whose time is all on the calendar says so, with no This week slider, and Save leaves its week as it was", async () => {
+    const t = await openPlanning({ step: 1, seed: allPlaced(15) });
+    await openReport();
+    const time = await screen.findByRole('button', { name: '15m of Write the abstract on your calendar this week' });
+    expect(time).toHaveTextContent(/^15m on calendar/);
+    await userEvent.click(time);
+    const pop = screen.getByRole('dialog', { name: 'Write the abstract' });
+    expect(within(pop).getByText('All 15m is on your calendar this week.')).toBeInTheDocument();
+    expect(within(pop).queryByRole('slider', { name: 'This week' })).toBeNull();
+    expect(within(pop).getByRole('slider', { name: 'Estimate' })).toHaveAttribute('aria-valuetext', '15m');
+    for (const name of ['Already done', 'Remove from this week', 'Save', 'Cancel']) expect(within(pop).getByRole('button', { name })).toBeInTheDocument();
+    await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
+    expect(screen.queryByRole('dialog', { name: 'Write the abstract' })).toBeNull();
+    expect(await minutesOf(t, 't4')).toBe(15);
+  });
+
+  it('a task partly on the calendar says how much is, under its This week slider', async () => {
+    await openPlanning({
+      step: 1,
+      seed: async (w) => {
+        await seedWeek(w);
+        await w.create('time_block', { task_id: 't1', start: localToInstant('2026-11-04', 18 * 60, 'America/Chicago'), end: localToInstant('2026-11-04', 19 * 60, 'America/Chicago'), tz: 'America/Chicago' });
+        await setWeekPick(w, WEEK, 't1', 60);
+      },
+    });
+    await openReport();
+    await userEvent.click(await screen.findByRole('button', { name: '1h this week: Collect the sources' }));
+    const slider = within(screen.getByRole('dialog', { name: 'Collect the sources' })).getByRole('slider', { name: 'This week' });
+    expect(slider).toHaveAttribute('aria-valuetext', '1h of 1h');
+    expect(slider).toHaveAccessibleDescription('1h already on your calendar');
+    expect(screen.getByText('1h already on your calendar')).toBeVisible();
+  });
+
+  it('raising the estimate of a task all on the calendar brings back This week, for the extra time', async () => {
+    await openPlanning({ step: 1, seed: allPlaced(15) });
+    await openReport();
+    await userEvent.click(await screen.findByRole('button', { name: '15m of Write the abstract on your calendar this week' }));
+    const pop = screen.getByRole('dialog', { name: 'Write the abstract' });
+    setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 45);
+    expect(within(pop).getByRole('slider', { name: 'This week' })).toHaveAttribute('aria-valuetext', '30m of 30m');
+    expect(within(pop).getByText('15m already on your calendar')).toBeInTheDocument();
+    expect(within(pop).queryByText(/^All /)).toBeNull();
+    setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 15);
+    expect(within(pop).queryByRole('slider', { name: 'This week' })).toBeNull();
+    expect(within(pop).getByText('All 15m is on your calendar this week.')).toBeInTheDocument();
+  });
+
+  it('on phone, a task all on the calendar says so in its row, in This week, and in select mode', async () => {
+    // A share of 0m, as the owner's was: what's on the calendar is what's shown.
+    await openPlanning({ step: 1, layout: 'phone', seed: allPlaced(0) });
+    const tray = await screen.findByRole('region', { name: 'Write the report' });
+    expect(within(tray).getByRole('button', { name: '15m of Write the abstract on your calendar this week' })).toHaveTextContent(/^15m on calendar/);
+    await userEvent.click(screen.getByRole('button', { name: 'More: change aims, select, timeline key' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'More' })).getByRole('button', { name: 'Select' }));
+    expect(screen.getByRole('checkbox', { name: 'Select Write the abstract, in this week' }).closest('li')).toHaveTextContent('In this week · 15m on calendar');
+    await userEvent.click(within(screen.getByRole('region', { name: 'Selected tasks' })).getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'This week, 2 tasks' }));
+    expect(screen.getByRole('button', { name: 'Change time: Write the abstract, 15m on calendar' })).toHaveTextContent('15m on calendar');
   });
 
   it('the time popover waits for Save, with Undo; Esc keeps a change, and Cancel drops it', async () => {

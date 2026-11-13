@@ -8,15 +8,19 @@ import { formatMinutes } from '../../../../core/dates';
 import { NoteMark } from '../../../components/notes/NoteMark';
 import { useOpenTask } from '../../../components/task/TaskName';
 import { CheckCircle } from '../../../components/TaskRow';
+import { allOnCalendar, weekText } from './model';
 import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
 import type { Selection } from './Select';
 import { TimePopover } from './TimePopover';
 
-/** What a row's time button says, and its name: '+ 1h', '2h of 4h', 'On the calendar'. */
+/** What a row's time button says, and its name: '+ 1h', '2h of 4h', '15m on calendar', 'On the calendar'. */
 export function timeWords(r: PickTask) {
   const t = r.c.task;
   const none = t.estimate_min == null && t.remaining_min == null;
+  if (r.c.picked && allOnCalendar(r.c)) {
+    return { text: weekText(r.c), name: `${formatMinutes(r.c.ahead)} of ${r.title} on your calendar this week`, opens: true };
+  }
   if (r.c.picked) {
     const shown = r.c.week < r.c.left ? `${formatMinutes(r.c.week)} of ${formatMinutes(r.c.left)}` : formatMinutes(r.c.week);
     return { text: shown, name: `${shown} this week: ${r.title}`, opens: true };
@@ -33,7 +37,7 @@ function Why(props: { row: PickTask; selecting: boolean }) {
   const t = r.c.task;
   if (r.done) return null;
   // Selecting, the only tint is the selection, so being in the week is said in words.
-  if (props.selecting && r.c.picked) return <span className="tm">In this week · {formatMinutes(r.c.week)}</span>;
+  if (props.selecting && r.c.picked) return <span className="tm">In this week · {weekText(r.c)}</span>;
   const suggested = !r.c.picked && r.hint;
   const rest = r.note.replace(/^Suggested: [^.]*(\. )?/, '');
   const none = t.estimate_min == null && t.remaining_min == null && !r.c.picked;
@@ -123,7 +127,7 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean; sele
       {done || (selecting && r.c.picked) ? (
         <span />
       ) : selecting ? (
-        <span className="tq">{r.adds ? formatMinutes(r.adds) : 'No estimate'}</span>
+        <span className="tq">{r.adds ? formatMinutes(r.adds) : time.full ? time.text : 'No estimate'}</span>
       ) : time.full ? <span className="tq">{time.text}</span> : phone ? <span className="tpw">{pill}</span> : pill}
       {open && !done && (
         <TimePopover

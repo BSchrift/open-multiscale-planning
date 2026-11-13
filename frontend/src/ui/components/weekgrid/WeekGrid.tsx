@@ -87,6 +87,8 @@ interface GridLaneItem {
   alt: string;
   /** Planning, drawn grey rather than as a one off. */
   planning?: boolean;
+  /** A practice's session for that day, drawn teal as practices are. */
+  practice?: boolean;
   open: boolean;
   onToggle(): void;
   /** Dragging it onto a day places it there. */
@@ -258,7 +260,7 @@ export function WeekGrid(props: WeekGridProps) {
                     <button
                       key={a.id}
                       type="button"
-                      className={a.planning ? 'oochip planchip' : 'oochip'}
+                      className={a.planning ? 'oochip planchip' : a.practice ? 'oochip pracchip' : 'oochip'}
                       style={{ top: i * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
                       title={a.alt}
                       aria-label={a.alt}

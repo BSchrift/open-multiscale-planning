@@ -32,7 +32,7 @@ import { NoteMark } from '../../components/notes/NoteMark';
 import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
 import { useOpenTask } from '../../components/task/TaskName';
 import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
-import { ProjectTimeline } from './ProjectTimeline';
+import { ProjectProgress } from './ProjectTimeline';
 
 type Editing =
   | { kind: 'addTask'; at: string; milestone: string | null }
@@ -255,20 +255,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
         )}
       </div>
 
-      {st.pill !== 'Not started' &&
-        (live.length ? (
-          <ProjectTimeline plan={plan} ctx={ctx} st={st} />
-        ) : (
-          <div className="stack8">
-            <div className="small">
-              {formatMinutes(st.doneMin)} done, {formatMinutes(st.leftMin)} left
-            </div>
-            <div className="prog" role="img" aria-label={`${st.pct}% done${plan.project.state === 'paused' ? '' : `, ${st.expected}% expected by now`}`}>
-              <span style={{ width: `${st.pct}%` }} />
-              {plan.project.state !== 'paused' && <i style={{ left: `${st.expected}%` }} />}
-            </div>
-          </div>
-        ))}
+      <ProjectProgress plan={plan} ctx={ctx} st={st} />
 
       <OverdueFix plan={plan} ctx={ctx} />
 

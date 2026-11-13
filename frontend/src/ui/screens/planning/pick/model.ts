@@ -214,6 +214,12 @@ export function weekStops(left: Minutes): Minutes[] {
   return [...stops, left];
 }
 
+/** Minutes on this week's calendar when that's all the time a task has left, else 0. */
+export const allOnCalendar = (c: Candidate) => (c.left ? 0 : c.ahead);
+
+/** A picked task's time this week: '2h', or '15m on calendar' once all of it is there, whatever its share says. */
+export const weekText = (c: Candidate) => (allOnCalendar(c) ? `${formatMinutes(c.ahead)} on calendar` : formatMinutes(c.week));
+
 /** The stop nearest a time, for a slider's value. */
 export const stopIndex = (stops: readonly Minutes[], minutes: Minutes) =>
   stops.reduce((best, m, i) => (Math.abs(m - minutes) < Math.abs(stops[best]! - minutes) ? i : best), 0);

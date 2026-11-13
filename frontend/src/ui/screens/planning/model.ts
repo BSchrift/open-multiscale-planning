@@ -73,7 +73,7 @@ export function weekModel(d: PlanningData, clock: Clock) {
   // shortcut: picks count in full in a week under way, work already done on them too; take off their past blocks if replanning mid-week reads too full.
   const picked = picks.reduce((sum, p) => sum + p.minutes, 0);
   // Practices still to place take their time too, so Pick tasks counts them before Schedule.
-  const practices = practicesLeft(records.practices, slot, weekPlan?.skipped_practices ?? []).reduce((sum, p) => sum + p.minutes, 0);
+  const practices = practicesLeft(records.practices, slot, weekPlan?.skipped_practices ?? [], weekPlan?.skipped_sessions ?? []).reduce((sum, p) => sum + p.minutes, 0);
   const repeating = d.placed + practices;
   const use = weekUse({ open, placed: repeating, picked });
   const input: WeekInput = {

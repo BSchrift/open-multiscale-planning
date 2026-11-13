@@ -328,6 +328,56 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('practices on set days, a count and a time of their own on one day: the bundle before plans them as it always did, and its rename keeps them', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    // As the update stores each: Monday, Tuesday, Thursday and Friday with Friday at 9:30 and this Thursday skipped,
+    // and three 30-minute sessions a week.
+    const irregular: Seed[] = [
+      {
+        type: 'practice',
+        id: 'pr2',
+        fields: { title: 'Morning run', target_min: 30, per: 'day', days: [0, 1, 3, 4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' },
+      },
+      { type: 'practice', id: 'pr3', fields: { title: 'Climbing', target_min: 90, per: 'week', sessions: 3, preferred_times: [1080], state: 'active' } },
+      { type: 'week_plan', id: `week:${WEEK}`, fields: { skipped_sessions: ['pr2:2026-11-05'] } },
+    ];
+    await openSeeded(page, [...week, ...irregular]);
+    const lane = () => pane(page, 'Week').getByRole('region', { name: 'To schedule' });
+    const card = (title: string, line: string) => lane().getByRole('button', { name: `${title}, Practice, ${line}, to schedule` });
+    const expectUpdate = async (title: string) => {
+      await go(page, 'Week');
+      await expect(card('Climbing', '3 × 30m')).toBeVisible();
+      await card(title, '30m').click();
+      await expect(pane(page, 'Week').getByRole('button', { name: `Place ${title}, Fri Nov 6, 9:30am` })).toBeVisible();
+    };
+    await expectUpdate('Morning run');
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before reads the days and the target as it always has: Thursday and Friday at
+    // 7am, and hour-long sessions. It renames the run.
+    page = await relaunch(page, 'old', errors);
+    await go(page, 'Week');
+    await expect(card('Climbing', '2 × 1h')).toBeVisible();
+    await card('Morning run', '2 × 30m').click();
+    await expect(pane(page, 'Week').getByRole('button', { name: 'Place Morning run, Fri Nov 6, 7am' })).toBeVisible();
+    await go(page, 'Goals');
+    await pane(page, 'Goals').getByRole('button', { name: /^Practices with no goal/ }).click();
+    await pane(page, 'Goals').getByRole('button', { name: /^Morning run/ }).click();
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Morning jog');
+    // Editors that save on Save, once the bundle before has them.
+    const save = page.getByRole('button', { name: 'Save', exact: true });
+    if (await save.isVisible()) await save.click();
+    await everyScreen(page);
+
+    // Updated again, the days' own times, the count and the skip are all still there.
+    page = await relaunch(page, 'new', errors);
+    await expectUpdate('Morning jog');
+    await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
   test("the weekly planning reminder's switch, off in the update, stays off when the bundle before changes another", async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);

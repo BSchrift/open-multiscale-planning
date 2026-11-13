@@ -189,6 +189,8 @@ export interface WeekPlan extends BaseRecord {
   aims?: Record<string, Minutes>;
   skipped_aims?: string[];
   skipped_practices?: string[];
+  /** Single practice sessions skipped this week, as `${practiceId}:${date}` (skippedSessionKey). */
+  skipped_sessions?: string[];
   skipped_past_end?: string[];
   /** Skip for now on this week's prompt to plan, on every device. */
   planning_skipped_at?: Instant | null;
@@ -328,10 +330,23 @@ export type PracticeState = 'active' | 'paused' | 'ended';
 export interface Practice extends BaseRecord {
   objective_id?: string | null;
   title: string;
+  /** Minutes a day for per 'day'; minutes a week for per 'week'. */
   target_min: Minutes;
   per: 'day' | 'week';
+  /** per 'day': the days it's on. per 'week': the days its sessions go on first. Absent means every day. */
   days?: Weekday[];
+  /** The usual time first, then times to try if it's taken. */
   preferred_times?: TimeOfDay[];
+  /**
+   * per 'week' only: sessions a week, 1 to 7, each target_min / sessions long. Absent, a weekly target works out to
+   * sessions of up to an hour. Apps from before it read the target alone.
+   */
+  sessions?: number | null;
+  /**
+   * Seven entries, Monday first: that day's own time, or null for the usual time. Only the practice's days use theirs.
+   * Apps from before it use the usual time every day.
+   */
+  day_times?: (TimeOfDay | null)[] | null;
   state: PracticeState;
 }
 

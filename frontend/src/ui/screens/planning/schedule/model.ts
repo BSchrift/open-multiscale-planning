@@ -65,7 +65,7 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
 
   const skipped = m.weekPlan?.skipped_practices ?? [];
   const active = d.records.practices.filter((p) => p.state === 'active');
-  const left = new Map(practicesLeft(active, m.slot, skipped).map((x) => [x.practice.id, x]));
+  const left = new Map(practicesLeft(active, m.slot, skipped, m.weekPlan?.skipped_sessions ?? []).map((x) => [x.practice.id, x]));
   for (const p of active.filter((x) => !skipped.includes(x.id))) {
     const own = blocks.filter((b) => b.practice_id === p.id);
     if (!left.has(p.id) && own.length === 0) continue;

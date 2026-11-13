@@ -309,6 +309,8 @@ describe('Planning ahead', () => {
       expect(await screen.findByText('0 of 1 milestones due in this time were met.')).toBeVisible();
       expect(screen.getByText('About 30m a week went to your goals.')).toBeVisible();
       const bread = screen.getByRole('region', { name: 'Learn to bake bread' });
+      // The goal is the card's heading, under the step's; its projects are buttons beneath it.
+      expect(within(bread).getByRole('heading', { level: 3, name: 'Learn to bake bread' })).toBeVisible();
       expect(within(bread).getByText('2h this stretch')).toBeVisible();
       expect(within(bread).getByRole('button', { name: 'Open project Bake a sourdough loaf' })).toBeVisible();
       expect(within(bread).getByText('1 project late')).toBeVisible();

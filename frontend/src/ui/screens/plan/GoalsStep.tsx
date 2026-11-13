@@ -179,7 +179,7 @@ export function GoalsStep(props: {
         aria-describedby={statId}
         onClick={() => setPreview({ id: project.id, goal: g.title })}
       >
-        <span className="strong">{project.title}</span>
+        <span>{project.title}</span>
         <span id={statId} className="pillrow">
           <Pill tone={stat.tone}>{stat.pill}</Pill> <span className="small">{phone ? shortWord(stat) : stat.word}</span>
         </span>

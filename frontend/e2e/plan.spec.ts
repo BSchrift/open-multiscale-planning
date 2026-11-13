@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
@@ -183,8 +183,15 @@ test('a goal’s projects are blocks that open a preview over Goals, and the pro
   await page.getByRole('button', { name: 'Plan now' }).click();
   const heading = page.getByRole('heading', { name: 'Step 1 of 5, Goals. Are these still your goals?' });
   await expect(heading).toBeFocused();
-  const block = page.getByRole('region', { name: 'Learn to bake bread' }).getByRole('button', { name: 'Open project Bake a sourdough loaf' });
+  const card = page.getByRole('region', { name: 'Learn to bake bread' });
+  const block = card.getByRole('button', { name: 'Open project Bake a sourdough loaf' });
   await expect(block).toContainText('On track');
+  // The goal stays the card's heading: larger and heavier than its projects' names, which come before + Project.
+  const look = (l: Locator) => l.evaluate((e) => ({ size: parseFloat(getComputedStyle(e).fontSize), weight: Number(getComputedStyle(e).fontWeight) }));
+  const goalLook = await look(card.getByRole('heading', { level: 3, name: 'Learn to bake bread' }));
+  const projectLook = await look(block.getByText('Bake a sourdough loaf', { exact: true }));
+  expect(goalLook.size).toBeGreaterThan(projectLook.size);
+  expect(goalLook.weight).toBeGreaterThan(projectLook.weight);
   await page.screenshot({ path: info.outputPath(`goals-step-${info.project.name}.png`) });
 
   // From the keyboard on desktop, from a tap on phone; either way, closing gives focus back to the block.

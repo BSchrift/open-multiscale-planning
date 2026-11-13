@@ -29,6 +29,12 @@
   font-size: var(--text-md);
 }
 
+/* A goal names its card at the size the Goals page gives goals, so it reads before the projects under it. */
+[data-layout] .planflow .goalcard h3 {
+  color: var(--ink);
+  font-size: var(--text-h2);
+}
+
 /* The step's meter stays on the ground, where its usual track would vanish. */
 [data-layout] .planstep .mmeter {
   background: var(--white);

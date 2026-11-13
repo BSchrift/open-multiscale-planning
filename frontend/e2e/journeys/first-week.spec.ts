@@ -42,8 +42,8 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
   await expect(card.getByRole('heading', { name: 'Find a title for the novel' })).toBeVisible();
   await processTo(page, phone, 'Finish the first draft');
-  await expect(card.getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
-  await card.getByRole('button', { name: 'Done' }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.clearveil')).toHaveText('Inbox clear1 item processed');
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
   const picks = ['Sketch the chapter list', 'Write the opening scene', 'Draft chapter one'];

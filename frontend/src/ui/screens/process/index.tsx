@@ -8,7 +8,7 @@
 // and the week isn't offered, since weekly planning follows.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { formatDate, formatWeekRange, isDay, nowInstant, thisWeek } from '../../../core/dates';
 import { applyPlanChange, dueAfter } from '../../../core/plan';
 import type { PlanChange, RecordWrite, Stretch } from '../../../core/plan';
@@ -291,8 +291,26 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     setDelAsk(false);
     if (step.made || !moved) refocus.current = step.made ? 'add' : 'pick';
     toast.show(says(), { undo: () => undoFromToast(entry) });
+    if (!queue[step.idx]) finish(step);
     return true;
   };
+
+  /**
+   * After the last item, Process closes itself, and a green check over the page it was opened from says how many were
+   * processed: added, made into a home or deleted. The last item's toast waits for it, its Undo still to hand.
+   */
+  const finish = (step: Step) => {
+    const done = step.sorted + step.deleted;
+    const left = queue.length - done;
+    const items = `${done} ${done === 1 ? 'item' : 'items'} processed`;
+    if (left > 0) toast.check(items, `${left} still in your Inbox`, false);
+    else toast.check('Inbox clear', items, true);
+    close();
+  };
+  // Opened with nothing to process, as when another device has just emptied the Inbox, it closes again.
+  useEffect(() => {
+    if (!queue.length) close();
+  }, []);
 
   /** With the week toggle on, the item is added to the week too, in the same change. It waits there for a time you choose. */
   const addToWeek = async (w: Writer, minutes: Minutes, reverse: PlanChange): Promise<PlanChange> => {
@@ -394,7 +412,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     if (command) return k === 'z' && !event.shiftKey && !event.altKey ? run(undo) : undefined;
     const single = event.altKey || (keysOn && !inPicker);
     if (k === 'z' && single) return run(undo);
-    if (!item) return k === 'enter' && target.tagName !== 'BUTTON' ? run(close) : undefined;
+    if (!item) return;
     if (!single) return;
     const keys: Record<string, () => unknown> = {
       e: () => setEditing('title'),
@@ -419,15 +437,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       ? 'Adding to this week'
       : 'Add to this week';
 
-  const skipped = queue.filter((q) => data.inbox.some((i) => i.id === q.id)).length;
-  const doneTitle = data.inbox.length ? "That's everything for now" : 'Inbox clear';
-  const doneText = `${[`${s.sorted} sorted`, s.deleted ? `${s.deleted} deleted` : '', skipped ? `${skipped} skipped, still in your Inbox` : ''].filter(Boolean).join(', ')}.`;
-
-  const titleEl = (text: string) => (
-    <h1 ref={titleRef as RefObject<HTMLHeadingElement>} className="pxtitle" tabIndex={-1} aria-live="polite">
-      {text}
-    </h1>
-  );
   // Every key on the desktop card shows on its button, with the Option or Alt it needs until Settings makes keys work alone.
   const held = useHeld();
   const cap = (k: string) =>
@@ -544,13 +553,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       </button>
     </span>
   );
-  const doneCard = (
-    <>
-      {titleEl(doneTitle)}
-      <p className="quiet">{doneText}</p>
-    </>
-  );
-
   if (phone) {
     return (
       <div ref={ref} className="pxflow" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
@@ -584,21 +586,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               </div>
             )}
           </>
-        ) : (
-          <>
-            <div className="pxspace" />
-            <div className="card stack">{doneCard}</div>
-            <div className="pxspace" />
-            <div className="pxacts">
-              <button className="btn" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()}>
-                ‹ Undo
-              </button>
-              <button className="btn pri" type="button" onClick={close}>
-                Done
-              </button>
-            </div>
-          </>
-        )}
+        ) : null}
       </div>
     );
   }
@@ -644,18 +632,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               </>
             )}
           </>
-        ) : (
-          <div className="pxmain">
-            <div className="stack8">
-              {doneCard}
-              <div>
-                <button className="btn pri" type="button" onClick={close}>
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        ) : null}
         <div className="row small pxlastrow">
           {!keysOn && <span className="small quiet pxhint">Keys work with Option or Alt held. Settings can make them work alone.</span>}
         </div>

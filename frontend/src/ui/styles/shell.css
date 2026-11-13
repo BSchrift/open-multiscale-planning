@@ -227,6 +227,145 @@ p {
   background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23777' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center / 12px 8px;
 }
 
+/* Inbox clear: a green check over a light, see-through veil, which pops up, holds, then fades. */
+.clearveil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: color-mix(in srgb, var(--page) 40%, transparent);
+  animation: ck-veil 0.2s ease-out both;
+  /* It never stands between you and the page: a tap goes through, and puts it away. */
+  pointer-events: none;
+}
+
+.clearveil.leaving {
+  opacity: 0;
+  transition: opacity 0.4s ease-in;
+}
+
+.clearcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 240px;
+  padding: 28px 40px 26px;
+  border: 1px solid var(--card-line);
+  border-radius: 20px;
+  background: var(--white);
+  box-shadow: 0 16px 48px rgba(var(--ink-rgb), 0.16);
+  text-align: center;
+  animation: ck-in 0.3s ease-out both;
+}
+
+.doneck {
+  display: block;
+  flex: none;
+  margin-bottom: 6px;
+}
+
+.doneck circle,
+.doneck path {
+  fill: none;
+  stroke: var(--green);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The ring draws, then the tick. */
+.doneck circle {
+  stroke-width: 3;
+  stroke-dasharray: 151;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  animation: ck-ring 0.45s ease-out both;
+}
+
+.doneck path {
+  stroke-width: 3.5;
+  stroke-dasharray: 32;
+  animation: ck-tick 0.3s 0.4s ease-out both;
+}
+
+.cleartitle {
+  margin: 0;
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.clearcount {
+  margin: 0;
+  color: var(--green);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.clearmore {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 14px;
+}
+
+@keyframes ck-ring {
+  from {
+    stroke-dashoffset: 151;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ck-tick {
+  from {
+    stroke-dashoffset: 32;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ck-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ck-veil {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* With less motion: no pop or draw, the check already drawn, a short fade in and out. */
+@media (prefers-reduced-motion: reduce) {
+  .doneck circle,
+  .doneck path {
+    animation: none;
+  }
+
+  .clearcard {
+    animation: ck-veil 0.15s linear both;
+  }
+
+  .clearveil.leaving {
+    transition-duration: 0.15s;
+  }
+}
+
 /* Toast with an action. */
 .toast.withaction {
   display: flex;

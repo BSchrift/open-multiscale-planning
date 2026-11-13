@@ -1,4 +1,4 @@
-// Select mode's actions, under the count: send every ticked Inbox item to a project, make them one offs, or delete
+// Select mode's actions, under the count: add every ticked Inbox item to a project, make them one offs, or delete
 // them, as Process does to one. Each action is one transaction with one Undo in the toast.
 
 import { useRef, useState } from 'react';
@@ -20,7 +20,7 @@ export function SelectBar(props: { selected: readonly InboxRow[]; total: number;
   const toast = useToast();
   const land = useFocusLanding();
   const { run, pending } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
-  // The projects Process can send to: every one still going, paused included.
+  // The projects Process can add to: every one still going, paused included.
   const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active' || p.state === 'paused') ?? [];
   const [to, setTo] = useState('');
   const [asking, setAsking] = useState(false);
@@ -39,7 +39,7 @@ export function SelectBar(props: { selected: readonly InboxRow[]; total: number;
     toast.show(message, { undo: () => run((w) => applyPlanChange(w, reverse)), focusUndo: ids.length === props.total });
     props.onDone(ids);
   };
-  const send = () => project && void apply((w, ids) => sendInboxItems(w, ids, project.id), `Sent ${items(n)} to ${project.title}.`);
+  const add = () => project && void apply((w, ids) => sendInboxItems(w, ids, project.id), `Added ${items(n)} to ${project.title}.`);
   const oneOffs = () => void apply((w, ids) => sendInboxItems(w, ids, null), `Made ${n} ${n === 1 ? 'one off' : 'one offs'}.`);
   const remove = () => void apply((w, ids) => deleteInboxItems(w, ids, clock), `Deleted ${items(n)}.`);
   // The question takes the button's place, so focus moves to its safe answer, and back again.
@@ -65,7 +65,7 @@ export function SelectBar(props: { selected: readonly InboxRow[]; total: number;
     <div ref={bar} className="inboxacts">
       {projects.length > 0 && (
         <span className="inboxsend">
-          <select className="field" aria-label="Send to project" value={to} onChange={(e) => setTo(e.target.value)}>
+          <select className="field" aria-label="Project to add to" value={to} onChange={(e) => setTo(e.target.value)}>
             <option value="">Choose a project</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -73,8 +73,8 @@ export function SelectBar(props: { selected: readonly InboxRow[]; total: number;
               </option>
             ))}
           </select>
-          <button className={size} type="button" disabled={!project || n === 0 || pending} onClick={send}>
-            Send
+          <button className={size} type="button" disabled={!project || n === 0 || pending} onClick={add}>
+            Add
           </button>
         </span>
       )}

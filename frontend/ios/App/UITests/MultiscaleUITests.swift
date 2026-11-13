@@ -179,8 +179,8 @@ final class ShellUITests: XCTestCase {
         exists(app.webText("Return the library books"))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
-        exists(app.webText("Inbox clear"))
-        app.tapWeb("Done")
+        // Process closes itself on the last item; its check fades, then the last item's toast shows.
+        exists(app.webText("Added Return the library books to One offs."))
 
         // Each landed where it was sent: the project's task under its Done, which opens folded behind its milestone.
         app.tapWeb("Goals")

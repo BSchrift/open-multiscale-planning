@@ -6,7 +6,7 @@
 
 import { parseClock } from './clock';
 import type { Sql } from './db';
-import type { Attachment, BlockResult, Instant, LocalDate, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
+import type { Attachment, BlockResult, Instant, LocalDate, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
 import type { UtcRange } from './dates';
 
 export const SQL = {
@@ -27,7 +27,7 @@ export const SQL = {
     SELECT b.id, b.start, b.end, b.tz, b.task_id, b.practice_id, b.started_at, b.ended_at, b.paused_at, b.paused_min,
            COALESCE(t.title, p.title) AS title,
            t.kind AS task_kind,
-           o.result
+           o.result, o.remaining_min, o.logged_min
     FROM time_block b
     LEFT JOIN task t ON t.id = b.task_id
     LEFT JOIN practice p ON p.id = b.practice_id
@@ -103,6 +103,29 @@ export const SQL = {
     FROM task_completion
     WHERE done_at >= :since AND deleted_at IS NULL`,
 
+  // Deleted ones too, so a task deleted since still names its finish while its tombstone lasts.
+  doneTasks: `
+    SELECT id, data
+    FROM records
+    WHERE type = 'task'
+      AND json_extract(data, '$.done_at') >= :from_utc AND json_extract(data, '$.done_at') < :to_utc`,
+
+  doneCompletions: `
+    SELECT id, task_id, done_at, deleted_at
+    FROM task_completion
+    WHERE done_at >= :from_utc AND done_at < :to_utc AND deleted_at IS NULL`,
+
+  metMilestones: `
+    SELECT id, data
+    FROM records
+    WHERE type = 'milestone'
+      AND json_extract(data, '$.met_at') >= :from_utc AND json_extract(data, '$.met_at') < :to_utc`,
+
+  tasksOfProject: `
+    SELECT id, data
+    FROM records
+    WHERE type = 'task' AND json_extract(data, '$.project_id') = :project_id`,
+
   projectTasks: `
     SELECT id, data
     FROM records
@@ -167,6 +190,10 @@ export const QUERY_INDEX = {
   taskAttachments: [],
   oneOffs: ['task_kind'],
   completionsSince: [],
+  doneTasks: ['task_done'],
+  doneCompletions: ['completion_done'],
+  metMilestones: ['milestone_met'],
+  tasksOfProject: ['task_project'],
   projectTasks: ['task_project'],
   futureBlocks: ['block_task'],
   taskBlocks: ['block_task'],
@@ -210,6 +237,9 @@ export interface BlockRow {
   title: string | null;
   task_kind: TaskKind | null;
   result: BlockResult | null;
+  /** The answer's time left, after Partly, and minutes logged, for a practice. */
+  remaining_min?: Minutes | null;
+  logged_min?: Minutes | null;
 }
 
 /** Today and Week: turn the local day or week into a range with dayRange or weekRange. */
@@ -274,6 +304,28 @@ export async function oneOffTasks(sql: Sql, params: { since: Instant }): Promise
 /** Finishes since a time, such as the start of today, for the ticks a list shows. */
 export function completionsSince(sql: Sql, params: { since: Instant }): Promise<TaskCompletion[]> {
   return sql.all<TaskCompletion>(SQL.completionsSince, { since: params.since });
+}
+
+const wholeRecords = <T>(rows: { id: string; data: string }[]): T[] => rows.map(({ id, data }) => ({ ...(JSON.parse(data) as Omit<T, 'id'>), id }) as T);
+
+/** Tasks finished in a range, deleted ones too, as whole records for done.doneOn. */
+export async function doneTasks(sql: Sql, range: UtcRange): Promise<Task[]> {
+  return wholeRecords<Task>(await sql.all(SQL.doneTasks, { from_utc: range.from_utc, to_utc: range.to_utc }));
+}
+
+/** Finishes of one offs in a range, those not taken back. */
+export function doneCompletions(sql: Sql, range: UtcRange): Promise<TaskCompletion[]> {
+  return sql.all<TaskCompletion>(SQL.doneCompletions, { from_utc: range.from_utc, to_utc: range.to_utc });
+}
+
+/** Milestones marked met in a range, as whole records. */
+export async function metMilestones(sql: Sql, range: UtcRange): Promise<Milestone[]> {
+  return wholeRecords<Milestone>(await sql.all(SQL.metMilestones, { from_utc: range.from_utc, to_utc: range.to_utc }));
+}
+
+/** Every task of one project, deleted ones too, as whole records. */
+export async function tasksOfProject(sql: Sql, projectId: string): Promise<Task[]> {
+  return wholeRecords<Task>(await sql.all(SQL.tasksOfProject, { project_id: projectId }));
 }
 
 /** Tasks of active and paused projects, done and cancelled ones too, as whole records for plan.gatherPlans. */

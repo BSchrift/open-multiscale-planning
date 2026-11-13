@@ -26,16 +26,25 @@ export function NotesField(props: {
   onChange(text: string): void;
   /** Called on ⌘Enter, for a form whose Enter saves. */
   onSubmit?(): void;
+  /** Whether it's being written, for a caller that keeps that itself, such as Process's card; it opens with the caret at the end. */
+  editing?: boolean;
+  /** Edit, for such a caller. */
+  onEdit?(): void;
 }) {
   const { value, onChange } = props;
-  const [editing, setEditing] = useState(!value);
+  const [editingHere, setEditing] = useState(!value);
+  const editing = props.editing ?? editingHere;
   const area = useRef<HTMLTextAreaElement>(null);
   // The selection to put back once the text a tool changed has rendered.
   const selection = useRef<[number, number] | null>(null);
   const ids = { label: useId(), field: useId(), count: useId() };
   const counting = value.length >= MAX_NOTES * 0.9;
 
+  // Opened by its caller, it takes focus with the caret at the end.
+  const opened = useRef(false);
   useLayoutEffect(() => {
+    if (props.editing && !opened.current) selection.current = [value.length, value.length];
+    opened.current = !!props.editing;
     const el = area.current;
     if (!el || !selection.current) return;
     el.focus();
@@ -53,6 +62,7 @@ export function NotesField(props: {
   };
 
   const edit = () => {
+    if (props.onEdit) return props.onEdit();
     selection.current = [value.length, value.length];
     setEditing(true);
   };

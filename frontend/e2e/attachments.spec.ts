@@ -25,11 +25,12 @@ test('a task’s links: added, opened outside the app, and removed with Undo', a
   await expect(section.getByRole('link', { name: 'Hinges' })).toHaveAttribute('target', '_blank');
   await expect(section.getByText('Link · example.com')).toBeVisible();
 
-  const add = section.getByRole('button', { name: '+ Add a link' });
+  // Add link opens its fields at once. Not signed in, there's nowhere to keep a photo, so Add photo isn't offered.
+  const add = section.getByRole('button', { name: 'Add link' });
   if (phone) await expectTapTarget(section.getByRole('button', { name: 'Remove Hinges' }));
+  if (phone) await expectTapTarget(add);
+  await expect(section.getByRole('button', { name: 'Add photo' })).toHaveCount(0);
   await add.click();
-  await expect(section.getByRole('button', { name: 'Choose a photo' })).toHaveCount(0);
-  await section.getByRole('button', { name: 'Paste a link' }).click();
   await section.getByRole('textbox', { name: 'Address' }).fill('https://docs.example.com/q3');
   await section.getByRole('textbox', { name: 'Name (optional)' }).fill('Q3 numbers');
   // Enter adds the link, and leaves the popup open.

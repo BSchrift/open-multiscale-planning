@@ -36,7 +36,10 @@
 }
 
 [data-layout] .taskpopname {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   min-height: 32px;
   padding: 2px 0;
@@ -46,6 +49,42 @@
   font: inherit;
   text-align: left;
   overflow-wrap: anywhere;
+}
+
+[data-layout] .taskpopname > span:first-child {
+  min-width: 0;
+}
+
+/* On desktop the pencil follows the name; on phone it sits at the far end, in reach. */
+[data-layout='desktop'] .taskpopname {
+  display: inline-flex;
+  justify-content: flex-start;
+  width: auto;
+  max-width: 100%;
+}
+
+/* The pencil that says the name can be changed, as on Process's title. */
+[data-layout] .taskpopname .pen {
+  flex: none;
+  display: inline-flex;
+  color: var(--quiet);
+}
+
+[data-layout] .taskpopname .pen svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (hover: hover) {
+  [data-layout] .taskpopname:hover > span:first-child {
+    text-decoration: underline dashed var(--border-strong) 2px;
+    text-underline-offset: 6px;
+  }
 }
 
 [data-layout] .taskpopnamefield {

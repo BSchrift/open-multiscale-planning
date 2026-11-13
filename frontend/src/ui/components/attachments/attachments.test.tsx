@@ -69,11 +69,10 @@ const photoFile = (name = 'Whiteboard.png', size = 3) => new File([new Uint8Arra
 describe('attachments in the popup', () => {
   it('adds a link, opens it outside the app, and removes it with Undo', async () => {
     const { t, section } = await open({ signedIn: false });
-    await userEvent.click(within(section).getByRole('button', { name: '+ Add a link' }));
-    // Not signed in, so there's nowhere to keep a photo. Focus moves to the choices, and back once one is made.
-    expect(within(section).queryByRole('button', { name: 'Choose a photo' })).toBeNull();
-    expect(within(section).getByRole('button', { name: 'Paste a link' })).toHaveFocus();
-    await userEvent.click(within(section).getByRole('button', { name: 'Paste a link' }));
+    // Not signed in, so there's nowhere to keep a photo: only Add link, which opens its fields at once.
+    expect(within(section).queryByRole('button', { name: 'Add photo' })).toBeNull();
+    expect(within(section).getByRole('button', { name: 'Add link' }).querySelector('svg')).not.toBeNull();
+    await userEvent.click(within(section).getByRole('button', { name: 'Add link' }));
     const address = within(section).getByRole('textbox', { name: 'Address' });
     expect(address).toHaveFocus();
     await userEvent.type(address, 'javascript:alert(1)');
@@ -88,7 +87,7 @@ describe('attachments in the popup', () => {
     expect(within(section).getByText('Link · docs.example.com')).toBeInTheDocument();
     // Enter added the link, and didn't save and close the popup.
     expect(screen.getByRole('dialog', { name: 'Fix the gate' })).toBeInTheDocument();
-    expect(within(section).getByRole('button', { name: '+ Add a link' })).toHaveFocus();
+    expect(within(section).getByRole('button', { name: 'Add link' })).toHaveFocus();
     const [record] = await listRecords(t.db, 'attachment');
     expect(record).toMatchObject({ task_id: 't1', kind: 'link', name: 'Q3 numbers', url: 'https://docs.example.com/q3' });
 
@@ -108,21 +107,27 @@ describe('attachments in the popup', () => {
 
   it('names a link by its site when given no name', async () => {
     const { section } = await open({ signedIn: false });
-    await userEvent.click(within(section).getByRole('button', { name: '+ Add a link' }));
-    await userEvent.click(within(section).getByRole('button', { name: 'Paste a link' }));
+    await userEvent.click(within(section).getByRole('button', { name: 'Add link' }));
     await userEvent.type(within(section).getByRole('textbox', { name: 'Address' }), 'https://www.example.com/a');
     await userEvent.click(within(section).getByRole('button', { name: 'Add link' }));
     expect(await within(section).findByRole('link', { name: 'example.com' })).toBeVisible();
   });
 
   for (const layout of ['desktop', 'phone'] as const) {
-    it(`adds a photo, kept here as a JPEG until it uploads, with the storage used (${layout})`, async () => {
+    it(`adds a photo straight from the system's picker, kept here as a JPEG until it uploads, with the storage used (${layout})`, async () => {
       const { sync } = server();
       const { t, section } = await open({ sync, layout });
-      await userEvent.click(within(section).getByRole('button', { name: '+ Add a link or photo' }));
-      expect(await within(section).findByText(/240 MB of 1 GB used/)).toBeVisible();
-      expect(within(section).queryByRole('button', { name: 'Take a photo' }) === null).toBe(layout === 'desktop');
-      fireEvent.change(within(section).getByLabelText('Choose a photo', { selector: 'input' }), { target: { files: [photoFile()] } });
+      // The storage used sits under the two buttons.
+      expect(await within(section).findByText('240 MB of 1 GB used.')).toBeVisible();
+      const add = within(section).getByRole('button', { name: 'Add photo' });
+      expect(add.querySelector('svg')).not.toBeNull();
+      // One button for the system's picker, which on iPhone offers the camera and the library itself.
+      const picker = within(section).getByLabelText('Add photo', { selector: 'input' }) as HTMLInputElement;
+      expect(picker).not.toHaveAttribute('capture');
+      const clicked = vi.spyOn(picker, 'click');
+      await userEvent.click(add);
+      expect(clicked).toHaveBeenCalled();
+      fireEvent.change(picker, { target: { files: [photoFile()] } });
       expect(await within(section).findByRole('button', { name: 'Open Whiteboard.jpg' })).toBeVisible();
       expect(within(section).getByText('Waiting to upload')).toBeVisible();
       const [record] = await listRecords(t.db, 'attachment');
@@ -134,29 +139,29 @@ describe('attachments in the popup', () => {
   it('stops a photo that would pass the quota, and turns photos off when storage is full', async () => {
     const nearly = server({ usage: { used: 1024 * MB - 2, quota: 1024 * MB } });
     let view = await open({ sync: nearly.sync });
-    await userEvent.click(within(view.section).getByRole('button', { name: '+ Add a link or photo' }));
     await within(view.section).findByText(/of 1 GB used/);
-    fireEvent.change(within(view.section).getByLabelText('Choose a photo', { selector: 'input' }), { target: { files: [photoFile()] } });
+    fireEvent.change(within(view.section).getByLabelText('Add photo', { selector: 'input' }), { target: { files: [photoFile()] } });
     expect(await within(view.section).findByRole('alert')).toHaveTextContent('Storage full: 1 GB of 1 GB used. Remove attachments to make room.');
     expect(await listRecords(view.t.db, 'attachment')).toEqual([]);
     cleanup();
 
     const full = server({ usage: { used: 1024 * MB, quota: 1024 * MB } });
     view = await open({ sync: full.sync });
-    await userEvent.click(within(view.section).getByRole('button', { name: '+ Add a link or photo' }));
     expect(await within(view.section).findByText(/Storage full: 1 GB of 1 GB used/)).toBeVisible();
-    expect(within(view.section).getByRole('button', { name: 'Choose a photo' })).toBeDisabled();
+    expect(within(view.section).getByRole('button', { name: 'Add photo' })).toBeDisabled();
     // Links take no storage.
-    expect(within(view.section).getByRole('button', { name: 'Paste a link' })).toBeEnabled();
+    expect(within(view.section).getByRole('button', { name: 'Add link' })).toBeEnabled();
   });
 
   it("offers only links on a server with no attachments, and on a Mac app from before them", async () => {
     let view = await open({ sync: server({ usage: null }).sync });
-    await waitFor(() => expect(within(view.section).getByRole('button', { name: '+ Add a link' })).toBeVisible());
+    await waitFor(() => expect(within(view.section).getByRole('button', { name: 'Add link' })).toBeVisible());
+    expect(within(view.section).queryByRole('button', { name: 'Add photo' })).toBeNull();
     cleanup();
     view = await open({ sync: server().sync, filesBlocked: true });
     await new Promise((r) => setTimeout(r, 20));
-    expect(within(view.section).getByRole('button', { name: '+ Add a link' })).toBeVisible();
+    expect(within(view.section).getByRole('button', { name: 'Add link' })).toBeVisible();
+    expect(within(view.section).queryByRole('button', { name: 'Add photo' })).toBeNull();
   });
 
   it('shows each upload’s state on its row: progress, the hourly limit, and storage full with Retry', async () => {
@@ -205,7 +210,7 @@ describe('attachments in the popup', () => {
     };
     const { section } = await open({ seed: ten, signedIn: false });
     expect(await within(section).findByText('A task can have up to 10 attachments.')).toBeVisible();
-    expect(within(section).queryByRole('button', { name: /^\+ Add/ })).toBeNull();
+    expect(within(section).queryByRole('button', { name: /^Add (link|photo)$/ })).toBeNull();
   });
 });
 
@@ -244,11 +249,10 @@ describe("Capture's attachments", () => {
       await userEvent.type(within(capture).getByRole('textbox', { name: /^Capture to/ }), 'Fix the gate');
       await userEvent.click(within(capture).getByRole('button', { name: 'Add details' }));
       const section = within(capture).getByRole('region', { name: 'Attachments' });
-      await userEvent.click(await within(section).findByRole('button', { name: '+ Add a link or photo' }));
-      fireEvent.change(within(section).getByLabelText('Choose a photo', { selector: 'input' }), { target: { files: [photoFile('Hinge.png')] } });
+      await within(section).findByRole('button', { name: 'Add photo' });
+      fireEvent.change(within(section).getByLabelText('Add photo', { selector: 'input' }), { target: { files: [photoFile('Hinge.png')] } });
       expect(await within(section).findByText('Uploads when you save')).toBeVisible();
-      await userEvent.click(within(section).getByRole('button', { name: '+ Add a link or photo' }));
-      await userEvent.click(within(section).getByRole('button', { name: 'Paste a link' }));
+      await userEvent.click(within(section).getByRole('button', { name: 'Add link' }));
       await userEvent.type(within(section).getByRole('textbox', { name: 'Address' }), 'https://example.com/hinges');
       await userEvent.click(within(section).getByRole('button', { name: 'Add link' }));
       expect(within(section).getByText('Link · example.com')).toBeVisible();

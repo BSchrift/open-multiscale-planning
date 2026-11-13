@@ -1,16 +1,16 @@
 // A task's attachments in its popup: links, and photos kept in private storage. Each is a row with its state and
-// Remove, with Undo in the toast. Add offers Paste a link, Take a photo and Choose a photo, with the storage used under
-// them. Photos are offered only where the server stores them and this app may reach its storage: signed in, on a
+// Remove, with Undo in the toast. Add link and Add photo sit under them, with the storage used under those. Photos are offered only where the server stores them and this app may reach its storage: signed in, on a
 // server with attachments, and not on a Mac app from before them.
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { protocol } from '@multiscale/config';
 import { formatBytes, linkName, storageFull, tooLarge, usageLine } from '../../../core/attachments';
-import { formatTime } from '../../../core/dates';
+import { formatTime, nowInstant } from '../../../core/dates';
 import { OpenError } from '../../../core/files';
 import type { UploadState, Usage } from '../../../core/files';
 import { linkHref } from '../../../core/notes';
+import type { RecordWrite } from '../../../core/plan';
 import { taskAttachments } from '../../../core/queries';
 import { isSignedIn, syncStatus } from '../../../core/sync';
 import type { Attachment } from '../../../core/types';
@@ -57,29 +57,27 @@ export const recordOf = (a: NewAttachment): Omit<Attachment, 'id' | 'task_id'> =
   a.kind === 'link' ? { kind: 'link', name: a.name, url: a.url } : { kind: 'photo', name: a.name, size: a.size, type: a.type, sha256: a.sha256 };
 
 /**
- * Add, and what it opens: Paste a link, Take a photo (on phone) and Choose a photo, with the storage used. It checks a
- * photo against the file cap and the quota before it's added, and says why when it isn't.
+ * Add link, which opens its fields at once, and Add photo, which opens the system's photo picker at once, with the
+ * storage used under them. It checks a photo against the file cap and the quota before it's added, and says why when
+ * it isn't.
  */
 function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<unknown> }) {
   const { layout } = useApp();
   const photos = usePhotos();
-  const [adding, setAdding] = useState<'choose' | 'link' | null>(null);
+  const [linking, setLinking] = useState(false);
   const [problem, setProblem] = useState('');
-  const camera = useRef<HTMLInputElement>(null);
   const library = useRef<HTMLInputElement>(null);
-  const addButton = useRef<HTMLButtonElement>(null);
-  const firstChoice = useRef<HTMLButtonElement>(null);
-  // Focus follows what opens and closes, so it's never left on the page behind the popup, where Esc can't reach it.
+  const linkButton = useRef<HTMLButtonElement>(null);
+  // Focus goes back to Add link once its fields close, so it's never left on the page behind the popup.
   const opened = useRef(false);
   useEffect(() => {
-    if (adding === 'choose') firstChoice.current?.focus();
-    else if (!adding && opened.current) addButton.current?.focus();
-    opened.current = !!adding;
-  }, [adding]);
-  const phone = layout === 'phone';
+    if (!linking && opened.current) linkButton.current?.focus();
+    opened.current = linking;
+  }, [linking]);
+  const btn = layout === 'phone' ? 'btn attachadd' : 'btn sm attachadd';
   const full = !!photos.usage && photos.usage.used >= photos.usage.quota;
-  const add = async (a: NewAttachment) => {
-    if ((await props.onAdd(a)) !== false) setAdding(null);
+  const addLink = async (a: NewAttachment) => {
+    if ((await props.onAdd(a)) !== false) setLinking(false);
   };
 
   const choosePhoto = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -95,7 +93,7 @@ function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<
     }
     if (jpeg.size > MAX_FILE) return setProblem(tooLarge(jpeg.size, MAX_FILE));
     if (photos.usage && photos.usage.used + jpeg.size > photos.usage.quota) return setProblem(storageFull(photos.usage.used, photos.usage.quota));
-    await add({ kind: 'photo', name: photoName(file), file: jpeg, size: jpeg.size, type: 'image/jpeg', sha256: await sha256Base64(jpeg) });
+    await props.onAdd({ kind: 'photo', name: photoName(file), file: jpeg, size: jpeg.size, type: 'image/jpeg', sha256: await sha256Base64(jpeg) });
   };
 
   return (
@@ -107,62 +105,54 @@ function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<
       )}
       {props.count >= MAX_PER_TASK ? (
         <p className="small quiet">A task can have up to {MAX_PER_TASK} attachments.</p>
-      ) : adding === 'link' ? (
-        <LinkForm onAdd={(fields) => add(fields)} onCancel={() => setAdding(null)} />
-      ) : adding === 'choose' ? (
-        <div className={phone ? 'attachchoices stack8' : 'attachchoices'} role="group" aria-label="Add an attachment">
-          <div className={phone ? 'stack8' : 'row'}>
-            <button ref={firstChoice} className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => setAdding('link')}>
-              Paste a link
+      ) : linking ? (
+        <LinkForm onAdd={addLink} onCancel={() => setLinking(false)} />
+      ) : (
+        <>
+          <div className="attachadds">
+            <button ref={linkButton} className={btn} type="button" onClick={() => setLinking(true)}>
+              <LinkIcon />
+              Add link
             </button>
             {photos.offered && (
               <>
-                {phone && (
-                  <button className="btn" type="button" disabled={full} onClick={() => camera.current?.click()}>
-                    Take a photo
-                  </button>
-                )}
-                <button className={phone ? 'btn' : 'btn sm'} type="button" disabled={full} onClick={() => library.current?.click()}>
-                  Choose a photo
+                <button className={btn} type="button" disabled={full} onClick={() => library.current?.click()}>
+                  <PhotoIcon />
+                  Add photo
                 </button>
-                {/* The system's camera and photo pickers, opened from the buttons. */}
-                <input ref={camera} hidden type="file" accept="image/*" capture="environment" aria-label="Take a photo" onChange={choosePhoto} />
-                <input ref={library} hidden type="file" accept="image/*" aria-label="Choose a photo" onChange={choosePhoto} />
+                {/* The system's photo picker. On iPhone its own menu offers the camera and the library. */}
+                <input ref={library} hidden type="file" accept="image/*" aria-label="Add photo" onChange={choosePhoto} />
               </>
             )}
-            {!phone && (
-              <button className="btn sm" type="button" onClick={() => setAdding(null)}>
-                Cancel
-              </button>
-            )}
           </div>
-          {photos.usage && (
-            <p className="small quiet">
-              {full ? storageFull(photos.usage.used, photos.usage.quota) : usageLine(photos.usage.used, photos.usage.quota)}
-              <br />
-              Removed files free their space after 30 days.
+          {photos.offered && photos.usage && (
+            <p className="small quiet attachusage">
+              {full ? (
+                <>
+                  {storageFull(photos.usage.used, photos.usage.quota)}
+                  <br />
+                  Removed files free their space after 30 days.
+                </>
+              ) : (
+                `${usageLine(photos.usage.used, photos.usage.quota)}.`
+              )}
             </p>
           )}
-          {phone && (
-            <button className="btn" type="button" onClick={() => setAdding(null)}>
-              Cancel
-            </button>
-          )}
-        </div>
-      ) : (
-        <div>
-          <button ref={addButton} className="link attachadd" type="button" onClick={() => setAdding('choose')}>
-            + {photos.offered ? 'Add a link or photo' : 'Add a link'}
-          </button>
-        </div>
+        </>
       )}
     </>
   );
 }
 
-export function Attachments(props: { taskId: string }) {
-  const { taskId } = props;
-  const { platform } = useApp();
+export function Attachments(props: {
+  taskId: string;
+  /** Told each change's exact reverse, for a caller that undoes them together, such as Process's card. */
+  onWrite?(reverse: RecordWrite): void;
+  /** With none yet, only Add link and Add photo, to sit in a row of other buttons. */
+  inline?: boolean;
+}) {
+  const { taskId, onWrite } = props;
+  const { platform, clock } = useApp();
   const toast = useToast();
   const rows = useQuery((sql) => taskAttachments(sql, taskId), [taskId]).data ?? [];
   const label = useId();
@@ -173,11 +163,13 @@ export function Attachments(props: { taskId: string }) {
   const add = async (a: NewAttachment) => {
     const id = await create.run(recordOf(a));
     if (!id) return false;
+    onWrite?.({ type: 'attachment', id, fields: { deleted_at: nowInstant(clock) } });
     // Kept here until it uploads, which follows the record's sync.
     if (a.kind === 'photo') await platform.files.put(id, a.file);
     return true;
   };
 
+  if (props.inline && rows.length === 0) return <AddAttachment count={0} onAdd={add} />;
   return (
     <section className="attachments stack8" aria-labelledby={label}>
       <h3 id={label} className="attachname">
@@ -191,6 +183,7 @@ export function Attachments(props: { taskId: string }) {
               attachment={a}
               onRemove={async () => {
                 if (!(await remove.run(a.id))) return;
+                onWrite?.({ type: 'attachment', id: a.id, fields: { deleted_at: null } });
                 toast.show(`Removed ${a.name}.`, { undo: () => restore.run(a.id), focusUndo: true });
               }}
             />

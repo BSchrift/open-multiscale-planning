@@ -38,6 +38,18 @@ describe('EstimateSlider', () => {
     expect(slider).toHaveAttribute('aria-valuetext', '30m');
   });
 
+  it('shows the old value when it comes back after a save, as an Undo does', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
+    const slider = screen.getByRole('slider', { name: 'Time' });
+    move(slider, [5, 6, 7, 8]);
+    fireEvent.change(slider);
+    rerender(<EstimateSlider label="Time" value={120} onChange={onChange} />);
+    rerender(<EstimateSlider label="Time" value={60} onChange={onChange} />);
+    expect(slider).toHaveAttribute('aria-valuetext', '1h');
+    expect(slider).toHaveValue('4');
+  });
+
   it('passes on each arrow key, which browsers send as an input and a change event', () => {
     const onChange = vi.fn();
     render(<EstimateSlider label="Time" value={60} onChange={onChange} />);

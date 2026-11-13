@@ -30,6 +30,8 @@ export function EstimateSlider(props: {
   // The step under the thumb while it moves. It holds until the value it was dragged from changes, so the thumb stays
   // where it was let go while a save reads back, and a value from elsewhere, such as a sync, still shows at once.
   const [moving, setMoving] = useState<{ step: number; from: Minutes } | null>(null);
+  // Once the value moves on, the drag is over, so a later return to the old value, as an Undo does, shows that value.
+  if (moving && moving.from !== value) setMoving(null);
   const held = moving && moving.from === value ? moving.step : null;
   const step = held ?? estIndex(value);
   // A value between steps, such as a block's length, reads as it is until the thumb moves.

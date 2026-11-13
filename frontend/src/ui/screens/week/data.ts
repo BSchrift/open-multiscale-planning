@@ -13,7 +13,7 @@ import { blocksInRange, inboxCount, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
-import { infoSpans, offers, practicesLeft, practiceSlots, slotContext, spansAhead } from '../../../core/slots';
+import { closestFit, fits, infoSpans, offers, practicesLeft, practiceSlots, slotContext, spansAhead } from '../../../core/slots';
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
 import type { LocalDate, Minutes, Practice, Task, TimeBlock } from '../../../core/types';
@@ -86,6 +86,13 @@ export interface LaneItem {
 export type Placeable = Pick<LaneItem, 'id' | 'title' | 'kind' | 'work' | 'task' | 'practice'>;
 
 export const rowItem = (r: AddRow): Placeable => ({ id: r.task.id, title: r.task.title, kind: r.work.kind === 'one_off' ? 'one_off' : 'project', work: r.work, task: r.task });
+
+/** A block taken to another day keeps its time when it fits there, and otherwise lands on the closest time that does. */
+export function landOn(date: LocalDate, from: Slot, kind: Work['kind'], ctx: SlotContext, floor: number): Slot {
+  const length = from.end - from.start;
+  const start = fits(date, from.start, length, kind, ctx) ? from.start : (closestFit(date, from.start, length, kind, ctx) ?? Math.max(from.start, floor));
+  return { date, start, end: start + length };
+}
 
 /** The due and open dates slots.ts ranks by, from a task's milestone or its own dates. */
 function workOf(t: Task, plan: ProjectPlan | null, week: LocalDate, ctx: PlanContext): { work: Work; label: string } {

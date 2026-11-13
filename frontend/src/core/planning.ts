@@ -84,6 +84,8 @@ export const weekPlanningTitle = (week: LocalDate) => `Plan the week of ${format
 
 export const stretchPlanningId = (start: LocalDate) => `planning:stretch:${start}`;
 export const stretchPlanningTitle = (st: Stretch) => `Plan ${formatDate(st.start)} to ${formatDate(st.end)}`;
+/** The stretch's block when it plans the week too. */
+export const bothPlanningTitle = (st: Stretch, week: LocalDate) => `${stretchPlanningTitle(st)} and the week of ${formatDate(week)}`;
 
 /** What a planning task is for: a week, by its Monday, or a stretch. */
 export type PlanningFor = LocalDate | { stretch: Stretch; first: boolean };
@@ -509,8 +511,7 @@ export const BOTH_LONGEST_MIN = LONGEST_PLANNING_MIN;
 /** The stretch's task takes the shared block and lists the week among its plans, which covers the week's own row. */
 async function coverWeek(w: Writer, s: { stretch: Stretch; first: boolean }, week: LocalDate): Promise<RecordWrite> {
   const id = planningId(s);
-  const title = `${stretchPlanningTitle(s.stretch)} and the week of ${formatDate(week)}`;
-  return { type: 'task', id, fields: await w.set('task', id, { plans: [`stretch:${s.stretch.start}`, `week:${week}`], title }) };
+  return { type: 'task', id, fields: await w.set('task', id, { plans: [`stretch:${s.stretch.start}`, `week:${week}`], title: bothPlanningTitle(s.stretch, week) }) };
 }
 
 /** Schedule both: one block, the stretch's, covering the week too. Undo takes it back and parts them again. */

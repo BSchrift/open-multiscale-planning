@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { instantMs } from '../../../core/dates';
 import { nextBlock } from '../../../core/blocks';
 import { checkInDue, missedBlocks, practicesToLog } from '../../../core/reminders';
+import { PaneShown } from '../../app/nav';
 import { requestPrompt, usePromptRequest, useSnoozes } from '../../app/reminders';
 import { useApp } from '../../app/store';
 import { EndPrompt, StartCheck } from '../../components/blocks/BlockPrompts';
@@ -76,8 +77,9 @@ export function usePrompts(data: TodayData): { prompt: ReactNode; missed: { titl
   const review = () => setOpen(missed.length === 1 ? { kind: 'end', id: missed[0]!.id } : { kind: 'sheet' });
   const title = `Check in on ${missed.length} missed ${missed.length === 1 ? 'block' : 'blocks'}`;
   // Out to the layout root, which keeps its styles: Today's pane is hidden while another tab shows, and a block
-  // still asks then. shortcut: needs Today's pane mounted, true while the app always opens on Today; move the
-  // prompts into the Shell if it ever opens elsewhere.
+  // still asks then, so its sheet shows though the pane doesn't. shortcut: needs Today's pane mounted, true while the
+  // app always opens on Today; move the prompts into the Shell if it ever opens elsewhere.
   const host = document.querySelector<HTMLElement>('[data-layout]');
-  return { prompt: prompt && host ? createPortal(prompt, host) : prompt, missed: missed.length > 0 && !askingMissed ? { title, review } : null };
+  const shown = prompt && <PaneShown.Provider value>{prompt}</PaneShown.Provider>;
+  return { prompt: shown && host ? createPortal(shown, host) : shown, missed: missed.length > 0 && !askingMissed ? { title, review } : null };
 }

@@ -8,7 +8,7 @@ import { PlusIcon, TabIcon } from '../components/icons';
 import { ToastProvider } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
-import { NavProvider, useNav, useOverlay } from './nav';
+import { NavProvider, PaneShown, useNav, useOverlay } from './nav';
 import type { Route } from './nav';
 import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useKeyboardInset } from './keyboard';
@@ -86,11 +86,13 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
           <span aria-hidden="true">‹</span> {nav.backLabel}
         </button>
       )}
-      {route.area === 'more' ? (
-        <MorePage />
-      ) : (
-        <AreaScreen area={route.area} params={route.params} presentation="page" close={nav.back} />
-      )}
+      <PaneShown.Provider value={visible}>
+        {route.area === 'more' ? (
+          <MorePage />
+        ) : (
+          <AreaScreen area={route.area} params={route.params} presentation="page" close={nav.back} />
+        )}
+      </PaneShown.Provider>
     </div>
   );
 }

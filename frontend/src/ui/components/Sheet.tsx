@@ -1,7 +1,10 @@
 // A modal: centred on desktop, rising from the bottom on phone. Esc and the backdrop close it, and focus stays
 // inside until it returns to where it was.
 
+import { useContext, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { PaneShown } from '../app/nav';
 import { useApp } from '../app/store';
 import { useDialogFocus } from './useDialogFocus';
 
@@ -16,6 +19,13 @@ export function Sheet(props: {
 }) {
   const { layout } = useApp();
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);
+  const shown = useContext(PaneShown);
+  // Opened from a page, it's drawn at the layout's root, so no sticky header or other stacking context there can hold
+  // it under the tab bar or the + button, and the layout's styles still reach it. In a flow or an overlay, it's drawn in
+  // place, above what opened it. Found once: one open as the app first draws, before the root is there, stays in place.
+  const [root] = useState(() => (shown === null ? null : document.querySelector<HTMLElement>('[data-layout]')));
+  // Out of sight with the pane it opened from, as it was when it was drawn inside it.
+  const hide = shown === false ? { visibility: 'hidden' as const } : undefined;
   const sheet = (
     <div
       ref={ref}
@@ -25,22 +35,22 @@ export function Sheet(props: {
       aria-label={props.label}
       aria-describedby={props.describedBy}
       tabIndex={-1}
+      style={hide}
       onClick={(event) => event.stopPropagation()}
     >
       {props.children}
     </div>
   );
-  if (layout === 'phone') {
-    return (
+  const drawn =
+    layout === 'phone' ? (
       <>
-        <button className="scrim" type="button" aria-label="Close" tabIndex={-1} onClick={props.onClose} />
+        <button className="scrim" type="button" aria-label="Close" tabIndex={-1} style={hide} onClick={props.onClose} />
         {sheet}
       </>
+    ) : (
+      <div className="overlay" style={hide} onClick={props.onClose}>
+        {sheet}
+      </div>
     );
-  }
-  return (
-    <div className="overlay" onClick={props.onClose}>
-      {sheet}
-    </div>
-  );
+  return root ? createPortal(drawn, root) : drawn;
 }

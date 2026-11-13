@@ -87,9 +87,11 @@ describe('Inbox on phone', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Add to a project or One offs' }));
     await userEvent.click(await screen.findByRole('option', { name: 'One offs' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    // Process closes itself on the last item, and focus goes to the Inbox's heading, since its button has gone.
     expect(await screen.findByText('Inbox is empty. Anything you capture lands here.')).toBeVisible();
     expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Inbox', level: 1 })).toHaveFocus());
+    expect(document.querySelector('.clearveil')).toHaveTextContent('Inbox clear1 item processed');
   });
 
   it("takes an item back from Process's toast once Process has closed", async () => {
@@ -97,12 +99,64 @@ describe('Inbox on phone', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Inbox/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
     await userEvent.type(await screen.findByRole('combobox', { name: 'Add to a project or One offs' }), 'One offs{Enter}');
-    // Keys rather than a click, which would put the toast away: Esc leaves the field, then closes Process.
-    await userEvent.keyboard('{Escape}{Escape}');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    // That was the last item, so Process closes itself; Esc puts its check away, and the last toast shows.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(document.querySelector('.toast')).not.toBeNull());
     await userEvent.click(within(document.querySelector<HTMLElement>('.toast')!).getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 'i1'))?.kind).toBe('inbox'));
     expect(await screen.findByRole('button', { name: 'Process 1 item' })).toBeVisible();
+  });
+});
+
+// The owner's request: the whole row opens the item, and its title shows it can be renamed.
+describe('Inbox rows', () => {
+  for (const layout of ['desktop', 'phone'] as const) {
+    it(`open the popup from anywhere on the row, the estimate included (${layout})`, async () => {
+      const t = await renderScreen('inbox', { seed, layout });
+      await userEvent.click(await screen.findByText('2h estimate'));
+      expect(await screen.findByRole('dialog', { name: 'Fix the gate' })).toBeInTheDocument();
+      expect(t.nav().overlay).toEqual({ area: 'task', params: { task: 'i2' } });
+    });
+
+    it(`rename the title in the row from its pencil, with Save and Cancel, and a toast with Undo (${layout})`, async () => {
+      const t = await renderScreen('inbox', { seed, layout });
+      const pen = await screen.findByRole('button', { name: 'Rename Fix the gate' });
+      expect(pen.querySelector('svg')).not.toBeNull();
+      await userEvent.click(pen);
+      // The pencil edits; it doesn't open the popup.
+      expect(t.nav().overlay).toBeFalsy();
+      const field = screen.getByRole('textbox', { name: 'Title' }) as HTMLInputElement;
+      expect(field).toHaveFocus();
+      expect([field.selectionStart, field.selectionEnd]).toEqual([12, 12]);
+      await userEvent.type(field, ' latch');
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('textbox', { name: 'Title' })).toBeNull();
+      expect((await getRecord(t.db, 'task', 'i2'))?.title).toBe('Fix the gate');
+      expect(screen.getByRole('button', { name: 'Rename Fix the gate' })).toHaveFocus();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Rename Fix the gate' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Title' }), ' latch');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Renamed to Fix the gate latch.')).toBeVisible();
+      expect((await getRecord(t.db, 'task', 'i2'))?.title).toBe('Fix the gate latch');
+      expect(await screen.findByRole('button', { name: 'Rename Fix the gate latch' })).toHaveFocus();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await getRecord(t.db, 'task', 'i2'))?.title).toBe('Fix the gate'));
+    });
+  }
+
+  it('keeps Assign on desktop and › on phone for Process, and hides the pencil while selecting', async () => {
+    let t = await renderScreen('inbox', { seed });
+    await userEvent.click(await screen.findByRole('button', { name: 'Assign Fix the gate' }));
+    expect(t.nav().overlay).toEqual({ area: 'process', params: { item: 'i2' } });
+    cleanup();
+    t = await renderScreen('inbox', { seed, layout: 'phone' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Process Fix the gate' }));
+    expect(t.nav().overlay).toEqual({ area: 'process', params: { item: 'i2' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Select' }));
+    expect(screen.queryByRole('button', { name: /^Rename/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Process Fix/ })).toBeNull();
   });
 });
 
@@ -136,7 +190,7 @@ describe('Inbox select mode', () => {
       // While selecting, a row ticks its box rather than opening Process or the popup.
       expect(screen.queryByRole('button', { name: /Call the bank/ })).toBeNull();
       count('0 selected');
-      for (const name of ['Send', 'Make one offs', 'Delete/done']) expect(screen.getByRole('button', { name })).toBeDisabled();
+      for (const name of ['Add', 'Make one offs', 'Delete/done']) expect(screen.getByRole('button', { name })).toBeDisabled();
 
       await userEvent.click(box('Renew the passport'));
       count('1 selected');
@@ -162,14 +216,15 @@ describe('Inbox select mode', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Select' }));
     await userEvent.click(box('Book the flights'));
     await userEvent.click(box('Renew the passport'));
-    const picker = screen.getByRole('combobox', { name: 'Send to project' });
+    // Nothing on the page says send: the select bar adds.
+    const picker = screen.getByRole('combobox', { name: 'Project to add to' });
     // Active and paused projects, as Process offers.
     expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['Choose a project', 'Japan trip', 'Paint the house (Paused)']);
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
     await userEvent.selectOptions(picker, 'Japan trip');
-    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
 
-    expect(await screen.findByText('Sent 2 items to Japan trip.')).toBeVisible();
+    expect(await screen.findByText('Added 2 items to Japan trip.')).toBeVisible();
     expect(await where(t)).toEqual(['project', 'project', 'inbox', 'inbox']);
     expect(await getRecord(t.db, 'task', 'i1')).toMatchObject({ project_id: 'p1' });
     await waitFor(() => expect(rows()).toEqual(['Call the bankAssign', 'Buy stampsAssign']));

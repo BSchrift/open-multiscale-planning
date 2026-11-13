@@ -144,7 +144,9 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
     await page.keyboard.press('Enter');
     await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
   }
-  await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
+  // With nothing else in the Inbox, this release's Process has closed itself.
+  const process = page.getByRole('dialog', { name: 'Process Inbox' });
+  if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
 
   // Week: it waits in To schedule; a suggestion places it, and Undo brings it back.
   await nav.getByRole('button', { name: 'Week' }).click();
@@ -191,10 +193,14 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await expect(card).toHaveCount(0);
   await nav.getByRole('button', { name: /Inbox/ }).click();
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
+    const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
     await page.getByRole('button', { name: 'Delete/done' }).click();
     await page.getByRole('button', { name: 'Yes, delete' }).click();
-    await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
+    // The last one closes this release's Process by itself.
+    const process = page.getByRole('dialog', { name: 'Process Inbox' });
+    await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);
+    if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
   }
   // Sent before the browser closes, or the deployment keeps these checks as Inbox items for the next suite to trip on.
   await syncNow(page);

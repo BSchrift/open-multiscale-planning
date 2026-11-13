@@ -122,12 +122,17 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   await card(page).getByRole('button', { name: 'Delete/done' }).click();
   await expect(card(page).getByRole('alert')).toContainText('Delete this item?');
   await card(page).getByRole('button', { name: 'Yes, delete' }).click();
-  await expect(toast).toContainText('Deleted Buy stamps.');
-  await expect(card(page).getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
-  await expect(card(page)).toContainText('2 sorted, 1 deleted.');
-  await card(page).getByRole('button', { name: 'Done' }).click();
+  // That was the last: Process closes itself, and a green check over the empty Inbox says so, then fades.
   await expect(card(page)).toHaveCount(0);
+  const check = page.locator('.clearveil');
+  await expect(check).toHaveText('Inbox clear3 items processed');
   await expect(inboxPane(page).getByText(phone ? 'Inbox is empty. Anything you capture lands here.' : 'Inbox is empty.')).toBeVisible();
+  // The Process button went with the last item, so focus goes to the Inbox's heading.
+  await expect(inboxPane(page).getByRole('heading', { name: 'Inbox', level: 1 })).toBeFocused();
+  await page.screenshot({ path: info.outputPath('inbox-clear.png') });
+  // The last item's toast waits until the check has gone.
+  await expect(check).toHaveCount(0, { timeout: 4000 });
+  await expect(toast).toContainText('Deleted Buy stamps.');
 });
 
 test('a new project from the picker: the form, a Created toast, then a second Enter adds the item', async ({ page }, info) => {
@@ -218,7 +223,7 @@ test("a date set on the card goes with the item to a project, warned in the pick
   // It only warns: the item is added, date and all.
   await (phone ? option.click() : page.keyboard.press('Enter'));
   await expect(page.locator('.toast')).toContainText('Added Call the bank to Paint the fence, for Feb 10.');
-  await card(page).getByRole('button', { name: 'Done' }).click();
+  await expect(card(page)).toHaveCount(0);
 
   await openProject(page, phone, 'Keep the house', 'Paint the fence');
   const row = page.getByRole('button', { name: 'Edit task Call the bank, Feb 10, No estimate, due after the project ends (Jan 31)' });
@@ -227,7 +232,35 @@ test("a date set on the card goes with the item to a project, warned in the pick
   await page.screenshot({ path: info.outputPath('project-late.png') });
 });
 
-test('select mode sends, deletes and makes one offs of many items at once', async ({ page }, info) => {
+test('an Inbox row opens its popup from anywhere on it, and its pencil renames it in place', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  const row = inboxPane(page).locator('.inboxrow').nth(1);
+  // The estimate's line opens it too, not only the words of the title.
+  await row.getByText('2h estimate').click();
+  const popup = page.getByRole('dialog', { name: 'Fix the gate' });
+  await expect(popup).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+
+  const pen = row.getByRole('button', { name: 'Rename Fix the gate' });
+  if (phone) for (const target of [pen, row.getByRole('button', { name: 'Process Fix the gate' })]) await expectTapTarget(target);
+  else await row.hover();
+  await page.screenshot({ path: info.outputPath('inbox-rows.png') });
+  await pen.click();
+  const field = inboxPane(page).getByRole('textbox', { name: 'Title' });
+  await expect(field).toBeFocused();
+  await field.press('End');
+  await field.pressSequentially(' latch');
+  await page.screenshot({ path: info.outputPath('inbox-renaming.png') });
+  await field.press('Enter');
+  await expect(page.locator('.toast')).toContainText('Renamed to Fix the gate latch.');
+  await expect(inboxPane(page).getByRole('button', { name: 'Rename Fix the gate latch' })).toBeFocused();
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(row.getByRole('button', { name: 'Fix the gate', exact: true })).toBeVisible();
+});
+
+test('select mode adds, deletes and makes one offs of many items at once', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);
   const pane = inboxPane(page);
@@ -240,17 +273,17 @@ test('select mode sends, deletes and makes one offs of many items at once', asyn
   if (phone) {
     // The docked Process button steps aside while selecting.
     await expect(pane.getByRole('button', { name: 'Process 3 items' })).toBeHidden();
-    for (const name of ['Select all', 'Cancel', 'Send', 'Make one offs', 'Delete/done']) await expectTapTarget(pane.getByRole('button', { name, exact: true }));
-    await expectTapTarget(pane.getByRole('combobox', { name: 'Send to project' }));
+    for (const name of ['Select all', 'Cancel', 'Add', 'Make one offs', 'Delete/done']) await expectTapTarget(pane.getByRole('button', { name, exact: true }));
+    await expectTapTarget(pane.getByRole('combobox', { name: 'Project to add to' }));
     // The whole row is the checkbox's label, so the row is what a finger hits.
     for (const row of await rows.all()) await expectTapTarget(row);
   }
   await pane.getByRole('checkbox', { name: 'Call the bank' }).check();
   await pane.getByText('Buy stamps').click();
   await expect(pane.getByRole('status')).toHaveText('2 selected');
-  await pane.getByRole('combobox', { name: 'Send to project' }).selectOption({ label: 'Paint the fence' });
-  await pane.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByText('Sent 2 items to Paint the fence.')).toBeVisible();
+  await pane.getByRole('combobox', { name: 'Project to add to' }).selectOption({ label: 'Paint the fence' });
+  await pane.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText('Added 2 items to Paint the fence.')).toBeVisible();
   await expect(rows).toHaveCount(1);
   await expect(pane.getByRole('button', { name: 'Fix the gate', exact: true })).toBeFocused();
   await undo.click();
@@ -336,13 +369,15 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   await page.keyboard.press('Escape');
   await expect(form).toHaveCount(0);
   await expect(card(page).getByRole('button', { name: 'New practice from this item' })).toBeFocused();
-  // On the done card focus is on its title, so the last Esc closes Process.
-  for (const next of ['Call the bank', 'Buy stamps', "That's everything for now"]) {
+  for (const next of ['Call the bank', 'Buy stamps']) {
     await page.keyboard.press('s');
     await expect(card(page).getByRole('heading', { name: next })).toBeVisible();
     await page.keyboard.press('Escape');
   }
+  // The last skipped, Process closes, and its check says none were processed and all three are still here.
+  await page.keyboard.press('s');
   await expect(card(page)).toHaveCount(0);
+  await expect(page.locator('.clearveil')).toHaveText('0 items processed3 still in your Inbox');
   await expect(inboxPane(page).locator('.inboxrow')).toHaveCount(3);
 });
 

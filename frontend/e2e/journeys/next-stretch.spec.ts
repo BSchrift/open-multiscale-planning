@@ -143,8 +143,9 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await (phone ? next('Process 1 item') : page.getByRole('button', { name: 'Process 1 item' }).click());
   const cards = page.getByRole('dialog', { name: 'Process Inbox' });
   await processTo(page, phone, 'Bake a sourdough loaf');
+  // The only item, so Process closes itself.
+  await expect(cards).toHaveCount(0);
   await expect(page.locator('.toast')).toContainText('to Bake a sourdough loaf.');
-  await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
   await expect(page.getByText('1 sorted. Your Inbox is clear.')).toBeFocused();
   await next('Continue to Finish');
 

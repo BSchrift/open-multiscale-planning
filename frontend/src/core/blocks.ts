@@ -1,11 +1,11 @@
 // A day's blocks as they happen: which one is now, the end-of-block answers (one, or several at once), Mark done now,
 // Start, Start early, Do next block instead, Still going, Pause and Resume, and the time spent, plus the week's edits: move, remove, place, take off the
-// calendar, keeping a practice change, skipping a practice and placing the week's practices when asked.
+// calendar, keeping a practice change, skipping a practice or one of its sessions, and placing the week's practices when asked.
 // The in-app prompts and notification actions both write through here.
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
 
 import type { Clock } from './clock';
-import { blockMinutes, formatMinutes, formatTime, instantMs, localDate, localMinutes, nowInstant, toInstant, weekRange } from './dates';
+import { blockMinutes, formatMinutes, formatTime, instantMs, localDate, localMinutes, nowInstant, toInstant, weekday, weekRange } from './dates';
 import { applyPlanChange, minutesLeft } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
 import { blocksInRange, futureBlocks, weekPractices } from './queries';
@@ -13,9 +13,9 @@ import type { BlockRow } from './queries';
 import { CALENDAR_ID, getRecord, getSettings, listRecords, outcomeId, practiceSessionId, weekPickId, weekPlanId } from './records';
 import type { Writer } from './records';
 import { blockFinish, tickFromBlock } from './schedule';
-import { placePractices, slotContext, slotInstants } from './slots';
+import { placePractices, sessionLength, skippedSessionKey, slotContext, slotInstants, storedDayTimes, weeklySessions } from './slots';
 import { closeTask, tickOneOff } from './tasks';
-import type { BlockResult, Instant, LocalDate, Minutes, Task, TaskCompletion, TimeBlock } from './types';
+import type { BlockResult, Fields, Instant, LocalDate, Minutes, Task, TaskCompletion, TimeBlock } from './types';
 
 const MINUTE_MS = 60_000;
 const unanswered = (b: BlockRow) => !b.result && !b.ended_at;
@@ -336,19 +336,43 @@ export async function skipPractice(w: Writer, week: LocalDate, practiceId: strin
   return { writes: [...dropped.writes, reverse] };
 }
 
+/** Skips one practice session this week, the one for date, or includes it again. Returns the reverse, for Undo. */
+export async function skipSession(w: Writer, week: LocalDate, practiceId: string, date: LocalDate, off: boolean, clock: Clock): Promise<PlanChange> {
+  const id = weekPlanId(week);
+  const plan = await getRecord(w.sql, 'week_plan', id);
+  const key = skippedSessionKey(practiceId, date);
+  const was = (plan?.skipped_sessions ?? []).filter((k) => k !== key);
+  const skipped_sessions = off ? [...was, key] : was;
+  if (!plan) {
+    await w.create('week_plan', { week_start: week, skipped_sessions }, id);
+    return { writes: [{ type: 'week_plan', id, fields: { deleted_at: nowInstant(clock) } }] };
+  }
+  return { writes: [{ type: 'week_plan', id, fields: await w.set('week_plan', id, { skipped_sessions }) }] };
+}
+
 /**
- * Places each practice's sessions still missing this week: at a preferred time if open, otherwise the first open time
- * that day, around what's already there. Only ever on request, as part of Place the rest. Returns the reverse, for Undo.
+ * Writes a practice session under the id of the day it's for, so moving it keeps that day and two devices placing the
+ * same day merge. A deleted record there comes back. Returns the reverse.
+ */
+async function writeSession(w: Writer, practiceId: string, date: LocalDate, times: { start: Instant; end: Instant }, clock: Clock): Promise<RecordWrite> {
+  const dayId = practiceSessionId(practiceId, date);
+  const fields = { practice_id: practiceId, ...times, tz: clock.zone() };
+  const existing = await getRecord(w.sql, 'time_block', dayId);
+  if (existing?.deleted_at) return { type: 'time_block', id: dayId, fields: await w.set('time_block', dayId, { ...fields, cancelled: false, deleted_at: null }) };
+  // A live record under this day's id is a session moved to another day or taken off, so this one gets its own id.
+  // shortcut: two offline devices placing after the same move each add a session here; merge by practice and day if that shows up.
+  const id = await w.create('time_block', fields, existing ? undefined : dayId);
+  return { type: 'time_block', id, fields: { deleted_at: nowInstant(clock) } };
+}
+
+/**
+ * Places each practice's sessions still missing this week, at their day's time if open, otherwise the nearest open time,
+ * around what's already there (placePractices). Only ever on request, as part of Place the rest. Returns the reverse.
  */
 export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Clock): Promise<PlanChange> {
-  const zone = clock.zone();
-  const range = weekRange(week, zone);
-  const now = nowInstant(clock);
+  const range = weekRange(week, clock.zone());
   const dropped = await dropSkippedPractices(w, week, clock);
-  const skipped = (await getRecord(w.sql, 'week_plan', weekPlanId(week)))?.skipped_practices ?? [];
-  const kept = (await weekPractices(w.sql, range)).filter((b) => !b.cancelled);
-  const todo = (await listRecords(w.sql, 'practice')).filter((p) => !skipped.includes(p.id));
-
+  const plan = await getRecord(w.sql, 'week_plan', weekPlanId(week));
   const settings = await getSettings(w.sql);
   const ctx = slotContext({
     week,
@@ -359,29 +383,22 @@ export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Cloc
     blocks: await blocksInRange(w.sql, range),
     clock,
   });
+  const sessions = placePractices(await listRecords(w.sql, 'practice'), ctx, { skipped: plan?.skipped_practices ?? [], skippedSessions: plan?.skipped_sessions ?? [] });
   // Newest first, since a session dropped here can come back on the same record below.
   const reverse: RecordWrite[] = [];
-  const edited = kept.map((b) => ({ practice_id: b.practice_id!, date: localDate(b.start, zone) }));
-  for (const s of placePractices(todo, ctx, { edited })) {
-    const dayId = practiceSessionId(s.practice_id, s.date);
-    const fields = { practice_id: s.practice_id, ...slotInstants(s, zone), tz: zone };
-    const existing = await getRecord(w.sql, 'time_block', dayId);
-    if (existing?.deleted_at) {
-      reverse.unshift({ type: 'time_block', id: dayId, fields: await w.set('time_block', dayId, { ...fields, cancelled: false, deleted_at: null }) });
-    } else {
-      // A live record under this day's id is a session moved to another day or taken off, so this one gets its own id.
-      // shortcut: two offline devices placing after the same move each add a session here; merge by practice and day if that shows up.
-      const id = await w.create('time_block', fields, existing ? undefined : dayId);
-      reverse.unshift({ type: 'time_block', id, fields: { deleted_at: now } });
-    }
-  }
+  for (const s of sessions) reverse.unshift(await writeSession(w, s.practice_id, s.date, slotInstants(s, clock.zone()), clock));
   return { writes: [...reverse, ...dropped.writes] };
 }
 
-/** Puts one practice session on the calendar. The reverse deletes it. */
-export async function placeSession(w: Writer, practiceId: string, times: { start: Instant; end: Instant }, clock: Clock): Promise<PlanChange> {
-  const id = await w.create('time_block', { practice_id: practiceId, ...times, tz: clock.zone() });
-  return { writes: [{ type: 'time_block', id, fields: { deleted_at: nowInstant(clock) } }] };
+/** Puts one practice session on the calendar, for date or else the day it starts. The reverse takes it off. */
+export async function placeSession(
+  w: Writer,
+  practiceId: string,
+  times: { start: Instant; end: Instant },
+  clock: Clock,
+  date: LocalDate = localDate(times.start, clock.zone()),
+): Promise<PlanChange> {
+  return { writes: [await writeSession(w, practiceId, date, times, clock)] };
 }
 
 /**
@@ -405,15 +422,41 @@ export async function unscheduleBlock(w: Writer, blockId: string, week: LocalDat
   return { writes: [undo, ...removed.writes] };
 }
 
+/** What to keep for future weeks after a practice session moved to a new time or got a new length. */
+export interface PracticeKeep {
+  /** Its start, as that weekday's own time, or as the usual time for every day, replacing the days' own times. */
+  time?: 'day' | 'every';
+  /** Its length, for every session, when it differs from theirs. */
+  length?: boolean;
+}
+
 /**
- * "Yes, every week" after moving or resizing a practice session: its start becomes the preferred time, and its target
- * follows the new length, scaled for a weekly target. wasMin is the session's length before the change.
+ * "Yes" after moving or resizing a practice session. A new length becomes a daily target, or a weekly one's count times
+ * it, writing the count an older weekly target worked out to so that it stays the same. A session already at the
+ * practice's length changes no target, so an older weekly target isn't rounded by a move alone.
  */
-export async function keepPracticeChange(w: Writer, blockId: string, wasMin: Minutes, clock: Clock): Promise<PlanChange> {
+export async function keepPracticeChange(w: Writer, blockId: string, keep: PracticeKeep, clock: Clock): Promise<PlanChange> {
   const block = await readBlock(w, blockId);
   const practice = block.practice_id ? await getRecord(w.sql, 'practice', block.practice_id) : undefined;
   if (!practice) throw new Error(`Block ${blockId} is not a practice session`);
+  const zone = clock.zone();
+  const start = localMinutes(block.start, zone);
+  const fields: Fields<'practice'> = {};
+  if (keep.time === 'day') {
+    const times = [...(storedDayTimes(practice) ?? Array<null>(7).fill(null))];
+    times[weekday(localDate(block.start, zone))] = start === practice.preferred_times?.[0] ? null : start;
+    fields.day_times = times.some((t) => t !== null) ? times : null;
+  } else if (keep.time === 'every') {
+    fields.preferred_times = [start, ...(practice.preferred_times ?? []).slice(1).filter((t) => t !== start)];
+    if (practice.day_times != null) fields.day_times = null;
+  }
   const length = blockMinutes(block);
-  const target = practice.per === 'day' ? length : Math.max(5, Math.round((practice.target_min * length) / (wasMin || length)));
-  return change(w, 'practice', practice.id, { preferred_times: [localMinutes(block.start, clock.zone())], target_min: target });
+  if (keep.length && length !== sessionLength(practice)) {
+    if (practice.per === 'day') fields.target_min = length;
+    else {
+      const sessions = weeklySessions(practice);
+      Object.assign(fields, { target_min: sessions * length, sessions });
+    }
+  }
+  return change(w, 'practice', practice.id, fields);
 }

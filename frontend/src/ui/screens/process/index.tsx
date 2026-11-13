@@ -328,8 +328,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
 
   const total = queue.length;
-  const pos = `${item ? s.idx + 1 : total} of ${total}`;
-  const pct = Math.round((s.idx / Math.max(1, total)) * 100);
+  // The bar and the count say the same: on the third of four it's three quarters full.
+  const at = item ? s.idx + 1 : total;
+  const pos = `${at} of ${total}`;
+  const pct = Math.round((at / Math.max(1, total)) * 100);
   const planLabel = planning
     ? `${s.planOn ? 'Adding' : 'Add'} to the plan for ${formatWeekRange(planning)}`
     : s.planOn

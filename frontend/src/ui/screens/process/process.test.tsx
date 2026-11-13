@@ -48,6 +48,8 @@ describe('Process on desktop', () => {
     await open();
     expect(await screen.findByRole('heading', { name: 'Call the bank', level: 1 })).toHaveFocus();
     expect(within(card()).getByText('1 of 5')).toBeInTheDocument();
+    // The bar fills as far as the count says: the first of five is a fifth.
+    expect(card().querySelector<HTMLElement>('.pxbar > span')!.style.width).toBe('20%');
     const dests = within(card()).getAllByRole('button').filter((b) => b.classList.contains('pxdest'));
     expect(dests.map((b) => b.textContent)).toEqual(['1Paint the fence', '2Learn to bake bread', '/Find a project', '+ New project', 'OOne offs']);
     const group = within(card()).getByRole('group', { name: 'No home yet? Make one' });

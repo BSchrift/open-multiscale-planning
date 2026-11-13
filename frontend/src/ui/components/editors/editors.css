@@ -120,3 +120,192 @@
   max-width: calc(100vw - 48px);
   padding: var(--space-3);
 }
+
+/* A practice's schedule (PracticeSchedule): two radio options drawn as bordered choices, the count's stepper, the
+   per-day switch and rows, and the summary. */
+[data-layout] .segrow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+[data-layout] .seg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--white);
+  cursor: pointer;
+}
+
+[data-layout] .seg input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+/* A border as well as a tint, since the tint alone doesn't stand out enough. */
+[data-layout] .seg.on {
+  border: 1.5px solid var(--blue);
+  background: var(--blue-pale);
+  font-weight: 600;
+}
+
+[data-layout] .seg:has(input:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-layout] .stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+[data-layout] .btn.step {
+  width: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+[data-layout] .btn.step[aria-disabled='true'] {
+  opacity: 0.45;
+}
+
+[data-layout] .stepval {
+  min-width: 8.5em;
+  text-align: center;
+}
+
+[data-layout] .stepval b {
+  font-size: 20px;
+}
+
+[data-layout] .schedfields .tfield {
+  width: 10em;
+  max-width: 100%;
+}
+
+[data-layout] .switchrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  cursor: pointer;
+}
+
+[data-layout] .switchrow input {
+  position: relative;
+  flex: none;
+  width: 42px;
+  height: 26px;
+  margin: 0;
+  border: 1px solid var(--grey);
+  border-radius: 13px;
+  background: var(--grey);
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+[data-layout] .switchrow input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--white);
+  transition: transform 0.15s;
+}
+
+[data-layout] .switchrow input:checked {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+
+[data-layout] .switchrow input:checked::after {
+  transform: translateX(16px);
+}
+
+[data-layout] .switchrow input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-layout] .dayrows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  container-type: inline-size;
+}
+
+/* The day's name above its field, so it never overlaps on a narrow phone or at large text. */
+[data-layout] .dayrow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px 10px 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout] .dayrow:first-child {
+  border-top: 0;
+}
+
+[data-layout] .dayrowctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+[data-layout] .dayrowctl .tfield {
+  flex: 1 1 8em;
+  width: auto;
+  max-width: 12em;
+}
+
+@container (min-width: 440px) {
+  [data-layout] .dayrow {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  [data-layout] .dayrowname {
+    flex: 0 0 7.5em;
+  }
+}
+
+[data-layout] .usual {
+  padding: 0 4px;
+}
+
+[data-layout] .rulebox {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--teal-soft);
+  color: var(--teal-ink);
+}
+
+[data-layout] .rulelabel {
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .switchrow input,
+  [data-layout] .switchrow input::after {
+    transition: none;
+  }
+}

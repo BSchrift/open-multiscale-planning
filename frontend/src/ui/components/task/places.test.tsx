@@ -80,7 +80,7 @@ describe('the task popup opens from', () => {
     await open('today');
     await userEvent.click(await screen.findByRole('button', { name: /^Check the totals, Project, .*to schedule$/ }));
     const panel = screen.getByRole('group', { name: 'Check the totals' });
-    expect(within(panel).getByRole('group', { name: 'Suggested times' })).toBeVisible();
+    expect(within(panel).getByRole('group', { name: /^Suggested times for / })).toBeVisible();
     const name = within(panel).getByRole('button', { name: 'Check the totals' });
     await userEvent.click(name);
     await popup('Check the totals');

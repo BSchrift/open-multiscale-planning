@@ -50,6 +50,8 @@
 [data-layout] .lanecard.on { outline: 2px solid var(--blue); outline-offset: 1px; }
 [data-layout] .lanet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-layout] .collane .oochip { touch-action: none; user-select: none; -webkit-user-select: none; }
+/* A set day's practice session, waiting above its own day. */
+[data-layout] .collane .oochip.pracchip { border-color: var(--teal); border-left-style: double; background: var(--teal-soft); color: var(--teal-ink); }
 [data-layout] .lanecard { -webkit-touch-callout: none; transition: transform .15s; }
 /* Held long enough on phone: the card lifts out of the row. */
 [data-layout] .lanecard.lifted { opacity: .4; }

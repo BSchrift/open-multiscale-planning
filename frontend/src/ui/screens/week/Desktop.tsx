@@ -24,7 +24,7 @@ import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgri
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem } from './data';
-import { LaneActions, LaneCard, laneCount } from './lane';
+import { LaneActions, LaneCard, laneCount, laneWords } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
@@ -114,6 +114,11 @@ export function DesktopWeek(props: WeekProps) {
     if (id === PLANNING) return setPlanAt(slot);
     const b = model.blocks.find((x) => x.id === id);
     if (!b) return;
+    // A session moved to another day is for this week only, so nothing asks about future weeks.
+    if (b.practice_id && slot.date !== b.date) {
+      setAsk(null);
+      return act.moveSessionDay(b, slot, model.blocks);
+    }
     const saved = act.move(id, slot);
     setMoved(id);
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
@@ -307,6 +312,10 @@ export function DesktopWeek(props: WeekProps) {
                       }
                     : undefined
                 }
+                onSkipDay={() => {
+                  setOpenItem(null);
+                  void act.skipDay(item, data.week);
+                }}
                 onTakeOut={() => {
                   setOpenItem(null);
                   void act.takeOut(item, data.week);
@@ -374,8 +383,9 @@ export function DesktopWeek(props: WeekProps) {
                         title: x.title,
                         from: x.dates.from,
                         to: x.dates.to,
-                        alt: `${KIND_WORD[x.kind]}: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
+                        alt: x.practice ? `${x.title}, Practice, ${laneWords(x)}, to schedule` : `${KIND_WORD[x.kind]}: ${x.title}, ${onceWhen({ type: 'once', ...x.dates })}, ${x.line} to schedule`,
                         planning: x.kind === 'planning',
+                        practice: x.kind === 'practice',
                         open: openItem === x.id,
                         onToggle: () => toggleItem(x.id),
                         ...(isThis ? { onPointerDown: (e: ReactPointerEvent<HTMLElement>) => dragCard(e, x, model.ctx, dragItem(x)) } : {}),

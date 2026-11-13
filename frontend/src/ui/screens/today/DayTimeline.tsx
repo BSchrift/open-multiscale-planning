@@ -1,7 +1,8 @@
 // The day's timeline: a calendar column that zooms (buttons, or pinching on phone), or a list. Blocks are coloured
 // by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so.
 // On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
-// the one under way changes its end.
+// the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
+// click or tap opens a task's block in the task's popup, and a practice's session or a planning block in its details.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
@@ -22,7 +23,7 @@ import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
-import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
+import { DRAG_PX, HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
@@ -139,6 +140,16 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}`;
   const overlaps = (i: Item) => items.some((o) => o !== i && !o.block !== !i.block && o.from < i.to && i.from < o.to);
   const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
+  // A task's block opens the task's popup, as the task does anywhere else. A practice's session and a planning block
+  // open their details, as before.
+  const taskOf = (i: Item) => (i.kind === 'project' || i.kind === 'one_off' ? i.block?.task_id : null);
+  const openItem = (i: Item) => {
+    const id = taskOf(i);
+    if (id) openTask(id);
+    else toggle(i.id);
+  };
+  // Both open over the page on phone, and a task's popup does on desktop too; the rest open in place there.
+  const opens = (i: Item) => (phone || taskOf(i) ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': open.has(i.id) });
 
   // Week's rules: an answered block stays put, one under way keeps its start, and nothing moves into time gone by.
   // shortcut: a block not drawn whole, running past midnight, stays put; until the timeline draws the next day too.
@@ -170,9 +181,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const start = mode === 'move' ? dayOffer(data.date, len, workOf(i), { ...ctx, placed: ctx.placed.filter((s) => s.id !== i.id) }) : null;
     const ghost = start === null ? null : { date: data.date, start, end: start + len };
     const [x0, y0, perPx] = [e.clientX, e.clientY, 60 / ph];
-    let lifted = !phone;
+    let lifted = false;
     let moved = false;
     let last = slot;
+    const lift = () => {
+      lifted = true;
+      setDrag({ id: i.id, slot, ghost });
+    };
     const hold = (ev: Event) => {
       if (lifted) ev.preventDefault();
     };
@@ -180,8 +195,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       pointermove: (ev) => {
         const m = ev as PointerEvent;
         if (!lifted) {
-          if (Math.abs(m.clientX - x0) > SLOP_PX || Math.abs(m.clientY - y0) > SLOP_PX) stop();
-          return;
+          // A finger that moves before the hold is scrolling. A mouse lifts the block once moved past a click's wobble.
+          if (phone) {
+            if (Math.abs(m.clientX - x0) > SLOP_PX || Math.abs(m.clientY - y0) > SLOP_PX) stop();
+            return;
+          }
+          if (Math.hypot(m.clientX - x0, m.clientY - y0) < DRAG_PX) return;
+          lift();
         }
         last = dragResult(slot, mode, 0, (m.clientY - y0) * perPx, ghost ? [ghost] : [], bounds(slot));
         moved ||= !same(last, slot);
@@ -189,8 +209,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       },
       pointerup: () => {
         stop();
-        // A click, or a tap let go before the hold: it opens the block as before.
-        if (!lifted || (!phone && !moved)) return;
+        // A click, or a tap let go before the hold: it opens the block.
+        if (!lifted) return;
         droppedAt.current = Date.now();
         if (same(last, slot)) return setDrag(null);
         setDrag({ id: i.id, slot: last, ghost: null });
@@ -211,15 +231,18 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     for (const [k, f] of Object.entries(on)) window.addEventListener(k, f, k === 'touchmove' ? { passive: false } : undefined);
     const timer = phone
       ? setTimeout(() => {
-          lifted = true;
-          setDrag({ id: i.id, slot, ghost });
+          navigator.vibrate?.(10);
+          lift();
         }, HOLD_MS)
       : undefined;
   };
 
   const step = (i: Item, move: boolean) => (e: KeyboardEvent) => {
-    // On phone that's a slider, with no click of its own for a keyboard, so Enter opens it as a tap does.
-    if (e.key === 'Enter' && phone && move) return toggle(i.id);
+    // On phone that's a slider, with no click of its own for a keyboard, so Enter and Space open it as a tap does.
+    if ((e.key === 'Enter' || e.key === ' ') && phone && move) {
+      e.preventDefault();
+      return openItem(i);
+    }
     const delta = ({ ArrowUp: -GRID, ArrowDown: GRID } as Record<string, number>)[e.key];
     if (!delta || !(move || e.shiftKey)) return;
     e.preventDefault();
@@ -232,6 +255,27 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       setDrag({ id: i.id, slot: next, ghost: null });
       await save(i, from, next, true);
     });
+  };
+
+  // What a block says it does: one still to come moves, and the one under way only changes its end. A short block has
+  // no edge or handle to drag, since on desktop it would take most of the block, and a press there would change the
+  // length instead of moving it.
+  const help: Record<string, string> = phone
+    ? {
+        move: 'Tap to open it. Hold it, then drag to move it, or hold its handle and drag to change its length.',
+        'move-short': 'Tap to open it. Hold it, then drag to move it.',
+        end: 'Hold its handle and drag to change its length.',
+      }
+    : {
+        move: 'Drag to move it, or drag its bottom edge to change its length. Up and down arrow keys move it, and Shift and arrows change its length.',
+        'move-short': 'Drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.',
+        end: 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.',
+        'end-short': 'Use Shift and the up and down arrow keys to change its length.',
+      };
+  const helpOf = (move: boolean, resize: boolean, short: boolean) => {
+    const key = move ? 'move' : resize ? 'end' : '';
+    const full = `${key}${short ? '-short' : ''}`;
+    return key && full in help ? `${helpId}-${full}` : undefined;
   };
 
   const calendar = (
@@ -248,14 +292,11 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       }}
     >
       {/* No arrow keys on phone, where VoiceOver's swipes move a block as a slider. */}
-      <span id={helpId} hidden>
-        {phone
-          ? 'Hold it, then drag to move it, or hold its handle and drag to change its length.'
-          : 'Drag to move it, or drag its bottom edge to change its length. Up and down arrow keys move it, and Shift and arrows change its length.'}
-      </span>
-      <span id={`${helpId}-end`} hidden>
-        {phone ? 'Hold its handle and drag to change its length.' : 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.'}
-      </span>
+      {Object.entries(help).map(([key, text]) => (
+        <span key={key} id={`${helpId}-${key}`} hidden>
+          {text}
+        </span>
+      ))}
       <div
         className="day"
         style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}
@@ -317,13 +358,14 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
                     'aria-valuenow': last - i.from,
                     'aria-valuetext': range(slotOf(i)),
                   }
-                : { type: 'button' as const, 'aria-expanded': open.has(i.id) })}
+                : { type: 'button' as const })}
+              {...opens(i)}
               title={i.time}
               style={style}
               aria-label={alt(i)}
-              aria-describedby={move ? helpId : resize ? `${helpId}-end` : undefined}
+              aria-describedby={helpOf(move, resize, !!compact)}
               // The release after a drag also clicks the block; that click shouldn't open it.
-              onClick={() => Date.now() - droppedAt.current >= HOLD_MS && toggle(i.id)}
+              onClick={() => Date.now() - droppedAt.current >= HOLD_MS && openItem(i)}
               onPointerDown={move ? press(i, 'move') : undefined}
               onKeyDown={resize ? step(i, move) : undefined}
               // Steps in a row undo together; once focus leaves, the next is a change of its own.
@@ -334,7 +376,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
                 {phone && lifted ? `${i.time}, ${i.title}` : i.title}
               </span>
               {time}
-              {resize && !phone && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
+              {resize && !phone && !compact && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
               {resize && phone && !compact && (
                 <span className="rz" aria-hidden="true" onPointerDown={press(i, 'resize')}>
                   <i />
@@ -374,7 +416,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const note = i.block.result === 'partly' || i.block.result === 'not' ? <OutcomeTag result={i.block.result} /> : i.note;
     if (phone) {
       return (
-        <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} onClick={() => toggle(i.id)}>
+        <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} {...opens(i)} onClick={() => openItem(i)}>
           <span className="small quiet">{formatTime(i.start, zone)}</span>
           <span className="tlwhat">
             <span className={titleCls}>{i.title}</span>
@@ -389,7 +431,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const label = i.kind === 'project' ? (i.path ?? '').split(' > ')[0] : i.word;
     return (
       <div key={i.id} className={`tlrow${i.cur ? ' tlcur' : ''}`}>
-        <button className="tlbtn" type="button" aria-expanded={open.has(i.id)} onClick={() => toggle(i.id)}>
+        <button className="tlbtn" type="button" {...opens(i)} onClick={() => openItem(i)}>
           <span className="small quiet">{i.time}</span>
           <span className="tlwhat">
             <span className={titleCls}>{i.title}</span>

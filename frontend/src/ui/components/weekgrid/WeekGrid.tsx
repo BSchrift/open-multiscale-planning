@@ -1,6 +1,6 @@
 // The desktop week: seven day columns from 6am to 11pm, with closed hours and calendar events behind the blocks.
 // While editing, blocks drag on a 15-minute grid and snap to a suggested time within 20 minutes; the bottom edge
-// changes the length. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
+// changes the length, on a block tall enough to have one. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
 // calendar through onUnschedule. Week and the planning Schedule step share it.
 //
 //   <WeekGrid ctx={slotContext(...)} blocks={blocks} editing onChange={(id, slot) => save(id, slot)} />
@@ -137,6 +137,9 @@ const { from: FROM, to: TO } = DRAWN_DAY;
 const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
 const KIND_CLASS: Record<BlockKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint', planning: 'ev-planning' };
 const COLUMN_GAP = 2;
+// Shorter than this, a block draws no edge to change its length: the edge, at least 4px, would take more than a quarter
+// of it, and most presses would change its length instead of moving it. Shift and the arrow keys still do.
+const EDGE_MIN = 16;
 const LANE_ROW = 28;
 
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
@@ -348,7 +351,7 @@ export function WeekGrid(props: WeekGridProps) {
                         onKeyDown={(e) => onKey(e, b)}
                       >
                         {b.draft ? `${b.title}, ${formatTimeOfDay(at.start)}` : b.title}
-                        <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />
+                        {h >= EDGE_MIN && <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />}
                         {!b.draft && props.onRemove && (
                           <button
                             type="button"

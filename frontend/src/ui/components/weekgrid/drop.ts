@@ -11,6 +11,8 @@ import type { Slot, SlotContext } from '../../../core/slots';
 export const HOLD_MS = 400;
 /** How far a finger can drift during a hold before it counts as a swipe instead. */
 export const SLOP_PX = 8;
+/** How far a mouse moves while pressed before it drags, so a hand that shifts during a click still clicks. */
+export const DRAG_PX = 6;
 /** Near the top or bottom of the screen, where the strip and tab bar sit, a dragged card scrolls the page. */
 const EDGE_PX = 120;
 const SCROLL_PX = 12;
@@ -112,7 +114,7 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
       lift(x0, y0);
       return follow(e.clientX, e.clientY);
     }
-    const far = Math.hypot(e.clientX - x0, e.clientY - y0) >= (touch ? SLOP_PX : 6);
+    const far = Math.hypot(e.clientX - x0, e.clientY - y0) >= (touch ? SLOP_PX : DRAG_PX);
     if (far && touch) return end(false)();
     if (far) lift(e.clientX, e.clientY);
   };

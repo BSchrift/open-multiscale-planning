@@ -65,7 +65,10 @@ The shared feed takes the build only when both do. Until an app's own feed exist
 the shared one. Each release checks every feed it switched: the manifest checks out with the environment's release
 key, names the version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
 
-For now every surface switches in one step, staging's and prod's Release, and bundles still read the shared feed.
+For now every surface switches in one step, staging's and prod's Release. Each bundle reads its own app's feed, and the
+files from `release/files/`, which both feeds share. Bundles from before that read the shared feed, which installed apps
+took them from: it keeps being published, and an app takes the next bundle from it like any update, then reads its own
+feed from its next start.
 
 ## The backend canary
 

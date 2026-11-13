@@ -49,7 +49,9 @@ test('two devices starting planning make one task, and a skip on one holds on th
   await expect(b.page.getByText('Skipped planning this week.')).toBeVisible();
   for (const d of [b, a]) await syncNow(d.page);
   await go(a.page, 'Today');
-  await expect(pane(a.page, 'Today').getByText("This week isn't planned", { exact: true })).toBeVisible();
+  // From three days before next week, next week's planning row takes the place of this week's line.
+  const today = pane(a.page, 'Today');
+  await expect(today.getByText("This week isn't planned", { exact: true }).or(today.getByRole('region', { name: 'Plan next week' }))).toBeVisible();
   await expect(a.page.getByRole('heading', { name: 'Plan your week' })).toHaveCount(0);
   expect([...a.errors, ...b.errors]).toEqual([]);
 });

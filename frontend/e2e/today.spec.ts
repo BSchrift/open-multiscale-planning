@@ -300,6 +300,50 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   expect(errors).toEqual([]);
 });
 
+test("a click or tap on a block opens its task, a hand's wobble is still a click, and on phone a swipe leaves it be", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', 't1', '16:00', '17:00')]);
+  const role = phone ? 'slider' : 'button';
+  // Measured once To schedule above the day has settled its height, as in the drag test above.
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
+  await b.scrollIntoViewIfNeeded();
+  const box = (await b.boundingBox())!;
+  const mid = { x: box.x + box.width / 3, y: box.y + box.height / 2 };
+  if (phone) await b.tap();
+  else {
+    // 3px is six minutes at this zoom, under the few pixels a drag needs.
+    await page.mouse.move(mid.x, mid.y);
+    await page.mouse.down();
+    await page.mouse.move(mid.x + 2, mid.y + 3, { steps: 2 });
+    await page.mouse.up();
+  }
+  const popup = page.getByRole('dialog', { name: 'Write the report' });
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  await expect(popup.getByRole('heading', { name: 'Write the report' })).toBeFocused();
+  // Once the popup has finished sliding in.
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: info.outputPath(phone ? 'today-open-phone.png' : 'today-open-desktop.png') });
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(b).toBeVisible();
+  await expect(page.getByText(/^Write the report is now/)).toHaveCount(0);
+
+  if (phone) {
+    // A finger that moves before the hold is scrolling: the block stays put and nothing opens.
+    // shortcut: synthetic touch pointers can't scroll WebKit's page, so this checks a move before the hold, not a real
+    // swipe; add one when a test can swipe the timeline on the iPhone Simulator.
+    await touchDrag(page, b, { x: mid.x, y: mid.y + 60 }, 50);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(b).toBeVisible();
+    // Held, then dragged: it moves, and opens nothing. 15px is half an hour.
+    await touchDrag(page, b, { x: mid.x, y: mid.y + 15 }, 500);
+    await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('a clash with the calendar shifts the rest of today', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const calendar: Seed = {

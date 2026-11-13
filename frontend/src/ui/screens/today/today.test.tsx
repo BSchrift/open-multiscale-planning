@@ -42,6 +42,12 @@ async function open(seed: (w: Writer) => Promise<unknown>, options: HarnessOptio
 }
 
 const dialog = (name: string | RegExp) => screen.findByRole('dialog', { name });
+// The task's own popup, to read and change it, rather than a block's details, which on phone is a sheet of the same name.
+const taskPopup = async (name: string) => {
+  const popup = await dialog(name);
+  expect(within(popup).getByRole('button', { name: 'Delete task' })).toBeVisible();
+  return popup;
+};
 const slideTo = (slider: HTMLElement, minutes: number) => fireEvent.change(slider, { target: { value: String(EST_STEPS.indexOf(minutes)) } });
 
 describe('the Done today line', () => {
@@ -928,11 +934,31 @@ describe('the timeline', () => {
     await block(w, 'b1', 't1', '16:00', '17:00');
   };
 
-  it('opens a block to show what it belongs to', async () => {
+  it("a click on a task's block opens the task, to read and change it", async () => {
     await open(day);
-    await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
-    const detail = screen.getByRole('region', { name: 'Write the report' });
-    expect(await within(detail).findByText('Write more > Finish the essay')).toBeVisible();
+    const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+    expect(el).toHaveAttribute('aria-haspopup', 'dialog');
+    await userEvent.click(el);
+    await taskPopup('Write the report');
+    expect(screen.queryByRole('region', { name: 'Write the report' })).toBeNull();
+  });
+
+  it("a practice's session and a planning block open their details, as before", async () => {
+    await open(async (w) => {
+      await day(w);
+      await w.create('practice', { title: 'Piano practice', objective_id: 'g', target_min: 30, per: 'day', state: 'active' }, 'pr');
+      await w.create('time_block', { practice_id: 'pr', start: at('18:00'), end: at('18:30'), tz: ZONE }, 'b2');
+      await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'] }, 'planning:week:2026-11-09');
+      await block(w, 'b3', 'planning:week:2026-11-09', '19:00', '19:30');
+    });
+    const practice = await screen.findByRole('button', { name: /^Piano practice, 6pm to 6:30pm/ });
+    expect(practice).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(practice);
+    expect(await within(screen.getByRole('region', { name: 'Piano practice' })).findByText(/^Write more/)).toBeVisible();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /^Plan the week of Nov 9, 7pm to 7:30pm/ }));
+    expect(screen.getByRole('region', { name: 'Plan the week of Nov 9' })).toBeVisible();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('says what kind each block is, not only by its colour', async () => {
@@ -949,13 +975,11 @@ describe('the timeline', () => {
     await open(day);
     await userEvent.click(await screen.findByRole('button', { name: 'List' }));
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
+    // A row opens the task's popup, as its block on the calendar does.
     const row = screen.getByRole('button', { name: /^4pm to 5pm/ });
+    expect(row).toHaveAttribute('aria-haspopup', 'dialog');
     await userEvent.click(row);
-    expect(row).toHaveAttribute('aria-expanded', 'true');
-    expect(await within(row.parentElement!).findByText('Write more > Finish the essay')).toBeVisible();
-    // Open task opens its popup.
-    await userEvent.click(within(row.parentElement!).getByRole('button', { name: 'Open Write the report' }));
-    expect(await screen.findByRole('dialog', { name: 'Write the report' })).toBeVisible();
+    await taskPopup('Write the report');
   });
 
   it('zooms in and out', async () => {
@@ -966,11 +990,23 @@ describe('the timeline', () => {
     expect(out).toBeEnabled();
   });
 
-  it('on phone opens details in a sheet', async () => {
-    await open(day, { layout: 'phone' });
-    await userEvent.click(await screen.findByRole('slider', { name: /^Write the report, 4pm to 5pm/ }));
-    const sheet = await dialog('Write the report');
-    expect(await within(sheet).findByText('Write more > Finish the essay')).toBeVisible();
+  it("on phone, a tap on a task's block opens the task, and a practice's session opens its details in a sheet", async () => {
+    await open(
+      async (w) => {
+        await day(w);
+        await w.create('practice', { title: 'Piano practice', objective_id: 'g', target_min: 30, per: 'day', state: 'active' }, 'pr');
+        await w.create('time_block', { practice_id: 'pr', start: at('18:00'), end: at('18:30'), tz: ZONE }, 'b2');
+      },
+      { layout: 'phone' },
+    );
+    const el = await screen.findByRole('slider', { name: /^Write the report, 4pm to 5pm/ });
+    expect(el).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(el).toHaveAccessibleDescription(/^Tap to open it\./);
+    await userEvent.click(el);
+    await userEvent.click(within(await taskPopup('Write the report')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.click(screen.getByRole('slider', { name: /^Piano practice, 6pm to 6:30pm/ }));
+    expect(await within(await dialog('Piano practice')).findByText(/^Write more/)).toBeVisible();
   });
 });
 
@@ -1003,7 +1039,7 @@ describe('moving a block on the timeline', () => {
       it('a drag moves it on a 15-minute grid without opening it, and Undo puts it back', async () => {
         const t = await open(day, { layout });
         const el = await movable();
-        expect(el).toHaveAccessibleDescription(layout === 'phone' ? 'Hold it, then drag to move it, or hold its handle and drag to change its length.' : /arrow keys move it/);
+        expect(el).toHaveAccessibleDescription(layout === 'phone' ? 'Tap to open it. Hold it, then drag to move it, or hold its handle and drag to change its length.' : /arrow keys move it/);
         // 11px is 22 minutes, which lands on a quarter past.
         await drag(el, 11, layout);
         fireEvent.click(el);
@@ -1014,6 +1050,19 @@ describe('moving a block on the timeline', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
         expect(await movable(/^Write the report, 4pm to 5pm/)).toBeVisible();
         expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') });
+      });
+
+      it('Enter opens the task, and arrow keys still move it', async () => {
+        const t = await open(day, { layout });
+        const el = await movable();
+        el.focus();
+        await userEvent.keyboard('{Enter}');
+        await userEvent.click(within(await taskPopup('Write the report')).getByRole('button', { name: 'Cancel' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        el.focus();
+        await userEvent.keyboard('{ArrowDown}');
+        expect(await screen.findByText('Write the report is now 4:15pm to 5:15pm.')).toBeVisible();
+        expect(await saved(t)).toMatchObject({ start: at('16:15'), end: at('17:15') });
       });
 
       it("snaps to the day's suggested time, shown while dragging", async () => {
@@ -1168,10 +1217,15 @@ describe('moving a block on the timeline', () => {
     const moved = await report(/^Write the report, 3:45pm to 4:45pm/, 'slider');
     expect(moved).toHaveAttribute('aria-valuetext', '3:45pm to 4:45pm');
     expect(Number(moved.getAttribute('aria-valuenow'))).toBe(before + 15);
-    await userEvent.keyboard('{Enter}');
-    await userEvent.click(within(await dialog('Write the report')).getByRole('button', { name: 'Close' }));
+    // A slider has no click of its own for a keyboard, so Enter and Space open it as a tap does.
+    for (const key of ['{Enter}', ' ']) {
+      moved.focus();
+      await userEvent.keyboard(key);
+      await userEvent.click(within(await taskPopup('Write the report')).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    }
     await userEvent.click(moved);
-    expect(await dialog('Write the report')).toBeVisible();
+    await taskPopup('Write the report');
   });
 
   it('on phone, a finger that moves before the hold scrolls instead, and a hold let go in place opens nothing', async () => {
@@ -1184,6 +1238,7 @@ describe('moving a block on the timeline', () => {
     fireEvent.pointerMove(window, { clientY: 360 });
     fireEvent.pointerUp(window, { clientY: 360 });
     expect(await saved(t)).toMatchObject({ start: at('16:00') });
+    expect(screen.queryByRole('dialog')).toBeNull();
 
     await press(el, 'phone');
     expect(el).toHaveClass('lifted');
@@ -1194,7 +1249,65 @@ describe('moving a block on the timeline', () => {
     // A tap a moment later opens it as before.
     await wait(450);
     await userEvent.click(el);
-    expect(await dialog('Write the report')).toBeVisible();
+    await taskPopup('Write the report');
+  });
+
+  it('on phone, a short tap opens the task and moves nothing, and a hold lifts it with a buzz where the phone has one', async () => {
+    const vibrate = vi.fn();
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+    try {
+      const t = await open(day, { layout: 'phone' });
+      const el = await report(undefined, 'slider');
+      fireEvent.pointerDown(el, { clientY: 300, button: 0 });
+      await wait(100);
+      fireEvent.pointerUp(window, { clientY: 300 });
+      fireEvent.click(el);
+      await taskPopup('Write the report');
+      expect(el).not.toHaveClass('lifted');
+      expect(vibrate).not.toHaveBeenCalled();
+      await userEvent.click(within(await dialog('Write the report')).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+      // Held, then moved: it drags, and opens nothing.
+      await drag(el, 11, 'phone');
+      fireEvent.click(el);
+      expect(vibrate).toHaveBeenCalledOnce();
+      expect(await screen.findByText('Write the report is now 4:15pm to 5:15pm.')).toBeVisible();
+      expect(await saved(t)).toMatchObject({ start: at('16:15'), end: at('17:15') });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      Reflect.deleteProperty(navigator, 'vibrate');
+    }
+  });
+
+  describe('on desktop', () => {
+    it('a press that moves less than a few pixels is still a click: it opens the task, and nothing moves', async () => {
+      const t = await open(day);
+      const el = await report();
+      // 4px is 8 minutes at this zoom, which would round to a quarter hour if it counted as a drag.
+      fireEvent.pointerDown(el, { clientX: 100, clientY: 300, button: 0 });
+      fireEvent.pointerMove(window, { clientX: 102, clientY: 304 });
+      expect(el).not.toHaveClass('lifted');
+      fireEvent.pointerUp(window, { clientX: 102, clientY: 304 });
+      fireEvent.click(el);
+      await taskPopup('Write the report');
+      expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') });
+      expect(screen.queryByText(/^Write the report is now/)).toBeNull();
+    });
+
+    it('a press that moves past the threshold drags, and opens nothing even let go where it started', async () => {
+      const t = await open(day);
+      const el = await report();
+      fireEvent.pointerDown(el, { clientX: 100, clientY: 300, button: 0 });
+      fireEvent.pointerMove(window, { clientX: 108, clientY: 300 });
+      expect(el).toHaveClass('lifted');
+      fireEvent.pointerMove(window, { clientX: 100, clientY: 300 });
+      fireEvent.pointerUp(window, { clientX: 100, clientY: 300 });
+      fireEvent.click(el);
+      expect(el).not.toHaveClass('lifted');
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') });
+    });
   });
 });
 

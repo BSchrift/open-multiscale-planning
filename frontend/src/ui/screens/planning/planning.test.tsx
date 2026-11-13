@@ -7,6 +7,7 @@ import type { Writer } from '../../../core/records';
 import { runSync } from '../../../core/sync';
 import { fakeSyncServer } from '../../../core/sync-testing';
 import { openTestDb } from '../../../platform/node-sqlite';
+import { planningToPlace } from '../../components/planning/usePlanning';
 import { openPlanning, seedWeek } from './testing';
 
 afterEach(cleanup);
@@ -281,6 +282,16 @@ describe('the Review step', () => {
       const next = await screen.findByRole('region', { name: 'Next planning' });
       await userEvent.click(within(next).getByRole('button', { name: 'Choose a time to plan the week after' }));
       expect(await screen.findByRole('dialog', { name: 'When will you plan the week after?' })).toBeVisible();
+    });
+
+    it('Choose another time goes to Week to place the block, and Week comes back to this week of planning after', async () => {
+      const t = await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
+      await userEvent.click(within(await screen.findByRole('region', { name: 'Next planning' })).getByRole('button', { name: 'Choose a time to plan the week after' }));
+      const sheet = await screen.findByRole('dialog', { name: 'When will you plan the week after?' });
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Choose another time' }));
+      const route = t.nav().route;
+      expect(route).toMatchObject({ area: 'week', params: { place: 'planning:week:2026-11-16' } });
+      expect(planningToPlace(route.params)).toMatchObject({ for: '2026-11-16', minutes: 30, flow: '2026-11-09' });
     });
   });
 

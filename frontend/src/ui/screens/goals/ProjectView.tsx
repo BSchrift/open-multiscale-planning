@@ -23,7 +23,7 @@ import { closeTask, undoProjectChange } from '../../../core/tasks';
 import type { Milestone, Objective, Task } from '../../../core/types';
 import { useShowCompleted } from '../../app/showCompleted';
 import { useApp, useMutation } from '../../app/store';
-import { CloseProject, diamondFor, doneDiamond, GoalSelect, MilestoneEditor, OverdueFix, TaskEditor, usePlanChange } from '../../components/editors';
+import { CloseProject, diamondFor, doneDiamond, GoalSelect, MilestoneEditor, OverdueFix, TaskEditor, useLeave, usePlanChange } from '../../components/editors';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
@@ -370,8 +370,9 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
 }
 
 /**
- * A dialog whose fields change nothing until Save, which writes them in one go; Cancel or Esc drops them. Pause,
- * Finish and Drop act at once, as they do elsewhere, each with its Undo.
+ * A dialog whose fields change nothing until Save, which writes them in one go, with Undo; Cancel drops them, and Esc
+ * or the backdrop does when nothing has changed. Pause, Finish and Drop act at once, as they do elsewhere, each with
+ * its Undo.
  */
 function ProjectSettings(props: {
   plan: ProjectPlan;
@@ -404,6 +405,11 @@ function ProjectSettings(props: {
     setEdits({ ...edits, ...fields });
     setError('');
   };
+  const { saveRef, leave } = useLeave(
+    Object.entries(edits).some(([k, v]) => v !== live[k as keyof typeof live]),
+    props.onClose,
+    setError,
+  );
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -418,11 +424,11 @@ function ProjectSettings(props: {
     if (!moved && !Object.keys(fields).length) return props.onClose();
     if ('objective_id' in fields) props.onMoved?.(form.objective_id);
     const writes = [{ type: 'project' as const, id: project.id, fields }, ...(moved ? moveDone(plan, end, ctx, 'start' in fields ? start : undefined).writes : [])];
-    if (await apply(() => ({ writes }))) props.onClose();
+    if (await apply(() => ({ writes }), { message: `Saved ${title}.` })) props.onClose();
   };
 
   return (
-    <Sheet label="Project settings" tall onClose={props.onClose}>
+    <Sheet label="Project settings" tall onClose={leave}>
       <form className="stack8 editor" onSubmit={save}>
         <h2>Project settings</h2>
         <label className="popfield">
@@ -449,7 +455,7 @@ function ProjectSettings(props: {
           </div>
         )}
         <div className="row">
-          <button className={`${btn} pri`} type="submit">
+          <button ref={saveRef} className={`${btn} pri`} type="submit">
             Save
           </button>
           <button className={btn} type="button" onClick={props.onClose}>

@@ -109,6 +109,24 @@ describe('the task popup', () => {
     expect(await t.db.all('SELECT * FROM outbox')).toEqual(before);
   });
 
+  for (const layout of ['desktop', 'phone'] as const) {
+    it(`with changes, Esc, Close and the backdrop keep it open and say so (${layout})`, async () => {
+      const { t, close } = await open('t1', { layout });
+      const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+      fireEvent.change(within(popup).getByRole('slider', { name: 'Time estimate' }), { target: { value: String(EST_STEPS.indexOf(180)) } });
+      await userEvent.keyboard('{Escape}');
+      expect(within(popup).getByRole('alert')).toHaveTextContent("Your changes aren't saved. Save them, or Cancel to drop them.");
+      expect(within(popup).getByRole('button', { name: 'Save' })).toHaveFocus();
+      // Desktop's close icon, phone's backdrop.
+      await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(close).not.toHaveBeenCalled();
+      expect((await record(t, 't1'))?.estimate_min).toBe(120);
+      await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
+      expect(close).toHaveBeenCalledTimes(1);
+      expect((await record(t, 't1'))?.estimate_min).toBe(120);
+    });
+  }
+
   it('wants a name', async () => {
     const { t, close } = await open('t1');
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });

@@ -233,6 +233,15 @@ describe('A first plan', () => {
       });
       await userEvent.click(await screen.findByRole('button', { name: 'Change' }));
       fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-11-10' } });
+      if (layout === 'phone') {
+        // Its sheet keeps dates typed but not set.
+        await userEvent.keyboard('{Escape}');
+        expect(screen.getByRole('alert')).toHaveTextContent("These dates aren't set yet. Set them, or Cancel to drop them.");
+        await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByLabelText('Starts')).toBeNull();
+        await userEvent.click(screen.getByRole('button', { name: 'Change' }));
+        fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-11-10' } });
+      }
       await userEvent.click(screen.getByRole('button', { name: 'Set dates' }));
       expect(screen.getByRole('alert')).toHaveTextContent('Start today or earlier.');
       fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-11-02' } });
@@ -474,7 +483,7 @@ describe('Planning ahead', () => {
       expect(await screen.findByRole('textbox', { name: 'Anything to do differently this stretch? (optional)' })).toHaveValue('Fewer projects');
     });
 
-    it('shows each practice as a summary, and Edit opens its fields in place until Done', async () => {
+    it('shows each practice as a summary, and Edit opens its fields in place until Save or Cancel', async () => {
       const { t } = await flow(layout, 'practices');
       expect(await screen.findByRole('heading', { name: 'Step 2 of 5, Practices. Your practices' })).toBeVisible();
       expect(screen.getByText('Stretch')).toBeVisible();
@@ -484,28 +493,61 @@ describe('Planning ahead', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch' }));
       const editor = screen.getByRole('group', { name: 'Edit Stretch' });
-      expect(within(editor).getByRole('button', { name: 'Done' })).toHaveFocus();
+      expect(editor).toHaveFocus();
       const name = within(editor).getByRole('textbox', { name: 'Name' });
       await userEvent.clear(name);
       await userEvent.type(name, 'Stretch and breathe');
-      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch and breathe'));
-      await userEvent.selectOptions(within(editor).getByRole('combobox', { name: 'Goal for Stretch and breathe' }), 'Run a 10k');
-      expect(await screen.findByText('Stretch and breathe now under Run a 10k.', { selector: ':not(.sr)' })).toBeVisible();
+      await userEvent.selectOptions(within(editor).getByRole('combobox', { name: 'Goal for Stretch' }), 'Run a 10k');
+      // Pause acts at once; the fields wait for Save.
       await userEvent.click(within(editor).getByRole('button', { name: 'Pause' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('paused'));
-      await userEvent.click(within(editor).getByRole('button', { name: 'Done' }));
+      expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch' });
+      expect((await record(t, 'practice', 'pr1'))?.objective_id ?? null).toBeNull();
+      await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
 
+      expect(await screen.findByText('Saved Stretch and breathe.', { selector: ':not(.sr)' })).toBeVisible();
+      expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch and breathe', objective_id: 'g2' });
       expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
       expect(screen.getByText('Stretch and breathe')).toBeVisible();
       expect(screen.getByText('Goal: Run a 10k')).toBeVisible();
       expect(screen.getByText('Paused')).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Edit Stretch and breathe' })).toHaveFocus();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Stretch and breathe' })).toHaveFocus());
 
-      // Esc closes it too.
+      // Esc closes it with nothing changed; with changes it stays open and says so, and Cancel drops them.
       await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch and breathe' }));
       await userEvent.keyboard('{Escape}');
       expect(screen.queryByRole('group', { name: 'Edit Stretch and breathe' })).toBeNull();
       expect(screen.getByRole('button', { name: 'Edit Stretch and breathe' })).toHaveFocus();
+      await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch and breathe' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), ' slowly{Escape}');
+      expect(screen.getByRole('alert')).toHaveTextContent("Your changes aren't saved. Save them, or Cancel to drop them.");
+      expect(screen.getByRole('button', { name: 'Save' })).toHaveFocus();
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('group', { name: 'Edit Stretch and breathe' })).toBeNull();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Stretch and breathe' })).toHaveFocus());
+      expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch and breathe');
+
+      // The save has its Undo with the rest of planning's changes.
+      await userEvent.click(undoButton('Saved Stretch and breathe.'));
+      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch'));
+      expect((await record(t, 'practice', 'pr1'))?.objective_id ?? null).toBeNull();
+    });
+
+    it('with one practice open and changed, Edit on another keeps it open and says so', async () => {
+      await flow(layout, 'practices', {
+        seed: async (w) => {
+          await seed(w);
+          await w.create('practice', { title: 'Read', target_min: 20, per: 'day', state: 'active' }, 'pr2');
+        },
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit Stretch' }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), ' daily');
+      await userEvent.click(screen.getByRole('button', { name: 'Edit Read' }));
+      expect(screen.getByRole('group', { name: 'Edit Stretch' })).toBeVisible();
+      expect(screen.getByRole('alert')).toHaveTextContent("Your changes aren't saved.");
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Edit Read' }));
+      expect(screen.getByRole('group', { name: 'Edit Read' })).toHaveFocus();
     });
 
     it('makes a new goal beside a practice’s goal and links it in one write, with Undo', async () => {
@@ -523,20 +565,21 @@ describe('Planning ahead', () => {
       expect((await getRecord(t.db, 'objective', goal!))?.deleted_at).toBeTruthy();
     });
 
-    it('a preferred time typed but not added is kept when Done or Esc closes the editor', async () => {
+    it('a preferred time typed but not added is kept on Save, and dropped on Cancel', async () => {
       const { t } = await flow(layout, 'practices');
       await userEvent.click(await screen.findByRole('button', { name: 'Edit Stretch' }));
       let editor = screen.getByRole('group', { name: 'Edit Stretch' });
       fireEvent.change(within(editor).getByLabelText('New preferred time'), { target: { value: '18:30' } });
-      await userEvent.click(within(editor).getByRole('button', { name: 'Done' }));
+      await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('15m a day, every day, around 7am or 6:30pm')).toBeVisible();
       expect((await record(t, 'practice', 'pr1'))?.preferred_times).toEqual([420, 1110]);
 
       await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch' }));
       editor = screen.getByRole('group', { name: 'Edit Stretch' });
       fireEvent.change(within(editor).getByLabelText('New preferred time'), { target: { value: '06:00' } });
-      await userEvent.keyboard('{Escape}');
-      expect(await screen.findByText('15m a day, every day, around 6am or 7am or 6:30pm')).toBeVisible();
+      await userEvent.click(within(editor).getByRole('button', { name: 'Cancel' }));
+      expect(screen.getByText('15m a day, every day, around 7am or 6:30pm')).toBeVisible();
+      expect((await record(t, 'practice', 'pr1'))?.preferred_times).toEqual([420, 1110]);
     });
 
     it('ending a practice in its editor takes it off the list, with focus on Add practice', async () => {
@@ -695,7 +738,17 @@ describe('Planning ahead', () => {
     it('types a date, refusing a past one, and keeps Done last', async () => {
       const { t } = await flow(layout, 'projects');
       await userEvent.click(await screen.findByRole('button', { name: 'Change the date of First loaf, Jan 20' }));
-      const form = screen.getByRole('form', { name: 'Date for First loaf' });
+      let form = screen.getByRole('form', { name: 'Date for First loaf' });
+      // A date typed but not set stays on Esc, and Cancel drops it.
+      fireEvent.change(within(form).getByLabelText('Date for First loaf'), { target: { value: '2027-02-01' } });
+      within(form).getByLabelText('Date for First loaf').focus();
+      await userEvent.keyboard('{Escape}');
+      expect(within(form).getByRole('alert')).toHaveTextContent("This date isn't set yet. Set it, or Cancel to drop it.");
+      await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('form', { name: 'Date for First loaf' })).toBeNull();
+      expect((await record(t, 'milestone', 'm2'))?.due).toBe('2027-01-20');
+      await userEvent.click(screen.getByRole('button', { name: 'Change the date of First loaf, Jan 20' }));
+      form = screen.getByRole('form', { name: 'Date for First loaf' });
       fireEvent.change(within(form).getByLabelText('Date for First loaf'), { target: { value: '2026-10-01' } });
       await userEvent.click(within(form).getByRole('button', { name: 'Set date' }));
       expect(within(form).getByRole('alert')).toHaveTextContent('Pick today or a later date.');
@@ -803,6 +856,32 @@ describe('Planning ahead', () => {
       expect(within(overdue).getByRole('button', { name: 'Cancel finishing' })).toHaveFocus();
       await userEvent.click(within(overdue).getByRole('button', { name: 'Cancel finishing' }));
       expect(within(overdue).getByRole('button', { name: 'Finish Train for the race' })).toHaveFocus();
+    });
+
+    it('a project’s start date waits for Save, with Undo; with a change, Esc keeps it open and Cancel drops it', async () => {
+      const { t } = await flow(layout, 'projects');
+      const opener = await screen.findByRole('button', { name: 'Bake a sourdough loaf: Pause, Finish, Drop' });
+      await userEvent.click(opener);
+      let menu = screen.getByRole('dialog', { name: 'Bake a sourdough loaf' });
+      fireEvent.change(within(menu).getByLabelText('Start date'), { target: { value: '2026-10-05' } });
+      expect((await record(t, 'project', 'p1'))?.start).toBe('2026-10-01');
+      await userEvent.keyboard('{Escape}');
+      expect(within(menu).getByRole('alert')).toHaveTextContent("Your changes aren't saved. Save them, or Cancel to drop them.");
+      expect(within(menu).getByRole('button', { name: 'Save' })).toHaveFocus();
+      await userEvent.click(within(menu).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect((await record(t, 'project', 'p1'))?.start).toBe('2026-10-01');
+
+      await userEvent.click(opener);
+      menu = screen.getByRole('dialog', { name: 'Bake a sourdough loaf' });
+      expect(within(menu).getByLabelText('Start date')).toHaveValue('2026-10-01');
+      fireEvent.change(within(menu).getByLabelText('Start date'), { target: { value: '2026-10-05' } });
+      await userEvent.click(within(menu).getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Bake a sourdough loaf starts Oct 5.', { selector: ':not(.sr)' })).toBeVisible();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect((await record(t, 'project', 'p1'))?.start).toBe('2026-10-05');
+      await userEvent.click(undoButton('Bake a sourdough loaf starts Oct 5.'));
+      await waitFor(async () => expect((await record(t, 'project', 'p1'))?.start).toBe('2026-10-01'));
     });
 
     it('pauses a project from its title, which moves it to the later group', async () => {

@@ -70,7 +70,7 @@ export function NextPlanning(props: { week: LocalDate; began: Instant }) {
           </div>
         </>
       )}
-      {choosing && <PlanningTimes for={next} name={name} onClose={() => setChoosing(false)} />}
+      {choosing && <PlanningTimes for={next} name={name} flow={props.week} onClose={() => setChoosing(false)} />}
     </section>
   );
 }

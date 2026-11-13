@@ -35,6 +35,7 @@ import { slotInstants } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
+import type { RouteParams } from '../../app/registry';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
 
@@ -109,6 +110,24 @@ export function usePlanningTimes(p: PlanningFor) {
   };
 }
 
+/** Choose another time: planning taken to Week, to place by hand beside what's busy. */
+export interface PlanningPlace {
+  for: PlanningFor;
+  minutes: Minutes;
+  /** Both plans in one block: the week the stretch's block plans too. */
+  both?: LocalDate;
+  /** The best time offered, where the block waits first. */
+  at?: Slot;
+  /** The week of the planning flow it came from, which Place here and Cancel go back to. */
+  flow?: LocalDate;
+}
+
+/** Week's route params for placing it: place, as a task's Find a time has, and the rest as it was chosen. */
+export const placePlanningParams = (p: PlanningPlace): RouteParams => ({ place: planningId(p.for), planning: JSON.stringify(p) });
+
+/** What Week reads back from those params; null when it's placing a task, or nothing. */
+export const planningToPlace = (params: RouteParams): PlanningPlace | null => (params.planning ? (JSON.parse(params.planning) as PlanningPlace) : null);
+
 /** 'About 30m, a first guess.', 'About 30m, from your last 4 plans.' */
 export const estimateSource = (e: Estimate) => (e.guess ? ', a first guess.' : `, from your last ${e.from === 1 ? 'plan' : `${e.from} plans`}.`);
 
@@ -123,11 +142,16 @@ export function usePlanningActions() {
     if (reverse) toast.show(message, { undo: () => run((w) => applyPlanChange(w, reverse)) });
     return reverse;
   };
+  const schedule = (p: PlanningFor, slot: Slot) =>
+    undoable((w) => schedulePlanning(w, p, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`);
+  const both = (s: Both, week: LocalDate, slot: Slot) =>
+    undoable((w) => scheduleBoth(w, s, week, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`);
 
   return {
     pending,
-    schedule: (p: PlanningFor, slot: Slot) =>
-      undoable((w) => schedulePlanning(w, p, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`),
+    schedule,
+    /** Choose another time's block, placed on Week as the times sheet would schedule it. */
+    place: (p: PlanningPlace, slot: Slot) => (p.both && !isWeek(p.for) ? both(p.for, p.both, slot) : schedule(p.for, slot)),
     remove: (p: PlanningFor) =>
       undoable(
         (w) => deletePlanning(w, p, clock),
@@ -135,8 +159,7 @@ export function usePlanningActions() {
       ),
     skip: (week: LocalDate) => undoable((w) => skipWeek(w, week, clock), 'Skipped planning this week.'),
     /** Both plans in one block, the stretch's, covering the week. */
-    scheduleBoth: (s: Both, week: LocalDate, slot: Slot) =>
-      undoable((w) => scheduleBoth(w, s, week, slotInstants(slot, zone), clock), `Planning scheduled for ${shortTime(slot)}.`),
+    scheduleBoth: both,
     removeBoth: (s: Both, week: LocalDate) =>
       undoable((w) => deleteBoth(w, s, week, clock), `Planning for ${formatDate(s.stretch.start)} to ${formatDate(s.stretch.end)} and the week of ${formatDate(week)} deleted.`),
     startBoth: async (s: Both, week: LocalDate, minutes: Minutes) => {

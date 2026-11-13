@@ -7,6 +7,7 @@ import { getRecord, listRecords, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { Layout } from '../../app/registry';
 import { renderScreen } from '../../app/testing';
+import { planningToPlace } from '../../components/planning/usePlanning';
 import type { HarnessOptions } from '../../app/testing';
 
 afterEach(cleanup);
@@ -118,16 +119,22 @@ describe("next week's planning row", () => {
     expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-07', '09:00'), end: at('2026-11-07', '09:45') }]);
   });
 
-  it('Choose another time takes any day and time', async () => {
-    const t = await open();
+  it.each(['desktop', 'phone'] as Layout[])('on %s, Choose another time opens Week with the block waiting at its best time, at the length chosen, to place by hand', async (layout) => {
+    const t = await open({ layout });
     await userEvent.click(within(await row()).getByRole('button', { name: 'Choose a time to plan next week' }));
     const sheet = await screen.findByRole('dialog', { name: 'When will you plan next week?' });
+    // No day and time fields: the calendar is where another time is chosen, beside what's busy.
+    expect(within(sheet).queryByLabelText('Day')).toBeNull();
+    expect(within(sheet).queryByLabelText('Time')).toBeNull();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Change length' }));
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'Length' }), { target: { value: '45' } });
     await userEvent.click(within(sheet).getByRole('button', { name: 'Choose another time' }));
-    fireEvent.change(within(sheet).getByLabelText('Day'), { target: { value: '2026-11-08' } });
-    fireEvent.change(within(sheet).getByLabelText('Time'), { target: { value: '19:15' } });
-    await userEvent.click(within(sheet).getByRole('button', { name: 'Schedule planning for Sunday, Nov 8 at 7:15pm' }));
-    expect(await screen.findByText('Planning scheduled for Sun 7:15pm.')).toBeVisible();
-    expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-08', '19:15'), end: at('2026-11-08', '19:45') }]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const route = t.nav().route;
+    expect(route).toMatchObject({ area: 'week', params: { place: NEXT_ID } });
+    expect(planningToPlace(route.params)).toEqual({ for: NEXT, minutes: 45, at: { date: '2026-11-06', start: 17 * 60, end: 17 * 60 + 45 } });
+    // Nothing is placed until Place here on Week.
+    expect(await blocksOf(t, NEXT_ID)).toEqual([]);
   });
 
   it('stays away while the week is planned already', async () => {

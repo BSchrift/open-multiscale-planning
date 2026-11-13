@@ -17,7 +17,7 @@ import type { Fields, PlanProgress, Practice } from '../../../core/types';
 import { useNav, useOverlay } from '../../app/nav';
 import type { Layout } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
-import { PracticeAdd, PracticeFields, practiceRule, ProjectAdd } from '../../components/editors';
+import { PracticeAdd, PracticeFields, practiceRule, ProjectAdd, useLeave } from '../../components/editors';
 import { SheetOnPhone } from '../../components/editors/SheetOnPhone';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { PlusIcon } from '../../components/icons';
@@ -102,11 +102,25 @@ function StartStep(props: { data: PlanData; st: Stretch; phone: boolean; head: H
   );
 }
 
-function NextDates(props: { data: PlanData; st: Stretch; first: boolean; held: PlanChange | null; onClose(): void }) {
+function NextDates(props: {
+  data: PlanData;
+  st: Stretch;
+  first: boolean;
+  held: PlanChange | null;
+  onClose(): void;
+  /** Set to its way out for the phone's sheet, which keeps changed dates rather than dropping them. */
+  leaveRef: { current: (() => boolean) | null };
+}) {
   const on = useToday();
   const [start, setStart] = useState(props.st.start);
   const [end, setEnd] = useState(props.st.end);
   const [error, setError] = useState('');
+  const { saveRef, leave } = useLeave(start !== props.st.start || end !== props.st.end, props.onClose, setError, "These dates aren't set yet. Set them, or Cancel to drop them.");
+  const { leaveRef } = props;
+  useEffect(() => {
+    leaveRef.current = leave;
+    return () => void (leaveRef.current = null);
+  });
   const save = useMutation(async (w, to: Stretch) => {
     // A first plan's held milestones are saved first, so they follow its new start too.
     if (props.held) await applyPlanChange(w, props.held);
@@ -133,11 +147,11 @@ function NextDates(props: { data: PlanData; st: Stretch; first: boolean; held: P
         <input className="field datefield" type="date" min={start} value={end} onChange={(event) => (setEnd(event.target.value), setError(''))} />
       </label>
       <div className="row">
-        <button className="btn sm pri" type="submit">
+        <button ref={saveRef} className="btn sm pri" type="submit">
           Set dates
         </button>
         <button className="btn sm" type="button" onClick={props.onClose}>
-          Close
+          Cancel
         </button>
       </div>
       {error && (
@@ -156,7 +170,11 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const addRef = useRef<HTMLButtonElement>(null);
-  // The practice whose Edit takes focus once it's on screen: after Done, or after adding, when the new one arrives.
+  const cardRef = useRef<HTMLDivElement>(null);
+  // The open editor's way out other than Save or Cancel, so opening another keeps its unsaved changes.
+  const leave = useRef<(() => boolean) | null>(null);
+  // The practice whose Edit takes focus once it's on screen: after Save or Cancel, or after adding, when the new one
+  // arrives.
   const focusEdit = useRef<string | null>(null);
   const editRef = (id: string) => (el: HTMLButtonElement | null) => {
     if (el && focusEdit.current === id) {
@@ -168,6 +186,14 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
     focusEdit.current = id;
     setEditing(null);
   };
+  const edit = (id: string) => {
+    if (leave.current && !leave.current()) return;
+    focusEdit.current = null;
+    setEditing(id);
+  };
+  // The editor takes focus as it opens, in place of the Edit that opened it.
+  useEffect(() => cardRef.current?.focus(), [editing]);
+  const write = (id: string) => (text: string, change: PlanChange) => act(`edit-${id}`, text, (w) => applyPlanChange(w, change));
   const practices = data.practices.filter((p) => p.state !== 'ended');
   const goalLine = (p: Practice) => {
     const goal = data.objectives.find((g) => g.id === p.objective_id);
@@ -179,17 +205,25 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
       <StepHead head={props.head}>Your practices</StepHead>
       {practices.map((p) =>
         editing === p.id ? (
-          <div key={p.id} className="card stack8" role="group" aria-label={`Edit ${p.title}`} onKeyDown={(event) => event.key === 'Escape' && close(p.id)}>
-            <div className="between">
-              <span className="strong">{p.title}</span>
-              <button className={btn} type="button" autoFocus onClick={() => close(p.id)}>
-                Done
-              </button>
-            </div>
+          <div
+            key={p.id}
+            ref={cardRef}
+            className="card stack8"
+            role="group"
+            aria-label={`Edit ${p.title}`}
+            tabIndex={-1}
+            onKeyDown={(event) => event.key === 'Escape' && leave.current?.()}
+          >
+            <span className="strong">{p.title}</span>
             <PracticeFields
               practice={p}
               goals={data.objectives}
-              goalField={<GoalField item={{ type: 'practice', id: p.id, title: p.title, goal: p.objective_id ?? null }} goals={data.objectives} act={act} />}
+              goalField={(value, onChange) => (
+                <GoalField item={{ type: 'practice', id: p.id, title: p.title, goal: p.objective_id ?? null }} goals={data.objectives} act={act} value={value} onChange={onChange} />
+              )}
+              write={write(p.id)}
+              leaveRef={leave}
+              onClose={() => close(p.id)}
               onEnded={() => {
                 setEditing(null);
                 addRef.current?.focus();
@@ -205,7 +239,7 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
               <div className="small quiet">{practiceRule(p)}</div>
               <div className="small quiet">{goalLine(p)}</div>
             </div>
-            <button ref={editRef(p.id)} className={btn} type="button" aria-label={`Edit ${p.title}`} onClick={() => setEditing(p.id)}>
+            <button ref={editRef(p.id)} className={btn} type="button" aria-label={`Edit ${p.title}`} onClick={() => edit(p.id)}>
               Edit
             </button>
           </div>
@@ -537,6 +571,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const [menu, setMenu] = useState(false);
   const [adding, setAdding] = useState<Exclude<AddKind, 'task'> | null>(null);
   const [changing, setChanging] = useState(false);
+  const leaveDates = useRef<(() => boolean) | null>(null);
   // The Inbox as Process opened on it, so the step can say what it sorted once Process closes.
   const [ran, setRan] = useState<string[] | null>(null);
   const processing = useRef(false);
@@ -802,7 +837,9 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
       )}
     </>
   );
-  const nextDates = changing && <NextDates data={data} st={st} first={first} held={held?.change ?? null} onClose={() => setChanging(false)} />;
+  const nextDates = changing && (
+    <NextDates data={data} st={st} first={first} held={held?.change ?? null} onClose={() => setChanging(false)} leaveRef={leaveDates} />
+  );
   const fitBar = step !== 'finish' && <FitBar fit={fit} />;
   const welcomeLine = welcome && (
     <div className="planundo welcome">
@@ -854,7 +891,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
           {fitBar}
         </div>
         {changing && (
-          <Sheet label="Change dates" onClose={() => setChanging(false)}>
+          <Sheet label="Change dates" onClose={() => (leaveDates.current ? leaveDates.current() : setChanging(false))}>
             {nextDates}
           </Sheet>
         )}

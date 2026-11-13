@@ -134,7 +134,7 @@ test('adds a goal and a project, finishes it after asking, and restores it from 
   await page.screenshot({ path: info.outputPath('goals.png'), fullPage: true });
 });
 
-test('Project settings open in a dialog: Esc drops changes, Save applies them, and Finish and Drop are red', async ({ page }, info) => {
+test('Project settings open in a dialog: Esc keeps changes, Cancel drops them, Save applies them, and Finish and Drop are red', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await openGoals(page);
   await openProject(page, phone);
@@ -160,6 +160,10 @@ test('Project settings open in a dialog: Esc drops changes, Save applies them, a
 
   await dialog.getByLabel('Name').fill('Bake two loaves');
   await page.keyboard.press('Escape');
+  await expect(dialog.getByRole('alert')).toHaveText("Your changes aren't saved. Save them, or Cancel to drop them.");
+  await expect(dialog.getByRole('button', { name: 'Save' })).toBeFocused();
+  if (phone) await expectTapTarget(dialog.getByRole('button', { name: 'Cancel' }));
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(settings).toBeFocused();
 
@@ -171,6 +175,7 @@ test('Project settings open in a dialog: Esc drops changes, Save applies them, a
   await page.screenshot({ path: info.outputPath('project-settings.png') });
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('Saved Bake two loaves.')).toBeVisible();
   await expect(page.getByText('Nov 2: Done moved to Jan 15.')).toBeVisible();
   if (phone) await expect(page.getByRole('heading', { level: 1, name: 'Bake two loaves' })).toBeVisible();
   else await expect(page.getByRole('button', { name: /^Bake two loaves/ })).toBeVisible();
@@ -213,11 +218,19 @@ test('edits a practice with no goal and links it to one', async ({ page }, info)
   await openGoals(page);
   await page.getByRole('button', { name: phone ? 'Practices with no goal' : 'Practices with no goal 1 practice', exact: true }).click();
   await page.getByRole('button', { name: /^Stretch/ }).click();
-  const scope = phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page;
+  const scope = phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
   await expect(scope.getByRole('slider', { name: 'Target' })).toBeVisible();
   await scope.getByLabel('Goal', { exact: true }).selectOption('Run a 10k');
-  if (phone) await scope.getByRole('button', { name: 'Done' }).click();
+  // Nothing changes until Save.
+  await expect(page.getByRole('button', { name: /^Run a 10k/ })).toContainText('Nothing active.');
+  if (phone) {
+    await expectTapTarget(scope.getByRole('button', { name: 'Save' }));
+    await expectTapTarget(scope.getByRole('button', { name: 'Cancel' }));
+  }
+  await scope.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved Stretch.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Run a 10k/ })).not.toContainText('Still a goal');
-  await page.getByRole('button', { name: /^Run a 10k/ }).click();
-  await expect(page.getByRole('button', { name: /^Stretch/ })).toBeVisible();
+  // The practice moves under its goal, which opens, and focus follows it there.
+  await expect(page.getByRole('button', { name: /^Run a 10k/ })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button', { name: /^Stretch/ })).toBeFocused();
 });

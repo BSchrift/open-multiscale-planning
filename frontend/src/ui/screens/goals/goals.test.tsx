@@ -241,7 +241,7 @@ describe('Goals', () => {
       await waitFor(async () => expect((await record(t, 'project', 'p1'))?.objective_id).toBeNull());
     });
 
-    it('opens Project settings as a dialog: Save applies, Cancel and Esc discard, and focus comes back', async () => {
+    it('opens Project settings as a dialog: Save applies with Undo, Cancel discards, Esc keeps changes, and focus comes back', async () => {
       const t = await project(layout);
       const open = await screen.findByRole('button', { name: 'Project settings' });
       await userEvent.click(open);
@@ -263,6 +263,12 @@ describe('Goals', () => {
       dialog = screen.getByRole('dialog', { name: 'Project settings' });
       expect(within(dialog).getByLabelText('Ends')).toHaveValue('2026-12-15');
       await userEvent.type(within(dialog).getByLabelText('Name'), ' twice{Escape}');
+      expect(within(dialog).getByRole('alert')).toHaveTextContent("Your changes aren't saved. Save them, or Cancel to drop them.");
+      expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveFocus();
+      expect((await record(t, 'project', 'p1'))?.title).toBe('Bake a sourdough loaf');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await userEvent.click(open);
+      await userEvent.keyboard('{Escape}');
       expect(screen.queryByRole('dialog')).toBeNull();
       await waitFor(() => expect(open).toHaveFocus());
       expect((await record(t, 'project', 'p1'))?.title).toBe('Bake a sourdough loaf');
@@ -292,6 +298,10 @@ describe('Goals', () => {
       // The end date's move is logged, with Undo, as moving it anywhere else is.
       expect(await screen.findByText('Nov 2: Done moved to Jan 15.')).toBeVisible();
       await waitFor(() => expect(open).toHaveFocus());
+      const saved = screen.getByText('Saved Bake two loaves.').closest('.toast') as HTMLElement;
+      expect(saved).toBeVisible();
+      await userEvent.click(within(saved).getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await record(t, 'project', 'p1')).toMatchObject({ title: 'Bake a sourdough loaf', objective_id: 'g1', end: '2026-12-15' }));
     });
 
     it('Project settings shows and checks the project as it is now, after a sync while it is open', async () => {
@@ -1071,12 +1081,13 @@ describe('Goals', () => {
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       expect(screen.getByText(/0m of 1h 45m this week/)).toBeVisible();
       fireEvent.change(screen.getByRole('slider', { name: 'Target' }), { target: { value: '30' } });
-      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.target_min).toBe(30));
       await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('paused'));
       await userEvent.selectOptions(screen.getByLabelText('Goal'), 'Run a 10k');
-      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.objective_id).toBe('g2'));
-      expect(within(screen.getByRole('button', { name: /Run a 10k/ })).queryByText(/Still a goal/)).toBeNull();
+      expect((await record(t, 'practice', 'pr1'))?.target_min).toBe(15);
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ target_min: 30, objective_id: 'g2' }));
+      expect(within(screen.getByRole('button', { name: /^Run a 10k/ })).queryByText(/Still a goal/)).toBeNull();
     });
 
     it('on phone: tapping opens its editor; add one with no goal; End practice takes its sessions ahead off, with Undo', async () => {
@@ -1089,15 +1100,16 @@ describe('Goals', () => {
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       const sheet = screen.getByRole('dialog', { name: 'Edit practice' });
       await userEvent.clear(within(sheet).getByLabelText('Name'));
-      expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch');
       await userEvent.type(within(sheet).getByLabelText('Name'), 'Stretch daily');
-      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch daily'));
       fireEvent.change(within(sheet).getByLabelText('New preferred time'), { target: { value: '18:30' } });
       await userEvent.click(within(sheet).getByRole('button', { name: 'Add time' }));
-      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.preferred_times).toEqual([420, 1110]));
       await userEvent.click(within(sheet).getByRole('button', { name: 'Remove 7am' }));
-      await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.preferred_times).toEqual([1110]));
-      await userEvent.click(within(sheet).getByRole('button', { name: 'End practice' }));
+      expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch');
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+      await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', preferred_times: [1110] }));
+      await userEvent.click(screen.getByRole('button', { name: /^Stretch daily/ }));
+      const reopened = screen.getByRole('dialog', { name: 'Edit practice' });
+      await userEvent.click(within(reopened).getByRole('button', { name: 'End practice' }));
       expect(await screen.findByText('Stretch daily ended. Its history stays.')).toBeVisible();
       expect((await record(t, 'practice', 'pr1'))?.state).toBe('ended');
       expect((await getRecord(t.db, 'time_block', 'later'))?.cancelled).toBe(true);

@@ -179,6 +179,29 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
   const loosePractices = practices.filter((p) => homeOf(p.objective_id) === NO_GOAL);
 
   const toggle = (id: string) => setOpen({ ...open, [id]: !open[id] });
+  // Each open practice's way out other than Save or Cancel, so its row's toggle keeps unsaved changes rather than
+  // dropping them.
+  // shortcut: folding the goal around an open practice, or leaving Goals, still drops them; guard those too if anyone
+  // loses typing that way.
+  const leaves = useRef(new Map<string, { current: (() => boolean) | null }>());
+  const leaveOf = (id: string) => {
+    let leave = leaves.current.get(id);
+    if (!leave) leaves.current.set(id, (leave = { current: null }));
+    return leave;
+  };
+  const closePractice = (id: string, saved?: Fields<'practice'>) => {
+    const key = `practice:${id}`;
+    const home = saved && 'objective_id' in saved ? homeOf(saved.objective_id) : null;
+    const moved = !!home && home !== homeOf(practices.find((p) => p.id === id)?.objective_id);
+    const was = heads.current.get(key);
+    setPracticeOpen(null);
+    // A new goal moves the row under it, so that opens and focus follows the row there, once it has arrived.
+    setOpen((o) => ({ ...o, [key]: false, ...(home ? { [home]: true } : {}) }));
+    land(() => {
+      const head = heads.current.get(key);
+      return moved && head === was ? null : head;
+    });
+  };
 
   // A link to a practice or goal, such as from what an Inbox item became, opens it.
   useEffect(() => {
@@ -213,7 +236,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
     if (phone) {
       return (
         <div key={p.id}>
-          <button className="projbtn" type="button" onClick={() => setPracticeOpen(p.id)}>
+          <button ref={headRef(`practice:${p.id}`)} className="projbtn" type="button" onClick={() => setPracticeOpen(p.id)}>
             <span className="grow">
               <span className="lineblock">
                 {p.title} {paused}
@@ -228,10 +251,17 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
       );
     }
     const key = `practice:${p.id}`;
+    const leave = leaveOf(p.id);
     return (
       <div key={p.id} className="prow">
         <div className="prowhead">
-          <button className="pmain" type="button" aria-expanded={!!open[key]} onClick={() => toggle(key)}>
+          <button
+            ref={headRef(key)}
+            className="pmain"
+            type="button"
+            aria-expanded={!!open[key]}
+            onClick={() => (open[key] && leave.current ? leave.current() : toggle(key))}
+          >
             <span className="qcaret" aria-hidden="true">
               {open[key] ? '▾' : '▸'}
             </span>
@@ -244,7 +274,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
         {open[key] && (
           <div className="detail stack8">
             <div className="small quiet">{practiceRule(p)}</div>
-            <PracticeFields practice={p} goals={data.objectives} />
+            <PracticeFields practice={p} goals={data.objectives} label={`Edit ${p.title}`} leaveRef={leave} onClose={(saved) => closePractice(p.id, saved)} />
           </div>
         )}
       </div>
@@ -503,7 +533,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
           {!loosePractices.length && !looseProjects.length && addForms(null)}
         </>
       )}
-      {sheetPractice && <PracticeSheet practice={sheetPractice} goals={data.objectives} onClose={() => setPracticeOpen(null)} />}
+      {sheetPractice && <PracticeSheet practice={sheetPractice} goals={data.objectives} onClose={(saved) => closePractice(sheetPractice.id, saved)} />}
       {deleting && <DeleteGoal goal={deleting} onClose={() => setDeleting(null)} onDeleted={() => setRenaming(null)} />}
       {archivedCount > 0 && (
         <div className="stack8 archived">

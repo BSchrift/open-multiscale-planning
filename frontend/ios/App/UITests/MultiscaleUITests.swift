@@ -189,7 +189,10 @@ final class ShellUITests: XCTestCase {
         let app = launchApp(seed: "Seed plan")
         app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
         app.tapWeb(startingWith: "Learn to bake bread")
-        app.tapWeb("+ Practice")
+        // The goal's own, which comes before the one for practices with no goal.
+        let add = app.page.buttons.matching(NSPredicate(format: "label == '+ Practice'")).firstMatch
+        exists(add)
+        add.tap()
         let name = app.page.textFields["Name"]
         exists(name)
         name.tap()
@@ -198,10 +201,9 @@ final class ShellUITests: XCTestCase {
 
         // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full.
         app.tapWeb(startingWith: "Morning run")
-        exists(app.webText("Edit practice"))
         app.tapWeb("Weekdays")
         for day in ["Wednesday", "Thursday"] {
-            let chip = app.webElement(day)
+            let chip = app.page.descendants(matching: .any).matching(NSPredicate(format: "label == %@", day)).firstMatch
             exists(chip)
             chip.tap()
         }

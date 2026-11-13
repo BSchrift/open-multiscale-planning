@@ -203,7 +203,9 @@ test('every screen of a lived-in week renders cleanly', async ({ page }, info) =
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.waitForTimeout(150);
   await page.screenshot({ path: info.outputPath('process.png'), scale: 'css' });
+  // On desktop focus starts in Add to, which the first Esc leaves.
   await page.keyboard.press('Escape');
+  if (!phone) await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: phone ? 'Capture a task' : /^Capture/ }).first().click();
   await expect(page.getByRole('dialog', { name: 'Capture' })).toBeVisible();
@@ -275,6 +277,7 @@ test('the links between areas reach their page and come back', async ({ page }, 
   await shown('Inbox').getByRole('button', { name: phone ? /^Order more coffee beans/ : 'Assign' }).nth(phone ? 0 : 1).click();
   await expect(page.getByRole('dialog')).toContainText('Order more coffee beans');
   await page.keyboard.press('Escape');
+  if (!phone) await page.keyboard.press('Escape');
 
   // Settings to the cadence, edited in place on the Plan page.
   await tab(page, phone, 'Settings');

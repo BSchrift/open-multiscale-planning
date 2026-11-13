@@ -33,6 +33,13 @@ private extension XCUIApplication {
         MultiscaleUITests.exists(button, file: file, line: line)
         button.tap()
     }
+    /// Any kind of element by the start of its label, for one WebKit doesn't call a button: a row of a list, or a button
+    /// that opens a dialog, such as Process's Add to.
+    func tapWeb(anyStartingWith prefix: String, file: StaticString = #filePath, line: UInt = #line) {
+        let row = page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        MultiscaleUITests.exists(row, file: file, line: line)
+        row.tap()
+    }
     /// Taps, then waits for what the tap brings. On CI's iOS 26 Simulator a tap on the page is now and then lost, most
     /// often the first after a launch, so a button still there a few seconds on is tapped again, as a person would.
     func tapWeb(_ label: String, until effect: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
@@ -164,12 +171,15 @@ final class ShellUITests: XCTestCase {
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 2 items")
         exists(app.webText("Buy a proofing basket"))
-        app.tapWeb("Bake a sourdough loaf")
-        exists(app.webText("Sent to Bake a sourdough loaf."))
+        // Add to opens a sheet of places, ready to search; a tap on one adds the item there.
+        app.tapWeb(anyStartingWith: "Add to a project or One offs")
+        app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        exists(app.webText("Added Buy a proofing basket to Bake a sourdough loaf."))
         choose("A starter that rises", in: "Milestone for Buy a proofing basket", app: app)
 
         exists(app.webText("Return the library books"))
-        app.tapWeb("One offs")
+        app.tapWeb(anyStartingWith: "Add to a project or One offs")
+        app.tapWeb(anyStartingWith: "One offs")
         exists(app.webText("Inbox clear"))
         app.tapWeb("Done")
 

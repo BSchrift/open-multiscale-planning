@@ -1,10 +1,10 @@
-// Schedule: the week's picked work and practices, one at a time, most pressing first. Each waits as a block at its
-// best time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here
+// Schedule: the week's practices, then its picked work, one at a time, most pressing first. Each waits as a block at
+// its best time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here
 // puts it on the week, taking any block it lands on off to place again, and a shorter block leaves the rest to place.
-// Desktop places on the week grid beside the list; phone compares days in a strip over one day, with the current task
-// in a dock.
+// Desktop places on the week grid beside the list, with the current task pinned above it under Now; phone compares days
+// in a strip over one day, with the current task in a dock. A task can be taken out of this week from the list.
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
 import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, weekday, weekRange } from '../../../../core/dates';
@@ -21,6 +21,7 @@ import { useApp, useMutation, useQuery } from '../../../app/store';
 import { KeepAsk } from '../../../components/editors/KeepAsk';
 import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
+import { Popover } from '../../../components/Popover';
 import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
 import { useFocusLanding } from '../../../components/useFocusLanding';
@@ -29,6 +30,7 @@ import type { GridBlock, GridGhost, PlacedBlock } from '../../../components/week
 import { DayStrip, PackedDay, weekFree } from '../../../components/week/DayStrip';
 import { DragDay } from '../../week/Phone';
 import { loadPlanning, weekModel } from '../model';
+import { pickChange } from '../pick/PickStep';
 import { scheduleModel } from './model';
 import type { SchedRow } from './model';
 import './schedule.css';
@@ -68,11 +70,18 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const [look, setLook] = useState<{ key: string; date: LocalDate } | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [practicesOpen, setPracticesOpen] = useState(false);
+  /** The task whose Remove from this week is asking first. */
+  const [removing, setRemoving] = useState<string | null>(null);
   const lenFrom = useRef<PlacedBlock | null>(null);
   const lenId = useId();
+  const groupId = useId();
   const land = useFocusLanding();
-  const listRef = useRef<HTMLOListElement>(null);
+  const nowRef = useRef<HTMLHeadingElement>(null);
   const noneRef = useRef<HTMLHeadingElement>(null);
+  const nowBox = useRef<HTMLElement>(null);
+  const listBox = useRef<HTMLDivElement>(null);
+  // Desktop: a row focused while scrolled under the pinned Now stops clear of it, so focus is never hidden behind it.
+  useLayoutEffect(() => listBox.current?.style.setProperty('--now-h', `${nowBox.current?.offsetHeight ?? 0}px`));
   // The app's toast sits under a phone flow, so phone says it above the dock, as Pick tasks does.
   const [flash, setFlash] = useState<{ text: string; undo?: () => Promise<unknown> } | null>(null);
   useEffect(() => {
@@ -80,7 +89,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
     const timer = setTimeout(() => setFlash(null), flash.undo ? 5000 : 3500);
     return () => clearTimeout(timer);
   }, [flash]);
-  const notify = (text: string, undo?: () => Promise<unknown>) => (phone ? setFlash({ text, ...(undo ? { undo } : {}) }) : toast.show(text, undo ? { undo } : {}));
+  const notify = (text: string, undo?: () => Promise<unknown>, focusUndo = false) =>
+    phone ? setFlash({ text, ...(undo ? { undo } : {}) }) : toast.show(text, undo ? { undo, focusUndo } : {});
 
   if (!data || !sessions) return null;
   const model = weekModel(data, clock);
@@ -137,8 +147,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
     setDraft(null);
     setLook(null);
   };
-  // Desktop: placing, skipping or finishing with a task closes its row, so focus moves on to the next one.
-  const landOnCurrent = () => !phone && land(() => listRef.current?.querySelector<HTMLElement>('[aria-current="step"]') ?? noneRef.current);
+  // Desktop: placing, skipping or finishing with a task moves Now on to the next, so focus lands on it there, at the top.
+  const landOnCurrent = () => !phone && land(() => nowRef.current ?? noneRef.current);
   const skip = () => {
     landOnCurrent();
     if (cur) setSkipped([...skipped, cur.id]);
@@ -219,6 +229,29 @@ export function ScheduleStep(props: ScheduleStepProps) {
     if (reverse) notify(choice.done, () => run((w) => applyPlanChange(w, reverse)));
   };
   const togglePractice = (id: string, off: boolean) => void run((w) => skipPractice(w, week, id, off, clock));
+  /**
+   * Takes a task out of this week's plan: its pick, as Pick's Remove from this week does, and its blocks still to come,
+   * which would otherwise stay on the week with no row. Blocks under way or gone by stay, and the task stays where it is.
+   */
+  const removeFromWeek = async (r: SchedRow) => {
+    setRemoving(null);
+    const ahead = r.blocks.filter((x) => !x.past);
+    const reverse = await run(async (w) => {
+      const writes: RecordWrite[] = [];
+      for (const x of ahead) writes.unshift(...(await removeBlock(w, x.id)).writes);
+      return { writes: [...(await pickChange(w, week, r.id, null, clock)).writes, ...writes] };
+    });
+    if (!reverse) return;
+    if (cur?.id === r.id) {
+      setSelected(null);
+      setEditId(null);
+      reset();
+    }
+    setListOpen(false);
+    const blocks = ahead.length === 1 ? 'its block' : `its ${ahead.length} blocks`;
+    // What was pressed has gone with its row, so focus goes to Undo.
+    notify(`Removed ${r.title} from this week${ahead.length ? `, and took ${blocks} off the calendar` : ''}.`, () => run((w) => applyPlanChange(w, reverse)), true);
+  };
   /** Tasks at their suggested times, then the practices around them. */
   const placeTheRest = async () => {
     const { placed } = placeRest(
@@ -279,8 +312,44 @@ export function ScheduleStep(props: ScheduleStepProps) {
     const last = r.blocks[r.blocks.length - 1];
     const isSkipped = skipped.includes(r.id);
     const sub = isSkipped ? 'Skipped' : last ? `${formatWeekday(last.date)} ${formatTimeOfDay(last.start)}${r.blocks.length > 1 ? `, and ${r.blocks.length - 1} more` : ''}` : '';
-    return { on, sub: on ? '' : sub, mark: on ? '▸' : r.toPlace <= 0 ? '✓' : isSkipped ? '–' : String(i + 1) };
+    return { on, sub: on ? '' : sub, mark: on ? '▸' : r.toPlace <= 0 ? '✓' : isSkipped ? '–' : r.practice ? '↻' : String(i + 1) };
   };
+  // Practices are up first, then tasks, each a list of its own. Tasks are numbered in the order they come up.
+  const groups = [
+    { key: 'practices', name: 'Practices', rows: s.rows.filter((r) => r.practice) },
+    { key: 'tasks', name: 'Tasks', rows: s.rows.filter((r) => !r.practice) },
+  ].filter((g) => g.rows.length);
+  /** Drawn as Week draws its blocks: a one off with a purple edge, a practice teal with a double edge. */
+  const kindCls = (r: SchedRow) => (r.oneOff ? ' is-maint' : r.practice ? ' is-practice' : '');
+  const removeAction = (r: SchedRow) => (
+    <button
+      className="schedx"
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={removing === r.id}
+      aria-label={`Remove ${r.title} from this week`}
+      onClick={() => setRemoving(r.id)}
+    >
+      ×
+    </button>
+  );
+  const removingRow = s.rows.find((r) => r.id === removing && r.task);
+  // Cancel takes focus, so Enter alone keeps the task.
+  const confirm = removingRow && (
+    <Popover label={`Remove ${removingRow.title} from this week`} onClose={() => setRemoving(null)}>
+      <p>
+        Remove {removingRow.title} from this week's plan? It stays in {removingRow.oneOff ? 'One offs' : 'its project'}.
+      </p>
+      <div className="row">
+        <button className={`btn pri danger ${phone ? 'grow' : 'sm'}`} type="button" onClick={() => void removeFromWeek(removingRow)}>
+          Remove
+        </button>
+        <button className={`btn ${phone ? 'grow' : 'sm'}`} type="button" autoFocus onClick={() => setRemoving(null)}>
+          Cancel
+        </button>
+      </div>
+    </Popover>
+  );
 
   const buttons = (cls: string) =>
     editB ? (
@@ -341,33 +410,59 @@ export function ScheduleStep(props: ScheduleStepProps) {
           )}
           <div className="stack8">
             <div className="small quiet">{progress}</div>
-            <ol ref={listRef} className="schedlist card">
-              {s.rows.map((r, i) => {
-                const { on, sub, mark } = rowParts(r, i);
-                return (
-                  <li key={r.id} className={`schedrow${on ? ' cur' : ''}${r.oneOff ? ' is-maint' : ''}`}>
-                    <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
-                      <span className="schedmark" aria-hidden="true">
-                        {mark}
-                      </span>
-                      <span>
-                        <span className={`subline${on ? ' strong' : ''}`}>{r.title}</span>
-                        {sub && <span className="subline small">{sub}</span>}
-                      </span>
-                    </button>
-                    {on && (
-                      <div className="scheddetail stack8">
-                        <div className="small quiet">{context}</div>
-                        {b && <div className="strong">{when}</div>}
-                        {said}
-                        {buttons('sm')}
-                        <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
+            {/* A copy of the current row, pinned at the top so its controls are in reach however long the list. The list
+                below never reorders, so nothing moves under the pointer and a row clicked keeps focus. */}
+            {cur && (
+              <section key={cur.id} ref={nowBox} className={`schednow card${kindCls(cur)}`} aria-labelledby={`${groupId}now`}>
+                <h3 id={`${groupId}now`} className="schedgh">
+                  Now
+                </h3>
+                <div className="scheddetail stack8">
+                  <h4 ref={nowRef} className="schedtitle" tabIndex={-1}>
+                    {cur.title}
+                  </h4>
+                  <div className="small quiet">{context}</div>
+                  {b && <div className="strong">{when}</div>}
+                  {said}
+                  {buttons('sm')}
+                  <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
+                </div>
+              </section>
+            )}
+            {groups.length > 0 && (
+              <div ref={listBox} className="schedcard card">
+                {groups.map((g) => {
+                  const List = g.key === 'tasks' ? 'ol' : 'ul';
+                  return (
+                    <div key={g.key}>
+                      <h3 id={`${groupId}${g.key}`} className="schedgh">
+                        {g.name}
+                      </h3>
+                      <List className="schedlist" aria-labelledby={`${groupId}${g.key}`}>
+                        {g.rows.map((r, i) => {
+                          const { on, sub, mark } = rowParts(r, i);
+                          return (
+                            <li key={r.id} className={`schedrow editrow${on ? ' cur' : ''}${kindCls(r)}`}>
+                              <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
+                                <span className="schedmark" aria-hidden="true">
+                                  {mark}
+                                </span>
+                                <span>
+                                  <span className={`subline${on ? ' strong' : ''}`}>{r.title}</span>
+                                  {sub && <span className="subline small">{sub}</span>}
+                                </span>
+                              </button>
+                              {r.task && removeAction(r)}
+                              {removing === r.id && confirm}
+                            </li>
+                          );
+                        })}
+                      </List>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {rest.length > 0 && (
               <div>
                 <button className="btn sm" type="button" onClick={() => void placeTheRest()}>
@@ -603,22 +698,33 @@ export function ScheduleStep(props: ScheduleStepProps) {
             </button>
           </div>
           {s.rows.length === 0 && <p className="small quiet">Nothing is picked yet.</p>}
-          <div>
-            {s.rows.map((r, i) => {
-              const { on, sub, mark } = rowParts(r, i);
-              return (
-                <button key={r.id} className="projbtn morerow" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
-                  <span className="small schmark" aria-hidden="true">
-                    {mark}
-                  </span>
-                  <span className={`schname${r.oneOff ? ' mhead' : ''}`}>
-                    <span className={`block${on ? ' strong' : ''}`}>{r.title}</span>
-                    {sub && <span className="small quiet block">{sub}</span>}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {groups.map((g) => {
+            const List = g.key === 'tasks' ? 'ol' : 'ul';
+            return (
+              <div key={g.key}>
+                <h3 id={`${groupId}${g.key}`}>{g.name}</h3>
+                <List className="schsheet" aria-labelledby={`${groupId}${g.key}`}>
+                  {g.rows.map((r, i) => {
+                    const { on, sub, mark } = rowParts(r, i);
+                    return (
+                      <li key={r.id} className={r.practice ? 'is-practice' : undefined}>
+                        <button className="projbtn morerow" type="button" aria-current={on ? 'step' : undefined} onClick={() => pick(r)}>
+                          <span className="small schmark" aria-hidden="true">
+                            {mark}
+                          </span>
+                          <span className={`schname${r.oneOff ? ' mhead' : ''}`}>
+                            <span className={`block${on ? ' strong' : ''}`}>{r.title}</span>
+                            {sub && <span className="small quiet block">{sub}</span>}
+                          </span>
+                        </button>
+                        {r.task && removeAction(r)}
+                      </li>
+                    );
+                  })}
+                </List>
+              </div>
+            );
+          })}
           {rest.length > 0 && (
             <button className="btn" type="button" onClick={() => void placeTheRest().then(() => setListOpen(false))}>
               Place the rest at suggested times
@@ -644,6 +750,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
           )}
         </Sheet>
       )}
+      {/* Beside All tasks rather than in it, so the two sheets don't share focus or Esc. */}
+      {listOpen && confirm}
       {keepAsk && (
         <Sheet label="Use this in future weeks too?" onClose={() => setAsk(null)}>
           {keepAsk}

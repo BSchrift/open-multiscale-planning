@@ -34,8 +34,8 @@ interface AimSetting {
   skipped: boolean;
 }
 
-/** A pick put in, changed or taken out, with what puts it back. */
-async function pickChange(w: Writer, week: LocalDate, taskId: string, minutes: Minutes | null, clock: Clock): Promise<PlanChange> {
+/** A pick put in, changed or taken out, with what puts it back. Schedule's Remove from this week takes one out too. */
+export async function pickChange(w: Writer, week: LocalDate, taskId: string, minutes: Minutes | null, clock: Clock): Promise<PlanChange> {
   const id = weekPickId(week, taskId);
   const had = await getRecord(w.sql, 'week_pick', id);
   if (!had || had.deleted_at) {

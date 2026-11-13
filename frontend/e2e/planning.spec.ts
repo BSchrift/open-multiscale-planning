@@ -23,9 +23,9 @@ const records: Seed[] = [
 
 const steps = (page: Page) => page.getByRole('navigation', { name: 'Planning steps' });
 
-async function startPlanning(page: Page) {
+async function startPlanning(page: Page, extra: readonly Seed[] = []) {
   await page.clock.install({ time: NOW });
-  await openSeeded(page, records);
+  await openSeeded(page, [...records, ...extra]);
   await page.getByRole('button', { name: 'Start planning' }).first().click();
   await expect(steps(page)).toBeVisible();
 }
@@ -147,8 +147,14 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
 // Every button in a task row shows all of its label, as do the WCAG text spacing settings, and no time button wraps
 // onto a second line. Mark done's label once spilled out of a fixed-width button.
 test("task rows' buttons fit their labels, with and without text spacing", async ({ page }, info) => {
-  await startPlanning(page);
+  // Write the abstract is in this week with all of its time on Wednesday's calendar, so its button reads "15m on calendar".
+  await startPlanning(page, [
+    { type: 'task', id: 't4', fields: { kind: 'project', project_id: 'report', milestone_id: 'm2', title: 'Write the abstract', estimate_min: 15 } },
+    { type: 'time_block', id: 'tb4', fields: { task_id: 't4', start: '2026-11-05T00:00:00Z', end: '2026-11-05T00:15:00Z', tz: 'America/Chicago' } },
+    { type: 'week_pick', id: 'pick:2026-11-02:t4', fields: { week_start: '2026-11-02', task_id: 't4', minutes: 15 } },
+  ]);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
+  await expect(page.getByRole('button', { name: '15m of Write the abstract on your calendar this week' })).toHaveText(/^15m on calendar/);
   // One row added, so its time button reads "2h of …", and one finished.
   await page.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }).click();
   await page.getByRole('checkbox', { name: 'Already done: Write chapter one' }).click();

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { localToInstant } from '../../../../core/dates';
-import { getRecord, listRecords, setWeekPick } from '../../../../core/records';
+import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { openPlanning } from '../testing';
 import type { HarnessOptions } from '../../../app/testing';
@@ -35,16 +35,19 @@ const open = (options: HarnessOptions & { seed?(w: Writer): Promise<unknown> } =
 const blocks = async (t: { db: Parameters<typeof listRecords>[0] }, task: string) =>
   (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === task && !b.deleted_at && !b.cancelled).map((b) => [b.start, b.end]);
 const row = (title: string) => screen.getByText(title, { selector: '.subline' }).closest('li')!;
+/** On desktop, the task or practice being placed, pinned at the top of the list. */
+const now = () => screen.getByRole('region', { name: 'Now' });
 
 describe('Schedule on desktop', () => {
   it('lists the picked tasks in order, one at a time, with its block at its best time and other suggestions', async () => {
     await open();
     expect(await screen.findByText('0 of 3 placed')).toBeInTheDocument();
-    const list = screen.getByRole('list');
+    const list = screen.getByRole('list', { name: 'Tasks' });
     expect([...list.querySelectorAll('.schedbtn')].map((b) => b.textContent)).toEqual(['▸Collect the sources', '2Write chapter one', '3Paint the fence']);
-    expect(within(list).getByRole('button', { name: /Collect the sources/ })).toHaveAttribute('aria-current', 'step');
+    expect(within(list).getByRole('button', { name: /^Collect the sources/ })).toHaveAttribute('aria-current', 'step');
     expect(row('Paint the fence')).toHaveClass('is-maint');
-    const cur = row('Collect the sources');
+    const cur = now();
+    expect(within(cur).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
     expect(within(cur).getByText('Write the report, Gather notes, overdue since Oct 18')).toBeInTheDocument();
     expect(within(cur).getByText('Mon Nov 2, 2pm to 4pm (2h)')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, Project\. .*Enter places it\.$/ })).toHaveClass('evdraft');
@@ -73,12 +76,13 @@ describe('Schedule on desktop', () => {
     expect(row('Collect the sources').querySelector('.schedmark')).toHaveTextContent('✓');
     expect(within(row('Collect the sources')).getByText('Mon 2pm')).toBeInTheDocument();
 
-    const next = row('Write chapter one');
+    const next = now();
+    expect(within(next).getByRole('heading', { name: 'Write chapter one' })).toBeInTheDocument();
     expect(within(next).getByText('Mon Nov 2, 5pm to 7pm (2h)')).toBeInTheDocument();
     expect(within(next).getByText('2h more of this task stays to place')).toBeInTheDocument();
     expect(within(next).getByRole('button', { name: 'Skip for now' })).toBeInTheDocument();
     await userEvent.click(within(next).getByRole('button', { name: 'Place here' }));
-    expect(await within(row('Write chapter one')).findByRole('button', { name: 'Leave the rest for later' })).toBeInTheDocument();
+    expect(await within(now()).findByRole('button', { name: 'Leave the rest for later' })).toBeInTheDocument();
     expect(screen.getByText('1 of 3 placed')).toBeInTheDocument();
     expect(await blocks(t, 't2')).toHaveLength(1);
   });
@@ -86,7 +90,7 @@ describe('Schedule on desktop', () => {
   it('a suggested time moves the block, arrow keys move it, and a spot outside open hours gets a note', async () => {
     await open();
     await userEvent.click(await screen.findByRole('button', { name: 'Use suggested time, Tue Nov 3, 7am' }));
-    const cur = row('Collect the sources');
+    const cur = now();
     expect(within(cur).getByText('Tue Nov 3, 7am to 9am (2h)')).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('group', { name: /^Collect the sources, Tue Nov 3/ }), { key: 'ArrowUp' });
     expect(within(cur).getByText('Tue Nov 3, 6:45am to 8:45am (2h)')).toBeInTheDocument();
@@ -103,19 +107,20 @@ describe('Schedule on desktop', () => {
     expect(row('Collect the sources').querySelector('.schedmark')).toHaveTextContent('–');
     expect(screen.getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
     await userEvent.click(screen.getByRole('button', { name: /^Collect the sources/ }));
-    expect(within(row('Collect the sources')).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
+    expect(within(now()).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
+    expect(within(now()).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
   });
 
-  it('keeps keyboard focus on the current task after Place here, Skip for now, Enter on the block and Done', async () => {
+  it('keeps keyboard focus at the top, on the next task under Now, after Place here, Skip for now, Enter on the block and Done', async () => {
     await open();
     (await screen.findByRole('button', { name: 'Place here' })).focus();
     await userEvent.keyboard('{Enter}');
     expect(await screen.findByText('1 of 3 placed')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Write chapter one/ })).toHaveFocus());
+    await waitFor(() => expect(within(now()).getByRole('heading', { name: 'Write chapter one' })).toHaveFocus());
 
-    within(row('Write chapter one')).getByRole('button', { name: 'Skip for now' }).focus();
+    within(now()).getByRole('button', { name: 'Skip for now' }).focus();
     await userEvent.keyboard('{Enter}');
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Paint the fence/ })).toHaveFocus());
+    await waitFor(() => expect(within(now()).getByRole('heading', { name: 'Paint the fence' })).toHaveFocus());
 
     screen.getByRole('group', { name: /^Paint the fence, .*Enter places it\.$/ }).focus();
     await userEvent.keyboard('{Enter}');
@@ -123,7 +128,7 @@ describe('Schedule on desktop', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'All tasks are placed' })).toHaveFocus());
 
     await userEvent.click(screen.getByRole('button', { name: /^Collect the sources/ }));
-    within(row('Collect the sources')).getByRole('button', { name: 'Done' }).focus();
+    within(now()).getByRole('button', { name: 'Done' }).focus();
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByRole('heading', { name: 'All tasks are placed' })).toHaveFocus());
   });
@@ -137,12 +142,12 @@ describe('Schedule on desktop', () => {
     });
     expect(await screen.findByText('1 of 3 placed')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Collect the sources/ }));
-    const cur = row('Collect the sources');
+    const cur = now();
     expect(within(cur).getByText('Tue Nov 3, 6pm to 8pm (2h)')).toBeInTheDocument();
     expect(within(cur).getByRole('button', { name: 'Done' })).toBeInTheDocument();
     await userEvent.click(within(cur).getByRole('button', { name: 'Remove from calendar' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
-    expect(await within(row('Collect the sources')).findByRole('button', { name: 'Place here' })).toBeInTheDocument();
+    expect(await within(now()).findByRole('button', { name: 'Place here' })).toBeInTheDocument();
     expect(screen.getByText('Removed Collect the sources')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy());
@@ -163,20 +168,33 @@ describe('Schedule on desktop', () => {
     expect(await blocks(t, 't2')).toEqual([]);
   });
 
-  it('lists practices after the tasks to place one at a time, on their days at their usual time', async () => {
+  it('puts practices first, in a list of their own, and places them one at a time on their days at their usual time', async () => {
     const t = await open({ seed: async (w) => (await picked(w), stretch(w)) });
     const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start);
     expect(await screen.findByText('0 of 4 placed')).toBeInTheDocument();
     expect(await sessions()).toEqual([]);
-    await userEvent.click(screen.getByRole('button', { name: /^Morning stretch/ }));
-    const cur = row('Morning stretch');
+    const practices = screen.getByRole('list', { name: 'Practices' });
+    const tasks = screen.getByRole('list', { name: 'Tasks' });
+    expect(practices.compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...practices.querySelectorAll('.schedbtn')].map((b) => b.textContent)).toEqual(['▸Morning stretch']);
+    expect([...tasks.querySelectorAll('.schedbtn')].map((b) => b.textContent)).toEqual(['1Collect the sources', '2Write chapter one', '3Paint the fence']);
+    // Drawn as Week draws a practice: teal, with a double edge, not by colour alone.
+    expect(row('Morning stretch')).toHaveClass('is-practice');
+    // Practices are up first, so the first one is being placed without a click.
+    const cur = now();
+    expect(within(cur).getByRole('heading', { name: 'Morning stretch' })).toBeInTheDocument();
     expect(within(cur).getByText('Practice, 30m on Tue and Wed, around 7am')).toBeInTheDocument();
     expect(within(cur).getByText('Tue Nov 3, 7am to 7:30am (30m)')).toBeInTheDocument();
     expect(within(cur).getByText('Also this week: Wed 7am.')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Use suggested time/ }).map((b) => b.getAttribute('aria-label'))).toEqual(['Use suggested time, Wed Nov 4, 7am']);
     await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
     await waitFor(async () => expect(await sessions()).toEqual([at('2026-11-03', 7)]));
-    expect(await within(row('Morning stretch')).findByText('Wed Nov 4, 7am to 7:30am (30m)')).toBeInTheDocument();
+    expect(await within(now()).findByText('Wed Nov 4, 7am to 7:30am (30m)')).toBeInTheDocument();
+    // Waiting while another is placed, a practice's row keeps its own mark rather than a number.
+    await userEvent.click(screen.getByRole('button', { name: /^Collect the sources/ }));
+    expect(row('Morning stretch').querySelector('.schedmark')).toHaveTextContent('↻');
+    // A practice is skipped from its own list below, so its row has no Remove from this week.
+    expect(screen.queryByRole('button', { name: 'Remove Morning stretch from this week' })).toBeNull();
   });
 
   it('a practice can be skipped this week, which takes its sessions off, and included again with nothing placed', async () => {
@@ -259,7 +277,7 @@ describe('Schedule on desktop', () => {
     const under = () => screen.getByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm, One off\./ });
     const was = under().getAttribute('style');
     fireEvent.keyDown(screen.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ }), { key: 'ArrowRight' });
-    const cur = row('Collect the sources');
+    const cur = now();
     expect(within(cur).getByText('Tue Nov 3, 2pm to 4pm (2h)')).toBeInTheDocument();
     expect(within(cur).getByText('Placing here takes Paint the fence off the calendar to place again.')).toBeInTheDocument();
     expect(within(cur).queryByText('That overlaps Paint the fence.')).toBeNull();
@@ -287,7 +305,7 @@ describe('Schedule on desktop', () => {
       },
     });
     fireEvent.keyDown(await screen.findByRole('group', { name: /^Collect the sources, Mon Nov 2, 2:30pm to 4:30pm/ }), { key: 'ArrowUp' });
-    const cur = row('Collect the sources');
+    const cur = now();
     expect(within(cur).getByText('Mon Nov 2, 2:15pm to 4:15pm (2h)')).toBeInTheDocument();
     expect(within(cur).getByText('That overlaps Write chapter one.')).toBeInTheDocument();
     expect(within(cur).queryByText(/^Placing here takes/)).toBeNull();
@@ -316,7 +334,7 @@ describe('Schedule on desktop', () => {
     const moved = screen.getByRole('group', { name: /^Paint the fence, Tue Nov 3, 4pm to 5:30pm/ });
     fireEvent.pointerDown(moved, { clientX: 100, clientY: 100, button: 0 });
     fireEvent.pointerUp(window, { clientX: 100, clientY: 100 });
-    expect(await within(row('Paint the fence')).findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    expect(await within(now()).findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Paint the fence/ })).toHaveAttribute('aria-current', 'step');
   });
 
@@ -328,18 +346,18 @@ describe('Schedule on desktop', () => {
       },
     });
     fireEvent.keyDown(await screen.findByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ }), { key: 'ArrowDown' });
-    expect(within(row('Collect the sources')).getByText('Mon Nov 2, 2:15pm to 4:15pm (2h)')).toBeInTheDocument();
+    expect(within(now()).getByText('Mon Nov 2, 2:15pm to 4:15pm (2h)')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Write chapter one/ }));
     expect(screen.getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
     const placed = screen.getByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm/ });
     fireEvent.pointerDown(placed, { clientX: 100, clientY: 100, button: 0 });
     fireEvent.pointerUp(window, { clientX: 100, clientY: 100 });
-    expect(await within(row('Paint the fence')).findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
+    expect(await within(now()).findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
     expect(await blocks(t, 't1')).toEqual([]);
     expect(await blocks(t, 't2')).toEqual([]);
     expect(screen.getByText('1 of 3 placed')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Collect the sources/ }));
-    expect(within(row('Collect the sources')).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
+    expect(within(now()).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
   });
 
   it("counts what's left to place as Week's To schedule does: a block running into next week counts only its hour in this one", async () => {
@@ -351,7 +369,89 @@ describe('Schedule on desktop', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Write chapter one/ }));
     // 4h picked, less the hour this week: 3h, so a 2h block leaves 1h to place, as Week shows "3h of 4h left".
-    expect(within(row('Write chapter one')).getByText('1h more of this task stays to place')).toBeInTheDocument();
+    expect(within(now()).getByText('1h more of this task stays to place')).toBeInTheDocument();
+  });
+
+  it('pins the task being placed at the top under Now; the list below keeps its order, and a clicked row keeps focus', async () => {
+    await open();
+    const tasks = await screen.findByRole('list', { name: 'Tasks' });
+    expect(now().compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const order = () => [...tasks.querySelectorAll('.schedbtn')].map((b) => b.textContent);
+    expect(order()).toEqual(['▸Collect the sources', '2Write chapter one', '3Paint the fence']);
+    const fence = screen.getByRole('button', { name: /^Paint the fence/ });
+    await userEvent.click(fence);
+    expect(within(now()).getByRole('heading', { name: 'Paint the fence' })).toBeInTheDocument();
+    expect(within(now()).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
+    // Nothing in the list moved, so the row clicked is still there, with focus.
+    expect(order()).toEqual(['1Collect the sources', '2Write chapter one', '▸Paint the fence']);
+    expect(fence).toBeInTheDocument();
+    expect(fence).toHaveFocus();
+    expect(fence).toHaveAttribute('aria-current', 'step');
+  });
+
+  it("Remove from this week asks first, and Cancel or Esc leaves the task in this week's plan, with focus back on the action", async () => {
+    const t = await open();
+    const action = await screen.findByRole('button', { name: 'Remove Write chapter one from this week' });
+    await userEvent.click(action);
+    const ask = screen.getByRole('dialog', { name: 'Remove Write chapter one from this week' });
+    expect(ask).toHaveTextContent("Remove Write chapter one from this week's plan? It stays in its project.");
+    expect(within(ask).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(action).toHaveFocus();
+
+    await userEvent.keyboard('{Enter}');
+    expect(within(screen.getByRole('dialog', { name: 'Remove Write chapter one from this week' })).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(action).toHaveFocus();
+    expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't2')))?.deleted_at).toBeFalsy();
+    expect(row('Write chapter one')).toBeInTheDocument();
+  });
+
+  it('Remove takes the pick and its blocks still to come out of this week, not the task, and Undo puts them all back', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        // This morning's hour has been and gone, so it stays.
+        await w.create('time_block', { task_id: 't2', start: at(WEEK, 9), end: at(WEEK, 10), tz: ZONE }, 'gone');
+        await w.create('time_block', { task_id: 't2', start: at('2026-11-03', 9), end: at('2026-11-03', 11), tz: ZONE }, 'b2');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove Write chapter one from this week' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Remove Write chapter one from this week' })).getByRole('button', { name: 'Remove' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't2')))?.deleted_at).toBeTruthy());
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    expect((await getRecord(t.db, 'time_block', 'gone'))?.cancelled).toBeFalsy();
+    const task = await getRecord(t.db, 'task', 't2');
+    expect([task?.deleted_at, task?.done_at, task?.cancelled_at].map(Boolean)).toEqual([false, false, false]);
+    expect(screen.queryByText('Write chapter one', { selector: '.subline' })).toBeNull();
+    expect(await screen.findByText('Removed Write chapter one from this week, and took its block off the calendar.')).toBeInTheDocument();
+    // What was pressed has gone, so focus goes to Undo.
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    expect(undo).toHaveFocus();
+    await userEvent.click(undo);
+    await waitFor(async () => expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't2')))?.deleted_at).toBeFalsy());
+    expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't2')))?.minutes).toBe(240);
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy();
+    expect(await screen.findByText('Write chapter one', { selector: '.subline' })).toBeInTheDocument();
+  });
+
+  it('removing the task being placed moves on to the next, and a one off stays in One offs', async () => {
+    const t = await open();
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove Collect the sources from this week' }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+    expect(await screen.findByText('Removed Collect the sources from this week.')).toBeInTheDocument();
+    expect(within(now()).getByRole('heading', { name: 'Write chapter one' })).toBeInTheDocument();
+    expect(screen.getByText('0 of 2 placed')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Paint the fence from this week' }));
+    expect(screen.getByRole('dialog', { name: 'Remove Paint the fence from this week' })).toHaveTextContent(
+      "Remove Paint the fence from this week's plan? It stays in One offs.",
+    );
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 'o1')))?.deleted_at).toBeTruthy());
+    expect((await getRecord(t.db, 'task', 'o1'))?.deleted_at).toBeFalsy();
   });
 
   it('with nothing picked, says so and moves on to Review', async () => {
@@ -432,16 +532,21 @@ describe('Schedule on phone', () => {
     expect(screen.getByText('1h more of this task stays to place')).toBeInTheDocument();
   });
 
-  it('All tasks lists every picked task and practice, with Place the rest and Skip a practice', async () => {
+  it('All tasks lists every practice first, then every picked task, with Place the rest and Skip a practice', async () => {
     await phone({ seed: async (w) => (await picked(w), stretch(w)) });
     await userEvent.click(await screen.findByRole('button', { name: 'All picked tasks, 0 of 4 placed' }));
     const sheet = screen.getByRole('dialog', { name: 'All picked tasks' });
-    expect(within(sheet).getByRole('button', { name: /Collect the sources/ })).toHaveAttribute('aria-current', 'step');
+    const practices = within(sheet).getByRole('list', { name: 'Practices' });
+    const tasks = within(sheet).getByRole('list', { name: 'Tasks' });
+    expect(practices.compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Practices are up first.
+    expect(within(practices).getByRole('button', { name: /^Morning stretch/ })).toHaveAttribute('aria-current', 'step');
+    expect(within(practices).getByRole('listitem')).toHaveClass('is-practice');
+    expect(within(tasks).getAllByRole('button', { name: /^(?!Remove)/ }).map((b) => b.textContent)).toEqual(['1Collect the sources', '2Write chapter one', '3Paint the fence']);
     expect(within(sheet).getByText('Paint the fence').closest('.mhead')).not.toBeNull();
-    expect(within(sheet).getByRole('button', { name: /^Morning stretch/ })).toBeInTheDocument();
     expect(within(sheet).getByRole('heading', { name: 'Skip a practice this week' })).toBeInTheDocument();
     expect(await within(sheet).findByText('0 sessions, 0m')).toBeInTheDocument();
-    await userEvent.click(within(sheet).getByRole('button', { name: /Write chapter one/ }));
+    await userEvent.click(within(sheet).getByRole('button', { name: /^Write chapter one/ }));
     expect(screen.queryByRole('dialog', { name: 'All picked tasks' })).toBeNull();
     expect(screen.getByText('Write chapter one', { selector: '.strong' })).toBeInTheDocument();
   });
@@ -559,10 +664,34 @@ describe('Schedule on phone', () => {
     fireEvent.pointerUp(window, { clientY: 300 });
     expect(await screen.findByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' }));
-    await userEvent.click(within(screen.getByRole('dialog', { name: 'All picked tasks' })).getByRole('button', { name: /Write chapter one/ }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'All picked tasks' })).getByRole('button', { name: /^Write chapter one/ }));
     expect(screen.getByText('Write chapter one', { selector: '.strong' })).toBeInTheDocument();
     expect(await blocks(t, 't1')).toEqual([]);
     expect(await blocks(t, 't2')).toEqual([]);
     expect(screen.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeInTheDocument();
+  });
+
+  it("a task's Remove from this week asks in a sheet over All tasks; Remove closes both and offers Undo above the dock", async () => {
+    const t = await phone();
+    await userEvent.click(await screen.findByRole('button', { name: 'All picked tasks, 0 of 3 placed' }));
+    const list = screen.getByRole('dialog', { name: 'All picked tasks' });
+    const action = within(list).getByRole('button', { name: 'Remove Write chapter one from this week' });
+    await userEvent.click(action);
+    const ask = screen.getByRole('dialog', { name: 'Remove Write chapter one from this week' });
+    expect(ask).toHaveTextContent("Remove Write chapter one from this week's plan? It stays in its project.");
+    expect(within(ask).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Remove Write chapter one from this week' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'All picked tasks' })).toBeInTheDocument();
+    expect(action).toHaveFocus();
+
+    await userEvent.click(action);
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Remove Write chapter one from this week' })).getByRole('button', { name: 'Remove' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'week_pick', weekPickId(WEEK, 't2')))?.deleted_at).toBeTruthy());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const said = await screen.findByText('Removed Write chapter one from this week.');
+    expect(screen.getByRole('button', { name: 'All picked tasks, 0 of 2 placed' })).toBeInTheDocument();
+    await userEvent.click(within(said.closest('.pktoast')!).getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByRole('button', { name: 'All picked tasks, 0 of 3 placed' })).toBeInTheDocument();
   });
 });

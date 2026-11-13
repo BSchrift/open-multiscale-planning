@@ -15,6 +15,8 @@ import { useStickyState } from '../../../app/store';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import { aimWords } from './model';
 import type { PickGroup, PickProject, PickTask, PickView } from './model';
+import { CardAdder, OneOffAdder } from './Adders';
+import type { AddingState } from './Adders';
 import { CarriedAsk, MilestoneAsk } from './Overdue';
 import { PickRow } from './PickRow';
 import type { PickProps } from './PickStep';
@@ -30,7 +32,7 @@ export function useOpenCards(view: PickView) {
   const first =
     view.projects.find((p) => p.status.late || busy(p.groups.flatMap((g) => g.rows)))?.plan.project.id ?? (busy(view.oneOffs.rows) ? ONE_OFFS_BUCKET : undefined);
   const isOpen = (id: string) => stored[id] ?? (view.projects.length <= 4 || id === first);
-  return { isOpen, toggle: (id: string) => setStored({ ...stored, [id]: !isOpen(id) }) };
+  return { isOpen, toggle: (id: string) => setStored({ ...stored, [id]: !isOpen(id) }), open: (id: string) => !isOpen(id) && setStored({ ...stored, [id]: true }) };
 }
 
 export function AimMeter(props: { aim: AimRow }) {
@@ -50,6 +52,7 @@ export function AimMeter(props: { aim: AimRow }) {
 export interface CardProps extends PickProps {
   phone: boolean;
   select: Selection;
+  adder: AddingState;
 }
 
 /** Needs a new time and not yet in the week: asked about above the card's tasks, not listed among them. */
@@ -85,6 +88,8 @@ function Group(props: CardProps & { group: PickGroup }) {
 
 function Card(props: {
   name: string;
+  /** A project's id, for what + Add finds in view. */
+  project?: string;
   open: boolean;
   toggle(): void;
   planned: Minutes;
@@ -96,7 +101,7 @@ function Card(props: {
   children: ReactNode;
 }) {
   return (
-    <section className={`card pcd${props.className ? ` ${props.className}` : ''}`} aria-label={props.name}>
+    <section className={`card pcd${props.className ? ` ${props.className}` : ''}`} aria-label={props.name} data-project={props.project}>
       <div className="pcdh">
         <button className="pchev" type="button" aria-expanded={props.open} aria-label={`${props.name}, ${formatMinutes(props.planned)} planned`} onClick={props.toggle}>
           <span className={`chev2${props.open ? ' open' : ''}`} aria-hidden="true">
@@ -128,6 +133,7 @@ export function ProjectCard(props: CardProps & { s: PickProject; open: boolean; 
   return (
     <Card
       name={project.title}
+      project={project.id}
       open={props.open}
       toggle={props.toggle}
       planned={s.planned}
@@ -162,7 +168,8 @@ export function ProjectCard(props: CardProps & { s: PickProject; open: boolean; 
       {s.groups.map((g) => (
         <Group key={g.key} {...props} group={g} />
       ))}
-      {s.groups.length === 0 && <p className="small quiet">No open tasks.</p>}
+      {s.groups.length === 0 && <p className="small quiet emptyline">No open tasks.</p>}
+      {!props.select.on && <CardAdder {...props} plan={s.plan} />}
     </Card>
   );
 }
@@ -184,6 +191,7 @@ export function OneOffsCard(props: CardProps & { open: boolean; toggle(): void }
       ))}
     >
       {rows.length ? <Rows {...props} rows={rows} /> : <p className="small quiet emptyline">Nothing due this week.</p>}
+      {!props.select.on && <OneOffAdder {...props} />}
     </Card>
   );
 }

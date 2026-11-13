@@ -10,6 +10,7 @@ import { Sheet } from '../../../components/Sheet';
 import { useFit } from '../WeekFit';
 import { AimsPopover } from './Aims';
 import { EmptyCard, Legend, OneOffsCard, OtherCard, ProjectCard, useOpenCards } from './Cards';
+import { ProjectAdder, useAdding, usePickAddMenu } from './Adders';
 import { PastEnd } from './PastEnd';
 import { selectable } from './PickDesktop';
 import type { PickProps } from './PickStep';
@@ -23,6 +24,19 @@ export function PickPhone(props: PickProps) {
   const [sheet, setSheet] = useState<'menu' | 'key' | 'aims' | 'suggest' | null>(null);
   const cards = useOpenCards(view);
   const sel = useSelection();
+  const adder = useAdding();
+  // The project in view: the first card still showing at the top of the list as it scrolls.
+  const [inView, setInView] = useState<string | undefined>(undefined);
+  const firstOpen = (view.projects.find((p) => cards.isOpen(p.plan.project.id)) ?? view.projects[0])?.plan.project.id;
+  const onScroll = () => {
+    const top = root.current?.getBoundingClientRect().top ?? 0;
+    const card = [...(root.current?.querySelectorAll<HTMLElement>('.pcd[data-project]') ?? [])].find((c) => c.getBoundingClientRect().bottom > top + 48);
+    setInView(card?.dataset.project);
+  };
+  usePickAddMenu(props, adder, cards, inView ?? firstOpen, () => {
+    sel.exit();
+    setTab('projects');
+  });
   const root = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const empty = view.projects.length === 0 && view.pastEnd.length === 0;
@@ -36,11 +50,21 @@ export function PickPhone(props: PickProps) {
     if (sel.on) root.current?.querySelector<HTMLElement>('.selbox')?.focus();
   }, [sel.on]);
   const closeSheet = () => setSheet(null);
-  const card = { ...props, phone: true, select: sel };
+  const card = { ...props, phone: true, select: sel, adder };
+  const projectAdder = (
+    <ProjectAdder
+      {...props}
+      adder={adder}
+      onAdded={(id) => {
+        cards.open(id);
+        adder.setAdding({ kind: 'task', project: id });
+      }}
+    />
+  );
 
   return (
     <>
-      <div ref={root} className="scroll pkscroll">
+      <div ref={root} className="scroll pkscroll" onScroll={onScroll}>
         <div className="pkhead">
           <h2>Pick tasks</h2>
           {view.hintMin > 0 && (
@@ -72,7 +96,7 @@ export function PickPhone(props: PickProps) {
                 <PastEnd plan={plan} status={status} ctx={model.ctx} onSkip={() => props.skipPastEnd(plan.project.id)} />
               </div>
             ))}
-            {empty && <EmptyCard />}
+            {empty && <EmptyCard>{projectAdder}</EmptyCard>}
             {view.projects.map((s) => (
               <ProjectCard key={s.plan.project.id} {...card} s={s} open={cards.isOpen(s.plan.project.id)} toggle={() => cards.toggle(s.plan.project.id)} />
             ))}
@@ -80,6 +104,7 @@ export function PickPhone(props: PickProps) {
             {view.others.map((o) => (
               <OtherCard key={o.plan.project.id} title={o.plan.project.title} pill={<Pill tone={o.status.tone}>{o.status.pill}</Pill>} sum={o.sum} />
             ))}
+            {!empty && !sel.on && <div className="card pcd emptycard addcard">{projectAdder}</div>}
           </>
         )}
         <div className="sr" role="status">

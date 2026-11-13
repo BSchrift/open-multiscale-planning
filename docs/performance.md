@@ -97,11 +97,12 @@ of five runs as of the account's end, in the app's own page through the app's ow
 SQLite on OPFS; the Mac app's bridge to SQLite in the main process; and on iPhone the Capacitor SQLite plugin, from
 the test page the app's test copy carries.
 
-**Pick estimate drag** is weekly planning's Pick step, the first project's first task, its estimate slider dragged with
-the mouse across ten steps and then put back with the toast's Undo: the slowest step, from its input event until the
-frame after it. Before the slider saved only once it was let go, each step saved, and every save read every mounted
+**Pick estimate drag** is weekly planning's Pick step: the first project's card, its first task's time button, and the
+Estimate slider in the time popover that opens, dragged with the mouse across ten steps, saved, and then put back with
+the toast's Undo: the slowest step, from its input event until the frame after it. Before the slider saved only once it was let go, each step saved, and every save read every mounted
 screen's data again. On this account that made the Mac app take 430 ms a step (the median), and the web app show the
 let-go value 6 seconds after letting go, measured on a production build with this history loaded straight into its
 database rather than synced. On 12 November 2026, `HISTORY_REPORT_ONLY=1 SKIP_IOS=1 make test-history` on the shared
 Mac measured the slowest step at 397 ms on the web and 820 ms in the Mac app with every step saving, and 16 ms and
-8 ms once the slider saved only when let go.
+8 ms once the slider saved only when let go. On 13 November 2026, with Pick's project cards and its time popover, the
+same run measured 14 ms and 8 ms.

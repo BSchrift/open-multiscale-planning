@@ -251,20 +251,6 @@
   background: var(--blue-tint);
 }
 
-/* Add hangs from its button's right edge, at the top right of the page, and over the pinned Does it fit line below it.
-   Only the open menu goes over the pin: the top bar itself still scrolls away under it. */
-[data-layout='desktop'] .planflow .addwrap .qpop {
-  left: auto;
-  right: 0;
-  z-index: 7;
-  width: 220px;
-}
-
-[data-layout='phone'] .planflow .addmenu .btn {
-  min-height: 56px;
-  justify-content: flex-start;
-}
-
 [data-layout] .planflow .planadd {
   padding: var(--space-2) 0;
 }

@@ -4,15 +4,15 @@
 
 import { useMemo, useState } from 'react';
 import type { Clock } from '../../../../core/clock';
-import { formatDate, formatMinutes, nowInstant } from '../../../../core/dates';
+import { formatDate, formatMinutes, nowInstant, today } from '../../../../core/dates';
 import { applyPlanChange, dropMilestone, markMilestoneDone, minutesLeft, moveMilestone } from '../../../../core/plan';
 import type { PlanChange, ProjectPlan, RecordWrite } from '../../../../core/plan';
-import { getRecord, setWeekPick, weekPickId, weekPlanId } from '../../../../core/records';
+import { getRecord, newId, setWeekPick, weekPickId, weekPlanId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { withStatusLine } from '../../../../core/status';
 import { closeTask, scheduledWork, tickOneOff } from '../../../../core/tasks';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import type { Fields, LocalDate, Milestone, Minutes } from '../../../../core/types';
+import type { Fields, LocalDate, Milestone, Minutes, Objective } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
 import { useToast } from '../../../components/Toast';
@@ -79,6 +79,14 @@ export interface PickProps {
   /** Drop on a task that needs a new time: it's cancelled. */
   dropTask(row: PickTask): void;
   saveAims(aims: Record<string, Minutes>, skipped: string[]): void;
+  /** Goals a new project can go under. */
+  goals: Objective[];
+  /** Adding while you pick: each saves at once, with a toast whose Undo deletes it, and resolves to its id. A task or one
+   * off can start in this week. */
+  addTask(plan: ProjectPlan, fields: Fields<'task'>, inWeek: boolean): Promise<string | undefined>;
+  addMilestone(plan: ProjectPlan, title: string, due: LocalDate | null): Promise<string | undefined>;
+  addProject(fields: Fields<'project'>): Promise<string | undefined>;
+  addOneOff(fields: Fields<'task'>, inWeek: boolean): Promise<string | undefined>;
   skipPastEnd(projectId: string): void;
   onNext(): void;
 }
@@ -131,6 +139,19 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       return { writes };
     });
   const finish = (w: Writer, t: PickTask['c']['task']) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock));
+  // A new record, and with it, for a task in this week, its pick; Undo deletes both.
+  const create = async <T extends 'task' | 'milestone' | 'project'>(type: T, fields: Fields<T>, pick: Minutes | null, message: string) => {
+    const id = newId(clock);
+    const reverse = await taskWrite.run(async (w) => {
+      await w.create(type, fields, id);
+      const picked = pick === null ? { writes: [] } : await pickChange(w, week, id, pick, clock);
+      return { writes: [...picked.writes, { type, id, fields: { deleted_at: nowInstant(clock) } }] };
+    });
+    if (!reverse) return undefined;
+    undoable(reverse, message, pick === null ? {} : { spoken: `${fitWords(use.used + pick)}.` });
+    return id;
+  };
+  const inThisWeek = (minutes: Minutes, inWeek: boolean) => (inWeek ? `, ${formatMinutes(minutes)} in this week` : '');
 
   const pickProps: PickProps = {
     week,
@@ -206,6 +227,19 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       toast.show('Changed the aims for this week.', { undo: () => planWrite.run(before) });
     },
     skipPastEnd: (id) => void planWrite.run({ skipped_past_end: [...(weekPlan?.skipped_past_end ?? []), id] }),
+    goals: data.records.objectives,
+    addTask: (plan, fields, inWeek) => {
+      const minutes = fields.estimate_min ?? 0;
+      const where = plan.milestones.find((m) => m.id === fields.milestone_id)?.title ?? plan.project.title;
+      return create('task', fields, inWeek ? minutes : null, `Added ${fields.title} to ${where}${inThisWeek(minutes, inWeek)}.`);
+    },
+    addMilestone: (plan, title, due) =>
+      create('milestone', { project_id: plan.project.id, title, due, added_on: today(clock) }, null, `Added milestone ${title} to ${plan.project.title}.`),
+    addProject: (fields) => create('project', fields, null, `Added project ${fields.title}, ${formatDate(fields.start!)} to ${formatDate(fields.end!)}.`),
+    addOneOff: (fields, inWeek) => {
+      const minutes = fields.estimate_min ?? 0;
+      return create('task', fields, inWeek ? minutes : null, `Added ${fields.title} to One offs${inThisWeek(minutes, inWeek)}.`);
+    },
     saveTime: async (row, minutes, estimate) => {
       const t = row.c.task;
       const left = t.remaining_min != null;

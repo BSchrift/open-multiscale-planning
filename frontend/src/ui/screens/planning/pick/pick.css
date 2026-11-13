@@ -173,3 +173,15 @@
   [data-layout='desktop'] .planning .cleft{anchor-name:--pickcol}
   [data-layout='desktop']:has(.planning .cleft) .toast{position-anchor:--pickcol;left:anchor(center)}
 }
+/* Adding while you pick: one adder at the foot of an open card, + One off, and a dashed + Add project card last. */
+:where([data-layout]) .planning .pkadd{display:flex;align-items:center;gap:4px;min-height:34px;padding-left:8px}
+:where([data-layout]) .planning .pkadd .addlink{display:inline-flex;align-items:center;min-height:32px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--blue);font-size:14px;font-weight:500}
+:where([data-layout]) .planning .pkadd .addlink:hover{background:var(--blue-tint)}
+:where([data-layout]) .planning .pkadd .addlink.oo{color:var(--purple)}
+:where([data-layout]) .planning .pkadd .dot{color:var(--quiet)}
+:where([data-layout]) .planning .pcbody>.inlineform,:where([data-layout]) .planning .pcbody>.addform{margin:4px 0;padding:10px 12px;border-radius:8px;background:var(--blue-pale);box-shadow:inset 0 0 0 1px var(--blue-line)}
+:where([data-layout]) .planning .weektick{gap:8px;min-height:var(--tap)}
+:where([data-layout]) .planning .weektick input{width:20px;height:20px;margin:0;accent-color:var(--blue)}
+:where([data-layout]) .planning .addcard{align-items:stretch}
+:where([data-layout='phone']) .planning .pkadd{min-height:var(--tap)}
+:where([data-layout='phone']) .planning .pkadd .addlink{min-height:var(--tap)}

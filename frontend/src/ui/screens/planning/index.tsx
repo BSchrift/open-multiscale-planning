@@ -9,6 +9,8 @@ import { applyPlanChange, autoPickedOneOffs, minutesLeft } from '../../../core/p
 import { addPlanningMinutes, finishWeek, stopPlanning } from '../../../core/planning';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../core/records';
 import type { LocalDate } from '../../../core/types';
+import { AddMenu } from '../../components/AddMenu';
+import type { AddItem } from '../../components/AddMenu';
 import { PlusIcon } from '../../components/icons';
 import { useToast } from '../../components/Toast';
 import { WeekArrows } from '../../components/WeekArrows';
@@ -58,7 +60,11 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
   // What the current step previews on Does it fit, and what the phone's fit line opens there.
   const [preview, setPreview] = useState<FitPreview | null>(null);
   const [onShow, setOnShow] = useState<(() => void) | null>(null);
-  const fitHooks = useMemo(() => ({ preview: setPreview, show: (open: (() => void) | null) => setOnShow(() => open) }), []);
+  // What + Add offers on this step, and whether its menu is open.
+  const [addItems, setAddItems] = useState<readonly AddItem[] | null>(null);
+  const [menu, setMenu] = useState(false);
+  const addRef = useRef<HTMLButtonElement>(null);
+  const fitHooks = useMemo(() => ({ preview: setPreview, show: (open: (() => void) | null) => setOnShow(() => open), add: setAddItems }), []);
   // Each step starts at its top. Focus left behind, by the screen underneath or a step's own button that went away,
   // goes to the current step's tab, which names the step.
   useEffect(() => {
@@ -111,6 +117,23 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
     </FitContext.Provider>
   );
   const fit = <WeekFit week={week} phone={layout === 'phone'} preview={preview} onShow={onShow} />;
+  // The menu item that was picked goes with the menu, so focus goes back to + Add once its form closes.
+  const menuEl = menu && addItems && (
+    <AddMenu
+      items={addItems.map((item) => ({
+        label: item.label,
+        onPick: () => {
+          setMenu(false);
+          item.onPick();
+        },
+      }))}
+      phone={layout === 'phone'}
+      onClose={() => {
+        setMenu(false);
+        addRef.current?.focus();
+      }}
+    />
+  );
   const tabs = (labels: readonly string[], className: string) => (
     <nav className={className} aria-label="Planning steps">
       {labels.map((label, i) => (
@@ -150,10 +173,19 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
           <button className="btn pri grow" type="button" onClick={step === STEPS.length - 1 ? onFinish : () => go(step + 1)}>
             {NEXT[step]}
           </button>
-          <button className="flowcap" type="button" aria-label="Capture a task" onClick={() => nav.openOverlay('capture')}>
+          {/* On a step with things to add, + is Add; elsewhere it captures to the Inbox. */}
+          <button
+            ref={addRef}
+            className="flowcap"
+            type="button"
+            aria-haspopup={addItems ? 'dialog' : undefined}
+            aria-label={addItems ? 'Add a task, one off, milestone or project' : 'Capture a task'}
+            onClick={() => (addItems ? setMenu(true) : nav.openOverlay('capture'))}
+          >
             <PlusIcon />
           </button>
         </div>
+        {menuEl}
       </div>
     );
   }
@@ -168,9 +200,19 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
             <h1>Plan the week</h1>
           </div>
         </div>
-        <button className="btn" type="button" onClick={exit}>
-          Save and exit
-        </button>
+        <div className="row">
+          {addItems && (
+            <div className="editrow addwrap">
+              <button ref={addRef} className="btn" type="button" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+                + Add <span aria-hidden="true">▾</span>
+              </button>
+              {menuEl}
+            </div>
+          )}
+          <button className="btn" type="button" onClick={exit}>
+            Save and exit
+          </button>
+        </div>
       </div>
       <div className="stepsnav">
         <button className="btn sm steparrow" type="button" aria-label="Previous step" disabled={step === 0} onClick={() => go(step - 1)}>

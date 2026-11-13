@@ -203,6 +203,41 @@ test("a toast covers no row and sits clear of the bottom bar and the week's shap
   await page.screenshot({ path: info.outputPath(`pick-toast-${info.project.name}.png`) });
 });
 
+// Adding while you pick: a task from a card's foot, or from + Add, lands in its milestone and in this week, with Undo.
+test('adds a task while picking, from the card or from Add, in this week, with Undo', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await startPlanning(page);
+  await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
+  const report = page.getByRole('region', { name: 'Write the report' });
+  const addTask = report.getByRole('button', { name: 'Add task to Write the report' });
+  if (phone) {
+    await expectTapTarget(addTask);
+    await expectTapTarget(report.getByRole('button', { name: 'Add milestone to Write the report' }));
+    await page.getByRole('button', { name: 'Add a task, one off, milestone or project' }).click();
+    const menu = page.getByRole('dialog', { name: 'Add' });
+    await expect(menu.getByRole('button', { name: 'Task to Inbox' })).toBeVisible();
+    await menu.getByRole('button', { name: 'Task in Write the report' }).click();
+  } else {
+    await page.getByRole('button', { name: '+ Add', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Add' }).getByRole('button', { name: 'Project' })).toBeVisible();
+    await page.getByRole('dialog', { name: 'Add' }).getByRole('button', { name: 'Task in Write the report' }).click();
+  }
+  const form = page.getByRole('form', { name: 'New task in Write the report' });
+  await form.getByRole('combobox', { name: 'Milestone' }).selectOption({ label: 'Draft chapters' });
+  await form.getByRole('textbox', { name: 'Title' }).fill('Outline chapter three');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Added Outline chapter three to Draft chapters, 1h in this week.')).toBeVisible();
+  await expect(form.getByRole('textbox', { name: 'Title' })).toHaveValue('');
+  await page.screenshot({ path: info.outputPath(`pick-add-${info.project.name}.png`) });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await form.getByRole('textbox', { name: 'Title' }).fill('Outline chapter four');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Added Outline chapter four to Draft chapters, 1h in this week.')).toBeVisible();
+  await form.getByRole('button', { name: 'Close' }).click();
+  await expect(report.getByRole('button', { name: '1h this week: Outline chapter four' })).toBeVisible();
+  await expect(report.getByRole('button', { name: /Outline chapter three$/ })).toHaveCount(0);
+});
+
 test('week arrows have no limit, with This week to come back, and the step is kept', async ({ page }) => {
   await startPlanning(page);
   const next = page.getByRole('button', { name: 'Next week' });

@@ -6,6 +6,7 @@ import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import { Pill } from '../../../components/Pill';
 import { Popover } from '../../../components/Popover';
 import { asking, EmptyCard, Legend, OneOffsCard, OtherCard, ProjectCard, useOpenCards } from './Cards';
+import { ProjectAdder, useAdding, usePickAddMenu } from './Adders';
 import { PastEnd } from './PastEnd';
 import type { PickProps } from './PickStep';
 import { SelectBar, useSelection } from './Select';
@@ -28,6 +29,9 @@ export function PickDesktop(props: PickProps) {
   const { view, model } = props;
   const cards = useOpenCards(view);
   const sel = useSelection();
+  const adder = useAdding();
+  // + Add's task and milestone go to the first open project.
+  usePickAddMenu(props, adder, cards, (view.projects.find((p) => cards.isOpen(p.plan.project.id)) ?? view.projects[0])?.plan.project.id, sel.exit);
   const root = useRef<HTMLDivElement>(null);
   const selectRef = useRef<HTMLButtonElement>(null);
   const keyRef = useRef<HTMLButtonElement>(null);
@@ -46,7 +50,17 @@ export function PickDesktop(props: PickProps) {
     ask?.scrollIntoView?.({ block: 'center' });
     ask?.focus();
   };
-  const card = { ...props, phone: false, select: sel };
+  const card = { ...props, phone: false, select: sel, adder };
+  const projectAdder = (
+    <ProjectAdder
+      {...props}
+      adder={adder}
+      onAdded={(id) => {
+        cards.open(id);
+        adder.setAdding({ kind: 'task', project: id });
+      }}
+    />
+  );
 
   return (
     <div ref={root} className="colC">
@@ -102,7 +116,7 @@ export function PickDesktop(props: PickProps) {
             <PastEnd plan={plan} status={status} ctx={model.ctx} onSkip={() => props.skipPastEnd(plan.project.id)} />
           </div>
         ))}
-        {empty && <EmptyCard />}
+        {empty && <EmptyCard>{projectAdder}</EmptyCard>}
         {view.projects.map((s) => (
           <ProjectCard key={s.plan.project.id} {...card} s={s} open={cards.isOpen(s.plan.project.id)} toggle={() => cards.toggle(s.plan.project.id)} />
         ))}
@@ -110,6 +124,7 @@ export function PickDesktop(props: PickProps) {
         {view.others.map((o) => (
           <OtherCard key={o.plan.project.id} title={o.plan.project.title} pill={<Pill tone={o.status.tone}>{o.status.pill}</Pill>} sum={o.sum} />
         ))}
+        {!empty && !sel.on && <div className="card pcd emptycard addcard">{projectAdder}</div>}
         <div className="sr" role="status">
           {props.said}
         </div>

@@ -20,9 +20,9 @@ import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { PracticeAdd, PracticeFields, practiceRule, ProjectAdd, useLeave } from '../../components/editors';
 import { SheetOnPhone } from '../../components/editors/SheetOnPhone';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { AddMenu } from '../../components/AddMenu';
 import { PlusIcon } from '../../components/icons';
 import { Pill } from '../../components/Pill';
-import { Popover } from '../../components/Popover';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { CadenceFields, draftOf } from './Cadence';
@@ -484,29 +484,6 @@ function FinishStep(props: {
   );
 }
 
-/** Add: a goal, practice, project or Inbox task, from any step. */
-function AddMenu(props: { step: StepKey; phone: boolean; onPick(kind: AddKind): void; onClose(): void }) {
-  const own = STEP_KIND[props.step];
-  const kinds = own ? [own, ...ADD_ORDER.filter((k) => k !== own)] : ADD_ORDER;
-  return (
-    <Popover label="Add" onClose={props.onClose}>
-      {props.phone && <h2>Add</h2>}
-      <div className="stack8 addmenu">
-        {kinds.map((kind) => (
-          <button key={kind} className={props.phone ? 'btn' : 'btn sm'} type="button" onClick={() => props.onPick(kind)}>
-            {ADD_LABEL[kind]}
-          </button>
-        ))}
-      </div>
-      {props.phone && (
-        <button className="btn" type="button" onClick={props.onClose}>
-          Cancel
-        </button>
-      )}
-    </Popover>
-  );
-}
-
 export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void }) {
   const { layout, close } = props;
   const phone = layout === 'phone';
@@ -866,7 +843,10 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
     </div>
   );
   const showPinned = pinned && step !== 'finish';
-  const menuEl = menu && <AddMenu step={step} phone={phone} onPick={pick} onClose={() => setMenu(false)} />;
+  // Each step's own kind comes first.
+  const stepKind = STEP_KIND[step];
+  const kinds = stepKind ? [stepKind, ...ADD_ORDER.filter((k) => k !== stepKind)] : ADD_ORDER;
+  const menuEl = menu && <AddMenu items={kinds.map((kind) => ({ label: ADD_LABEL[kind], onPick: () => pick(kind) }))} phone={phone} onClose={() => setMenu(false)} />;
   const addForm =
     adding === 'goal' ? (
       <SheetOnPhone label="Add goal" onClose={doneAdding}>

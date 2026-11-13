@@ -19,7 +19,7 @@ import { Attachments } from '../../components/attachments/Attachments';
 import { useLeave } from '../../components/editors/useLeave';
 import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
-import { CloseIcon } from '../../components/icons';
+import { CloseIcon, PenIcon } from '../../components/icons';
 import { NotesField } from '../../components/notes/NotesField';
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
@@ -156,7 +156,10 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
             ) : (
               <h2 ref={head} tabIndex={-1}>
                 <button className="taskpopname" type="button" aria-label={`Rename ${title}`} onClick={() => setRenaming(true)}>
-                  {title}
+                  <span>{title}</span>
+                  <span className="pen" aria-hidden="true">
+                    <PenIcon />
+                  </span>
                 </button>
               </h2>
             )}

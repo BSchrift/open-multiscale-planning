@@ -348,3 +348,28 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   await expect(card).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("a practice on set days waits in To schedule on its own days only, at that day's time", async ({ page }, info) => {
+  const run: Seed = {
+    type: 'practice',
+    id: 'run',
+    fields: { title: 'Morning run', target_min: 30, per: 'day', days: [1, 4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' },
+  };
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // Wednesday at 8am: not one of its days.
+  await page.clock.install({ time: new Date('2026-11-04T14:00:00Z') });
+  await openSeeded(page, [planned, run]);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  await expect(lane).toBeVisible();
+  await expect(lane.getByRole('button', { name: /^Morning run/ })).toHaveCount(0);
+  // Friday at 8am: there, at 9:30.
+  await page.clock.setFixedTime(new Date('2026-11-06T14:00:00Z'));
+  await page.reload();
+  const card = page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule' });
+  await card.click();
+  await expect(page.getByRole('group', { name: 'Suggested times for Morning run' }).getByRole('button').first()).toHaveText('1 · Fri 9:30am to 10am');
+  await page.screenshot({ path: info.outputPath(`today-practice-${info.project.name}.png`) });
+  await expect(page.getByRole('button', { name: 'Skip Friday' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

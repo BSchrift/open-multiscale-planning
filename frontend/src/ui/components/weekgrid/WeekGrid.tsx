@@ -69,6 +69,9 @@ export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[],
 /** 'Mon Nov 2' */
 export const dayName = (date: LocalDate) => `${formatWeekday(date)} ${formatDate(date)}`;
 
+/** '4 finished' under a day's heading, which opens Done on that day. */
+export const finishedCount = (n: number) => (n ? `${n} finished` : 'Nothing finished');
+
 /** '5pm to 6:30pm' */
 export const slotRange = (s: { start: number; end: number }) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;
 
@@ -87,6 +90,8 @@ interface GridLaneItem {
   alt: string;
   /** Planning, drawn grey rather than as a one off. */
   planning?: boolean;
+  /** A practice's session for that day, drawn teal as practices are. */
+  practice?: boolean;
   open: boolean;
   onToggle(): void;
   /** Dragging it onto a day places it there. */
@@ -115,6 +120,8 @@ export interface WeekGridProps {
   onOpen?(id: string): void;
   /** The block whose details are open, when not editing. */
   openId?: string | null;
+  /** How many things were finished each day up to today: those days' headings say so, and open Done. */
+  done?: { finished: Readonly<Record<LocalDate, number>>; open(date: LocalDate): void };
 }
 
 const { from: FROM, to: TO } = DRAWN_DAY;
@@ -239,16 +246,32 @@ export function WeekGrid(props: WeekGridProps) {
           const free = dayFree(date, 'project', ctx);
           // Counted from now on: a day gone by shows what happened, never free time.
           const past = date < ctx.earliest.date;
+          // Not while editing, which shows neither.
+          const count = editing ? undefined : props.done?.finished[date];
           const closed = closedZones(date, ctx, y);
           if (lockPast && date <= ctx.earliest.date) {
             closed.push({ top: 0, h: date < ctx.earliest.date ? gridH : y(ctx.earliest.minutes), end: TO });
           }
           return (
             <div key={date}>
-              <div className={`colhead${free < base * TIGHT_SHARE ? ' tight' : ''}`}>
-                <span className="strong">{dayName(date)}</span>
-                <span className="free">{editing || past ? '' : `${formatMinutes(free)} free`}</span>
-              </div>
+              {count !== undefined ? (
+                <button
+                  type="button"
+                  className={`colhead dnhead${free < base * TIGHT_SHARE ? ' tight' : ''}`}
+                  aria-label={`Done on ${dayName(date)}: ${finishedCount(count).toLowerCase()}`}
+                  onClick={() => props.done!.open(date)}
+                >
+                  <span className="strong">{dayName(date)}</span>
+                  <span className="free dnlink">
+                    {finishedCount(count)} <span aria-hidden="true">›</span>
+                  </span>
+                </button>
+              ) : (
+                <div className={`colhead${free < base * TIGHT_SHARE ? ' tight' : ''}`}>
+                  <span className="strong">{dayName(date)}</span>
+                  <span className="free">{editing || past ? '' : `${formatMinutes(free)} free`}</span>
+                </div>
+              )}
               <div className="collane" style={{ height: laneH }} data-unscheduled>
                 {lane.map((a, i) => {
                   const first = a.from < days[0]! ? days[0]! : a.from;
@@ -258,7 +281,7 @@ export function WeekGrid(props: WeekGridProps) {
                     <button
                       key={a.id}
                       type="button"
-                      className={a.planning ? 'oochip planchip' : 'oochip'}
+                      className={a.planning ? 'oochip planchip' : a.practice ? 'oochip pracchip' : 'oochip'}
                       style={{ top: i * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
                       title={a.alt}
                       aria-label={a.alt}

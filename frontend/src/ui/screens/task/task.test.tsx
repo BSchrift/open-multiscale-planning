@@ -71,7 +71,10 @@ describe('the task popup', () => {
   it('saves the name, estimate and description together, with Undo', async () => {
     const { t, close } = await open('t1');
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
-    await userEvent.click(within(popup).getByRole('button', { name: 'Rename Draft the summary' }));
+    // The name shows a pencil, as Process's title does, so it reads as editable.
+    const rename = within(popup).getByRole('button', { name: 'Rename Draft the summary' });
+    expect(rename.querySelector('.pen svg')).not.toBeNull();
+    await userEvent.click(rename);
     const name = within(popup).getByRole('textbox', { name: 'Name' });
     expect(name).toHaveFocus();
     await userEvent.clear(name);

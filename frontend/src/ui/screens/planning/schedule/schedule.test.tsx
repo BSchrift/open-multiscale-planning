@@ -161,8 +161,9 @@ describe('Schedule on desktop', () => {
     expect(await sessions()).toEqual([]);
     await userEvent.click(screen.getByRole('button', { name: /^Morning stretch/ }));
     const cur = row('Morning stretch');
-    expect(within(cur).getByText('Practice, 30m a day')).toBeInTheDocument();
+    expect(within(cur).getByText('Practice, 30m on Tue and Wed, around 7am')).toBeInTheDocument();
     expect(within(cur).getByText('Tue Nov 3, 7am to 7:30am (30m)')).toBeInTheDocument();
+    expect(within(cur).getByText('Also this week: Wed 7am.')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Use suggested time/ }).map((b) => b.getAttribute('aria-label'))).toEqual(['Use suggested time, Wed Nov 4, 7am']);
     await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
     await waitFor(async () => expect(await sessions()).toEqual([at('2026-11-03', 7)]));
@@ -204,7 +205,17 @@ describe('Schedule on desktop', () => {
     expect(await sessions()).toEqual([]);
   });
 
-  it('moving a practice session asks to make it permanent, and Yes changes only its usual time', async () => {
+  it("Place the rest puts each session at its own day's time, and one Undo takes them all off", async () => {
+    const t = await open({ seed: async (w) => (await picked(w), await stretch(w), w.set('practice', 'pr', { day_times: [null, null, 9 * 60, null, null, null, null] })) });
+    const sessions = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.practice_id === 'pr' && !b.deleted_at).map((b) => b.start).sort();
+    await userEvent.click(await screen.findByRole('button', { name: 'Place the rest at suggested times' }));
+    expect(await screen.findByText('4 of 4 placed')).toBeInTheDocument();
+    expect(await sessions()).toEqual([at('2026-11-03', 7), at('2026-11-04', 9)]);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await sessions()).toEqual([]));
+  });
+
+  it('moving a practice session asks whether to keep its time, and Yes on Tuesdays changes only that day', async () => {
     const t = await open({
       seed: async (w) => {
         await picked(w);
@@ -215,14 +226,17 @@ describe('Schedule on desktop', () => {
     });
     const session = await screen.findByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ });
     fireEvent.keyDown(session, { key: 'ArrowDown' });
-    const ask = await screen.findByRole('status', { name: 'Make this change permanent?' });
-    expect(await within(ask).findByText('Morning stretch is now Tue Nov 3, 7:15am to 7:45am.')).toBeInTheDocument();
+    const ask = await screen.findByRole('group', { name: 'Use 7:15am in future weeks too?' });
+    expect(ask).toHaveAccessibleDescription('Morning stretch moved to Tue 7:15am.');
     // Moving a block leaves the task being placed as it was.
     expect(screen.getByRole('button', { name: /^Collect the sources/ })).toHaveAttribute('aria-current', 'step');
-    await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every week' }));
-    await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
+    expect(within(ask).getAllByRole('button').map((b) => b.textContent)).toEqual(['No, just this week', 'Yes, on Tuesdays', 'Yes, on Tuesdays and Wednesdays']);
+    await userEvent.click(within(ask).getByRole('button', { name: 'Yes, on Tuesdays' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.day_times).toEqual([null, 7 * 60 + 15, null, null, null, null, null]));
+    expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60]);
+    expect(await screen.findByText('Morning stretch is now 7:15am on Tuesdays.')).toBeInTheDocument();
     expect((await getRecord(t.db, 'time_block', 's2'))?.start).toBe(at('2026-11-04', 7));
-    expect(screen.queryByRole('status', { name: 'Make this change permanent?' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Use 7:15am in future weeks too?' })).toBeNull();
   });
 
   it('Place here over a placed block takes it off to place again, says so first, and Undo puts it all back', async () => {
@@ -446,18 +460,18 @@ describe('Schedule on phone', () => {
     await waitFor(() => expect(session()).toBeInTheDocument());
     fireEvent.pointerDown(session(), { clientY: 300, button: 0 });
     fireEvent.pointerUp(window, { clientY: 300 });
-    expect(await screen.findByText('Practice, 30m a day')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: 'Make this change permanent?' })).toBeNull();
+    expect(await screen.findByText('Practice, 30m on Tue and Wed, around 7am')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Use this in future weeks too?' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
 
     // The drawn day is 17 hours over 816px, so 48px is an hour.
     fireEvent.pointerDown(session(), { clientY: 300, button: 0 });
     fireEvent.pointerMove(window, { clientY: 348 });
     fireEvent.pointerUp(window, { clientY: 348 });
-    const ask = await screen.findByRole('dialog', { name: 'Make this change permanent?' });
-    expect(await within(ask).findByText('Morning stretch is now Tue Nov 3, 8am to 8:30am.')).toBeInTheDocument();
-    await userEvent.click(within(ask).getByRole('button', { name: 'No, this week only' }));
-    expect(screen.queryByRole('dialog', { name: 'Make this change permanent?' })).toBeNull();
+    const ask = await screen.findByRole('dialog', { name: 'Use this in future weeks too?' });
+    expect(within(ask).getByRole('group', { name: 'Use 8am in future weeks too?' })).toHaveAccessibleDescription('Morning stretch moved to Tue 8am.');
+    await userEvent.click(within(ask).getByRole('button', { name: 'No, just this week' }));
+    expect(screen.queryByRole('dialog', { name: 'Use this in future weeks too?' })).toBeNull();
   });
 
   // Paint the fence sits on Tuesday from 8am, so the task's best time there is 9:30am.

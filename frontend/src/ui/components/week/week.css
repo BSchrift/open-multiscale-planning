@@ -2,3 +2,18 @@
 [data-layout] .legend .seg-free {
   background: var(--fill);
 }
+
+/* A day with work waiting for it in To schedule, such as a set day's practice session. */
+[data-layout] .wday {
+  position: relative;
+}
+
+[data-layout] .wwait {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+}

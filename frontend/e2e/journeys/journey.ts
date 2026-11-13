@@ -136,3 +136,12 @@ export async function addTasks(page: Page | Locator, milestone: string, tasks: r
   await expect(editor).toHaveCount(0);
   for (const t of tasks) await expect(page.getByRole('button', { name: `Edit task ${t.title}, ${t.estimate}` })).toBeVisible();
 }
+
+/** Adds the item on Process's card to a project or One offs: typed and Enter on desktop, picked in the sheet on phone. */
+export async function processTo(page: Page, phone: boolean, place: string) {
+  if (phone) await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await picker.fill(place);
+  if (phone) await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: new RegExp(`^${place}`) }).first().click();
+  else await picker.press('Enter');
+}

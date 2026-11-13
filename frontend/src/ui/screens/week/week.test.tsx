@@ -176,13 +176,29 @@ describe('Week on desktop', () => {
     expect(within(used).getByText('Wed Nov 4 is packed')).toBeVisible();
     expect(within(used).getByText('30m free of 5h available that day.')).toBeVisible();
     expect(within(used).queryByText('Mon Nov 2 is packed')).toBeNull();
+    // A day gone by and today say what was finished instead, and open Done.
     const heads = document.querySelectorAll('.colhead');
     expect(heads[0]).not.toHaveClass('tight');
-    expect(heads[0]!.querySelector('.free')).toBeEmptyDOMElement();
+    expect(heads[0]!.querySelector('.free')).toHaveTextContent('Nothing finished ›');
     expect(heads[2]).toHaveClass('tight');
-    expect(heads[2]!.querySelector('.free')).toHaveTextContent('30m free');
+    expect(heads[2]!.querySelector('.free')).toHaveTextContent('Nothing finished ›');
     expect(heads[3]!.querySelector('.free')).toHaveTextContent('7h free');
     expect(screen.getByRole('button', { name: /^Paint the fence, Mon Nov 2, 5pm to 10pm, One off\./ })).toBeVisible();
+  });
+
+  it('opens Done from the heading of a day gone by or today, with what was finished; a later day keeps its free time', async () => {
+    const t = await midweek();
+    await t.write(async (w) => {
+      await w.create('task', { kind: 'project', project_id: 'p', title: 'Draft the methods', done_at: at('10:00', TUE) }, 't3');
+      await w.create('task', { kind: 'one_off', title: 'Renew passport photos', done_at: at('11:00', TUE) }, 't4');
+      await w.create('task_completion', { task_id: 't4', done_at: at('11:00', TUE) }, 'c4');
+    });
+    const tuesday = await screen.findByRole('button', { name: 'Done on Tue Nov 3: 2 finished' });
+    expect(tuesday).toHaveTextContent('Tue Nov 32 finished ›');
+    expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Done on Thu Nov 5/ })).toBeNull();
+    await userEvent.click(tuesday);
+    expect(t.nav().route).toMatchObject({ area: 'done', params: { day: TUE } });
   });
 
   it('a past week still shows what was planned in it', async () => {
@@ -200,7 +216,7 @@ describe('Week on desktop', () => {
     expect(await screen.findByText('Oct 26 to Nov 1')).toBeVisible();
     expect(screen.getByText('0m free', { selector: '.capnum' })).toBeVisible();
     expect(screen.getByText('of 0m available')).toBeVisible();
-    expect([...document.querySelectorAll('.colhead .free')].every((el) => el.textContent === '')).toBe(true);
+    expect([...document.querySelectorAll('.colhead .free')].map((el) => el.textContent)).toEqual(Array(7).fill('Nothing finished ›'));
 
     await userEvent.click(screen.getByRole('button', { name: 'This week' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Next week' }));
@@ -313,11 +329,40 @@ describe('Week on desktop', () => {
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     (await screen.findByRole('group', { name: /^Piano practice/ })).focus();
     await userEvent.keyboard('{ArrowDown}');
-    const ask = await screen.findByRole('status', { name: 'Make this change permanent?' });
-    expect(within(ask).getByText('Piano practice is now Wed Nov 4, 7:15am to 7:45am.')).toBeVisible();
-    await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every week' }));
+    const ask = await screen.findByRole('group', { name: 'Use 7:15am in future weeks too?' });
+    expect(ask).toHaveAccessibleDescription('Piano practice moved to Wed 7:15am.');
+    expect(await within(ask).findByRole('status')).toHaveTextContent('Piano practice moved to Wed 7:15am. Use 7:15am in future weeks too?');
+    expect(within(ask).getAllByRole('button').map((b) => b.textContent)).toEqual(['No, just this week', 'Yes, on Wednesdays', 'Yes, every day']);
+    await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every day' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
-    expect(await screen.findByText('Piano practice changed for every week. Edit it any time in Goals.')).toBeVisible();
+    expect(await screen.findByText('Piano practice is now 7:15am every day.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toBeNull());
+  });
+
+  it('a practice moved to another day stays the session of its own day, for this week only, and a day with one refuses it', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await planned(w);
+        await w.create('time_block', { practice_id: 'pr', start: at('07:00', '2026-11-05'), end: at('07:30', '2026-11-05'), tz: ZONE }, 'session:pr:2026-11-05');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    // Wednesday's session onto Thursday, which has one: refused, and nothing moves.
+    (await screen.findByRole('group', { name: /^Piano practice, Wed/ })).focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(await screen.findByText('Piano practice is already on Thursday.')).toBeVisible();
+    expect((await block('b2')(t))?.start).toBe(at('07:00', WED));
+    // Thursday's onto Friday: moved this week only, no question, and Thursday doesn't come back to To schedule.
+    screen.getByRole('group', { name: /^Piano practice, Thu/ }).focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(await screen.findByText("Moved Thursday's Piano practice to Fri 7am, this week only.")).toBeVisible();
+    expect(screen.queryByRole('group', { name: /future weeks/ })).toBeNull();
+    expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-05'))?.start).toBe(at('07:00', '2026-11-06'));
+    expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Thursday/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Friday/ })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-05'))?.start).toBe(at('07:00', '2026-11-05')));
   });
 
   it('adds a task: its block waits at the best time, with other suggestions, until Place here', async () => {
@@ -402,9 +447,13 @@ describe('To schedule on Week', () => {
   it('lists picked work less what is placed, and practices short of their target, with a count', async () => {
     await open({ seed: picks });
     const lane = await screen.findByRole('region', { name: 'To schedule' });
-    expect(within(lane).getByText('2 · 5h')).toBeVisible();
+    // Piano practice counts a session for each day still without one: Monday, Tuesday, and Thursday to Sunday.
+    expect(within(lane).getByText('7 · 5h')).toBeVisible();
     expect(within(lane).getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' })).toBeVisible();
-    expect(within(lane).getByRole('button', { name: 'Piano practice, Practice, 6 × 30m, to schedule' })).toBeVisible();
+    for (const day of ['Monday', 'Tuesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) {
+      expect(screen.getByRole('button', { name: `Piano practice, Practice, 30 minutes on ${day}, to schedule` })).toBeVisible();
+    }
+    expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Wednesday/ })).toBeNull();
   });
 
   it('Schedule one at a time opens planning on Schedule for the week', async () => {
@@ -417,27 +466,57 @@ describe('To schedule on Week', () => {
     const t = await open({ seed: picks });
     await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary, Project, 2h of 3h left/ }));
     const panel = screen.getByRole('group', { name: 'Draft the summary' });
-    const times = within(within(panel).getByRole('group', { name: 'Suggested times' })).getAllByRole('button');
+    const times = within(within(panel).getByRole('group', { name: 'Suggested times for Draft the summary' })).getAllByRole('button');
+    expect(times[0]).toHaveAccessibleName(times[0]!.textContent!);
     expect(times).toHaveLength(3);
     expect(screen.getAllByRole('button', { name: /^Use suggested time/ })).toHaveLength(3);
     await userEvent.click(times[0]!);
     await waitFor(async () => expect(await live(t, (b) => b.task_id === 't1')).toHaveLength(2));
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Draft the summary, Project/ })).toBeNull());
-    expect(screen.getByText('1 · 3h')).toBeVisible();
+    expect(screen.getByText('6 · 3h')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(await screen.findByRole('button', { name: /^Draft the summary, Project, 2h of 3h left/ })).toBeVisible();
   });
 
   it('a card dragged onto a day is placed where it is let go', async () => {
     const t = await open({ seed: picks });
-    const card = await screen.findByRole('button', { name: /^Piano practice, Practice/ });
+    const card = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday, to schedule' });
     // Thursday's 6am to 11pm drawn 442px tall from y 100, 26px an hour, so y 152 is 8am.
     const thu = document.querySelector('[data-drop-date="2026-11-05"]')!;
     rect(thu, 442, 100);
     pointAt(() => thu);
     drag(card, { x: 50, y: 152 });
     await waitFor(async () => expect((await live(t, (b) => b.practice_id === 'pr')).map((b) => b.start).sort()).toEqual([at('07:00', WED), at('08:00', '2026-11-05')]));
-    expect(await screen.findByRole('button', { name: /^Piano practice, Practice, 5 × 30m/ })).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Thursday/ })).toBeNull());
+    expect(await getRecord(t.db, 'time_block', 'session:pr:2026-11-05')).toMatchObject({ practice_id: 'pr' });
+  });
+
+  it('Skip Thursday skips that one session this week, with Undo, and a suggestion says why it moved', async () => {
+    const t = await open({ seed: async (w) => (await picks(w), w.set('practice', 'pr', { preferred_times: [18 * 60 + 30] })) });
+    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday around 6:30 PM, to schedule' }));
+    // Tuesday's 6:30pm is under Quiz night and the summary's block, so it moves.
+    const panel = screen.getByRole('group', { name: 'Piano practice' });
+    expect(within(panel).getByText('6:30pm is taken, so 7:30pm')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Piano practice' })).getByRole('button', { name: 'Skip Thursday' }));
+    expect(await screen.findByText('Skipped Piano practice on Thursday this week.')).toBeVisible();
+    expect((await getRecord(t.db, 'week_plan', weekPlanId(MON)))?.skipped_sessions).toEqual(['pr:2026-11-05']);
+    expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Thursday/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Piano practice, Practice, 30 minutes on Friday/ })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByRole('button', { name: /^Piano practice, Practice, 30 minutes on Thursday/ })).toBeVisible();
+  });
+
+  it('a count waits above the week as sessions still to place, and a drop on a day with one is refused', async () => {
+    const t = await open({ seed: async (w) => (await picks(w), w.set('practice', 'pr', { per: 'week', target_min: 90, sessions: 3 })) });
+    const card = await screen.findByRole('button', { name: 'Piano practice, Practice, 2 more this week, 30m each, to schedule' });
+    expect(within(screen.getByRole('region', { name: 'To schedule' })).getByText('3 · 3h')).toBeVisible();
+    const wed = document.querySelector('[data-drop-date="2026-11-04"]')!;
+    rect(wed, 442, 100);
+    pointAt(() => wed);
+    drag(card, { x: 50, y: 360 });
+    expect(await screen.findByText('Piano practice is already on Wednesday.')).toBeVisible();
+    expect(await live(t, (b) => b.practice_id === 'pr')).toHaveLength(1);
   });
 
   it('while editing, a block dragged onto To schedule comes off the calendar and waits there, with Undo', async () => {
@@ -457,7 +536,7 @@ describe('To schedule on Week', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary, Project/ }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Draft the summary' })).getByRole('button', { name: 'Take out of this week' }));
     await waitFor(async () => expect((await getRecord(t.db, 'week_pick', weekPickId(MON, 't1')))?.deleted_at).toBeTruthy());
-    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, Practice/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, Practice, 30 minutes on Thursday/ }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Piano practice' })).getByRole('button', { name: 'Take out of this week' }));
     expect(await screen.findByText('Everything this week is on the calendar.')).toBeVisible();
     expect((await getRecord(t.db, 'week_plan', weekPlanId(MON)))?.skipped_practices).toEqual(['pr']);
@@ -467,11 +546,12 @@ describe('To schedule on Week', () => {
 
   it('on phone, a card opens its suggested times in a sheet, and one places it', async () => {
     const t = await open({ layout: 'phone', seed: picks });
-    await userEvent.click(await screen.findByRole('button', { name: /^Piano practice, Practice/ }));
+    // Today is Monday, so To schedule shows Monday's session.
+    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Monday, to schedule' }));
     const sheet = screen.getByRole('dialog', { name: 'Piano practice' });
-    await userEvent.click(within(sheet).getAllByRole('button', { name: /^Place Piano practice, / })[0]!);
+    await userEvent.click(within(within(sheet).getByRole('group', { name: 'Suggested times for Piano practice' })).getAllByRole('button')[0]!);
     await waitFor(async () => expect(await live(t, (b) => b.practice_id === 'pr')).toHaveLength(2));
-    expect(await screen.findByRole('button', { name: /^Piano practice, Practice, 5 × 30m/ })).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Monday/ })).toBeNull());
   });
 
   it('on phone, a card held then dragged onto a row of the day is placed at that time', async () => {
@@ -541,6 +621,19 @@ describe('Week on phone', () => {
     expect(days[1]).not.toHaveAttribute('aria-current');
   });
 
+  it('the heading over today, or a day gone by, opens Done on that day; a later day’s stays plain', async () => {
+    const t = await midweek({ layout: 'phone' });
+    const strip = await screen.findByRole('group', { name: 'Choose a day' });
+    expect(screen.getByRole('heading', { name: 'Wed Nov 4' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toHaveTextContent('Nothing finished ›');
+    await userEvent.click(within(strip).getAllByRole('button')[3]!);
+    expect(await screen.findByRole('heading', { name: 'Thu Nov 5' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Done on/ })).toBeNull();
+    await userEvent.click(within(strip).getAllByRole('button')[1]!);
+    await userEvent.click(await screen.findByRole('button', { name: 'Done on Tue Nov 3: nothing finished' }));
+    expect(t.nav().route).toMatchObject({ area: 'done', params: { day: TUE } });
+  });
+
   it('mid-week, counts only time still ahead: a past day shows what happened, never free or packed', async () => {
     await midweek({ layout: 'phone' });
     const days = within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button');
@@ -554,7 +647,7 @@ describe('Week on phone', () => {
     expect(days[2]).toHaveClass('tight');
     expect(screen.getByText('Wed Nov 4 is packed')).toBeVisible();
     expect(screen.getByText('30m free of 5h available that day.')).toBeVisible();
-    expect(days[3]).toHaveAccessibleName('Thu Nov 5, 7h free');
+    expect(days[3]).toHaveAccessibleName('Thu Nov 5, 7h free, 1 to schedule');
     // Monday was full, but it has gone by.
     expect(days[0]).toHaveAccessibleName('Mon Nov 2');
     expect(days[0]).not.toHaveClass('tight');

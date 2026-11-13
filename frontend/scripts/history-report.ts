@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 type Surface = 'web' | 'mac' | 'iphone';
-type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'estimate_drag_ms';
+type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'estimate_drag_ms' | 'done_query_ms';
 type Results = Partial<Record<Surface, Partial<Record<Measure | 'records', number>>>>;
 
 const LABELS: Record<Measure, string> = {
@@ -19,7 +19,10 @@ const LABELS: Record<Measure, string> = {
   today_query_ms: 'Today query',
   week_query_ms: 'Week query',
   estimate_drag_ms: 'Pick estimate drag, slowest step',
+  done_query_ms: 'Done query',
 };
+
+const SURFACES = ['web', 'mac', 'iphone'] as const;
 
 /**
  * The plan's budgets. docs/performance.md lists them with the baseline. A report-only one is shown but never fails a
@@ -30,9 +33,10 @@ export const BUDGETS: { measure: Measure; surface: Surface; budget: number; repo
   { measure: 'first_sync_ms', surface: 'mac', budget: 10_000 },
   { measure: 'first_sync_ms', surface: 'iphone', budget: 20_000 },
   { measure: 'edit_save_ms', surface: 'web', budget: 50 },
-  ...(['today_query_ms', 'week_query_ms'] as const).flatMap((measure) => (['web', 'mac', 'iphone'] as const).map((surface) => ({ measure, surface, budget: 100 }))),
+  ...(['today_query_ms', 'week_query_ms'] as const).flatMap((measure) => SURFACES.map((surface) => ({ measure, surface, budget: 100 }))),
   // A step of a drag drawn within three frames.
   ...(['web', 'mac'] as const).map((surface) => ({ measure: 'estimate_drag_ms' as const, surface, budget: 50, reportOnly: true as const })),
+  ...SURFACES.map((surface) => ({ measure: 'done_query_ms' as const, surface, budget: 100, reportOnly: true as const })),
 ];
 
 /** Seconds for a first sync, milliseconds for the rest. */
@@ -70,7 +74,7 @@ function main(argv: string[]) {
     return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, number>) : undefined;
   };
   const results: Results = {};
-  for (const surface of ['web', 'mac', 'iphone'] as const) results[surface] = read(surface);
+  for (const surface of SURFACES) results[surface] = read(surface);
   const { lines, missed, missing } = report(results, skip);
   console.log(lines.join('\n'));
   const reportOnly = process.env.HISTORY_REPORT_ONLY === '1';

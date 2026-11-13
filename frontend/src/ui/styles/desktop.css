@@ -62,13 +62,6 @@
 :where([data-layout='desktop']) .pxtop{display:flex;align-items:center;gap:16px}
 :where([data-layout='desktop']) .pxmain{flex:1 1 auto;display:flex;align-items:center;min-height:120px}
 :where([data-layout='desktop']) .pxtitle{margin:0;font-size:clamp(28px,4vw,44px);line-height:1.2;font-weight:600;outline:none}
-:where([data-layout='desktop']) .pxgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
-:where([data-layout='desktop']) .pxdest{display:flex;align-items:center;gap:12px;width:100%;min-height:72px;padding:12px 16px;border:1px solid var(--border);border-left:4px solid var(--blue);border-radius:10px;background:var(--white);font-size:17px;text-align:left}
-:where([data-layout='desktop']) .pxdest:hover{background:var(--blue-pale)}
-:where([data-layout='desktop']) .pxdest.maint{border-color:var(--purple);background:var(--purple-soft);color:var(--purple-ink)}
-:where([data-layout='desktop']) .pxdest.maint:hover{background:var(--purple-hover)}
-:where([data-layout='desktop']) .pxkey{flex:none;display:inline-block;min-width:24px;padding:0 6px;border:1px solid currentColor;border-radius:5px;font-size:13px;font-weight:600;line-height:20px;text-align:center;opacity:.6}
-:where([data-layout='desktop']) .pxtags{display:flex;gap:10px;margin-left:auto;font-size:13px;font-weight:600}
 :where([data-layout='desktop']) .pxweek{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:56px;padding:8px 16px;border:2px solid var(--blue);border-radius:10px;background:var(--white);color:var(--blue);font-size:17px;font-weight:600}
 :where([data-layout='desktop']) .pxweek:hover{background:var(--blue-pale)}
 :where([data-layout='desktop']) .pxweek.on,:where([data-layout='desktop']) .pxweek.on:hover{background:var(--blue);color:var(--white)}
@@ -87,7 +80,6 @@
 :where([data-layout='desktop']) .estslider input{flex:1 1 auto;min-width:120px;min-height:36px}
 :where([data-layout='desktop']) .estval{flex:none;min-width:76px;font-weight:600}
 :where([data-layout='desktop']) .stack8>.estslider,:where([data-layout='desktop']) .stack>.estslider{flex:none}
-:where([data-layout='desktop']) .pxother{min-width:0;color:inherit;border-left-color:var(--grey)}
 :where([data-layout='desktop']) .editrow{position:relative}
 :where([data-layout='desktop']) .rowbtn{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;width:100%;min-height:32px;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:inherit;text-align:left;font-size:14px}
 :where([data-layout='desktop']) .rowbtn:hover,:where([data-layout='desktop']) .rowbtn:focus-visible{background:var(--hover)}

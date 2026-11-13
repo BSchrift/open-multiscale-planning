@@ -1,9 +1,5 @@
 /* Process: what the shared card styles don't cover. */
 
-[data-layout] .pxmin {
-  min-width: 0;
-}
-
 /* Phone: the flow sits on the ground, where the usual track would vanish. */
 [data-layout='phone'] .pxbar {
   background: var(--card-line);
@@ -27,17 +23,7 @@
   min-height: 44px;
 }
 
-[data-layout='phone'] .pxpick[aria-pressed='true'] {
-  background: var(--blue-pale);
-  box-shadow: inset 4px 0 0 var(--blue);
-  padding-inline: 12px;
-}
-
-[data-layout] .pxlines > span {
-  display: block;
-}
-
-/* No home yet? Make one: a labelled row of three. */
+/* No home yet? Make one: a labelled row of two. */
 [data-layout] .pxmake {
   display: flex;
   flex-wrap: wrap;
@@ -68,7 +54,7 @@
   padding-inline: 6px;
 }
 
-/* A key beside a button's words, as the destinations show theirs. */
+/* A key beside a button's words. */
 [data-layout='desktop'] .pxcard .btn .keycap,
 [data-layout='desktop'] .pxweek .keycap {
   margin-left: 6px;
@@ -78,36 +64,533 @@
   margin-left: 0;
 }
 
-/* The finder: one field, and its matches as rows under it, the one Enter sends lit. */
-[data-layout] .pxfindlist {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  max-height: 360px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+/* The item: its title, then its details under it. */
+[data-layout] .pxitem {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
-[data-layout] .pxfindrow {
+[data-layout] .pxfacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-layout='desktop'] .pxfacts .estslider {
+  margin-left: auto;
+  flex: 0 1 300px;
+}
+
+/* The title says it can be edited: a pencil always, and on hover a ground and a dashed underline. */
+[data-layout] .pxhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* On phone the title takes the card's width, its pencil at the far end. */
+[data-layout='phone'] .pxhead > h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-layout] .pxedit {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+[data-layout] .pxedit .pen {
+  flex: none;
+  display: inline-flex;
+  color: var(--quiet);
+}
+
+[data-layout] .pxedit .pen svg,
+[data-layout] .pxchip svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-layout='desktop'] .pxedit .pen svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.75;
+}
+
+@media (hover: hover) {
+  [data-layout] .pxedit:hover {
+    background: var(--hover);
+  }
+
+  [data-layout] .pxedit:hover > span:first-child {
+    text-decoration: underline dashed var(--border-strong) 2px;
+    text-underline-offset: 6px;
+  }
+}
+
+[data-layout='phone'] .pxedit {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 44px;
+  gap: 6px;
+  width: calc(100% + 12px);
+  min-height: var(--tap);
+  margin: 0 -6px;
+  padding: 2px 6px;
+}
+
+[data-layout='phone'] .pxedit .pen {
   align-items: center;
-  padding: 8px 12px;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -4px -6px -4px 0;
+}
+
+[data-layout='phone'] .pxedit .pen svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.9;
+}
+
+/* The title being edited: a field of the title's own size. */
+[data-layout] .pxtitlefield {
+  width: 100%;
+  border: 1px solid var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  outline: none;
+}
+
+[data-layout='desktop'] .pxtitlefield {
+  min-height: 64px;
+  padding: 2px 12px;
+  border-radius: 10px;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.2;
+}
+
+[data-layout='phone'] .pxtitlefield {
+  min-height: 48px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+/* Empty details are buttons with their icons and full names. */
+[data-layout] .pxchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-layout] .pxchip svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
+}
+
+/* Add link and Add photo join the row of buttons; the link's fields take a line of their own. */
+[data-layout] .pxfacts .attachadds,
+[data-layout] .pxfour .attachadds {
+  display: contents;
+}
+
+[data-layout] .pxfacts .attachlink,
+[data-layout] .pxfacts .fielderr {
+  flex: 1 1 100%;
+}
+
+[data-layout] .pxfour .attachlink,
+[data-layout] .pxfour .fielderr {
+  grid-column: 1 / -1;
+}
+
+/* The storage used belongs to the popup; the card keeps to the item. */
+[data-layout] .pxitem .attachusage {
+  display: none;
+}
+
+[data-layout='desktop'] .pxdetails {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 28px;
+}
+
+/* A long description shows its first lines; a click opens it all to edit. */
+[data-layout] .pxnotes .notes {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+[data-layout='phone'] .pxfour {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+[data-layout='phone'] .pxfour:empty {
+  display: none;
+}
+
+[data-layout='phone'] .pxfour .btn {
+  justify-content: flex-start;
+  padding-inline: 12px;
+  font-size: 15px;
+}
+
+/* Desktop: the card sits at the top, as tall as it needs, leaving a band at the foot of the window for the toast. */
+[data-layout='desktop'] .pxwrap {
+  align-items: flex-start;
+  padding-bottom: 96px;
+}
+
+[data-layout='desktop'] .pxcard {
+  max-height: 100%;
+}
+
+[data-layout='desktop']:has(.pxwrap) .toast {
+  z-index: 51;
+  box-shadow: 0 8px 24px rgba(var(--ink-rgb), 0.28);
+}
+
+/* Phone: Process has no tab bar, so the toast takes its place, just above the bottom row and in thumb reach. Over a
+   sheet it still drops from the top. */
+[data-layout='phone']:has(.pxflow):not(:has(.sheet)) .toast {
+  top: auto;
+  bottom: calc(max(24px, env(safe-area-inset-bottom)) + var(--tap) + 12px);
+  min-height: 56px;
+  box-shadow: 0 8px 24px rgba(var(--ink-rgb), 0.28);
+}
+
+/* A key on a filled button, in the button's own light ink. */
+[data-layout='desktop'] .pxcard .btn.pri .keycap,
+[data-layout='desktop'] .pxweek.on .keycap {
+  color: var(--blue-on-solid);
+  border-color: var(--blue-on-solid);
+}
+
+/* Where it goes: one searchable field. Its list opens under it on desktop, and in a sheet on phone. */
+[data-layout] .pkrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px 12px;
+}
+
+[data-layout] .pkwrap {
+  position: relative;
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+[data-layout] .pkfield {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  background: var(--white);
+  color: var(--ink);
+  text-align: left;
+}
+
+[data-layout] .pkfield:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+
+/* On phone the field is a button, ringed only when reached from a keyboard. */
+[data-layout='phone'] .pkphone > .pkfield:focus:not(:focus-visible) {
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+/* The list hangs over the card's edge rather than scrolling inside it. */
+[data-layout='desktop'] .pxcard:has(.pklist) {
+  overflow: visible;
+}
+
+[data-layout] .pkfield > svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--quiet);
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+
+/* A chevron that says the field opens a list. */
+[data-layout] .pkfield::after {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: -4px 2px 0 auto;
+  border-right: 1.75px solid var(--quiet);
+  border-bottom: 1.75px solid var(--quiet);
+  transform: rotate(45deg);
+}
+
+[data-layout] .pkfield.open::after {
+  margin-top: 4px;
+  transform: rotate(-135deg);
+}
+
+[data-layout] .pkfield input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+[data-layout] .pksize {
+  display: inline-grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-layout] .pksize[data-value] {
+  flex: 0 1 auto;
+}
+
+[data-layout] .pksize[data-value]::after {
+  content: attr(data-value);
+  grid-area: 1 / 1;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+  font-weight: 600;
+}
+
+[data-layout] .pksize > input {
+  grid-area: 1 / 1;
+  width: 100%;
+}
+
+/* The place shown, before anything is typed over it. */
+[data-layout] .pkfield input:not([data-typed]) {
+  font-weight: 600;
+}
+
+[data-layout] .pkfield input::placeholder {
+  color: var(--quiet);
+  font-weight: 400;
+}
+
+[data-layout] .pkval {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-layout] .pkgoal {
+  flex: none;
+  color: var(--quiet);
+  font-weight: 400;
+}
+
+[data-layout] .pkval .pkgoal {
+  margin-left: 6px;
+}
+
+[data-layout='desktop'] .pkfield {
+  min-height: 56px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 17px;
+}
+
+[data-layout='desktop'] .pkrow .pxweek {
+  flex: none;
+  width: auto;
+  padding-inline: 20px;
+}
+
+[data-layout='desktop'] .pkadd {
+  flex: none;
+  min-height: 56px;
+  padding: 8px 20px;
+  border-radius: 10px;
+  font-size: 17px;
+}
+
+[data-layout] .pklist {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 6;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--white);
+  box-shadow: 0 12px 32px rgba(var(--ink-rgb), 0.16);
+}
+
+[data-layout] .pkopts {
+  padding: 4px 0;
+}
+
+/* Past a dozen or so rows it scrolls. */
+[data-layout='desktop'] .pkopts {
+  max-height: min(392px, 50vh);
+  overflow-y: auto;
+}
+
+[data-layout] .pkopt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  min-height: 40px;
+  padding: 6px 16px;
   cursor: pointer;
 }
 
-[data-layout] .pxfindrow + .pxfindrow {
-  border-top: 1px solid var(--line-soft);
+[data-layout] .pkopt:hover {
+  background: var(--hover);
 }
 
-[data-layout] .pxfindrow:hover,
-[data-layout] .pxfindrow[aria-selected='true'] {
+/* The row Enter adds to: the finder's own tint, with names in ink. */
+[data-layout] .pkopt[aria-selected='true'] {
   background: var(--blue-pale);
+  box-shadow: inset 4px 0 0 var(--blue);
 }
 
-[data-layout] .pxfindrow[aria-selected='true'] {
-  box-shadow: inset 4px 0 0 var(--blue);
+[data-layout] .pkopt b {
+  font-weight: 700;
+}
+
+[data-layout] .pkopt .pkgoal {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+[data-layout] .pkopt .pktag {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+[data-layout] .pkopt .pkgoal + .pktag {
+  margin-left: 12px;
+}
+
+[data-layout] .pknew {
+  color: var(--blue);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+[data-layout] .pkone {
+  color: var(--purple-ink);
+  font-weight: 600;
+}
+
+[data-layout] .pkdot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--purple);
+}
+
+[data-layout] .pkhead {
+  padding: 10px 16px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--quiet);
+}
+
+[data-layout] .pkempty {
+  padding: 8px 16px 10px;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+[data-layout='phone'] .pkphone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-layout='phone'] .pkfield {
+  min-height: 52px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+
+[data-layout='phone'] .pkadd {
+  min-height: 48px;
+  font-size: 16px;
+}
+
+/* The sheet: its field stays put while the list under it scrolls. */
+[data-layout='phone'] .sheet.pksheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: calc(86vh - var(--keyboard, 0px));
+  height: calc(86dvh - var(--keyboard, 0px));
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+[data-layout='phone'] .pksheet .pkfield::after {
+  display: none;
+}
+
+[data-layout='phone'] .pksheet .pkopts {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 -16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+[data-layout='phone'] .pkopt {
+  min-height: 48px;
+  padding: 8px 16px;
+  font-size: 16px;
+}
+
+[data-layout='phone'] .pkopt .pkgoal {
+  font-size: 14px;
+}
+
+[data-layout='phone'] .pkhead {
+  padding: 12px 16px 4px;
 }

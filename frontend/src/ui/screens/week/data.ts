@@ -3,7 +3,7 @@
 import { loadAnalyticsData } from '../../../core/analytics';
 import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
-import { addDays, addWeeks, formatMinutes, instantMs, thisWeek, today, weekRange } from '../../../core/dates';
+import { addDays, addWeeks, formatMinutes, formatTimeOfDay, instantMs, thisWeek, today, weekday, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { FIRST_BLOCK_MIN, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
@@ -13,7 +13,7 @@ import { blocksInRange, inboxCount, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
-import { closestFit, fits, infoSpans, offers, practicesLeft, practiceSlots, slotContext, spansAhead } from '../../../core/slots';
+import { closestFit, fits, infoSpans, offers, practicesLeft, practiceSlots, practiceTime, sessionOffers, skippedSessionKey, slotContext, spansAhead } from '../../../core/slots';
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
 import type { LocalDate, Minutes, Practice, Task, TimeBlock } from '../../../core/types';
@@ -70,10 +70,14 @@ export interface LaneItem {
   left: Minutes;
   /** A new block's length: up to 2h of a task, or one session of a practice. */
   length: Minutes;
-  /** '2h of 3h left', '2 × 30m' */
+  /** '2h of 3h left', '30m · 7am', '2 more this week · 1h each' */
   line: string;
-  /** A one off's dates: it waits above those days. */
+  /** A one off's dates, or a set day's session's day: it waits above those days. */
   dates?: { from: LocalDate; to: LocalDate };
+  /** A practice's sessions still to place, which To schedule's count counts. Anything else is one. */
+  sessions?: number;
+  /** Why the first suggested time isn't the usual one: '9:30am is taken, so 10am'. */
+  note?: string;
   task?: Task;
   practice?: Practice;
   /** Picked for this week, so it can be taken out again. */
@@ -83,7 +87,7 @@ export interface LaneItem {
 }
 
 /** What can be put on the calendar: a task, or a practice's session. */
-export type Placeable = Pick<LaneItem, 'id' | 'title' | 'kind' | 'work' | 'task' | 'practice'>;
+export type Placeable = Pick<LaneItem, 'id' | 'title' | 'kind' | 'work' | 'task' | 'practice' | 'dates'>;
 
 export const rowItem = (r: AddRow): Placeable => ({ id: r.task.id, title: r.task.title, kind: r.work.kind === 'one_off' ? 'one_off' : 'project', work: r.work, task: r.task });
 
@@ -164,6 +168,7 @@ export function weekModel(d: WeekData, clock: Clock) {
   // To schedule: picks less what's placed, one offs dated in the week with nothing placed, and practices short of
   // their target. Dated ones wait above their days, the rest above the whole week.
   const weekPlan = d.weekPlans.find((p) => p.week_start === week) ?? null;
+  const skippedSessions = weekPlan?.skipped_sessions ?? [];
   const datesOf = (t: Task) => {
     const s = t.schedule;
     return t.kind === 'one_off' && s?.type === 'once' && s.from && onceOverlaps(t, week, addDays(week, 6)) ? { from: s.from, to: s.to ?? s.from } : undefined;
@@ -195,20 +200,22 @@ export function weekModel(d: WeekData, clock: Clock) {
     ...oneOffs
       .filter((t) => !t.cancelled_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
       .map((t) => taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null)),
-    ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? [], weekPlan?.skipped_sessions ?? []).map(
-      (x): LaneItem => ({
-        id: x.practice.id,
-        title: x.practice.title,
-        kind: 'practice',
-        work: { kind: 'project' },
-        left: x.minutes,
-        length: x.length,
-        line: x.sessions > 1 ? `${x.sessions} × ${formatMinutes(x.length)}` : formatMinutes(x.minutes),
-        practice: x.practice,
-        picked: false,
-        offers: practiceSlots(x.practice, ctx, weekPlan?.skipped_sessions ?? []).slice(0, 3),
-      }),
-    ),
+    // A set day's session waits above its own day, at that day's time; a count's wait above the whole week.
+    ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? [], skippedSessions).flatMap((x): LaneItem[] => {
+      const p = x.practice;
+      const each = { title: p.title, kind: 'practice' as const, work: { kind: 'project' } as Work, length: x.length, practice: p, picked: false };
+      if (x.dates) {
+        return x.dates.map((date) => {
+          const offers = sessionOffers(p, date, ctx);
+          const time = practiceTime(p, weekday(date));
+          const line = time === null ? formatMinutes(x.length) : `${formatMinutes(x.length)} · ${formatTimeOfDay(time)}`;
+          return { ...each, id: skippedSessionKey(p.id, date), left: x.length, line, dates: { from: date, to: date }, sessions: 1, offers, note: offers[0]?.note };
+        });
+      }
+      const offers = practiceSlots(p, ctx, skippedSessions).slice(0, 3);
+      const line = `${x.sessions} more this week${x.missed ? `, ${x.missed} missed` : ''} · ${formatMinutes(x.length)} each`;
+      return [{ ...each, id: p.id, left: x.minutes, line, sessions: x.sessions, offers, note: offers[0]?.note }];
+    }),
   ].sort((a, b) => (a.dates?.from ?? '~').localeCompare(b.dates?.from ?? '~'));
 
   // An unscheduled planning task heads To schedule in the week it's due in: next week's, dated to the days before that
@@ -256,6 +263,7 @@ export function weekModel(d: WeekData, clock: Clock) {
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
     unscheduled: [...planning, ...unscheduled],
+    practices: records.practices,
     current,
     thisPlanned: d.weekPlans.some((p) => p.week_start === current && !!p.finished_at),
   };

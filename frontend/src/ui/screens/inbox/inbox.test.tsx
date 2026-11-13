@@ -85,10 +85,24 @@ describe('Inbox on phone', () => {
     await renderApp({ layout: 'phone', seed: (w) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1') });
     await userEvent.click(await screen.findByRole('button', { name: 'Inbox, 1 to sort' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'One offs' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Add to a project or One offs' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'One offs' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Done' }));
     expect(await screen.findByText('Inbox is empty. Anything you capture lands here.')).toBeVisible();
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it("takes an item back from Process's toast once Process has closed", async () => {
+    const t = await renderApp({ seed: (w) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1') });
+    await userEvent.click(await screen.findByRole('button', { name: /^Inbox/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Add to a project or One offs' }), 'One offs{Enter}');
+    // Keys rather than a click, which would put the toast away: Esc leaves the field, then closes Process.
+    await userEvent.keyboard('{Escape}{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.click(within(document.querySelector<HTMLElement>('.toast')!).getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 'i1'))?.kind).toBe('inbox'));
+    expect(await screen.findByRole('button', { name: 'Process 1 item' })).toBeVisible();
   });
 });
 

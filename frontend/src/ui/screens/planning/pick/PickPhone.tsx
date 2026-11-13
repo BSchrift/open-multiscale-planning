@@ -5,20 +5,18 @@
 
 import { useEffect, useState } from 'react';
 import { formatMinutes, formatWeekRange } from '../../../../core/dates';
-import { minutesLeft } from '../../../../core/plan';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { Minutes } from '../../../../core/types';
-import { EstimateSlider } from '../../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
 import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
-import { Popover } from '../../../components/Popover';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { Sheet } from '../../../components/Sheet';
 import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { pickWarning } from '../../../../core/capacity';
 import { Aims } from './Aims';
+import { EstimatePopover } from './EstimatePopover';
 import { aimWords } from './model';
 import type { PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
@@ -490,13 +488,7 @@ export function PickPhone(props: PickProps) {
       )}
 
       {estRow && (
-        <Popover label={`Estimate for ${estRow.title}`} onClose={() => setEstFor(null)}>
-          <h2>{estRow.title}</h2>
-          <EstimateSlider label={estRow.c.task.remaining_min != null ? 'Time left' : 'Estimate'} value={minutesLeft(estRow.c.task)} onChange={(m) => props.setEstimate(estRow, m)} />
-          <button className="btn pri" type="button" onClick={() => setEstFor(null)}>
-            Done
-          </button>
-        </Popover>
+        <EstimatePopover row={estRow} phone onSave={(m) => props.setEstimate(estRow, m)} onClose={() => setEstFor(null)} />
       )}
     </>
   );

@@ -74,7 +74,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(page.getByRole('button', { name: 'Undo: Added goal Keep fit.' })).toBeVisible();
   await next('Goals look right');
 
-  // Practices: each a summary, whose Edit opens its fields in place until Done.
+  // Practices: each a summary, whose Edit opens its fields in place until Save or Cancel.
   await expect(page.getByRole('heading', { name: 'Step 2 of 5, Practices. Your practices' })).toBeFocused();
   await expect(steps.getByRole('button', { name: /Goals, done$/ })).toBeVisible();
   await expect(page.getByText('15m a day, every day, around 7:30am')).toBeVisible();
@@ -84,7 +84,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   const target = editor.getByRole('slider', { name: 'Target' });
   await target.fill('20');
   await expect(target).toHaveAttribute('aria-valuetext', '20m');
-  await editor.getByRole('button', { name: 'Done' }).click();
+  await editor.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('20m a day, every day, around 7:30am')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit Read about bread' })).toBeFocused();
   await next('Practices look right');

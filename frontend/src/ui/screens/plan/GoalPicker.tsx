@@ -163,8 +163,11 @@ export function GoalPicker(props: { item: Linked; goals: readonly Objective[]; a
   );
 }
 
-/** A practice's goal, as a select named for it, with + New goal after it. */
-export function GoalField(props: { item: Linked; goals: readonly Objective[]; act: Act }) {
+/**
+ * A practice's goal, as a select named for it, with + New goal after it. A pick waits for its editor's Save, as the
+ * other fields do, while a new goal is made and linked at once, with Undo.
+ */
+export function GoalField(props: { item: Linked; goals: readonly Objective[]; act: Act; value: string | null; onChange(goal: string | null): void }) {
   const { item } = props;
   const { layout } = useApp();
   const link = useLink(props.act, props.goals);
@@ -182,8 +185,8 @@ export function GoalField(props: { item: Linked; goals: readonly Objective[]; ac
           ref={selectRef}
           className="field"
           aria-label={`Goal for ${item.title}`}
-          value={item.goal ?? ''}
-          onChange={(event) => void link.pick(item, event.target.value || null)}
+          value={props.value ?? ''}
+          onChange={(event) => props.onChange(event.target.value || null)}
         >
           <option value="">No goal</option>
           {linkable(props.goals).map((g) => (

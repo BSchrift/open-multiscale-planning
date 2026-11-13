@@ -7,17 +7,15 @@ import type { MouseEvent } from 'react';
 import type { AimRow } from '../../../../core/capacity';
 import { pickWarning } from '../../../../core/capacity';
 import { formatDate, formatMinutes, formatWeekRange } from '../../../../core/dates';
-import { minutesLeft } from '../../../../core/plan';
-import { EstimateSlider } from '../../../components/EstimateSlider';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
 import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
-import { Popover } from '../../../components/Popover';
 import { CapacityRing } from '../../../components/ring/CapacityRing';
 import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { Aims } from './Aims';
+import { EstimatePopover } from './EstimatePopover';
 import { aimWords } from './model';
 import type { PickGroup, PickProject, PickTask } from './model';
 import { OverdueFix } from './OverdueFix';
@@ -108,14 +106,7 @@ function TaskLine(props: PickProps & { row: PickTask }) {
         </span>
       </div>
       {estOpen && !done && (
-        <Popover label={`Estimate for ${r.title}`} onClose={closeEst}>
-          <EstimateSlider label={r.c.task.remaining_min != null ? 'Time left' : 'Estimate'} value={minutesLeft(r.c.task)} onChange={(m) => props.setEstimate(r, m)} />
-          <div className="row">
-            <button className="btn sm pri" type="button" onClick={closeEst}>
-              Done
-            </button>
-          </div>
-        </Popover>
+        <EstimatePopover row={r} phone={false} onSave={(m) => props.setEstimate(r, m)} onClose={closeEst} />
       )}
     </div>
   );

@@ -12,7 +12,7 @@
 // then stands (retention.ts), so every writer keeps it right.
 
 import { protocol } from '@multiscale/config';
-import { nowInstant } from './dates';
+import { isDay, nowInstant } from './dates';
 import { clockWins, formatClock, isClock, nextClock, observeClock, parseClock } from './clock';
 import type { Clock } from './clock';
 import { getMeta, META, setMeta } from './db';
@@ -81,6 +81,13 @@ export function weekPlanId(weekStart: LocalDate): string {
 /** A practice has at most one placed session a day, so two devices placing the same week merge into one record. */
 export function practiceSessionId(practiceId: string, date: LocalDate): string {
   return `session:${practiceId}:${date}`;
+}
+
+/** The day a practice session is for, from an id practiceSessionId made for it, else null. */
+export function sessionDay(id: string, practiceId: string): LocalDate | null {
+  const prefix = `session:${practiceId}:`;
+  const date = id.startsWith(prefix) ? id.slice(prefix.length) : '';
+  return isDay(date) ? date : null;
 }
 
 /** The id of one finish of a recurring task, so that two offline devices finishing the same occurrence merge. */

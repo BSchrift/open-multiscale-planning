@@ -96,7 +96,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const ctxOut: SlotContext = editB ? { ...ctx, placed: ctx.placed.filter((p) => p.id !== editB.id) } : ctx;
   const draftKey = cur && !editB ? `${cur.id}:${cur.toPlace}` : '';
   // A practice is suggested on its own days at its usual time, as Place the rest would put it.
-  const usual = cur?.practice && !editB ? practiceSlots(cur.practice, ctx) : null;
+  const usual = cur?.practice && !editB ? practiceSlots(cur.practice, ctx, model.weekPlan?.skipped_sessions ?? []) : null;
   const draftSlot =
     !cur || editB ? null : draft?.key === draftKey ? draft.slot : (usual?.[0] ?? defaultSlot(Math.min(cur.toPlace, cur.length), cur.work, ctx));
   const b: Slot | null = editB ?? draftSlot;
@@ -194,7 +194,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     const x = blockOf(a?.blockId ?? null);
     setAsk(null);
     if (!a || !x?.practice_id) return;
-    const reverse = await run((w) => keepPracticeChange(w, a.blockId, a.wasMin, clock));
+    const reverse = await run((w) => keepPracticeChange(w, a.blockId, { time: 'every', length: true }, clock));
     if (reverse) notify(`${x.title} changed for every week. Edit it any time in Goals.`);
   };
   const togglePractice = (id: string, off: boolean) => void run((w) => skipPractice(w, week, id, off, clock));

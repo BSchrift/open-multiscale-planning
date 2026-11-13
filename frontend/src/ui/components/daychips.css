@@ -1,0 +1,74 @@
+/* Day chips: a checkbox under each chip takes the click, the keyboard and the screen reader. Chosen chips are solid. */
+[data-layout] .daychipset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-layout] .daychipset > legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+[data-layout] .daychipfill {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-layout] .daychipbox {
+  container-type: inline-size;
+}
+
+[data-layout] .daychips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-layout] .daychip {
+  position: relative;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+[data-layout] .daychip.on {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--white);
+}
+
+[data-layout] .daychip:has(.chipbox:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+[data-layout] .chipbox {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+[data-layout='phone'] .daychips {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+[data-layout='phone'] .daychip {
+  min-width: 0;
+  padding: 4px 0;
+}
+
+/* Too narrow for seven, they wrap four and three. */
+@container (max-width: 331px) {
+  [data-layout='phone'] .daychips {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

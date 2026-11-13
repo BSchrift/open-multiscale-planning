@@ -159,7 +159,7 @@ export const RECORD_FIELDS = {
   task_completion: ['task_id', 'done_at', 'previous_next', 'undo', 'deleted_at'],
   time_block: ['task_id', 'practice_id', 'start', 'end', 'tz', 'started_at', 'ended_at', 'paused_at', 'paused_min', 'cancelled', 'deleted_at'],
   block_outcome: ['result', 'remaining_min', 'logged_min', 'answered_at', 'dropped_at', 'deleted_at'],
-  week_plan: ['week_start', 'finished_at', 'aims', 'skipped_aims', 'skipped_practices', 'skipped_past_end', 'planning_skipped_at', 'planning_min', 'planning_started_at', 'deleted_at'],
+  week_plan: ['week_start', 'finished_at', 'aims', 'skipped_aims', 'skipped_practices', 'skipped_sessions', 'skipped_past_end', 'planning_skipped_at', 'planning_min', 'planning_started_at', 'deleted_at'],
   week_pick: ['week_start', 'task_id', 'minutes', 'deleted_at'],
   away_period: ['start', 'end', 'deleted_at'],
   settings: [
@@ -176,7 +176,7 @@ export const RECORD_FIELDS = {
   ],
   calendar: ['connected', 'calendar_id', 'events', 'synced_at', 'last_error', 'deleted_at'],
   calendar_source: ['google_id', 'name', 'mode', 'deleted_at'],
-  practice: ['objective_id', 'title', 'target_min', 'per', 'days', 'preferred_times', 'state', 'deleted_at'],
+  practice: ['objective_id', 'title', 'target_min', 'per', 'days', 'preferred_times', 'sessions', 'day_times', 'state', 'deleted_at'],
   attachment: ['task_id', 'kind', 'name', 'url', 'size', 'type', 'sha256', 'uploaded_at', 'deleted_at'],
 } as const satisfies { [K in RecordType]: readonly Exclude<keyof RecordMap[K], 'id'>[] };
 

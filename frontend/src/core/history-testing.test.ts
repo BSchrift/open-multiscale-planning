@@ -79,6 +79,13 @@ describe('the history', () => {
     expect(problems).toEqual([]);
   });
 
+  it('has practices on every kind of schedule: some days, some times a week, and a time of its own on one day', () => {
+    const practices = ofType('practice');
+    expect(practices.some((c) => value(c, 'per') === 'week' && value(c, 'sessions') === undefined)).toBe(true);
+    expect(practices.some((c) => value(c, 'per') === 'week' && value(c, 'sessions') === 3)).toBe(true);
+    expect(practices.some((c) => value(c, 'per') === 'day' && (value(c, 'day_times') as unknown[] | undefined)?.length === 7)).toBe(true);
+  });
+
   it('is what the server takes: clocks from before its end, records under the size limit, last write last', () => {
     const problems: string[] = [];
     let last = '';

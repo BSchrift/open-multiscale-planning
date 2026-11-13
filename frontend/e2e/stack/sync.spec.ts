@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
-import { account, go, oneOffRow, pane, seed, setDate, syncNow } from '../seed';
+import { account, go, oneOffRow, pane, readRecord, seed, setDate, syncNow } from '../seed';
 import { capture, closeDevices, daysAhead, deleteFromInbox, device, NETWORK, oneOff, signIn, startSignIn } from './devices';
 import { target } from './target';
 
@@ -114,6 +114,37 @@ test('two devices sign in, sync, merge edits made offline, and sync deletes', as
   await go(a.page, 'One offs');
   await expect(pane(a.page, 'One offs').getByRole('checkbox', { name: `${paint} done` })).toHaveCount(0);
 
+  expect(a.errors).toEqual([]);
+  expect(b.errors).toEqual([]);
+});
+
+test("two devices change a practice's days and its days' own times at once, and both keep each change", async ({ browser }) => {
+  const run = randomUUID().slice(0, 8);
+  const id = `e2e-${run}-run`;
+  const title = `Morning run ${run}`;
+  const a = await device(browser, `e2e-${run}`);
+  await seed(a.page, [{ type: 'practice', id, fields: { title, target_min: 30, per: 'day', days: [0, 1, 4], preferred_times: [420], state: 'active' } }]);
+  await signIn(a.page);
+  const b = await device(browser, `e2e-${run}`);
+  await signIn(b.page);
+  await expect.poll(async () => (await readRecord(b.page, 'practice', id))?.title, NETWORK).toBe(title);
+
+  // Offline, one drops Friday, and the other gives Tuesday and Friday times of their own.
+  for (const d of [a, b]) await d.context.setOffline(true);
+  await seed(a.page, [{ type: 'practice', id, fields: { days: [0, 1] } }]);
+  await seed(b.page, [{ type: 'practice', id, fields: { day_times: [null, 480, null, null, 570, null, null] } }]);
+  for (const d of [a, b]) await d.context.setOffline(false);
+  for (const d of [a, b, a]) await syncNow(d.page);
+  // Each field merges on its own, and the days still decide which days: Friday's time waits unused.
+  for (const d of [a, b]) {
+    await expect(account(d.page).getByText('Synced', { exact: true })).toBeVisible();
+    expect(await readRecord(d.page, 'practice', id)).toMatchObject({ title, days: [0, 1], day_times: [null, 480, null, null, 570, null, null], preferred_times: [420] });
+  }
+
+  // A deployment's test user keeps nothing live.
+  await seed(a.page, [{ type: 'practice', id, fields: { deleted_at: new Date().toISOString() } }]);
+  await syncNow(a.page);
+  await expect(account(a.page).getByText('Synced', { exact: true })).toBeVisible();
   expect(a.errors).toEqual([]);
   expect(b.errors).toEqual([]);
 });

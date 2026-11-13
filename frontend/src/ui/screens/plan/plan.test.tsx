@@ -487,7 +487,7 @@ describe('Planning ahead', () => {
       const { t } = await flow(layout, 'practices');
       expect(await screen.findByRole('heading', { name: 'Step 2 of 5, Practices. Your practices' })).toBeVisible();
       expect(screen.getByText('Stretch')).toBeVisible();
-      expect(screen.getByText('15m a day, every day, around 7am')).toBeVisible();
+      expect(screen.getByText('15m every day, around 7am')).toBeVisible();
       expect(screen.getByText('No goal')).toBeVisible();
       expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
 
@@ -565,21 +565,22 @@ describe('Planning ahead', () => {
       expect((await getRecord(t.db, 'objective', goal!))?.deleted_at).toBeTruthy();
     });
 
-    it('a preferred time typed but not added is kept on Save, and dropped on Cancel', async () => {
+    it('a new schedule shows in its summary on Save, and Cancel drops it', async () => {
       const { t } = await flow(layout, 'practices');
       await userEvent.click(await screen.findByRole('button', { name: 'Edit Stretch' }));
       let editor = screen.getByRole('group', { name: 'Edit Stretch' });
-      fireEvent.change(within(editor).getByLabelText('New preferred time'), { target: { value: '18:30' } });
+      await userEvent.click(within(editor).getByRole('button', { name: 'Weekdays' }));
+      fireEvent.change(within(editor).getByLabelText('Usual time'), { target: { value: '18:30' } });
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
-      expect(await screen.findByText('15m a day, every day, around 7am or 6:30pm')).toBeVisible();
-      expect((await record(t, 'practice', 'pr1'))?.preferred_times).toEqual([420, 1110]);
+      expect(await screen.findByText('15m every weekday, around 6:30pm', { selector: ':not(.sr)' })).toBeVisible();
+      expect(await record(t, 'practice', 'pr1')).toMatchObject({ days: [0, 1, 2, 3, 4], preferred_times: [1110] });
 
       await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch' }));
       editor = screen.getByRole('group', { name: 'Edit Stretch' });
-      fireEvent.change(within(editor).getByLabelText('New preferred time'), { target: { value: '06:00' } });
+      await userEvent.click(within(editor).getByRole('button', { name: 'Weekends' }));
       await userEvent.click(within(editor).getByRole('button', { name: 'Cancel' }));
-      expect(screen.getByText('15m a day, every day, around 7am or 6:30pm')).toBeVisible();
-      expect((await record(t, 'practice', 'pr1'))?.preferred_times).toEqual([420, 1110]);
+      expect(screen.getByText('15m every weekday, around 6:30pm', { selector: ':not(.sr)' })).toBeVisible();
+      expect((await record(t, 'practice', 'pr1'))?.days).toEqual([0, 1, 2, 3, 4]);
     });
 
     it('ending a practice in its editor takes it off the list, with focus on Add practice', async () => {
@@ -606,7 +607,7 @@ describe('Planning ahead', () => {
       await userEvent.click(within(form).getByRole('button', { name: 'Add practice' }));
       await waitFor(() => expect(screen.queryByRole('form', { name: 'Add practice' })).toBeNull());
       expect(await screen.findByText('Read about baking')).toBeVisible();
-      expect(screen.getByText('30m a day, every day, around 7am')).toBeVisible();
+      expect(screen.getByText('30m every day, around 7am')).toBeVisible();
       expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
       await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Read about baking' })).toHaveFocus());
       expect(undoButton('Added practice Read about baking.')).toBeVisible();

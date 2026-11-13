@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { addMilestones, addProject, chicago, firstRun, jumpTo, openProject, pane, start, tab, TZ } from './journey';
+import { addMilestones, addProject, chicago, firstRun, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
-// Capture from anywhere, sort the Inbox to a milestone, a dated one off, an undated one off, a practice made from its
-// card and the bin, then live with the One offs page across days: ticking, Today's one offs, Finished tasks and the
-// Repeating group.
+// Capture from anywhere, sort the Inbox to a project with a date, a dated one off, an undated one off, a practice made
+// from its card and the bin, then live with the One offs page across days: ticking, Today's one offs, Finished tasks
+// and the Repeating group.
 
 test.use({ timezoneId: TZ, actionTimeout: 15_000 });
 
@@ -42,23 +42,27 @@ test('capture, process each item to its place, then one offs across the week', a
   await inbox.getByRole('button', { name: 'Process 5 items' }).click();
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
 
-  // To the project, then onto its milestone from the line under the card.
+  // Dated on the card before it moves, then to the project, its date going with it.
   await expect(card.getByRole('heading', { name: 'Buy a proofing basket' })).toBeVisible();
-  await card.getByRole('button', { name: 'Bake a sourdough loaf' }).click();
-  await expect(card.getByRole('status')).toHaveText('Sent to Bake a sourdough loaf.');
-  await card.getByRole('combobox', { name: 'Milestone for Buy a proofing basket' }).selectOption({ label: 'A starter that rises' });
+  await card.getByRole('button', { name: 'Add date' }).click();
+  await card.getByLabel('Date', { exact: true }).fill('2026-11-13');
+  await card.getByRole('button', { name: 'Set date' }).click();
+  await expect(card.getByRole('button', { name: 'Change date, Nov 13' })).toBeVisible();
+  await processTo(page, phone, 'Bake a sourdough loaf');
+  await expect(page.locator('.toast')).toContainText('Added Buy a proofing basket to Bake a sourdough loaf, for Nov 13.');
 
   // To One offs, dated Friday.
   await expect(card.getByRole('heading', { name: 'Return the library books' })).toBeVisible();
-  await card.getByRole('button', { name: 'One offs' }).click();
-  await card.getByRole('button', { name: 'Add date for Return the library books' }).click();
+  await card.getByRole('button', { name: 'Add date' }).click();
   await card.getByLabel('Date', { exact: true }).fill('2026-11-06');
   await card.getByRole('button', { name: 'Set date' }).click();
-  await expect(card.getByRole('button', { name: 'Change date for Return the library books' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Change date, Nov 6' })).toBeVisible();
+  await processTo(page, phone, 'One offs');
+  await expect(page.locator('.toast')).toContainText('Added Return the library books to One offs, for Nov 6.');
 
   // To One offs with no date.
   await expect(card.getByRole('heading', { name: 'Pay the water bill' })).toBeVisible();
-  await card.getByRole('button', { name: 'One offs' }).click();
+  await processTo(page, phone, 'One offs');
 
   // A practice of its own, made from its card: the item becomes it, and leaves the Inbox.
   await expect(card.getByRole('heading', { name: 'Stretch every morning' })).toBeVisible();
@@ -68,7 +72,7 @@ test('capture, process each item to its place, then one offs across the week', a
   await practice.getByRole('button', { name: 'Change time' }).click();
   await practice.getByRole('slider', { name: 'Target' }).fill('15');
   await practice.getByRole('button', { name: 'Make it a practice' }).click();
-  await expect(card.getByRole('status')).toHaveText('"Stretch every morning" is now a practice, 15m a day. It left your Inbox.');
+  await expect(page.locator('.toast')).toContainText('Stretch every morning is now a practice.');
 
   // And the bin, after asking.
   await expect(card.getByRole('heading', { name: 'An old idea to let go' })).toBeVisible();
@@ -80,8 +84,11 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(inbox.getByText(/^Inbox is empty\./)).toBeVisible();
 
   // Each landed where it was sent.
+  // A project task keeps its date, shown on its row under the project's Done.
   await openProject(page, phone, 'Learn to bake bread', 'Bake a sourdough loaf');
-  await expect(page.getByRole('group', { name: 'Milestone: A starter that rises' }).getByRole('button', { name: /^Edit task Buy a proofing basket/ })).toBeVisible();
+  const done = page.getByRole('button', { name: 'Done tasks' });
+  if ((await done.getAttribute('aria-expanded')) === 'false') await done.click();
+  await expect(page.getByRole('button', { name: /^Edit task Buy a proofing basket, Nov 13, / })).toBeVisible();
 
   await tab(page, phone, 'One offs');
   const oneOffs = pane(page, 'One offs');

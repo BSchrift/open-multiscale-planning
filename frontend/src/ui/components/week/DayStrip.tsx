@@ -7,6 +7,7 @@ import { dayBaseAhead, dayFree, DRAWN_DAY, isOpen, isPast, TIGHT_SHARE } from '.
 import type { Slot, SlotContext, Span } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { dayName } from '../weekgrid';
+import './week.css';
 
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -52,6 +53,8 @@ function DayShape(props: { ctx: SlotContext; placed: readonly Span[]; date: Loca
 export interface DayHint {
   suggested?: Slot | null;
   noFit?: boolean;
+  /** Work waiting in To schedule for that day, such as a set day's practice session. */
+  waiting?: number;
 }
 
 export function DayStrip(props: {
@@ -79,9 +82,9 @@ export function DayStrip(props: {
         const on = date === props.selected;
         const tight = packed(date, ctx);
         const freeText = date < today ? '' : formatMinutes(free(date, ctx));
-        const { suggested, noFit } = props.hint?.(date) ?? {};
+        const { suggested, noFit, waiting } = props.hint?.(date) ?? {};
         const time = suggested && formatTimeOfDay(suggested.start);
-        const say = time ? `, suggested ${time}` : noFit ? ', no slot for this task' : '';
+        const say = (time ? `, suggested ${time}` : noFit ? ', no slot for this task' : '') + (waiting ? `, ${waiting} to schedule` : '');
         return (
           <button
             key={date}
@@ -96,6 +99,7 @@ export function DayStrip(props: {
               <span>{LETTERS[i]} </span>
               <span className="strong">{Number(date.slice(8))}</span>
             </span>
+            {!!waiting && <span className="wwait" aria-hidden="true" />}
             {/* A suggestion at the block's own time is the block. */}
             <DayShape ctx={ctx} placed={props.placed} date={date} draft={draft} suggested={suggested && !(draft?.date === date && draft.start === suggested.start) ? suggested : null} />
             {props.suggestions ? (

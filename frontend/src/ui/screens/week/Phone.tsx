@@ -22,7 +22,7 @@ import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
 import { KIND_WORD } from '../../components/blocks/describe';
-import { clearLane, dayName, overLane, slotRange } from '../../components/weekgrid';
+import { clearLane, dayName, finishedCount, overLane, slotRange } from '../../components/weekgrid';
 import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
@@ -139,7 +139,10 @@ export function PhoneWeek(props: WeekProps) {
     if (!placing || !at || locked) return;
     if (placing.mode === 'move') {
       const b = placing.block;
-      if (at.date !== b.date || at.start !== b.start || at.end !== b.end) {
+      // A session moved to another day is for this week only, so nothing asks about future weeks.
+      if (b.practice_id && at.date !== b.date) {
+        if (!(await act.moveSessionDay(b, at, model.blocks))) return;
+      } else if (at.date !== b.date || at.start !== b.start || at.end !== b.end) {
         await act.moveWithUndo(b.id, b.title, at);
         if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
       }
@@ -258,7 +261,7 @@ export function PhoneWeek(props: WeekProps) {
             ctx={ctx}
             placed={ctx.placed}
             draft={placing ? at : null}
-            hint={(date) => ({ noFit: noFit(date) })}
+            hint={(date) => ({ noFit: noFit(date), waiting: model.unscheduled.filter((x) => x.dates && x.dates.from <= date && date <= x.dates.to).length })}
             onPick={pickDay}
           />
         </div>
@@ -340,7 +343,17 @@ export function PhoneWeek(props: WeekProps) {
         </div>
       ) : (
         <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          <h3 className="wkday">{dayTitle}</h3>
+          {props.finished[selDay] !== undefined ? (
+            // Today or a day gone by: what was finished, which opens Done on that day.
+            <div className="between dnday">
+              <h3 className="wkday">{dayTitle}</h3>
+              <button className="link dnlink" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
+                {finishedCount(props.finished[selDay])} <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          ) : (
+            <h3 className="wkday">{dayTitle}</h3>
+          )}
           <div className="card wkdaycard">
             <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={(id) => setOpen({ kind: 'block', id })} />
           </div>
@@ -440,6 +453,10 @@ export function PhoneWeek(props: WeekProps) {
               void act.place(item, slot);
             }}
             onChoose={() => startPlacing({ mode: 'place', item, length: item.length, fromDrawer: false }, item.offers[0] ? { ...item.offers[0] } : null)}
+            onSkipDay={() => {
+              setOpen(null);
+              void act.skipDay(item, data.week);
+            }}
             onTakeOut={() => {
               setOpen(null);
               void act.takeOut(item, data.week);

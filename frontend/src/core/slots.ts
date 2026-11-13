@@ -511,6 +511,18 @@ export function placePractices(
   return sessions;
 }
 
+/** One day's session to choose from: where Place the rest puts it, then later open times that day, half an hour apart. */
+export function sessionOffers(p: Practice, date: LocalDate, ctx: SlotContext, count = 3): PracticeSession[] {
+  const length = sessionLength(p);
+  const first = sessionStart(p, date, length, ctx);
+  if (!first) return [];
+  const out: PracticeSession[] = [{ practice_id: p.id, date, start: first.start, end: first.start + length, ...(first.note ? { note: first.note } : {}) }];
+  for (let m = first.start + 30; out.length < count && m + length <= 1440; m += GRID) {
+    if (m - out[out.length - 1]!.start >= 30 && fits(date, m, length, 'project', ctx)) out.push({ practice_id: p.id, date, start: m, end: m + length });
+  }
+  return out;
+}
+
 /** Where a practice's next sessions would go, as Place the rest puts them. */
 export function practiceSlots(p: Practice, ctx: SlotContext, skippedSessions: readonly string[] = []): PracticeSession[] {
   return placePractices([p], ctx, { skippedSessions });

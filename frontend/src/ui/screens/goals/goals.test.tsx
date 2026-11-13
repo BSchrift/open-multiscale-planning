@@ -570,6 +570,29 @@ describe('Goals', () => {
     expect(screen.getByRole('img', { name: /Milestone Share a loaf, due Dec 10, in the plan\. Milestone Done, due Dec 15, in the plan\.$/ })).toBeInTheDocument();
   });
 
+  it("shows a task's date beside its estimate, and warns, blocking nothing, when it falls after its milestone or the project's end", async () => {
+    const t = await project('desktop', async (w) => {
+      await bread(w);
+      const dated = (id: string, milestone_id: string | null, title: string, from: string, to: string | null = null) =>
+        w.create('task', { kind: 'project', project_id: 'p1', milestone_id, title, estimate_min: 60, schedule: { type: 'once', from, to }, next_due: from }, id);
+      await dated('d1', 'm2', 'Buy a banneton', '2026-11-12');
+      await dated('d2', 'm2', 'Bake the test loaf', '2026-11-21', '2026-11-23');
+      await dated('d3', null, 'Write up the recipe', '2026-12-20');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'First loaf tasks' }));
+    const onTime = await screen.findByRole('button', { name: 'Edit task Buy a banneton, Nov 12, 1h' });
+    expect(onTime).toHaveTextContent('Nov 12 · 1h');
+    expect(onTime.querySelector('.latewarn')).toBeNull();
+    const late = screen.getByRole('button', { name: 'Edit task Bake the test loaf, Nov 21 to Nov 23, 1h, due after First loaf (Nov 20)' });
+    expect(within(late).getByText('Due after First loaf (Nov 20)').querySelector('svg')).not.toBeNull();
+    // Under Done, its deadline is the project's end.
+    await userEvent.click(screen.getByRole('button', { name: 'Done tasks' }));
+    expect(screen.getByRole('button', { name: 'Edit task Write up the recipe, Dec 20, 1h, due after the project ends (Dec 15)' })).toBeVisible();
+    // Nothing is blocked: it still ticks.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Bake the test loaf done' }));
+    await waitFor(async () => expect((await record(t, 'task', 'd2'))?.done_at).toBeTruthy());
+  });
+
   it('task rows show the same Edit cue as milestone rows', async () => {
     await project();
     expect(within(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' })).getByText('Edit')).toHaveClass('editcue');
@@ -1064,7 +1087,7 @@ describe('Goals', () => {
     it('a link to a practice opens it, in its section on desktop and in its sheet on phone', async () => {
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' } });
       expect(await screen.findByRole('button', { name: /^Stretch/, expanded: true })).toBeVisible();
-      expect(screen.getByRole('slider', { name: 'Target' })).toBeVisible();
+      expect(screen.getByRole('slider', { name: 'Each session' })).toBeVisible();
       cleanup();
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' }, layout: 'phone' });
       expect(await screen.findByRole('dialog', { name: 'Edit practice' })).toBeVisible();
@@ -1075,12 +1098,12 @@ describe('Goals', () => {
       expect(await screen.findByRole('button', { name: /^Run a 10k/, expanded: true })).toBeVisible();
     });
 
-    it('on desktop: no goal section, link to a goal, target slider, pause, end', async () => {
+    it('on desktop: no goal section, link to a goal, session length, pause, end', async () => {
       const t = await renderScreen('goals', { seed: bread });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       expect(screen.getByText(/0m of 1h 45m this week/)).toBeVisible();
-      fireEvent.change(screen.getByRole('slider', { name: 'Target' }), { target: { value: '30' } });
+      fireEvent.change(screen.getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
       await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('paused'));
       await userEvent.selectOptions(screen.getByLabelText('Goal'), 'Run a 10k');
@@ -1101,9 +1124,7 @@ describe('Goals', () => {
       const sheet = screen.getByRole('dialog', { name: 'Edit practice' });
       await userEvent.clear(within(sheet).getByLabelText('Name'));
       await userEvent.type(within(sheet).getByLabelText('Name'), 'Stretch daily');
-      fireEvent.change(within(sheet).getByLabelText('New preferred time'), { target: { value: '18:30' } });
-      await userEvent.click(within(sheet).getByRole('button', { name: 'Add time' }));
-      await userEvent.click(within(sheet).getByRole('button', { name: 'Remove 7am' }));
+      fireEvent.change(within(sheet).getByLabelText('Usual time'), { target: { value: '18:30' } });
       expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch');
       await userEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', preferred_times: [1110] }));

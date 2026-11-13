@@ -141,6 +141,15 @@ export function setOnceDates(from: LocalDate | null, to: LocalDate | null): Fiel
   return { schedule: { type: 'once', from, to: from && to && to !== from ? to : null }, next_due: from };
 }
 
+/**
+ * The date a task keeps as it moves to a project: a single day or a range. A repeat goes, since repeats stay with One
+ * offs. Older apps read dates on one offs only, so they show none on a project task, and their edits leave it be.
+ */
+export function projectDates(task: Pick<Task, 'schedule'>): Fields<'task'> {
+  const s = task.schedule;
+  return s?.type === 'once' && s.from ? setOnceDates(s.from, s.to ?? null) : { schedule: null, next_due: null };
+}
+
 /** The fields for dragging a one-time task to a new start. A range keeps its length. */
 export function moveOnce(s: Extract<TaskSchedule, { type: 'once' }>, from: LocalDate): Fields<'task'> {
   return setOnceDates(from, s.from && s.to ? addDays(from, diffDays(s.from, s.to)) : null);

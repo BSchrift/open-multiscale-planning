@@ -25,13 +25,14 @@ import {
   weekRange,
   weekStart,
 } from './dates';
-import { createDb, getMeta, META, MIGRATIONS, openDb, RECORD_FIELDS, setMeta, toPositional } from './db';
+import { createDb, getMeta, INDEXES, META, MIGRATIONS, openDb, RECORD_FIELDS, setMeta, toPositional } from './db';
 import { QUERY_INDEX } from './queries';
 import type { DbChange, Migration, SqlDriver } from './db';
 import {
   applyRemote,
   getRecord,
   getSettings,
+  getRecords,
   listRecords,
   newId,
   occurrenceId,
@@ -233,6 +234,16 @@ describe('db', () => {
     expect(indexes.map((i) => i.name).filter((name) => !used.has(name))).toEqual([]);
   });
 
+  it('makes the indexes added since version 4 at open, without a migration a released bundle would refuse', async () => {
+    const driver = nodeSqliteDriver();
+    await openDb(driver, MIGRATIONS.slice(0, 1));
+    for (const name of Object.keys(INDEXES)) await driver.exec(`DROP INDEX IF EXISTS ${name}`);
+    const db = await openDb(driver);
+    const names = (await db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index'")).map((i) => i.name);
+    expect(names).toEqual(expect.arrayContaining(Object.keys(INDEXES)));
+    expect(Number(await getMeta(db, META.schemaVersion))).toBeLessThanOrEqual(RELEASED.version);
+  });
+
   it('rebuilds the views for an install made before projects remembered raised estimates', async () => {
     const driver = nodeSqliteDriver();
     await openDb(driver, MIGRATIONS.slice(0, 1));
@@ -311,6 +322,13 @@ describe('db', () => {
     await openDb(driver);
     expect(writes.join('\n')).toMatch(/CREATE VIEW week_pick /);
     expect(writes.join('\n')).not.toMatch(/CREATE VIEW task /);
+
+    // One index made at open gone: only that one is made again.
+    writes.length = 0;
+    await inner.exec('DROP INDEX task_done');
+    await openDb(driver);
+    expect(writes.join('\n')).toMatch(/CREATE INDEX task_done /);
+    expect(writes.join('\n')).not.toMatch(/CREATE INDEX completion_done /);
   });
 
   it('opens a database a newer bundle left behind, with views rebuilt from this code', async () => {
@@ -524,6 +542,21 @@ describe('records', () => {
     expect((await outbox(db)).map((o) => o.field)).toContain('deleted_at');
     await transact(db, clock, (w) => w.set('task', id, { deleted_at: null }));
     expect(await listRecords(db, 'task')).toHaveLength(1);
+  });
+
+  it('reads records of a type by id, deleted ones too, in reads small enough for any SQLite', async () => {
+    const db = await openTestDb();
+    const ids = await transact(db, clock, async (w) => {
+      const made = [];
+      for (let i = 0; i < 1001; i++) made.push(await w.create('task', { kind: 'inbox', title: `Item ${i}` }));
+      await w.delete('task', made[0]!);
+      return made;
+    });
+    expect(await getRecords(db, 'task', [])).toEqual([]);
+    const found = await getRecords(db, 'task', [...ids, ids[1]!, 'missing']);
+    expect(found.map((t) => t.id).sort()).toEqual([...ids].sort());
+    expect(found.find((t) => t.id === ids[0])!.deleted_at).toBe('2026-11-02T15:00:00Z');
+    expect(await getRecords(db, 'project', ids.slice(0, 3))).toEqual([]);
   });
 
   it('keeps unknown fields from a newer app version when editing', async () => {

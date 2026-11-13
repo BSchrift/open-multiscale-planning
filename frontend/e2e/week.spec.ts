@@ -150,7 +150,7 @@ test('phone: a day with no slot stays readable', async ({ page }, info) => {
   await strip.getByRole('button').nth(1).click();
   await page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm/ }).click();
   await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move', exact: true }).click();
-  const thursday = strip.getByRole('button', { name: /^Thu.*no slot for this task$/ });
+  const thursday = strip.getByRole('button', { name: /^Thu.*no slot for this task/ });
   await expect(thursday).toContainText('No slot');
   const contrast = await thursday.locator('.wfree').evaluate((el) => {
     const rgb = (c: string) => c.match(/[\d.]+/g)!.map(Number);
@@ -196,7 +196,8 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
   const pick = { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 180 } } as const;
   const errors = await openWeek(page, [...records, pick]);
   const lane = page.getByRole('region', { name: 'To schedule' });
-  await expect(lane.getByText('2 · 5h')).toBeVisible();
+  // Piano practice counts a session for each day still without one.
+  await expect(lane.getByText('7 · 5h')).toBeVisible();
   const card = lane.getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' });
   if (phone) await expectTapTarget(card);
   await page.screenshot({ path: info.outputPath(`to-schedule-${info.project.name}.png`) });
@@ -204,10 +205,10 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
   await card.click();
   const panel = phone ? page.getByRole('dialog', { name: 'Draft the summary' }) : page.getByRole('group', { name: 'Draft the summary' });
   const first = panel.getByRole('group', { name: 'Suggested times' }).getByRole('button').first();
-  await expect(first).toHaveAccessibleName(/^Place Draft the summary, /);
+  await expect(first).toHaveAccessibleName(/^1 · \w{3} \d/);
   await first.click();
   await expect(card).toHaveCount(0);
-  await expect(lane.getByText('1 · 3h')).toBeVisible();
+  await expect(lane.getByText('6 · 3h')).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(card).toBeVisible();
 
@@ -241,7 +242,8 @@ test('phone: a card held, then dragged down onto the day, is placed where it is 
   test.skip(info.project.name !== 'phone', 'Holding first is for touch');
   const errors = await openWeek(page);
   const lane = page.getByRole('region', { name: 'To schedule' });
-  const card = lane.getByRole('button', { name: /^Piano practice, Practice, 6 × 30m/ });
+  // Today, Monday, has its session waiting.
+  const card = lane.getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Monday, to schedule' });
   await expect(card).toBeVisible();
   // A swipe that moves before the hold leaves it be.
   await touchDrag(page, card, { x: 20, y: 700 }, 50);
@@ -258,10 +260,50 @@ test('phone: a card held, then dragged down onto the day, is placed where it is 
     return { x: b.x + b.width / 2, y: (from + Math.min(b.y + b.height, height - 170)) / 2 };
   };
   await touchDrag(page, card, { x: 200, y: height - 110 }, 500, 1000, overEvening);
-  await expect(lane.getByRole('button', { name: /^Piano practice, Practice, 5 × 30m/ })).toBeVisible();
+  await expect(card).toHaveCount(0);
   const placed = await page.getByRole('button', { name: /^Piano practice, \d/ }).getAttribute('aria-label');
   const [, h, m, ap] = /^Piano practice, (\d+)(?::(\d+))?(am|pm)/.exec(placed!)!;
   const minutes = ((Number(h) % 12) + (ap === 'pm' ? 12 : 0)) * 60 + Number(m ?? 0);
   expect(minutes).toBeGreaterThanOrEqual(17 * 60);
+  expect(errors).toEqual([]);
+});
+
+test("a set-day practice waits above its own days: Friday's 9:30 places it, Undo takes it back, and a new time can be kept for Tuesdays", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const run: Seed = {
+    type: 'practice',
+    id: 'run',
+    fields: { title: 'Morning run', target_min: 30, per: 'day', days: [0, 1, 4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' },
+  };
+  const errors = await openWeek(page, [...records.filter((r) => r.id !== 'pr' && r.id !== 'b2'), run]);
+  const friday = 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule';
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button', { name: /^Fri Nov 6, .*1 to schedule$/ }).click();
+  await expect(page.getByRole('button', { name: friday })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`week-practice-${info.project.name}.png`), fullPage: !phone });
+  await page.getByRole('button', { name: friday }).click();
+  const panel = phone ? page.getByRole('dialog', { name: 'Morning run' }) : page.getByRole('group', { name: 'Morning run' });
+  await expect(panel.getByText('Practice, 30m on Friday, usually 9:30am')).toBeVisible();
+  await panel.getByRole('button', { name: '1 · Fri 9:30am to 10am' }).click();
+  await expect(page.getByText('Placed Morning run, Fri Nov 6, 9:30am')).toBeVisible();
+  await expect(page.getByRole('button', { name: friday })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('button', { name: friday })).toBeVisible();
+  if (phone) return expect(errors).toEqual([]);
+
+  // Tuesday's at 7am, then moved to 8:30, kept for Tuesdays only.
+  await page.getByRole('button', { name: 'Morning run, Practice, 30 minutes on Tuesday around 7 AM, to schedule' }).click();
+  await page.getByRole('group', { name: 'Morning run' }).getByRole('button', { name: '1 · Tue 7am to 7:30am' }).click();
+  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  await page.getByRole('group', { name: /^Morning run, Tue Nov 3, 7am/ }).focus();
+  // Each press is saved before the next, and the ask is announced without taking focus from the session.
+  for (const time of ['7:15', '7:30', '7:45', '8', '8:15', '8:30']) {
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('group', { name: new RegExp(`^Morning run, Tue Nov 3, ${time}am`) })).toBeFocused();
+  }
+  const ask = page.getByRole('group', { name: 'Use 8:30am in future weeks too?' });
+  await expect(ask).toHaveAccessibleDescription('Morning run moved to Tue 8:30am.');
+  await expect(ask.getByText("The last one replaces Friday's 9:30am.")).toBeVisible();
+  await ask.getByRole('button', { name: 'Yes, on Tuesdays' }).click();
+  await expect(page.getByText('Morning run is now 8:30am on Tuesdays.')).toBeVisible();
   expect(errors).toEqual([]);
 });

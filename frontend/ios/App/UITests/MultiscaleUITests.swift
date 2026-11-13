@@ -185,6 +185,37 @@ final class ShellUITests: XCTestCase {
         exists(app.webElement("Return the library books done"))
     }
 
+    func testAPracticeOnMondayTuesdayAndFridaySavesWithUndo() {
+        let app = launchApp(seed: "Seed plan")
+        app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
+        app.tapWeb(startingWith: "Learn to bake bread")
+        app.tapWeb("+ Practice")
+        let name = app.page.textFields["Name"]
+        exists(name)
+        name.tap()
+        name.typeText("Morning run")
+        app.tapWeb("Add practice", until: app.webButton(startingWith: "Morning run"))
+
+        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full.
+        app.tapWeb(startingWith: "Morning run")
+        exists(app.webText("Edit practice"))
+        app.tapWeb("Weekdays")
+        for day in ["Wednesday", "Thursday"] {
+            let chip = app.webElement(day)
+            exists(chip)
+            chip.tap()
+        }
+        // The summary as VoiceOver reads it.
+        exists(app.webText("Summary: 30 minutes on Monday, Tuesday and Friday, around 7 AM"))
+        app.tapWeb("Save")
+        exists(app.webText("Saved Morning run: 30m on Mon, Tue and Fri, around 7am."))
+        // Undo puts back every day.
+        app.tapWeb("Undo")
+        app.tapWeb(startingWith: "Morning run")
+        exists(app.webText("Summary: 30 minutes every day, around 7 AM"))
+        app.tapWeb("Cancel")
+    }
+
     func testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBarWithTheKeyboardUp() {
         let app = launchApp(seed: "Seed to schedule")
         app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))

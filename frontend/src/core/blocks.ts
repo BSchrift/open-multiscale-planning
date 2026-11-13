@@ -5,7 +5,7 @@
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
 
 import type { Clock } from './clock';
-import { blockMinutes, formatMinutes, formatTime, instantMs, localDate, localMinutes, nowInstant, toInstant, weekday, weekRange } from './dates';
+import { blockMinutes, dayRange, formatMinutes, formatTime, instantMs, localDate, localMinutes, nowInstant, toInstant, weekday, weekRange } from './dates';
 import { applyPlanChange, minutesLeft } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
 import { blocksInRange, futureBlocks, weekPractices } from './queries';
@@ -390,7 +390,10 @@ export async function placeWeekPractices(w: Writer, week: LocalDate, clock: Cloc
   return { writes: [...reverse, ...dropped.writes] };
 }
 
-/** Puts one practice session on the calendar, for date or else the day it starts. The reverse takes it off. */
+/**
+ * Puts one practice session on the calendar, for date or else the day it starts. The reverse takes it off. A practice
+ * has one session a day, so a day that already has one of its sessions refuses another: nothing is written.
+ */
 export async function placeSession(
   w: Writer,
   practiceId: string,
@@ -398,6 +401,10 @@ export async function placeSession(
   clock: Clock,
   date: LocalDate = localDate(times.start, clock.zone()),
 ): Promise<PlanChange> {
+  const zone = clock.zone();
+  const day = localDate(times.start, zone);
+  const that = await blocksInRange(w.sql, dayRange(day, zone));
+  if (that.some((b) => b.practice_id === practiceId && localDate(b.start, zone) === day)) return { writes: [] };
   return { writes: [await writeSession(w, practiceId, date, times, clock)] };
 }
 

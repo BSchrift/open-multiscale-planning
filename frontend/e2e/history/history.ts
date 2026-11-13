@@ -137,10 +137,15 @@ export async function timeEstimateDrag(page: Page): Promise<number> {
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week', exact: true }).click();
   await page.locator(".pane[aria-label='Week']:visible").getByRole('button', { name: /^(Start planning|Plan next week)$/ }).click(NETWORK);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click(NETWORK);
-  // The first project on Pick's timeline, then the first task's estimate in it.
+  // The first project on Pick's timeline, then the first task's time button in it, which adds it if it isn't in the
+  // week, and then opens its time.
   await page.getByRole('button', { name: /^(?!One offs, ).+, .+ planned$/ }).first().click(NETWORK);
-  await page.getByRole('button', { name: /^Estimate for .+: / }).first().click(NETWORK);
-  const slider = page.getByRole('dialog', { name: /^Estimate for / }).getByRole('slider');
+  const time = page.locator('.tk .tp').first();
+  if ((await time.getAttribute('aria-haspopup')) !== 'dialog') await time.click(NETWORK);
+  await expect(time).toHaveAttribute('aria-haspopup', 'dialog', NETWORK);
+  await time.click(NETWORK);
+  const dialog = page.getByRole('dialog');
+  const slider = dialog.getByRole('slider', { name: /^(Estimate|Time left)$/ });
   const box = (await slider.boundingBox())!;
   const max = Number(await slider.getAttribute('max'));
   // The thumb's centre at each step, inset by half the thumb.
@@ -149,6 +154,7 @@ export async function timeEstimateDrag(page: Page): Promise<number> {
   await page.mouse.down();
   for (let step = 1; step <= 10; step++) await page.mouse.move(...at(step), { steps: 3 });
   await page.mouse.up();
+  await dialog.getByRole('button', { name: 'Save' }).click(NETWORK);
   await page.getByRole('button', { name: 'Undo', exact: true }).click(NETWORK);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0, NETWORK);
   const steps = await page.evaluate(() => (window as unknown as { estimateSteps: number[] }).estimateSteps);

@@ -1,6 +1,5 @@
 // Pick tasks on desktop: every project on one rolling timeline, each opening to its tasks, One offs below, and the
-// Planned list beside them, where the capacity ring pops up. A task's title opens its editor, its estimate a slider,
-// and Mark done finishes it in place, struck through with Undo.
+// Planned list beside them. Each task is a PickRow.
 
 import { useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
@@ -8,34 +7,24 @@ import type { AimRow } from '../../../../core/capacity';
 import { pickWarning } from '../../../../core/capacity';
 import { formatDate, formatMinutes, formatWeekRange } from '../../../../core/dates';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
-import { NoteMark } from '../../../components/notes/NoteMark';
 import { Pill } from '../../../components/Pill';
-import { CapacityRing } from '../../../components/ring/CapacityRing';
-import { useOpenTask } from '../../../components/task/TaskName';
 import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { Aims } from './Aims';
-import { EstimatePopover } from './EstimatePopover';
 import { aimWords, stopIndex, weekStops } from './model';
 import type { PickGroup, PickProject, PickTask } from './model';
+import { PickRow } from './PickRow';
 import { OverdueFix } from './OverdueFix';
 import { PastEnd } from './PastEnd';
 import type { PickProps } from './PickStep';
-
-/** Its estimate as Pick counts it, or, with all of it on the calendar this week, that. Only the figure shows; the
- * button's name says it's the estimate. */
-export function estWords(r: PickTask): string {
-  const t = r.c.task;
-  if (t.estimate_min == null && t.remaining_min == null) return 'No estimate';
-  return r.c.left || !r.c.placed ? formatMinutes(r.c.left) : 'On the calendar';
-}
 
 function AimMeter(props: { aim: AimRow }) {
   const w = aimWords(props.aim);
   return (
     <span className="mrow">
       <span className="mmeter" role="img" aria-label={w.alt}>
-        <span className={`mfill ${w.cls}`} style={{ width: `${props.aim.pct}%` }} />
+        {/* Short of its aim is calm blue, never amber, which means over the week's open time. */}
+        <span className={`mfill ${w.cls || 'calm'}`} style={{ width: `${props.aim.pct}%` }} />
         <span className="mtick" style={{ left: `${props.aim.tickPct}%` }} />
       </span>
       <span>{w.value}</span>
@@ -57,70 +46,6 @@ function SkipAim(props: PickProps & { aim?: AimRow; rows: PickTask[] }) {
   );
 }
 
-function TaskLine(props: PickProps & { row: PickTask }) {
-  const { row: r } = props;
-  const [estOpen, setEstOpen] = useState(false);
-  const openTask = useOpenTask();
-  const estRef = useRef<HTMLButtonElement>(null);
-  const closeEst = () => {
-    setEstOpen(false);
-    estRef.current?.focus();
-  };
-  const done = props.isDone(r);
-  const full = !r.c.picked && !r.c.left && r.c.placed && estWords(r) === 'On the calendar';
-  return (
-    <li className="editrow">
-      <div className={`pickrow${done ? ' isdone' : ''}`}>
-        <div className="pickinfo">
-          <button className="picktitle subline" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}${done ? ', done' : ''}`} onClick={() => openTask(r.c.task.id)}>
-            {r.title}
-            {r.c.task.notes && <NoteMark />}
-          </button>
-          {r.meta && <span className="subline small quiet">{r.meta}</span>}
-        </div>
-        {done ? (
-          <span className="small quiet pickest">Done</span>
-        ) : (
-          <button
-            ref={estRef}
-            className="small quiet pickest pickestbtn"
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={estOpen}
-            aria-label={`Estimate for ${r.title}: ${estWords(r)}`}
-            onClick={() => setEstOpen(!estOpen)}
-          >
-            {estWords(r)}
-          </button>
-        )}
-        <span className="pickact">
-          {done ? (
-            <button className="btn sm pickbtn" type="button" aria-label={`Undo finishing ${r.title}`} onClick={() => props.undoDone(r)}>
-              Undo
-            </button>
-          ) : (
-            <button className="btn sm pickbtn" type="button" aria-label={`Mark done: ${r.title}`} onClick={() => props.markDone(r)}>
-              Mark done
-            </button>
-          )}
-          {done || full ? null : r.c.picked ? (
-            <button className="btn sm pickbtn" type="button" aria-label={`Remove ${r.title} from the plan`} onClick={() => props.remove(r)}>
-              Remove
-            </button>
-          ) : (
-            <button className="btn sm pickbtn" type="button" aria-label={`Add ${r.title} to the plan`} onClick={() => props.add(r)}>
-              Add
-            </button>
-          )}
-        </span>
-      </div>
-      {estOpen && !done && (
-        <EstimatePopover row={r} phone={false} onSave={(m) => props.setEstimate(r, m)} onClose={closeEst} />
-      )}
-    </li>
-  );
-}
-
 function Group(props: PickProps & { group: PickGroup }) {
   const { group: g } = props;
   return (
@@ -137,7 +62,7 @@ function Group(props: PickProps & { group: PickGroup }) {
       </h4>
       <ul className="picklist">
         {g.rows.map((r) => (
-          <TaskLine key={r.c.task.id} {...props} row={r} />
+          <PickRow key={r.c.task.id} {...props} row={r} phone={false} />
         ))}
       </ul>
     </>
@@ -161,7 +86,7 @@ function ProjectLine(props: PickProps & { s: PickProject; open: boolean; toggle(
             <span className="qcaret" aria-hidden="true">
               {open ? '▾' : '▸'}
             </span>
-            <span className="small strong">{project.title}</span>
+            <span className="strong pname">{project.title}</span>
           </button>
           {late ? (
             <Pill tone="red" aria-label={`${s.status.pill}: move the date or drop the milestone`} aria-expanded={props.fixOpen} onClick={() => props.setFix(!props.fixOpen)}>
@@ -259,7 +184,7 @@ export function Legend(props: { stretch: boolean; className?: string }) {
 }
 
 export function PickDesktop(props: PickProps) {
-  const { view, model, week, ring } = props;
+  const { view, model, week } = props;
   const [open, setOpen] = useState<Record<string, boolean>>(() => ({ oneOffs: view.oneOffs.count > 0 }));
   const [fixFor, setFixFor] = useState<string | null>(null);
   const [aimsOpen, setAimsOpen] = useState(false);
@@ -333,7 +258,7 @@ export function PickDesktop(props: PickProps) {
               <SkipAim {...props} {...(view.oneOffs.aim ? { aim: view.oneOffs.aim } : {})} rows={view.oneOffs.rows} />
               <ul className="picklist">
                 {view.oneOffs.rows.map((r) => (
-                  <TaskLine key={r.c.task.id} {...props} row={r} />
+                  <PickRow key={r.c.task.id} {...props} row={r} phone={false} />
                 ))}
               </ul>
               {view.oneOffs.rows.length === 0 && <p className="small quiet">Nothing due.</p>}
@@ -426,7 +351,6 @@ export function PickDesktop(props: PickProps) {
         <button className="btn pri" type="button" onClick={props.onNext}>
           Continue to scheduling
         </button>
-        {ring.pop && <CapacityRing pop={ring.pop} open={model.open} />}
         <div className="sr" role="status">
           {props.said}
         </div>

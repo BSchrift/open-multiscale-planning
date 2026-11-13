@@ -121,29 +121,21 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await field.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
 
-  // Process: a practice made from the card takes the item with it, in one change that one Undo takes back. New in the
-  // planning release, so the release before, which the prod Test step meets, opens the card without it.
+  // Process: a practice made from the card takes the item with it, in one change that one Undo takes back. The release
+  // before, which the prod Test step meets, has had the picker since Nov 13, so both take the same steps.
   await nav.getByRole('button', { name: /Inbox/ }).click();
   await page.getByRole('button', { name: `Assign ${title}` }).click();
-  if (!beforePublish) {
-    await page.getByRole('button', { name: 'New practice from this item' }).click();
-    await page.getByRole('button', { name: 'Make it a practice' }).click();
-    await expect(page.getByText(`${title} is now a practice.`)).toBeVisible();
-    await page.getByRole('button', { name: '‹ Undo and go back' }).click();
-    await expect(page.getByText(`Undone: ${title} removed. ${title} is back.`)).toBeVisible();
-  }
+  await page.getByRole('button', { name: 'New practice from this item' }).click();
+  await page.getByRole('button', { name: 'Make it a practice' }).click();
+  await expect(page.getByText(`${title} is now a practice.`)).toBeVisible();
+  await page.getByRole('button', { name: '‹ Undo and go back' }).click();
+  await expect(page.getByText(`Undone: ${title} removed. ${title} is back.`)).toBeVisible();
 
-  // Add to this week picks it for the week, and puts nothing on the calendar. The release before has a button for One
-  // offs where this one has the picker.
+  // Add to this week picks it for the week, and puts nothing on the calendar.
   await page.getByRole('button', { name: 'Add to this week' }).click();
-  if (beforePublish) {
-    await page.getByRole('button', { name: 'One offs, add to this week' }).click();
-    await expect(page.getByText('Sent to One offs and added to this week, not on the calendar yet.')).toBeVisible();
-  } else {
-    await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
-    await page.keyboard.press('Enter');
-    await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
-  }
+  await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
   // With nothing else in the Inbox, this release's Process has closed itself.
   const process = page.getByRole('dialog', { name: 'Process Inbox' });
   if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();

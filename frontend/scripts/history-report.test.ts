@@ -19,7 +19,7 @@ function run(results: Record<string, object | undefined>, env: Record<string, st
 
 describe('history-report', () => {
   it('has the budgets the plan sets', () => {
-    expect(BUDGETS.map((b) => `${b.measure} ${b.surface} ${b.budget}`)).toEqual([
+    expect(BUDGETS.map((b) => `${b.measure} ${b.surface} ${b.budget}${b.reportOnly ? ' report-only' : ''}`)).toEqual([
       'first_sync_ms web 10000',
       'first_sync_ms mac 10000',
       'first_sync_ms iphone 20000',
@@ -30,7 +30,19 @@ describe('history-report', () => {
       'week_query_ms web 100',
       'week_query_ms mac 100',
       'week_query_ms iphone 100',
+      'estimate_drag_ms web 50 report-only',
+      'estimate_drag_ms mac 50 report-only',
     ]);
+  });
+
+  it('shows a report-only budget, over it or not measured, without failing', () => {
+    const over = run({ ...within, web: { ...within.web, estimate_drag_ms: 240 } });
+    expect(over.status).toBe(0);
+    expect(over.stdout).toMatch(/Pick estimate drag, slowest step\s+web\s+240 ms\s+50 ms\s+over, report only/);
+    expect(over.stdout).toMatch(/Pick estimate drag, slowest step\s+mac\s+not measured\s+50 ms\s+report only/);
+    expect(over.stdout).toContain('Every budget met.');
+    const within_ = run({ ...within, web: { ...within.web, estimate_drag_ms: 12 } });
+    expect(within_.stdout).toMatch(/Pick estimate drag, slowest step\s+web\s+12 ms\s+50 ms\s+ok/);
   });
 
   it('reports each number against its budget and passes when all are within', () => {

@@ -466,11 +466,13 @@ describe('Pick tasks: dragging an estimate', () => {
       expect(slider).toHaveAttribute('aria-valuetext', text);
     }
     expect(saves).toBe(0);
+    // Letting go sets the popover's draft; Save writes it, once.
     fireEvent.change(slider);
     expect(slider).toHaveAttribute('aria-valuetext', '3h');
+    expect(saves).toBe(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Collect the sources, 3h estimate.')).toBeVisible();
     expect((await getRecord(t.db, 'task', 't1'))?.estimate_min).toBe(180);
-    expect(slider).toHaveAttribute('aria-valuetext', '3h');
     expect(saves).toBe(1);
     stop();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));

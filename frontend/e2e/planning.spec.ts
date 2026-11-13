@@ -186,6 +186,9 @@ test('dragging an estimate in Pick follows the mouse and saves once, where it wa
   }
   await page.mouse.up();
   await expect(slider).toHaveAttribute('aria-valuetext', '6h');
+  // Letting go sets the popover's draft; Save writes it, once.
+  expect(await commits(page)).toBe(before);
+  await page.getByRole('dialog', { name: 'Estimate for Collect the sources' }).getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Collect the sources, 6h estimate.')).toBeVisible();
   expect(await commits(page)).toBe(before + 1);
   await page.screenshot({ path: info.outputPath('pick-estimate-drag.png') });

@@ -7,6 +7,7 @@ import type { FormEvent } from 'react';
 import { isRepeating, onceWhen, setOnceDates, validateSchedule } from '../../../core/schedule';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
+import { DATE_UNSET, useLeave } from '../editors/useLeave';
 import { useToast } from '../Toast';
 import './oneoff.css';
 
@@ -17,7 +18,7 @@ interface Editing {
   error: string | null;
 }
 
-/** A one off's dates. It closes once they save, or on Close or Esc. */
+/** A one off's dates. It closes once they save, or on Cancel, or on Esc unless a date has changed. */
 export function OneOffDateForm(props: {
   task: Task;
   /** Saves new dates, null clearing them, resolving to something once saved. Defaults to writing them to the task, with Undo. */
@@ -40,6 +41,8 @@ export function OneOffDateForm(props: {
   const [ed, setEd] = useState<Editing>({ from: s?.from ?? '', to: s?.to ?? '', ranged: !!s?.to, error: null });
   const phone = layout === 'phone';
   const put = (patch: Partial<Editing>) => setEd((e) => ({ ...e, error: null, ...patch }));
+  const changed = ed.from !== (s?.from ?? '') || (ed.ranged ? ed.to : '') !== (s?.to ?? '');
+  const { saveRef, leave } = useLeave(changed, onClose, (error) => put({ error }), DATE_UNSET);
   // A save that fails stays open, with the toast saying so, so nothing typed is lost.
   const apply = async (from: LocalDate | null, to: LocalDate | null) => {
     props.onSave?.();
@@ -62,7 +65,7 @@ export function OneOffDateForm(props: {
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.stopPropagation();
-          onClose();
+          leave();
         }
       }}
     >
@@ -90,7 +93,7 @@ export function OneOffDateForm(props: {
         </div>
       )}
       <div className="row">
-        <button className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
+        <button ref={saveRef} className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
           Set date
         </button>
         {s?.from && (
@@ -99,7 +102,7 @@ export function OneOffDateForm(props: {
           </button>
         )}
         <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={onClose}>
-          Close
+          Cancel
         </button>
       </div>
     </form>

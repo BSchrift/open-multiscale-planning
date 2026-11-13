@@ -29,6 +29,12 @@
   font-size: var(--text-md);
 }
 
+/* A goal names its card at the size the Goals page gives goals, so it reads before the projects under it. */
+[data-layout] .planflow .goalcard h3 {
+  color: var(--ink);
+  font-size: var(--text-h2);
+}
+
 /* The step's meter stays on the ground, where its usual track would vanish. */
 [data-layout] .planstep .mmeter {
   background: var(--white);
@@ -286,4 +292,38 @@
 /* Room for the Done ring between a diamond and its name. */
 [data-layout='desktop'] .planflow .planname .pkey {
   margin-right: 10px;
+}
+
+/* A goal's projects on the Goals step: blocks in the project colour, each opening the project's preview. */
+[data-layout] .planflow .projblocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-layout] .planflow .projblock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-layout] .planflow .projblock:hover {
+  border-color: var(--blue-ink);
+}
+
+[data-layout] .planflow .projblock .pillrow {
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0;
 }

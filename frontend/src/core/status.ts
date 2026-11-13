@@ -64,6 +64,15 @@ export function status(plan: ProjectPlan, ctx: PlanContext): ProjectStatus {
   return { ...base, tone: 'green', pill: 'On track', word: pace, rank: 1 };
 }
 
+/** The few words beside a project's pill where there's little room, as on phone. */
+export function shortWord(st: ProjectStatus): string {
+  if (st.pill === 'On track') return st.word.split(',')[0]!;
+  return st.word
+    .replace(' by now', '')
+    .replace(/^Should have ended (.*) ago; /, 'Ended $1 ago, ')
+    .replace(/^.* was due (.*) ago$/, '$1 late');
+}
+
 function expectedPct(start: LocalDate, end: LocalDate, on: LocalDate, ctx: PlanContext): number {
   const awayBetween = (from: LocalDate, to: LocalDate) =>
     (ctx.away ?? [])

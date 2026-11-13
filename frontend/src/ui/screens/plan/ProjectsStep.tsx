@@ -34,7 +34,7 @@ import { status, withStatusLine } from '../../../core/status';
 import { closeProject, scheduledWork } from '../../../core/tasks';
 import type { Fields, LocalDate, Milestone, Objective, Task } from '../../../core/types';
 import { useApp } from '../../app/store';
-import { CloseQuestion, ProjectAdd } from '../../components/editors';
+import { CloseQuestion, DATE_UNSET, ProjectAdd, useLeave } from '../../components/editors';
 import { OneOffDateForm } from '../../components/oneoff';
 import { Pill } from '../../components/Pill';
 import { Popover } from '../../components/Popover';
@@ -192,6 +192,7 @@ function DateForm(props: {
 }) {
   const [date, setDate] = useState(props.initial);
   const [error, setError] = useState('');
+  const { saveRef, leave } = useLeave(date !== props.initial, props.onClose, setError, DATE_UNSET);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setError(props.onSet(date) ?? '');
@@ -202,7 +203,7 @@ function DateForm(props: {
       aria-label={props.label}
       noValidate
       onSubmit={submit}
-      onKeyDown={(event) => event.key === 'Escape' && props.onClose()}
+      onKeyDown={(event) => event.key === 'Escape' && leave()}
     >
       <div className={props.phone ? 'stack8' : 'row small'}>
         <label className={props.phone ? 'popfield' : 'row datelabel'}>
@@ -220,7 +221,7 @@ function DateForm(props: {
           />
         </label>
         <div className="row">
-          <button className="btn sm pri" type="submit">
+          <button ref={saveRef} className="btn sm pri" type="submit">
             Set date
           </button>
           {props.clear && (
@@ -229,7 +230,7 @@ function DateForm(props: {
             </button>
           )}
           <button className="btn sm" type="button" onClick={props.onClose}>
-            Close
+            Cancel
           </button>
         </div>
       </div>
@@ -242,7 +243,7 @@ function DateForm(props: {
     </form>
   );
   return props.phone ? (
-    <Sheet label={props.label} onClose={props.onClose}>
+    <Sheet label={props.label} onClose={leave}>
       {form}
     </Sheet>
   ) : (
@@ -289,6 +290,20 @@ function ProjectRow(props: RowProps) {
   const startTo = (day: LocalDate) => {
     if (day === project.start || day >= project.end) return;
     run({ key: `start-${project.id}`, text: `${project.title} starts ${formatDate(day)}.`, change: { writes: [{ type: 'project', id: project.id, fields: { start: day } }] } });
+  };
+  // The menu's start date waits for Save, as a dragged one doesn't.
+  const [startDraft, setStartDraft] = useState<LocalDate | null>(null);
+  const [menuError, setMenuError] = useState('');
+  const closeMenu = () => {
+    setMenu(false);
+    setAsking(null);
+  };
+  const { saveRef, leave } = useLeave(startDraft !== null && startDraft !== project.start, closeMenu, setMenuError);
+  const saveStart = (event: FormEvent) => {
+    event.preventDefault();
+    if (startDraft === null || startDraft === project.start) return closeMenu();
+    if (!isDay(startDraft) || startDraft >= project.end) return setMenuError(`Pick a start before ${formatDate(project.end)}.`);
+    startTo(startDraft);
   };
   const pause = () =>
     run(
@@ -432,13 +447,7 @@ function ProjectRow(props: RowProps) {
   );
 
   const menuSheet = menu && (
-    <Popover
-      label={project.title}
-      onClose={() => {
-        setMenu(false);
-        setAsking(null);
-      }}
-    >
+    <Popover label={project.title} onClose={leave}>
       {phone && <h2>{project.title}</h2>}
       {asking ? (
         <CloseQuestion state={asking} onYes={() => close(asking)} onNo={() => setAsking(null)} back={() => (asking === 'finished' ? finishRef : dropRef).current} />
@@ -456,20 +465,33 @@ function ProjectRow(props: RowProps) {
             </button>
           </div>
           {stat.leftMin > 0 && <div className="small quiet">Finishing cancels the {formatMinutes(stat.leftMin)} left.</div>}
-          <label className="popfield">
-            Start date
-            <input
-              className="field datefield"
-              type="date"
-              value={project.start}
-              onChange={(event) => isDay(event.target.value) && startTo(event.target.value)}
-            />
-          </label>
-          {phone && (
-            <button className="btn" type="button" onClick={() => setMenu(false)}>
-              Close
-            </button>
-          )}
+          <form className="stack8" aria-label={`Start date of ${project.title}`} onSubmit={saveStart}>
+            <label className="popfield">
+              Start date
+              <input
+                className="field datefield"
+                type="date"
+                value={startDraft ?? project.start}
+                onChange={(event) => {
+                  setStartDraft(event.target.value);
+                  setMenuError('');
+                }}
+              />
+            </label>
+            {menuError && (
+              <div className="fielderr" role="alert">
+                {menuError}
+              </div>
+            )}
+            <div className="row">
+              <button ref={saveRef} className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
+                Save
+              </button>
+              <button className={phone ? 'btn grow' : 'btn sm'} type="button" onClick={closeMenu}>
+                Cancel
+              </button>
+            </div>
+          </form>
         </>
       )}
     </Popover>
@@ -562,7 +584,12 @@ function ProjectRow(props: RowProps) {
     </button>
   );
   const menuButton = (
-    <button className="qbtn" type="button" aria-haspopup="dialog" aria-expanded={menu} aria-label={`${project.title}: Pause, Finish, Drop`} onClick={() => setMenu(true)}>
+    <button className="qbtn" type="button" aria-haspopup="dialog" aria-expanded={menu} aria-label={`${project.title}: Pause, Finish, Drop`} onClick={() => {
+        setStartDraft(null);
+        setMenuError('');
+        setMenu(true);
+      }}
+    >
       <span className="small strong grow">{project.title} ▾</span>
     </button>
   );

@@ -1,7 +1,8 @@
 // Adds or edits a milestone: a popover on desktop, a sheet on phone. Adding stays open with the last one named.
-// Editing previews what a new date does to the project's status, and holds Mark met, Not met and Drop.
+// Editing previews what a new date does to the project's status, and holds Mark met, Not met and Drop. Its fields
+// wait for Save, and Esc or a click outside keeps any changes rather than dropping them.
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { formatDate, isDay, today } from '../../../core/dates';
 import {
@@ -27,6 +28,7 @@ import { MilestoneDiamond } from '../MilestoneDiamond';
 import type { DiamondState } from '../MilestoneDiamond';
 import { Popover } from '../Popover';
 import { DropMilestone } from './DropMilestone';
+import { useLeave } from './useLeave';
 import { usePlanChange } from './usePlanChange';
 
 
@@ -56,18 +58,27 @@ export function MilestoneEditor(props: { plan: ProjectPlan; ctx: PlanContext; mi
   const m = props.milestoneId ? plan.milestones.find((x) => x.id === props.milestoneId) : undefined;
   const [mode, setMode] = useState<'edit' | 'drop'>('edit');
   const label = m ? 'Edit milestone' : 'Add milestone';
+  const leave = useRef<(() => boolean) | null>(null);
   return (
-    <Popover label={label} onClose={onClose}>
+    <Popover label={label} onClose={() => (leave.current ? leave.current() : onClose())}>
       {m && mode === 'drop' ? (
         <DropMilestone plan={plan} ctx={ctx} milestoneId={m.id} onBack={() => setMode('edit')} onDone={onClose} />
       ) : (
-        <Fields plan={plan} ctx={ctx} milestone={m} heading={label} onClose={onClose} onDrop={() => setMode('drop')} />
+        <Fields plan={plan} ctx={ctx} milestone={m} heading={label} onClose={onClose} onDrop={() => setMode('drop')} leaveRef={leave} />
       )}
     </Popover>
   );
 }
 
-function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milestone; heading: string; onClose(): void; onDrop(): void }) {
+function Fields(props: {
+  plan: ProjectPlan;
+  ctx: PlanContext;
+  milestone?: Milestone;
+  heading: string;
+  onClose(): void;
+  onDrop(): void;
+  leaveRef: { current: (() => boolean) | null };
+}) {
   const { plan, ctx, milestone: m, onClose } = props;
   const ids = { start: useId(), due: useId() };
   const on = today(ctx.clock);
@@ -94,6 +105,13 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
   const moved = m && dateChanged && dateValid ? withStatusLine(plan, moveMilestone(plan, m.id, due, ctx), ctx) : null;
   const draft: Milestone = m ?? { id: 'new', project_id: plan.project.id, title: name, due };
   const warnings = dateValid && (!m || dateChanged) ? milestoneWarnings({ ...plan, milestones: m ? plan.milestones : [...plan.milestones, draft] }, draft.id, due, ctx) : [];
+  // Adding stays as it was: Esc or a click outside closes it.
+  const { saveRef, leave } = useLeave(!!m && (name !== m.title || dateChanged || start !== (m.start ?? '')), onClose, setError);
+  const { leaveRef } = props;
+  useEffect(() => {
+    leaveRef.current = leave;
+    return () => void (leaveRef.current = null);
+  });
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -111,7 +129,8 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
       setLast(title);
       return;
     }
-    if (await apply(() => ({ writes: [{ type: 'milestone', id: m.id, fields: { title, start: start || null } }, ...(moved?.writes ?? [])] }))) onClose();
+    const writes = [{ type: 'milestone' as const, id: m.id, fields: { title, start: start || null } }, ...(moved?.writes ?? [])];
+    if (await apply(() => ({ writes }), { message: `Saved ${title}.` })) onClose();
   };
 
   const togglePlan = async () => {
@@ -174,14 +193,6 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
           )}
         </>
       )}
-      {m && !met && !m.dropped_at && ctx.settings.plan_cadence && (
-        <label className="taskrow small">
-          <input type="checkbox" checked={msInPlan(plan, m, stretch)} onChange={togglePlan} />
-          <span>
-            In this plan, {formatDate(stretch.start)} to {formatDate(stretch.end)}
-          </span>
-        </label>
-      )}
       {error && (
         <div className="fielderr" role="alert">
           {error}
@@ -197,30 +208,41 @@ function Fields(props: { plan: ProjectPlan; ctx: PlanContext; milestone?: Milest
         {last && `Added ${last}.`}
       </div>
       <div className="row">
-        <button className="btn sm pri grow" type="submit">
+        <button ref={saveRef} className="btn sm pri grow" type="submit">
           {m ? 'Save' : 'Add'}
         </button>
         <button className="btn sm" type="button" onClick={onClose}>
           {last && !name.trim() ? 'Done' : 'Cancel'}
         </button>
       </div>
+      {/* Act at once, each with its Undo, so they sit apart from Save and Cancel. */}
       {m && (
-        <div className="row">
-          {!met && live.length === 0 && (
-            <button className="btn sm" type="button" onClick={after(() => withStatusLine(plan, markMilestoneDone(plan, m.id, {}, ctx), ctx))}>
-              Mark met
-            </button>
+        <div className="stack8">
+          {!met && !m.dropped_at && ctx.settings.plan_cadence && (
+            <label className="taskrow small">
+              <input type="checkbox" checked={msInPlan(plan, m, stretch)} onChange={togglePlan} />
+              <span>
+                In this plan, {formatDate(stretch.start)} to {formatDate(stretch.end)}
+              </span>
+            </label>
           )}
-          {!!m.met_at && live.length === 0 && (
-            <button className="btn sm" type="button" onClick={after(() => withStatusLine(plan, markMilestoneNotMet(plan, m.id, ctx), ctx))}>
-              Not met
-            </button>
-          )}
-          {!met && (
-            <button className="btn sm" type="button" onClick={props.onDrop}>
-              Drop milestone
-            </button>
-          )}
+          <div className="row">
+            {!met && live.length === 0 && (
+              <button className="btn sm" type="button" onClick={after(() => withStatusLine(plan, markMilestoneDone(plan, m.id, {}, ctx), ctx))}>
+                Mark met
+              </button>
+            )}
+            {!!m.met_at && live.length === 0 && (
+              <button className="btn sm" type="button" onClick={after(() => withStatusLine(plan, markMilestoneNotMet(plan, m.id, ctx), ctx))}>
+                Not met
+              </button>
+            )}
+            {!met && (
+              <button className="btn sm" type="button" onClick={props.onDrop}>
+                Drop milestone
+              </button>
+            )}
+          </div>
         </div>
       )}
     </form>

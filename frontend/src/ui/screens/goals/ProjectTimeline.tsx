@@ -30,6 +30,24 @@ function doneShare(tasks: readonly Task[]): number {
   return all ? Math.round((done / all) * 100) : 0;
 }
 
+/** How a project is going, once it has started: this timeline when it has milestones, else a bar of the work done. */
+export function ProjectProgress(props: { plan: ProjectPlan; ctx: PlanContext; st: ProjectStatus }) {
+  const { plan, st } = props;
+  if (st.pill === 'Not started') return null;
+  if (plan.milestones.some((m) => !m.dropped_at)) return <ProjectTimeline {...props} />;
+  return (
+    <div className="stack8">
+      <div className="small">
+        {formatMinutes(st.doneMin)} done, {formatMinutes(st.leftMin)} left
+      </div>
+      <div className="prog" role="img" aria-label={`${st.pct}% done${plan.project.state === 'paused' ? '' : `, ${st.expected}% expected by now`}`}>
+        <span style={{ width: `${st.pct}%` }} />
+        {plan.project.state !== 'paused' && <i style={{ left: `${st.expected}%` }} />}
+      </div>
+    </div>
+  );
+}
+
 export function ProjectTimeline(props: { plan: ProjectPlan; ctx: PlanContext; st: ProjectStatus }) {
   const { plan, ctx, st } = props;
   const { project } = plan;

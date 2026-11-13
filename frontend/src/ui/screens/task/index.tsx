@@ -16,6 +16,7 @@ import type { Fields, LocalDate, Task } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
+import { useLeave } from '../../components/editors/useLeave';
 import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { CloseIcon } from '../../components/icons';
@@ -103,18 +104,20 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
   // After the dialog takes focus, which its own effect does first.
   useEffect(() => head.current?.focus(), []);
 
+  const name = title.trim();
+  const notesValue = notes.trim() ? notes : null;
+  const moved = place !== placeOf(task) ? places.find((p) => p.value === place) : undefined;
+  const fields: Fields<'task'> = {
+    ...(name !== task.title ? { title: name } : {}),
+    ...((estimate || null) !== (task.estimate_min ?? null) ? { estimate_min: estimate || null } : {}),
+    ...(notesValue !== (task.notes || null) ? { notes: notesValue } : {}),
+    ...(moved ? moveFields(moved, task, today) : {}),
+  };
+  const { saveRef, leave } = useLeave(Object.keys(fields).length > 0, close, setError);
+
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    const name = title.trim();
     if (!name) return setError('Give it a title.');
-    const notesValue = notes.trim() ? notes : null;
-    const moved = place !== placeOf(task) ? places.find((p) => p.value === place) : undefined;
-    const fields: Fields<'task'> = {
-      ...(name !== task.title ? { title: name } : {}),
-      ...((estimate || null) !== (task.estimate_min ?? null) ? { estimate_min: estimate || null } : {}),
-      ...(notesValue !== (task.notes || null) ? { notes: notesValue } : {}),
-      ...(moved ? moveFields(moved, task, today) : {}),
-    };
     if (Object.keys(fields).length === 0) return close();
     // A failed save keeps the popup open as it was, and has said so.
     const saved = await apply(() => ({ writes: [{ type: 'task', id: task.id, fields }] }), {
@@ -133,7 +136,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
 
   const choices = places.some((p) => p.value === place) ? places : [{ value: place, label: 'Where it is now' }, ...places];
   return (
-    <Sheet label={task.title} className="taskpop" onClose={close}>
+    <Sheet label={task.title} className="taskpop" onClose={leave}>
       <form className="taskpopform" onSubmit={save} noValidate>
         <div className="taskpoptop">
           {phone && <div className="taskpopgrab" aria-hidden="true" />}
@@ -158,7 +161,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
               </h2>
             )}
             {!phone && (
-              <button className="taskpopclose" type="button" aria-label="Close" onClick={close}>
+              <button className="taskpopclose" type="button" aria-label="Close" onClick={leave}>
                 <CloseIcon />
               </button>
             )}
@@ -193,7 +196,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
           <button className="btn" type="button" onClick={close}>
             Cancel
           </button>
-          <button className="btn pri" type="submit">
+          <button ref={saveRef} className="btn pri" type="submit">
             Save
           </button>
         </div>

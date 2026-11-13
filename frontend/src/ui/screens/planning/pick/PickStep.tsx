@@ -14,6 +14,7 @@ import type { Fields, LocalDate, Minutes } from '../../../../core/types';
 import { useRingPop } from '../../../components/ring/CapacityRing';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
+import { usePlanChange } from '../../../components/editors';
 import { loadPlanning, weekModel } from '../model';
 import type { WeekModel } from '../model';
 import { aimWords, pickModel } from './model';
@@ -73,6 +74,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const planWrite = useMutation((w, fields: Fields<'week_plan'>) => w.create('week_plan', { week_start: week, ...fields }, weekPlanId(week)));
   const undo = useMutation((w, plan: ProjectPlan) => undoProjectChange(w, plan, clock));
   const taskWrite = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
+  const apply = usePlanChange();
   // What each Mark done here wrote, so Undo puts back the picks and blocks it freed, and a repeating one off's date.
   const [doneHere, setDoneHere] = useState<Record<string, PlanChange>>({});
 
@@ -137,8 +139,10 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     undoChange: (plan) => void undo.run(plan),
     setEstimate: (row, minutes) => {
       const t = row.c.task;
-      const fields = t.remaining_min != null ? { remaining_min: minutes || null } : { estimate_min: minutes || null };
-      void taskWrite.run((w) => applyPlanChange(w, { writes: [{ type: 'task', id: t.id, fields }] }));
+      const left = t.remaining_min != null;
+      const fields = left ? { remaining_min: minutes || null } : { estimate_min: minutes || null };
+      const text = minutes ? `${t.title}, ${formatMinutes(minutes)} ${left ? 'left' : 'estimate'}.` : `${t.title}, no estimate.`;
+      void apply(() => ({ writes: [{ type: 'task', id: t.id, fields }] }), { message: text });
     },
     isDone: (row) => row.done || !!doneHere[row.c.task.id],
     markDone: async (row) => {

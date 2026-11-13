@@ -283,6 +283,20 @@ describe('OneOffDates', () => {
 describe('OneOffDateForm', () => {
   const t: Task = { id: 't', kind: 'one_off', title: 'Tidy the shed', schedule: { type: 'once', from: '2026-11-03' } };
 
+  it('with a date changed, Esc keeps it open and says so, and Cancel drops it', async () => {
+    const commit = vi.fn();
+    const onClose = vi.fn();
+    await inApp(<OneOffDateForm task={t} commit={commit} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-09' } });
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('alert')).toHaveTextContent("This date isn't set yet. Set it, or Cancel to drop it.");
+    expect(screen.getByRole('button', { name: 'Set date' })).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it('saves through commit, and stays open when the save fails', async () => {
     const commit = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce(true);
     const onClose = vi.fn();

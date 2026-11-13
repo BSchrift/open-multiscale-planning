@@ -61,9 +61,10 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', '5h');
-  // Back where it was, so the suggestions below stay as they are.
+  // Back where it was, so the suggestions below stay as they are, and Save has nothing to write.
   await page.keyboard.press('ArrowLeft');
-  await pop.getByRole('button', { name: 'Done' }).click();
+  if (phone) await expectTapTarget(pop.getByRole('button', { name: 'Save' }));
+  await pop.getByRole('button', { name: 'Save' }).click();
   await expect(pop).toHaveCount(0);
   const done = page.getByRole('button', { name: 'Mark Write the first chapter done' });
   if (phone) await expectTapTarget(done);

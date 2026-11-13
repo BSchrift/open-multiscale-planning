@@ -41,8 +41,8 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
   await expect(page.getByRole('button', { name: 'Process 1 item' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
-  // Pick: a task's title opens its popup, and a rename shows at once, with focus back on the title.
-  if (!phone) await page.getByRole('button', { name: /^Write the report,/ }).click();
+  // Pick: a card per project, open with two of them. A task's title opens its popup, and a rename shows at once, with
+  // focus back on the title.
   await page.getByRole('button', { name: /^Edit task Write chapter one/ }).click();
   const editor = page.getByRole('dialog', { name: 'Write chapter one' });
   await editor.getByRole('button', { name: 'Rename Write chapter one' }).click();
@@ -85,40 +85,48 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
   await done.click();
   await expect(done).not.toBeChecked();
 
+  const report = page.getByRole('region', { name: 'Write the report' });
+  // Overdue is asked inside its card, and the link at the top jumps there.
+  const ask = report.getByRole('group', { name: 'Gather notes was due Oct 18' });
+  await expect(ask).toBeVisible();
+  if (phone) await expectTapTarget(ask.getByRole('button', { name: 'Keep in plan: Gather notes' }));
+  else {
+    await page.getByRole('button', { name: '1 overdue' }).click();
+    await expect(ask).toBeFocused();
+  }
+  const collect = report.getByRole('button', { name: 'Add 2h to this week: Collect the sources' });
+  if (phone) await expectTapTarget(collect.locator('xpath=..'));
+  await collect.click();
+  await expect(fit.locator('.fdelta')).toHaveText('+2h');
+  await expect(report.getByRole('button', { name: '2h this week: Collect the sources' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`pick-${info.project.name}.png`) });
+
   if (phone) {
-    // The board opens on the first project, with its tasks in a half-height sheet.
-    const sheet = page.getByRole('region', { name: 'Tasks in Write the report' });
-    await expect(sheet).toBeVisible();
-    // Write the first chapter is in the week now, so one suggestion is left.
-    await expect(page.getByRole('button', { name: /^Write the report, Overdue/ })).toContainText('★1');
-    const collect = sheet.getByRole('button', { name: 'Add 2h to this week: Collect the sources' });
-    await expectTapTarget(collect.locator('xpath=..'));
-    await collect.click();
-    await expect(fit.locator('.fdelta')).toHaveText('+2h');
-    await expect(sheet.getByRole('button', { name: '2h this week: Collect the sources' })).toBeVisible();
-    await page.screenshot({ path: info.outputPath('pick-phone.png') });
+    // Does it fit shows This week: the week's shape, then its tasks.
+    await page.getByRole('button', { name: /^Does it fit\? .* Show This week$/ }).click();
+    await expect(page.getByRole('region', { name: 'This week', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'In this week' }).getByText('Paint the fence', { exact: true })).toBeVisible();
+    await expectTapTarget(page.getByRole('button', { name: 'Remove Paint the fence from this week' }));
+    await page.getByRole('button', { name: 'Projects' }).click();
 
-    await page.getByRole('button', { name: 'Next project: Learn to bake bread' }).click();
-    const bread = page.getByRole('region', { name: 'Tasks in Learn to bake bread' });
-    await bread.getByRole('button', { name: 'Add 2h to this week: Bake a test loaf' }).click();
-
-    await page.getByRole('button', { name: /^Does it fit\? .* Show In this week$/ }).click();
-    const planned = page.getByRole('dialog', { name: 'In this week' });
-    await expect(planned.getByText('Paint the fence', { exact: true })).toBeVisible();
-    await planned.getByRole('button', { name: 'Close' }).click();
-    await expect(planned).toHaveCount(0);
+    // Add suggested lists what it would add, each ticked, before it adds them.
+    await page.getByRole('button', { name: /^Add suggested/ }).click();
+    const suggested = page.getByRole('dialog', { name: 'Add suggested' });
+    await suggested.getByRole('button', { name: /^Add / }).click();
+    await expect(suggested).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /this week: Bake a test loaf$/ })).toBeVisible();
 
     await steps(page).getByRole('button', { name: 'Review' }).click();
   } else {
-    await page.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }).click();
-    const planned = page.getByRole('complementary', { name: 'Time this week' });
-    await expect(planned.getByText('Collect the sources', { exact: true })).toBeVisible();
-    await expect(planned.getByText('Paint the fence', { exact: true })).toBeVisible();
-    await page.getByRole('img', { name: 'Weekly aim 4h, 6h planned, reached' }).waitFor();
+    const week = page.getByRole('region', { name: 'This week', exact: true });
+    await expect(week.getByRole('img', { name: 'Weekly aim 4h, 6h planned, reached' })).toBeVisible();
     await page.screenshot({ path: info.outputPath('pick-desktop.png') });
 
-    await planned.getByRole('button', { name: /^Add suggested/ }).click();
-    await expect(planned.getByText('Bake a test loaf', { exact: true })).toBeVisible();
+    await week.getByRole('button', { name: /^Add suggested/ }).click();
+    const suggested = page.getByRole('dialog', { name: 'Add suggested' });
+    await suggested.getByRole('button', { name: /^Add / }).click();
+    await expect(suggested).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /this week: Bake a test loaf$/ })).toBeVisible();
 
     await steps(page).getByRole('button', { name: '4. Review' }).click();
   }
@@ -139,10 +147,8 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
 // Every button in a task row shows all of its label, as do the WCAG text spacing settings, and no time button wraps
 // onto a second line. Mark done's label once spilled out of a fixed-width button.
 test("task rows' buttons fit their labels, with and without text spacing", async ({ page }, info) => {
-  const phone = info.project.name === 'phone';
   await startPlanning(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
-  if (!phone) await page.getByRole('button', { name: /^Write the report,/ }).click();
   // One row added, so its time button reads "2h of …", and one finished.
   await page.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }).click();
   await page.getByRole('checkbox', { name: 'Already done: Write chapter one' }).click();
@@ -173,12 +179,11 @@ test("task rows' buttons fit their labels, with and without text spacing", async
 });
 
 // A toast never covers a row: on phone it takes its own strip above the bottom bar, and on desktop it sits at the foot of
-// the column the change was made in, clear of the Planned list.
-test('a toast covers no row and sits clear of the bottom bar and the Planned list', async ({ page }, info) => {
+// the column the change was made in, clear of the week's shape.
+test("a toast covers no row and sits clear of the bottom bar and the week's shape", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await startPlanning(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
-  if (!phone) await page.getByRole('button', { name: /^Write the report,/ }).click();
   await page.getByRole('checkbox', { name: 'Already done: Collect the sources' }).click();
   const toast = page.locator('.toast');
   await expect(toast).toContainText('Collect the sources done.');
@@ -186,18 +191,13 @@ test('a toast covers no row and sits clear of the bottom bar and the Planned lis
   if (phone) {
     const bar = (await page.locator('.flowbot').boundingBox())!;
     expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
-    const rows = await page.locator('.tk').evaluateAll((els) =>
-      els.map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => ({ top: r.top, bottom: r.bottom })),
-    );
-    // A row clipped by the sheet's scroll isn't on screen, so only what shows above the sheet's foot counts.
-    const sheet = (await page.locator('.tbody').boundingBox())!;
-    const shown = rows.filter((r) => r.top < sheet.y + sheet.height);
-    expect(shown.length).toBeGreaterThan(0);
-    for (const r of shown) expect(Math.min(r.bottom, sheet.y + sheet.height) <= box.y || r.top >= box.y + box.height).toBe(true);
+    // The list ends above the toast, so no row on screen sits under it.
+    const list = (await page.locator('.pkscroll').boundingBox())!;
+    expect(list.y + list.height).toBeLessThanOrEqual(box.y);
   } else {
-    const main = (await page.locator('.pickmain').boundingBox())!;
+    const main = (await page.locator('.cleft').boundingBox())!;
     expect(Math.abs(box.x + box.width / 2 - (main.x + main.width / 2))).toBeLessThan(2);
-    const side = (await page.locator('.pickside').boundingBox())!;
+    const side = (await page.locator('.cright').boundingBox())!;
     expect(box.x + box.width).toBeLessThanOrEqual(side.x);
   }
   await page.screenshot({ path: info.outputPath(`pick-toast-${info.project.name}.png`) });
@@ -242,7 +242,6 @@ test('dragging an estimate in Pick follows the mouse and saves once, where it wa
   await page.addInitScript(countCommits);
   await startPlanning(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
-  await page.getByRole('button', { name: /^Write the report,/ }).click();
   await page.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }).click();
   await page.getByRole('button', { name: '2h this week: Collect the sources' }).click();
   const slider = page.getByRole('dialog', { name: 'Collect the sources' }).getByRole('slider', { name: 'Estimate' });

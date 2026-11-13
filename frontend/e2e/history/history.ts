@@ -137,10 +137,10 @@ export async function timeEstimateDrag(page: Page): Promise<number> {
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week', exact: true }).click();
   await page.locator(".pane[aria-label='Week']:visible").getByRole('button', { name: /^(Start planning|Plan next week)$/ }).click(NETWORK);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click(NETWORK);
-  // The first project on Pick's timeline, then the first task's time button in it, which adds it if it isn't in the
-  // week, and then opens its time.
-  await page.getByRole('button', { name: /^(?!One offs, ).+, .+ planned$/ }).first().click(NETWORK);
+  // The first task's time button in Pick's first open card, opening the first card if none is, which adds the task if
+  // it isn't in the week, and then opens its time.
   const time = page.locator('.tk .tp').first();
+  if (!(await time.isVisible())) await page.getByRole('button', { name: /^(?!One offs, ).+, .+ planned$/ }).first().click(NETWORK);
   if ((await time.getAttribute('aria-haspopup')) !== 'dialog') await time.click(NETWORK);
   await expect(time).toHaveAttribute('aria-haspopup', 'dialog', NETWORK);
   await time.click(NETWORK);

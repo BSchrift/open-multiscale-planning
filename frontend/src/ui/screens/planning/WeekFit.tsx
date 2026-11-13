@@ -100,7 +100,7 @@ export function WeekFit(props: { week: LocalDate; phone: boolean; preview: FitPr
 
   if (props.phone && props.onShow) {
     return (
-      <button className="fitline" type="button" aria-label={`Does it fit? ${words}, ${left}. Show In this week`} onClick={props.onShow}>
+      <button className="fitline" type="button" aria-label={`Does it fit? ${words}, ${left}. Show This week`} onClick={props.onShow}>
         {body}
         <span className="fend" aria-hidden="true">
           ›

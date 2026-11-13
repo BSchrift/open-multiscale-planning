@@ -90,8 +90,7 @@ describe('the planning frame', () => {
       step: 1,
       seed: (w) => w.create('practice', { title: 'Morning stretch', target_min: 15, per: 'day', days: [2, 3], preferred_times: [7 * 60], state: 'active' }, 'pr'),
     });
-    const line = (await screen.findByText('Practices and repeating work')).parentElement!;
-    await waitFor(() => expect(line).toHaveTextContent('30m'));
+    expect(await screen.findByText('Practices and repeating work 30m')).toBeInTheDocument();
     expect(await listRecords(t.db, 'time_block')).toEqual([]);
   });
 
@@ -135,7 +134,6 @@ describe('Does it fit?', () => {
     await openPlanning({ step: 1, seed: seedWeek });
     // Paint the fence is dated this week, so it starts picked: 1h 30m of the 98h left.
     await waitFor(() => expect(fit()).toHaveTextContent('1h 30m of 98h · 96h 30m free'));
-    await userEvent.click(screen.getByRole('button', { name: /^Write the report,/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }));
     await waitFor(() => expect(fit()).toHaveTextContent('3h 30m of 98h · 94h 30m free'));
     const delta = within(fit()).getByText('+2h');
@@ -157,15 +155,15 @@ describe('Does it fit?', () => {
     expect(within(fit()).getByText("What doesn't fit stays on its project or in One offs.")).toBeInTheDocument();
   });
 
-  it('on phone, sits in the top bar, and on Pick opens In this week', async () => {
+  it('on phone, sits in the top bar, and on Pick shows This week', async () => {
     await openPlanning({ step: 0, layout: 'phone', seed: seedWeek });
     await waitFor(() => expect(fit()).toHaveTextContent('1h 30m of 98h · 96h 30m free'));
     expect(fit().closest('.flowtop')).not.toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Pick' }));
-    const open = await screen.findByRole('button', { name: 'Does it fit? 1h 30m of 98h, 96h 30m free. Show In this week' });
+    const open = await screen.findByRole('button', { name: 'Does it fit? 1h 30m of 98h, 96h 30m free. Show This week' });
     expect(open.closest('.flowtop')).not.toBeNull();
     await userEvent.click(open);
-    expect(await screen.findByRole('dialog', { name: 'In this week' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'This week, 1 task', pressed: true })).toBeInTheDocument();
   });
 });
 

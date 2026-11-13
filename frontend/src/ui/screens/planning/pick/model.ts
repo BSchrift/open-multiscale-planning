@@ -35,6 +35,8 @@ export interface PickTask {
   meta: string;
   /** What tapping the title shows on phone. */
   note: string;
+  /** Why it needs a new time, such as when it wasn't done, if it does. */
+  reason: string;
   /** Finished today: struck through, with Undo, and nothing to add. */
   done: boolean;
 }
@@ -86,6 +88,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       adds: hint?.minutes ?? c.left,
       meta: join([c.picked ? 'In the plan' : (hint?.why ?? ''), carried, dates]),
       note: join([c.picked ? '' : (hint?.why ?? ''), carried, dates]),
+      reason,
       done: !!c.task.done_at,
     };
   };

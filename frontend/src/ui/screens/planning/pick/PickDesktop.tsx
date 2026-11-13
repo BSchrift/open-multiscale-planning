@@ -1,361 +1,122 @@
-// Pick tasks on desktop: every project on one rolling timeline, each opening to its tasks, One offs below, and the
-// Planned list beside them. Each task is a PickRow.
+// Pick tasks on desktop: a card per project, each with its overdue question inside it, then One offs, with the
+// week's shape beside them. A link at the top jumps to what's overdue, and Select ticks rows to act on together.
 
-import { useRef, useState } from 'react';
-import type { MouseEvent } from 'react';
-import type { AimRow } from '../../../../core/capacity';
-import { pickWarning } from '../../../../core/capacity';
-import { formatDate, formatMinutes, formatWeekRange } from '../../../../core/dates';
-import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
+import { useEffect, useRef, useState } from 'react';
+import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import { Pill } from '../../../components/Pill';
-import { TimelineAxisHead, TimelineBar } from '../../../components/TimelineBar';
-import { useFocusLanding } from '../../../components/useFocusLanding';
-import { Aims } from './Aims';
-import { aimWords, stopIndex, weekStops } from './model';
-import type { PickGroup, PickProject, PickTask } from './model';
-import { PickRow } from './PickRow';
-import { OverdueFix } from './OverdueFix';
+import { Popover } from '../../../components/Popover';
+import { asking, EmptyCard, Legend, OneOffsCard, OtherCard, ProjectCard, useOpenCards } from './Cards';
 import { PastEnd } from './PastEnd';
 import type { PickProps } from './PickStep';
+import { SelectBar, useSelection } from './Select';
+import { WeekShape } from './WeekShape';
 
-function AimMeter(props: { aim: AimRow }) {
-  const w = aimWords(props.aim);
-  return (
-    <span className="mrow">
-      <span className="mmeter" role="img" aria-label={w.alt}>
-        {/* Short of its aim is calm blue, never amber, which means over the week's open time. */}
-        <span className={`mfill ${w.cls || 'calm'}`} style={{ width: `${props.aim.pct}%` }} />
-        <span className="mtick" style={{ left: `${props.aim.tickPct}%` }} />
-      </span>
-      <span>{w.value}</span>
-    </span>
-  );
+/** Everything still asking a question: overdue milestones, and tasks that need a new time not yet in the week. */
+export function overdueCount(props: PickProps) {
+  const { view } = props;
+  const rows = [...view.projects.flatMap((p) => p.groups.flatMap((g) => g.rows)), ...view.oneOffs.rows];
+  return view.projects.filter((p) => p.status.late).length + rows.filter((r) => asking(r, props.isDone(r))).length;
 }
 
-function SkipAim(props: PickProps & { aim?: AimRow; rows: PickTask[] }) {
-  const { aim, rows } = props;
-  if (!aim || !aimWords(aim).canSkip) return null;
-  const allIn = rows.length > 0 && rows.every((r) => r.c.picked && r.c.week === r.c.left);
-  return (
-    <div className="row small">
-      {allIn && !aim.skipped && <span className="quiet">That's everything open.</span>}
-      <button className="link small" type="button" onClick={() => props.toggleSkipAim(aim.bucket)}>
-        {aim.skipped ? "Count this week's aim" : "Skip this week's aim"}
-      </button>
-    </div>
-  );
-}
-
-function Group(props: PickProps & { group: PickGroup }) {
-  const { group: g } = props;
-  return (
-    <>
-      <h4 className={`pmshead small strong${g.late ? ' latetext' : ''}`}>
-        {g.isMs && (
-          <>
-            <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />
-            Milestone:{' '}
-          </>
-        )}
-        {g.head}
-        {g.isMs && g.planned > 0 && `: ${formatMinutes(g.planned)} planned`}
-      </h4>
-      <ul className="picklist">
-        {g.rows.map((r) => (
-          <PickRow key={r.c.task.id} {...props} row={r} phone={false} />
-        ))}
-      </ul>
-    </>
-  );
-}
-
-// A click anywhere on the row opens it, except on its own controls.
-const onRow = (toggle: () => void) => (event: MouseEvent) => {
-  if (!(event.target as HTMLElement).closest('button,a,input,select,label,[role=dialog]')) toggle();
-};
-
-function ProjectLine(props: PickProps & { s: PickProject; open: boolean; toggle(): void; fixOpen: boolean; setFix(open: boolean): void }) {
-  const { s, open, toggle, view, model } = props;
-  const { project } = s.plan;
-  const late = s.status.late;
-  return (
-    <>
-      <div className="qline">
-        <div className="qname canopen" onClick={onRow(toggle)}>
-          <button className="qbtn" type="button" aria-expanded={open} aria-label={`${project.title}, ${formatMinutes(s.planned)} planned`} onClick={toggle}>
-            <span className="qcaret" aria-hidden="true">
-              {open ? '▾' : '▸'}
-            </span>
-            <span className="strong pname">{project.title}</span>
-          </button>
-          {late ? (
-            <Pill tone="red" aria-label={`${s.status.pill}: move the date or drop the milestone`} aria-expanded={props.fixOpen} onClick={() => props.setFix(!props.fixOpen)}>
-              {s.status.pill} ▾
-            </Pill>
-          ) : (
-            <Pill tone={s.status.tone}>{s.status.pill}</Pill>
-          )}
-          {s.aim ? <AimMeter aim={s.aim} /> : <span className="subline small quiet qpad">{formatMinutes(s.planned)} planned</span>}
-          {props.fixOpen && late && (
-            <OverdueFix
-              plan={s.plan}
-              milestone={late}
-              ctx={model.ctx}
-              onClose={() => props.setFix(false)}
-              onSaved={() => {
-                props.setFix(false);
-                if (!open) toggle();
-              }}
-            />
-          )}
-        </div>
-        <div className="canopen" onClick={toggle}>
-          <TimelineBar
-            axis={view.axis}
-            bar={{ start: project.start, end: project.end }}
-            {...(view.stretch ? { stretch: view.stretch } : {})}
-            week={view.weekSpan}
-            diamonds={s.marks}
-            alt={s.alt}
-          />
-        </div>
-      </div>
-      {open && (
-        <div className="pcard" role="group" aria-label={`${project.title} tasks`}>
-          <div className="small">
-            {s.goal && <span className="quiet">{s.goal}. </span>}
-            {formatDate(project.start)} to {formatDate(project.end)}. {s.lateText && <span className="latetext">{s.lateText}</span>} {s.next}
-          </div>
-          <div className="small quiet">{s.status.word}</div>
-          {s.change && (
-            <div className="row small">
-              <span className="grow">{s.change.text}</span>
-              <button className="link small" type="button" onClick={() => props.undoChange(s.plan)}>
-                Undo
-              </button>
-            </div>
-          )}
-          <SkipAim {...props} {...(s.aim ? { aim: s.aim } : {})} rows={s.groups.flatMap((g) => g.rows)} />
-          {s.groups.map((g) => (
-            <Group key={g.key} {...props} group={g} />
-          ))}
-          {s.groups.length === 0 && <p className="small quiet">No open tasks.</p>}
-        </div>
-      )}
-    </>
-  );
-}
-
-export function Legend(props: { stretch: boolean; className?: string }) {
-  return (
-    <div className={`legend pklegend ${props.className ?? ''}`.trim()}>
-      <span>
-        <i className="lg-dates" />
-        Project dates
-      </span>
-      <span>
-        <i className="lg-week" />
-        This week
-      </span>
-      {props.stretch && (
-        <span>
-          <i className="lg-stretch" />
-          This stretch. Projects keep their own dates.
-        </span>
-      )}
-      <span>
-        <MilestoneDiamond state={{ on: true }} />
-        In the plan
-      </span>
-      <span>
-        <MilestoneDiamond />
-        Not in the plan
-      </span>
-      <span>
-        <MilestoneDiamond state={{ met: true }} />
-        Met
-      </span>
-      <span>
-        <MilestoneDiamond state={{ late: true }} />
-        Overdue
-      </span>
-    </div>
-  );
-}
+/** Every row that can be selected: open, in a card that's open. */
+export const selectable = (props: PickProps, isOpen: (id: string) => boolean) => [
+  ...props.view.projects.filter((p) => isOpen(p.plan.project.id)).flatMap((p) => p.groups.flatMap((g) => g.rows)),
+  ...(isOpen(ONE_OFFS_BUCKET) ? props.view.oneOffs.rows : []),
+].filter((r) => !props.isDone(r) && !asking(r, false));
 
 export function PickDesktop(props: PickProps) {
-  const { view, model, week } = props;
-  const [open, setOpen] = useState<Record<string, boolean>>(() => ({ oneOffs: view.oneOffs.count > 0 }));
-  const [fixFor, setFixFor] = useState<string | null>(null);
-  const [aimsOpen, setAimsOpen] = useState(false);
-  const land = useFocusLanding();
-  const headRef = useRef<HTMLHeadingElement>(null);
-  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
-  const weekLabel = formatWeekRange(week);
-  const free = model.use.free;
-  const warn = pickWarning(free, model.pushback);
+  const { view, model } = props;
+  const cards = useOpenCards(view);
+  const sel = useSelection();
+  const root = useRef<HTMLDivElement>(null);
+  const selectRef = useRef<HTMLButtonElement>(null);
+  const keyRef = useRef<HTMLButtonElement>(null);
+  const [keyOpen, setKeyOpen] = useState(false);
+  const overdue = overdueCount(props);
+  const empty = view.projects.length === 0 && view.pastEnd.length === 0;
+  const rows = selectable(props, cards.isOpen);
+  const adding = rows.filter((r) => sel.has(r) && !r.c.picked);
+  const preview = { project: adding.filter((r) => !r.oneOff).reduce((sum, r) => sum + r.adds, 0), oneOff: adding.filter((r) => r.oneOff).reduce((sum, r) => sum + r.adds, 0) };
+  // Starting select mode puts focus on the first checkbox.
+  useEffect(() => {
+    if (sel.on) root.current?.querySelector<HTMLElement>('.selbox')?.focus();
+  }, [sel.on]);
+  const jump = () => {
+    const ask = root.current?.querySelector<HTMLElement>('[data-ask]');
+    ask?.scrollIntoView?.({ block: 'center' });
+    ask?.focus();
+  };
+  const card = { ...props, phone: false, select: sel };
 
   return (
-    <div className="picklay">
-      <div className="pickmain stack8">
-        <div>
-          <h2>Pick tasks for the week</h2>
-          <p className="small quiet">Open a project and add what you want to do this week. Nothing is in the plan until you add it.</p>
+    <div ref={root} className="colC">
+      <div className="cleft">
+        <div className="between pickhead">
+          <div>
+            <h2>Pick tasks for the week</h2>
+            <p className="small quiet">Add what you want to do this week. Nothing is in the plan until you add it.</p>
+          </div>
+          <div className="row">
+            {overdue > 0 && (
+              <button className="link small" type="button" onClick={jump}>
+                {overdue} overdue
+              </button>
+            )}
+            <div className="editrow">
+              <button ref={keyRef} className="link small" type="button" aria-haspopup="dialog" aria-expanded={keyOpen} onClick={() => setKeyOpen(!keyOpen)}>
+                Timeline key
+              </button>
+              {keyOpen && (
+                <Popover
+                  label="Timeline key"
+                  onClose={() => {
+                    setKeyOpen(false);
+                    keyRef.current?.focus();
+                  }}
+                >
+                  <Legend stretch={!!view.stretch} className="col" />
+                </Popover>
+              )}
+            </div>
+            {!empty && (
+              <button ref={selectRef} className="btn sm selbtn" type="button" aria-pressed={sel.on} onClick={() => (sel.on ? sel.exit() : sel.start())}>
+                Select
+              </button>
+            )}
+          </div>
         </div>
+        {sel.on && (
+          <SelectBar
+            {...props}
+            rows={rows}
+            sel={sel}
+            phone={false}
+            onCancel={() => {
+              sel.exit();
+              selectRef.current?.focus();
+            }}
+          />
+        )}
         {view.pastEnd.map(({ plan, status }) => (
           <div key={plan.project.id} className="card stack8">
             <PastEnd plan={plan} status={status} ctx={model.ctx} onSkip={() => props.skipPastEnd(plan.project.id)} />
           </div>
         ))}
-        <section className="card" aria-label="Your projects">
-          <div className="qline qhead">
-            <h3>Your projects</h3>
-            <TimelineAxisHead axis={view.axis} week={view.weekSpan} weekLabel={weekLabel} />
-          </div>
-          {view.projects.map((s) => (
-            <ProjectLine
-              key={s.plan.project.id}
-              {...props}
-              s={s}
-              open={!!open[s.plan.project.id]}
-              toggle={() => toggle(s.plan.project.id)}
-              fixOpen={fixFor === s.plan.project.id}
-              setFix={(on) => setFixFor(on ? s.plan.project.id : null)}
-            />
-          ))}
-          {view.others.map((o) => (
-            <div key={o.plan.project.id} className="qline muted">
-              <div className="qname">
-                <span className="small qpad">{o.plan.project.title}</span>
-                <Pill tone={o.status.tone}>{o.status.pill}</Pill>
-                <span className="subline small quiet qpad">{o.sum}</span>
-              </div>
-              <TimelineBar
-                axis={view.axis}
-                bar={{ start: o.plan.project.start, end: o.plan.project.end }}
-                {...(view.stretch ? { stretch: view.stretch } : {})}
-                week={view.weekSpan}
-                diamonds={o.marks}
-                alt={`${o.plan.project.title} runs ${formatDate(o.plan.project.start)} to ${formatDate(o.plan.project.end)}.`}
-              />
-            </div>
-          ))}
-          <Legend stretch={!!view.stretch} />
-        </section>
-        <section className="mband stack8" aria-label="One offs">
-          <div className="mbandhead">
-            <button className="qbtn" type="button" aria-expanded={!!open.oneOffs} aria-label={`One offs, ${formatMinutes(view.oneOffs.planned)} planned`} onClick={() => toggle('oneOffs')}>
-              <span className="qcaret" aria-hidden="true">
-                {open.oneOffs ? '▾' : '▸'}
-              </span>
-              <span className="strong">One offs</span>
-            </button>
-            <span className="small quiet">Not part of a project.</span>
-            {view.oneOffs.aim ? <AimMeter aim={view.oneOffs.aim} /> : <span className="small quiet">{formatMinutes(view.oneOffs.planned)} planned</span>}
-          </div>
-          {open.oneOffs && (
-            <div className="pcard" role="group" aria-label="One offs tasks">
-              <SkipAim {...props} {...(view.oneOffs.aim ? { aim: view.oneOffs.aim } : {})} rows={view.oneOffs.rows} />
-              <ul className="picklist">
-                {view.oneOffs.rows.map((r) => (
-                  <PickRow key={r.c.task.id} {...props} row={r} phone={false} />
-                ))}
-              </ul>
-              {view.oneOffs.rows.length === 0 && <p className="small quiet">Nothing due.</p>}
-            </div>
-          )}
-        </section>
-      </div>
-      <aside className="pickside card stack8" aria-label="Time this week">
-        <h3 ref={headRef} tabIndex={-1}>
-          Planned for {weekLabel}
-        </h3>
-        {view.planned.length === 0 && <p className="small quiet">Nothing yet. Add tasks from your projects or One offs.</p>}
-        {view.hintMin > 0 && (
-          <div>
-            <button
-              className="btn sm"
-              type="button"
-              onClick={() => {
-                land(() => headRef.current);
-                void props.addSuggested();
-              }}
-            >
-              Add suggested ({formatMinutes(view.hintMin)})
-            </button>
-          </div>
-        )}
-        {view.planned.map((r) => {
-          const { week: minutes, left } = r.c;
-          const text = `${formatMinutes(minutes)} of ${formatMinutes(left)}`;
-          const stops = weekStops(left);
-          return (
-            <div key={r.c.task.id} className={`planitem${r.oneOff ? ' is-maint' : ''}`}>
-              <div className="small">{r.title}</div>
-              <div className="row small">
-                <span>{left > 15 ? text : formatMinutes(minutes)}</span>
-                <button
-                  className="link small"
-                  type="button"
-                  aria-label={`Remove ${r.title} from the plan`}
-                  onClick={(event) => {
-                    // The row goes, so focus moves to the next row's Remove, else the one before, else the heading.
-                    const item = event.currentTarget.closest('.planitem');
-                    const near = [item?.nextElementSibling, item?.previousElementSibling].find((el) => el?.classList.contains('planitem'));
-                    land(() => near?.querySelector('button') ?? headRef.current);
-                    props.remove(r);
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-              {left > 15 && (
-                <input
-                  type="range"
-                  className="wide-range"
-                  min={0}
-                  max={stops.length - 1}
-                  step={1}
-                  value={stopIndex(stops, minutes)}
-                  aria-label={`Time this week for ${r.title}`}
-                  aria-valuetext={text}
-                  onChange={(event) => props.setMinutes(r, stops[Number(event.target.value)]!)}
-                />
-              )}
-            </div>
-          );
-        })}
-        <div className="between small captop">
-          <span>Open time</span>
-          <span>{formatMinutes(model.open)}</span>
-        </div>
-        <div className="between small">
-          <span>Practices and repeating work</span>
-          <span>{formatMinutes(model.repeating)}</span>
-        </div>
-        <div className="between small">
-          <span>Tasks you added</span>
-          <span className="strong">{formatMinutes(view.picked)}</span>
-        </div>
-        <div className={`between small${free < 0 ? ' overtext' : ''}`}>
-          <span>{free < 0 ? 'Over by' : 'Left free'}</span>
-          <span className="strong">{formatMinutes(Math.abs(free))}</span>
-        </div>
-        {warn && <div className="warn small">{warn}</div>}
-        <div>
-          <button className="btn sm" type="button" aria-expanded={aimsOpen} onClick={() => setAimsOpen(!aimsOpen)}>
-            Change aims for this week
-          </button>
-        </div>
-        {aimsOpen && <Aims {...props} />}
-        <button className="btn pri" type="button" onClick={props.onNext}>
-          Continue to scheduling
-        </button>
+        {empty && <EmptyCard />}
+        {view.projects.map((s) => (
+          <ProjectCard key={s.plan.project.id} {...card} s={s} open={cards.isOpen(s.plan.project.id)} toggle={() => cards.toggle(s.plan.project.id)} />
+        ))}
+        <OneOffsCard {...card} open={cards.isOpen(ONE_OFFS_BUCKET)} toggle={() => cards.toggle(ONE_OFFS_BUCKET)} />
+        {view.others.map((o) => (
+          <OtherCard key={o.plan.project.id} title={o.plan.project.title} pill={<Pill tone={o.status.tone}>{o.status.pill}</Pill>} sum={o.sum} />
+        ))}
         <div className="sr" role="status">
           {props.said}
         </div>
-      </aside>
+      </div>
+      <div className="cright">
+        <WeekShape {...props} phone={false} preview={preview} />
+      </div>
     </div>
   );
 }
-

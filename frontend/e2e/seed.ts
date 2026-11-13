@@ -17,6 +17,12 @@ export async function seed(page: Page, records: readonly Seed[]): Promise<void> 
   await page.evaluate((r) => (window as unknown as { multiscaleSeed(r: readonly Seed[]): Promise<void> }).multiscaleSeed(r), records);
 }
 
+/** A record as this device has it, for fields no screen shows. */
+export async function readRecord(page: Page, type: string, id: string): Promise<Record<string, unknown> | undefined> {
+  await page.waitForFunction(() => 'multiscaleRecord' in window);
+  return page.evaluate(([t, i]) => (window as unknown as { multiscaleRecord(type: string, id: string): Promise<Record<string, unknown> | undefined> }).multiscaleRecord(t!, i!), [type, id]);
+}
+
 /** Opens the app past first-run setup, with the given records already in place. */
 export async function openSeeded(page: Page, records: readonly Seed[] = []): Promise<void> {
   await page.goto('/');

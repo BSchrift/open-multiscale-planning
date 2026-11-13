@@ -5,9 +5,10 @@ import { useId, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { Fields, RepeatUnit, Task } from '../../../core/types';
 import { useApp, useToday } from '../../app/store';
+import { DayChips } from '../DayChips';
 import { EstimateSlider } from '../EstimateSlider';
 import { NotesField } from '../notes/NotesField';
-import { draftError, draftOf, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
+import { draftDays, draftError, draftOf, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
 import type { OneOffDraft, RepeatType, RuleDay, RuleOf, RulePos } from './draft';
 import './oneoff.css';
 
@@ -156,6 +157,7 @@ export function OneOffForm(props: {
       {draft.type === 'recurring' && (
         <>
           <Choice label="How often" value={draft.unit} options={UNITS} onChange={(unit) => put({ unit })} />
+          {draft.unit === 'week' && <DayChips legend="On" days={draftDays(draft)} onChange={(days) => put({ days })} />}
           <div className="stack8">
             <label className="small quiet" htmlFor={ids.starts}>
               Starts

@@ -27,7 +27,7 @@ export function PracticeAsk(props: { ask: { blockId: string; wasMin: Minutes }; 
           className={layout === 'phone' ? 'btn grow' : 'btn sm'}
           type="button"
           onClick={() => {
-            void act.keepPractice(block.id, ask.wasMin, block.title);
+            void act.keepPractice(block.id, block.title);
             onDone();
           }}
         >

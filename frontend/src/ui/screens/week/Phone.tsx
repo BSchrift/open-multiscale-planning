@@ -22,6 +22,7 @@ import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
 import { KIND_WORD } from '../../components/blocks/describe';
+import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { clearLane, dayName, finishedCount, overLane, slotRange } from '../../components/weekgrid';
 import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
@@ -519,10 +520,13 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       const word = KIND_WORD[block.kind];
       const shut = props.readOnly || block.ended;
       const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.note ? `. ${block.note}` : ''}`;
-      const cls = `tlblock ${KIND_CLASS[block.kind]}${shut ? ' c-ended' : ''}`;
+      const cls = `tlblock ${KIND_CLASS[block.kind]}${block.ended ? ' c-ended' : ''}${outcomeClass(block.result)}`;
       const inner = (
         <>
-          <span className="tlname">{block.title}</span>
+          <span className="tlname">
+            <OutcomeTag result={block.result} />
+            {block.title}
+          </span>
           <span className="tlkind">{kindLine}</span>
         </>
       );
@@ -771,7 +775,8 @@ export function DragDay(props: {
           }
           const h = Math.max(13, y(b.end) - y(b.start));
           return (
-            <div key={b.id} className={`cev ${KIND_CLASS[b.kind]}${props.editing ? ' c-ended' : ''}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h }}>
+            <div key={b.id} className={`cev ${KIND_CLASS[b.kind]}${b.ended ? ' c-ended' : ''}${outcomeClass(b.result)}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h }}>
+              <OutcomeTag result={b.result} />
               {b.title}
             </div>
           );

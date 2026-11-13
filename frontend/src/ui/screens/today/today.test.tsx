@@ -974,6 +974,60 @@ describe('the timeline', () => {
   });
 });
 
+describe.each(['desktop', 'phone'] as const)('blocks gone by on the timeline, on %s', (layout) => {
+  afterEach(() => localStorage.clear());
+  // A block's end prompt can be open over the timeline, so it's found whether or not a dialog hides it.
+  const timeline = () => screen.findByRole('region', { name: "Today's timeline", hidden: true });
+  // This morning: one done, one not done, one partly done and one with no answer yet.
+  const morning = async (w: Writer) => {
+    await w.create('project', { title: 'Finish the essay', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+    const answers = [
+      ['Write the report', 'done'],
+      ['Read the notes', 'not'],
+      ['Email the editor', 'partly'],
+      ['File the receipts', null],
+    ] as const;
+    for (const [i, [title, result]] of answers.entries()) {
+      await task(w, `t${i}`, title);
+      await block(w, `b${i}`, `t${i}`, `${8 + i}:00`, `${9 + i}:00`);
+      if (result) await w.create('block_outcome', { result, answered_at: at(`${9 + i}:00`) }, outcomeId(`b${i}`));
+    }
+  };
+
+  it('on the calendar, strikes through only what was done; Partly and Not done say so in words instead', async () => {
+    await open(morning, { layout });
+    const drawn = async (title: string) => (await within(await timeline()).findByText(title)).closest('.cev')!;
+    const ended = layout === 'phone' ? 'c-ended' : 'ended';
+    expect(await drawn('Write the report')).toHaveClass(ended, 'done');
+    expect(await drawn('Read the notes')).toHaveClass(ended, 'notdone');
+    expect(await drawn('Read the notes')).not.toHaveClass('done');
+    expect(within((await drawn('Read the notes')) as HTMLElement).getByText('Not done')).toBeVisible();
+    expect(await drawn('Email the editor')).toHaveClass(ended, 'partly');
+    expect(await drawn('Email the editor')).not.toHaveClass('done');
+    expect(within((await drawn('Email the editor')) as HTMLElement).getByText('Partly')).toBeVisible();
+    // One with no answer yet is only muted, as on Week.
+    expect(await drawn('File the receipts')).toHaveClass(ended);
+    expect(await drawn('File the receipts')).not.toHaveClass('done');
+    expect(await drawn('File the receipts')).toHaveTextContent(/^File the receipts/);
+    expect(await drawn('Read the notes')).toHaveAccessibleName('Read the notes, 9am to 10am, Project. Not done.');
+  });
+
+  it('in the list, strikes through only what was done; Partly and Not done say so in words instead', async () => {
+    await open(morning, { layout });
+    await userEvent.click(await within(await timeline()).findByRole('button', { name: 'List', hidden: true }));
+    const title = async (name: string) => within(await timeline()).findByText(name);
+    const row = async (name: string) => (await title(name)).closest('.tlbtn') as HTMLElement;
+    expect(await title('Write the report')).toHaveClass('done');
+    for (const [name, word] of [
+      ['Read the notes', 'Not done'],
+      ['Email the editor', 'Partly'],
+    ]) {
+      expect(await title(name!)).not.toHaveClass('done');
+      expect(within(await row(name!)).getByText(word!)).toHaveClass('outw');
+    }
+  });
+});
+
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const day = async (w: Writer) => {

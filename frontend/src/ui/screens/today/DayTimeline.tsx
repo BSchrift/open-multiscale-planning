@@ -18,6 +18,7 @@ import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
+import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
@@ -94,6 +95,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     objectives: new Map(data.objectives.map((o) => [o.id, o])),
     practices: new Map(data.practices.map((p) => [p.id, p])),
   };
+  // Answered, stopped or over, as Week has it: drawn muted, with how it went.
+  const ended = (b: BlockRow) => !!b.result || !!b.ended_at || instantMs(b.end) <= clock.now();
   const clashOf = (b: BlockRow) =>
     !b.result && instantMs(b.end) > clock.now() ? events.find((e) => instantMs(e.start) < instantMs(b.end) && instantMs(b.start) < instantMs(e.end)) : undefined;
 
@@ -289,8 +292,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             );
           }
           const cls = phone
-            ? `c-${KIND_CLASS[i.kind!]}${i.cur ? ' c-cur' : ''}${i.block.result ? ' c-ended' : ''}`
-            : `ev-${KIND_CLASS[i.kind!]}${i.cur ? ' cur' : ''}${i.block.result ? ' ended' : ''}`;
+            ? `c-${KIND_CLASS[i.kind!]}${i.cur ? ' c-cur' : ''}${ended(i.block) ? ' c-ended' : ''}${outcomeClass(i.block.result)}`
+            : `ev-${KIND_CLASS[i.kind!]}${i.cur ? ' cur' : ''}${ended(i.block) ? ' ended' : ''}${outcomeClass(i.block.result)}`;
           const move = movable(i.block);
           const resize = resizable(i.block);
           const lifted = drag?.id === i.id;
@@ -325,7 +328,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               // Steps in a row undo together; once focus leaves, the next is a change of its own.
               onBlur={() => (steps.current = null)}
             >
-              <span className="cevt">{phone && lifted ? `${i.time}, ${i.title}` : i.title}</span>
+              <span className="cevt">
+                <OutcomeTag result={i.block.result} />
+                {phone && lifted ? `${i.time}, ${i.title}` : i.title}
+              </span>
               {time}
               {resize && !phone && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
               {resize && phone && !compact && (
@@ -367,13 +373,18 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       );
     }
     const titleCls = i.block.result === 'done' ? 'done' : i.cur ? 'strong' : undefined;
+    // Partly and Not done are said as on the calendar; Done is struck through.
+    const note = i.block.result === 'partly' || i.block.result === 'not' ? <OutcomeTag result={i.block.result} /> : i.note;
     if (phone) {
       return (
         <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} onClick={() => toggle(i.id)}>
           <span className="small quiet">{formatTime(i.start, zone)}</span>
           <span className="tlwhat">
             <span className={titleCls}>{i.title}</span>
-            <span className="small quiet">{[i.kind === 'project' ? 'Project' : i.word, i.note].filter(Boolean).join(', ')}</span>
+            <span className="small quiet">
+              {i.kind === 'project' ? 'Project' : i.word}
+              {i.note && <>, {note}</>}
+            </span>
           </span>
         </button>
       );
@@ -387,7 +398,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             <span className={titleCls}>{i.title}</span>
             <span className="small quiet">{label}</span>
           </span>
-          <span className="small quiet">{i.note}</span>
+          <span className="small quiet">{note}</span>
         </button>
         {open.has(i.id) && (
           <div className="tldet stack8 small">

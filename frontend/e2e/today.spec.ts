@@ -231,6 +231,36 @@ test('an unplanned week opens on the prompt to plan; skipping leaves a banner an
   expect(errors).toEqual([]);
 });
 
+test('a block gone by is struck through only when done; Not done and Partly are outlined and say so instead', async ({ page }) => {
+  const outcome = (id: string, result: string, time: string): Seed => ({ type: 'block_outcome', id: `outcome:${id}`, fields: { result, answered_at: at(time) } });
+  const notes: Seed = { type: 'task', id: 't3', fields: { kind: 'project', project_id: 'p', title: 'Read the notes', estimate_min: 60 } };
+  const errors = await open(page, [
+    planned,
+    report,
+    fence,
+    notes,
+    block('b1', 't1', '09:00', '10:00'),
+    block('b2', 't2', '10:00', '11:00'),
+    block('b3', 't3', '11:00', '12:00'),
+    outcome('b1', 'done', '10:00'),
+    outcome('b2', 'not', '11:00'),
+    outcome('b3', 'partly', '12:00'),
+  ]);
+  const timeline = page.getByRole('region', { name: "Today's timeline" });
+  const look = (name: string) =>
+    timeline.getByRole('button', { name }).evaluate((e) => {
+      const style = getComputedStyle(e);
+      return { strike: style.textDecorationLine, outline: style.outlineStyle };
+    });
+  expect(await look('Write the report, 9am to 10am, Project. Done.')).toEqual({ strike: 'line-through', outline: 'none' });
+  expect(await look('Paint the fence, 10am to 11am, One off. Not done.')).toEqual({ strike: 'none', outline: 'dashed' });
+  expect(await look('Read the notes, 11am to 12pm, Project. Partly.')).toEqual({ strike: 'none', outline: 'dashed' });
+  // Said in words on the block, so colour is never the only sign.
+  await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^✕ Not done Paint the fence/);
+  await expect(timeline.getByRole('button', { name: /Partly\.$/ })).toContainText(/^Partly Read the notes/);
+  expect(errors).toEqual([]);
+});
+
 test('on phone, a short block on the calendar still has a 44pt tap target', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'Phone only');
   const errors = await open(page, [planned, fence, block('b2', 't2', '16:00', '16:15')]);

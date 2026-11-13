@@ -86,6 +86,44 @@ describe('the week grid', () => {
     expect(screen.getByRole('button', { name: 'Paint the fence, Sat Nov 7, 10am to 11am, One off.' })).toBeVisible();
   });
 
+  describe('a block gone by', () => {
+    const gone = (title: string, start: number, result?: GridBlock['result']): GridBlock => ({
+      id: title,
+      date: '2026-11-03',
+      start: start * 60,
+      end: (start + 1) * 60,
+      title,
+      kind: 'project',
+      ended: true,
+      result: result ?? null,
+    });
+    const blocks = [gone('Write the report', 9, 'done'), gone('Read the notes', 10, 'not'), gone('Email the editor', 11, 'partly'), gone('File the receipts', 12)];
+
+    it.each([false, true])('is struck through only when done; Partly and Not done say so in words instead, editing %s', (editing) => {
+      const { container } = draw({ blocks, editing, lockPast: editing });
+      const drawn = (title: string) => [...container.querySelectorAll('.ev')].find((e) => e.textContent?.endsWith(title))!;
+      expect(drawn('Write the report')).toHaveClass('ended', 'done');
+      expect(drawn('Read the notes')).toHaveClass('ended', 'notdone');
+      expect(drawn('Read the notes')).not.toHaveClass('done');
+      expect(within(drawn('Read the notes') as HTMLElement).getByText('Not done')).toBeVisible();
+      expect(drawn('Email the editor')).toHaveClass('ended', 'partly');
+      expect(drawn('Email the editor')).not.toHaveClass('done');
+      expect(within(drawn('Email the editor') as HTMLElement).getByText('Partly')).toBeVisible();
+      // One with no answer yet is only muted.
+      expect(drawn('File the receipts')).toHaveClass('ended');
+      expect(drawn('File the receipts')).not.toHaveClass('done');
+      expect(drawn('File the receipts')).toHaveTextContent(/^File the receipts$/);
+    });
+
+    it('says how it went to a screen reader', () => {
+      draw({ blocks });
+      expect(screen.getByRole('button', { name: 'Write the report, Tue Nov 3, 9am to 10am, Project. Done.' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Read the notes, Tue Nov 3, 10am to 11am, Project. Not done.' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Email the editor, Tue Nov 3, 11am to 12pm, Project. Partly.' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'File the receipts, Tue Nov 3, 12pm to 1pm, Project.' })).toBeVisible();
+    });
+  });
+
   it('a drop whose save fails goes back to where the block was saved', async () => {
     draw({ editing: true, onChange: vi.fn(async () => undefined) });
     drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });

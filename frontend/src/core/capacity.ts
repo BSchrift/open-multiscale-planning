@@ -71,7 +71,7 @@ export function ringColor(share: number): string {
 export function pickWarning(free: Minutes, pushback: Minutes): string | null {
   if (free >= pushback) return null;
   return free < 0
-    ? `That's ${formatMinutes(-free)} more than the open time. What doesn't fit stays on its project or in One offs.`
+    ? "What doesn't fit stays on its project or in One offs."
     : `That leaves ${formatMinutes(free)} free. You've pushed back about ${formatMinutes(pushback)} a week lately.`;
 }
 

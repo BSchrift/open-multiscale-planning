@@ -417,6 +417,8 @@ export interface Candidate {
   task: Task;
   /** Minutes not yet placed. */
   left: Minutes;
+  /** Minutes on this week's calendar still to come, which a new estimate leaves placed. */
+  ahead: Minutes;
   picked: boolean;
   /** Minutes picked for this week. */
   week: Minutes;
@@ -438,6 +440,7 @@ function candidate(t: Task, week: WeekInput, ctx: PlanContext): Candidate {
   return {
     task: t,
     left: Math.max(0, minutesLeft(t) - ahead),
+    ahead,
     picked: !!pick,
     week: pick?.minutes ?? 0,
     carried: !!week.carried?.has(t.id),

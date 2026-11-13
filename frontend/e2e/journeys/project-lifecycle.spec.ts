@@ -96,8 +96,7 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
   await tab(page, phone, 'Today');
   await page.getByRole('button', { name: 'Start planning' }).first().click();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
-  if (phone) await expect(page.getByRole('region', { name: 'Tasks in Paint the garden fence' })).toBeVisible();
-  else await expect(page.getByRole('button', { name: /^Paint the garden fence,/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Paint the garden fence' })).toBeVisible();
   await expect(page.getByText('Clear out the shed').filter({ visible: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

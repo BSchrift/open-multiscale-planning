@@ -176,13 +176,29 @@ describe('Week on desktop', () => {
     expect(within(used).getByText('Wed Nov 4 is packed')).toBeVisible();
     expect(within(used).getByText('30m free of 5h available that day.')).toBeVisible();
     expect(within(used).queryByText('Mon Nov 2 is packed')).toBeNull();
+    // A day gone by and today say what was finished instead, and open Done.
     const heads = document.querySelectorAll('.colhead');
     expect(heads[0]).not.toHaveClass('tight');
-    expect(heads[0]!.querySelector('.free')).toBeEmptyDOMElement();
+    expect(heads[0]!.querySelector('.free')).toHaveTextContent('Nothing finished ›');
     expect(heads[2]).toHaveClass('tight');
-    expect(heads[2]!.querySelector('.free')).toHaveTextContent('30m free');
+    expect(heads[2]!.querySelector('.free')).toHaveTextContent('Nothing finished ›');
     expect(heads[3]!.querySelector('.free')).toHaveTextContent('7h free');
     expect(screen.getByRole('button', { name: /^Paint the fence, Mon Nov 2, 5pm to 10pm, One off\./ })).toBeVisible();
+  });
+
+  it('opens Done from the heading of a day gone by or today, with what was finished; a later day keeps its free time', async () => {
+    const t = await midweek();
+    await t.write(async (w) => {
+      await w.create('task', { kind: 'project', project_id: 'p', title: 'Draft the methods', done_at: at('10:00', TUE) }, 't3');
+      await w.create('task', { kind: 'one_off', title: 'Renew passport photos', done_at: at('11:00', TUE) }, 't4');
+      await w.create('task_completion', { task_id: 't4', done_at: at('11:00', TUE) }, 'c4');
+    });
+    const tuesday = await screen.findByRole('button', { name: 'Done on Tue Nov 3: 2 finished' });
+    expect(tuesday).toHaveTextContent('Tue Nov 32 finished ›');
+    expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Done on Thu Nov 5/ })).toBeNull();
+    await userEvent.click(tuesday);
+    expect(t.nav().route).toMatchObject({ area: 'done', params: { day: TUE } });
   });
 
   it('a past week still shows what was planned in it', async () => {
@@ -200,7 +216,7 @@ describe('Week on desktop', () => {
     expect(await screen.findByText('Oct 26 to Nov 1')).toBeVisible();
     expect(screen.getByText('0m free', { selector: '.capnum' })).toBeVisible();
     expect(screen.getByText('of 0m available')).toBeVisible();
-    expect([...document.querySelectorAll('.colhead .free')].every((el) => el.textContent === '')).toBe(true);
+    expect([...document.querySelectorAll('.colhead .free')].map((el) => el.textContent)).toEqual(Array(7).fill('Nothing finished ›'));
 
     await userEvent.click(screen.getByRole('button', { name: 'This week' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Next week' }));
@@ -603,6 +619,19 @@ describe('Week on phone', () => {
     expect(days[0]).toHaveAttribute('aria-current', 'date');
     expect(days[0]).toHaveClass('today');
     expect(days[1]).not.toHaveAttribute('aria-current');
+  });
+
+  it('the heading over today, or a day gone by, opens Done on that day; a later day’s stays plain', async () => {
+    const t = await midweek({ layout: 'phone' });
+    const strip = await screen.findByRole('group', { name: 'Choose a day' });
+    expect(screen.getByRole('heading', { name: 'Wed Nov 4' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toHaveTextContent('Nothing finished ›');
+    await userEvent.click(within(strip).getAllByRole('button')[3]!);
+    expect(await screen.findByRole('heading', { name: 'Thu Nov 5' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Done on/ })).toBeNull();
+    await userEvent.click(within(strip).getAllByRole('button')[1]!);
+    await userEvent.click(await screen.findByRole('button', { name: 'Done on Tue Nov 3: nothing finished' }));
+    expect(t.nav().route).toMatchObject({ area: 'done', params: { day: TUE } });
   });
 
   it('mid-week, counts only time still ahead: a past day shows what happened, never free or packed', async () => {

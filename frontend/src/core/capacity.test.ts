@@ -179,8 +179,9 @@ describe('pickWarning', () => {
     expect(pickWarning(90, 270)).toBe("That leaves 1h 30m free. You've pushed back about 4h 30m a week lately.");
   });
 
-  it('says how far over when the picks pass the open time', () => {
-    expect(pickWarning(-120, 270)).toBe("That's 2h more than the open time. What doesn't fit stays on its project or in One offs.");
+  // How far over is said beside it, as Over by, so the warning says only what happens to the rest.
+  it('says what happens to what does not fit when the picks pass the open time', () => {
+    expect(pickWarning(-120, 270)).toBe("What doesn't fit stays on its project or in One offs.");
   });
 });
 

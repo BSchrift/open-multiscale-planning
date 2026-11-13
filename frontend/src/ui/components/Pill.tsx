@@ -23,7 +23,7 @@ export function Pill(props: {
       type="button"
       aria-label={props['aria-label']}
       aria-expanded={props['aria-expanded']}
-      aria-haspopup={props['aria-expanded'] === undefined ? undefined : true}
+      aria-haspopup={props['aria-expanded'] === undefined ? undefined : 'dialog'}
       onClick={props.onClick}
     >
       {pill}

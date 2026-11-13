@@ -371,6 +371,7 @@ export function DesktopWeek(props: WeekProps) {
               ctx={model.ctx}
               blocks={gridBlocks}
               info={model.info}
+              done={{ finished: props.finished, open: props.openDone }}
               ghosts={ghosts}
               editing={editing || !!plan}
               lockPast={editing || !!plan}

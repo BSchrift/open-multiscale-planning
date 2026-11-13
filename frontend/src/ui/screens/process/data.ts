@@ -8,7 +8,7 @@ import type { ProjectPlan, Stretch } from '../../../core/plan';
 import { inboxTasks, projectTasks } from '../../../core/queries';
 import type { InboxRow } from '../../../core/queries';
 import { getSettings, listRecords } from '../../../core/records';
-import type { LocalDate, Objective } from '../../../core/types';
+import type { LocalDate, Objective, Settings } from '../../../core/types';
 
 export interface Destination {
   plan: ProjectPlan;
@@ -30,6 +30,8 @@ export interface ProcessData {
   goals: Objective[];
   /** Where a new project ends: with the stretch being planned, else the one under way, else in three months. */
   end: LocalDate;
+  /** For a milestone's date, when it has none of its own. */
+  settings: Settings;
 }
 
 export async function loadProcess(sql: Sql, clock: Clock, stretch?: Stretch): Promise<ProcessData> {
@@ -57,6 +59,7 @@ export async function loadProcess(sql: Sql, clock: Clock, stretch?: Stretch): Pr
     inbox,
     groups,
     goals: objectives,
+    settings,
     end: stretch?.end ?? currentStretch(settings, on)?.end ?? addMonths(on, 3),
   };
 }

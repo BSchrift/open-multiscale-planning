@@ -7,6 +7,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import { SearchIcon } from '../../components/icons';
+import { LateWarning, lateSaid } from '../../components/LateWarning';
 import { Sheet } from '../../components/Sheet';
 import type { Destination, PickGroup } from './data';
 
@@ -43,6 +44,8 @@ export function Picker(props: {
   value: Place | undefined;
   /** What the lit row adds besides, while the week toggle is on: its tag, and the words a screen reader hears. */
   tag: { text: string; says: string } | null;
+  /** Why adding the item to a project would leave its date after the deadline, or null. It only warns. */
+  late(dest: Destination): string | null;
   fieldRef: RefObject<HTMLElement | null>;
   addRef: RefObject<HTMLButtonElement | null>;
   /** The key that adds, on desktop. */
@@ -147,6 +150,7 @@ export function Picker(props: {
     const said =
       'dest' in row ? (row.dest.goal ? `${row.dest.title}, ${row.dest.goal}` : row.dest.title) : row.kind === 'one' ? 'One offs' : typed ? `+ New project “${typed}”` : '+ New project';
     const tagged = on && row.kind !== 'new' && tag;
+    const late = 'dest' in row ? props.late(row.dest) : null;
     return (
       <div
         key={row.key}
@@ -154,7 +158,7 @@ export function Picker(props: {
         className={`pkopt${row.kind === 'new' ? ' pknew' : row.kind === 'one' ? ' pkone' : ''}`}
         role="option"
         aria-selected={on}
-        aria-label={tagged ? `${said}, ${tag.says}` : said}
+        aria-label={`${said}${tagged ? `, ${tag.says}` : ''}${lateSaid(late)}`}
         // The field keeps focus, so typing goes on.
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => choose(row)}
@@ -173,6 +177,7 @@ export function Picker(props: {
           </>
         )}
         {tagged && <span className="pktag">{tag.text}</span>}
+        {late && <LateWarning text={late} />}
       </div>
     );
   };
@@ -235,6 +240,13 @@ export function Picker(props: {
       )}
     </>
   );
+  // Shown on a project, as one just made or the last used, the warning sits under the picker.
+  const late = q === null && value ? props.late(value) : null;
+  const lateLine = late && (
+    <p className="pklate">
+      <LateWarning text={late} />
+    </p>
+  );
   const addButton = value !== undefined && (
     <button ref={props.addRef} className="btn pri pkadd" type="button" onClick={() => props.onAdd(value)}>
       Add to {name}
@@ -266,6 +278,7 @@ export function Picker(props: {
           </span>
         </button>
         {addButton}
+        {lateLine}
         {open && (
           <Sheet label="Add to" tall className="pksheet" onClose={reset}>
             <div className="between">
@@ -312,6 +325,7 @@ export function Picker(props: {
       </div>
       {q === null && !open && addButton}
       {props.children}
+      {lateLine}
     </div>
   );
 }

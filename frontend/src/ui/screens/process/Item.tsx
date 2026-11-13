@@ -1,21 +1,24 @@
 // The item on Process's card, and everything the task popup can change about it, changed where it shows: the title in
-// place behind its pencil, the description in the popup's own field, links and photos, and Time. Empty ones are
+// place behind its pencil, its date in the app's date form, the description in the popup's own field, links and photos,
+// and Time. Empty ones are
 // buttons in a row; filled ones show their value. Each saves when it's finished, through the card, which keeps the
 // reverse so one Undo puts the item back as it arrived.
 
 import { useId, useState } from 'react';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { MAX_TITLE } from '../../../core/captureTitle';
+import { onceWhen, setOnceDates } from '../../../core/schedule';
 import type { RecordWrite } from '../../../core/plan';
 import { taskAttachments } from '../../../core/queries';
 import type { Fields, Task } from '../../../core/types';
 import { useQuery } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
-import { NotesIcon, PenIcon } from '../../components/icons';
+import { CalendarIcon, NotesIcon, PenIcon } from '../../components/icons';
 import { NotesField } from '../../components/notes/NotesField';
+import { OneOffDateForm } from '../../components/oneoff';
 
 /** What on the card is open to change. */
-export type Editing = 'title' | 'notes' | null;
+export type Editing = 'title' | 'date' | 'notes' | null;
 
 const number = new Intl.NumberFormat('en-US');
 /** The key that saves a description, as its field takes it. */
@@ -27,6 +30,9 @@ export function Item(props: {
   editing: Editing;
   setEditing(editing: Editing): void;
   titleRef: RefObject<HTMLElement | null>;
+  dateRef: RefObject<HTMLButtonElement | null>;
+  /** Whether its date came with it, rather than being set here. */
+  dated: boolean;
   /** Saves fields on the item. True once saved. */
   save(fields: Fields<'task'>): Promise<boolean>;
   /** An attachment added or removed, by its exact reverse. */
@@ -56,6 +62,36 @@ export function Item(props: {
   const saveNotes = async () => {
     if (await props.save({ notes: notes.trim() ? notes : null })) setEditing(null);
   };
+
+  const once = task.schedule?.type === 'once' && task.schedule.from ? task.schedule : null;
+  const when = once ? onceWhen(once) : '';
+  // First under the title on every item, then the date itself once it has one.
+  const dateChip = (
+    <button
+      ref={props.dateRef}
+      className={`${btn} date${once ? ' set' : ''}`}
+      type="button"
+      aria-expanded={editing === 'date'}
+      aria-label={once ? `Change date, ${when}` : undefined}
+      onClick={() => setEditing(editing === 'date' ? null : 'date')}
+    >
+      <CalendarIcon />
+      {once ? (
+        <>
+          {when}
+          <span className="quiet">· Change</span>
+        </>
+      ) : (
+        'Add date'
+      )}
+    </button>
+  );
+  const dateForm = editing === 'date' && (
+    <div className="pxdateform">
+      <OneOffDateForm task={task} commit={(from, to) => props.save(setOnceDates(from, to))} onClose={() => setEditing(null)} />
+    </div>
+  );
+  const dateNote = once && props.dated && <span className="pxdatenote">It came with this date.</span>;
 
   const heading = (
     <div className="pxhead">
@@ -108,7 +144,13 @@ export function Item(props: {
     return (
       <div className="card stack pxitem">
         {title}
-        <div className="pxfour">{adds}</div>
+        {once && dateChip}
+        {dateNote}
+        {dateForm}
+        <div className="pxfour">
+          {!once && dateChip}
+          {adds}
+        </div>
         {description}
         {attachments}
         {props.slider}
@@ -120,9 +162,12 @@ export function Item(props: {
     <div className="pxitem">
       {title}
       <div className="pxfacts">
+        {dateChip}
         {adds}
         {props.slider}
       </div>
+      {dateNote}
+      {dateForm}
       {(description || attachments) && (
         <div className="pxdetails">
           {description}

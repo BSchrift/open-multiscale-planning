@@ -211,6 +211,47 @@
   stroke-width: 1.9;
 }
 
+/* The date: first under the title, in blue; once set, the date itself on a blue tint, with Change. */
+[data-layout] .pxchip.date {
+  border-color: var(--blue);
+  color: var(--blue);
+  font-weight: 600;
+}
+
+[data-layout] .pxchip.date.set {
+  border-color: var(--blue-line);
+  background: var(--blue-tint);
+  color: var(--blue-ink);
+}
+
+[data-layout] .pxchip.date.set .quiet {
+  color: var(--blue-ink);
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+[data-layout='phone'] .pxitem > .pxchip.date {
+  justify-content: flex-start;
+}
+
+[data-layout] .pxdatenote {
+  color: var(--quiet);
+  font-size: var(--text-sm);
+}
+
+[data-layout] .pxdateform {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+/* A project's warning, under the picker once the picker shows that project. */
+[data-layout] .pklate {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
 /* Add link and Add photo join the row of buttons; the link's fields take a line of their own. */
 [data-layout] .pxfacts .attachadds,
 [data-layout] .pxfour .attachadds {

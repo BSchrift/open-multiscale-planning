@@ -123,6 +123,26 @@ export function PhotoIcon() {
   );
 }
 
+/** A calendar page, for a date. */
+export function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </svg>
+  );
+}
+
+/** A triangle with a mark in it, beside words that warn. */
+export function WarnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 4.5L2.8 19.5h18.4z" />
+      <path d="M12 10v4.5M12 17v.5" />
+    </svg>
+  );
+}
+
 /** A magnifying glass, for a field that searches. */
 export function SearchIcon() {
   return (

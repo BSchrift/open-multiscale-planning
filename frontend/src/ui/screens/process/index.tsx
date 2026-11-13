@@ -10,11 +10,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 import { formatDate, formatWeekRange, isDay, nowInstant, thisWeek } from '../../../core/dates';
-import { applyPlanChange } from '../../../core/plan';
-import type { PlanChange, ProjectPlan, RecordWrite, Stretch } from '../../../core/plan';
+import { applyPlanChange, dueAfter } from '../../../core/plan';
+import type { PlanChange, RecordWrite, Stretch } from '../../../core/plan';
 import type { InboxRow } from '../../../core/queries';
 import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
+import { isRepeating, onceWhen, projectDates } from '../../../core/schedule';
 import { closeTask, makeHome, undoHome } from '../../../core/tasks';
 import type { Home, Made } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes, Task } from '../../../core/types';
@@ -24,14 +25,14 @@ import { useApp, useMutation, useQuery, useStickyState, useToday } from '../../a
 import { HomeForm } from '../../components/editors';
 import type { HomeKind } from '../../components/editors';
 import { EstimateSlider } from '../../components/EstimateSlider';
-import { MilestoneDiamond } from '../../components/MilestoneDiamond';
-import { emptyDraft, OneOffDates, oneOffFields } from '../../components/oneoff';
+import { lateText } from '../../components/LateWarning';
+import { emptyDraft, oneOffFields } from '../../components/oneoff';
 import { useDialogFocus } from '../../components/useDialogFocus';
 import { useToast } from '../../components/Toast';
 import { loadProcess } from './data';
 import { Item } from './Item';
 import type { Editing } from './Item';
-import type { ProcessData } from './data';
+import type { Destination, ProcessData } from './data';
 import { ONE_OFFS, Picker, placeKey, placeName } from './Picker';
 import type { Place } from './Picker';
 import './process.css';
@@ -46,12 +47,6 @@ export default function Screen(props: ScreenProps) {
   return data ? <Cards {...props} data={data} stretch={stretch} /> : null;
 }
 
-interface Sent {
-  id: string;
-  title: string;
-  project: ProjectPlan | null;
-}
-
 /** Where the cards are: everything Undo puts back. */
 interface Step {
   idx: number;
@@ -62,12 +57,11 @@ interface Step {
   deleted: number;
   /** A project just made from the card, which the picker holds until the item is added, with the milestone named with it. */
   made: { id: string; milestone: string | null; under: string | null } | null;
-  sent: Sent | null;
   /** The exact reverse of what's been changed on this item, latest first, which puts it back as it arrived. */
   edits: RecordWrite[];
 }
 
-const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, deleted: 0, made: null, sent: null, edits: [] };
+const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, deleted: 0, made: null, edits: [] };
 
 /** A home made from the card, for its Undo and the toast that reports it. */
 interface HomeUndo {
@@ -147,6 +141,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const titleRef = useRef<HTMLElement | null>(null);
   const pickRef = useRef<HTMLElement | null>(null);
   const addRef = useRef<HTMLButtonElement | null>(null);
+  const dateRef = useRef<HTMLButtonElement | null>(null);
   // A toast's Undo can come after Process has closed, or after the step it reports has been stepped back over.
   const live = useRef(true);
   const historyRef = useRef(history);
@@ -179,7 +174,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
   // A field on the card closes with focus back on the title, where the keys work again.
   const closeEditing = () => {
-    refocus.current = 'title';
+    // Unless focus has moved on from the field meanwhile, as it can while a change saves.
+    const active = document.activeElement;
+    const movedOn = !!active && !!ref.current?.contains(active) && !active.closest('.pxtitleform, .pxdateform, .pxnotes');
+    if (!movedOn) refocus.current = editing === 'date' ? 'date' : 'title';
     setEditing(null);
   };
   const ref = useDialogFocus<HTMLDivElement>(() => {
@@ -195,7 +193,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   useEffect(() => {
     const to = refocus.current;
     if (!to || form) return;
-    const el = !item || to === 'title' ? titleRef.current : to === 'pick' ? pickRef.current : to === 'add' ? addRef.current : openers.current[to];
+    const el = !item || to === 'title' ? titleRef.current : to === 'pick' ? pickRef.current : to === 'add' ? addRef.current : to === 'date' ? dateRef.current : openers.current[to];
     if (!el) return;
     refocus.current = null;
     el.focus();
@@ -281,7 +279,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     if (reverse === undefined) return false;
     // Focus moved on the card while it saved, as by Esc, stays where it was put.
     const moved = document.activeElement !== from && !!ref.current?.contains(document.activeElement);
-    const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, sent: null, edits: [], ...next() };
+    const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, edits: [], ...next() };
     if (step.idx !== s.idx) swipeAway(ref.current);
     const prev = history[history.length - 1];
     const merged = options.merge && prev?.home;
@@ -303,6 +301,15 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     return { writes: [{ type: 'week_pick', id: weekPickId(week, item!.id), fields: { deleted_at: nowInstant(clock) } }, ...reverse.writes] };
   };
   const weekWords = planning ? 'and to the plan' : 'and to this week';
+  const ctx = { settings: data.settings, clock };
+  const lateFor = (dest: Destination) => {
+    if (!current) return null;
+    const milestone_id = s.made?.id === dest.plan.project.id ? s.made.milestone : null;
+    const late = dueAfter(dest.plan, { schedule: current.schedule ?? null, milestone_id }, ctx);
+    return late && lateText(late);
+  };
+  // A date the item came with, rather than one set on the card this time.
+  const dated = !s.edits.some((r) => r.id === item?.id && 'schedule' in r.fields);
 
   /** Adds the item to a project, or to One offs as null. One just made from the card puts it under the milestone named with it. */
   const send = (dest: Place) => {
@@ -310,17 +317,19 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     // shortcut: no estimate picks 30m for a one off and 1h for a project, ask later if these prove wrong.
     const minutes = est || (dest ? 60 : 30);
     const made = dest && s.made?.id === dest.plan.project.id ? s.made : null;
+    const once = current?.schedule?.type === 'once' && current.schedule.from ? current.schedule : null;
     const run = async (w: Writer): Promise<PlanChange> => {
       // Fields merge one by one, so each kind clears the other's: another device may have sent this item the other way.
       const fields: Fields<'task'> = dest
-        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: made?.milestone ?? null, schedule: null, next_due: null, estimate_min: est || null }
-        : oneOffFields({ ...emptyDraft(today), title: name, estimate: est }, today);
+        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: made?.milestone ?? null, ...projectDates(current ?? {}), estimate_min: est || null }
+        : oneOffFields({ ...emptyDraft(today), title: name, estimate: est, ...(once ? { from: once.from ?? '', to: once.to ?? '', ranged: !!once.to } : {}) }, today);
       const filed = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
       return s.planOn ? addToWeek(w, minutes, filed) : filed;
     };
-    const says = () => `Added ${name} to ${placeName(dest)}${made?.under ? `, under ${made.under}` : ''}${s.planOn ? ` ${weekWords}` : ''}.`;
-    const sent = { id: item.id, title: name, project: dest?.plan ?? null };
-    return commit(run, () => ({ sorted: s.sorted + 1, sent }), says, { merge: !!made }).then((done) => {
+    const where = `${placeName(dest)}${made?.under ? `, under ${made.under}` : ''}${once ? `, for ${onceWhen(once)}` : ''}`;
+    const repeatGoes = dest && current && isRepeating(current) ? " Repeats stay with One offs, so it won't repeat." : '';
+    const says = () => `Added ${name} to ${where}${s.planOn ? ` ${weekWords}` : ''}.${repeatGoes}`;
+    return commit(run, () => ({ sorted: s.sorted + 1 }), says, { merge: !!made }).then((done) => {
       if (done) setLastKey(placeKey(dest));
       return done;
     });
@@ -419,7 +428,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       {text}
     </h1>
   );
-  const followUp = s.sent && <FollowUp key={s.sent.id} sent={s.sent} />;
   // Every key on the desktop card shows on its button, with the Option or Alt it needs until Settings makes keys work alone.
   const held = useHeld();
   const cap = (k: string) =>
@@ -489,6 +497,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
           </kbd>
         )
       }
+      late={lateFor}
       onAdd={(place) => void send(place)}
       onNew={(name) => openForm('project', 'pick', name)}
     >
@@ -514,6 +523,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         editing={editing}
         setEditing={(next) => (next ? setEditing(next) : closeEditing())}
         titleRef={titleRef}
+        dateRef={dateRef}
+        dated={dated}
         save={save}
         onAttachment={keepReverse}
         cap={cap}
@@ -552,12 +563,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         </div>
         {item ? (
           <>
-            {itemCard(
-              <>
-                {followUp}
-                {weekToggle}
-              </>,
-            )}
+            {itemCard(weekToggle)}
             <div className="pxspace" />
             {picker}
             {makeOne}
@@ -651,7 +657,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
           </div>
         )}
         <div className="row small pxlastrow">
-          {followUp}
           {!keysOn && <span className="small quiet pxhint">Keys work with Option or Alt held. Settings can make them work alone.</span>}
         </div>
       </div>
@@ -663,36 +668,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
 function useHeld() {
   const [keysOn] = useProcessKeys();
   return keysOn ? '' : /Mac/.test(navigator.userAgent) ? '⌥' : 'Alt ';
-}
-
-/** After an add, the item can still get a milestone or a date, without slowing the one-click path. */
-function FollowUp(props: { sent: Sent }) {
-  const { sent } = props;
-  const task = useQuery((sql) => getRecord(sql, 'task', sent.id), [sent.id]).data;
-  const setMilestone = useMutation((w, id: string) => w.set('task', sent.id, { milestone_id: id || null }));
-  if (!task || task.deleted_at) return null;
-  if (task.kind === 'one_off') return <OneOffDates task={task} />;
-  const open = sent.project?.milestones.filter((m) => !m.met_at && !m.dropped_at) ?? [];
-  if (task.kind !== 'project' || open.length === 0) return null;
-  return (
-    <span className="row small">
-      <MilestoneDiamond />
-      <select
-        className="field pxms"
-        aria-label={`Milestone for ${sent.title}`}
-        value={task.milestone_id ?? ''}
-        onChange={(e) => void setMilestone.run(e.target.value)}
-      >
-        {/* No milestone: the task sits under the project's Done. */}
-        <option value="">Done</option>
-        {open.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.title}
-          </option>
-        ))}
-      </select>
-    </span>
-  );
 }
 
 /**

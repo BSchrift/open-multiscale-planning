@@ -219,7 +219,7 @@ test('edits a practice with no goal and links it to one', async ({ page }, info)
   await page.getByRole('button', { name: phone ? 'Practices with no goal' : 'Practices with no goal 1 practice', exact: true }).click();
   await page.getByRole('button', { name: /^Stretch/ }).click();
   const scope = phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
-  await expect(scope.getByRole('slider', { name: 'Target' })).toBeVisible();
+  await expect(scope.getByRole('slider', { name: 'Each session' })).toBeVisible();
   await scope.getByLabel('Goal', { exact: true }).selectOption('Run a 10k');
   // Nothing changes until Save.
   await expect(page.getByRole('button', { name: /^Run a 10k/ })).toContainText('Nothing active.');
@@ -233,4 +233,68 @@ test('edits a practice with no goal and links it to one', async ({ page }, info)
   // The practice moves under its goal, which opens, and focus follows it there.
   await expect(page.getByRole('button', { name: /^Run a 10k/ })).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('button', { name: /^Stretch/ })).toBeFocused();
+});
+
+test('builds Mon, Tue and Fri with Friday at 9:30, which reopens as kept, with controls a finger can hit', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await openGoals(page);
+  const open = async () => {
+    await page.getByRole('button', { name: /^Practices with no goal/ }).click();
+    await page.getByRole('button', { name: /^Stretch/ }).click();
+    return phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
+  };
+  let editor = await open();
+  // Arrow keys move between the radios of each group, as native radios do.
+  await editor.getByRole('radio', { name: 'Set days' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(editor.getByRole('radio', { name: 'Times a week' })).toBeChecked();
+  await page.keyboard.press('ArrowLeft');
+  await expect(editor.getByRole('radio', { name: 'Set days' })).toBeChecked();
+  await editor.getByRole('radio', { name: 'Around a time' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(editor.getByRole('radio', { name: 'Any time' })).toBeChecked();
+  await page.keyboard.press('ArrowLeft');
+
+  const days = editor.getByRole('group', { name: 'Days' });
+  await days.getByRole('button', { name: 'Weekdays' }).click();
+  for (const day of ['Wednesday', 'Thursday']) await days.getByRole('checkbox', { name: day }).click();
+  await editor.getByRole('switch', { name: 'Different time on some days' }).click();
+  const rows = editor.getByRole('group', { name: 'Time on each day' });
+  await rows.getByLabel('Friday', { exact: true }).fill('09:30');
+  await expect(editor.getByText('15m on Mon and Tue around 7am, Fri around 9:30am', { exact: true })).toBeVisible();
+  if (phone) {
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      const controls = [
+        ...(await days.locator('.daychip').all()),
+        ...(await days.getByRole('button').all()),
+        ...(await editor.locator('.seg').all()),
+        editor.locator('.switchrow'),
+        rows.getByRole('button', { name: 'Use the usual time, 7 AM, on Friday' }),
+      ];
+      for (const control of controls) await expectTapTarget(control);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
+  await editor.screenshot({ path: info.outputPath(`practice-days-${info.project.name}.png`) });
+  // Use 7am puts the day back, with focus on its field; the time comes back for Save.
+  await rows.getByRole('button', { name: 'Use the usual time, 7 AM, on Friday' }).click();
+  await expect(rows.getByLabel('Friday', { exact: true })).toBeFocused();
+  await rows.getByLabel('Friday', { exact: true }).fill('09:30');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved Stretch: 15m on Mon and Tue around 7am, Fri around 9:30am.')).toBeVisible();
+
+  // Reopened, it reads as it was saved.
+  await page.getByRole('button', { name: /^Stretch/ }).click();
+  editor = phone ? page.getByRole('dialog', { name: 'Edit practice' }) : page.getByRole('group', { name: 'Edit Stretch' });
+  await expect(editor.getByRole('group', { name: 'Days' }).getByRole('checkbox', { checked: true })).toHaveCount(3);
+  await expect(editor.getByRole('switch', { name: 'Different time on some days' })).toBeChecked();
+  await expect(editor.getByRole('group', { name: 'Time on each day' }).getByLabel('Friday', { exact: true })).toHaveValue('09:30');
+  await editor.getByRole('radio', { name: 'Times a week' }).click();
+  await expect(editor.getByText('3 times a week', { exact: true })).toBeVisible();
+  await editor.screenshot({ path: info.outputPath(`practice-times-${info.project.name}.png`) });
+  await editor.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
 });

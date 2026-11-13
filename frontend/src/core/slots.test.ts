@@ -14,6 +14,7 @@ import {
   placePractices,
   placeRest,
   practicesLeft,
+  sessionOffers,
   slotContext,
   slotInstants,
   slotNotes,
@@ -575,6 +576,17 @@ describe('placePractices', () => {
     for (const day_times of [[570], [null, null, null, null, 1440, null, null], [null, null, null, null, '9:30', null, null]] as unknown as Practice['day_times'][]) {
       expect(at(placePractices([practice({ days: [4], day_times })], ctx()))).toEqual([[FRI, 420]]);
     }
+  });
+});
+
+describe('sessionOffers', () => {
+  const practice: Practice = { id: 'p1', title: 'Run', target_min: 30, per: 'day', days: [4], preferred_times: [420], day_times: [null, null, null, null, 570, null, null], state: 'active' };
+
+  it("offers a day's session at its time, then later times that day half an hour apart, saying why the first moved", () => {
+    expect(sessionOffers(practice, FRI, ctx()).map((o) => o.start)).toEqual([570, 600, 630]);
+    const taken = sessionOffers(practice, FRI, ctx({ busy: [span(FRI, 540, 600)] }));
+    expect(taken[0]).toMatchObject({ start: 600, note: '9:30am is taken, so 10am' });
+    expect(sessionOffers(practice, FRI, ctx({ busy: [allDay(FRI)] }))).toEqual([]);
   });
 });
 

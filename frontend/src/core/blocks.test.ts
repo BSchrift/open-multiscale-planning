@@ -617,6 +617,17 @@ describe('placing and unscheduling by hand', () => {
     expect(await t.block('session:pr:2026-11-06')).toMatchObject({ start: '2026-11-07T07:00:00Z' });
   });
 
+  it('refuses a session on a day that already has one of that practice, and writes nothing', async () => {
+    const t = await setup();
+    // Piano has Monday's session at 5pm.
+    const refused = await t.run((w) => placeSession(w, 'pr', { start: at('20:00'), end: at('20:30') }, t.clock));
+    expect(refused.writes).toEqual([]);
+    expect((await t.rows()).filter((b) => b.practice_id === 'pr')).toHaveLength(1);
+    // Taken off, the day is free again.
+    await t.run((w) => removeBlock(w, 'piano'));
+    expect((await t.run((w) => placeSession(w, 'pr', { start: at('20:00'), end: at('20:30') }, t.clock))).writes).toHaveLength(1);
+  });
+
   it("a task not picked is picked for the time placed, so taking its block off keeps it in the week, and Undo puts it back", async () => {
     const t = await setup();
     const undo = await t.run((w) => unscheduleBlock(w, 'later', WEEK, t.clock));

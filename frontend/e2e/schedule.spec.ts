@@ -72,15 +72,18 @@ test('desktop: drag the task to a time, place it, then place the rest with Undo'
   expect(errors).toEqual([]);
 });
 
-test('desktop: moving a practice session asks whether to keep it every week', async ({ page }, info) => {
+test('desktop: moving a practice session asks whether to use the new time in future weeks', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openSchedule(page, false);
   const session = page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ });
   await session.focus();
   await page.keyboard.press('ArrowDown');
-  const ask = page.getByRole('status', { name: 'Make this change permanent?' });
-  await expect(ask.getByText('Morning stretch is now Tue Nov 3, 7:15am to 7:45am.')).toBeVisible();
-  await ask.getByRole('button', { name: 'No, this week only' }).click();
+  const ask = page.getByRole('group', { name: 'Use 7:15am in future weeks too?' });
+  await expect(ask).toHaveAccessibleDescription('Morning stretch moved to Tue 7:15am.');
+  // Announced rather than focused, so the arrow keys go on moving the session; from inside it, Escape is No.
+  await expect(ask.getByRole('status')).toHaveText('Morning stretch moved to Tue 7:15am. Use 7:15am in future weeks too?');
+  await ask.getByRole('button', { name: 'No, just this week' }).focus();
+  await page.keyboard.press('Escape');
   await expect(ask).toHaveCount(0);
   await expect(page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7:15am to 7:45am, Practice\./ })).toBeVisible();
   expect(errors).toEqual([]);
@@ -187,5 +190,32 @@ test('phone: compare days, move the task to another day, place it, and place the
   await page.screenshot({ path: info.outputPath('schedule-phone-placed.png') });
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("a practice's row reads its schedule, and on desktop Place the rest puts each session at its own day's time, with one Undo", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [
+    { type: 'practice', id: 'pr', fields: { title: 'Morning stretch', target_min: 30, per: 'day', days: [1, 2], preferred_times: [420], day_times: [null, null, 540, null, null, null, null], state: 'active' } },
+  ]);
+  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
+  await expect(page.getByText('Practice, 30m on Tue around 7am, Wed around 9am').first()).toBeVisible();
+  await expect(page.getByText('Also this week: Wed 9am.')).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`schedule-practice-${info.project.name}.png`) });
+  if (phone) return expect(errors).toEqual([]);
+  await page.getByRole('button', { name: 'Place the rest at suggested times' }).click();
+  const tue = page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ });
+  const wed = page.getByRole('group', { name: /^Morning stretch, Wed Nov 4, 9am to 9:30am, Practice\./ });
+  await expect(tue).toBeVisible();
+  await expect(wed).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  // Tuesday's session is back to being placed, and Wednesday's is gone.
+  await expect(page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\. Being placed/ })).toBeVisible();
+  await expect(wed).toHaveCount(0);
   expect(errors).toEqual([]);
 });

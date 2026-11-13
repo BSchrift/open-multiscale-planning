@@ -412,6 +412,19 @@ describe('Week on desktop', () => {
     expect(unanswered).not.toHaveClass('done');
   });
 
+  it("marks the current time across today's column only", async () => {
+    await open();
+    const container = document.body;
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(container.querySelectorAll('.nowline')).toHaveLength(1);
+    expect(container.querySelectorAll('.colbody')[0]).toContainElement(line);
+    // 2pm is 8 hours after 6am, at 26px an hour.
+    expect(line).toHaveStyle({ top: `${8 * 26}px` });
+    await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(await screen.findByText('Nov 9 to Nov 15')).toBeVisible();
+    expect(container.querySelectorAll('.nowline')).toHaveLength(0);
+  });
+
   it('lists work that needs a new time under its own heading, not as placed by its past block', async () => {
     await open({
       seed: async (w) => {
@@ -760,6 +773,28 @@ describe('Week on phone', () => {
     // One with no answer yet is only muted.
     expect(await drawn('Paint the fence')).toHaveClass('c-ended');
     expect(await drawn('Paint the fence')).not.toHaveClass('done');
+  });
+
+  it('marks the current time on today, and not on another day', async () => {
+    await phone();
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(document.querySelectorAll('.nowline')).toHaveLength(1);
+    // In the row whose time holds 2pm.
+    const row = line.closest<HTMLElement>('.tlrow')!;
+    expect(Number(row.dataset.dropFrom)).toBeLessThanOrEqual(14 * 60);
+    expect(Number(row.dataset.dropTo)).toBeGreaterThan(14 * 60);
+    await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[1]!);
+    expect(await screen.findByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
+    expect(document.querySelectorAll('.nowline')).toHaveLength(0);
+  });
+
+  it('marks the current time while editing too', async () => {
+    await phone({ seed: planned });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(line.closest('.dragday')).not.toBeNull();
+    // 8 hours after 6am, at 48px an hour.
+    expect(line).toHaveStyle({ top: `${8 * 48}px` });
   });
 
   it('a block opens a sheet: the slider changes its length, Move carries it to another day, Remove takes it off', async () => {

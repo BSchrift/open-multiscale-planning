@@ -79,7 +79,8 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 .cev.compact{padding:0 6px;font-size:11px;line-height:13px}
 .zoombtn:disabled{opacity:.35;cursor:default}
 .tb.on{background:var(--blue)}
-.nowline{position:absolute;left:-6px;right:0;height:2px;background:var(--ink);z-index:3}
+/* Over the day and its blocks, under one being dragged; drops and drags pass through it. */
+.nowline{position:absolute;left:-6px;right:0;height:2px;background:var(--ink);z-index:1;pointer-events:none}
 .nowline i{position:absolute;left:0;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--ink)}
 .p-r{background:var(--red-tint);color:var(--red)}
 .pillbtn:hover .p-r{background:var(--red-soft)}

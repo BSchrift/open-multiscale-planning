@@ -124,6 +124,29 @@ describe('the week grid', () => {
     });
   });
 
+  describe('the current time', () => {
+    const now = { date: '2026-11-04', minutes: 14 * 60 };
+
+    it.each([false, true])("is a line across today's column only, at the time, editing %s", (editing) => {
+      const { container } = draw({ now, editing });
+      const line = screen.getByRole('img', { name: 'Current time' });
+      expect(container.querySelectorAll('.nowline')).toHaveLength(1);
+      expect(line).toHaveClass('nowline');
+      expect(container.querySelectorAll('.colbody')[2]).toContainElement(line);
+      // 8 hours after 6am, at 26px an hour, or 40 while editing.
+      expect(line).toHaveStyle({ top: `${8 * (editing ? 40 : 26)}px` });
+    });
+
+    it.each([
+      ['in another week', { date: '2026-11-11', minutes: 14 * 60 }],
+      ['before 6am', { ...now, minutes: 5 * 60 + 30 }],
+      ['after 11pm', { ...now, minutes: 23 * 60 + 30 }],
+    ])('is not drawn %s', (_, at) => {
+      const { container } = draw({ now: at });
+      expect(container.querySelectorAll('.nowline')).toHaveLength(0);
+    });
+  });
+
   it('a drop whose save fails goes back to where the block was saved', async () => {
     draw({ editing: true, onChange: vi.fn(async () => undefined) });
     drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });

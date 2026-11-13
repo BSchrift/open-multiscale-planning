@@ -403,6 +403,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
           <WeekGrid
             ctx={ctx}
             blocks={gridBlocks}
+            // The context's earliest time is now, read on each of the screen's ticks.
+            now={ctx.earliest}
             ghosts={ghosts}
             editing
             lockPast

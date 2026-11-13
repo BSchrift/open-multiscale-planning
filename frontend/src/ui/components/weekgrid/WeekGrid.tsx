@@ -15,6 +15,7 @@ import { dayBaseAhead, dayFree, dragResult, DRAWN_DAY, isOpen, TIGHT_SHARE } fro
 import type { Slot, SlotContext, Span } from '../../../core/slots';
 import type { BlockResult, LocalDate } from '../../../core/types';
 import { KIND_WORD, OUTCOME_WORD } from '../blocks/describe';
+import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
 import { outcomeClass, OutcomeTag } from '../blocks/Outcome';
 import { clearLane, overLane } from './drop';
@@ -126,6 +127,8 @@ export interface WeekGridProps {
   onOpen?(id: string): void;
   /** The block whose details are open, when not editing. */
   openId?: string | null;
+  /** Now, in the week's zone: a line marks it across today's column, when today is in the week. */
+  now?: { date: LocalDate; minutes: number };
   /** How many things were finished each day up to today: those days' headings say so, and open Done. */
   done?: { finished: Readonly<Record<LocalDate, number>>; open(date: LocalDate): void };
 }
@@ -335,7 +338,7 @@ export function WeekGrid(props: WeekGridProps) {
                       <div
                         key={b.id}
                         data-id={b.id}
-                        className={b.draft ? cls : `${cls} evdrag`}
+                        className={b.draft ? cls : `${cls} evdrag${drag?.id === b.id ? ' lifted' : ''}`}
                         tabIndex={0}
                         role="group"
                         aria-label={said + help}
@@ -385,6 +388,7 @@ export function WeekGrid(props: WeekGridProps) {
                     </div>
                   );
                 })}
+                {props.now?.date === date && props.now.minutes >= FROM && props.now.minutes <= TO && <NowLine top={y(props.now.minutes)} />}
                 {ghosts
                   .filter((g) => g.date === date)
                   .map((g) => (

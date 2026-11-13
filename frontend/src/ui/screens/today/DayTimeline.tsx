@@ -21,6 +21,7 @@ import type { BlockKind } from '../../components/blocks/describe';
 import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
+import { NowLine } from '../../components/NowLine';
 import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
 import type { TodayData } from './data';
 
@@ -347,11 +348,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             Suggested {formatTimeOfDay(drag.ghost.start)}
           </div>
         )}
-        {nowMin >= from && nowMin <= to && (
-          <div className="nowline" style={{ top: y(nowMin) }} role="img" aria-label="Current time">
-            <i />
-          </div>
-        )}
+        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
       </div>
     </div>
   );

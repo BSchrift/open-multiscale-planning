@@ -22,6 +22,7 @@ import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
 import { KIND_WORD } from '../../components/blocks/describe';
+import { NowLine } from '../../components/NowLine';
 import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { clearLane, dayName, finishedCount, overLane, slotRange } from '../../components/weekgrid';
 import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
@@ -490,6 +491,9 @@ export function PhoneWeek(props: WeekProps) {
 /** One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. */
 function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; onOpen(id: string): void }) {
   const { date, model } = props;
+  const { clock } = useApp();
+  // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
+  const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
   const { availability, busy } = model.ctx;
   const blocks = model.blocks.filter((b) => b.date === date);
   const info = model.info.filter((x) => x.date === date);
@@ -506,6 +510,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to}>
         <span className="tltime">{formatTimeOfDay(time)}</span>
         {body}
+        {nowMin !== null && from <= nowMin && nowMin < to && <NowLine top={`${((nowMin - from) / (to - from)) * 100}%`} />}
       </div>,
     );
 
@@ -622,6 +627,8 @@ export function DragDay(props: {
   onOpen(id: string): void;
 }) {
   const { date, ctx, floor, moving, ghosts = [] } = props;
+  const { clock } = useApp();
+  const nowMin = localMinutes(clock.now(), clock.zone());
   const targets = ghosts.map((g) => ({ date: g.date, start: g.start }));
   const [preview, setPreview] = useState<{ id: string; slot: Slot } | null>(null);
   // A dropped block stays where it landed until the saved position comes back.
@@ -795,6 +802,7 @@ export function DragDay(props: {
               <span className="cevt">Suggested {formatTimeOfDay(g.start)}</span>
             </button>
           ))}
+        {date === today(clock) && nowMin >= DAY_FROM && nowMin <= DAY_TO && <NowLine top={y(nowMin)} />}
         {moving && handle('moving', moving.title, moving.kind, moving.slot, false, { change: props.onMoving, enter: props.onDone })}
       </div>
     </div>

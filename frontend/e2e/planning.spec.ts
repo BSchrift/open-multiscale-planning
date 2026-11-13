@@ -67,33 +67,33 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
   if (phone) await expectTapTarget(pop.getByRole('button', { name: 'Save' }));
   await pop.getByRole('button', { name: 'Save' }).click();
   await expect(pop).toHaveCount(0);
-  const done = page.getByRole('button', { name: 'Mark Write the first chapter done' });
+  const done = page.getByRole('button', { name: 'Mark done: Write the first chapter' });
   if (phone) await expectTapTarget(done);
   await done.click();
   const undo = page.getByRole('button', { name: 'Undo finishing Write the first chapter' });
   await expect(undo).toBeVisible();
   await page.screenshot({ path: info.outputPath(`pick-done-${info.project.name}.png`) });
   await undo.click();
-  await expect(page.getByRole('button', { name: 'Mark Write the first chapter done' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mark done: Write the first chapter' })).toBeVisible();
 
   if (phone) {
     // The board opens on the first project, with its tasks in a half-height sheet.
     const sheet = page.getByRole('region', { name: 'Tasks in Write the report' });
     await expect(sheet).toBeVisible();
     await expect(page.getByRole('button', { name: /^Write the report, Overdue/ })).toContainText('★2');
-    const add = sheet.getByRole('button', { name: 'Add Collect the sources' });
+    const add = sheet.getByRole('button', { name: 'Add Collect the sources to the plan' });
     const box = await add.boundingBox();
     expect(box!.width).toBeGreaterThanOrEqual(44);
     expect(box!.height).toBeGreaterThanOrEqual(44);
     await add.click();
     await expect(page.locator('.donut .dlabel')).toHaveText('+2h');
-    await expect(sheet.getByRole('button', { name: 'Remove Collect the sources' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(add).toHaveAttribute('aria-pressed', 'true');
     await page.screenshot({ path: info.outputPath('pick-phone.png') });
 
-    await page.getByRole('button', { name: 'Next project' }).click();
+    await page.getByRole('button', { name: 'Next project: Learn to bake bread' }).click();
     const bread = page.getByRole('region', { name: 'Tasks in Learn to bake bread' });
     await expect(bread.getByText('★ 2h of 3h')).toBeVisible();
-    await bread.getByRole('button', { name: 'Add Bake a test loaf' }).click();
+    await bread.getByRole('button', { name: 'Add Bake a test loaf to the plan' }).click();
 
     await page.getByRole('button', { name: /^Planned for Nov 2 to 8, 3 tasks/ }).click();
     const planned = page.getByRole('dialog', { name: 'Planned for Nov 2 to 8' });
@@ -125,6 +125,40 @@ test('plans a week: Inbox, pick with the capacity ring, then finish at Review', 
   await expect(steps(page)).toHaveCount(0);
   await expect(page.getByText('Week planned.')).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+// Every button in a task row shows all of its label, as do the WCAG text spacing settings, and no estimate or button
+// wraps onto a second line. Mark done's label once spilled out of a fixed-width button.
+test("task rows' buttons fit their labels, with and without text spacing", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await startPlanning(page);
+  await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
+  if (!phone) await page.getByRole('button', { name: /^Write the report,/ }).click();
+  // One row added, so it shows Remove, and one finished, so it shows Undo.
+  await page.getByRole('button', { name: 'Add Collect the sources to the plan' }).click();
+  await page.getByRole('button', { name: 'Mark done: Write chapter one' }).click();
+  await expect(page.getByRole('button', { name: 'Undo finishing Write chapter one' })).toBeVisible();
+  const measure = () =>
+    page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.pickrow, .trow')];
+      const clipped = rows.flatMap((row) => [...row.querySelectorAll('button')].filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.getAttribute('aria-label')));
+      const lines = (cell: Element) => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
+      };
+      const wrapped = [...document.querySelectorAll('.pickest, .pickbtn, .testb, .tdone')].filter((cell) => lines(cell) > 1).map((cell) => cell.textContent);
+      return { rows: rows.length, clipped, wrapped };
+    });
+  const plain = await measure();
+  expect(plain.rows).toBeGreaterThan(1);
+  expect({ clipped: plain.clipped, wrapped: plain.wrapped }).toEqual({ clipped: [], wrapped: [] });
+  await page.addStyleTag({
+    content: '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }',
+  });
+  const spaced = await measure();
+  expect({ clipped: spaced.clipped, wrapped: spaced.wrapped }).toEqual({ clipped: [], wrapped: [] });
+  await page.screenshot({ path: info.outputPath(`pick-spacing-${info.project.name}.png`) });
 });
 
 test('week arrows have no limit, with This week to come back, and the step is kept', async ({ page }) => {
@@ -167,7 +201,7 @@ test('dragging an estimate in Pick follows the mouse and saves once, where it wa
   await startPlanning(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await page.getByRole('button', { name: /^Write the report,/ }).click();
-  await page.getByRole('button', { name: 'Estimate for Collect the sources: 2h estimate' }).click();
+  await page.getByRole('button', { name: 'Estimate for Collect the sources: 2h' }).click();
   const slider = page.getByRole('dialog', { name: 'Estimate for Collect the sources' }).getByRole('slider', { name: 'Estimate' });
   const box = (await slider.boundingBox())!;
   // The thumb's centre at each step, inset by half the thumb.
@@ -194,5 +228,5 @@ test('dragging an estimate in Pick follows the mouse and saves once, where it wa
   await page.screenshot({ path: info.outputPath('pick-estimate-drag.png') });
 
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Estimate for Collect the sources: 2h estimate' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Estimate for Collect the sources: 2h' })).toBeVisible();
 });

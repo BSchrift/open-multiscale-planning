@@ -89,11 +89,14 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const { model, view } = models;
   const { open, use, weekPlan } = model;
 
-  // Each change pops the ring and is said aloud, from the time used before it.
-  const changeBy = (title: string, delta: Minutes) => {
+  // The week's time once a change is made, ending with how far over it goes: '7h 5m of 30h', '25h 20m of 24h, 1h 20m over'.
+  const fitWords = (after: Minutes) => `${formatMinutes(after)} of ${formatMinutes(open)}${after > open ? `, ${formatMinutes(after - open)} over` : ''}`;
+  // Each change pops the ring, from the time used before it. Adding and removing are said aloud; a slider's steps
+  // aren't, since the slider says its own value.
+  const changeBy = (title: string, delta: Minutes, verb?: 'added' | 'removed') => {
     const after = use.used + delta;
     ring.pulse(use.used, after, after > open);
-    setSaid(`${title} ${delta >= 0 ? 'added' : 'removed'}. ${formatMinutes(after)} of ${formatMinutes(open)}.`);
+    if (verb) setSaid(`${title} ${verb}. ${fitWords(after)}.`);
   };
   const aimsNow = weekPlan?.aims ?? {};
   const skipped = weekPlan?.skipped_aims ?? [];
@@ -115,11 +118,11 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     ],
     aimsChanged: Object.keys(aimsNow).length > 0,
     add: (row) => {
-      changeBy(row.title, row.adds);
+      changeBy(row.title, row.adds, 'added');
       void pickWrite.run([{ id: row.c.task.id, minutes: row.adds }]);
     },
     remove: (row) => {
-      changeBy(row.title, -row.c.week);
+      changeBy(row.title, -row.c.week, 'removed');
       void pickWrite.run([{ id: row.c.task.id, minutes: null }]);
     },
     setMinutes: (row, minutes) => {
@@ -129,7 +132,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     addSuggested: async () => {
       const hints = Object.entries(model.hints);
       ring.pulse(use.used, use.used + view.hintMin, use.used + view.hintMin > open);
-      setSaid(`Added ${formatMinutes(view.hintMin)}. ${formatMinutes(use.used + view.hintMin)} of ${formatMinutes(open)}.`);
+      setSaid(`Added ${formatMinutes(view.hintMin)}. ${fitWords(use.used + view.hintMin)}.`);
       await pickWrite.run(hints.map(([id, h]) => ({ id, minutes: h.minutes })));
       return hints.map(([id]) => id);
     },
@@ -156,7 +159,11 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       const reverse = await taskWrite.run((w) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock)));
       if (!reverse) return;
       setDoneHere((d) => ({ ...d, [t.id]: reverse }));
-      setSaid(`${row.title} done.`);
+      // Its pick goes with it, so say what that freed.
+      const freed = row.c.picked ? row.c.week : 0;
+      const free = use.free + freed;
+      const left = free < 0 ? `${formatMinutes(-free)} over` : `${formatMinutes(free)} free`;
+      setSaid(freed ? `${row.title} done. ${formatMinutes(freed)} freed, ${left}.` : `${row.title} done.`);
     },
     undoDone: async (row) => {
       const t = row.c.task;

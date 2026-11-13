@@ -1,0 +1,45 @@
+/* Done, and Today's line into it. Each entry is a row of its time, a mark, what it was and its minutes. */
+[data-layout] .donetot { display: flex; flex-direction: column; gap: 10px; }
+[data-layout='phone'] .donetot { padding: 14px 16px; }
+[data-layout='desktop'] .donetot { padding: 16px 20px; }
+[data-layout] .donetotline { font-size: 18px; line-height: 1.3; }
+[data-layout='desktop'] .donetotline { font-size: 19px; }
+[data-layout] .donetot .capbar { height: 12px; }
+[data-layout] .seg-planning { background: var(--grey); }
+[data-layout] .doneempty { padding: var(--space-4); }
+
+[data-layout] .donelist { margin: 0; padding: 0; list-style: none; }
+[data-layout] .donerow { display: grid; align-items: start; gap: 0 8px; border-top: 1px solid var(--line-soft); }
+[data-layout] .donerow:first-child { border-top: 0; }
+[data-layout='phone'] .donerow { grid-template-columns: 58px 18px minmax(0, 1fr) auto; padding: 10px 14px 10px 12px; }
+[data-layout='desktop'] .donerow { grid-template-columns: 76px 18px minmax(0, 1fr) auto; gap: 0 10px; padding: 12px 16px; }
+/* Mark how it went sits beside its block on desktop, and under it on phone, where it wouldn't leave the name room. */
+[data-layout='desktop'] .donerow.unmarked { align-items: center; }
+[data-layout='phone'] .unmarked > .btn { grid-column: 3 / -1; justify-self: start; margin-top: 8px; }
+[data-layout] .donetime { padding-top: 1px; font-size: 13px; color: var(--quiet); white-space: nowrap; }
+[data-layout] .donemark { display: flex; justify-content: center; padding-top: 3px; }
+[data-layout='desktop'] .unmarked .donemark { padding-top: 0; }
+[data-layout] .donemark .tick { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--blue) var(--check) center / 12px no-repeat; }
+[data-layout] .donemark .msdia { margin: 3px 0 0; }
+[data-layout] .donewhat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+[data-layout] .donesub { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+[data-layout] .doneend { padding-top: 1px; font-size: 13px; color: var(--quiet); text-align: right; white-space: nowrap; }
+[data-layout] .doneend b { display: block; font-weight: 600; color: var(--ink); }
+[data-layout] .donedel { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--fill); color: var(--quiet); font-size: 12px; font-weight: 500; vertical-align: 1px; }
+/* A task's name keeps its line, with a 44pt target on phone, as a block on Today's timeline does. */
+[data-layout='phone'] .donewhat .taskname.rowname { position: relative; min-height: 0; }
+[data-layout='phone'] .donewhat .taskname.rowname::before { content: ''; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--tap)) / 2)); bottom: min(0px, calc((100% - var(--tap)) / 2)); }
+
+/* Each kind in Week's colours. */
+[data-layout] .donepage i.sw, [data-layout] .donepage .legend i { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; }
+[data-layout] .donemark i.sw { margin-top: 4px; }
+[data-layout='desktop'] .unmarked .donemark i.sw { margin-top: 0; }
+[data-layout] .donepage .ev-project { background: var(--blue-soft); border: 1px solid var(--blue); border-left-width: 3px; }
+[data-layout] .donepage .ev-practice { background: var(--teal-soft); border: 1px solid var(--teal); border-left: 4px double var(--teal); }
+[data-layout] .donepage .ev-maint { background: var(--purple-soft); border: 1px solid var(--purple); border-left: 4px dotted var(--purple); }
+[data-layout] .donepage .ev-planning { background: var(--neutral); border: 1px solid var(--border-strong); border-left-width: 3px; }
+
+/* Today's line: a card at the end of Today. */
+[data-layout] .doneline { width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+[data-layout='desktop'] .doneline { min-height: 48px; flex-wrap: nowrap; }
+[data-layout] .doneline .chev { margin-left: auto; color: var(--quiet); }

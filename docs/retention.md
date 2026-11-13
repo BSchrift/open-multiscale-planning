@@ -37,6 +37,10 @@ its own.
 The two lists, pinned stretches and a project's slip log, lose old entries rather than expiring: each write to the record
 drops the entries older than the scheduling period.
 
+Done, a day's list of what was finished and the time worked, stores nothing. It reads the records above as they stand,
+so a day's list shrinks as they go: its time worked and repeat finishes after 2 years, its finished tasks after 5, and a
+task deleted since, shown as "deleted", 30 days after the delete, with its blocks' entries.
+
 ## The configuration
 
 [config/retention.yaml](../config/retention.yaml) holds a block per environment: `prod`, `staging` and `local`, each

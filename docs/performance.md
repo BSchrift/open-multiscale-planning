@@ -14,6 +14,7 @@ reports, as `make test-deployed` does on staging.
 | Today query | Web, Mac, iPhone Simulator | 100 ms |
 | Week query | Web, Mac, iPhone Simulator | 100 ms |
 | Pick estimate drag, slowest step (report only) | Web, Mac | 50 ms |
+| Done query (report only) | Web, Mac, iPhone Simulator | 100 ms |
 
 `frontend/scripts/history-report.ts` holds the same budgets and checks every run against them. A report-only budget is
 shown in the report but never fails a run, missed or not measured, until it has a baseline of its own.
@@ -90,7 +91,8 @@ iPhone app is erased first.
 until the edit's transaction has committed in the web app's database worker, which keeps the database on the browser's
 private file system (OPFS), so a committed change is on disk.
 
-**Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. Each is the median
+**Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. **Done** is
+`loadDoneDay` for the account's last day, which reads only that day's records, through indexes. Each is the median
 of five runs as of the account's end, in the app's own page through the app's own driver: the web app's worker, with
 SQLite on OPFS; the Mac app's bridge to SQLite in the main process; and on iPhone the Capacitor SQLite plugin, from
 the test page the app's test copy carries.

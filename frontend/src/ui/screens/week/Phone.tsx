@@ -1,13 +1,14 @@
 // Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
 // shared time axis above one day's timeline. Tapping a block opens its sheet; Move, or Choose another time for a
-// task, makes the block draggable on the day, and the strip carries it to another day. To schedule sits above the
+// task or for planning, makes the block draggable on the day, the strip carries it to another day, and planning's
+// week arrows to another week. To schedule sits above the
 // day: a card opens its suggested times, and while editing, cards drag onto the day and blocks drag back up to it.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
 import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
-import { closestFit, defaultSlot, dragResult, DRAWN_DAY, fits, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
+import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
 import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
@@ -23,10 +24,10 @@ import { TaskName } from '../../components/task/TaskName';
 import { KIND_WORD } from '../../components/blocks/describe';
 import { clearLane, dayName, overLane, slotRange } from '../../components/weekgrid';
 import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
-import { rowItem } from './data';
+import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
-import type { WeekProps } from './index';
+import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
 import { useWeekActions } from './useWeekActions';
 
@@ -37,10 +38,11 @@ const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-m
 const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
 const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
 
-/** A block being moved, or a task being placed, before Move here or Place here. */
+/** A block being moved, or a task or planning being placed, before Move here or Place here. */
 type Placing =
   | { mode: 'move'; block: PlacedBlock; length: Minutes }
-  | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean };
+  | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean }
+  | { mode: 'planning'; plan: PlacingPlanning; length: Minutes };
 
 type Open = { kind: 'block'; id: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
 
@@ -62,8 +64,10 @@ export function PhoneWeek(props: WeekProps) {
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
-  const kindOf = (p: Placing): Work['kind'] => (p.mode === 'move' ? (p.block.kind === 'one_off' ? 'one_off' : 'project') : p.item.work.kind);
-  const workOf = (p: Placing): Work => (p.mode === 'move' ? { kind: kindOf(p) } : p.item.work);
+  const workOf = (p: Placing): Work => (p.mode === 'move' ? { kind: p.block.kind === 'one_off' ? 'one_off' : 'project' } : p.mode === 'planning' ? { kind: 'project' } : p.item.work);
+  const kindOf = (p: Placing): Work['kind'] => workOf(p).kind;
+  /** What the block being placed is called, and the colour it's drawn in. */
+  const drawnOf = (p: Placing) => (p.mode === 'move' ? p.block : p.mode === 'planning' ? { title: p.plan.title, kind: 'planning' as const } : p.item);
   // While moving, the block's own time is free.
   const ctx: SlotContext = placing?.mode === 'move' ? { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== placing.block.id) } : model.ctx;
   /** Time already gone is locked: all of a past day, and up to now today. */
@@ -77,22 +81,36 @@ export function PhoneWeek(props: WeekProps) {
     setSelDay(first.date);
   };
 
-  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag.
+  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag. Choose another
+  // time for planning: its block waits at the time it was given or carried to, on today if that day has gone, and
+  // focus goes to it.
+  const focusBlock = useRef(false);
   useEffect(() => {
     if (!props.place) return;
+    const given = props.planning;
+    if (given) {
+      const p: Placing = { mode: 'planning', plan: given, length: given.minutes };
+      const from = given.at;
+      const date = from && (from.date < day0 ? day0 : from.date > given.last ? given.last : from.date);
+      startPlacing(p, from && date ? landOn(date, from, kindOf(p), ctx, floorOf(date)) : null);
+      focusBlock.current = true;
+      return;
+    }
     const row = model.addGroups.flatMap((g) => g.rows).find((r) => r.task.id === props.place);
     if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, FIRST_BLOCK_MIN), fromDrawer: false }, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.place]);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const block = focusBlock.current && root.current?.querySelector<HTMLElement>('.dragblock.draft');
+    if (!block) return;
+    focusBlock.current = false;
+    block.focus();
+  });
 
   const pickDay = (date: LocalDate) => {
     setSelDay(date);
-    if (!placing || !at) return;
-    // The block keeps its time on a new day when it fits there, and otherwise lands on the closest time that does.
-    const len = at.end - at.start;
-    const keep = fits(date, at.start, len, kindOf(placing), ctx);
-    const start = keep ? at.start : closestFit(date, at.start, len, kindOf(placing), ctx) ?? Math.max(at.start, floorOf(date));
-    setAt({ date, start, end: start + len });
+    if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
   const changeBlock = (b: PlacedBlock, slot: Slot) => {
@@ -112,7 +130,11 @@ export function PhoneWeek(props: WeekProps) {
     } else if (was?.mode === 'place' && was.fromDrawer) setOpen({ kind: 'add' });
   };
 
-  const locked = !!at && isThis && (at.date < day0 || (at.date === day0 && at.start < floorOf(day0)));
+  const plan = placing?.mode === 'planning' ? placing.plan : null;
+  const gone = !!at && isThis && (at.date < day0 || (at.date === day0 && at.start < floorOf(day0)));
+  // Planning goes no later than the end of the week or stretch it plans.
+  const late = !!plan && !!at && at.date > plan.last;
+  const locked = gone || late;
   const finishPlacing = async () => {
     if (!placing || !at || locked) return;
     if (placing.mode === 'move') {
@@ -121,11 +143,16 @@ export function PhoneWeek(props: WeekProps) {
         await act.moveWithUndo(b.id, b.title, at);
         if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
       }
+    } else if (placing.mode === 'planning') {
+      if (!(await planning.place(placing.plan, at))) return;
     } else if (!(await act.place(placing.item, at))) return;
     setPlacing(null);
     setAt(null);
     props.donePlacing();
+    if (placing.mode === 'planning' && placing.plan.flow) props.close();
   };
+  /** Planning carried to another week keeps its day of the week and time. */
+  const carryTo = (days: number) => props.goWeek(addDays(props.week, days), plan && at ? { ...at, date: addDays(at.date, days) } : undefined);
 
   const blocksOn = (date: LocalDate) => model.blocks.filter((b) => b.date === date);
   const opened = open?.kind === 'block' ? model.blocks.find((b) => b.id === open.id) : undefined;
@@ -164,20 +191,28 @@ export function PhoneWeek(props: WeekProps) {
 
   const capLine = `${formatMinutes(model.planned.project)} projects, ${formatMinutes(model.planned.practice)} practices, ${formatMinutes(model.planned.one_off)} one offs`;
   const placingText = placing && at
-    ? `${placing.mode === 'move' ? 'Moving' : 'Placing'} ${placing.mode === 'move' ? placing.block.title : placing.item.title}, ${formatMinutes(at.end - at.start)}${
+    ? `${placing.mode === 'move' ? 'Moving' : 'Placing'} ${drawnOf(placing).title}, ${formatMinutes(at.end - at.start)}${
         placing.mode === 'move' ? `, from ${formatWeekday(placing.block.date)} ${formatTimeOfDay(placing.block.start)}` : ''
       }`
     : '';
-  const placingNote = !placing || !at ? '' : locked ? 'That time has passed.' : slotNotes({ ...at, id: placing.mode === 'move' ? placing.block.id : 'draft' }, workOf(placing), ctx).join(' ');
+  const placingNote =
+    !placing || !at
+      ? ''
+      : late && plan
+        ? `Too late: plan it by ${dayName(plan.last)}.`
+        : gone
+          ? 'That time has passed.'
+          : slotNotes({ ...at, id: placing.mode === 'move' ? placing.block.id : 'draft' }, workOf(placing), ctx).join(' ');
   const noFit = (date: LocalDate) => !!placing && !!at && closestFit(date, at.start, at.end - at.start, kindOf(placing), ctx) === null;
   const nextFit = noFit(selDay) ? [1, 2, 3, 4, 5, 6].map((n) => addDays(data.week, (dayIndex + n) % 7)).find((d) => !noFit(d)) : undefined;
   const edBlock = edSel ? model.blocks.find((b) => b.id === edSel) : undefined;
 
   return (
-    <div className="stack8 week">
+    <div ref={root} className="stack8 week">
       <div className="weektop stack8">
         <div className="between">
-          <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing} onClick={() => props.goWeek(addDays(props.week, -7))}>
+          {/* While placing, only planning goes to another week: from this one to the week of its last day. */}
+          <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing && !(plan && offset > 0)} onClick={() => carryTo(-7)}>
             ‹
           </button>
           <div className="wktitle">
@@ -185,7 +220,7 @@ export function PhoneWeek(props: WeekProps) {
             {props.planningAt && <div className="small quiet">{props.planningAt}</div>}
             <h2>{props.title}</h2>
           </div>
-          <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing} onClick={() => props.goWeek(addDays(props.week, 7))}>
+          <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing && !(plan && addDays(data.week, 7) <= plan.last)} onClick={() => carryTo(7)}>
             ›
           </button>
         </div>
@@ -283,7 +318,7 @@ export function PhoneWeek(props: WeekProps) {
               blocks={blocksOn(selDay).filter((b) => !(placing?.mode === 'move' && placing.block.id === b.id))}
               moving={
                 placing && at && at.date === selDay && !locked
-                  ? { title: placing.mode === 'move' ? placing.block.title : placing.item.title, kind: placing.mode === 'move' ? placing.block.kind : placing.item.kind, slot: at }
+                  ? { title: drawnOf(placing).title, kind: drawnOf(placing).kind, slot: at }
                   : dropAt && dropAt.slot.date === selDay
                     ? { title: dropAt.item.title, kind: dropAt.item.kind, slot: dropAt.slot }
                     : null

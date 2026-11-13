@@ -6,6 +6,8 @@ import { CALENDAR_ID, getRecord, listRecords, outcomeId, setWeekPick, updateSett
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
 import type { HarnessOptions } from '../../app/testing';
+import { placePlanningParams } from '../../components/planning/usePlanning';
+import type { PlanningPlace } from '../../components/planning/usePlanning';
 
 afterEach(cleanup);
 
@@ -714,5 +716,106 @@ describe('Week on phone', () => {
     await phone({ params: { place: 't1' }, close });
     await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(close).toHaveBeenCalled();
+  });
+});
+
+describe.each(['desktop', 'phone'] as const)('placing planning from Choose another time, on %s', (layout) => {
+  // Friday, Nov 6 at 10am, the week planned: next week's planning task waits for a time, and Choose another time in
+  // its sheet brought it here, 45 minutes long, waiting at 6pm today.
+  const FRI = '2026-11-06';
+  const PLAN = 'planning:week:2026-11-09';
+  const later: PlanningPlace = { for: '2026-11-09', minutes: 45, at: { date: FRI, start: 18 * 60, end: 18 * 60 + 45 } };
+  const placing = (place: PlanningPlace = later, close = vi.fn()) =>
+    open({
+      layout,
+      now: at('10:00', FRI),
+      params: placePlanningParams(place),
+      close,
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 30 }, PLAN);
+      },
+    });
+  const handle = (title = 'Plan the week of Nov 9') =>
+    layout === 'phone' ? screen.findByRole('slider', { name: new RegExp(`^Time for ${title}`) }) : screen.findByRole('group', { name: new RegExp(`^${title}, .*Enter places it\\.$`) });
+  const blocksOf = async (t: { db: Parameters<typeof listRecords>[0] }, id = PLAN) => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === id && !b.deleted_at);
+
+  it('waits at its best time beside the rest of the week, with focus on it; keys move it, and Place here schedules it with Undo', async () => {
+    const close = vi.fn();
+    const t = await placing(later, close);
+    expect(await handle()).toHaveFocus();
+    expect(screen.getByText(layout === 'phone' ? 'Placing Plan the week of Nov 9, 45m' : 'Plan the week of Nov 9')).toBeVisible();
+    // Nothing else is edited while it's placed.
+    expect(screen.queryByRole('button', { name: "Edit this week's plan" })).toBeNull();
+    await userEvent.keyboard('{ArrowDown}');
+    if (layout === 'phone') await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    else await userEvent.keyboard('{Enter}');
+    expect(await screen.findByText('Planning scheduled for Fri 6:15pm.')).toBeVisible();
+    await waitFor(async () => expect(await blocksOf(t)).toMatchObject([{ start: at('18:15', FRI), end: at('19:00', FRI) }]));
+    expect(screen.queryByRole('button', { name: 'Place here' })).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await blocksOf(t)).toEqual([]));
+  });
+
+  it('carries to next week, as far as the week it plans, and is placed there', async () => {
+    const t = await placing();
+    await handle();
+    expect(screen.getByRole('button', { name: 'Previous week' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(await screen.findByText('Nov 9 to Nov 15')).toBeVisible();
+    // It keeps its day of the week and its time.
+    expect(await handle()).toHaveAccessibleName(layout === 'phone' ? /^Time for Plan the week of Nov 9, being placed\./ : /^Plan the week of Nov 9, Fri Nov 13, 6pm to 6:45pm, /);
+    if (layout === 'phone') expect(await handle()).toHaveAttribute('aria-valuetext', 'Fri Nov 13, 6pm to 6:45pm');
+    expect(screen.getByRole('button', { name: 'Next week' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    expect(await screen.findByText('Planning scheduled for Fri 6pm.')).toBeVisible();
+    await waitFor(async () => expect(await blocksOf(t)).toMatchObject([{ start: at('18:00', '2026-11-13'), end: at('18:45', '2026-11-13') }]));
+  });
+
+  it('Cancel goes back without placing it', async () => {
+    const close = vi.fn();
+    const t = await placing(later, close);
+    await handle();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(close).toHaveBeenCalledOnce();
+    expect(await blocksOf(t)).toEqual([]);
+  });
+
+  it('from the planning flow, Place here and Cancel each go back to it', async () => {
+    const close = vi.fn();
+    const t = await placing({ ...later, flow: '2026-11-02' }, close);
+    await handle();
+    await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(t.nav().flow).toEqual({ area: 'planning', params: { week: '2026-11-02' } });
+    expect(await blocksOf(t)).toHaveLength(1);
+
+    cleanup();
+    const again = vi.fn();
+    const u = await placing({ ...later, flow: '2026-11-02' }, again);
+    await handle();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(again).toHaveBeenCalledOnce();
+    expect(u.nav().flow).toEqual({ area: 'planning', params: { week: '2026-11-02' } });
+  });
+
+  it("a stretch's block can't go after the stretch ends; both plans in one block cover the week too", async () => {
+    // The first stretch, under way, ends on Saturday.
+    const stretch = { stretch: { start: '2026-10-26', end: '2026-11-07' }, first: true };
+    const t = await placing({ for: stretch, minutes: 60, both: '2026-11-09', at: { date: FRI, start: 18 * 60, end: 19 * 60 } });
+    await handle('Plan Oct 26 to Nov 7 and the week of Nov 9');
+    expect(screen.getByRole('button', { name: 'Next week' })).toBeDisabled();
+    const day = (n: number) => within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[n]!;
+    if (layout === 'phone') await userEvent.click(day(6));
+    else await userEvent.keyboard('{ArrowRight}{ArrowRight}');
+    expect(await screen.findByText('Too late: plan it by Sat Nov 7.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Place here' })).toBeDisabled();
+    if (layout === 'phone') await userEvent.click(day(5));
+    else await userEvent.keyboard('{ArrowLeft}');
+    await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    expect(await screen.findByText(/^Planning scheduled for Sat /)).toBeVisible();
+    await waitFor(async () => expect(await blocksOf(t, 'planning:stretch:2026-10-26')).toHaveLength(1));
+    expect((await getRecord(t.db, 'task', 'planning:stretch:2026-10-26'))?.plans).toEqual(['stretch:2026-10-26', 'week:2026-11-09']);
   });
 });

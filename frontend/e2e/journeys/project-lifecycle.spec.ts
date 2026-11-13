@@ -58,20 +58,22 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
   // Finish asks first, and cancels the open work.
   project = await openProject(page, phone, goal, 'Paint the garden fence');
   await project.getByRole('button', { name: 'Project settings' }).click();
-  await project.getByRole('button', { name: 'Finish', exact: true }).click();
-  await expect(project.getByText('Finish this project?')).toBeVisible();
-  await project.getByRole('button', { name: 'Yes, finish' }).click();
+  // The sheet draws from the layout's root, outside the project that opened it.
+  const settings = page.getByRole('dialog', { name: 'Project settings' });
+  await settings.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(settings.getByText('Finish this project?')).toBeVisible();
+  await settings.getByRole('button', { name: 'Yes, finish' }).click();
   await expect(page.getByText('Finished. Open tasks cancelled.')).toBeVisible();
 
   // Drop asks too; Cancel keeps it.
   project = await openProject(page, phone, goal, 'Clear out the shed');
   await project.getByRole('button', { name: 'Project settings' }).click();
-  await project.getByRole('button', { name: 'Drop', exact: true }).click();
-  await expect(project.getByText('Drop this project?')).toBeVisible();
-  await project.getByRole('alert').getByRole('button', { name: 'Cancel' }).click();
-  await expect(project.getByText('Drop this project?')).toHaveCount(0);
-  await project.getByRole('button', { name: 'Drop', exact: true }).click();
-  await project.getByRole('button', { name: 'Yes, drop' }).click();
+  await settings.getByRole('button', { name: 'Drop', exact: true }).click();
+  await expect(settings.getByText('Drop this project?')).toBeVisible();
+  await settings.getByRole('alert').getByRole('button', { name: 'Cancel' }).click();
+  await expect(settings.getByText('Drop this project?')).toHaveCount(0);
+  await settings.getByRole('button', { name: 'Drop', exact: true }).click();
+  await settings.getByRole('button', { name: 'Yes, drop' }).click();
   await expect(page.getByText('Dropped.')).toBeVisible();
 
   // Both wait under Archived; the goal now has nothing active, but it changed just now, so it isn't asked whether

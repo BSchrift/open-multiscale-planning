@@ -97,23 +97,22 @@ async function openStretch(layout: 'desktop' | 'phone') {
   return { t, open, editor };
 }
 
-/** Changes every field, and types a time without adding it. */
+/** Changes every field: name, goal, days, length and time. */
 async function editStretch(editor: HTMLElement) {
   const name = within(editor).getByLabelText('Name');
   await userEvent.clear(name);
   await userEvent.type(name, 'Stretch daily');
-  fireEvent.change(within(editor).getByRole('slider', { name: 'Target' }), { target: { value: '30' } });
+  fireEvent.change(within(editor).getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
   await userEvent.selectOptions(within(editor).getByRole('combobox', { name: 'Goal' }), 'Run a 10k');
-  fireEvent.change(within(editor).getByLabelText('New preferred time'), { target: { value: '18:30' } });
-  await userEvent.click(within(editor).getByRole('button', { name: 'Add time' }));
-  fireEvent.change(within(editor).getByLabelText('New preferred time'), { target: { value: '06:00' } });
+  await userEvent.click(within(editor).getByRole('button', { name: 'Weekdays' }));
+  fireEvent.change(within(editor).getByLabelText('Usual time'), { target: { value: '18:30' } });
 }
 
 describe.each(['phone', 'desktop'] as const)('a practice editor on %s', (layout) => {
   it('changes nothing until Save, and Cancel drops every change and gives focus back', async () => {
     const { t, open, editor } = await openStretch(layout);
     await editStretch(editor());
-    expect(within(editor()).getByRole('button', { name: 'Remove 6:30pm' })).toBeVisible();
+    expect(within(editor()).getByLabelText('Usual time')).toHaveValue('18:30');
     await expectUnchanged(t);
     await userEvent.click(within(editor()).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -123,19 +122,19 @@ describe.each(['phone', 'desktop'] as const)('a practice editor on %s', (layout)
 
     await userEvent.click(open);
     expect(within(editor()).getByLabelText('Name')).toHaveValue('Stretch');
-    expect(within(editor()).queryByRole('button', { name: 'Remove 6:30pm' })).toBeNull();
+    expect(within(editor()).getByLabelText('Usual time')).toHaveValue('07:00');
   });
 
-  it('Save writes every change at once, a time typed but not added included, with Undo', async () => {
+  it('Save writes every change at once, with Undo', async () => {
     const { t, editor } = await openStretch(layout);
     await editStretch(editor());
     const writes = vi.spyOn(t.db, 'transaction');
     await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Saved Stretch daily.')).toBeVisible();
+    expect(await screen.findByText('Saved Stretch daily: 30m every weekday, around 6:30pm.')).toBeVisible();
     expect(writes).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog', { name: 'Edit practice' })).toBeNull();
     expect(screen.queryByRole('group', { name: /^Edit Stretch/ })).toBeNull();
-    expect(await getRecord(t.db, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', target_min: 30, objective_id: 'g1', preferred_times: [360, 420, 1110] });
+    expect(await getRecord(t.db, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', target_min: 30, objective_id: 'g1', days: [0, 1, 2, 3, 4], preferred_times: [1110] });
     // The row moves under its new goal, which opens, and focus follows it there.
     await waitFor(() => expect(screen.getByRole('button', { name: /^Stretch daily/ })).toHaveFocus());
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));

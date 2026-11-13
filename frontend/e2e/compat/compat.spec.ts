@@ -379,11 +379,13 @@ test.describe('one device', () => {
     await openSeeded(page, [...week, ...irregular]);
     const lane = () => pane(page, 'Week').getByRole('region', { name: 'To schedule' });
     const card = (title: string, line: string) => lane().getByRole('button', { name: `${title}, Practice, ${line}, to schedule` });
+    // The count waits above the week; of the set days, Thursday is skipped, so only Friday's waits, above its day.
     const expectUpdate = async (title: string) => {
       await go(page, 'Week');
-      await expect(card('Climbing', '3 × 30m')).toBeVisible();
-      await card(title, '30m').click();
-      await expect(pane(page, 'Week').getByRole('button', { name: `Place ${title}, Fri Nov 6, 9:30am` })).toBeVisible();
+      await expect(card('Climbing', '3 more this week, 30m each')).toBeVisible();
+      await expect(pane(page, 'Week').getByRole('button', { name: /, Practice, 30 minutes on Thursday/ })).toHaveCount(0);
+      await pane(page, 'Week').getByRole('button', { name: `${title}, Practice, 30 minutes on Friday around 9:30 AM, to schedule` }).click();
+      await expect(pane(page, 'Week').getByRole('button', { name: '1 · Fri 9:30am to 10am' })).toBeVisible();
     };
     await expectUpdate('Morning run');
     await everyScreen(page);

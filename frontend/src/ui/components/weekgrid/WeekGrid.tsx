@@ -43,7 +43,7 @@ export interface PlacedBlock extends GridBlock {
   ended: boolean;
 }
 
-const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off' };
+const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off', planning: 'planning' };
 
 /** The placed spans of a slot context, with what their block rows say. */
 export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[], now: number): PlacedBlock[] {
@@ -85,6 +85,8 @@ interface GridLaneItem {
   from: LocalDate;
   to: LocalDate;
   alt: string;
+  /** Planning, drawn grey rather than as a one off. */
+  planning?: boolean;
   open: boolean;
   onToggle(): void;
   /** Dragging it onto a day places it there. */
@@ -117,7 +119,7 @@ export interface WeekGridProps {
 
 const { from: FROM, to: TO } = DRAWN_DAY;
 const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
-const KIND_CLASS: Record<BlockKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint' };
+const KIND_CLASS: Record<BlockKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint', planning: 'ev-planning' };
 const COLUMN_GAP = 2;
 const LANE_ROW = 28;
 
@@ -256,7 +258,7 @@ export function WeekGrid(props: WeekGridProps) {
                     <button
                       key={a.id}
                       type="button"
-                      className="oochip"
+                      className={a.planning ? 'oochip planchip' : 'oochip'}
                       style={{ top: i * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
                       title={a.alt}
                       aria-label={a.alt}

@@ -3,11 +3,13 @@
 import { loadAnalyticsData } from '../../../core/analytics';
 import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
-import { addDays, formatMinutes, instantMs, thisWeek, weekRange } from '../../../core/dates';
+import { addDays, addWeeks, formatMinutes, instantMs, thisWeek, today, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { FIRST_BLOCK_MIN, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
-import { blocksInRange, needsNewTime } from '../../../core/queries';
+import { loadWeekPlanning, PLANNING_LEAD_DAYS, weekEstimate, weekGate, weekRow } from '../../../core/planning';
+import type { WeekPlanning } from '../../../core/planning';
+import { blocksInRange, inboxCount, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
@@ -22,7 +24,7 @@ import type { BlockKind } from '../../components/blocks/describe';
 // shortcut: reads every task, project and block on each change, as planning does; add narrower queries if Week slows.
 export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
   const range = weekRange(week, clock.zone());
-  const [blocks, settings, calendar, sources, weekPlans, picks, queue, records] = await Promise.all([
+  const [blocks, settings, calendar, sources, weekPlans, picks, queue, records, planning, nextPlanning, inbox] = await Promise.all([
     blocksInRange(sql, range),
     getSettings(sql),
     getRecord(sql, 'calendar', CALENDAR_ID),
@@ -31,8 +33,11 @@ export async function loadWeek(sql: Sql, clock: Clock, week: LocalDate) {
     listRecords(sql, 'week_pick'),
     needsNewTime(sql),
     loadAnalyticsData(sql),
+    loadWeekPlanning(sql, week),
+    loadWeekPlanning(sql, addWeeks(week, 1)),
+    inboxCount(sql),
   ]);
-  return { week, blocks, settings, calendar: calendar ?? null, sources, weekPlans, picks, queue, records };
+  return { week, blocks, settings, calendar: calendar ?? null, sources, weekPlans, picks, queue, records, planning, nextPlanning, inbox };
 }
 
 export type WeekData = Awaited<ReturnType<typeof loadWeek>>;
@@ -199,6 +204,32 @@ export function weekModel(d: WeekData, clock: Clock) {
     ),
   ].sort((a, b) => (a.dates?.from ?? '~').localeCompare(b.dates?.from ?? '~'));
 
+  // An unscheduled planning task heads To schedule in the week it's due in: next week's, dated to the days before that
+  // week starts; this week's, once it has begun unplanned, from today. Clicked, it opens the times; dragged, it's placed.
+  const on = today(clock);
+  const estimate = weekEstimate(d.inbox, d.weekPlans).minutes;
+  const planningItem = (p: WeekPlanning, dates: { from: LocalDate; to: LocalDate }): LaneItem => ({
+    id: p.task!.id,
+    title: p.task!.title,
+    kind: 'planning',
+    work: { kind: 'project' },
+    left: estimate,
+    length: estimate,
+    line: formatMinutes(estimate),
+    dates,
+    task: p.task!,
+    picked: false,
+    offers: [],
+  });
+  const planning: LaneItem[] = [
+    ...(week === current && d.planning.task && !d.planning.task.deleted_at && weekGate(d.planning, clock) === 'gate'
+      ? [planningItem(d.planning, { from: on, to: addDays(week, 6) })]
+      : []),
+    ...(week === current && weekRow(d.nextPlanning, clock)
+      ? [planningItem(d.nextPlanning, { from: on > addDays(d.nextPlanning.week, -PLANNING_LEAD_DAYS) ? on : addDays(d.nextPlanning.week, -PLANNING_LEAD_DAYS), to: addDays(d.nextPlanning.week, -1) })]
+      : []),
+  ];
+
   const got: Record<string, Minutes> = {};
   const bucketOf = new Map(records.tasks.map((t) => [t.id, t.project_id ?? ONE_OFFS_BUCKET]));
   for (const b of blocks) {
@@ -217,7 +248,7 @@ export function weekModel(d: WeekData, clock: Clock) {
     free,
     alerts: week >= current ? weekAlerts(ctx, aims, pushback) : [],
     addGroups,
-    unscheduled,
+    unscheduled: [...planning, ...unscheduled],
     current,
     thisPlanned: d.weekPlans.some((p) => p.week_start === current && !!p.finished_at),
   };

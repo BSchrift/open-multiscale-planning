@@ -1,4 +1,5 @@
 // Goals: the goal hierarchy, or one project's page with params { project: id }, which other areas can link to.
+// params { show: id } opens a practice or goal on the hierarchy.
 
 import { useMemo } from 'react';
 import type { PlanContext } from '../../../core/plan';
@@ -24,5 +25,5 @@ export default function Screen(props: ScreenProps) {
     const goal = data.objectives.find((g) => g.id === plan?.project.objective_id)?.title;
     return <ProjectPage plan={plan} goal={goal} goals={data.objectives} ctx={ctx} onClosed={nav.back} />;
   }
-  return <GoalsPage data={data} ctx={ctx} />;
+  return <GoalsPage data={data} ctx={ctx} show={props.params.show} />;
 }

@@ -2,11 +2,13 @@ import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { META, setMeta } from '../../core/db';
-import { listRecords } from '../../core/records';
+import { listRecords, updateSettings } from '../../core/records';
+import type { Writer } from '../../core/records';
 import type { AppSync } from '../../core/syncRunner';
 import { setAppearance } from './appearance';
 import { renderApp } from './testing';
 import type { Harness } from './testing';
+import { noFiles } from '../../core/sync-testing';
 
 afterEach(() => {
   cleanup();
@@ -24,6 +26,7 @@ function fakeSync(email: string | null = 'reader@example.com') {
     stop: vi.fn(),
     email: vi.fn(async () => email),
     eraseAndSignIn: vi.fn(async () => undefined),
+    files: noFiles(),
   } satisfies AppSync;
 }
 
@@ -37,6 +40,9 @@ async function signedInAsAnother(t: Harness, unsynced: number) {
   });
 }
 
+// No planning cadence, so Today saves no planning task among the changes these tests count.
+const seed = (w: Writer) => updateSettings(w, { plan_cadence: null });
+
 const QUESTION = 'This device has data from another account. Signing in as reader@example.com erases it from this device; it stays in the other account.';
 const ask = () => screen.findByRole('dialog', { name: 'Switch accounts' });
 
@@ -44,7 +50,7 @@ describe('switching accounts', () => {
   describe.each(['desktop', 'phone'] as const)('on %s', (layout) => {
     it('asks first, naming the account and how many changes would be lost', async () => {
       const sync = fakeSync();
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       await signedInAsAnother(t, 2);
       const dialog = await ask();
       expect(dialog).toHaveAttribute('aria-modal', 'true');
@@ -59,7 +65,7 @@ describe('switching accounts', () => {
     });
 
     it('says one change in the singular, and nothing about changes when there are none', async () => {
-      const t = await renderApp({ layout, sync: fakeSync() });
+      const t = await renderApp({ layout, sync: fakeSync(), seed });
       await signedInAsAnother(t, 1);
       expect(await within(await ask()).findByText("1 change hasn't synced and will be lost.")).toBeVisible();
       await signedInAsAnother(t, 0);
@@ -70,7 +76,7 @@ describe('switching accounts', () => {
 
     it("Cancel signs that account out and keeps this device's data", async () => {
       const sync = fakeSync();
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Cancel' }));
       expect(sync.signOut).toHaveBeenCalledOnce();
@@ -80,7 +86,7 @@ describe('switching accounts', () => {
 
     it('Escape is Cancel', async () => {
       const sync = fakeSync();
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       await signedInAsAnother(t, 1);
       await ask();
       await userEvent.keyboard('{Escape}');
@@ -90,7 +96,7 @@ describe('switching accounts', () => {
 
     it("Erase and sign in erases, and forgets what screens kept on this device for the other account", async () => {
       const sync = fakeSync();
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       localStorage.setItem('multiscale.plan.flow', JSON.stringify({ begun: true, note: 'Bake on Sundays' }));
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));
@@ -101,7 +107,7 @@ describe('switching accounts', () => {
 
     it("keeps this device's appearance, which isn't the account's", async () => {
       const sync = fakeSync();
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       act(() => setAppearance('dark'));
       // As the real erase does, which closes the dialog.
       sync.eraseAndSignIn.mockImplementation(async () => {
@@ -120,22 +126,24 @@ describe('switching accounts', () => {
       expect(localStorage.getItem('multiscale.appearance')).toBe('dark');
     });
 
-    it("keeps this device's Show completed choice, which isn't the account's either", async () => {
+    it("keeps this device's Show completed and Process keys choices, which aren't the account's either", async () => {
       const sync = fakeSync();
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       localStorage.setItem('multiscale.showCompleted', 'true');
+      localStorage.setItem('multiscale.processKeys', 'true');
       localStorage.setItem('multiscale.plan.flow', JSON.stringify({ begun: true }));
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));
       await waitFor(() => expect(localStorage.getItem('multiscale.plan.flow')).toBeNull());
       expect(localStorage.getItem('multiscale.showCompleted')).toBe('true');
+      expect(localStorage.getItem('multiscale.processKeys')).toBe('true');
     });
 
     it('a failed erase says so and keeps asking, with everything still here', async () => {
       const sync = fakeSync();
       sync.eraseAndSignIn.mockRejectedValueOnce(Object.assign(new Error('sign_in_expired'), { code: 'sign_in_expired' }));
       const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      const t = await renderApp({ layout, sync });
+      const t = await renderApp({ layout, sync, seed });
       localStorage.setItem('multiscale.plan.flow', JSON.stringify({ begun: true }));
       await signedInAsAnother(t, 1);
       await userEvent.click(within(await ask()).getByRole('button', { name: 'Erase and sign in' }));

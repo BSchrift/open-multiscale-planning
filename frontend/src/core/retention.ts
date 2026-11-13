@@ -83,7 +83,8 @@ export interface StoredRecord {
 
 /**
  * When a record expires, or null for never. Deleted beats everything: deleted_at plus the deleted period. A milestone
- * goes with its project, and an answer is counted from its block's end, so those take the related record as parent.
+ * goes with its project, an attachment with its task, and an answer is counted from its block's end, so those take the
+ * related record as parent.
  */
 export function expiryFor(type: string, record: StoredRecord, policy: Retention, parent?: StoredRecord | null): Instant | null {
   const { data, clocks } = record;
@@ -109,6 +110,9 @@ export function expiryFor(type: string, record: StoredRecord, policy: Retention,
       return data.state === 'finished' || data.state === 'dropped' ? after(writtenMs(clocks.state), policy.closed) : null;
     case 'milestone':
       return parent ? expiryFor('project', parent, policy) : null;
+    // A file follows its record, and the record its task, deleted or closed.
+    case 'attachment':
+      return parent ? expiryFor('task', parent, policy) : null;
     case 'objective':
       return data.state === 'archived' ? after(writtenMs(clocks.state), policy.closed) : null;
     default:

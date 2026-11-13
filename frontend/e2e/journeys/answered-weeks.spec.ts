@@ -15,6 +15,8 @@ const nextDay = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) + 86_40
 async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
   await tab(page, phone, 'Today');
   await page.getByRole('button', { name: 'Start planning' }).first().click();
+  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
+  await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   if (phone) {
     const sheet = page.getByRole('region', { name: 'Tasks in Finish the first draft' });
@@ -50,7 +52,7 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
   const phone = info.project.name === 'phone';
   const errors = await start(page, chicago(MONDAYS[0]!, '08:00'));
   await firstRun(page, 'Write a novel');
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
   await tab(page, phone, 'Goals');
   const project = await addProject(page, phone, 'Write a novel', 'Finish the first draft', '2027-03-26');
   await project.getByRole('button', { name: phone ? '+ Task' : 'Add task', exact: true }).click();

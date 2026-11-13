@@ -24,6 +24,8 @@ export function openTime(ctx: SlotContext, kind: WorkKind = 'project'): Minutes 
 export function plannedByKind(spans: Span[]): { project: Minutes; one_off: Minutes; practice: Minutes; total: Minutes } {
   const out = { project: 0, one_off: 0, practice: 0, total: 0 };
   for (const s of spans) {
+    // Planning is busy time, already out of the open time.
+    if (s.kind === 'planning') continue;
     const length = s.end - s.start;
     out[s.kind === 'one_off' || s.kind === 'practice' ? s.kind : 'project'] += length;
     out.total += length;

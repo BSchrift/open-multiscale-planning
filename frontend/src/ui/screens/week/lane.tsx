@@ -6,12 +6,13 @@ import type { Slot, SlotContext } from '../../../core/slots';
 import { useApp } from '../../app/store';
 import { dragCard } from '../../components/weekgrid';
 import { KIND_WORD } from '../../components/blocks/describe';
+import { TaskName } from '../../components/task/TaskName';
 import { dayName } from '../../components/weekgrid';
 import type { LaneItem } from './data';
 // The card styles, for Today too.
 import './week.css';
 
-const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint' } as const;
+const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint', planning: 'k-planning' } as const;
 
 /** '4 · 5h 30m', after To schedule */
 export const laneCount = (items: readonly LaneItem[]) => `${items.length} · ${formatMinutes(items.reduce((sum, x) => sum + x.left, 0))}`;
@@ -63,7 +64,8 @@ export function LaneActions(props: {
   return (
     <>
       <div>
-        <div className="strong mhead">{item.title}</div>
+        {/* A task's name opens its popup; a practice's session has none. */}
+        <div className="strong mhead">{item.task ? <TaskName id={item.task.id} title={item.title} details={!!item.task.notes} /> : item.title}</div>
         <div className="small quiet">
           {KIND_WORD[item.kind]}, {item.line} to schedule{when ? `, ${when}` : ''}
         </div>

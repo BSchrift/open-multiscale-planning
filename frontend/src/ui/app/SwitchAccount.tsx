@@ -6,11 +6,12 @@ import { syncStatus, unsyncedChanges } from '../../core/sync';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
 import { APPEARANCE_KEY } from './appearance';
+import { PROCESS_KEYS_KEY } from './processKeys';
 import { SHOW_COMPLETED_KEY } from './showCompleted';
 import { useApp, useQuery } from './store';
 
 /** Choices about this device rather than the account, so an account switch keeps them. */
-const DEVICE_KEYS = [APPEARANCE_KEY, SHOW_COMPLETED_KEY];
+const DEVICE_KEYS = [APPEARANCE_KEY, SHOW_COMPLETED_KEY, PROCESS_KEYS_KEY];
 
 export function SwitchAccount() {
   const { sync, layout } = useApp();

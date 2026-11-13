@@ -101,7 +101,8 @@ Then wait for CI. A PR merges only with every check green.
 ## The product's rules
 
 - **Nothing happens to someone's plan without them.** Time is placed, and tasks are finished, only by an explicit action.
-  Suggestions are shown, never saved.
+  Suggestions are shown, never saved. Planning tasks are the one record the app makes without a tap: they place no time,
+  and they can be skipped or undone.
 - **Every change can be undone,** usually from the toast that reports it.
 - **Copy is plain and specific,** in sentence case, and says what happened.
 - **Accessibility is part of done:**
@@ -123,12 +124,12 @@ Then wait for CI. A PR merges only with every check green.
   | --- | --- | --- |
   | Merge to main | Only with every CI check green | Owner |
   | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
-  | Window before prod | An email says the commit passed staging and when it goes to prod. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
+  | Window before prod | An email says the commit passed staging and when it goes to prod, with a link to send it sooner. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
   | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
   | Signed apps | `make release-tag`, then `make release ENV=prod` from the tag | Owner, on the Mac |
 
-  To roll back, revert on main and let it release. `make pipeline-pause` holds main's commits back, and `make promote`
-  starts a run by hand.
+  To roll back, revert on main and let it release. `make release-surface` switches the web app or one app's feed back
+  to a version kept. `make pipeline-pause` holds main's commits back, and `make promote` starts a run by hand.
 - **Stop a run before prod only when the owner asks in chat.** `make pipeline-stop` stops the run waiting in its window
   before prod, so it never reaches prod. Say which commit it stopped.
 - **Skip the canary only with the owner's explicit go-ahead, each time.** `CANARY=skip` sends prod's new backend all its

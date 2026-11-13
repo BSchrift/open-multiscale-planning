@@ -93,14 +93,14 @@ describe('which reminders a block gets', () => {
     expect(paused.actions[0]!.id).toBe(REMINDER_ACTION.resume);
   });
 
-  it('a pause gets one reminder 15 minutes in, with Resume, while the check-in is on and it would land before the end', () => {
+  it('a pause gets one reminder 30 minutes in, with Resume, while the check-in is on and it would land before the end', () => {
     const paused = (at: string, over: Partial<BlockRow> = {}) => block('a', day('10:00'), day('11:00'), { started_at: day('10:00'), paused_at: day(at), ...over });
     const still = (b: BlockRow, s = settings) => remindersToSchedule([b], s, [], clock).filter((r) => r.kind === 'still_paused');
     const [reminder] = still(paused('10:22'));
-    expect(reminder).toMatchObject({ at: day('10:37'), title: 'Still paused: Paint the fence', body: 'Paused since 10:22am. It ends at 11am unless you resume.' });
+    expect(reminder).toMatchObject({ at: day('10:52'), title: 'Paint the fence has been paused for 30 min', body: 'It ends at 11am unless you resume.' });
     expect(reminder!.actions).toEqual([{ id: REMINDER_ACTION.resume, title: 'Resume' }]);
-    // Fifteen minutes would reach the end, whose own notification asks then.
-    expect(still(paused('10:45'))).toEqual([]);
+    // Thirty minutes would reach the end, whose own notification asks then.
+    expect(still(paused('10:30'))).toEqual([]);
     expect(still(paused('10:22'), { ...settings, check_in: false })).toEqual([]);
     expect(still(paused('10:22', { ended_at: day('10:30') }))).toEqual([]);
     expect(still(block('a', day('10:00'), day('11:09'), { started_at: day('10:00'), paused_min: 9 }))).toEqual([]);
@@ -114,6 +114,26 @@ describe('which reminders a block gets', () => {
   it('still names a block whose title is gone', () => {
     const rs = remindersToSchedule([block('x', day('10:00'), day('11:00'), { title: null })], settings, [], clock);
     expect(rs[0]!.title).toBe('Time block');
+  });
+});
+
+describe('a planning block', () => {
+  const plan = block('p', day('10:00'), day('10:30'), { task_id: 'planning:week:2026-11-09', task_kind: 'planning', title: 'Plan the week of Nov 9' });
+
+  it('gets only its start, whose Start opens planning, and no question during or after it', () => {
+    const rs = remindersToSchedule([plan], settings, [], clock, {}, 8);
+    expect(kindsAt(rs)).toEqual([['block_start', day('10:00')]]);
+    expect(rs[0]).toMatchObject({ title: 'Plan the week of Nov 9', body: '10am to 10:30am. 8 in your Inbox.' });
+    expect(rs[0]!.actions).toEqual([
+      { id: REMINDER_ACTION.startPlanning, title: 'Start', opens_app: true },
+      { id: REMINDER_ACTION.nextBlock, title: 'Do next block instead' },
+    ]);
+  });
+
+  it('is never missed and never asks Have you started', () => {
+    const later = fixedClock(day('10:20'));
+    expect(checkInDue([plan], settings, [], later)).toBeUndefined();
+    expect(missedBlocks([plan], [], fixedClock(day('11:00')))).toEqual([]);
   });
 });
 

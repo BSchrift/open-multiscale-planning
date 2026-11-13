@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -78,7 +78,8 @@ release:
 # Uploads a prod build of this commit's iPhone app to TestFlight, signing in to Apple with the App Store Connect key in
 # the config folder. make release ENV=prod runs it last, unless SKIP_TESTFLIGHT=1, which instead warns when testers'
 # build is over 60 days old. EXPORT_ONLY=1 archives and exports it without uploading. It needs Xcode 26 or later; without
-# it, gh workflow run testflight.yml --ref main uploads from GitHub Actions (docs/setup.md, TestFlight).
+# it, gh workflow run testflight.yml --ref main uploads from GitHub Actions, which also uploads by itself for each push to
+# main that changes the iPhone app's native code (docs/setup.md, TestFlight).
 testflight:
 	@scripts/testflight.sh
 
@@ -99,6 +100,11 @@ promote:
 
 release-tag:
 	@scripts/pipeline.sh tag
+
+# Lists what each surface serves and the versions kept: ENV=staging (default) or prod. With SURFACE=web|desktop|iphone
+# and VERSION=<version>, switches that surface to a version kept, such as the one before: docs/releasing.md.
+release-surface:
+	@scripts/pipeline.sh release-surface
 
 pipeline-config:
 	@scripts/pipeline.sh config

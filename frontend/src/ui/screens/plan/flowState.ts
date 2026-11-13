@@ -1,28 +1,72 @@
-// Where planning ahead is up to, kept on this device only: the step, the note, and what changed so far. The Plan page,
-// the flow and the More line all read it, so it's one store rather than per-component state.
+// Where planning ahead is up to: the step, the steps continued from and opened, the note, and what changed so far with
+// each change's reverse. The Plan page, the flow and the More line all read it, so it's one store rather than
+// per-component state. It's kept on this device, and all but the changes are shared with your other devices through
+// settings.plan_progress, so planning begun on one resumes on another: the newer of the two wins, and either is over
+// once its stretch is planned, on any device.
+//
+// Released apps read the same key on the same origin, and know the step only as a number over their own steps: Look
+// back or Start, Practices, Projects, Time and Finish. So that number is still written beside the step's key, and a
+// number one of them has moved since wins over the key.
 
 import { useSyncExternalStore } from 'react';
-import type { LocalDate } from '../../../core/types';
+import { currentStretch } from '../../../core/plan';
+import type { CadenceSettings, PlanChange } from '../../../core/plan';
+import type { Instant, LocalDate, PlanProgress } from '../../../core/types';
+
+export type StepKey = 'start' | 'goals' | 'practices' | 'projects' | 'inbox' | 'finish';
+
+/** Each step as a released app numbers it. The Inbox is new, so it reads as Projects, the step before it. */
+const OLD_NUMBER: Record<StepKey, number> = { start: 0, goals: 0, practices: 1, projects: 2, inbox: 2, finish: 4 };
 
 export interface Change {
   /** One line per thing changed: a later change to the same thing replaces it. */
   key: string;
   text: string;
+  /** What takes this change back. Lines a released app wrote have none. */
+  reverse?: PlanChange;
+  /** The line this one replaced, which its Undo puts back. */
+  prev?: Change | null;
 }
 
 export interface PlanFlow {
   begun: boolean;
+  /** The step in a released app's numbering. */
   step: number;
+  stepKey: StepKey | null;
+  /** Steps continued from. */
+  done: StepKey[];
+  /** Steps opened, so Finish can name any never looked at. */
+  seen: StepKey[];
   note: string;
   changes: Change[];
   /** Started again after ending a plan early, so there's a stretch to look back on rather than a first one. */
   restart: boolean;
   /** The day this planning began, which a first plan's stretch starts on. */
   begunOn: LocalDate | null;
+  /** The Inbox's items when its step was continued from, so weekly planning can tell whether any came in since. */
+  inbox: string[] | null;
+  /** The start of the stretch being planned. Once that stretch is planned, on any device, this planning is over. */
+  for: LocalDate | null;
+  /** When the step, the done marks or the note last changed here, to weigh against another device's. */
+  at: Instant | null;
 }
 
 const KEY = 'multiscale.plan.flow';
-const EMPTY: PlanFlow = { begun: false, step: 0, note: '', changes: [], restart: false, begunOn: null };
+const EMPTY: PlanFlow = {
+  begun: false,
+  step: 0,
+  stepKey: null,
+  done: [],
+  seen: [],
+  note: '',
+  changes: [],
+  restart: false,
+  begunOn: null,
+  inbox: null,
+  for: null,
+  at: null,
+};
+const now = () => new Date().toISOString();
 const listeners = new Set<() => void>();
 let lastRaw: string | null = null;
 let last: PlanFlow = EMPTY;
@@ -60,9 +104,92 @@ export function writeFlow(patch: Partial<PlanFlow>): void {
   for (const notify of listeners) notify();
 }
 
-/** Notes a change for Finish's "What changed". */
-export function logChange(key: string, text: string): void {
-  writeFlow({ changes: [...readFlow().changes.filter((c) => c.key !== key), { key, text }] });
+/**
+ * Planning starts over at its first step. A released app's Finish resets only the fields it knows, so this clears the
+ * rest too.
+ */
+export function beginFlow(patch: Partial<PlanFlow> = {}): void {
+  writeFlow({ begun: true, step: 0, stepKey: null, done: [], seen: [], inbox: null, for: null, at: now(), ...patch });
+}
+
+/** The step to show, of those on offer: its key, unless a released app has moved the step since. */
+export function stepOf(flow: PlanFlow, steps: readonly StepKey[]): StepKey {
+  if (flow.stepKey && OLD_NUMBER[flow.stepKey] === flow.step && steps.includes(flow.stepKey)) return flow.stepKey;
+  const n = Math.trunc(Number(flow.step)) || 0;
+  return n <= 0 ? steps[0]! : n === 1 ? 'practices' : n === 2 ? 'projects' : 'finish';
+}
+
+export function goToStep(key: StepKey): void {
+  const { seen } = readFlow();
+  writeFlow({ stepKey: key, step: OLD_NUMBER[key], seen: seen.includes(key) ? seen : [...seen, key], at: now() });
+}
+
+export function markDone(key: StepKey): void {
+  const { done } = readFlow();
+  if (!done.includes(key)) writeFlow({ done: [...done, key], at: now() });
+}
+
+/**
+ * Notes a change for Finish's "What changed", with what takes it back. Going on, as a slider does, keeps the first
+ * reverse, so its Undo goes back to before it began.
+ */
+export function logChange(key: string, text: string, reverse?: PlanChange, goingOn = false): void {
+  const { changes } = readFlow();
+  const before = changes.find((c) => c.key === key) ?? null;
+  const entry: Change = goingOn && before?.reverse ? { ...before, text } : reverse ? { key, text, reverse, prev: before } : { key, text };
+  writeFlow({ changes: [...changes.filter((c) => c.key !== key), entry] });
+}
+
+/** Takes a change's line off once its Undo has run, putting back the line it replaced. */
+export function unlogChange(key: string): void {
+  const { changes } = readFlow();
+  const entry = changes.find((c) => c.key === key);
+  writeFlow({ changes: [...changes.filter((c) => c.key !== key), ...(entry?.prev ? [entry.prev] : [])] });
+}
+
+/** The note, as you leave the field, when it's shared. */
+export const settleNote = () => writeFlow({ at: now() });
+
+/** What's shared of planning with your other devices, or null until it knows the stretch it's for. */
+export function progressOf(flow: PlanFlow): PlanProgress | null {
+  if (!flow.begun || !flow.for || !flow.stepKey || !flow.at) return null;
+  return { for: flow.for, step: flow.stepKey, done: flow.done, seen: flow.seen, begun_on: flow.begunOn, note: flow.note || null, at: flow.at };
+}
+
+const isStep = (s: unknown): s is StepKey => typeof s === 'string' && s in OLD_NUMBER;
+
+/**
+ * This device's planning with another device's progress brought in: the newer of the two. Planning whose stretch is
+ * planned is over, and progress from before the stretch under way began is left behind. It writes nothing.
+ */
+export function withProgress(flow: PlanFlow, settings: CadenceSettings & { plan_progress?: PlanProgress | null }, on: LocalDate): PlanFlow {
+  const last = settings.plan_stretch.last_planned;
+  const planned = (start: LocalDate | null) => !!start && !!last && last >= start;
+  const own = flow.begun && planned(flow.for) ? EMPTY : flow;
+  const p = settings.plan_progress;
+  if (!p || !isStep(p.step) || planned(p.for) || p.for < (currentStretch(settings, on)?.start ?? '')) return own;
+  if (own.begun && (own.at ?? '') >= p.at) return own;
+  return {
+    ...own,
+    begun: true,
+    for: p.for,
+    stepKey: p.step,
+    step: OLD_NUMBER[p.step],
+    done: p.done.filter(isStep),
+    seen: p.seen.filter(isStep),
+    begunOn: p.begun_on ?? own.begunOn,
+    note: p.note ?? own.note,
+    at: p.at,
+    // Another stretch's changes and Inbox aren't this one's.
+    ...(own.for !== p.for ? { changes: [], inbox: null, restart: false } : {}),
+  };
+}
+
+/** Takes up withProgress's view on this device, so planning goes on from it here. */
+export function adoptProgress(settings: CadenceSettings & { plan_progress?: PlanProgress | null }, on: LocalDate): void {
+  const flow = readFlow();
+  const view = withProgress(flow, settings, on);
+  if (view !== flow) writeFlow(view);
 }
 
 /** Back to nothing begun, once a plan is finished. */

@@ -1,7 +1,7 @@
 // Which notifications to schedule. The platform fires them; a sync or opening the app replaces the whole list, so
 // answering on another device clears the prompt here at this device's next sync.
 
-import { isPaused, spentLine, timeLeftMs, workMinutes } from './blocks';
+import { isPaused, pauseWords, spentLine, timeLeftMs, workMinutes } from './blocks';
 import { formatMinutes, formatTime, instantMs, localDate, toInstant } from './dates';
 import type { UtcRange } from './dates';
 import type { Clock } from './clock';
@@ -14,7 +14,7 @@ export const REMINDER_LIMIT = 64;
 
 const SNOOZE_MIN = 10;
 /** How long a pause runs before one reminder that the block is still paused. */
-export const PAUSE_REMINDER_MIN = 15;
+export const PAUSE_REMINDER_MIN = 30;
 const MINUTE_MS = 60_000;
 const DAY_MS = 1440 * MINUTE_MS;
 /** Comfortably more than 64 reminders' worth of a normal plan, and the list is rebuilt at every open and sync. */
@@ -32,6 +32,10 @@ export const REMINDER_ACTION = {
   stillGoing: 'still_going',
   resume: 'resume',
   logAll: 'log_all',
+  /** A planning block's Start, which opens planning where it was left. */
+  startPlanning: 'start_planning',
+  /** The weekly reminder's one action, which opens the app on next week's times. */
+  choosePlanningTime: 'choose_planning_time',
 } as const;
 
 const A = REMINDER_ACTION;
@@ -52,6 +56,13 @@ const END_ACTIONS: ReminderAction[] = [
   { id: A.partly, title: 'Partly', opens_app: true },
   { id: A.notDone, title: 'Not done' },
 ];
+
+// Planning asks nothing during or after its block: the app can see whether the plan was finished.
+const PLANNING_ACTIONS: ReminderAction[] = [
+  { id: A.startPlanning, title: 'Start', opens_app: true },
+  { id: A.nextBlock, title: 'Do next block instead' },
+];
+const isPlanning = (b: BlockRow) => b.task_kind === 'planning';
 
 const startId = (blockId: string) => `reminder:${blockId}:start`;
 const checkInId = (blockId: string) => `reminder:${blockId}:check_in`;
@@ -88,6 +99,7 @@ export function checkInDue(
   return blocks.find(
     (b) =>
       !b.started_at &&
+      !isPlanning(b) &&
       !b.result &&
       !b.ended_at &&
       now < instantMs(b.end) &&
@@ -96,10 +108,15 @@ export function checkInDue(
   );
 }
 
-function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: Instant | undefined, zone: string): Reminder[] {
+function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: Instant | undefined, zone: string, inbox: number): Reminder[] {
   const name = block.title ?? 'Time block';
   const end = instantMs(block.end);
   const out: Reminder[] = [];
+  if (isPlanning(block)) {
+    if (block.started_at || !settings.block_start) return [];
+    const body = `${formatTime(block.start, zone)} to ${formatTime(end, zone)}.${inbox ? ` ${inbox} in your Inbox.` : ''}`;
+    return [{ id: startId(block.id), kind: 'block_start', block_id: block.id, at: block.start, title: name, body, actions: PLANNING_ACTIONS }];
+  }
 
   if (!block.started_at) {
     if (settings.block_start) {
@@ -121,8 +138,8 @@ function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: In
         kind: 'still_paused',
         block_id: block.id,
         at: toInstant(at),
-        title: `Still paused: ${name}`,
-        body: `Paused since ${formatTime(block.paused_at!, zone)}. It ends at ${formatTime(end, zone)} unless you resume.`,
+        title: `${name} has been paused for ${pauseWords(PAUSE_REMINDER_MIN)}`,
+        body: `It ends at ${formatTime(end, zone)} unless you resume.`,
         actions: [{ id: A.resume, title: 'Resume' }],
       });
     }
@@ -157,7 +174,7 @@ function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: In
  * The full list for Notifications.replaceAll: soonest first and at most REMINDER_LIMIT. A block that's answered or
  * ended gets nothing, and a started one only its end, so a reschedule always agrees with cancelling straight away.
  * snoozed maps a block id to when "Ask again" should ask. Keep it on this device, and drop it when you like: at
- * worst one snoozed question isn't asked again.
+ * worst one snoozed question isn't asked again. inbox is the Inbox count a planning block's start mentions.
  */
 export function remindersToSchedule(
   blocks: readonly BlockRow[],
@@ -165,23 +182,27 @@ export function remindersToSchedule(
   away: readonly AwayPeriod[],
   clock: Clock,
   snoozed: Readonly<Record<string, Instant>> = {},
+  inbox = 0,
 ): Reminder[] {
   const now = clock.now();
   const zone = clock.zone();
   return blocks
     .filter((b) => !b.result && !b.ended_at && !isAway(localDate(b.start, zone), away))
-    .flatMap((b) => remindersFor(b, settings, snoozed[b.id], zone))
+    .flatMap((b) => remindersFor(b, settings, snoozed[b.id], zone, inbox))
     .filter((r) => instantMs(r.at) > now)
     .sort((a, b) => instantMs(a.at) - instantMs(b.at))
     .slice(0, REMINDER_LIMIT);
 }
 
-/** Work blocks that ended with no answer, oldest first. A practice just passes, and away dates were muted. */
+/**
+ * Work blocks that ended with no answer, oldest first. A practice just passes, away dates were muted, and planning
+ * comes back as its row instead.
+ */
 export function missedBlocks(blocks: readonly BlockRow[], away: readonly AwayPeriod[], clock: Clock): BlockRow[] {
   const now = clock.now();
   const zone = clock.zone();
   return blocks
-    .filter((b) => b.task_id && !b.result && !b.ended_at && instantMs(b.end) <= now && !isAway(localDate(b.start, zone), away))
+    .filter((b) => b.task_id && !isPlanning(b) && !b.result && !b.ended_at && instantMs(b.end) <= now && !isAway(localDate(b.start, zone), away))
     .sort((a, b) => instantMs(a.start) - instantMs(b.start));
 }
 

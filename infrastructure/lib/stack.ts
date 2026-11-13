@@ -762,6 +762,8 @@ export class MultiscaleStack extends Stack {
       // Smoke: that logs and metrics arrive. GetMetricStatistics has no resource to scope it to.
       release.addToPolicy(new PolicyStatement({ actions: ['logs:FilterLogEvents'], resources: [apiLogs.logGroupArn, calendarLogs.logGroupArn] }));
       release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:GetMetricStatistics'], resources: ['*'] }));
+      // The bake check after each surface's release (scripts/pipeline.sh bake-check): whether a release alarm is in ALARM.
+      release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:DescribeAlarms'], resources: ['*'] }));
       // The outputs the app builds and suites read.
       release.addToPolicy(new PolicyStatement({ actions: ['cloudformation:DescribeStacks'], resources: [this.stackId] }));
       releaseBucket.grantReadWrite(release);
@@ -781,6 +783,9 @@ export class MultiscaleStack extends Stack {
       MetricNamespace: namespace,
       GoogleRedirectUri: `${apiUrl}/calendar/callback`,
       AlarmTopicArn: topic.topicArn,
+      // For the pipeline's bake check, which reads their state as the release role. Named whether a release turns them
+      // off or not: they still alarm.
+      ReleaseAlarms: releaseAlarms.map((alarm) => alarm.alarmName).join(','),
       TableName: table.tableName,
       ...(releaseBucket ? { ReleaseBucket: releaseBucket.bucketName, ReleaseUrl: `https://${releaseHost}`, DownloadsUrl: `https://${downloadsHost}`, WebUrl: webUrl! } : {}),
       // Where the app fetches and uploads files, which its content policy names.

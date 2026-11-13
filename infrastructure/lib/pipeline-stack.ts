@@ -3,9 +3,10 @@
 // No one approves it. docs/releasing.md describes it. The steps themselves are scripts/pipeline.sh, run by CodeBuild;
 // deploy rights stay in AWS.
 
+import { join } from 'node:path';
 import { CfnCapabilities, CfnOutput, Duration, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
+import { type BuildEnvironmentVariable, BuildEnvironmentVariableType, BuildSpec, ComputeType, LinuxBuildImage, PipelineProject, Project } from 'aws-cdk-lib/aws-codebuild';
 import { Artifact, GlobalVariables, Pipeline, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import {
   CloudFormationCreateReplaceChangeSetAction, CloudFormationExecuteChangeSetAction, CodeBuildAction, CodeStarConnectionsSourceAction, StateMachineInput,
@@ -14,14 +15,17 @@ import {
 import { CfnConnection } from 'aws-cdk-lib/aws-codestarconnections';
 import { Rule, RuleTargetInput, EventField } from 'aws-cdk-lib/aws-events';
 import { SnsTopic } from 'aws-cdk-lib/aws-events-targets';
-import { OidcProviderNative, PolicyStatement, Role, ServicePrincipal, WebIdentityPrincipal } from 'aws-cdk-lib/aws-iam';
+import { OidcProviderNative, Policy, PolicyStatement, Role, ServicePrincipal, WebIdentityPrincipal } from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
+import { Architecture, Code, Function as LambdaFunction, FunctionUrlAuthType, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { CodeBuildStartBuild } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
-import { DefinitionBody, QueryLanguage, StateMachine, TaskInput, Wait, WaitTime } from 'aws-cdk-lib/aws-stepfunctions';
+import {
+  Choice, Condition, DefinitionBody, Errors, IntegrationPattern, QueryLanguage, StateMachine, Succeed, TaskInput, Timeout,
+} from 'aws-cdk-lib/aws-stepfunctions';
 import { SnsPublish } from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { DEFAULT_MAC_WAIT, DEFAULT_PROMOTE_AFTER, promoteAfterSeconds } from './config.ts';
@@ -97,10 +101,24 @@ export class PipelineStack extends Stack {
     const signedProd = new Artifact('SignedProd');
     const environment = { buildImage: LinuxBuildImage.STANDARD_7_0, computeType: ComputeType.MEDIUM };
     const install = ['scripts/pipeline.sh install'];
+
+    // What GitHub Actions hands the pipeline, and all GitHub may do in AWS: Mac apps it built, signed and notarized, which
+    // the MacApp step checks (below), and the TestFlight review's record of the newest iPhone app testers can install,
+    // which the releases read. Created with the Mac release.
+    const inbox = mac ? new Bucket(this, 'MacInbox', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      // Each build is checked within hours of its upload. Prod's run reads it up to 6 days later, at most. The TestFlight
+      // review writes its record again every hour.
+      lifecycleRules: [{ expiration: Duration.days(30) }],
+    }) : undefined;
+
     // Each step's work is scripts/pipeline.sh $STEP, so the steps are read and reviewed in one file.
-    const project = (projectId: string, artifacts?: object) => new PipelineProject(this, projectId, {
+    const project = (projectId: string, artifacts?: object, environmentVariables?: Record<string, BuildEnvironmentVariable>) => new PipelineProject(this, projectId, {
       role,
       environment,
+      environmentVariables,
       timeout: Duration.hours(2),
       logging: { cloudWatch: { logGroup } },
       buildSpec: BuildSpec.fromObject({
@@ -114,7 +132,9 @@ export class PipelineStack extends Stack {
     // environment's web build and the script that signs it.
     // mac/ holds each environment's main process, to check a Mac app GitHub Actions built against.
     const builder = project('Build', { files: ['infrastructure/cdk.out/**/*', 'web/**/*', 'mac/**/*'] });
-    const releaser = project('Release');
+    // The releases switch the iPhone feed to a build with new native code once the TestFlight review's record in the
+    // inbox says testers can install an iPhone app with it (scripts/pipeline.sh, publish).
+    const releaser = project('Release', undefined, inbox && { MAC_INBOX_BUCKET: { value: inbox.bucketName } });
 
     // Signing. Only this step reads a release key: its own project and role, which may read the keys and nothing else
     // but its artifacts. It installs nothing and runs nothing from the repo but the signing script, taken with the web
@@ -189,35 +209,56 @@ export class PipelineStack extends Stack {
       },
     });
 
-    // The window before prod, on Step Functions, whose wait costs nothing: a standard workflow pays per state, and this
-    // has two. It emails the time the run goes to prod, counted from its own start, and waits until then.
-    const promoteAt = '$fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000)';
-    const notify = SnsPublish.jsonata(this, 'Notify', {
-      topic,
-      subject: 'A release is on its way to prod',
-      message: TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '.' %}`),
-      outputs: '{% $states.input %}',
+    // "Promote now", the email's link: a page whose button sends the run's task token back, which ends its window at
+    // once. Anyone with the link may open it; the token is what promotes, and only its own run.
+    const promoteNowLogs = new LogGroup(this, 'PromoteNowLogs', { retention: RetentionDays.ONE_MONTH });
+    const promoteNowRole = new Role(this, 'PromoteNowRole', { assumedBy: new ServicePrincipal('lambda.amazonaws.com') });
+    promoteNowLogs.grantWrite(promoteNowRole);
+    const promoteNow = new LambdaFunction(this, 'PromoteNow', {
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      code: Code.fromAsset(join(import.meta.dirname, '../promote-now')),
+      handler: 'index.handler',
+      role: promoteNowRole,
+      logGroup: promoteNowLogs,
+      timeout: Duration.seconds(10),
     });
-    const window = Wait.jsonata(this, 'Window', { time: WaitTime.timestamp(`{% ${promoteAt} %}`) });
+    const promoteNowUrl = promoteNow.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
+
+    // The window before prod, on Step Functions, whose wait costs nothing: a standard workflow pays per state, and a run
+    // passes three at most. It emails the time the run goes to prod, counted from its own start, with the link, and
+    // waits for the link's token until then. A timeout of 0 isn't allowed, so no window only emails.
+    const notice = (link: string) => TaskInput.fromText(`{% $states.input.commit & ' passed staging. It goes to prod at ' & $fromMillis($toMillis($states.context.Execution.StartTime) + $states.input.seconds * 1000, '[Y0001]-[M01]-[D01] [H01]:[m01] UTC') & ' unless you stop it: make pipeline-stop, or Stop execution on the run in CodePipeline. Canary: ' & $states.input.canary & '. Release alarms: ' & $states.input.alarms & '.'${link} %}`);
+    const subject = 'A release is on its way to prod';
+    const notifyAndWait = SnsPublish.jsonata(this, 'NotifyAndWait', {
+      topic,
+      subject,
+      message: notice(` & ' To send it to prod now: ${promoteNowUrl.url}?token=' & $encodeUrlComponent($states.context.Task.Token)`),
+      integrationPattern: IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+      taskTimeout: Timeout.jsonata('{% $states.input.seconds %}'),
+      outputs: '{% $states.input %}',
+    }).addCatch(Succeed.jsonata(this, 'WindowEnded'), { errors: [Errors.TIMEOUT], outputs: '{% $states.input %}' });
+    const notify = SnsPublish.jsonata(this, 'Notify', { topic, subject, message: notice(''), outputs: '{% $states.input %}' });
     const promotion = new StateMachine(this, 'Promotion', {
-      definitionBody: DefinitionBody.fromChainable(notify.next(window)),
+      definitionBody: DefinitionBody.fromChainable(Choice.jsonata(this, 'HasWindow')
+        .when(Condition.jsonata('{% $states.input.seconds > 0 %}'), notifyAndWait)
+        .otherwise(notify)),
       queryLanguage: QueryLanguage.JSONATA,
       timeout: Duration.days(7),
     });
+    // The link's function may answer only this state machine, and only to promote. A policy of its own, not the role's
+    // default one, which the function waits on: the state machine already waits on the function, for its address.
+    new Policy(this, 'PromoteNowPolicy', {
+      roles: [promoteNowRole],
+      statements: [new PolicyStatement({ actions: ['states:SendTaskSuccess'], resources: [promotion.stateMachineArn] })],
+    });
 
     // Mac apps from GitHub Actions. For a commit that needs a new Mac app, the workflow builds, signs and notarizes it,
-    // and uploads it to this inbox: all GitHub may do in AWS. The MacApp step checks it on Linux (scripts/pipeline.sh
-    // mac) and hands what passed to the releases, which publish the disk image before the feed.
+    // and uploads it to the inbox. The MacApp step checks it on Linux (scripts/pipeline.sh mac) and hands what passed to
+    // the releases, which publish the disk image before the feed.
     const macApps: Artifact[] = [];
     let macProject: Project | undefined;
-    if (mac) {
-      const inbox = new Bucket(this, 'MacInbox', {
-        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-        encryption: BucketEncryption.S3_MANAGED,
-        enforceSSL: true,
-        // Each build is checked within hours of its upload. Prod's run reads it up to 6 days later, at most.
-        lifecycleRules: [{ expiration: Duration.days(30) }],
-      });
+    if (mac && inbox) {
       // An account has at most one provider for GitHub's tokens. control.yaml says when it has one already.
       const providerArn = mac.githubOidcProvider === 'existing'
         ? this.formatArn({ service: 'iam', region: '', resource: 'oidc-provider', resourceName: GITHUB_OIDC })
@@ -225,10 +266,10 @@ export class PipelineStack extends Stack {
       // Only a job in this repository's release environment, which needs the owner's approval and runs only from main.
       const inboxRole = new Role(this, 'MacInboxRole', {
         roleName: MAC_INBOX_ROLE_NAME,
-        description: "GitHub Actions' Mac release: uploads to the release pipeline's inbox, and nothing else",
+        description: "GitHub Actions' Mac release and TestFlight review: upload to the release pipeline's inbox, and nothing else",
         maxSessionDuration: Duration.hours(1),
         assumedBy: new WebIdentityPrincipal(providerArn, {
-          StringEquals: { [`${GITHUB_OIDC}:aud`]: 'sts.amazonaws.com', [`${GITHUB_OIDC}:sub`]: `repo:${repository}:environment:${MAC_RELEASE_ENVIRONMENT}` },
+          StringEquals: { [`${GITHUB_OIDC}:aud`]: 'sts.amazonaws.com', [`${GITHUB_OIDC}:sub`]: mac.githubSubject ?? `repo:${repository}:environment:${MAC_RELEASE_ENVIRONMENT}` },
         }),
       });
       inboxRole.addToPolicy(new PolicyStatement({ actions: ['s3:PutObject'], resources: [inbox.arnForObjects('inbox/*')] }));
@@ -285,8 +326,8 @@ export class PipelineStack extends Stack {
           ],
         },
         {
-          // No approval: staging's pass is emailed, and the run goes to prod when the window ends unless the owner
-          // stops it (make pipeline-stop). Prod's canary and its alarms still guard it.
+          // No approval: staging's pass is emailed, and the run goes to prod when the window ends, or sooner from the
+          // email's link, unless the owner stops it (make pipeline-stop). Prod's canary and its alarms still guard it.
           stageName: 'Promote',
           actions: [new StepFunctionInvokeAction({
             actionName: 'Wait',

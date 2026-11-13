@@ -8,9 +8,42 @@
   display: block;
 }
 
-/* The items are rows of one card. */
-[data-layout='phone'] .inboxlist > .morerow {
-  padding: 6px var(--space-4);
+/* The items are rows of one card. On phone the name takes the row, and › at its end opens Process. */
+[data-layout='phone'] .inboxlist > .inboxrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  min-height: 56px;
+  padding: 6px 0 6px var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-layout='phone'] .inboxname {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+}
+
+[data-layout='phone'] .inboxest {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: -8px;
+  padding-bottom: 4px;
+}
+
+[data-layout='phone'] .inboxgo {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  min-height: var(--tap);
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
 }
 
 [data-layout='desktop'] .inboxlist {
@@ -23,4 +56,110 @@
 
 [data-layout] .inboxlist > :first-child {
   border-top: 0;
+}
+
+/* Select mode. Above the list: Select, or while selecting Select all, the count and Cancel, then the actions, kept in
+   view on a long list. */
+[data-layout] .inboxbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-layout] .inboxcount {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+}
+
+[data-layout] .inboxtoggle {
+  margin-left: auto;
+}
+
+/* Stuck, it sits at the very top of the page, its own padding covering the page's, so no row shows above it. */
+[data-layout] .inboxsel {
+  position: sticky;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  background: var(--ground);
+}
+
+[data-layout='desktop'] .inboxsel {
+  top: calc(-1 * var(--space-6));
+  padding-top: var(--space-6);
+}
+
+[data-layout='phone'] .inboxsel {
+  top: -20px;
+  padding-top: 20px;
+}
+
+[data-layout] .inboxacts,
+[data-layout] .inboxsend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-layout] .inboxlist > .inboxtick {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+[data-layout] .inboxtick .inboxlines {
+  flex: 1;
+}
+
+[data-layout='desktop'] .inboxsend .field {
+  min-height: 36px;
+  padding: 4px 10px;
+  font-size: 14px;
+}
+
+[data-layout] .inboxtick input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+/* On phone each control is a full tap target, the project picker takes its own row, and the other two share the next. */
+[data-layout='phone'] .inboxbar .link {
+  min-width: var(--tap);
+}
+
+[data-layout='phone'] .inboxlist > .inboxtick {
+  padding-right: var(--space-4);
+}
+
+[data-layout='phone'] .inboxtick input {
+  width: 22px;
+  height: 22px;
+}
+
+[data-layout='phone'] .inboxsend {
+  flex: 1 1 100%;
+  flex-wrap: nowrap;
+}
+
+[data-layout='phone'] .inboxsend .field {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-layout='phone'] .inboxacts > .btn {
+  flex: 1 1 0;
+}
+
+/* Delete's question takes its own line, over its two answers. */
+[data-layout='phone'] .inboxacts > .strong {
+  flex: 1 1 100%;
 }

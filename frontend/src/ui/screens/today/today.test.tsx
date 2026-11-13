@@ -8,8 +8,9 @@ import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
-import { renderScreen } from '../../app/testing';
+import { renderApp, renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
+import { noFiles } from '../../../core/sync-testing';
 
 afterEach(cleanup);
 
@@ -115,15 +116,19 @@ describe('the Now card', () => {
       await w.set('time_block', 'b1', { started_at: at('13:00') });
     };
     const later = (t: Harness, minutes: number) => act(() => t.clock.set(Date.parse(NOW) + minutes * 60_000));
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 100)));
 
-    it('shows the time spent once started, and tapping it pauses: the countdown stops and the card says when it ends', async () => {
+    it('shows the percent of the block spent once started, and tapping it pauses: the countdown stops and the card says when it ends', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
-      await userEvent.click(within(now).getByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }));
+      // The middle shows the percent; the name says both it and the time spent.
+      const pause = within(now).getByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' });
+      expect(pause).toHaveTextContent(/^50%$/);
+      await userEvent.click(pause);
       const ring = await within(now).findByRole('button', { name: 'Resume, 1 hour spent, 50% of the block' });
-      // Focus stays on the ring, which now resumes, and no toast: tapping it again is Pause's undo.
+      // Focus stays on the ring, which now resumes, and a toast says what happened.
       expect(ring).toHaveFocus();
-      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(await screen.findByText('Paused Write the report')).toBeVisible();
       expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at).toBe(NOW);
       expect(within(now).getByText('Ends at 3pm unless you resume.')).toBeVisible();
       later(t, 9);
@@ -131,7 +136,7 @@ describe('the Now card', () => {
       expect(within(now).getByRole('timer')).toHaveTextContent('1:00:00');
     });
 
-    it('Resume moves the end later by the pause, with no toast, and a tap on the ring within 30 seconds takes it back exactly', async () => {
+    it('Resume moves the end later by the pause and says the new end, and a tap on the ring within 30 seconds takes it back exactly', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
@@ -141,11 +146,160 @@ describe('the Now card', () => {
       expect(await within(now).findByText('Now, 1pm to 3:09pm')).toBeVisible();
       expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') });
       expect(await within(now).findByRole('button', { name: 'Pause, 1 hour spent, 50% of the block' }, { timeout: 2000 })).toBeVisible();
-      expect(screen.queryByText(/^Resumed/)).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      // The toast says the new end, and leaves focus on the ring.
+      expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+      expect(within(now).getByRole('button', { name: /^Pause, / })).toHaveFocus();
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
       expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_min ?? null).toBeNull();
+      // That's a Pause too: its toast takes the place of Resume's, and its Undo puts the block back as Resume left it.
+      expect(await screen.findByText('Paused Write the report')).toBeVisible();
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
+      await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') }));
+    });
+
+    it("Undo on Pause's toast takes the pause away, with the end where it was", async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      expect(await within(now).findByRole('button', { name: /^Pause, / })).toBeVisible();
+      const b1 = await getRecord(t.db, 'time_block', 'b1');
+      expect(b1).toMatchObject({ paused_at: null, end: at('15:00') });
+      expect(b1?.paused_min ?? null).toBeNull();
+      expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
+    });
+
+    it("Undo on Resume's toast puts the pause back as it was: paused again, with its old end", async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      await userEvent.click(within(now).getByRole('button', { name: /^Resume, / }));
+      expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+      later(t, 10);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(await within(now).findByRole('button', { name: /^Resume, / })).toBeVisible();
+      const b1 = await getRecord(t.db, 'time_block', 'b1');
+      expect(b1).toMatchObject({ paused_at: NOW, end: at('15:00') });
+      expect(b1?.paused_min ?? null).toBeNull();
+      expect(within(now).getByText('Now, 1pm to 3pm')).toBeVisible();
+      expect(await within(now).findByText('Paused for 10 min', {}, { timeout: 2000 })).toBeVisible();
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
+    });
+
+    it('a Resume another device got to first says nothing', async () => {
+      const t = await open(running);
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
+      const ring = await within(now).findByRole('button', { name: /^Resume, / });
+      later(t, 9);
+      // Resumed elsewhere, synced in just before this tap, which then finds nothing to resume.
+      const elsewhere = t.write((w) => w.set('time_block', 'b1', { paused_at: null, paused_min: 9, end: at('15:09') }));
+      fireEvent.click(ring);
+      await elsewhere;
+      expect(await within(now).findByRole('button', { name: /^Pause, / })).toBeVisible();
+      await settle();
+      expect(screen.queryByText(/^Resumed/)).toBeNull();
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') });
+    });
+
+    describe('the P key', () => {
+
+      it('on desktop, pauses and resumes as the ring does, with the same toast and take-back', async () => {
+        const t = await open(running);
+        const now = await screen.findByRole('region', { name: 'Current block' });
+        await within(now).findByRole('button', { name: /^Pause, / });
+        await userEvent.keyboard('p');
+        expect(await within(now).findByRole('button', { name: /^Resume, / })).toBeVisible();
+        expect(await screen.findByText('Paused Write the report')).toBeVisible();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at).toBe(NOW);
+        later(t, 9);
+        await userEvent.keyboard('p');
+        await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 9, end: at('15:09') }));
+        // With no tap to put Pause's toast away, Resume's takes its place.
+        expect(await screen.findByText('Resumed. It now ends at 3:09pm.')).toBeVisible();
+        expect(screen.queryByText('Paused Write the report')).toBeNull();
+        // The ring says it's there, for screen readers.
+        expect(within(now).getByRole('button', { name: /^Pause, / })).toHaveAttribute('aria-keyshortcuts', 'P');
+        // P straight after takes the Resume back, and Pause's toast takes the place of Resume's.
+        await userEvent.keyboard('p');
+        await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: NOW, end: at('15:00') }));
+        expect(await screen.findByText('Paused Write the report')).toBeVisible();
+        expect(screen.queryByText(/^Resumed/)).toBeNull();
+      });
+
+      it('does nothing while typing, with a modifier held, or with a dialog open', async () => {
+        const t = await open(running);
+        const now = await screen.findByRole('region', { name: 'Current block' });
+        await within(now).findByRole('button', { name: /^Pause, / });
+        const editable = document.createElement('div');
+        editable.setAttribute('contenteditable', 'true');
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.append(document.createElement('button'));
+        for (const [holder, field] of [
+          [document.createElement('input'), null],
+          [document.createElement('textarea'), null],
+          [editable, null],
+          [dialog, dialog.firstElementChild],
+        ] as const) {
+          document.body.append(holder);
+          const target = (field ?? holder) as HTMLElement;
+          target.tabIndex = 0;
+          target.focus();
+          expect(target).toHaveFocus();
+          await userEvent.keyboard('p');
+          holder.remove();
+        }
+        for (const held of ['Meta', 'Control', 'Alt', 'Shift']) await userEvent.keyboard(`{${held}>}p{/${held}}`);
+        await settle();
+        expect(screen.queryByText('Paused Write the report')).toBeNull();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at ?? null).toBeNull();
+        // With focus back on the page, it pauses.
+        await userEvent.keyboard('p');
+        expect(await within(now).findByRole('button', { name: /^Resume, / })).toBeVisible();
+      });
+
+      it('does nothing while another tab is open, though Today stays behind it', async () => {
+        const t = await renderApp({
+          now: NOW,
+          zone: ZONE,
+          seed: async (w) => {
+            await planned(w);
+            await running(w);
+          },
+        });
+        await screen.findByRole('button', { name: /^Pause, / });
+        const tabs = screen.getByRole('navigation', { name: 'Main' });
+        await userEvent.click(within(tabs).getByRole('button', { name: 'Week' }));
+        // Hidden, so out of the accessibility tree, but still mounted.
+        await waitFor(() => expect(screen.queryByRole('button', { name: /^Pause, / })).toBeNull());
+        expect(document.querySelector('.spentring')).not.toBeNull();
+        await userEvent.keyboard('p');
+        await settle();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at ?? null).toBeNull();
+        await userEvent.click(within(tabs).getByRole('button', { name: 'Today' }));
+        await screen.findByRole('button', { name: /^Pause, / });
+        await userEvent.keyboard('p');
+        expect(await screen.findByRole('button', { name: /^Resume, / })).toBeVisible();
+      });
+
+      it('does nothing on phone', async () => {
+        const t = await open(running, { layout: 'phone' });
+        const now = await screen.findByRole('region', { name: 'Current block' });
+        const ring = await within(now).findByRole('button', { name: /^Pause, / });
+        expect(ring).not.toHaveAttribute('aria-keyshortcuts');
+        await userEvent.keyboard('p');
+        await settle();
+        expect((await getRecord(t.db, 'time_block', 'b1'))?.paused_at ?? null).toBeNull();
+        expect(within(now).getByRole('button', { name: /^Pause, / })).toBeVisible();
+      });
     });
 
     it('a tap more than 30 seconds after Resume is a new pause', async () => {
@@ -162,14 +316,15 @@ describe('the Now card', () => {
       );
     });
 
-    it('a quick second tap leaves no trace and no toast', async () => {
+    it('a quick second tap leaves no trace, and its toast says the end is where it was', async () => {
       const t = await open(running);
       const now = await screen.findByRole('region', { name: 'Current block' });
       await userEvent.click(within(now).getByRole('button', { name: /^Pause, / }));
       await userEvent.click(await within(now).findByRole('button', { name: /^Resume, / }));
       await within(now).findByRole('button', { name: /^Pause, / });
       expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, end: at('15:00') });
-      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(await screen.findByText('Resumed. It now ends at 3pm.')).toBeVisible();
+      expect(screen.queryByText('Paused Write the report')).toBeNull();
     });
 
     it('the ⓘ shows what the ring and its signs mean, and hides it again', async () => {
@@ -181,7 +336,8 @@ describe('the Now card', () => {
       expect(info).toHaveAttribute('aria-expanded', 'true');
       const key = within(now).getByRole('group', { name: 'Key' });
       expect(within(key).getByText('Time spent, filling toward the end')).toBeVisible();
-      expect(within(key).getByText('Tap the ring to pause the countdown')).toBeVisible();
+      // On desktop it names the key that does the same.
+      expect(within(key).getByText('Tap the ring or press P to pause the countdown')).toBeVisible();
       expect(within(key).getByText('Resume, and the end moves later')).toBeVisible();
       await userEvent.click(info);
       expect(within(now).queryByRole('group', { name: 'Key' })).toBeNull();
@@ -252,10 +408,11 @@ describe('the end-of-block prompt', () => {
     const now = screen.getByRole('region', { name: 'Current block' });
     const ring = await within(now).findByRole('button', { name: 'Pause, 22 minutes spent, 44% of the block' });
     expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: null, paused_min: 38, end: at('14:28') });
-    expect(screen.queryByText(/^Resumed/)).toBeNull();
+    expect(await screen.findByText('Resumed. It now ends at 2:28pm.')).toBeVisible();
     // Pressed by mistake, a tap on the ring takes it back: paused from the same moment, and the block missed again.
     await userEvent.click(ring);
     await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ paused_at: at('13:22'), end: at('13:50') }));
+    expect(screen.queryByText(/^Resumed/)).toBeNull();
     expect(await screen.findByRole('button', { name: 'Review' })).toBeVisible();
   });
 
@@ -550,7 +707,7 @@ describe('when the week is not planned', () => {
   it('opens on a prompt to plan, which opens the planning flow', async () => {
     const t = await unplanned(work);
     expect(await screen.findByRole('heading', { name: 'Plan your week' })).toBeVisible();
-    expect(screen.getByText("This week isn't planned yet.")).toBeVisible();
+    expect(screen.getByText("This week isn't planned yet. About 30m.")).toBeVisible();
     expect(screen.getByText(/1 in your Inbox/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Start planning' }));
     expect(t.nav().flow?.area).toBe('planning');
@@ -567,7 +724,7 @@ describe('when the week is not planned', () => {
 
   it('can be skipped, leaving a banner and what to do next, and Start puts it on the clock', async () => {
     const t = await unplanned(work);
-    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip planning this week' }));
     expect(await screen.findByText("This week isn't planned")).toBeVisible();
     const next = screen.getByRole('region', { name: 'Next up' });
     expect(within(next).getByText('Paint the fence')).toBeVisible();
@@ -593,56 +750,24 @@ describe('when the week is not planned', () => {
 
   const monthly = { plan_cadence: { every: 1, unit: 'months' as const, anchor: '2026-10-08' }, plan_stretch: { last_planned: '2026-10-08' } };
 
-  it('offers to plan the next stretch when it is due', async () => {
-    const t = await open(async (w) => {
+  // The stretch's planning row replaces the alert these asked with; planning-task.test.tsx in plan/ covers the row.
+  it('offers to plan the next stretch when it is due, as a row with its dates', async () => {
+    await open(async (w) => {
       await w.create('settings', monthly, 'settings');
     });
-    expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Start' }));
-    expect(t.nav().flow?.area).toBe('plan');
+    const row = await screen.findByRole('region', { name: 'Plan the next stretch' });
+    expect(within(row).getByText(/Nov 8 to Dec 7 · About 45m/)).toBeVisible();
   });
 
-  it.each(['desktop', 'phone'] as const)('never planned, offers a first plan from the first day, on %s', async (layout) => {
+  it.each(['desktop', 'phone'] as const)('never planned, offers a first plan of the stretch under way, on %s', async (layout) => {
     await open(async () => undefined, { layout });
-    expect(await screen.findByText('Plan your first stretch. It ends Dec 31.')).toBeVisible();
+    expect(within(await screen.findByRole('region', { name: 'Plan your first stretch' })).getByText(/Ends Dec 31 · About 1h/)).toBeVisible();
   });
 
   it.each(['desktop', 'phone'] as const)('never planned, offers a first plan of this stretch instead, on %s', async (layout) => {
     await open((w) => w.create('settings', { plan_cadence: monthly.plan_cadence }, 'settings'), { layout });
-    expect(await screen.findByText('Plan your first stretch. It ends Nov 7.')).toBeVisible();
-    expect(screen.queryByText(/Plan the next stretch/)).toBeNull();
-  });
-
-  it('keeps a first plan skipped the next day, though it would start from that day', async () => {
-    const unplanned = (w: Writer) => w.create('settings', { plan_cadence: monthly.plan_cadence }, 'settings');
-    await open(unplanned);
-    await screen.findByText('Plan your first stretch. It ends Nov 7.');
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    cleanup();
-    await open(unplanned, { now: at('14:00', '2026-11-03') });
-    await screen.findByRole('heading', { level: 1, name: 'Today' });
-    expect(screen.queryByText('Plan your first stretch. It ends Nov 7.')).toBeNull();
-    localStorage.clear();
-  });
-
-  it('on phone, Start opens planning the stretch, and its × is named in full and puts it away', async () => {
-    const t = await open(async () => undefined, { layout: 'phone' });
-    const start = await screen.findByRole('button', { name: 'Plan your first stretch. It ends Dec 31. Start' });
-    expect(within(start).getByText('Start')).toHaveClass('attngo');
-    await userEvent.click(start);
-    expect(t.nav().flow?.area).toBe('plan');
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now: Plan your first stretch. It ends Dec 31.' }));
-    await waitFor(() => expect(screen.queryByText('Plan your first stretch. It ends Dec 31.')).toBeNull());
-    localStorage.clear();
-  });
-
-  it('lets the next stretch alert be skipped on desktop too', async () => {
-    await open(async (w) => {
-      await w.create('settings', monthly, 'settings');
-    });
-    expect(await screen.findByText('Plan the next stretch. It starts Nov 8.')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    await waitFor(() => expect(screen.queryByText('Plan the next stretch. It starts Nov 8.')).toBeNull());
+    expect(within(await screen.findByRole('region', { name: 'Plan your first stretch' })).getByText('Ends Nov 7 · About 1h')).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Plan the next stretch' })).toBeNull();
   });
 });
 
@@ -658,6 +783,7 @@ describe('Google Calendar', () => {
       stop: vi.fn(),
       email: vi.fn(async () => null),
       eraseAndSignIn: vi.fn(async () => undefined),
+      files: noFiles(),
     }) satisfies AppSync;
   const signIn = (t: Harness) =>
     act(async () => {
@@ -670,9 +796,7 @@ describe('Google Calendar', () => {
     const sync = fakeSync();
     const t = await open(async () => undefined, { sync });
     await signIn(t);
-    // After the first plan's alert.
-    await userEvent.click(await screen.findByRole('button', { name: 'Show 1 more alert' }));
-    expect(screen.getByText('Connect Google Calendar')).toBeVisible();
+    expect(await screen.findByText('Connect Google Calendar')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect(sync.connectCalendar).toHaveBeenCalledOnce();
   });
@@ -808,11 +932,13 @@ describe('the timeline', () => {
     await open(day);
     await userEvent.click(await screen.findByRole('button', { name: 'List' }));
     expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
-    const row = screen.getByRole('button', { name: /Write the report/ });
-    expect(row).toHaveTextContent('4pm to 5pm');
+    const row = screen.getByRole('button', { name: /^4pm to 5pm/ });
     await userEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
     expect(await within(row.parentElement!).findByText('Write more > Finish the essay')).toBeVisible();
+    // Open task opens its popup.
+    await userEvent.click(within(row.parentElement!).getByRole('button', { name: 'Open Write the report' }));
+    expect(await screen.findByRole('dialog', { name: 'Write the report' })).toBeVisible();
   });
 
   it('zooms in and out', async () => {
@@ -907,6 +1033,29 @@ describe('moving a block on the timeline', () => {
         expect(await saved(t)).toMatchObject({ start: at('16:30'), end: at('17:45') });
         // Now after Paint the fence, and still the one with focus.
         expect(await movable(/^Write the report, 4:30pm to 5:45pm/)).toHaveFocus();
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
+      });
+
+      it('a step pressed while the one before is still saving counts on from it, and Undo takes them all back', async () => {
+        const t = await open(day, { layout });
+        const el = await movable();
+        el.focus();
+        // The second step's save waits, as on a slow device, so the first step's position shows while it does.
+        const transaction = t.db.transaction.bind(t.db);
+        let writes = 0;
+        let release = () => undefined as void;
+        vi.spyOn(t.db, 'transaction').mockImplementation(async (fn) => {
+          if (++writes === 2) await new Promise<void>((r) => (release = r));
+          return transaction(fn);
+        });
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        expect(await movable(/^Write the report, 4:15pm to 5:15pm/)).toBe(el);
+        fireEvent.keyDown(el, { key: 'ArrowDown' });
+        release();
+        expect(await screen.findByText('Write the report is now 4:45pm to 5:45pm.')).toBeVisible();
+        expect(await saved(t)).toMatchObject({ start: at('16:45'), end: at('17:45') });
         await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
         await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
       });

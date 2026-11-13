@@ -1,18 +1,24 @@
 // The block in progress with its countdown and time-spent ring, or the next one with Start early. The ring is also
-// Pause and Resume: a tap stops the countdown and the ring together, and the sign inside says which a tap will do.
-// During a task's block the card also shows the first lines of its description.
+// Pause and Resume: a tap stops the countdown and the ring together, and the sign inside says which a tap will do. On
+// desktop, P does the same.
+// During a task's block the card also shows the first lines of its description and how many attachments it has, and a
+// task's name opens its popup.
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { currentBlock, isPaused, nextBlock, pauseWords, ringFill, timeLeftMs, timeSpentMs } from '../../../core/blocks';
-import { formatMinutes, formatTime, instantMs } from '../../../core/dates';
+import { formatTime, instantMs } from '../../../core/dates';
 import { notesLines } from '../../../core/notes';
+import { taskAttachments } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import type { Layout } from '../../app/registry';
 import { useApp, useNow, useQuery } from '../../app/store';
+import { busy } from '../../components/blocks/BlockPrompts';
 import { formatRange } from '../../components/blocks/describe';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { InfoIcon } from '../../components/icons';
+import { TaskName } from '../../components/task/TaskName';
+import { PlanningNow } from './PlanningNow';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const MINUTE_MS = 60_000;
@@ -54,21 +60,28 @@ const dash = (share: number, length: number) => `${(share * length).toFixed(1)} 
  * The ring, which fills toward the block's end, and the control that pauses and resumes it. It never disables while
  * saving, which would drop its focus to the page; a tap that lands meanwhile finds Pause or Resume already done.
  */
-function SpentRing(props: { block: BlockRow; now: number; onToggle(): void }) {
+function SpentRing(props: { block: BlockRow; now: number; phone: boolean; onToggle(): void }) {
   const { block, now } = props;
   const paused = isPaused(block);
   const spent = Math.floor(timeSpentMs(block, now) / MINUTE_MS);
   const fill = ringFill(block, now);
-  // The name says what a tap does first, then what the ring shows: the time spent, and the percent it isn't showing.
-  const label = `${paused ? 'Resume' : 'Pause'}, ${spoken(spent)} spent, ${Math.round(fill * 100)}% of the block`;
+  const percent = Math.round(fill * 100);
+  // The name says what a tap does first, then the time spent, which the ring doesn't show, and the percent it does.
+  const label = `${paused ? 'Resume' : 'Pause'}, ${spoken(spent)} spent, ${percent}% of the block`;
   return (
-    <button type="button" className={`spentring${paused ? ' paused' : ''}`} aria-label={label} onClick={props.onToggle}>
+    <button
+      type="button"
+      className={`spentring${paused ? ' paused' : ''}`}
+      aria-label={label}
+      aria-keyshortcuts={props.phone ? undefined : 'P'}
+      onClick={props.onToggle}
+    >
       <svg viewBox="0 0 64 64" aria-hidden="true">
         <circle className="rtrack" cx="32" cy="32" r={R} />
         <circle className="rfill" cx="32" cy="32" r={R} strokeDasharray={dash(fill, C)} />
       </svg>
       <span className="rmid" aria-hidden="true">
-        {formatMinutes(spent)}
+        {percent}%
         <Sign paused={paused} />
       </span>
     </button>
@@ -76,7 +89,7 @@ function SpentRing(props: { block: BlockRow; now: number; onToggle(): void }) {
 }
 
 /** The label over the countdown, with the ⓘ that opens the key to the ring inside the card. */
-function ClockLabel(props: { block: BlockRow; now: number }) {
+function ClockLabel(props: { block: BlockRow; now: number; phone: boolean }) {
   const { block, now } = props;
   const [open, setOpen] = useState(false);
   const keyId = useId();
@@ -108,7 +121,7 @@ function ClockLabel(props: { block: BlockRow; now: number }) {
           </div>
           <div className="nowkeyrow">
             <Sign paused={false} />
-            Tap the ring to pause the countdown
+            {props.phone ? 'Tap the ring to pause the countdown' : 'Tap the ring or press P to pause the countdown'}
           </div>
           <div className="nowkeyrow">
             <Sign paused />
@@ -133,9 +146,32 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
   const next = nextBlock(blocks, clock);
   const phone = layout === 'phone';
   const taskId = cur?.task_id ?? null;
-  const task = useQuery((sql) => (taskId ? getRecord(sql, 'task', taskId) : Promise.resolve(undefined)), [taskId]).data;
-  const glance = task?.notes ? notesLines(task.notes, 2) : [];
+  const details = useQuery(
+    async (sql) => (taskId ? { task: await getRecord(sql, 'task', taskId), attached: (await taskAttachments(sql, taskId)).length } : null),
+    [taskId],
+  ).data;
+  const glance = details?.task?.notes ? notesLines(details.task.notes, 2) : [];
+  const attached = details?.attached ?? 0;
+  // The ring's tap, and P on desktop: the same action, so the same toast and take-back.
+  const toggle = cur?.started_at ? () => void (isPaused(cur) ? actions.resume(cur) : actions.pause(cur)) : null;
+  const latest = useRef(toggle);
+  latest.current = toggle;
+  useEffect(() => {
+    if (phone) return;
+    // Not while someone types or works in a dialog, nor with a modifier held, leaving the browser's and the Mac's keys be.
+    // Nor while another tab or a flow is in front: Today's pane stays mounted behind them, hidden.
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.key !== 'p' && event.key !== 'P') || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.repeat || event.defaultPrevented || busy() || !latest.current) return;
+      if (head.current?.closest('[aria-hidden="true"]')) return;
+      event.preventDefault();
+      latest.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phone]);
 
+  if (cur?.task_kind === 'planning') return <PlanningNow block={cur} layout={layout} />;
   if (cur) {
     const started = !!cur.started_at;
     const paused = isPaused(cur);
@@ -148,15 +184,14 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
       <section className={`now stack${started ? ' timed' : ''}`} aria-label="Current block">
         <div className="small quiet">Now, {formatRange(cur.start, cur.end, zone)}</div>
         <h2 ref={head} tabIndex={-1}>
-          {cur.title}
+          {cur.task_id ? <TaskName id={cur.task_id} title={cur.title ?? ''} /> : cur.title}
         </h2>
         {glance.length > 0 && <p className="nownotes">{glance.join('\n')}</p>}
-        {started && (
-          <SpentRing block={cur} now={now} onToggle={() => void (paused ? actions.resume(cur) : actions.pause(cur))} />
-        )}
+        {attached > 0 && <div className="small quiet">{attached === 1 ? '1 attachment' : `${attached} attachments`}</div>}
+        {toggle && <SpentRing block={cur} now={now} phone={phone} onToggle={toggle} />}
         {started && (
           <div>
-            <ClockLabel block={cur} now={now} />
+            <ClockLabel block={cur} now={now} phone={phone} />
             <Countdown block={cur} now={now} />
             {paused && <div className="small quiet">Ends at {formatTime(cur.end, zone)} unless you resume.</div>}
           </div>
@@ -189,7 +224,8 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
       <section className="now stack" aria-label="Current block">
         <div className="small quiet">{phone ? `${free}. Next:` : free}</div>
         <h2 ref={head} tabIndex={-1}>
-          {phone ? next.title : `Next: ${next.title}`}
+          {!phone && 'Next: '}
+          {next.task_id ? <TaskName id={next.task_id} title={next.title ?? ''} /> : next.title}
         </h2>
         <div className="row">
           <button className={phone ? 'btn pri' : 'btn'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>

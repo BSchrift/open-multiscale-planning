@@ -15,9 +15,11 @@ import { nowInstant } from './dates';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
 import { backfillExpiry, expireLocal } from './expiry';
+import { createFiles } from './files';
+import type { FileBytes, FilesApi } from './files';
 import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
 import type { Diagnostics } from './telemetry';
-import { apiPost, createHttpSend, runSync, SyncError } from './sync';
+import { apiPost, apiRequest, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
 import type { Reminder } from './types';
 import type { Updater } from './updates';
@@ -45,6 +47,8 @@ export function createSyncRunner(deps: {
   clock: Clock;
   lifecycle: { onForeground(listener: () => void): () => void };
   send: SyncSend;
+  /** Runs after each sync that worked, such as uploading what the server now has the records for. Never stops a sync. */
+  afterSync?(): Promise<void>;
 }) {
   const { db, clock, lifecycle, send } = deps;
   let running: Promise<void> | null = null;
@@ -77,6 +81,7 @@ export function createSyncRunner(deps: {
       return;
     }
     await expire(() => expireLocal(db, clock));
+    await deps.afterSync?.().catch((err: unknown) => console.error('After sync failed', err));
   }
 
   /** Runs a sync, or one more after the current one, so an edit made during a sync isn't left waiting. Never rejects. */
@@ -123,6 +128,29 @@ export function createSyncRunner(deps: {
 
 export type AppSync = ReturnType<typeof startAppSync>;
 
+/** A PUT of a file to a granted link, by fetch, reporting it all sent at the end. */
+const fetchPut =
+  (fetchFn: FetchFn): FilesApi['put'] =>
+  async (url, headers, body, progress) => {
+    const res = await fetchFn(url, { method: 'PUT', headers, body });
+    if (res.ok) progress(body.size);
+    return res.status;
+  };
+
+/** A PUT of a file to a granted link, reporting the bytes sent as they go. Rejects when offline. */
+const xhrPut: FilesApi['put'] = (url, headers, body, progress) =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    // The browser sets Content-Length from the body itself; the signature already holds it.
+    for (const [name, value] of Object.entries(headers)) if (name.toLowerCase() !== 'content-length') xhr.setRequestHeader(name, value);
+    xhr.upload.onprogress = (event) => progress(event.loaded);
+    xhr.onload = () => resolve(xhr.status);
+    xhr.onerror = () => reject(new SyncError('offline'));
+    xhr.ontimeout = () => reject(new SyncError('offline'));
+    xhr.send(body);
+  });
+
 /** Sign-in and sync for the running app, on whatever device it's on. Settings and first-run setup use this. */
 export function startAppSync(
   platform: {
@@ -134,6 +162,7 @@ export function startAppSync(
     onDeepLink(listener: (url: string) => void): () => void;
     notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
     shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
+    files: FileBytes & { clear(): Promise<void> };
     kind?: string;
     diagnostics?: Diagnostics;
   },
@@ -160,7 +189,20 @@ export function startAppSync(
     await checkAccount(platform.db, tokenSubject(await auth.accessToken()));
     return httpSend(request);
   };
-  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, send });
+  const filesApi: FilesApi = {
+    usage: () => apiRequest(api, 'GET', '/files/usage'),
+    grantUpload: (id) => apiPost(api, '/files/upload', { id }),
+    grantDownloads: (ids) => apiPost(api, '/files/download', { ids }),
+    // The page's own request where there is one, for the progress a row shows; fetch, with no progress, elsewhere.
+    put: options.fetch || typeof XMLHttpRequest === 'undefined' ? fetchPut(fetchFn) : xhrPut,
+    get: async (url) => {
+      const res = await fetchFn(url, {});
+      if (!res.ok) throw new SyncError('error');
+      return res.blob();
+    },
+  };
+  const files = createFiles({ db: platform.db, clock, store: platform.files, api: filesApi });
+  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, send, afterSync: () => files.run() });
   const calendarPost = async (path: string) => {
     const res = await apiPost(api, path);
     if (!res.ok) throw new SyncError('error');
@@ -262,6 +304,8 @@ export function startAppSync(
           await setMeta(tx, META.account, account);
         });
         db.notifyChanged({ source: 'remote' });
+        // The other account's photos and files too.
+        await platform.files.clear();
         const share = platform.shareImport;
         if (share) await share.remove((await share.peek()).map((item) => item.id));
         // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when
@@ -273,6 +317,8 @@ export function startAppSync(
       }
     },
     syncNow: runner.syncNow,
+    /** Attachments' uploads and downloads, through the API. */
+    files,
     /** Opens Google's consent page in the browser. The connection arrives in the calendar record by sync. */
     async connectCalendar(): Promise<void> {
       const body = (await (await calendarPost('/calendar/connect')).json().catch(() => null)) as { url?: unknown } | null;

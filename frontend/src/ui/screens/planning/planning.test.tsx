@@ -99,6 +99,11 @@ describe('the planning frame', () => {
     expect(await screen.findByRole('button', { name: '3. Schedule' })).toHaveAttribute('aria-current', 'step');
   });
 
+  it('opens on Pick tasks when stretch planning has just sorted the Inbox, even where it was left elsewhere', async () => {
+    await openPlanning({ step: 3, params: { step: 'pick' } });
+    expect(await screen.findByRole('button', { name: '2. Pick tasks' })).toHaveAttribute('aria-current', 'step');
+  });
+
   it('on a device that has not pulled yet, what opening fills in never overwrites another device’s removed pick', async () => {
     const WEEK = '2026-11-02';
     const server = fakeSyncServer({ now: () => Date.parse('2026-11-03T00:00:00Z') });
@@ -145,13 +150,32 @@ describe('the Inbox step', () => {
     expect(await screen.findByText('Inbox is empty.')).toBeInTheDocument();
   });
 
-  it('on phone lists rows named by what they say, as the Inbox does, each opening the cards on it', async () => {
+  it('on phone lists rows as the Inbox does, each name opening its popup and each › the cards on it', async () => {
     const t = await openPlanning({
       layout: 'phone',
       seed: (w) => w.create('task', { kind: 'inbox', title: 'Return the library books', estimate_min: 30 }, 'i1'),
     });
-    await userEvent.click(await screen.findByRole('button', { name: /^Return the library books/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Process Return the library books' }));
     expect(t.nav().overlay).toEqual({ area: 'process', params: { planning: '2026-11-02', item: 'i1' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Return the library books' }));
+    expect(t.nav().overlay).toEqual({ area: 'task', params: { task: 'i1' } });
+  });
+
+  it("has the Inbox's select mode, to give many items a home at once", async () => {
+    const t = await openPlanning({
+      seed: async (w) => {
+        await w.create('task', { kind: 'inbox', title: 'Return the library books' }, 'i1');
+        await w.create('task', { kind: 'inbox', title: 'Paint the fence' }, 'i2');
+        await w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i3');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Select' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Return the library books' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Call the bank' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Make one offs' }));
+    expect(await screen.findByText('Made 2 one offs.')).toBeVisible();
+    expect((await getRecord(t.db, 'task', 'i3'))?.kind).toBe('one_off');
+    expect(await screen.findByRole('button', { name: 'Process 1 item' })).toBeInTheDocument();
   });
 });
 
@@ -207,6 +231,87 @@ describe('the Review step', () => {
     });
     expect(await screen.findByRole('heading', { name: 'Ready to finish' })).toBeInTheDocument();
     expect(screen.getByText('All weekly aims are reached.')).toBeInTheDocument();
+  });
+
+  describe('the time spent planning', () => {
+    it('counts the minutes you were active, and closing the flow adds them to the week with when it began', async () => {
+      const close = vi.fn();
+      const t = await openPlanning({ params: { week: '2026-11-09' }, close });
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue to picking tasks' }));
+      // Active for 3 minutes, then away for 15: only 5 of those count.
+      t.clock.set('2026-11-02T20:03:00Z');
+      await userEvent.click(screen.getByRole('button', { name: 'Previous step' }));
+      t.clock.set('2026-11-02T20:18:00Z');
+      await userEvent.click(screen.getByRole('button', { name: 'Save and exit' }));
+      await waitFor(async () =>
+        expect(await getRecord(t.db, 'week_plan', weekPlanId('2026-11-09'))).toMatchObject({ planning_min: 8, planning_started_at: '2026-11-02T20:00:00Z' }),
+      );
+    });
+
+    it('Finish plan says how long planning took', async () => {
+      const t = await openPlanning({ step: 3, params: { week: '2026-11-09' } });
+      localStorage.setItem('multiscale.planning.step.2026-11-09', '3');
+      await screen.findByRole('button', { name: 'Finish plan' });
+      t.clock.set('2026-11-02T20:04:00Z');
+      await userEvent.click(screen.getByRole('button', { name: 'Finish plan' }));
+      expect(await screen.findByText('Week planned in 4m.')).toBeVisible();
+    });
+  });
+
+  describe("Review's next planning row", () => {
+    // Sunday, Nov 8 at 5:05pm in Chicago, planning the week of Nov 9.
+    const SUNDAY = '2026-11-08T23:05:00Z';
+
+    it('offers the same time a week on, and schedules it in one tap with Undo in the row', async () => {
+      const t = await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
+      const next = await screen.findByRole('region', { name: 'Next planning' });
+      expect(within(next).getByText('Sun Nov 15, 5pm')).toBeVisible();
+      expect(within(next).getByText('Same time as today')).toBeVisible();
+      await userEvent.click(within(next).getByRole('button', { name: 'Schedule planning for Sunday, Nov 15 at 5pm' }));
+      expect(await within(next).findByText('Scheduled for Sun Nov 15, 5pm.')).toBeVisible();
+      const blocks = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 'planning:week:2026-11-16' && !b.deleted_at);
+      expect(await blocks()).toMatchObject([{ start: '2026-11-15T23:00:00Z', end: '2026-11-15T23:30:00Z' }]);
+      await userEvent.click(within(next).getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await blocks()).toEqual([]));
+      expect(await screen.findByRole('button', { name: 'Schedule planning for Sunday, Nov 15 at 5pm' })).toBeVisible();
+    });
+
+    it('offers Choose a time for next week too', async () => {
+      await openPlanning({ now: SUNDAY, step: 3, params: { week: '2026-11-09' } });
+      const next = await screen.findByRole('region', { name: 'Next planning' });
+      await userEvent.click(within(next).getByRole('button', { name: 'Choose a time to plan the week after' }));
+      expect(await screen.findByRole('dialog', { name: 'When will you plan the week after?' })).toBeVisible();
+    });
+  });
+
+  describe('with a planning task', () => {
+    const PLAN = 'planning:week:2026-11-09';
+    const seed = (block: { start: string; end: string; started_at?: string }) => async (w: Writer) => {
+      await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'] }, PLAN);
+      await w.create('time_block', { task_id: PLAN, ...block, tz: 'America/Chicago' }, 'p1');
+    };
+
+    it('Finish plan ahead of its block finishes the task and frees the block, with Undo', async () => {
+      const close = vi.fn();
+      // Sunday, Nov 8 at 5pm in Chicago.
+      const t = await openPlanning({ step: 3, params: { week: '2026-11-09' }, close, seed: seed({ start: '2026-11-08T23:00:00Z', end: '2026-11-08T23:30:00Z' }) });
+      await userEvent.click(await screen.findByRole('button', { name: 'Finish plan' }));
+      expect(await screen.findByText('Week planned. Sun 5pm is free again.')).toBeVisible();
+      expect((await getRecord(t.db, 'task', PLAN))?.done_at).toBe('2026-11-02T20:00:00Z');
+      expect((await getRecord(t.db, 'time_block', 'p1'))?.cancelled).toBe(true);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'p1'))?.cancelled).toBeFalsy());
+      expect((await getRecord(t.db, 'task', PLAN))?.done_at).toBeNull();
+      expect((await getRecord(t.db, 'week_plan', weekPlanId('2026-11-09')))?.finished_at).toBeNull();
+    });
+
+    it('Save and exit ends the planning block under way at that minute', async () => {
+      const close = vi.fn();
+      const t = await openPlanning({ params: { week: '2026-11-09' }, close, seed: seed({ start: '2026-11-02T19:50:00Z', end: '2026-11-02T20:20:00Z', started_at: '2026-11-02T19:50:00Z' }) });
+      await userEvent.click(await screen.findByRole('button', { name: 'Save and exit' }));
+      await waitFor(() => expect(close).toHaveBeenCalled());
+      expect(await getRecord(t.db, 'time_block', 'p1')).toMatchObject({ end: '2026-11-02T20:00:00Z', ended_at: '2026-11-02T20:00:00Z' });
+    });
   });
 
   it('on phone, Finish plan is the bottom button', async () => {

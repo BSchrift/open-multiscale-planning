@@ -5,6 +5,7 @@ import type { ElectronBridge } from '../../electron/bridge';
 import { systemClock } from '../core/clock';
 import { openDb } from '../core/db';
 import { transact } from '../core/records';
+import { indexedDbFiles } from './attachment-files';
 import { deepLinks, memoryLifecycle } from './memory';
 import type { Platform } from './types';
 
@@ -38,6 +39,9 @@ export async function createElectronPlatform(): Promise<Platform> {
     notifications: bridge.notifications,
     tokens: bridge.tokens,
     lifecycle,
+    files: indexedDbFiles,
+    // A Mac app from before attachments keeps a content policy that doesn't reach their storage.
+    ...(bridge.attachments ? {} : { filesBlocked: true as const }),
     openExternal: bridge.openExternal,
     signInRedirectUri: bridge.signInRedirectUri,
     setAppearance: bridge.setAppearance,

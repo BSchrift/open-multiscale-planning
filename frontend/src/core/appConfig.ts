@@ -24,6 +24,9 @@ export interface AppConfig {
   releaseUrl?: string;
   /** Where the Mac app's disk image is, for an update that needs the app itself replaced. */
   downloadsUrl?: string;
+  /** Where attachments download from, and upload to: the Mac app's content policy lets the page reach them. */
+  filesUrl?: string;
+  filesUploadUrl?: string;
   /** This environment's settings from config/env, which the build inlines. */
   settings?: EnvConfig;
   /** This environment's block of config/retention.yaml, which the build adds. */
@@ -103,6 +106,8 @@ export function loadAppConfig(envName: string | undefined, readFile: ReadFile, c
     authClientId: outputs.AppClientId,
     ...(outputs.ReleaseUrl ? { releaseUrl: checkedUrl('ReleaseUrl', outputs.ReleaseUrl, env, file) } : {}),
     ...(outputs.DownloadsUrl ? { downloadsUrl: checkedUrl('DownloadsUrl', outputs.DownloadsUrl, env, file) } : {}),
+    ...(outputs.FilesUrl ? { filesUrl: checkedUrl('FilesUrl', outputs.FilesUrl, env, file) } : {}),
+    ...(outputs.FilesUploadUrl ? { filesUploadUrl: checkedUrl('FilesUploadUrl', outputs.FilesUploadUrl, env, file) } : {}),
   };
 }
 

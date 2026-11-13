@@ -85,3 +85,40 @@ export function NotesIcon() {
     </svg>
   );
 }
+
+/** A cross, for a button that closes a dialog. */
+export function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
+/** A bin, for a button that deletes. */
+export function BinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+/** An arrow out, for a link. */
+export function LinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 16L16 8M9 8h7v7" />
+    </svg>
+  );
+}
+
+/** A landscape in a frame, for a photo. */
+export function PhotoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M4 16l5-5 4 4 2-2 5 5" />
+    </svg>
+  );
+}

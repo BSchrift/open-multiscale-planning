@@ -31,7 +31,7 @@ async function openProject(page: Page, phone: boolean) {
 
 async function editTask(page: Page, details = false) {
   await page.getByRole('button', { name: `Edit task Draft the summary, 2h${details ? ', has details' : ''}` }).click();
-  return page.getByRole('dialog', { name: 'Edit task' });
+  return page.getByRole('dialog', { name: 'Draft the summary' });
 }
 
 test('writes a description with the bar, shows it formatted, and opens its links outside the app', async ({ page }, info) => {

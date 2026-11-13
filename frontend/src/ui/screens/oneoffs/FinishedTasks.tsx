@@ -7,6 +7,8 @@ import { finishedCount, finishedTasks } from '../../../core/queries';
 import type { FinishedRow } from '../../../core/queries';
 import { retickOneOff, untickOneOff } from '../../../core/tasks';
 import { useApp, useMutation, useQuery } from '../../app/store';
+import { Became } from '../../components/task/Became';
+import { useOpenTask } from '../../components/task/TaskName';
 import { TaskRow } from '../../components/TaskRow';
 
 const PAGE = 10;
@@ -19,6 +21,7 @@ function monthName(date: string, thisYear: string): string {
 
 export function FinishedTasks() {
   const { clock, layout } = useApp();
+  const openTask = useOpenTask();
   const id = useId();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -97,7 +100,15 @@ export function FinishedTasks() {
             return (
               <div key={row.id}>
                 {heading && <h3>{month}</h3>}
-                <TaskRow title={row.title} checked={checked} line={checked ? `Done ${formatDate(day)}` : 'Not done'} onToggle={() => void flip(row)} />
+                <TaskRow
+                  title={row.title}
+                  checked={checked}
+                  line={checked ? `Done ${formatDate(day)}` : 'Not done'}
+                  onOpen={() => openTask(row.task_id)}
+                  onToggle={() => void flip(row)}
+                >
+                  {checked && row.became_type && row.became_id && <Became became={{ type: row.became_type, id: row.became_id }} />}
+                </TaskRow>
               </div>
             );
           })}

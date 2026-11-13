@@ -1,7 +1,7 @@
 // The wording and shapes the Plan page, the flow and the More line share. Domain rules stay in core/plan.
 
 import type { Clock } from '../../../core/clock';
-import { formatDate, formatMinutes, localDate, today } from '../../../core/dates';
+import { diffDays, formatDate, formatMinutes, localDate, today } from '../../../core/dates';
 import { status } from '../../../core/status';
 import {
   currentStretch,
@@ -11,22 +11,28 @@ import {
   msLate,
   msReached,
   nextStretch,
+  planMinutes,
   planningDue,
   planningOpens,
+  plannable,
+  plannedIds,
   planStretch,
 } from '../../../core/plan';
 import type { CadenceSettings, PlanChange, PlanContext, ProjectPlan, Stretch } from '../../../core/plan';
 import type { Writer } from '../../../core/records';
 import { onceOverlaps, onceWhen } from '../../../core/schedule';
-import type { LocalDate, Milestone, Task } from '../../../core/types';
+import type { LocalDate, Milestone, Minutes, Task } from '../../../core/types';
 import type { DiamondState } from '../../components/MilestoneDiamond';
 import type { PlanData } from './data';
 import type { PlanFlow } from './flowState';
 
 export const range = (st: Stretch) => `${formatDate(st.start)} to ${formatDate(st.end)}`;
 
-/** Writes one planning change and keeps its reverse for the Undo line. Resolves to whether it saved. */
-export type Act = (key: string, text: string, build: (w: Writer) => Promise<PlanChange>) => Promise<boolean>;
+/**
+ * Writes one planning change and keeps its reverse for the Undo line and What changed. Resolves to whether it saved.
+ * goingOn, as a slider moves, keeps the first reverse, so Undo goes back to before it began.
+ */
+export type Act = (key: string, text: string, build: (w: Writer) => Promise<PlanChange>, goingOn?: boolean) => Promise<boolean>;
 
 /** Rounded, for totals that are only ever about right. */
 export const hrs = (minutes: number) => `${Math.round(minutes / 60)}h`;
@@ -99,6 +105,36 @@ export function whereNow(settings: CadenceSettings, on: LocalDate, flow: PlanFlo
           : !cur
             ? starts
             : `Next planning: ${nextPlanning}`,
+  };
+}
+
+export interface Fit {
+  /** Projects with time under the plan: those under way soonest first, then any starting later in the stretch. */
+  plans: ProjectPlan[];
+  startsLater: (plan: ProjectPlan) => boolean;
+  planned: Minutes;
+  /** What your recent pace would do over the stretch, or null with no pace yet. */
+  capacity: number | null;
+  over: boolean;
+  /** 'About 2h planned, about 6h at your recent pace.' */
+  text: string;
+}
+
+/** Does it fit: the open time under the plan against what recent pace would do over the stretch. */
+export function fitOf(data: PlanData, ctx: PlanContext, st: Stretch, pace: Minutes | null): Fit {
+  const on = today(ctx.clock);
+  const ranked = plannable(data.plans, ctx);
+  const starting = data.plans.filter((p) => p.project.state === 'active' && p.project.start > on && p.project.start <= st.end);
+  const plans = [...ranked, ...starting].filter((p) => plannedIds(p, st).length);
+  const planned = plans.reduce((sum, p) => sum + planMinutes(p, st), 0);
+  const capacity = pace == null ? null : (pace * (diffDays(st.start, st.end) + 1)) / 7;
+  return {
+    plans,
+    startsLater: (plan) => !ranked.includes(plan),
+    planned,
+    capacity,
+    over: capacity != null && planned > capacity,
+    text: capacity == null ? `About ${hrs(planned)} planned.` : `About ${hrs(planned)} planned, about ${hrs(capacity)} at your recent pace.`,
   };
 }
 
@@ -177,7 +213,7 @@ export interface Call {
   leftMin: number;
 }
 
-/** What needs a call before planning: projects past their end, then overdue milestones. */
+/** What's overdue before planning: projects past their end, then milestones whose date passed without being marked done. */
 export function needsCall(data: PlanData, ctx: PlanContext): Call[] {
   const on = today(ctx.clock);
   const active = data.plans.filter((p) => p.project.state === 'active');
@@ -192,7 +228,7 @@ export function needsCall(data: PlanData, ctx: PlanContext): Call[] {
     plan.milestones
       .filter((m) => !m.dropped_at && !msReached(plan, m) && msLate(m, ctx))
       .map((m): Call => {
-        const sub = `${plan.project.title}. Was due ${formatDate(effectiveDue(plan, m, ctx))}.`;
+        const sub = `${plan.project.title}. Was due ${formatDate(effectiveDue(plan, m, ctx))} and isn't marked done.`;
         return { key: m.id, plan, milestone: m, title: m.title, sub, leftMin: 0 };
       }),
   );

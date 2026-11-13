@@ -37,9 +37,17 @@ export interface MacReleaseConfig {
   waitFor?: string;
   /** existing when the account already has GitHub's OIDC provider, which an account can have only one of. */
   githubOidcProvider?: 'create' | 'existing';
+  /**
+   * The subject of GitHub's tokens for the release environment's jobs, when it isn't repo:<repository>:environment:release:
+   * a repository with immutable subjects has its owner's and its own ids in them, repo:<owner>@<id>/<repo>@<id>:….
+   */
+  githubSubject?: string;
 }
 
-/** How long a run waits for the Mac apps when control.yaml doesn't say: time for the owner to approve the build. */
+/**
+ * How long a run waits for the Mac apps when control.yaml doesn't say: time to build them, and for the owner to approve
+ * the build when the release environment asks.
+ */
 export const DEFAULT_MAC_WAIT = 'PT2H';
 /** CodeBuild runs a build for up to 8 hours, and checking the apps takes some of it. */
 export const MAX_MAC_WAIT_SECONDS = 7 * 3600;
@@ -161,6 +169,9 @@ function controlAt(path: string, deploying: boolean): ControlConfig {
       if (wait === undefined || wait === 0 || wait > MAX_MAC_WAIT_SECONDS) problems.push('pipeline.mac.waitFor must be hours, minutes or seconds up to 7 hours, such as PT2H');
       mac.githubOidcProvider ??= 'create';
       if (!['create', 'existing'].includes(mac.githubOidcProvider)) problems.push('pipeline.mac.githubOidcProvider must be create or existing');
+      if (mac.githubSubject != null && !matches(/^repo:[^:*?]+:environment:release$/, mac.githubSubject)) {
+        problems.push('pipeline.mac.githubSubject must be repo:<owner>/<repo>:environment:release, with ids if GitHub adds them, and no wildcards');
+      }
     }
   }
   if (deploying && (EXAMPLE_ACCOUNTS.includes(c.aws?.account) || matches(/(^|\.)example\.com$/, c.dns?.domain) || matches(/@example\.com$/i, c.pipeline?.email))) {

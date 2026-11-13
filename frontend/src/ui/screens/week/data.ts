@@ -195,7 +195,7 @@ export function weekModel(d: WeekData, clock: Clock) {
     ...oneOffs
       .filter((t) => !t.cancelled_at && datesOf(t) && !picks.some((c) => c.task.id === t.id) && !blocks.some((b) => b.task_id === t.id))
       .map((t) => taskItem(t, minutesLeft(t) || NO_ESTIMATE_MIN, null)),
-    ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? []).map(
+    ...practicesLeft(records.practices, ctx, weekPlan?.skipped_practices ?? [], weekPlan?.skipped_sessions ?? []).map(
       (x): LaneItem => ({
         id: x.practice.id,
         title: x.practice.title,
@@ -206,7 +206,7 @@ export function weekModel(d: WeekData, clock: Clock) {
         line: x.sessions > 1 ? `${x.sessions} × ${formatMinutes(x.length)}` : formatMinutes(x.minutes),
         practice: x.practice,
         picked: false,
-        offers: practiceSlots(x.practice, ctx).slice(0, 3),
+        offers: practiceSlots(x.practice, ctx, weekPlan?.skipped_sessions ?? []).slice(0, 3),
       }),
     ),
   ].sort((a, b) => (a.dates?.from ?? '~').localeCompare(b.dates?.from ?? '~'));

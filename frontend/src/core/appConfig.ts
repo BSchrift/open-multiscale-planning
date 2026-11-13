@@ -20,7 +20,7 @@ export interface AppConfig {
   build?: number;
   /** Each app's native code this bundle was built against, from scripts/shell-hash.mjs. */
   shell?: { electron: string; ios: string };
-  /** Where updates come from: release.json and the files it lists. Only an environment with its own domain has one. */
+  /** Where updates come from: each app's feed and the files it lists (core/updates.ts). Only an environment with its own domain has one. */
   releaseUrl?: string;
   /** Where the Mac app's disk image is, for an update that needs the app itself replaced. */
   downloadsUrl?: string;

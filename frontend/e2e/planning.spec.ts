@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { EST_STEPS } from '../src/ui/components/EstimateSlider';
 import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
@@ -140,4 +141,58 @@ test('week arrows have no limit, with This week to come back, and the step is ke
   await expect(steps(page)).toHaveCount(0);
   await page.getByRole('button', { name: /Start planning|Continue planning/ }).first().click();
   await expect(steps(page).locator('[aria-current="step"]')).toHaveText(/Pick/);
+});
+
+/** Before the app loads: counts the transactions the app's database worker (src/platform/web.ts) commits. */
+function countCommits() {
+  const counted = window as unknown as { commits: number };
+  counted.commits = 0;
+  window.Worker = class extends window.Worker {
+    constructor(url: string | URL, options?: WorkerOptions) {
+      super(url, options);
+      const post = this.postMessage.bind(this) as (message: unknown) => void;
+      this.postMessage = ((message: { op?: string; sql?: string }) => {
+        if (message?.op === 'exec' && message.sql === 'COMMIT') counted.commits++;
+        post(message);
+      }) as Worker['postMessage'];
+    }
+  };
+}
+const commits = (page: Page) => page.evaluate(() => (window as unknown as { commits: number }).commits);
+
+// The owner's report: dragging an estimate was laggy. Every step saved, and the thumb jumped back until it read back.
+test('dragging an estimate in Pick follows the mouse and saves once, where it was let go, with Undo', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', "Playwright's touchscreen only taps, and touch pointer events don't move a native range");
+  await page.addInitScript(countCommits);
+  await startPlanning(page);
+  await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
+  await page.getByRole('button', { name: /^Write the report,/ }).click();
+  await page.getByRole('button', { name: 'Estimate for Collect the sources: 2h estimate' }).click();
+  const slider = page.getByRole('dialog', { name: 'Estimate for Collect the sources' }).getByRole('slider', { name: 'Estimate' });
+  const box = (await slider.boundingBox())!;
+  // The thumb's centre at each step, inset by half the thumb.
+  const at = (step: number) => [box.x + 8 + ((box.width - 16) * step) / (EST_STEPS.length - 1), box.y + box.height / 2] as const;
+  const from = EST_STEPS.indexOf(120);
+  const to = EST_STEPS.indexOf(360);
+  const before = await commits(page);
+  await page.mouse.move(...at(from));
+  await page.mouse.down();
+  let last = from;
+  for (let step = from + 1; step <= to; step++) {
+    await page.mouse.move(...at(step), { steps: 3 });
+    const now = Number(await slider.inputValue());
+    expect(now, `the thumb at step ${step}`).toBeGreaterThanOrEqual(last);
+    last = now;
+  }
+  await page.mouse.up();
+  await expect(slider).toHaveAttribute('aria-valuetext', '6h');
+  // Letting go sets the popover's draft; Save writes it, once.
+  expect(await commits(page)).toBe(before);
+  await page.getByRole('dialog', { name: 'Estimate for Collect the sources' }).getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Collect the sources, 6h estimate.')).toBeVisible();
+  expect(await commits(page)).toBe(before + 1);
+  await page.screenshot({ path: info.outputPath('pick-estimate-drag.png') });
+
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Estimate for Collect the sources: 2h estimate' })).toBeVisible();
 });

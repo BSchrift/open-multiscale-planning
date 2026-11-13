@@ -1228,9 +1228,31 @@ describe('To schedule on Today', () => {
     // Right above the timeline.
     expect(lane.nextElementSibling?.querySelector('.day, .daywrap')).not.toBeNull();
     await userEvent.click(within(lane).getByRole('button', { name: /^Write the report, Project, 2h/ }));
-    await userEvent.click(within(screen.getByRole('group', { name: 'Write the report' })).getAllByRole('button', { name: /^Place Write the report, / })[0]!);
+    await userEvent.click(within(screen.getByRole('group', { name: 'Suggested times for Write the report' })).getAllByRole('button')[0]!);
     await waitFor(async () => expect(await live(t, 't1')).toHaveLength(1));
     await waitFor(() => expect(within(lane).queryByRole('button', { name: /^Write the report, Project/ })).toBeNull());
+  });
+
+  it('shows a set-day practice only on its days, and a count on days without one of its sessions', async () => {
+    const days = (w: Writer) => w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', days: [1, 4], preferred_times: [7 * 60 + 30], state: 'active' }, 'run');
+    // Today is Monday: Tuesday's and Friday's runs wait above their own days, not today's.
+    await open(days);
+    const lane = await screen.findByRole('region', { name: 'To schedule' });
+    expect(within(lane).queryByRole('button', { name: /^Morning run/ })).toBeNull();
+    cleanup();
+    await open(days, { now: '2026-11-03T12:00:00Z' });
+    const tuesday = await screen.findByRole('region', { name: 'To schedule' });
+    expect(within(tuesday).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Tuesday around 7:30 AM, to schedule' })).toBeVisible();
+    cleanup();
+    const count = async (w: Writer) => {
+      await w.create('practice', { title: 'Climbing', target_min: 120, per: 'week', sessions: 2, preferred_times: [18 * 60], state: 'active' }, 'climb');
+      await w.create('time_block', { practice_id: 'climb', start: '2026-11-03T00:00:00Z', end: '2026-11-03T01:00:00Z', tz: 'America/Chicago' }, 'session:climb:2026-11-02');
+    };
+    await open(count, { now: '2026-11-02T20:00:00Z' });
+    expect(within(await screen.findByRole('region', { name: 'To schedule' })).queryByRole('button', { name: /^Climbing/ })).toBeNull();
+    cleanup();
+    await open(count, { now: '2026-11-03T20:00:00Z' });
+    expect(within(await screen.findByRole('region', { name: 'To schedule' })).getByRole('button', { name: 'Climbing, Practice, 1 more this week, 1h each, to schedule' })).toBeVisible();
   });
 
   it('a card dragged onto the day is placed where it is let go', async () => {

@@ -2,7 +2,7 @@
 // say what to offer. Every add or removal pops up the capacity ring. Two layouts over the same rows: a timeline
 // beside the Planned list on desktop, and a board of bars over a half-height sheet on phone.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatMinutes } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, ProjectPlan } from '../../../../core/plan';
@@ -78,9 +78,15 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   // What each Mark done here wrote, so Undo puts back the picks and blocks it freed, and a repeating one off's date.
   const [doneHere, setDoneHere] = useState<Record<string, PlanChange>>({});
 
-  if (!data) return null;
-  const model = weekModel(data, clock);
-  const view = pickModel(data, model, clock);
+  // Both read the whole history, so they're worked out only when the data changes, not on every render: a live region
+  // line, a ring pulse or a save's pending state. On a five-year account each took about 200 ms.
+  const models = useMemo(() => {
+    if (!data) return null;
+    const model = weekModel(data, clock);
+    return { model, view: pickModel(data, model, clock) };
+  }, [data, clock]);
+  if (!data || !models) return null;
+  const { model, view } = models;
   const { open, use, weekPlan } = model;
 
   // Each change pops the ring and is said aloud, from the time used before it.

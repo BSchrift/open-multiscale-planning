@@ -139,7 +139,10 @@ export function PhoneWeek(props: WeekProps) {
     if (!placing || !at || locked) return;
     if (placing.mode === 'move') {
       const b = placing.block;
-      if (at.date !== b.date || at.start !== b.start || at.end !== b.end) {
+      // A session moved to another day is for this week only, so nothing asks about future weeks.
+      if (b.practice_id && at.date !== b.date) {
+        if (!(await act.moveSessionDay(b, at, model.blocks))) return;
+      } else if (at.date !== b.date || at.start !== b.start || at.end !== b.end) {
         await act.moveWithUndo(b.id, b.title, at);
         if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
       }
@@ -258,7 +261,7 @@ export function PhoneWeek(props: WeekProps) {
             ctx={ctx}
             placed={ctx.placed}
             draft={placing ? at : null}
-            hint={(date) => ({ noFit: noFit(date) })}
+            hint={(date) => ({ noFit: noFit(date), waiting: model.unscheduled.filter((x) => x.dates && x.dates.from <= date && date <= x.dates.to).length })}
             onPick={pickDay}
           />
         </div>
@@ -450,6 +453,10 @@ export function PhoneWeek(props: WeekProps) {
               void act.place(item, slot);
             }}
             onChoose={() => startPlacing({ mode: 'place', item, length: item.length, fromDrawer: false }, item.offers[0] ? { ...item.offers[0] } : null)}
+            onSkipDay={() => {
+              setOpen(null);
+              void act.skipDay(item, data.week);
+            }}
             onTakeOut={() => {
               setOpen(null);
               void act.takeOut(item, data.week);

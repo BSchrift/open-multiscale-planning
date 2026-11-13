@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 type Surface = 'web' | 'mac' | 'iphone';
-type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'done_query_ms';
+type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'estimate_drag_ms' | 'done_query_ms';
 type Results = Partial<Record<Surface, Partial<Record<Measure | 'records', number>>>>;
 
 const LABELS: Record<Measure, string> = {
@@ -18,14 +18,15 @@ const LABELS: Record<Measure, string> = {
   edit_save_ms: 'Edit saved',
   today_query_ms: 'Today query',
   week_query_ms: 'Week query',
+  estimate_drag_ms: 'Pick estimate drag, slowest step',
   done_query_ms: 'Done query',
 };
 
 const SURFACES = ['web', 'mac', 'iphone'] as const;
 
 /**
- * The plan's budgets. docs/performance.md lists them with the baseline. A report-only one is shown against its budget
- * but never fails a run, missed or not measured.
+ * The plan's budgets. docs/performance.md lists them with the baseline. A report-only one is shown but never fails a
+ * run, missed or not measured, until it has a baseline of its own.
  */
 export const BUDGETS: { measure: Measure; surface: Surface; budget: number; reportOnly?: true }[] = [
   { measure: 'first_sync_ms', surface: 'web', budget: 10_000 },
@@ -33,6 +34,8 @@ export const BUDGETS: { measure: Measure; surface: Surface; budget: number; repo
   { measure: 'first_sync_ms', surface: 'iphone', budget: 20_000 },
   { measure: 'edit_save_ms', surface: 'web', budget: 50 },
   ...(['today_query_ms', 'week_query_ms'] as const).flatMap((measure) => SURFACES.map((surface) => ({ measure, surface, budget: 100 }))),
+  // A step of a drag drawn within three frames.
+  ...(['web', 'mac'] as const).map((surface) => ({ measure: 'estimate_drag_ms' as const, surface, budget: 50, reportOnly: true as const })),
   ...SURFACES.map((surface) => ({ measure: 'done_query_ms' as const, surface, budget: 100, reportOnly: true as const })),
 ];
 
@@ -54,8 +57,7 @@ export function report(results: Results, skip: readonly string[]) {
     }
     const over = value > budget;
     if (over && !reportOnly) missed++;
-    const verdict = reportOnly ? (over ? 'missed, report only' : 'ok, report only') : over ? 'MISSED' : 'ok';
-    rows.push([LABELS[measure], surface, format(measure, value), formatBudget(measure, budget), verdict]);
+    rows.push([LABELS[measure], surface, format(measure, value), formatBudget(measure, budget), over ? (reportOnly ? 'over, report only' : 'MISSED') : 'ok']);
   }
   const widths = rows[0]!.map((_, i) => Math.max(...rows.map((row) => row[i]!.length)));
   const lines = rows.map((row) => row.map((cell, i) => cell.padEnd(widths[i]!)).join('  ').trimEnd());

@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';
+import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { parse } from 'yaml';
 import { loadRetention } from '../../../config/retention';
@@ -112,6 +113,48 @@ export async function usableAt(page: Page, openInbox: number): Promise<number> {
     { polling: 'raf', ...FIRST_SYNC },
   );
   return (await handle.jsonValue()) as number;
+}
+
+/**
+ * Pick's estimate slider dragged with the mouse across ten steps, as in weekly planning, then put back with its Undo:
+ * the slowest step, from its input event until the frame after it. Saving each step made this lag behind the mouse.
+ */
+export async function timeEstimateDrag(page: Page): Promise<number> {
+  await page.evaluate(() => {
+    const steps: number[] = [];
+    Object.assign(window, { estimateSteps: steps });
+    document.addEventListener(
+      'input',
+      (event) => {
+        if ((event.target as HTMLInputElement).type !== 'range') return;
+        const at = event.timeStamp;
+        requestAnimationFrame(() => setTimeout(() => steps.push(performance.now() - at)));
+      },
+      true,
+    );
+  });
+  // From Week, which offers this week's planning, or next week's once this one is planned.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week', exact: true }).click();
+  await page.locator(".pane[aria-label='Week']:visible").getByRole('button', { name: /^(Start planning|Plan next week)$/ }).click(NETWORK);
+  await page.getByRole('button', { name: 'Continue to picking tasks' }).click(NETWORK);
+  // The first project on Pick's timeline, then the first task's estimate in it.
+  await page.getByRole('button', { name: /^(?!One offs, ).+, .+ planned$/ }).first().click(NETWORK);
+  await page.getByRole('button', { name: /^Estimate for .+: / }).first().click(NETWORK);
+  const slider = page.getByRole('dialog', { name: /^Estimate for / }).getByRole('slider');
+  const box = (await slider.boundingBox())!;
+  const max = Number(await slider.getAttribute('max'));
+  // The thumb's centre at each step, inset by half the thumb.
+  const at = (step: number) => [box.x + 8 + ((box.width - 16) * step) / max, box.y + box.height / 2] as const;
+  await page.mouse.move(...at(0));
+  await page.mouse.down();
+  for (let step = 1; step <= 10; step++) await page.mouse.move(...at(step), { steps: 3 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click(NETWORK);
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0, NETWORK);
+  const steps = await page.evaluate(() => (window as unknown as { estimateSteps: number[] }).estimateSteps);
+  const slowest = Math.round(Math.max(...steps) * 10) / 10;
+  console.log(`estimate drag: ${steps.length} steps, the slowest ${slowest} ms`);
+  return slowest;
 }
 
 /** Each query's median of five runs in the app's page, through the app's own database driver. */

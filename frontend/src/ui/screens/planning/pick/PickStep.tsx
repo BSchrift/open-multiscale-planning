@@ -1,17 +1,18 @@
 // Pick tasks: add the week's work from projects and One offs. Nothing is picked until added, and suggestions only
-// say what to offer. Does it fit, above every step, shows what each change does to the week. Two layouts over the same
-// rows: a timeline beside the Planned list on desktop, and a board of bars over a half-height sheet on phone.
+// say what to offer. Does it fit, above every step, shows what each change does to the week. A card per project, with
+// its overdue question inside it, and the week's shape beside them on desktop and as a tab on phone.
 
 import { useMemo, useState } from 'react';
 import type { Clock } from '../../../../core/clock';
-import { formatMinutes, nowInstant } from '../../../../core/dates';
-import { applyPlanChange, minutesLeft } from '../../../../core/plan';
-import type { PlanChange, ProjectPlan } from '../../../../core/plan';
-import { getRecord, removeWeekPick, setWeekPick, weekPickId, weekPlanId } from '../../../../core/records';
+import { formatDate, formatMinutes, nowInstant } from '../../../../core/dates';
+import { applyPlanChange, dropMilestone, markMilestoneDone, minutesLeft, moveMilestone } from '../../../../core/plan';
+import type { PlanChange, ProjectPlan, RecordWrite } from '../../../../core/plan';
+import { getRecord, setWeekPick, weekPickId, weekPlanId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
-import { closeTask, tickOneOff, undoProjectChange } from '../../../../core/tasks';
+import { withStatusLine } from '../../../../core/status';
+import { closeTask, scheduledWork, tickOneOff } from '../../../../core/tasks';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import type { Fields, LocalDate, Minutes } from '../../../../core/types';
+import type { Fields, LocalDate, Milestone, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
 import { useToast } from '../../../components/Toast';
@@ -26,7 +27,9 @@ import './pick.css';
 interface AimSetting {
   bucket: string;
   name: string;
+  /** This week's aim, and the one it has every week. */
   value: Minutes;
+  usual: Minutes;
   canSkip: boolean;
   skipped: boolean;
 }
@@ -51,29 +54,32 @@ export interface PickProps {
   /** What the live region last said. */
   said: string;
   aims: AimSetting[];
-  aimsChanged: boolean;
   /** Adds the suggested part, or all that's left, at once. */
   add(row: PickTask): void;
-  remove(row: PickTask): void;
-  setMinutes(row: PickTask, minutes: Minutes): void;
   /** The time popover's Save: this week's share and the time the task takes, its time left when it has some recorded,
    * else its estimate, as one change with Undo. */
   saveTime(row: PickTask, week: Minutes, estimate: Minutes): void;
-  /** Takes it out of the week, with Undo. */
-  dropFromWeek(row: PickTask): void;
+  /** Takes it out of the week, with Undo; focusUndo when what was pressed has gone. */
+  dropFromWeek(row: PickTask, focusUndo?: boolean): void;
   /** Finished here, so the row stays, struck through. */
   isDone(row: PickTask): boolean;
   /** Finishes it, with a toast to undo it; focusUndo when what was pressed has gone. */
   markDone(row: PickTask, focusUndo?: boolean): void;
   undoDone(row: PickTask): void;
-  /** Adds every suggestion and resolves to the ids added, for Undo. */
-  addSuggested(): Promise<string[]>;
-  removeAll(ids: readonly string[]): void;
-  setAim(bucket: string, minutes: Minutes): void;
-  resetAims(): void;
-  toggleSkipAim(bucket: string): void;
+  /** Several at once, each as one change with one toast and Undo, which takes focus since what was pressed has gone. */
+  pickMany(rows: PickTask[]): void;
+  doneMany(rows: PickTask[]): void;
+  dropMany(rows: PickTask[]): void;
+  /** Keep in plan on an overdue milestone: its new date, and the open tasks to add with it. */
+  keepMilestone(plan: ProjectPlan, milestone: Milestone, date: LocalDate, add: PickTask[]): void;
+  milestoneDone(plan: ProjectPlan, milestone: Milestone): void;
+  dropMilestone(plan: ProjectPlan, milestone: Milestone): void;
+  /** Keep in plan on a task that needs a new time: into this week at its estimate. */
+  keepCarried(row: PickTask): void;
+  /** Drop on a task that needs a new time: it's cancelled. */
+  dropTask(row: PickTask): void;
+  saveAims(aims: Record<string, Minutes>, skipped: string[]): void;
   skipPastEnd(projectId: string): void;
-  undoChange(plan: ProjectPlan): void;
   onNext(): void;
 }
 
@@ -84,17 +90,14 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const toast = useToast();
   const [said, setSaid] = useState('');
 
-  const pickWrite = useMutation(async (w, picks: readonly { id: string; minutes: Minutes | null }[]) => {
-    for (const p of picks) await (p.minutes === null ? removeWeekPick(w, week, p.id) : setWeekPick(w, week, p.id, p.minutes));
-  });
+  const pickWrite = useMutation((w, id: string, minutes: Minutes) => setWeekPick(w, week, id, minutes));
   const planWrite = useMutation((w, fields: Fields<'week_plan'>) => w.create('week_plan', { week_start: week, ...fields }, weekPlanId(week)));
-  const undo = useMutation((w, plan: ProjectPlan) => undoProjectChange(w, plan, clock));
   const taskWrite = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   // What each Mark done here wrote, so Undo puts back the picks and blocks it freed, and a repeating one off's date.
   const [doneHere, setDoneHere] = useState<Record<string, PlanChange>>({});
 
   // Both read the whole history, so they're worked out only when the data changes, not on every render: a live region
-  // line, a ring pulse or a save's pending state. On a five-year account each took about 200 ms.
+  // line, a card opening or a save's pending state. On a five-year account each took about 200 ms.
   const models = useMemo(() => {
     if (!data) return null;
     const model = weekModel(data, clock);
@@ -108,9 +111,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const fitWords = (after: Minutes) => `${formatMinutes(after)} of ${formatMinutes(open)}${after > open ? `, ${formatMinutes(after - open)} over` : ''}`;
   // Adding and removing are said aloud, from the time used before. A slider's steps aren't, since the slider says its
   // own value, and a change with a toast isn't, since the toast says it.
-  const changeBy = (title: string, delta: Minutes, verb?: 'added' | 'removed') => {
-    if (verb) setSaid(`${title} ${verb}. ${fitWords(use.used + delta)}.`);
-  };
+  const changeBy = (title: string, delta: Minutes, verb: 'added' | 'removed') => setSaid(`${title} ${verb}. ${fitWords(use.used + delta)}.`);
   const freeWords = (free: Minutes) => (free < 0 ? `${formatMinutes(-free)} over` : `${formatMinutes(free)} free`);
   const undoable = (reverse: PlanChange | undefined, message: string, options: { spoken?: string; focusUndo?: boolean } = {}) => {
     if (reverse) toast.show(message, { ...options, undo: () => taskWrite.run((w) => applyPlanChange(w, reverse)) });
@@ -120,8 +121,16 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   const aimRows = model.aimRows(model.planned);
   const aimSetting = (bucket: string, name: string, usual: Minutes | null | undefined): AimSetting => {
     const row = aimRows.find((r) => r.bucket === bucket);
-    return { bucket, name, value: aimsNow[bucket] ?? usual ?? 0, canSkip: !!row && aimWords(row).canSkip, skipped: skipped.includes(bucket) };
+    return { bucket, name, value: aimsNow[bucket] ?? usual ?? 0, usual: usual ?? 0, canSkip: !!row && aimWords(row).canSkip, skipped: skipped.includes(bucket) };
   };
+  const tasks = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
+  const many = async (rows: readonly PickTask[], fn: (w: Writer, row: PickTask) => Promise<PlanChange>) =>
+    taskWrite.run(async (w) => {
+      const writes = [];
+      for (const r of rows) writes.unshift(...(await fn(w, r)).writes);
+      return { writes };
+    });
+  const finish = (w: Writer, t: PickTask['c']['task']) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock));
 
   const pickProps: PickProps = {
     week,
@@ -132,35 +141,71 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       ...model.ranked.map((p) => aimSetting(p.project.id, p.project.title, p.project.weekly_aim)),
       aimSetting(ONE_OFFS_BUCKET, 'One offs', data.settings.one_offs_weekly_aim),
     ],
-    aimsChanged: Object.keys(aimsNow).length > 0,
     add: (row) => {
       changeBy(row.title, row.adds, 'added');
-      void pickWrite.run([{ id: row.c.task.id, minutes: row.adds }]);
+      void pickWrite.run(row.c.task.id, row.adds);
     },
-    remove: (row) => {
-      changeBy(row.title, -row.c.week, 'removed');
-      void pickWrite.run([{ id: row.c.task.id, minutes: null }]);
+    pickMany: async (rows) => {
+      const sum = rows.reduce((s, r) => s + r.adds, 0);
+      const reverse = await many(rows, (w, r) => pickChange(w, week, r.c.task.id, r.adds, clock));
+      undoable(reverse, `Added ${rows.length === 1 ? rows[0]!.title : tasks(rows.length)}, ${formatMinutes(sum)}.`, { spoken: `${fitWords(use.used + sum)}.`, focusUndo: true });
     },
-    setMinutes: (row, minutes) => {
-      changeBy(row.title, minutes - row.c.week);
-      void pickWrite.run([{ id: row.c.task.id, minutes }]);
+    dropMany: async (rows) => {
+      const sum = rows.reduce((s, r) => s + r.c.week, 0);
+      const reverse = await many(rows, (w, r) => pickChange(w, week, r.c.task.id, null, clock));
+      undoable(reverse, `Removed ${rows.length === 1 ? rows[0]!.title : tasks(rows.length)} from this week.`, { spoken: `${freeWords(use.free + sum)}.`, focusUndo: true });
     },
-    addSuggested: async () => {
-      const hints = Object.entries(model.hints);
-      setSaid(`Added ${formatMinutes(view.hintMin)}. ${fitWords(use.used + view.hintMin)}.`);
-      await pickWrite.run(hints.map(([id, h]) => ({ id, minutes: h.minutes })));
-      return hints.map(([id]) => id);
+    doneMany: async (rows) => {
+      const freed = rows.reduce((s, r) => s + (r.c.picked ? r.c.week : 0), 0);
+      const each: Record<string, PlanChange> = {};
+      const reverse = await many(rows, async (w, r) => (each[r.c.task.id] = await finish(w, r.c.task)));
+      if (!reverse) return;
+      setDoneHere((d) => ({ ...d, ...each }));
+      const ids = Object.keys(each);
+      toast.show(`${rows.length === 1 ? `${rows[0]!.title} done.` : `${tasks(rows.length)} done.`}${freed ? ` ${formatMinutes(freed)} freed.` : ''}`, {
+        spoken: `${freeWords(use.free + freed)}.`,
+        focusUndo: true,
+        undo: async () => {
+          if (await taskWrite.run((w) => applyPlanChange(w, reverse))) setDoneHere((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !ids.includes(id))));
+        },
+      });
     },
-    removeAll: (ids) => {
-      setSaid('Undone.');
-      void pickWrite.run(ids.map((id) => ({ id, minutes: null })));
+    keepMilestone: async (plan, ms, date, add) => {
+      const sum = add.reduce((s, r) => s + r.c.left, 0);
+      const reverse = await taskWrite.run(async (w) => {
+        const moved = await applyPlanChange(w, withStatusLine(plan, moveMilestone(plan, ms.id, date, model.ctx), model.ctx));
+        const picks: RecordWrite[] = [];
+        for (const r of add) picks.unshift(...(await pickChange(w, week, r.c.task.id, r.c.left, clock)).writes);
+        return { writes: [...picks, ...moved.writes] };
+      });
+      undoable(reverse, `Kept ${ms.title}, due ${formatDate(date)}.${sum ? ` Added ${formatMinutes(sum)}.` : ''}`, { spoken: `${fitWords(use.used + sum)}.`, focusUndo: true });
     },
-    setAim: (bucket, minutes) => void planWrite.run({ aims: { ...aimsNow, [bucket]: minutes } }),
-    resetAims: () => void planWrite.run({ aims: {} }),
-    toggleSkipAim: (bucket) =>
-      void planWrite.run({ skipped_aims: skipped.includes(bucket) ? skipped.filter((b) => b !== bucket) : [...skipped, bucket] }),
+    milestoneDone: async (plan, ms) => {
+      const open = plan.tasks.filter((t) => t.milestone_id === ms.id && !t.done_at && !t.cancelled_at).map((t) => t.id);
+      const reverse = await taskWrite.run(async (w) => {
+        const work = open.length ? await scheduledWork(w.sql, open, clock) : {};
+        return applyPlanChange(w, withStatusLine(plan, markMilestoneDone(plan, ms.id, work, model.ctx), model.ctx));
+      });
+      undoable(reverse, `Marked ${ms.title} done${open.length ? `, and ticked ${tasks(open.length)}` : ''}.`, { focusUndo: true });
+    },
+    dropMilestone: async (plan, ms) => {
+      const reverse = await taskWrite.run((w) => applyPlanChange(w, withStatusLine(plan, dropMilestone(plan, ms.id, { cancelOpen: false }, model.ctx), model.ctx)));
+      undoable(reverse, `Dropped ${ms.title}.`, { focusUndo: true });
+    },
+    keepCarried: async (row) => {
+      const reverse = await taskWrite.run((w) => pickChange(w, week, row.c.task.id, row.c.left, clock));
+      undoable(reverse, `Added ${row.title} to this week, ${formatMinutes(row.c.left)}.`, { spoken: `${fitWords(use.used + row.c.left)}.`, focusUndo: true });
+    },
+    dropTask: async (row) => {
+      const reverse = await taskWrite.run((w) => closeTask(w, row.c.task.id, 'cancelled', clock));
+      undoable(reverse, `Dropped ${row.title}.`, { focusUndo: true });
+    },
+    saveAims: async (aims, skippedNow) => {
+      const before = { aims: { ...aimsNow }, skipped_aims: [...skipped] };
+      if (!(await planWrite.run({ aims, skipped_aims: skippedNow }))) return;
+      toast.show('Changed the aims for this week.', { undo: () => planWrite.run(before) });
+    },
     skipPastEnd: (id) => void planWrite.run({ skipped_past_end: [...(weekPlan?.skipped_past_end ?? []), id] }),
-    undoChange: (plan) => void undo.run(plan),
     saveTime: async (row, minutes, estimate) => {
       const t = row.c.task;
       const left = t.remaining_min != null;
@@ -180,14 +225,14 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       ].filter(Boolean);
       undoable(reverse, `${t.title}, ${parts.join(', ')}.`);
     },
-    dropFromWeek: async (row) => {
+    dropFromWeek: async (row, focusUndo = false) => {
       const reverse = await taskWrite.run((w) => pickChange(w, week, row.c.task.id, null, clock));
-      undoable(reverse, `Removed ${row.title} from this week.`, { spoken: `${freeWords(use.free + row.c.week)}.` });
+      undoable(reverse, `Removed ${row.title} from this week.`, { spoken: `${freeWords(use.free + row.c.week)}.`, focusUndo });
     },
     isDone: (row) => row.done || !!doneHere[row.c.task.id],
     markDone: async (row, focusUndo = false) => {
       const t = row.c.task;
-      const reverse = await taskWrite.run((w) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock)));
+      const reverse = await taskWrite.run((w) => finish(w, t));
       if (!reverse) return;
       setDoneHere((d) => ({ ...d, [t.id]: reverse }));
       // Its pick goes with it, so say what that freed. The toast is the announcement; its spoken words end with the fit.

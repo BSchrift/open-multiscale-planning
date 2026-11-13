@@ -10,6 +10,7 @@ import { useOpenTask } from '../../../components/task/TaskName';
 import { CheckCircle } from '../../../components/TaskRow';
 import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
+import type { Selection } from './Select';
 import { TimePopover } from './TimePopover';
 
 /** What a row's time button says, and its name: '+ 1h', '2h of 4h', 'On the calendar'. */
@@ -27,10 +28,12 @@ export function timeWords(r: PickTask) {
 }
 
 /** The line under the title: why it's suggested, a date, or that it has no estimate. Picked, the tint says so. */
-function Why(props: { row: PickTask }) {
+function Why(props: { row: PickTask; selecting: boolean }) {
   const { row: r } = props;
   const t = r.c.task;
   if (r.done) return null;
+  // Selecting, the only tint is the selection, so being in the week is said in words.
+  if (props.selecting && r.c.picked) return <span className="tm">In this week · {formatMinutes(r.c.week)}</span>;
   const suggested = !r.c.picked && r.hint;
   const rest = r.note.replace(/^Suggested: [^.]*(\. )?/, '');
   const none = t.estimate_min == null && t.remaining_min == null && !r.c.picked;
@@ -49,8 +52,10 @@ function Why(props: { row: PickTask }) {
   );
 }
 
-export function PickRow(props: PickProps & { row: PickTask; phone: boolean }) {
+export function PickRow(props: PickProps & { row: PickTask; phone: boolean; select?: Selection }) {
   const { row: r, phone } = props;
+  const selecting = !!props.select?.on;
+  const chosen = !!props.select?.has(r);
   const openTask = useOpenTask();
   const [open, setOpen] = useState(false);
   const timeRef = useRef<HTMLButtonElement>(null);
@@ -81,8 +86,21 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean }) {
     </button>
   );
   return (
-    <li className={`tk editrow${r.c.picked && !done ? ' on' : ''}${r.oneOff ? ' oo' : ''}${done ? ' done' : ''}`}>
-      {/* The tooltip says what the circle's name says, so Voice Control's "Click Already done" matches it. */}
+    <li className={`tk editrow${r.c.picked && !done && !selecting ? ' on' : ''}${chosen ? ' chk' : ''}${r.oneOff ? ' oo' : ''}${done ? ' done' : ''}`}>
+      {selecting ? (
+        <span className="ckt">
+          {!done && (
+            <input
+              className="selbox"
+              type="checkbox"
+              aria-label={`Select ${r.title}${r.c.picked ? ', in this week' : ''}`}
+              checked={chosen}
+              onChange={() => props.select!.toggle(r)}
+            />
+          )}
+        </span>
+      ) : (
+      /* The tooltip says what the circle's name says, so Voice Control's "Click Already done" matches it. */
       <span
         className={`ckt${tipOff ? ' tipoff' : ''}`}
         onKeyDown={(event: KeyboardEvent) => event.key === 'Escape' && setTipOff(true)}
@@ -94,14 +112,19 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean }) {
           Already done
         </span>
       </span>
+      )}
       <span className="tkw">
         <button className="tt" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}${done ? ', done' : ''}`} onClick={() => openTask(r.c.task.id, r.note)}>
           {r.title}
           {r.c.task.notes && <NoteMark />}
         </button>
-        <Why row={r} />
+        <Why row={r} selecting={selecting} />
       </span>
-      {done ? <span /> : time.full ? <span className="tq">{time.text}</span> : phone ? <span className="tpw">{pill}</span> : pill}
+      {done || (selecting && r.c.picked) ? (
+        <span />
+      ) : selecting ? (
+        <span className="tq">{r.adds ? formatMinutes(r.adds) : 'No estimate'}</span>
+      ) : time.full ? <span className="tq">{time.text}</span> : phone ? <span className="tpw">{pill}</span> : pill}
       {open && !done && (
         <TimePopover
           row={r}

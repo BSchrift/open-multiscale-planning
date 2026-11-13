@@ -48,14 +48,13 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
 
   const picks = ['Sketch the chapter list', 'Write the opening scene', 'Draft chapter one'];
   if (phone) {
-    const sheet = page.getByRole('region', { name: 'Tasks in Finish the first draft' });
+    const sheet = page.getByRole('region', { name: 'Finish the first draft' });
     for (const t of picks) await sheet.getByRole('button', { name: new RegExp(`^Add .*to this week: ${t}$`) }).click();
     await expect(page.locator('.flowtop .fitline .fdelta')).toBeVisible();
   } else {
-    await page.getByRole('button', { name: /^Finish the first draft,/ }).click();
+    // One project, so its card starts open.
     for (const t of picks) await page.getByRole('button', { name: new RegExp(`^Add .*to this week: ${t}$`) }).click();
-    const planned = page.getByRole('complementary', { name: 'Time this week' });
-    for (const t of picks) await expect(planned.getByText(t, { exact: true })).toBeVisible();
+    for (const t of picks) await expect(page.getByRole('button', { name: new RegExp(`this week: ${t}$`) })).toBeVisible();
   }
 
   await steps.getByRole('button', { name: /Schedule/ }).click();

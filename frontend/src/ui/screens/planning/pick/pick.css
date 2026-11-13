@@ -5,36 +5,125 @@
 :where([data-layout]) .planning .pklegend .lg-stretch{background:var(--stretch);border:1px solid var(--tick)}
 :where([data-layout]) .pklegend .msdia{margin:0 2px}
 :where([data-layout]) .pklegend.col{flex-direction:column;align-items:flex-start}
-:where([data-layout]) .planning .wide-range{width:100%;accent-color:var(--blue)}
 /* Milestone heads are headings and rows a list, for VoiceOver; neither looks any different. */
 :where([data-layout]) .planning .picklist{margin:0;padding:0;list-style:none}
-:where([data-layout]) .planning :is(h4.pmshead,h3.tghead){margin:0}
-:where([data-layout='desktop']) .planning h4.pmshead{font-size:13px}
 /* The done circle's grey edge is under 3:1 on a tint, so it takes the quiet ink there, and on every row here. */
 :where([data-layout]) :is(.mband,.added,.oo,.is-maint,.tk) .checkcircle:not(:checked){border-color:var(--quiet)}
-/* An open project nests under a rule rather than a fill, which barely shows in dark mode. */
-:where([data-layout='desktop']) .planning .pickmain>section.card .pcard{margin:0 0 12px 15px;padding:4px 0 4px 14px;border-radius:0;border-left:2px solid var(--grey);background:transparent}
-
-:where([data-layout='desktop']) .planning .qpad{padding-left:40px}
-:where([data-layout='desktop']) .planning .pklegend{margin-top:4px}
-:where([data-layout='desktop']) .planning .pickmain>section.card{padding:12px 16px}
-/* One offs stay a purple band, raised like the cards beside it. */
-:where([data-layout='desktop']) .planning .mband{border-radius:12px;box-shadow:var(--card-shadow)}
 
 :where([data-layout='phone']) .pklegend{display:flex;gap:8px;font-size:14px;color:var(--ink-2)}
 :where([data-layout='phone']) .pklegend span{display:inline-flex;align-items:center;gap:6px}
 :where([data-layout='phone']) .pklegend i{display:inline-block;width:10px;height:10px;border-radius:2px}
-:where([data-layout='phone']) .sheet .fixacts{flex-direction:column;align-items:stretch}
 :where([data-layout='phone']) .sheet .pastacts .btn{flex:1 1 auto}
-/* The board is a card under Pick's header, its axis pinned along the card's top. */
-:where([data-layout='phone']) .planning .pkhead+.card{overflow:clip}
-:where([data-layout='phone']) .planning .card>.pkaxis{margin:0}
-:where([data-layout='phone']) .planning .card>.brow{padding-inline:12px}
-:where([data-layout='phone']) .planning .card>.brow:last-child{border-bottom:0}
-/* The card clips its sides and the axis covers its top, so a row's ring goes inside it. */
-:where([data-layout='phone']) .planning .card>.brow:focus-visible{outline-offset:-2px}
-/* Type, the right way up: project names 15px semibold, tasks 14px, the line under them 13px. */
-:where([data-layout='desktop']) .planning .qbtn .pname{font-size:15px;font-weight:600}
+
+/* Direction C: a card per project, the week's shape beside them. */
+:where([data-layout='desktop']) .planning .colC{display:flex;gap:24px;align-items:flex-start}
+:where([data-layout='desktop']) .planning .cleft{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:12px}
+:where([data-layout='desktop']) .planning .cright{flex:0 0 340px;position:sticky;top:48px;display:flex;flex-direction:column;gap:12px}
+:where([data-layout='desktop']) .planning .pickhead{flex-wrap:nowrap;align-items:flex-end;gap:8px 16px}
+/* Kept in view, under Does it fit, however far the cards scroll. */
+:where([data-layout='desktop']) .planning .cleft>.selbar{position:sticky;top:32px;z-index:5}
+:where([data-layout='desktop']) .planning .pickhead>.row{flex:none}
+:where([data-layout]) .planning .selbtn[aria-pressed='true']{border-color:var(--blue);background:var(--blue-tint);color:var(--blue-ink)}
+:where([data-layout]) .planning .pcd{padding:0;overflow:visible}
+:where([data-layout]) .planning .pcdh{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 16px 6px 8px}
+:where([data-layout]) .planning .pchev{display:inline-flex;align-items:center;gap:6px;min-width:0;min-height:44px;padding:0 4px;border:0;background:transparent;color:inherit;text-align:left}
+:where([data-layout]) .planning .chev2{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;color:var(--ink-2);font-size:17px;line-height:1}
+:where([data-layout]) .planning .chev2.open{transform:rotate(90deg)}
+@media (prefers-reduced-motion:no-preference){:where([data-layout]) .planning .chev2{transition:transform .15s}}
+:where([data-layout]) .planning .pn{min-width:0;font-size:15px;font-weight:600}
+:where([data-layout]) .planning .pstar{color:var(--blue-ink);font-weight:500}
+:where([data-layout]) .planning .pmr{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);white-space:nowrap}
+:where([data-layout]) .planning .pmr .mmeter,:where([data-layout]) .planning .wsr .mmeter{flex:none;width:100px;background:var(--white);box-shadow:inset 0 0 0 1px var(--grey)}
+:where([data-layout]) .planning .pcstrip{padding:0 16px 8px}
+:where([data-layout]) .planning .pcstrip .ptrack{height:14px}
+:where([data-layout]) .planning .pcstrip .pspan{top:4px;height:6px}
+:where([data-layout]) .planning .pcstrip .gdia{top:2px}
+:where([data-layout]) .planning .pcbody{display:flex;flex-direction:column;padding:0 12px 8px}
+:where([data-layout]) .planning .pcd.oo{box-shadow:var(--card-shadow),inset 4px 0 0 var(--purple)}
+:where([data-layout]) .planning .pcd.oo .pn{color:var(--purple-ink)}
+:where([data-layout]) .planning .pcd.oo .pcdh{padding-left:12px}
+:where([data-layout]) .planning .pcd.muted{color:var(--quiet)}
+:where([data-layout]) .planning .pcd.muted .pcdh{min-height:44px;padding:6px 16px}
+:where([data-layout]) .planning .pcd.muted .pn{font-weight:500}
+:where([data-layout]) .planning .emptycard{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px dashed var(--line-strong);box-shadow:none;background:transparent}
+:where([data-layout]) .planning .emptyline{padding:4px 4px 10px 14px}
+/* A milestone's head: its diamond and name, and what's planned under it. */
+:where([data-layout]) .planning .gh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0;padding:12px 6px 4px 14px;font-size:13px;font-weight:600;color:var(--ink-2)}
+:where([data-layout]) .planning .gh.late{color:var(--red)}
+:where([data-layout]) .planning .gh .ghl{display:flex;align-items:center;min-width:0}
+:where([data-layout]) .planning .gh .ghr{flex:none;font-weight:400;color:var(--quiet)}
+:where([data-layout]) .planning .gh .msdia{margin:0 10px 0 0}
+/* The overdue question, inside its card. */
+:where([data-layout]) .planning .ovstrip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:4px 12px 6px;padding:10px 12px;border-radius:8px;background:var(--red-tint);color:var(--ink)}
+:where([data-layout]) .planning .ovstrip .ovw{flex:1 1 260px;min-width:0;font-size:14px}
+:where([data-layout]) .planning .ovstrip .k{color:var(--red);font-weight:600}
+:where([data-layout]) .planning .keepform{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;background:var(--white)}
+:where([data-layout]) .planning .keepform .keepdate{flex:1 1 100%}
+:where([data-layout]) .planning .keepform .keeptick{flex:1 1 100%;display:flex;align-items:center;gap:8px;min-height:44px;font-size:14px}
+:where([data-layout]) .planning .keepform .keeptick input,:where([data-layout]) .planning .sugrow input,:where([data-layout]) .planning .selbox{flex:none;width:20px;height:20px;margin:0;accent-color:var(--blue)}
+/* The week's shape. */
+:where([data-layout]) .planning .wkshape{display:flex;flex-direction:column;gap:12px;padding:16px}
+:where([data-layout]) .planning .ct{margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+:where([data-layout]) .planning .shapebar{position:relative}
+:where([data-layout]) .planning .shapebar.over .capbar{box-shadow:inset 0 0 0 1.5px var(--amber)}
+:where([data-layout]) .planning .shapebar .mtick{top:-3px;bottom:-3px}
+:where([data-layout]) .planning .capbar .pale{opacity:.45}
+:where([data-layout]) .planning .wkshape .legend{font-size:12px}
+:where([data-layout]) .planning .wkshape .legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px}
+:where([data-layout]) .planning .wsrows{display:flex;flex-direction:column;padding-top:4px;border-top:1px solid var(--line-soft)}
+:where([data-layout]) .planning .wsr{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;align-items:center;gap:4px 10px;min-height:30px;font-size:13px}
+:where([data-layout]) .planning .wsr .mmeter{width:84px}
+:where([data-layout]) .planning .wsr .wn{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--ink)}
+:where([data-layout]) .planning .wsr>:last-child{color:var(--ink-2);white-space:nowrap;text-align:right}
+:where([data-layout]) .planning .wsr.oo .wn{color:var(--purple-ink)}
+:where([data-layout]) .planning .wkshape>.btn{align-self:flex-start}
+:where([data-layout]) .planning .wkshape>.editrow{display:flex;align-items:flex-start}
+:where([data-layout]) .planning .wkshape>.btn.pri{align-self:stretch}
+/* Select mode: the bar, a selection's checkbox and its one tint. */
+:where([data-layout]) .planning .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px 8px 14px;border:1px solid var(--blue-line);border-radius:10px;background:var(--blue-pale)}
+:where([data-layout]) .planning .selhead,:where([data-layout]) .planning .selacts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+:where([data-layout]) .planning .selhead{flex:1 1 auto}
+:where([data-layout]) .planning .selc{margin-right:auto;font-weight:600}
+:where([data-layout]) .planning .btn[aria-disabled='true']{border-color:var(--line);background:var(--closed);color:var(--quiet);cursor:default}
+:where([data-layout]) .planning .tk.chk{background:var(--blue-tint)}
+:where([data-layout]) .planning .tk.oo.chk{background:var(--purple-soft)}
+/* Add suggested's preview: a ticked row per task. */
+:where([data-layout]) .planning .sugrow{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:6px;min-height:44px}
+:where([data-layout]) .planning .sugrow .tkw{display:flex;flex-direction:column;min-width:0}
+:where([data-layout]) .planning .sugrow .tm{font-size:13px;color:var(--quiet)}
+:where([data-layout]) .planning .sugrow.oo .tm{color:var(--purple-ink)}
+:where([data-layout]) .planning .sugrow .tq{font-size:13px;color:var(--quiet);white-space:nowrap}
+:where([data-layout='desktop']) .planning .wkshape .qpop{left:-8px;right:-8px;width:auto}
+:where([data-layout='desktop']) .planning .wkshape .qpop.popover{max-height:70vh;overflow-y:auto}
+/* On phone: tabs under the heading, the cards one under another, and the week's tasks on their tab. */
+:where([data-layout='phone']) .planning .seg{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--fill)}
+:where([data-layout='phone']) .planning .seg>button{flex:1 1 0;min-height:var(--tap);padding:4px 12px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font-size:14px}
+:where([data-layout='phone']) .planning .seg>button[aria-pressed='true']{background:var(--white);color:var(--ink);font-weight:600;box-shadow:var(--card-shadow)}
+:where([data-layout='phone']) .planning .pcdh{padding:6px 12px 4px 4px}
+:where([data-layout='phone']) .planning .pmr .mmeter{width:56px;height:6px}
+:where([data-layout='phone']) .planning .pcstrip{padding:0 12px 6px}
+:where([data-layout='phone']) .planning .pcbody{padding:0 8px 6px}
+:where([data-layout='phone']) .planning .ovstrip{margin:4px 8px 6px}
+:where([data-layout='phone']) .planning .ovstrip .acts{display:flex;gap:6px;width:100%}
+:where([data-layout='phone']) .planning .ovstrip .acts .btn{flex:1 1 0;padding-inline:6px;font-size:14px}
+:where([data-layout='phone']) .planning .keepform .btn{flex:1 1 0}
+:where([data-layout='phone']) .planning .wkshape{padding:14px}
+:where([data-layout='phone']) .planning .wsr{grid-template-columns:minmax(0,1fr) 64px auto;font-size:14px}
+:where([data-layout='phone']) .planning .wsr .mmeter{width:64px;height:6px}
+:where([data-layout='phone']) .planning .wklist{padding:4px 14px 10px}
+:where([data-layout='phone']) .planning .pig{margin:0;padding:8px 0 2px;font-size:12px;font-weight:600;color:var(--quiet)}
+:where([data-layout='phone']) .planning .pi{display:grid;grid-template-columns:minmax(0,1fr) auto 44px;align-items:center;gap:4px;min-height:44px;font-size:15px}
+:where([data-layout='phone']) .planning .pi.oo{padding-left:8px;box-shadow:inset 3px 0 0 var(--purple)}
+:where([data-layout='phone']) .planning .pi .pit{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+:where([data-layout='phone']) .planning .pi .pim{min-width:var(--tap);min-height:var(--tap);padding:0 4px;border:0;background:transparent;color:var(--ink-2);text-decoration:underline dotted;text-underline-offset:3px;white-space:nowrap}
+:where([data-layout='phone']) .planning .pi .pix{width:var(--tap);height:var(--tap);padding:0;border:0;background:transparent;color:var(--quiet);font-size:18px}
+/* Select's bar takes the bottom bar's place. */
+:where([data-layout='phone']) .planning.pflow{position:relative}
+:where([data-layout='phone']) .planning .selbar.ph{position:absolute;left:0;right:0;bottom:0;z-index:5;flex-direction:column;align-items:stretch;gap:6px;padding:8px 16px max(20px,env(safe-area-inset-bottom));border:0;border-top:1px solid var(--blue-line);border-radius:0}
+:where([data-layout='phone']) .planning .selbar.ph .link{min-height:var(--tap);padding:0 6px}
+/* The bar is taller than the bottom bar it covers, so the list's foot scrolls clear of it. */
+:where([data-layout='phone']) .planning.pflow:has(.selbar.ph) .pkscroll{padding-bottom:112px}
+:where([data-layout='phone']) .planning .selbar.ph .selacts .btn{flex:1 1 auto;padding-inline:8px}
 
 /* A task row: done circle, title and why, and one time button. Picked is a tint, blue or purple for a one off. */
 :where([data-layout]) .planning .tk{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:6px;min-height:48px;padding:2px 6px 2px 0;border-radius:8px}
@@ -60,6 +149,7 @@
 :where([data-layout]) .planning .tk .tip{position:absolute;left:40px;top:50%;z-index:5;transform:translateY(-50%);padding:4px 8px;border-radius:6px;background:var(--ink);color:var(--white);font-size:12px;white-space:nowrap;pointer-events:none;visibility:hidden}
 :where([data-layout]) .planning .tk .ckt:is(:hover,:has(:focus-visible)):not(.tipoff) .tip{visibility:visible}
 /* The time popover hangs below the button, right-aligned to it, so every title stays in view. */
+:where([data-layout]) .planning .tk .selbox{margin:12px}
 :where([data-layout='desktop']) .planning .tk>.qpop{left:auto;right:0;width:300px}
 :where([data-layout]) .planning .timeacts{gap:4px 16px}
 /* Its sliders stack: the label and value on a line, the slider under them. */
@@ -78,10 +168,8 @@
    while it shows. On desktop it sits at the foot of the column the change was made in, and a focused row scrolls clear. */
 [data-layout='phone']:has(.planning.pflow):not(:has(.sheet)) .toast{bottom:calc(61px + max(20px,env(safe-area-inset-bottom)))}
 [data-layout='phone']:has(.toast):not(:has(.sheet)) .planning.pflow .flowbot{margin-top:72px}
-/* The half sheet gives up the strip from its foot, so its rows stay where they were under the finger. */
-[data-layout='phone']:has(.toast):not(:has(.sheet)) .planning .tsheet{height:calc(min(300px,45vh) - 72px);height:calc(min(300px,45dvh) - 72px)}
 [data-layout='desktop'] .flowpane:has(.planning){scroll-padding-bottom:72px}
 @supports (anchor-name:--pickcol){
-  [data-layout='desktop'] .planning .pickmain{anchor-name:--pickcol}
-  [data-layout='desktop']:has(.planning .pickmain) .toast{position-anchor:--pickcol;left:anchor(center)}
+  [data-layout='desktop'] .planning .cleft{anchor-name:--pickcol}
+  [data-layout='desktop']:has(.planning .cleft) .toast{position-anchor:--pickcol;left:anchor(center)}
 }

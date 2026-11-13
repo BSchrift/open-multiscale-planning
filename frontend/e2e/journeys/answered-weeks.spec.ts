@@ -19,7 +19,7 @@ async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
   await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   if (phone) {
-    const sheet = page.getByRole('region', { name: 'Tasks in Finish the first draft' });
+    const sheet = page.getByRole('region', { name: 'Finish the first draft' });
     for (const t of picks) await sheet.getByRole('button', { name: new RegExp(`^Add .*to this week: ${t}$`) }).click();
   } else {
     const row = page.getByRole('button', { name: /^Finish the first draft,/ });

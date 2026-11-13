@@ -13,6 +13,7 @@ import {
   retick,
   rowLine,
   scheduleLabel,
+  projectDates,
   setOnceDates,
   tick,
   tickFromBlock,
@@ -116,6 +117,16 @@ describe('once', () => {
     expect(isOnToday(task({ type: 'once', from: '2026-10-29' }), '2026-10-30')).toBe(false);
     expect(isOnToday(task({ type: 'once' }), '2026-10-30')).toBe(false);
     expect(isOnToday(task(weekly, '2026-10-30'), '2026-10-30')).toBe(false);
+  });
+});
+
+describe('a date moving to a project', () => {
+  it('keeps a single day or a range, and drops a repeat, since repeats stay with One offs', () => {
+    expect(projectDates({ schedule: { type: 'once', from: '2026-11-20', to: null } })).toEqual({ schedule: { type: 'once', from: '2026-11-20', to: null }, next_due: '2026-11-20' });
+    expect(projectDates({ schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' } })).toEqual({ schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' }, next_due: '2026-11-16' });
+    expect(projectDates({ schedule: { type: 'float', every: 2, unit: 'week' } })).toEqual({ schedule: null, next_due: null });
+    expect(projectDates({ schedule: { type: 'once', from: null, to: null } })).toEqual({ schedule: null, next_due: null });
+    expect(projectDates({})).toEqual({ schedule: null, next_due: null });
   });
 });
 

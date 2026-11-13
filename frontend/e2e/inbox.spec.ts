@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { openProject } from './journeys/journey';
 import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
@@ -189,6 +190,41 @@ test('edits the item on the card: its title, a description and a link, and Undo 
   await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
   await expect(card(page).getByRole('link', { name: 'bank.example.com' })).toHaveCount(0);
   await expect(card(page).getByRole('button', { name: 'Add description' })).toBeVisible();
+});
+
+test("a date set on the card goes with the item to a project, warned in the picker and on the project page when it's after the end", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [
+    { type: 'objective', id: 'g1', fields: { title: 'Keep the house', state: 'active' } },
+    { type: 'project', id: 'p1', fields: { title: 'Paint the fence', objective_id: 'g1', ...running } },
+    { type: 'task', fields: { kind: 'inbox', title: 'Call the bank' } },
+  ]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 1 to sort' : 'Inbox' }).click();
+  await inboxPane(page).getByRole('button', { name: 'Process 1 item' }).click();
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  if (phone) await expectTapTarget(card(page).getByRole('button', { name: 'Add date' }));
+  await card(page).getByRole('button', { name: 'Add date' }).click();
+  await card(page).getByLabel('Date', { exact: true }).fill('2027-02-10');
+  await page.screenshot({ path: info.outputPath('process-date-form.png') });
+  await card(page).getByRole('button', { name: 'Set date' }).click();
+  await expect(card(page).getByRole('button', { name: 'Change date, Feb 10' })).toBeVisible();
+
+  if (phone) await card(page).getByRole('button', { name: 'Add to a project or One offs' }).click();
+  await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('paint');
+  const option = page.getByRole('option', { name: 'Paint the fence, Keep the house, due after the project ends (Jan 31)' });
+  await expect(option.locator('.latewarn')).toHaveText('Due after the project ends (Jan 31)');
+  await page.screenshot({ path: info.outputPath('process-late.png') });
+  // It only warns: the item is added, date and all.
+  await (phone ? option.click() : page.keyboard.press('Enter'));
+  await expect(page.locator('.toast')).toContainText('Added Call the bank to Paint the fence, for Feb 10.');
+  await card(page).getByRole('button', { name: 'Done' }).click();
+
+  await openProject(page, phone, 'Keep the house', 'Paint the fence');
+  const row = page.getByRole('button', { name: 'Edit task Call the bank, Feb 10, No estimate, due after the project ends (Jan 31)' });
+  await expect(row).toBeVisible();
+  await expect(row.locator('.latewarn')).toHaveText('Due after the project ends (Jan 31)');
+  await page.screenshot({ path: info.outputPath('project-late.png') });
 });
 
 test('select mode sends, deletes and makes one offs of many items at once', async ({ page }, info) => {

@@ -1,0 +1,22 @@
+/* A date after a task's deadline: amber words with the warning icon, on a line of their own. */
+
+[data-layout] .latewarn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 100%;
+  color: var(--amber-ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+[data-layout] .latewarn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

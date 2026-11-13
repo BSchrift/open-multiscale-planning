@@ -328,6 +328,39 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a project task the update dated shows no date in the bundle before, which can edit it and keep the date', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    const dated: Seed = {
+      type: 'task',
+      id: 'dated',
+      fields: { kind: 'project', project_id: 'p1', milestone_id: 'm1', title: 'Order the cover proofs', estimate_min: 60, schedule: { type: 'once', from: '2026-11-27', to: null }, next_due: '2026-11-27' },
+    };
+    await openSeeded(page, [...week, dated]);
+    // The update shows its date on the project page, warned as after its milestone.
+    await openProject(page, false, 'Write a book', 'Finish the first draft');
+    await expect(page.getByRole('button', { name: 'Edit task Order the cover proofs, Nov 27, 1h, due after Half the chapters (Nov 20)' })).toBeVisible();
+    await everyScreen(page);
+
+    // The bundle before reads no date on a project task, and its popup's Save keeps the one there.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await openProject(page, false, 'Write a book', 'Finish the first draft');
+    await page.getByRole('button', { name: /^Edit task Order the cover proofs/ }).click();
+    const popup = page.locator('.sheet.taskpop');
+    await popup.getByRole('button', { name: 'Rename Order the cover proofs' }).click();
+    await popup.getByRole('textbox', { name: 'Name' }).fill('Order the cover proofs early');
+    await popup.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved Order the cover proofs early.')).toBeVisible();
+
+    page = await relaunch(page, 'new', errors);
+    await openProject(page, false, 'Write a book', 'Finish the first draft');
+    await expect(page.getByRole('button', { name: /^Edit task Order the cover proofs early, Nov 27, 1h/ })).toBeVisible();
+    await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
   test('practices on set days, a count and a time of their own on one day: the bundle before shows them, and its rename keeps them', async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);

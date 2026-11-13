@@ -257,24 +257,6 @@ describe('Process on desktop', () => {
     expect(await task(t.db, 'i2')).toMatchObject({ kind: 'project', project_id: 'p1', schedule: null, next_due: null });
   });
 
-  it('lets the item just added to a project pick a milestone, and one just added to One offs a date', async () => {
-    const t = await open();
-    await screen.findByRole('heading', { name: 'Call the bank' });
-    await addTo('Paint the fence');
-    const milestone = await within(card()).findByRole('combobox', { name: 'Milestone for Call the bank' });
-    // A project's tasks with no milestone sit under its Done.
-    expect(within(milestone).getAllByRole('option').map((o) => o.textContent)).toEqual(['Done', 'First coat']);
-    await userEvent.selectOptions(milestone, 'First coat');
-    await waitFor(async () => expect((await task(t.db, 'i1'))?.milestone_id).toBe('m1'));
-
-    await addTo('One offs');
-    await userEvent.click(await within(card()).findByRole('button', { name: 'Add date for Fix the gate' }));
-    fireEvent.change(within(card()).getByLabelText('Date'), { target: { value: '2026-11-12' } });
-    await userEvent.click(btn('Set date'));
-    await waitFor(async () => expect((await task(t.db, 'i2'))?.schedule).toMatchObject({ type: 'once', from: '2026-11-12' }));
-    expect(title()).toHaveTextContent('Read the article');
-  });
-
   it('adds to this week as a pick, not on the calendar, says so on the lit row and in the toast, then resets the toggle', async () => {
     const t = await open();
     const toggle = await screen.findByRole('button', { name: 'Add to this week' });
@@ -924,7 +906,7 @@ describe('Editing the item on the card', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
   });
 
-  it('keeps focus in order: the title, the add buttons, Time, Add to, the week, New practice and goal, Skip, Delete/done', async () => {
+  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, New practice and goal, Skip, Delete/done', async () => {
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     const stops = Array.from(card().querySelectorAll<HTMLElement>('button, input, textarea, select'))
@@ -932,6 +914,7 @@ describe('Editing the item on the card', () => {
       .map((e) => (e.tagName === 'INPUT' && (e as HTMLInputElement).type === 'range' ? 'Time' : (e.getAttribute('aria-label') ?? e.textContent)));
     expect(stops.slice(stops.indexOf('Call the bank'))).toEqual([
       'Call the bank',
+      'Add date',
       'Add description',
       'Add link',
       'Time',
@@ -947,13 +930,142 @@ describe('Editing the item on the card', () => {
   it('on phone: the title edits with Save and Cancel under it, and the add buttons sit two by two', async () => {
     const t = await open({ layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(within(card().querySelector<HTMLElement>('.pxfour')!).getAllByRole('button').map((b) => b.textContent)).toEqual(['Add description', 'Add link']);
+    expect(within(card().querySelector<HTMLElement>('.pxfour')!).getAllByRole('button').map((b) => b.textContent)).toEqual(['Add date', 'Add description', 'Add link']);
     await userEvent.click(pen());
     const field = within(card()).getByRole('textbox', { name: 'Title' });
     await userEvent.type(field, ' today');
     expect(btn('Cancel')).toBeInTheDocument();
     await userEvent.click(btn('Save'));
     await waitFor(async () => expect((await task(t.db, 'i1'))?.title).toBe('Call the bank today'));
+  });
+});
+
+describe('Dates on the card', () => {
+  const dateField = () => within(card()).getByLabelText('Date');
+
+  it('sets a date before the item moves: Add date opens the date form in place, Set date shows it, Esc goes back to it', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(btn('Add date').querySelector('svg')).not.toBeNull();
+    await userEvent.click(btn('Add date'));
+    expect(within(card()).getByRole('form', { name: 'Dates for Call the bank' })).toBeInTheDocument();
+    expect(dateField()).toHaveFocus();
+    fireEvent.change(dateField(), { target: { value: '2026-11-13' } });
+    await userEvent.click(btn('Set date'));
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.schedule).toEqual({ type: 'once', from: '2026-11-13', to: null }));
+    expect(await within(card()).findByRole('button', { name: 'Change date, Nov 13' })).toHaveFocus();
+    expect(btn('Change date, Nov 13')).toHaveTextContent('Nov 13· Change');
+    expect(within(card()).queryByRole('button', { name: 'Add date' })).toBeNull();
+    // Set here, it isn't one the item came with.
+    expect(within(card()).queryByText('It came with this date.')).toBeNull();
+
+    await userEvent.click(btn('Change date, Nov 13'));
+    await userEvent.keyboard('{Escape}');
+    expect(within(card()).queryByRole('form', { name: /^Dates for/ })).toBeNull();
+    expect(btn('Change date, Nov 13')).toHaveFocus();
+  });
+
+  it('leaves focus where it was put while the date saves, as in Add to', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(dateField(), { target: { value: '2026-11-13' } });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const transaction = t.db.transaction.bind(t.db);
+    vi.spyOn(t.db, 'transaction').mockImplementationOnce(async (fn) => {
+      await held;
+      return transaction(fn);
+    });
+    await userEvent.click(btn('Set date'));
+    picker().focus();
+    release();
+    await within(card()).findByRole('button', { name: 'Change date, Nov 13' });
+    expect(picker()).toHaveFocus();
+  });
+
+  it('takes the date with the item to a project or One offs, and the toast says so', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(dateField(), { target: { value: '2026-11-13' } });
+    await userEvent.click(btn('Set date'));
+    await within(card()).findByRole('button', { name: 'Change date, Nov 13' });
+    await addTo('Paint the fence');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: 'p1', schedule: { type: 'once', from: '2026-11-13', to: null }, next_due: '2026-11-13' });
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, for Nov 13.');
+
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(dateField(), { target: { value: '2026-11-16' } });
+    await userEvent.click(btn('+ End date'));
+    fireEvent.change(within(card()).getByLabelText('End date'), { target: { value: '2026-11-20' } });
+    await userEvent.click(btn('Set date'));
+    await within(card()).findByRole('button', { name: 'Change date, Nov 16 to Nov 20' });
+    await addTo('One offs');
+    await screen.findByRole('heading', { name: 'Read the article' });
+    expect(await task(t.db, 'i2')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' }, next_due: '2026-11-16' });
+    expect(toast()).toHaveTextContent('Added Fix the gate to One offs, for Nov 16 to Nov 20.');
+    // No line under the card for the item before: its date went with it.
+    expect(within(card()).queryByRole('button', { name: /date for Fix the gate/ })).toBeNull();
+    expect(within(card()).queryByRole('combobox', { name: /^Milestone for/ })).toBeNull();
+  });
+
+  it('shows a date the item came with from the start', async () => {
+    await open({
+      seed: async (w) => {
+        await seed(w);
+        await w.set('task', 'i1', { schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' }, next_due: '2026-11-16' });
+      },
+    });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(btn('Change date, Nov 16 to Nov 20')).toBeInTheDocument();
+    expect(within(card()).getByText('It came with this date.')).toBeInTheDocument();
+  });
+
+  it('warns, without blocking, when the date falls after the project ends or after the milestone made with it', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(dateField(), { target: { value: '2027-02-10' } });
+    await userEvent.click(btn('Set date'));
+    await within(card()).findByRole('button', { name: 'Change date, Feb 10' });
+    await userEvent.type(picker(), 'paint');
+    expect(lit()).toHaveAccessibleName('Paint the fence, Keep the house, due after the project ends (Jan 31)');
+    expect(within(lit()).getByText('Due after the project ends (Jan 31)').closest('.latewarn')!.querySelector('svg')).not.toBeNull();
+    // One offs has no end to miss.
+    await userEvent.clear(picker());
+    await userEvent.type(picker(), 'o');
+    expect(screen.getByRole('option', { name: 'One offs' })).toBeInTheDocument();
+    await userEvent.clear(picker());
+    await userEvent.type(picker(), 'paint{Enter}');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(await task(t.db, 'i1')).toMatchObject({ project_id: 'p1', schedule: { type: 'once', from: '2027-02-10' } });
+
+    // Shown closed on a project, the warning sits under the picker.
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(dateField(), { target: { value: '2027-02-10' } });
+    await userEvent.click(btn('Set date'));
+    expect(await within(card()).findByText('Due after the project ends (Jan 31)')).toBeInTheDocument();
+    // A new project's milestone is named.
+    await userEvent.type(picker(), 'Fix up the shed{Enter}');
+    await userEvent.type(within(form()).getByRole('textbox', { name: /Milestone/ }), 'Roof watertight');
+    await userEvent.click(within(form()).getByRole('button', { name: 'Add project' }));
+    expect(await within(card()).findByText('Due after Roof watertight (Dec 31)')).toBeInTheDocument();
+  });
+
+  it('drops a repeat when an item that has one goes to a project, and says so', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await seed(w);
+        await w.set('task', 'i1', { schedule: { type: 'float', every: 2, unit: 'week' }, next_due: '2026-11-16' });
+      },
+    });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await addTo('Paint the fence');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', schedule: null, next_due: null });
+    expect(toast()).toHaveTextContent("Added Call the bank to Paint the fence. Repeats stay with One offs, so it won't repeat.");
   });
 });
 
@@ -1004,6 +1116,7 @@ describe('Process on phone', () => {
       'Exit',
       'title',
       'Call the bank',
+      'Add date',
       'Add description',
       'Add link',
       'Time',

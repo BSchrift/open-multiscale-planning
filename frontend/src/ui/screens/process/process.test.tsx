@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { formatClock } from '../../../core/clock';
@@ -295,8 +295,9 @@ describe('Process on desktop', () => {
     expect(within(card()).getByText('1 of 5')).toBeInTheDocument();
   });
 
-  it('skips and deletes with a toast for each, asks before deleting, and sums up on the done card', async () => {
-    const t = await open();
+  it('skips and deletes with a toast for each, and asks before deleting', async () => {
+    const close = vi.fn();
+    const t = await open({ close });
     await screen.findByRole('heading', { name: 'Call the bank' });
     await addTo('One offs');
     await addTo('Paint the fence');
@@ -313,27 +314,14 @@ describe('Process on desktop', () => {
     expect(title()).toHaveTextContent('Return the books');
     await userEvent.click(btn('Delete/done'));
     await userEvent.click(btn('Yes, delete'));
-    expect(await screen.findByRole('heading', { name: "That's everything for now" })).toBeInTheDocument();
-    expect(toast()).toHaveTextContent('Deleted Return the books.');
-    expect(within(card()).getByText('3 sorted, 1 deleted, 1 skipped, still in your Inbox.')).toBeInTheDocument();
+    // That was the last: Process closes, and the last toast shows once the check has gone.
+    await waitFor(() => expect(close).toHaveBeenCalled());
     expect((await task(t.db, 'i5'))?.deleted_at).toBeTruthy();
     expect((await task(t.db, 'i4'))?.kind).toBe('inbox');
-
-    // The toast's Undo is the step back, here as anywhere.
+    fireEvent.pointerDown(document.querySelector('.clearveil')!);
+    await waitFor(() => expect(toast()).toHaveTextContent('Deleted Return the books.'));
     await userEvent.click(toastUndo());
-    await screen.findByRole('heading', { name: 'Return the books' });
-    expect((await task(t.db, 'i5'))?.deleted_at).toBeNull();
-  });
-
-  it('says Inbox clear when nothing is left, and Done closes', async () => {
-    const close = vi.fn();
-    await renderScreen('process', { presentation: 'overlay', close, seed: (w) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1') });
-    await screen.findByRole('heading', { name: 'Call the bank' });
-    await addTo('One offs');
-    expect(await screen.findByRole('heading', { name: 'Inbox clear' })).toBeInTheDocument();
-    expect(within(card()).getByText('1 sorted.')).toBeInTheDocument();
-    await userEvent.click(btn('Done'));
-    expect(close).toHaveBeenCalled();
+    await waitFor(async () => expect((await task(t.db, 'i5'))?.deleted_at).toBeNull());
   });
 
   it('works from the keyboard, with Option or Alt keys in Add to too, and letters there only searching', async () => {
@@ -484,6 +472,70 @@ describe('Process on desktop', () => {
     } finally {
       Reflect.deleteProperty(HTMLElement.prototype, 'animate');
       vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('When the last item is handled', () => {
+  const one = (w: Writer) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1');
+  const check = () => document.querySelector<HTMLElement>('.clearveil');
+
+  it('closes Process itself and shows a green check over the page, Inbox clear with how many, then the last toast', async () => {
+    const close = vi.fn();
+    await renderScreen('process', { presentation: 'overlay', close, seed: one });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await addTo('One offs');
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    expect(check()).toHaveTextContent('Inbox clear1 item processed');
+    // Read once, politely, and the check itself isn't read as an image.
+    expect(check()!.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(check()!.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    // It doesn't take focus, and nothing on it needs dismissing.
+    expect(within(check()!).queryByRole('button')).toBeNull();
+    // The last item's toast waits until the check has gone; a tap puts the check away sooner.
+    expect(toast()).toBeNull();
+    fireEvent.pointerDown(check()!);
+    await waitFor(() => expect(check()).toBeNull());
+    expect(toast()).toHaveTextContent('Added Call the bank to One offs.');
+  });
+
+  it('says how many were processed and how many are still in the Inbox when some were skipped, and Esc puts it away', async () => {
+    const close = vi.fn();
+    await open({ close });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await addTo('One offs');
+    await addTo('Paint the fence');
+    await screen.findByRole('heading', { name: 'Read the article' });
+    await userEvent.click(btn('Skip'));
+    await screen.findByRole('heading', { name: 'Buy stamps' });
+    await userEvent.click(btn('Skip'));
+    await screen.findByRole('heading', { name: 'Return the books' });
+    await userEvent.click(btn('Delete/done'));
+    await userEvent.click(btn('Yes, delete'));
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    expect(check()).toHaveTextContent('3 items processed2 still in your Inbox');
+    expect(check()).not.toHaveTextContent('Inbox clear');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    await waitFor(() => expect(check()).toBeNull());
+  });
+
+  it('holds the check about a second and a half once drawn, then fades it by itself', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const close = vi.fn();
+      await renderScreen('process', { presentation: 'overlay', close, seed: one });
+      await screen.findByRole('heading', { name: 'Call the bank' });
+      fireEvent.change(picker(), { target: { value: 'One offs' } });
+      fireEvent.keyDown(picker(), { key: 'Enter' });
+      await waitFor(() => expect(check()).not.toBeNull());
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(check()).not.toHaveClass('leaving');
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      expect(check()).toHaveClass('leaving');
+      await act(() => vi.advanceTimersByTimeAsync(600));
+      expect(check()).toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

@@ -78,9 +78,9 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(card.getByRole('heading', { name: 'An old idea to let go' })).toBeVisible();
   await card.getByRole('button', { name: 'Delete/done' }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
-  await expect(card.getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
-  await expect(card).toContainText('4 sorted, 1 deleted.');
-  await card.getByRole('button', { name: 'Done' }).click();
+  // Process closes itself, and a check over the Inbox says it's clear.
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.clearveil')).toHaveText('Inbox clear5 items processed');
   await expect(inbox.getByText(/^Inbox is empty\./)).toBeVisible();
 
   // Each landed where it was sent.

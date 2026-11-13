@@ -354,6 +354,17 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /test-deployed ENV=prod .*DEPLOYED_BEFORE_PUBLISH=1/);
   });
 
+  it('tries the browser install again while a package mirror syncs, up to three times', () => {
+    for (const [fails, passes] of [[2, true], [3, false]] as const) {
+      const s = configured();
+      // Each browser install fails, as apt does mid-sync, until it has failed this many times.
+      s.stub('npx', `echo "npx $*" >> "$LOG"; case "$*" in *"playwright install"*) [ "$(grep -c 'npx playwright install' "$LOG")" -gt ${fails} ] || exit 100;; esac`);
+      const r = s.run(['test-prod'], {});
+      assert.equal(r.status === 0, passes, r.stderr);
+      assert.equal(s.log().match(/npx playwright install/g)?.length, 3);
+    }
+  });
+
   it('adds each switch to the history after the ones before', () => {
     const s = configured();
     s.put(FEEDS.shared, feedWith(shell));

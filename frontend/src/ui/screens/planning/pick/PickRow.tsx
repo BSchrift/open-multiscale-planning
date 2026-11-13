@@ -56,8 +56,13 @@ function Why(props: { row: PickTask; selecting: boolean }) {
   );
 }
 
-export function PickRow(props: PickProps & { row: PickTask; phone: boolean; select?: Selection }) {
+/**
+ * describedBy is the heading of a project in this stretch, which describes its rows; source is where a row outside this
+ * stretch is from, which its time button and checkbox say instead: ', Sort the photo albums, outside this stretch'.
+ */
+export function PickRow(props: PickProps & { row: PickTask; phone: boolean; select?: Selection; describedBy?: string; source?: string }) {
   const { row: r, phone } = props;
+  const source = props.source ?? '';
   const selecting = !!props.select?.on;
   const chosen = !!props.select?.has(r);
   const openTask = useOpenTask();
@@ -75,7 +80,8 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean; sele
       ref={timeRef}
       className={`tp${r.c.picked ? ' on' : ''}${r.oneOff ? ' oo' : ''}`}
       type="button"
-      aria-label={time.name}
+      aria-label={`${time.name}${source}`}
+      aria-describedby={props.describedBy}
       aria-haspopup={time.opens ? 'dialog' : undefined}
       aria-expanded={time.opens && r.c.picked ? open : undefined}
       onClick={() => (time.opens ? setOpen(!open) : props.add(r))}
@@ -97,7 +103,8 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean; sele
             <input
               className="selbox"
               type="checkbox"
-              aria-label={`Select ${r.title}${r.c.picked ? ', in this week' : ''}`}
+              aria-label={`Select ${r.title}${source}${r.c.picked ? ', in this week' : ''}`}
+              aria-describedby={props.describedBy}
               checked={chosen}
               onChange={() => props.select!.toggle(r)}
             />

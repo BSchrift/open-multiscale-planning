@@ -3,17 +3,31 @@
 // Continue; on phone, the week's tasks follow it, each with its time and a way out of the week.
 
 import { useRef, useState } from 'react';
+import type { AimRow } from '../../../../core/capacity';
 import { formatMinutes } from '../../../../core/dates';
 import type { Minutes } from '../../../../core/types';
 import { AimsPopover } from './Aims';
-import { AimMeter } from './Cards';
-import { weekText } from './model';
+import { aimWords, weekText } from './model';
 import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
 import { SuggestPreview } from './Suggest';
 import { TimePopover } from './TimePopover';
 
 const pct = (share: number) => `${(share * 100).toFixed(1)}%`;
+
+export function AimMeter(props: { aim: AimRow }) {
+  const w = aimWords(props.aim);
+  return (
+    <>
+      <span className="mmeter" role="img" aria-label={w.alt}>
+        {/* Short of its aim, or past it, is calm blue, never amber, which means over the week's open time. Green is met. */}
+        <span className={`mfill ${props.aim.got > props.aim.aim && !props.aim.skipped ? 'calm' : w.cls || 'calm'}`} style={{ width: `${props.aim.pct}%` }} />
+        <span className="mtick" style={{ left: `${props.aim.tickPct}%` }} />
+      </span>
+      <span>{w.value}</span>
+    </>
+  );
+}
 
 export function WeekShape(props: PickProps & { phone: boolean; preview: { project: Minutes; oneOff: Minutes } }) {
   const { view, model, phone } = props;

@@ -162,6 +162,62 @@ describe('OneOffForm', () => {
     expect(onSave.mock.calls[0]![0]).toMatchObject({ schedule: { type: 'rule' }, next_due: '2026-12-31' });
   });
 
+  it('picks weekly days as checkboxes named in full, filled in one tap, and asks for one', async () => {
+    const onSave = vi.fn();
+    await inApp(<OneOffForm onSave={onSave} />);
+    await userEvent.type(field('Title'), 'Put the bins out');
+    await userEvent.selectOptions(field('Repeats'), 'recurring');
+    const on = screen.getByRole('group', { name: 'On' });
+    const day = (name: string) => within(on).getByRole('checkbox', { name });
+    // Weekly starts on the day it starts, today, a Monday.
+    expect(within(on).getAllByRole('checkbox').map((c) => c.getAttribute('aria-label'))).toEqual(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
+    expect(day('Monday')).toBeChecked();
+    expect(day('Tuesday')).not.toBeChecked();
+
+    await userEvent.click(within(on).getByRole('button', { name: 'Weekdays' }));
+    await userEvent.click(day('Wednesday'));
+    await userEvent.click(day('Friday'));
+    await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ schedule: { type: 'recurring', every: 1, unit: 'week', anchor: TODAY, days: [0, 1, 3] }, next_due: TODAY });
+
+    await userEvent.type(field('Title'), 'Water the plants');
+    for (const name of ['Monday', 'Tuesday', 'Thursday']) await userEvent.click(day(name));
+    await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose at least one day.');
+    await userEvent.click(within(on).getByRole('button', { name: 'Every day' }));
+    await userEvent.click(within(on).getByRole('button', { name: 'Weekends' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
+    expect(onSave.mock.calls[1]![0]).toMatchObject({ schedule: { days: [5, 6] }, next_due: '2026-11-07' });
+  });
+
+  it('writes no days for a weekly task on the day it starts, nor for other units', async () => {
+    const onSave = vi.fn();
+    await inApp(<OneOffForm onSave={onSave} />);
+    await userEvent.type(field('Title'), 'Feed the fish');
+    await userEvent.selectOptions(field('Repeats'), 'recurring');
+    await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
+    expect(onSave.mock.calls[0]![0].schedule).toEqual({ type: 'recurring', every: 1, unit: 'week', anchor: TODAY });
+
+    await userEvent.type(field('Title'), 'Pay rent');
+    await userEvent.click(within(screen.getByRole('group', { name: 'On' })).getByRole('button', { name: 'Weekdays' }));
+    await userEvent.selectOptions(field('How often'), 'Monthly');
+    expect(screen.queryByRole('group', { name: 'On' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
+    expect(onSave.mock.calls[1]![0].schedule).toEqual({ type: 'recurring', every: 1, unit: 'month', anchor: TODAY });
+  });
+
+  it("keeps a weekly task's days when it's changed", async () => {
+    const onSave = vi.fn();
+    const task: Task = { id: 't', kind: 'one_off', title: 'Put the bins out', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-10-05', days: [3, 0] } };
+    await inApp(<OneOffForm task={task} onSave={onSave} />);
+    const on = screen.getByRole('group', { name: 'On' });
+    expect(within(on).getAllByRole('checkbox', { checked: true }).map((c) => c.getAttribute('aria-label'))).toEqual(['Monday', 'Thursday']);
+    await userEvent.clear(field('Title'));
+    await userEvent.type(field('Title'), 'Put the recycling out');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ title: 'Put the recycling out', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-10-05', days: [0, 3] } });
+  });
+
   it('can be cancelled when it sits in a sheet', async () => {
     const onCancel = vi.fn();
     await inApp(<OneOffForm onSave={() => undefined} onCancel={onCancel} />, 'phone');

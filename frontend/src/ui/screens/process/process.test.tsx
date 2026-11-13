@@ -49,12 +49,12 @@ describe('Process on desktop', () => {
     expect(await screen.findByRole('heading', { name: 'Call the bank', level: 1 })).toHaveFocus();
     expect(within(card()).getByText('1 of 5')).toBeInTheDocument();
     const dests = within(card()).getAllByRole('button').filter((b) => b.classList.contains('pxdest'));
-    expect(dests.map((b) => b.textContent)).toEqual(['1Paint the fence', '2Learn to bake bread', '/Find a project', '+ New project', 'OOne offs']);
+    expect(dests.map((b) => b.textContent)).toEqual(['Alt 1Paint the fence', 'Alt 2Learn to bake bread', 'Alt /Find a project', '+ New project', 'Alt OOne offs']);
     const group = within(card()).getByRole('group', { name: 'No home yet? Make one' });
     expect(within(group).getAllByRole('button').map((b) => [b.getAttribute('aria-label'), b.textContent])).toEqual([
-      ['New project from this item', 'NNew project'],
-      ['New practice from this item', 'PNew practice'],
-      ['New goal from this item', 'GNew goal'],
+      ['New project from this item', 'Alt NNew project'],
+      ['New practice from this item', 'Alt PNew practice'],
+      ['New goal from this item', 'Alt GNew goal'],
     ]);
     // Every button shows its key.
     for (const [name, k] of [['‹ Undo and go back', 'Z'], ['Skip', 'S'], ['Delete/done', 'D'], ['Add to this week', 'W']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
@@ -376,6 +376,28 @@ describe('Process on desktop', () => {
     expect(close).not.toHaveBeenCalled();
   });
 
+  it("shows Option on every key's cap while single keys are off, and the key alone once they're on", async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
+    const caps = () => [...card().querySelectorAll('.keycap')].map((k) => k.textContent);
+    await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(caps().length).toBeGreaterThan(3);
+    for (const c of caps()) expect(c).toMatch(/^⌥.$/);
+    for (const k of card().querySelectorAll('.pxkey')) expect(k.textContent).toMatch(/^⌥.$/);
+    cleanup();
+    keysOn();
+    await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    for (const c of caps()) expect(c).toMatch(/^.$/);
+  });
+
+  it('labels the held key Alt away from a Mac', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+    await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    for (const k of card().querySelectorAll('.keycap')) expect(k.textContent).toMatch(/^Alt .$/);
+  });
+
   it('takes single keys only with the setting on: off, as by default, a key needs Option or Alt held', async () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
@@ -501,7 +523,7 @@ describe('Making a home from the card', () => {
     expect((await getRecord(t.db, 'objective', project!.objective_id))?.title).toBe('Money in order');
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: project!.id });
     // It takes a number at once.
-    expect(btn('Sort out the bank').querySelector('.pxkey')).toHaveTextContent(/^[1-8]$/);
+    expect(btn('Sort out the bank').querySelector('.pxkey')).toHaveTextContent(/^(Alt )?[1-8]$/);
 
     await userEvent.click(btn('‹ Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });

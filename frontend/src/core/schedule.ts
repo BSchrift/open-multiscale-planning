@@ -282,7 +282,12 @@ export function scheduleLabel(s: TaskSchedule): string {
       return 'Once';
     case 'recurring': {
       const every = s.every === 1 ? ADJECTIVE[s.unit] : `Every ${units(s.every, s.unit)}`;
-      if (s.days?.length) return `${every} on ${s.days.map((d) => formatWeekday(addDays(weekStart(s.anchor), d))).join(', ')}`;
+      if (s.days?.length) {
+        const days = [...new Set(s.days)].sort((a, b) => a - b);
+        if (s.every === 1 && s.unit === 'week' && days.length === 7) return 'Daily';
+        if (s.every === 1 && s.unit === 'week' && days.join() === '0,1,2,3,4') return 'Every weekday';
+        return `${every} on ${new Intl.ListFormat('en-GB').format(days.map((d) => formatWeekday(addDays(weekStart(s.anchor), d))))}`;
+      }
       return s.unit === 'month' ? `${every} on the ${ordinal(Number(s.anchor.slice(8)))}` : every;
     }
     case 'float':

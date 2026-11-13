@@ -1,39 +1,32 @@
 // Pieces both Week layouts use.
 
+import { weekday } from '../../../core/dates';
 import type { Minutes } from '../../../core/types';
-import { useApp } from '../../app/store';
-import { dayName, slotRange } from '../../components/weekgrid';
+import { KeepAsk } from '../../components/editors/KeepAsk';
 import type { WeekModel } from './data';
 import { useWeekActions } from './useWeekActions';
 
-/** After a practice session moves or changes length. Leaving it unanswered means this week only. */
+/** After a practice session moves to a new time on its day or changes length. Leaving it unanswered means this week only. */
 export function PracticeAsk(props: { ask: { blockId: string; wasMin: Minutes }; model: WeekModel; onDone(): void }) {
   const { ask, model, onDone } = props;
-  const { layout } = useApp();
   const act = useWeekActions();
   const block = model.blocks.find((b) => b.id === ask.blockId);
-  if (!block) return null;
+  const practice = block && model.practices.find((p) => p.id === block.practice_id);
+  if (!block || !practice) return null;
   return (
-    <div className="panel stack8 wkask" role="status" aria-label="Make this change permanent?">
-      <div>
-        {block.title} is now {dayName(block.date)}, {slotRange(block)}.
-      </div>
-      <div className="strong small">Make this change permanent?</div>
-      <div className="row">
-        <button className={layout === 'phone' ? 'btn pri grow' : 'btn sm pri'} type="button" onClick={onDone}>
-          No, this week only
-        </button>
-        <button
-          className={layout === 'phone' ? 'btn grow' : 'btn sm'}
-          type="button"
-          onClick={() => {
-            void act.keepPractice(block.id, ask.wasMin, block.title);
-            onDone();
-          }}
-        >
-          Yes, every week
-        </button>
-      </div>
-    </div>
+    <KeepAsk
+      practice={practice}
+      slot={block}
+      day={weekday(block.date)}
+      wasMin={ask.wasMin}
+      onKeep={(choice) => {
+        void act.keepPractice(block.id, choice);
+        onDone();
+      }}
+      onNo={() => {
+        onDone();
+        document.querySelector<HTMLElement>(`[data-id="${block.id}"]`)?.focus();
+      }}
+    />
   );
 }

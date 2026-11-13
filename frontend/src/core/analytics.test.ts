@@ -243,6 +243,20 @@ describe('practice time against target', () => {
     expect(weekAnalytics(d, clock, WEEK).practices[0]!.target_min).toBe(70);
   });
 
+  it('a count of sessions aims for their length times the count, and set days for theirs, whatever the day times', () => {
+    const d = emptyData();
+    d.practices = [
+      { id: 'pr3', title: 'Climb', target_min: 180, per: 'week', sessions: 3, state: 'active' },
+      { id: 'pr4', title: 'Run', target_min: 30, per: 'day', days: [0, 1, 4], day_times: [null, null, null, null, 570, null, null], state: 'active' },
+    ];
+    // A shortened session counts as one toward planning's count, but only its minutes here.
+    block(d, { practice: 'pr3' }, MON, 540, { mins: 30, result: 'done' });
+    expect(weekAnalytics(d, clock, WEEK).practices.map((p) => [p.id, p.spent_min, p.target_min])).toEqual([
+      ['pr3', 30, 180],
+      ['pr4', 0, 90],
+    ]);
+  });
+
   it('multiplies the target over the range, from the week of the first session', () => {
     const d = emptyData();
     block(d, { practice: 'pr2' }, addWeeks(MON, -1), 540, { mins: 70, result: 'done' });

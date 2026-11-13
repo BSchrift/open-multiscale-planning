@@ -7,16 +7,20 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { keepPracticeChange, moveBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
-import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, weekRange } from '../../../../core/dates';
+import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, weekday, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
+import { sessionDay } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
 import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
+import { KeepAsk } from '../../../components/editors/KeepAsk';
+import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
+import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
 import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
 import { useFocusLanding } from '../../../components/useFocusLanding';
@@ -96,7 +100,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const ctxOut: SlotContext = editB ? { ...ctx, placed: ctx.placed.filter((p) => p.id !== editB.id) } : ctx;
   const draftKey = cur && !editB ? `${cur.id}:${cur.toPlace}` : '';
   // A practice is suggested on its own days at its usual time, as Place the rest would put it.
-  const usual = cur?.practice && !editB ? practiceSlots(cur.practice, ctx) : null;
+  const usual = cur?.practice && !editB ? practiceSlots(cur.practice, ctx, model.weekPlan?.skipped_sessions ?? []) : null;
   const draftSlot =
     !cur || editB ? null : draft?.key === draftKey ? draft.slot : (usual?.[0] ?? defaultSlot(Math.min(cur.toPlace, cur.length), cur.work, ctx));
   const b: Slot | null = editB ?? draftSlot;
@@ -153,12 +157,19 @@ export function ScheduleStep(props: ScheduleStepProps) {
     if (!cur || !draftSlot) return;
     landOnCurrent();
     const times = slotInstants(draftSlot, zone);
+    let refused = false;
     const reverse = await run(async (w) => {
+      const placed = await (cur.practice ? placeSession(w, cur.id, times, clock) : placeBlock(w, cur.id, times, clock));
+      // A practice has one session a day, so a day with one refuses another, and nothing else moves either.
+      if (!placed.writes.length) {
+        refused = true;
+        return { writes: [] };
+      }
       const writes: RecordWrite[] = [];
       for (const x of bumped) writes.unshift(...(await unscheduleBlock(w, x.id, week, clock)).writes);
-      writes.unshift(...(await (cur.practice ? placeSession(w, cur.id, times, clock) : placeBlock(w, cur.id, times, clock))).writes);
-      return { writes };
+      return { writes: [...placed.writes, ...writes] };
     });
+    if (refused) return notify(`${cur.title} is already on ${DAY_NAMES[weekday(draftSlot.date)]}.`);
     if (!reverse) return;
     if (bumped.length) notify(`Took ${bumpedNames} off the calendar to place again`, () => run((w) => applyPlanChange(w, reverse)));
     reset();
@@ -179,6 +190,16 @@ export function ScheduleStep(props: ScheduleStepProps) {
    */
   const changeBlock = (x: PlacedBlock, slot: Slot) => {
     if (same(x, slot)) return;
+    // A session moved to another day is for this week only; a day with another of its sessions refuses it.
+    if (x.practice_id && slot.date !== x.date) {
+      setAsk(null);
+      if (s.blocks.some((o) => o.id !== x.id && o.practice_id === x.practice_id && o.date === slot.date)) {
+        return notify(`${x.title} is already on ${DAY_NAMES[weekday(slot.date)]}.`);
+      }
+      const day = sessionDay(x.id, x.practice_id) ?? x.date;
+      const text = `Moved ${DAY_NAMES[weekday(day)]}'s ${x.title} to ${formatWeekday(slot.date)} ${formatTimeOfDay(slot.start)}, this week only.`;
+      return run((w) => moveBlock(w, x.id, slotInstants(slot, zone))).then((reverse) => reverse && notify(text, () => run((w) => applyPlanChange(w, reverse))));
+    }
     const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
     setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
     return saved;
@@ -189,13 +210,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
     else setDraft({ key: draftKey, slot });
     setLook({ key: curKey, date: o.date });
   };
-  const keepPractice = async () => {
+  const keepPractice = async (choice: KeepChoice) => {
     const a = ask;
     const x = blockOf(a?.blockId ?? null);
     setAsk(null);
     if (!a || !x?.practice_id) return;
-    const reverse = await run((w) => keepPracticeChange(w, a.blockId, a.wasMin, clock));
-    if (reverse) notify(`${x.title} changed for every week. Edit it any time in Goals.`);
+    const reverse = await run((w) => keepPracticeChange(w, a.blockId, choice.keep, clock));
+    if (reverse) notify(choice.done, () => run((w) => applyPlanChange(w, reverse)));
   };
   const togglePractice = (id: string, off: boolean) => void run((w) => skipPractice(w, week, id, off, clock));
   /** Tasks at their suggested times, then the practices around them. */
@@ -243,7 +264,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const noneTitle = s.rows.length ? 'All tasks are placed' : 'Nothing is picked yet';
   const noneText = s.rows.length ? `${phone ? 'Tap' : 'Click'} any task or block to change it.` : "Go back to Pick to add tasks, or carry on with what's placed.";
   const askBlock = blockOf(ask?.blockId ?? null);
-  const askText = askBlock ? `${askBlock.title} is now ${dayName(askBlock.date)}, ${slotRange(askBlock)}.` : '';
+  const askPractice = askBlock && data.records.practices.find((p) => p.id === askBlock.practice_id);
+  const keepAsk = askBlock && askPractice && ask && (
+    <KeepAsk practice={askPractice} slot={askBlock} day={weekday(askBlock.date)} wasMin={ask.wasMin} onKeep={(c) => void keepPractice(c)} onNo={() => setAsk(null)} />
+  );
+  // A practice's other sessions this week, as Place the rest would put them.
+  const also = cur?.practice && !editB && usual && usual.length > 1 ? usual.filter((x) => !same(x, usual[0]!)) : [];
+  const alsoText = also.length ? `Also this week: ${new Intl.ListFormat('en-GB').format(also.map((x) => `${formatWeekday(x.date)} ${formatTimeOfDay(x.start)}`))}.` : '';
   const oneOffCls = (cur?.oneOff ?? editB?.kind === 'one_off') ? 'mhead' : '';
   const curKind = cur?.practice ? 'practice' : cur?.oneOff ? 'one_off' : 'project';
 
@@ -280,6 +307,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const said = (
     <>
       {amount && <div className="small">{amount}</div>}
+      {alsoText && <div className="small">{alsoText}</div>}
+      {cur?.practice && !editB && usual?.[0]?.note && <div className="small schnote">{usual[0].note}</div>}
       {notes.map((n) => (
         <div key={n} className="small schnote">
           {n}
@@ -296,20 +325,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     return (
       <div className="planlay">
         <div className="planleft stack">
-          {askBlock && (
-            <div className="card stack8" role="status" aria-label="Make this change permanent?">
-              <div>{askText}</div>
-              <div className="strong small">Make this change permanent?</div>
-              <div className="row">
-                <button className="btn sm pri" type="button" onClick={() => setAsk(null)}>
-                  No, this week only
-                </button>
-                <button className="btn sm" type="button" onClick={() => void keepPractice()}>
-                  Yes, every week
-                </button>
-              </div>
-            </div>
-          )}
+          {keepAsk}
           {none && (
             <div className="stack8">
               <h2 ref={noneRef} tabIndex={-1}>
@@ -626,16 +642,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
           )}
         </Sheet>
       )}
-      {askBlock && (
-        <Sheet label="Make this change permanent?" onClose={() => setAsk(null)}>
-          <div>{askText}</div>
-          <h2>Make this change permanent?</h2>
-          <button className="btn pri" type="button" onClick={() => setAsk(null)}>
-            No, this week only
-          </button>
-          <button className="btn" type="button" onClick={() => void keepPractice()}>
-            Yes, every week
-          </button>
+      {keepAsk && (
+        <Sheet label="Use this in future weeks too?" onClose={() => setAsk(null)}>
+          {keepAsk}
         </Sheet>
       )}
     </>

@@ -22,7 +22,7 @@ import type { Period, Retention } from './retention';
 import { createHttpSend, runSync } from './sync';
 import type { SyncSend } from './sync';
 import { closeProject } from './tasks';
-import type { RecordChange } from './types';
+import type { RecordChange, RecordType } from './types';
 import { memoryTokens } from '../platform/memory';
 import { openTestDb } from '../platform/node-sqlite';
 
@@ -150,6 +150,15 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
   }, 60_000);
 
   afterAll(async () => {
+    // On a deployment the test user is every suite's, and what never expires would stay there: each nightly run left a
+    // practice, a project and an Inbox item, and the practices' sessions filled Week above the deployed web test's days.
+    const never = [...kinds].filter(([, k]) => k.stage === 'never');
+    if (writer && never.length) {
+      await transact(writer.db, clock, async (w) => {
+        for (const [key, k] of never) await w.delete(k.type as RecordType, key);
+      });
+      await writer.sync();
+    }
     configureRetention(null);
     if (LOCAL) await local('/_local/clock', { now: '' });
   });

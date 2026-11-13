@@ -1064,7 +1064,7 @@ describe('Goals', () => {
     it('a link to a practice opens it, in its section on desktop and in its sheet on phone', async () => {
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' } });
       expect(await screen.findByRole('button', { name: /^Stretch/, expanded: true })).toBeVisible();
-      expect(screen.getByRole('slider', { name: 'Target' })).toBeVisible();
+      expect(screen.getByRole('slider', { name: 'Each session' })).toBeVisible();
       cleanup();
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' }, layout: 'phone' });
       expect(await screen.findByRole('dialog', { name: 'Edit practice' })).toBeVisible();
@@ -1075,12 +1075,12 @@ describe('Goals', () => {
       expect(await screen.findByRole('button', { name: /^Run a 10k/, expanded: true })).toBeVisible();
     });
 
-    it('on desktop: no goal section, link to a goal, target slider, pause, end', async () => {
+    it('on desktop: no goal section, link to a goal, session length, pause, end', async () => {
       const t = await renderScreen('goals', { seed: bread });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       expect(screen.getByText(/0m of 1h 45m this week/)).toBeVisible();
-      fireEvent.change(screen.getByRole('slider', { name: 'Target' }), { target: { value: '30' } });
+      fireEvent.change(screen.getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
       await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('paused'));
       await userEvent.selectOptions(screen.getByLabelText('Goal'), 'Run a 10k');
@@ -1101,9 +1101,7 @@ describe('Goals', () => {
       const sheet = screen.getByRole('dialog', { name: 'Edit practice' });
       await userEvent.clear(within(sheet).getByLabelText('Name'));
       await userEvent.type(within(sheet).getByLabelText('Name'), 'Stretch daily');
-      fireEvent.change(within(sheet).getByLabelText('New preferred time'), { target: { value: '18:30' } });
-      await userEvent.click(within(sheet).getByRole('button', { name: 'Add time' }));
-      await userEvent.click(within(sheet).getByRole('button', { name: 'Remove 7am' }));
+      fireEvent.change(within(sheet).getByLabelText('Usual time'), { target: { value: '18:30' } });
       expect((await record(t, 'practice', 'pr1'))?.title).toBe('Stretch');
       await userEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', preferred_times: [1110] }));

@@ -1,6 +1,8 @@
 // Days of the week as seven checkboxes, Monday first and named in full, with Every day, Weekdays and Weekends to fill
-// them in one tap. The one off form's weekly days use it.
+// them in one tap. The one off form's weekly days and the practice editor's use it.
 
+import { useId } from 'react';
+import type { Ref } from 'react';
 import type { Weekday } from '../../core/types';
 import { useApp } from '../app/store';
 import './daychips.css';
@@ -12,8 +14,10 @@ const FILLS: readonly [string, Weekday[]][] = [
   ['Weekends', [5, 6]],
 ];
 
-export function DayChips(props: { legend: string; days: readonly Weekday[]; onChange(days: Weekday[]): void }) {
+/** error shows under the chips, tied to Monday, which firstRef reaches so focus can go there. */
+export function DayChips(props: { legend: string; days: readonly Weekday[]; onChange(days: Weekday[]): void; error?: string; firstRef?: Ref<HTMLInputElement> }) {
   const { layout } = useApp();
+  const errorId = useId();
   const toggle = (d: Weekday) =>
     props.onChange(props.days.includes(d) ? props.days.filter((x) => x !== d) : [...props.days, d].sort((a, b) => a - b));
   return (
@@ -33,13 +37,26 @@ export function DayChips(props: { legend: string; days: readonly Weekday[]; onCh
             const on = props.days.includes(d);
             return (
               <label key={name} className={on ? 'dchip daychip on' : 'dchip daychip'}>
-                <input type="checkbox" className="chipbox" aria-label={name} checked={on} onChange={() => toggle(d)} />
+                <input
+                  ref={d === 0 ? props.firstRef : undefined}
+                  type="checkbox"
+                  className="chipbox"
+                  aria-label={name}
+                  aria-describedby={d === 0 && props.error ? errorId : undefined}
+                  checked={on}
+                  onChange={() => toggle(d)}
+                />
                 <span aria-hidden="true">{name.slice(0, 3)}</span>
               </label>
             );
           })}
         </div>
       </div>
+      {props.error && (
+        <div className="fielderr" id={errorId}>
+          {props.error}
+        </div>
+      )}
     </fieldset>
   );
 }

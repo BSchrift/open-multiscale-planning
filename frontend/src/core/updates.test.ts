@@ -14,9 +14,10 @@ const manifest = (over: Partial<Manifest> = {}): Manifest => ({
   ...over,
 });
 
+// The release host: each app's feed, which hold the same signed manifest, and the files they share.
 function server(m: Manifest | null) {
   const bodies: Record<string, string> = { [`${URL}/files/aaa`]: '<p>', [`${URL}/files/bbb`]: 'js' };
-  if (m) bodies[`${URL}/release.json`] = JSON.stringify({ manifest: JSON.stringify(m), signature: 'sig' });
+  if (m) for (const feed of ['desktop', 'iphone']) bodies[`${URL}/${feed}/release.json`] = JSON.stringify({ manifest: JSON.stringify(m), signature: 'sig' });
   return vi.fn(async (url: string | URL | Request) => {
     const body = bodies[String(url)];
     return new Response(body ?? 'missing', { status: body === undefined ? 404 : 200 });
@@ -57,6 +58,15 @@ describe('createUpdater', () => {
     expect(n.installed[0]!.signature).toBe('sig');
     expect(new TextDecoder().decode(n.installed[0]!.files['index.html'])).toBe('<p>');
     expect(new TextDecoder().decode(n.installed[0]!.files['assets/app.js'])).toBe('js');
+  });
+
+  it("reads its own app's feed, and the files from the store both feeds share", async () => {
+    for (const [platform, feed] of [['electron', 'desktop'], ['ios', 'iphone']] as const) {
+      const fetch = server(manifest({ shell: { electron: 'shell-e', ios: 'shell-e' } }));
+      expect(await start(fetch, native(), { platform }).check()).toMatchObject({ state: 'ready' });
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([`${URL}/${feed}/release.json`, `${URL}/files/aaa`, `${URL}/files/bbb`]);
+      updater?.stop();
+    }
   });
 
   it('is current when the release is this build or older', async () => {

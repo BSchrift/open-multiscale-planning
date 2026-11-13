@@ -299,8 +299,8 @@ test.describe('one device', () => {
     await card.getByRole('button', { name: 'New practice from this item' }).click();
     await card.getByRole('form', { name: 'New practice' }).getByRole('textbox', { name: 'Name' }).fill('Brew coffee at home');
     await card.getByRole('button', { name: 'Make it a practice' }).click();
-    await expect(card.getByRole('status')).toHaveText('"Order more coffee beans" is now the practice Brew coffee at home, 30m a day. It left your Inbox.');
-    await page.keyboard.press('Escape');
+    await expect(page.locator('.toast')).toContainText('Order more coffee beans is now the practice Brew coffee at home.');
+    await card.getByRole('button', { name: 'Exit' }).click();
     await openFinished();
     await expect(finished().getByRole('button', { name: 'Became the practice Brew coffee at home' })).toBeVisible();
     await everyScreen(page);

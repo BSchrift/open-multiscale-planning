@@ -58,7 +58,7 @@ test("shows the Inbox's count in a circle", async ({ page }, info) => {
   expect(badge && badge.width).toBe(badge?.height);
 });
 
-test('processes the Inbox one card at a time, with Undo', async ({ page }, info) => {
+test('processes the Inbox one card at a time: one picker for where it goes, and a toast for each, with Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);
   const rows = inboxPane(page).locator('.inboxrow, .morerow');
@@ -67,49 +67,91 @@ test('processes the Inbox one card at a time, with Undo', async ({ page }, info)
   await expect(rows.nth(1)).toContainText('Fix the gate2h estimate');
 
   await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
-  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeFocused();
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  // Focus starts in Add to, ready to type where the item goes.
+  const field = phone ? card(page).getByRole('button', { name: /^Add to a project or One offs/ }) : page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await expect(field).toBeFocused();
   await page.screenshot({ path: info.outputPath('process.png') });
-  if (phone) {
-    for (const name of ['Paint the fence', 'One offs', 'Other project', 'Skip', 'Delete/done']) {
-      const box = await card(page).getByRole('button', { name, exact: true }).boundingBox();
-      expect(box!.height, name).toBeGreaterThanOrEqual(44);
-    }
-  }
+  if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', '‹ Undo', 'Skip', 'Delete/done']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
 
-  await card(page).getByRole('button', { name: 'Paint the fence' }).click();
+  /** Picks a place: typed and Enter on desktop, a tap in the sheet on phone. */
+  const addTo = async (typed: string, option: string) => {
+    if (!phone) {
+      await field.fill(typed);
+      await expect(page.getByRole('option', { name: option })).toHaveAttribute('aria-selected', 'true');
+      return field.press('Enter');
+    }
+    await field.click();
+    const sheet = page.getByRole('dialog', { name: 'Add to' });
+    await sheet.getByRole('combobox', { name: 'Add to a project or One offs' }).fill(typed);
+    for (const row of await sheet.getByRole('option').all()) await expectTapTarget(row);
+    await sheet.getByRole('option', { name: option }).click();
+  };
+  const toast = page.locator('.toast');
+
+  await addTo('paint', 'Paint the fence');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
-  await expect(card(page).getByRole('status')).toHaveText('Sent to Paint the fence.');
+  await expect(toast).toContainText('Added Call the bank to Paint the fence.');
+  // The toast is the app speaking, apart from the card: above the dimmed page in the band the card leaves free on
+  // desktop, and just above the bottom row on phone, clear of the picker.
+  const box = (await toast.boundingBox())!;
+  expect(await toast.evaluate((t) => { const r = t.getBoundingClientRect(); return t.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })).toBe(true);
+  if (phone) {
+    expect(box.y + box.height).toBeLessThanOrEqual((await card(page).getByRole('button', { name: 'Skip' }).boundingBox())!.y);
+    const add = (await card(page).getByRole('button', { name: 'Add to Paint the fence' }).boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(add.y + add.height);
+  } else {
+    const c = (await card(page).boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(c.y + c.height);
+  }
+  await page.screenshot({ path: info.outputPath('process-toast.png') });
 
   await card(page).getByRole('button', { name: 'Add to this week' }).click();
-  await card(page).getByRole('button', { name: 'One offs, add to this week' }).click();
+  await addTo('one', 'One offs, and to this week');
   await expect(card(page).getByRole('heading', { name: 'Buy stamps' })).toBeVisible();
-  await expect(card(page).getByRole('status')).toHaveText('Sent to One offs and added to this week, not on the calendar yet.');
+  await expect(toast).toContainText('Added Fix the gate to One offs and to this week.');
 
-  await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
+  await toast.getByRole('button', { name: 'Undo' }).click();
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
   // Undo returns the card as it was when the choice was made, toggle included.
   await card(page).getByRole('button', { name: 'Adding to this week' }).click();
-
-  if (phone) {
-    await card(page).getByRole('button', { name: 'Other project' }).click();
-    const sheet = page.getByRole('dialog', { name: 'Send to another project' });
-    await sheet.getByRole('button', { name: /Write the report/ }).click();
-    await sheet.getByRole('button', { name: 'Send' }).click();
-  } else {
-    await card(page).getByRole('button', { name: 'Find a project' }).click();
-    await card(page).getByRole('combobox', { name: 'Find a project' }).fill('report');
-    await card(page).getByRole('option', { name: /Write the report/ }).click();
-  }
-  await expect(card(page).getByRole('status')).toHaveText('Sent to Write the report.');
+  await addTo('report', 'Write the report');
+  await expect(toast).toContainText('Added Fix the gate to Write the report.');
 
   await card(page).getByRole('button', { name: 'Delete/done' }).click();
   await expect(card(page).getByRole('alert')).toContainText('Delete this item?');
   await card(page).getByRole('button', { name: 'Yes, delete' }).click();
+  await expect(toast).toContainText('Deleted Buy stamps.');
   await expect(card(page).getByRole('heading', { name: 'Inbox clear' })).toBeVisible();
   await expect(card(page)).toContainText('2 sorted, 1 deleted.');
   await card(page).getByRole('button', { name: 'Done' }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(inboxPane(page).getByText(phone ? 'Inbox is empty. Anything you capture lands here.' : 'Inbox is empty.')).toBeVisible();
+});
+
+test('a new project from the picker: the form, a Created toast, then a second Enter adds the item', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  if (phone) await card(page).getByRole('button', { name: 'Add to a project or One offs' }).click();
+  const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await picker.fill('Fix up the shed');
+  if (phone) await page.getByRole('option', { name: '+ New project “Fix up the shed”' }).click();
+  else await picker.press('Enter');
+  const form = page.getByRole('form', { name: 'New project' });
+  await expect(form.getByRole('textbox', { name: 'Name' })).toHaveValue('Fix up the shed');
+  await form.getByRole('textbox', { name: 'Milestone to put it under, if any' }).fill('Roof watertight');
+  await page.screenshot({ path: info.outputPath('process-new-project.png') });
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(page.locator('.toast')).toContainText('Created Fix up the shed, with the milestone Roof watertight.');
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  const add = card(page).getByRole('button', { name: 'Add to Fix up the shed' });
+  if (!phone) await expect(add).toBeFocused();
+  await page.screenshot({ path: info.outputPath('process-created.png') });
+  await (phone ? add.click() : page.keyboard.press('Enter'));
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
+  await expect(page.locator('.toast')).toContainText('Added Call the bank to Fix up the shed, under Roof watertight.');
 });
 
 // The owner's request for a long Inbox: select many items and give them a home at once, each action with one Undo.
@@ -179,75 +221,91 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   test.skip(info.project.name === 'phone', 'Keyboard shortcuts are for the desktop card.');
   await open(page, false);
   await inboxPane(page).getByRole('button', { name: 'Assign Fix the gate' }).click();
-  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeFocused();
-  // Off, as by default: a key alone does nothing, and with Alt (Option on a Mac) it works.
-  await page.keyboard.press('o');
-  await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
-  await expect(card(page).getByText('Keys work with Option or Alt held. Settings can make them work alone.')).toBeVisible();
-  await page.keyboard.press('Alt+KeyO');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
+  const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await expect(picker).toBeFocused();
+  // In Add to, letters search, and Enter adds to the lit row.
+  await page.keyboard.type('paint');
+  await page.keyboard.press('Enter');
   await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
+  await expect(page.locator('.toast')).toContainText('Added Fix the gate to Paint the fence.');
+  // It starts on the place last used, so Enter adds there again.
+  await expect(picker).toHaveValue('Paint the fence');
+  await expect(card(page).getByText('Keys work with Option or Alt held. Settings can make them work alone.')).toBeVisible();
+  // Option or Alt keys work from Add to as anywhere on the card.
   await page.keyboard.press('Alt+KeyZ');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
+  await page.keyboard.press('Alt+KeyS');
+  await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
   await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toHaveCount(0);
 
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('checkbox', { name: 'Single-key shortcuts in Process' }).check();
   await nav(page).getByRole('button', { name: /^Inbox/ }).click();
   await inboxPane(page).getByRole('button', { name: 'Assign Fix the gate' }).click();
+  await expect(picker).toBeFocused();
+  // Single keys work once focus leaves the field.
+  await page.keyboard.press('Escape');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeFocused();
-  await page.keyboard.press('o');
+  await page.keyboard.press('s');
   await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
-  await page.keyboard.press('1');
-  await expect(card(page).getByRole('status')).toHaveText('Sent to Paint the fence.');
+  // Each new item puts focus back in Add to, where a letter searches; Esc leaves it.
+  await expect(picker).toBeFocused();
+  await page.keyboard.press('Escape');
   await page.keyboard.press('z');
-  await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
-  // The finder: / opens it, typing filters, Enter sends.
-  await page.keyboard.press('/');
-  await page.keyboard.type('report');
-  await page.keyboard.press('Enter');
-  await expect(card(page).getByRole('status')).toHaveText('Sent to Write the report.');
-  // N opens the form on the name, selected; Esc goes back to the button that opened it.
-  await page.keyboard.press('n');
-  const form = card(page).getByRole('form', { name: 'New project' });
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
+  // P opens the form on the name, selected; Esc goes back to the button that opened it.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('p');
+  const form = card(page).getByRole('form', { name: 'New practice' });
   await expect(form.getByRole('textbox', { name: 'Name' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(form).toHaveCount(0);
-  await expect(card(page).getByRole('button', { name: 'New project from this item' })).toBeFocused();
-  await page.keyboard.press('s');
-  await expect(card(page).getByRole('heading', { name: "That's everything for now" })).toBeVisible();
-  await page.keyboard.press('Escape');
+  await expect(card(page).getByRole('button', { name: 'New practice from this item' })).toBeFocused();
+  // On the done card focus is on its title, so the last Esc closes Process.
+  for (const next of ['Call the bank', 'Buy stamps', "That's everything for now"]) {
+    await page.keyboard.press('s');
+    await expect(card(page).getByRole('heading', { name: next })).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
   await expect(card(page)).toHaveCount(0);
-  await expect(inboxPane(page).locator('.inboxrow')).toHaveText([/Buy stamps/]);
+  await expect(inboxPane(page).locator('.inboxrow')).toHaveCount(3);
 });
 
 test('makes a project under a new goal, a practice and a goal from cards, each one change with its own Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);
   await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
-  // A form in place of the destinations on desktop, a sheet on phone.
+  // A form in place of the picker on desktop, a sheet on phone.
   const form = (name: string) => (phone ? page.getByRole('dialog', { name }) : card(page).getByRole('form', { name }));
+  const toast = page.locator('.toast');
 
-  // Call the bank: a project under a new goal, with the item as its first task.
+  // Call the bank: a project under a new goal, named as typed in the picker, then the item added to it.
   await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
-  await card(page).getByRole('button', { name: 'New project from this item' }).click();
+  if (phone) await card(page).getByRole('button', { name: 'Add to a project or One offs' }).click();
+  await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('Sort out the bank');
+  await page.getByRole('option', { name: '+ New project “Sort out the bank”' }).click();
   const project = form('New project');
-  await expect(project.getByRole('textbox', { name: 'Name' })).toHaveValue('Call the bank');
-  await project.getByRole('textbox', { name: 'Name' }).fill('Sort out the bank');
+  await expect(project.getByRole('textbox', { name: 'Name' })).toHaveValue('Sort out the bank');
   await project.getByRole('button', { name: '+ New goal' }).click();
   await project.getByRole('textbox', { name: 'New goal name' }).fill('Money in order');
   await expect(project.getByText('Today to Dec 31')).toBeVisible();
   await page.screenshot({ path: info.outputPath('home-form.png') });
-  await project.getByRole('button', { name: 'Add project and send it there' }).click();
-  await expect(card(page).getByRole('status')).toHaveText('Added goal Money in order and project Sort out the bank, and sent "Call the bank" to it.');
+  await project.getByRole('button', { name: 'Add project' }).click();
+  await expect(toast).toContainText('Created Sort out the bank, under Money in order.');
+  await card(page).getByRole('button', { name: 'Add to Sort out the bank' }).click();
+  await expect(toast).toContainText('Added Call the bank to Sort out the bank.');
 
   // Fix the gate: a practice it becomes, then Undo takes back both the practice and the closing.
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
   await card(page).getByRole('button', { name: 'New practice from this item' }).click();
   await expect(form('New practice').getByRole('combobox', { name: 'Goal' })).toHaveValue(/.+/);
   await form('New practice').getByRole('button', { name: 'Make it a practice' }).click();
-  await expect(card(page).getByRole('status')).toHaveText('"Fix the gate" is now a practice, 30m a day. It left your Inbox.');
+  await expect(toast).toContainText('Fix the gate is now a practice.');
   await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
-  await expect(card(page).getByRole('status')).toHaveText('Undone: Fix the gate removed, "Fix the gate" is back in your Inbox.');
+  await expect(toast).toContainText('Undone: Fix the gate removed. Fix the gate is back.');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
 
   // A goal, keeping the item on the card to file next.
@@ -255,10 +313,16 @@ test('makes a project under a new goal, a practice and a goal from cards, each o
   await form('New goal').getByRole('textbox', { name: 'Name' }).fill('Keep the house');
   await form('New goal').getByRole('checkbox', { name: 'Keep it on this card to file next' }).check();
   await form('New goal').getByRole('button', { name: 'Add goal' }).click();
-  await expect(card(page).getByRole('status')).toHaveText('Added goal Keep the house. Now file "Fix the gate".');
-  await card(page).getByRole('button', { name: 'Paint the fence' }).click();
-  await expect(card(page).getByRole('status')).toHaveText('Sent to Paint the fence.');
-  await page.keyboard.press('Escape');
+  await expect(toast).toContainText('Created Keep the house.');
+  if (phone) {
+    await card(page).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+    await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: 'Paint the fence' }).click();
+  } else {
+    await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('paint');
+    await page.keyboard.press('Enter');
+  }
+  await expect(toast).toContainText('Added Fix the gate to Paint the fence.');
+  await card(page).getByRole('button', { name: 'Exit' }).click();
   await expect(card(page)).toHaveCount(0);
 
   // Both goals are on the Goals page, and only Buy stamps is left to sort.
@@ -273,13 +337,14 @@ test('phone: the form for a new home rises above the keyboard with its button in
   test.skip(info.project.name !== 'phone', 'The keyboard is a phone matter');
   await open(page, true);
   await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
-  await card(page).getByRole('button', { name: 'New project from this item' }).click();
+  await card(page).getByRole('button', { name: 'Add to a project or One offs' }).click();
+  await page.getByRole('option', { name: '+ New project' }).click();
   const sheet = page.getByRole('dialog', { name: 'New project' });
   const height = page.viewportSize()!.height;
   // As app/keyboard.ts sets it for a 336pt keyboard.
   await page.evaluate(() => document.documentElement.style.setProperty('--keyboard', '336px'));
   await expect.poll(async () => Math.round((await sheet.boundingBox())!.y + (await sheet.boundingBox())!.height)).toBe(height - 336);
-  const add = sheet.getByRole('button', { name: 'Add project and send it there' });
+  const add = sheet.getByRole('button', { name: 'Add project' });
   await expect(add).toBeInViewport();
   expect((await add.boundingBox())!.y + (await add.boundingBox())!.height).toBeLessThanOrEqual(height - 336);
   for (const name of ['Clear name', '+ New goal', 'Cancel']) {

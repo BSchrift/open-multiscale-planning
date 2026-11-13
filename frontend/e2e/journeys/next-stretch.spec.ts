@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, start, tab, TZ } from './journey';
+import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
 // shows what each got and adds one, Practices edit in place, Projects puts milestones in the plan and adds a project
@@ -142,8 +142,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(page.getByRole('heading', { name: 'Step 4 of 5, Inbox. Give each item a home' })).toBeFocused();
   await (phone ? next('Process 1 item') : page.getByRole('button', { name: 'Process 1 item' }).click());
   const cards = page.getByRole('dialog', { name: 'Process Inbox' });
-  await cards.getByRole('button', { name: 'Bake a sourdough loaf' }).click();
-  await expect(cards.getByText('Sent to Bake a sourdough loaf.')).toBeVisible();
+  await processTo(page, phone, 'Bake a sourdough loaf');
+  await expect(page.locator('.toast')).toContainText('to Bake a sourdough loaf.');
   await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape'));
   await expect(page.getByText('1 sorted. Your Inbox is clear.')).toBeFocused();
   await next('Continue to Finish');

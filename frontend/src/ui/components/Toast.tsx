@@ -38,6 +38,7 @@ export function ToastProvider(props: { children: ReactNode }) {
   // Focus or the mouse on the toast holds it open, so Undo can't vanish while someone is reaching for it.
   const [held, setHeld] = useState({ focus: false, hover: false });
   const counter = useRef(0);
+  const cameFrom = useRef<HTMLElement | null>(null);
 
   const api = useMemo<ToastApi>(
     () => ({
@@ -89,6 +90,13 @@ export function ToastProvider(props: { children: ReactNode }) {
                 className="toastact"
                 type="button"
                 autoFocus={current.focusUndo}
+                // Reached by Tab from a dialog's last control, Tab goes back there, either way.
+                onFocus={(e) => void (cameFrom.current = e.relatedTarget as HTMLElement | null)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Tab' || !cameFrom.current?.isConnected || !cameFrom.current.closest('[role=dialog]')) return;
+                  e.preventDefault();
+                  cameFrom.current.focus();
+                }}
                 onClick={() => {
                   void current.undo?.();
                   setCurrent(null);

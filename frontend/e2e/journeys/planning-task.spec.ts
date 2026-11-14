@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../platform';
 import { expectTapTarget } from '../seed';
 import { chicago, firstRun, jumpTo, pane, start, tab, TZ } from './journey';
 

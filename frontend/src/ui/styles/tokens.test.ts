@@ -70,6 +70,8 @@ const PAIRS: [string, string, number][] = [
   ['white', 'red', BODY],
   ['white', 'red-dark', BODY],
   ['amber-ink', 'amber-soft', BODY],
+  ['amber-ink', 'closed', BODY], // Not done, said on a block gone by.
+  ['ink-2', 'closed', BODY], // Partly, said on a block gone by.
   ['amber-ink', 'page', BODY],
   ['amber-ink', 'white', BODY],
   ['amber-ink-2', 'amber-pale', BODY],
@@ -85,6 +87,8 @@ const PAIRS: [string, string, number][] = [
   ...['blue', 'teal', 'purple', 'amber', 'green'].map((part): [string, string, number] => [part, 'fill', PART]),
   // The Projects step's meter sits on the ground with a white track.
   ['amber', 'white', PART],
+  // Not done's dashed outline, on the block gone by and on the day around it.
+  ['amber', 'closed', PART],
   ['red', 'red-soft', PART],
 ];
 

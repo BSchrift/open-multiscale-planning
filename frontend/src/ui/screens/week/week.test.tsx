@@ -148,6 +148,20 @@ describe("next week's planning task", () => {
   });
 });
 
+// This morning on Monday, after Paint the fence's block at 7:30 went unanswered: one done, one not done and one partly.
+const morning = async (w: Writer) => {
+  const answers = [
+    ['Sketch the outline', 'done'],
+    ['Read the notes', 'not'],
+    ['Email the editor', 'partly'],
+  ] as const;
+  for (const [i, [title, result]] of answers.entries()) {
+    await w.create('task', { kind: 'project', project_id: 'p', title, estimate_min: 60 }, `m${i}`);
+    await w.create('time_block', { task_id: `m${i}`, start: at(`${9 + i}:00`), end: at(`${10 + i}:00`), tz: ZONE }, `mb${i}`);
+    await w.create('block_outcome', { result, answered_at: at(`${10 + i}:00`) }, outcomeId(`mb${i}`));
+  }
+};
+
 describe('Week on desktop', () => {
   it('shows this week: blocks in their colours, calendar events behind, a conflict named, and the time left', async () => {
     await open();
@@ -378,6 +392,37 @@ describe('Week on desktop', () => {
     const placed = (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't2' && b.start > at('14:00'));
     expect(placed).toHaveLength(1);
     expect(placed[0]!.end > placed[0]!.start).toBe(true);
+  });
+
+  it('a block gone by says how it went, and is struck through only when done', async () => {
+    await open({ seed: morning });
+    const named = (name: string) => screen.findByRole('button', { name });
+    expect(await named('Sketch the outline, Mon Nov 2, 9am to 10am, Project. Done.')).toHaveClass('ended', 'done');
+    const not = await named('Read the notes, Mon Nov 2, 10am to 11am, Project. Not done.');
+    expect(not).toHaveClass('ended', 'notdone');
+    expect(not).not.toHaveClass('done');
+    expect(within(not).getByText('Not done')).toBeVisible();
+    const partly = await named('Email the editor, Mon Nov 2, 11am to 12pm, Project. Partly.');
+    expect(partly).toHaveClass('ended', 'partly');
+    expect(partly).not.toHaveClass('done');
+    expect(within(partly).getByText('Partly')).toBeVisible();
+    // One with no answer yet is only muted.
+    const unanswered = await named('Paint the fence, Mon Nov 2, 7:30am to 8:30am, One off.');
+    expect(unanswered).toHaveClass('ended');
+    expect(unanswered).not.toHaveClass('done');
+  });
+
+  it("marks the current time across today's column only", async () => {
+    await open();
+    const container = document.body;
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(container.querySelectorAll('.nowline')).toHaveLength(1);
+    expect(container.querySelectorAll('.colbody')[0]).toContainElement(line);
+    // 2pm is 8 hours after 6am, at 26px an hour.
+    expect(line).toHaveStyle({ top: `${8 * 26}px` });
+    await userEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(await screen.findByText('Nov 9 to Nov 15')).toBeVisible();
+    expect(container.querySelectorAll('.nowline')).toHaveLength(0);
   });
 
   it('lists work that needs a new time under its own heading, not as placed by its past block', async () => {
@@ -709,6 +754,47 @@ describe('Week on phone', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Draft the summary' });
     expect(within(sheet).queryByRole('button', { name: 'Move' })).toBeNull();
     expect(screen.getByText('Paint the fence').closest('.tlblock')).toHaveClass('c-ended');
+  });
+
+  it("the day's blocks gone by are struck through only when done; Partly and Not done say so in words instead", async () => {
+    await phone({ seed: morning });
+    await screen.findByRole('heading', { name: 'Mon Nov 2' });
+    const day = async () => document.querySelector<HTMLElement>('.wkdaycard')!;
+    const drawn = async (title: string) => (await within(await day()).findByText(title)).closest('.tlblock')!;
+    expect(await drawn('Sketch the outline')).toHaveClass('c-ended', 'done');
+    for (const [title, cls, word] of [
+      ['Read the notes', 'notdone', 'Not done'],
+      ['Email the editor', 'partly', 'Partly'],
+    ]) {
+      expect(await drawn(title!)).toHaveClass('c-ended', cls!);
+      expect(await drawn(title!)).not.toHaveClass('done');
+      expect(within((await drawn(title!)) as HTMLElement).getByText(word!)).toBeVisible();
+    }
+    // One with no answer yet is only muted.
+    expect(await drawn('Paint the fence')).toHaveClass('c-ended');
+    expect(await drawn('Paint the fence')).not.toHaveClass('done');
+  });
+
+  it('marks the current time on today, and not on another day', async () => {
+    await phone();
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(document.querySelectorAll('.nowline')).toHaveLength(1);
+    // In the row whose time holds 2pm.
+    const row = line.closest<HTMLElement>('.tlrow')!;
+    expect(Number(row.dataset.dropFrom)).toBeLessThanOrEqual(14 * 60);
+    expect(Number(row.dataset.dropTo)).toBeGreaterThan(14 * 60);
+    await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[1]!);
+    expect(await screen.findByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
+    expect(document.querySelectorAll('.nowline')).toHaveLength(0);
+  });
+
+  it('marks the current time while editing too', async () => {
+    await phone({ seed: planned });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(line.closest('.dragday')).not.toBeNull();
+    // 8 hours after 6am, at 48px an hour.
+    expect(line).toHaveStyle({ top: `${8 * 48}px` });
   });
 
   it('a block opens a sheet: the slider changes its length, Move carries it to another day, Remove takes it off', async () => {

@@ -86,6 +86,18 @@ describe('backfillExpiry', () => {
     expect(await backfillExpiry(db, clock)).toBe(0);
   });
 
+  it('gives a milestone an app from before added to a finished project the expiry the project has', async () => {
+    await transact(db, clock, (w) => w.create('project', { title: 'Paint the house', state: 'finished', start: '2026-09-01', end: '2026-10-31' }, 'p'));
+    expect((await data('p'))!.expires_at).toBe('2031-11-02T15:00:00Z');
+    // Another device on an older app adds a milestone afterwards, with no expiry.
+    await before(() => transact(db, clock, (w) => w.create('milestone', { project_id: 'p', title: 'Second coat' }, 'm')));
+    expect((await data('m'))!.expires_at).toBeUndefined();
+
+    // Otherwise the server would keep it for good, after its project had gone.
+    expect(await backfillExpiry(db, clock)).toBe(1);
+    expect((await data('m'))!.expires_at).toBe('2031-11-02T15:00:00Z');
+  });
+
   it('does nothing without a policy', async () => {
     configureRetention(null);
     await transact(db, clock, (w) => w.create('task', { kind: 'one_off', title: 'x', done_at: NOW }));

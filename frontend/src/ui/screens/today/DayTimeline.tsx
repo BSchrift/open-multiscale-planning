@@ -23,7 +23,7 @@ import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
-import { DRAG_PX, HOLD_MS, SLOP_PX } from '../../components/weekgrid';
+import { DRAG_PX, HOLD_MS, SLOP_PX, swallowClick } from '../../components/weekgrid';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
@@ -79,7 +79,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
   const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null } | null>(null);
-  const droppedAt = useRef(0);
   const steps = useRef<{ id: string; at: Slot; reverse: PlanChange } | null>(null);
   // Arrow steps save one after another, each from where the last one put the block, since the day can redraw from a
   // step's save while the next is still saving and show the block a step behind.
@@ -170,7 +169,12 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const first = key && prev?.id === i.id && same(prev.at, from) ? prev.reverse : reverse;
     steps.current = key ? { id: i.id, at: to, reverse: first } : null;
     const notes = slotNotes({ ...to, id: i.id }, workOf(i), ctx);
-    toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo: () => run((w) => applyPlanChange(w, first)) });
+    // Undo can put the block back where the day last drew it, before it drew the steps, which wouldn't redraw it.
+    const undo = () => {
+      setDrag(null);
+      return run((w) => applyPlanChange(w, first));
+    };
+    toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo });
   };
 
   const press = (i: Item, mode: 'move' | 'resize') => (e: ReactPointerEvent) => {
@@ -181,6 +185,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const start = mode === 'move' ? dayOffer(data.date, len, workOf(i), { ...ctx, placed: ctx.placed.filter((s) => s.id !== i.id) }) : null;
     const ghost = start === null ? null : { date: data.date, start, end: start + len };
     const [x0, y0, perPx] = [e.clientX, e.clientY, 60 / ph];
+    // A press on the length handle drags the block it's in, and the click after a drag lands on the block.
+    const target = (e.currentTarget as Element).closest('.cev') ?? e.currentTarget;
     let lifted = false;
     let moved = false;
     let last = slot;
@@ -211,7 +217,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         stop();
         // A click, or a tap let go before the hold: it opens the block.
         if (!lifted) return;
-        droppedAt.current = Date.now();
+        swallowClick(target);
         if (same(last, slot)) return setDrag(null);
         setDrag({ id: i.id, slot: last, ghost: null });
         void save(i, slot, last);
@@ -364,8 +370,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               style={style}
               aria-label={alt(i)}
               aria-describedby={helpOf(move, resize, !!compact)}
-              // The release after a drag also clicks the block; that click shouldn't open it.
-              onClick={() => Date.now() - droppedAt.current >= HOLD_MS && openItem(i)}
+              // The release after a drag also clicks the block; press() stops that click before it gets here.
+              onClick={() => openItem(i)}
               onPointerDown={move ? press(i, 'move') : undefined}
               onKeyDown={resize ? step(i, move) : undefined}
               // Steps in a row undo together; once focus leaves, the next is a change of its own.

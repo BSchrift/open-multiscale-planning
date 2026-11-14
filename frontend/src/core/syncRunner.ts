@@ -1,6 +1,6 @@
-// Decides when to sync: at launch, on returning to the foreground, 2 seconds after an edit, every 5 minutes while
-// open, and every 5 seconds for 2 minutes after Google's consent page opens. The result goes in the meta table, so Settings reads it with syncStatus like any other query, and it
-// survives a restart. A failed sync changes nothing but that status: the outbox keeps everything for next time.
+// Decides when to sync: at launch, on returning to the foreground, on coming back online, 2 seconds after an edit,
+// every 5 minutes while open, and every 5 seconds for 2 minutes after Google's consent page opens. The result goes in
+// the meta table, so Settings reads it with syncStatus like any other query, and it survives a restart. A failed sync changes nothing but that status: the outbox keeps everything for next time.
 //
 // There's no paused state to manage. Once a sign-in has expired the tokens are gone, so each trigger fails at once
 // without any network traffic, and the next sync after signing in again carries on from the outbox.
@@ -46,6 +46,8 @@ export function createSyncRunner(deps: {
   db: Db;
   clock: Clock;
   lifecycle: { onForeground(listener: () => void): () => void };
+  /** Calls back when the connection comes back, so what was kept offline goes then, as Settings says it will. */
+  onOnline?(listener: () => void): () => void;
   send: SyncSend;
   /** Runs after each sync that worked, such as uploading what the server now has the records for. Never stops a sync. */
   afterSync?(): Promise<void>;
@@ -107,6 +109,7 @@ export function createSyncRunner(deps: {
       let editTimer: ReturnType<typeof setTimeout> | undefined;
       const period = setInterval(() => void syncNow(), PERIOD_MS);
       const stopForeground = lifecycle.onForeground(() => void syncNow());
+      const stopOnline = deps.onOnline?.(() => void syncNow()) ?? (() => {});
       const stopChanges = db.subscribe((change) => {
         if (change.source !== 'local') return;
         clearTimeout(editTimer);
@@ -116,6 +119,7 @@ export function createSyncRunner(deps: {
         clearTimeout(editTimer);
         clearInterval(period);
         stopForeground();
+        stopOnline();
         stopChanges();
       };
     },
@@ -202,7 +206,13 @@ export function startAppSync(
     },
   };
   const files = createFiles({ db: platform.db, clock, store: platform.files, api: filesApi });
-  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, send, afterSync: () => files.run() });
+  // The page's online event, which browsers, Electron and iPhone's web view all fire. Tests of this file run without one.
+  const onOnline = (listener: () => void) => {
+    if (typeof window === 'undefined') return () => {};
+    window.addEventListener('online', listener);
+    return () => window.removeEventListener('online', listener);
+  };
+  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, onOnline, send, afterSync: () => files.run() });
   const calendarPost = async (path: string) => {
     const res = await apiPost(api, path);
     if (!res.ok) throw new SyncError('error');

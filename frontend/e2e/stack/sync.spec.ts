@@ -149,6 +149,77 @@ test("two devices change a practice's days and its days' own times at once, and 
   expect(b.errors).toEqual([]);
 });
 
+test('two devices offline for a week, editing the same records, converge when they reconnect', async ({ browser }) => {
+  test.skip(!t.localApi, 'needs: fakeClock');
+  test.setTimeout(180_000);
+  const setServerClock = async (now: string) => {
+    const res = await fetch(`${t.localApi}/_local/clock`, { method: 'POST', body: JSON.stringify({ now }) });
+    expect(res.status).toBe(204);
+  };
+  const run = randomUUID().slice(0, 8);
+  const lease = `Renew the lease ${run}`;
+  const garage = `Sort the garage ${run}`;
+  const drill = `Return the drill ${run}`;
+  const ids = { lease: `e2e-${run}-lease`, garage: `e2e-${run}-garage`, drill: `e2e-${run}-drill` };
+  const a = await device(browser, `e2e-${run}`);
+  await seed(a.page, [oneOff(ids.lease, lease), oneOff(ids.garage, garage), oneOff(ids.drill, drill)]);
+  await signIn(a.page);
+  const b = await device(browser, `e2e-${run}`);
+  await signIn(b.page);
+  await expect.poll(async () => (await readRecord(b.page, 'task', ids.drill))?.title, NETWORK).toBe(drill);
+  // One offs opens once online first: a screen first opened offline is the offline screens test's.
+  for (const d of [a, b]) await go(d.page, 'One offs');
+
+  for (const d of [a, b]) await d.context.setOffline(true);
+  const inbox: string[] = [];
+  try {
+    // A week apart. The same date on both, the later edit winning; different fields of one task, both kept; one
+    // finishes a task the other deletes; and each captures a pile of things.
+    await setDate(a.page, lease, '2031-03-10');
+    await setDate(b.page, lease, '2031-04-20');
+    await seed(a.page, [{ type: 'task', id: ids.garage, fields: { title: `${garage} and the shed` } }]);
+    await seed(b.page, [{ type: 'task', id: ids.garage, fields: { estimate_min: 90 } }]);
+    await pane(a.page, 'One offs').getByRole('checkbox', { name: `${drill} done` }).click();
+    await expect(a.page.getByText(`Completed ${drill}.`)).toBeVisible();
+    await seed(b.page, [{ type: 'task', id: ids.drill, fields: { deleted_at: new Date().toISOString() } }]);
+    for (const [d, name] of [[a, 'a'] as const, [b, 'b'] as const]) {
+      for (let i = 1; i <= 3; i++) {
+        await capture(d.page, `Thought ${i} on ${name} ${run}`);
+        inbox.push(`Thought ${i} on ${name} ${run}`);
+      }
+      const seeded = Array.from({ length: 12 }, (_, i) => `Note ${i + 1} on ${name} ${run}`);
+      await seed(d.page, seeded.map((title) => ({ type: 'task', fields: { kind: 'inbox', title } })));
+      inbox.push(...seeded);
+    }
+    // A week on, both access tokens have lapsed, and the refresh tokens still work.
+    await setServerClock(new Date(Date.now() + 7 * 24 * 3600_000).toISOString());
+    for (const d of [a, b]) await d.context.setOffline(false);
+    for (const d of [a, b, a]) await syncNow(d.page);
+    for (const d of [a, b]) await expect(account(d.page).getByText('Synced', { exact: true })).toBeVisible();
+
+    for (const id of Object.values(ids)) expect(await readRecord(a.page, 'task', id), id).toEqual(await readRecord(b.page, 'task', id));
+    expect(await readRecord(a.page, 'task', ids.garage)).toMatchObject({ title: `${garage} and the shed`, estimate_min: 90 });
+    expect(await readRecord(a.page, 'task', ids.drill)).toHaveProperty('deleted_at');
+    for (const d of [a, b]) {
+      await go(d.page, 'One offs');
+      await expect(oneOffRow(d.page, lease).getByText(formatDate('2031-04-20'), { exact: true })).toBeVisible();
+      await expect(pane(d.page, 'One offs').getByRole('checkbox', { name: `${drill} done` })).toHaveCount(0);
+      await go(d.page, 'Inbox');
+      for (const title of inbox) await expect(pane(d.page, 'Inbox').getByText(title, { exact: true })).toHaveCount(1);
+    }
+    // Nothing either made waits to send.
+    for (const d of [a, b]) {
+      const next = d.page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/sync'));
+      await syncNow(d.page);
+      expect((await next).postDataJSON().changes).toEqual([]);
+    }
+  } finally {
+    await setServerClock('');
+  }
+  expect(a.errors).toEqual([]);
+  expect(b.errors).toEqual([]);
+});
+
 test('an expired sign-in shows in Settings without stopping local work', async ({ browser }) => {
   test.skip(!t.localApi, 'needs: fakeClock');
   const setServerClock = async (now: string) => {

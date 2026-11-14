@@ -155,11 +155,13 @@ private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: Stat
 private func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
                                 within timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
     XCUIDevice.shared.press(.home)
+    let notification = springboard.descendants(matching: .any)["NotificationShortLookView"]
+    // A banner still up goes into Notification Center when it closes, and the swipe below could catch it instead.
+    XCTAssertTrue(notification.waitForNonExistence(timeout: patience), "a banner stayed up", file: file, line: line)
     // Down from the top edge left of the Dynamic Island: from the right it's Control Center.
     let window = springboard.windows.firstMatch
     window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.0))
         .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.6)))
-    let notification = springboard.descendants(matching: .any)["NotificationShortLookView"]
     exists(notification, timeout: timeout, in: springboard, file: file, line: line)
     notification.press(forDuration: 1.5)
     let button = springboard.buttons[action]

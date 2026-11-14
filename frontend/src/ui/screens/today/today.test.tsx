@@ -399,12 +399,16 @@ describe('the end-of-block prompt', () => {
     await block(w, 'b1', 't1', '12:00', '13:00');
   };
 
-  it('asks Task finished, Partly or Not done, and only Task finished finishes the task, as of when its block ended', async () => {
+  it('asks Done, Partly or Not done, each after its icon, and only Done finishes the task, as of when its block ended', async () => {
     const t = await open(ended);
     const prompt = await dialog('Block finished');
     expect(within(prompt).getByText('Write the report')).toBeVisible();
-    expect(within(prompt).queryByRole('button', { name: 'Done' })).toBeNull();
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Task finished' }));
+    const answers = ['Done', 'Partly', 'Not done'].map((name) => within(prompt).getByRole('button', { name }));
+    // The icons the missed blocks sheet answers with, hidden, so each button's name is its word alone. Done is filled.
+    for (const b of answers) expect(b.firstElementChild).toMatchObject({ tagName: 'svg' });
+    for (const b of answers) expect(b.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(answers.map((b) => b.classList.contains('pri'))).toEqual([true, false, false]);
+    await userEvent.click(answers[0]!);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(at('13:00'));
   });
@@ -1001,6 +1005,10 @@ describe('the timeline', () => {
     const popup = await taskPopup('Write the report');
     const asks = within(popup).getByRole('group', { name: 'How did it go?' });
     expect(within(popup).queryByRole('button', { name: /^Start/ })).toBeNull();
+    // The end-of-block prompt's answers: each word after its icon, Done filled.
+    const answers = ['Done', 'Partly', 'Not done'].map((name) => within(asks).getByRole('button', { name }));
+    for (const b of answers) expect(b.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(answers.map((b) => b.classList.contains('pri'))).toEqual([true, false, false]);
     await userEvent.click(within(asks).getByRole('button', { name: 'Partly' }));
     // 3 hours estimated, an hour of it done.
     expect(within(asks).getByText('2h left')).toBeVisible();

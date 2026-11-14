@@ -446,7 +446,9 @@ export const DEFAULT_SETTINGS: Omit<Settings, 'id'> = {
 /** The settings record with defaults for anything never written. */
 export async function getSettings(sql: Sql): Promise<Settings> {
   const stored = await getRecord(sql, 'settings', SETTINGS_ID);
-  return { ...DEFAULT_SETTINGS, ...stored, id: SETTINGS_ID };
+  const settings = { ...DEFAULT_SETTINGS, ...stored, id: SETTINGS_ID };
+  // An Undo of a first stretch plan once stored the stretch as null, which means none planned yet.
+  return settings.plan_stretch ? settings : { ...settings, plan_stretch: DEFAULT_SETTINGS.plan_stretch };
 }
 
 /** Writes settings fields, creating the record the first time. */

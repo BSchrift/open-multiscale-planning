@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ONE_OFFS_BUCKET } from './types';
 import {
   availableHours,
   dayLoads,
@@ -194,6 +195,11 @@ describe('weeklyAims', () => {
     end: '2026-12-01',
     weekly_aim: 120,
     ...over,
+  });
+
+  it('ignores a weekly aim an older app set on a goal backlog', () => {
+    const rows = weeklyAims({ projects: [project('backlog:bread'), project('report')], oneOffsAim: null, weekPlan: null, got: {} });
+    expect(rows.map((r) => r.bucket)).toEqual(['report', ONE_OFFS_BUCKET]);
   });
 
   it('lists active projects with an aim, then One offs', () => {

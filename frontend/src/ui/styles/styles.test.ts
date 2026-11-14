@@ -24,6 +24,20 @@ describe('the stylesheets', () => {
     expect(missing).toEqual([]);
   });
 
+  // A block gone by is struck through only when it was done, on every calendar: Partly, Not done and no answer never are.
+  it('strike through only what was done', () => {
+    const struck = sheets.flatMap((file) =>
+      readFileSync(join(ui, file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('}')
+        .filter((rule) => rule.includes('line-through'))
+        .flatMap((rule) => rule.split('{')[0]!.split(','))
+        .filter((selector) => !/\.done\b/.test(selector))
+        .map((selector) => `${file}: ${selector.trim()}`),
+    );
+    expect(struck).toEqual([]);
+  });
+
   // Dark mode reaches only colours that come from tokens.css. Black shadows suit both themes, and the select's
   // mid-grey chevron, inside an image, is 3:1 on both themes' fields.
   it('take every colour from the tokens', () => {

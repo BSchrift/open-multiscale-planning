@@ -60,7 +60,7 @@ export interface Updater {
   stop(): void;
 }
 
-/** Each app's feed on the release host. Bundles from before these read the shared release.json at its root. */
+/** Each app's feed on the release host. */
 const FEEDS = { electron: 'desktop', ios: 'iphone' } as const;
 const FIRST_CHECK_MS = 10_000;
 const CHECK_EVERY_MS = 6 * 60 * 60_000;

@@ -51,7 +51,6 @@ switches each surface to it (`upload` and `switch` in `scripts/pipeline.sh`, whi
 | `web/index.html` and the rest | A copy of the version web serves | Web host |
 | `release/files/` | Every version's files, named by their contents, cached for a year | Release host |
 | `release/desktop/release.json`, `release/iphone/release.json` | A copy of the Mac's and the iPhone's version's feed, cached for 60 seconds | Release host |
-| `release/release.json` | The shared feed, which bundles from before the apps' own feeds read | Release host |
 | `state/history.json` | Each surface's versions in the order it got them, with times | No |
 
 A version is what its `version.json` names: the package version and the commit, such as `0.1.0-85e85c2`. Switching web
@@ -61,14 +60,16 @@ its `release.json`, and each device takes it at its next check.
 A feed takes a build only when its app can. The desktop feed compares the Mac app's native code with what it serves,
 and takes the build when it's unchanged or a Mac app from GitHub Actions is published first. The iPhone feed compares
 the iPhone app's, and takes the build when it's unchanged or the newest TestFlight build testers can install has it.
-The shared feed takes the build only when both do. Until an app's own feed exists, it compares with
-the shared one. Each release checks every feed it switched: the manifest checks out with the environment's release
-key, names the version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
+Each release checks every feed it switched: the manifest checks out with the environment's release key, names the
+version, and lists only files that download with their SHA-256 (`frontend/e2e/deployed/feed.spec.ts`).
 
 For now every surface switches in one step, staging's and prod's Release. Each bundle reads its own app's feed, and the
-files from `release/files/`, which both feeds share. Bundles from before that read the shared feed, which installed apps
-took them from: it keeps being published, and an app takes the next bundle from it like any update, then reads its own
-feed from its next start.
+files from `release/files/`, which both feeds share.
+
+Bundles from before 10 November 2026 read a shared feed, `release/release.json`, which switched only when both apps
+could take a build. It's gone: each release deletes it from the bucket if it's still there, and the feed test checks
+the release host answers 403 or 404 for it. An app still running one of those bundles, having taken no update since,
+gets no more updates and needs installing again.
 
 ## The backend canary
 
@@ -173,9 +174,6 @@ It refuses a version that isn't kept, and, for a feed, a version built for other
 serves, since they couldn't take it. Web has no such guard: a browser loads whatever page is live. The compatibility
 test checks the bundle a release replaces against the new one, so going back one version is tested. Going back further
 is the owner's call, and the command says so.
-
-While bundles from before the per-app feeds are about, `SURFACE=shared` switches the shared feed they read, with both
-apps' native code checked.
 
 Every night, staging's run switches the web app and each app's feed back one version and forward again with the same
 code, and reads each back from its host.
@@ -286,7 +284,7 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    `downloads.<zone>/Multiscale.dmg`, then its manifest to `mac/manifest.json` in the release bucket, which nothing
    serves, as the record that the app is a checked one, then the feed, as `make release` does. An environment whose
    feed can take the build as its Mac app is, and which serves a checked one, gets no new Mac app, and nothing changes.
-   A build that also needs a new iPhone app leaves the iPhone and shared feeds until testers can install one
+   A build that also needs a new iPhone app leaves the iPhone feed until testers can install one
    ([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
 
 ### What the check proves
@@ -459,10 +457,9 @@ build is a prod build, numbered by its commit's time, and its native code is nam
    its commit and its shell hash, or nulls when testers have no build or no main commit has its number, as for one
    uploaded from a branch. It writes it every hour, so the record is never more than an hour old.
 3. **The releases switch the iPhone feed.** Staging's and prod's releases read that record. When a build needs other
-   iPhone native code than the iPhone feed serves, the feed takes it only if the record names that native code, and the
-   shared feed then follows if the desktop feed can take it too. Otherwise both stay as they are, and the release says
-   so. Only the newest build counts: an older one with this native code may still be out, but testers are offered the
-   newest.
+   iPhone native code than the iPhone feed serves, the feed takes it only if the record names that native code.
+   Otherwise it stays as it is, and the release says so. Only the newest build counts: an older one with this native
+   code may still be out, but testers are offered the newest.
 
 **A run doesn't wait for Beta App Review.** Apple can take a day, and a CodeBuild step can't wait more than about 40
 minutes, so waiting would stop the run, holding up the web app and the backend. Instead each release checks the record

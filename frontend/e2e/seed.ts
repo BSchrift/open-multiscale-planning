@@ -55,6 +55,18 @@ export async function syncNow(page: Page) {
   await expect(account(page).getByRole('button', { name: 'Sync now', disabled: true })).toHaveCount(0, { timeout: 30_000 });
 }
 
+/**
+ * Start planning, then its toast's Undo, which keeps this week's times free: Start puts planning on the clock from now.
+ * Undo waits until planning has drawn, since on phone the toast moves down then, and a press on Undo while it moves is
+ * let go beside it, which leaves the toast and the planning block in place.
+ */
+export async function startPlanningThenUndo(page: Page) {
+  await page.getByRole('button', { name: 'Start planning' }).first().click();
+  await expect(page.getByRole('navigation', { name: 'Planning steps' })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByText(/^Planning until /)).toHaveCount(0);
+}
+
 /** A one off's row. */
 export const oneOffRow = (page: Page, title: string) =>
   pane(page, 'One offs').locator('.maintrow').filter({ has: page.getByRole('checkbox', { name: `${title} done` }) });

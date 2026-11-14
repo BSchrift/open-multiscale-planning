@@ -176,13 +176,6 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).press('Enter');
   }
   await expect(card).toHaveCount(0);
-  // On phone its toast sits above the bottom bar and goes at the next press, so Schedule's sheet would move down under
-  // that press before its release (planning-toast.spec.ts). Let it go first: it waits while the pointer rests on it,
-  // where the last tap was, so move away, then it goes 5 seconds later.
-  if (phone) {
-    await page.mouse.move(0, 0);
-    await expect(toast(page)).toHaveCount(0, { timeout: 10_000 });
-  }
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
   // Pick: a task's time button adds it to the week.
@@ -190,9 +183,11 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
   await expect(page.getByRole('button', { name: '2h this week: Write chapter one' })).toBeVisible();
   expect(await readRecord(page, 'week_pick', `pick:${WEEK}:t2`)).toMatchObject({ minutes: 120 });
 
-  // Schedule: it goes at the time suggested.
+  // Schedule: it goes at the time suggested. Place here is pressed from the keyboard: Process's check, then its toast,
+  // may still be showing, and a press with the pointer puts them away and moves the phone's sheet under it before the
+  // release, so the press is lost (planning-toast.spec.ts). Keys leave them be.
   await steps(page).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
-  await page.getByRole('button', { name: 'Place here' }).click();
+  await page.getByRole('button', { name: 'Place here' }).press('Enter');
   await expect(page.getByText('All tasks are placed')).toBeVisible();
 
   // Review, then Finish.
@@ -482,7 +477,7 @@ test('edits settings offline', async ({ page, context }, info) => {
   await tab(page, phone, 'Settings');
   const p = pane(page, 'Settings');
 
-  const hours = p.getByRole('region', { name: 'Available hours' });
+  const hours = p.getByRole('region', { name: 'Unavailable hours' });
   await hours.getByRole('button', { name: 'Add unavailable time' }).click();
   await hours.getByRole('group', { name: 'Unavailable, 12pm to 1pm' }).getByRole('combobox', { name: 'Days' }).selectOption('weekdays');
   await expect(hours.getByText(/^100h a week for projects and 100h for one offs/)).toBeVisible();

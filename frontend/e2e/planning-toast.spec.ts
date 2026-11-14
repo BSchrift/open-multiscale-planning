@@ -3,8 +3,9 @@ import { openSeeded } from './seed';
 
 // On phone, planning keeps a toast above its bottom bar, and the sheet in Schedule sits on top of it. Any press puts the
 // toast away, so the sheet drops into its place while the finger is still down, and the release lands on whatever has
-// moved under it: the button pressed never gets its click. Found by offline-flows.spec.ts, whose planning test failed
-// now and then when the Inbox step's toast was still showing as it pressed Place here.
+// moved under it: the button pressed never gets its click. A press that puts away the green check does the same the
+// other way, as the toast waiting behind the check comes in and lifts the sheet. Found by offline-flows.spec.ts, whose
+// planning test failed now and then as it pressed Place here with Process's check or toast still showing.
 
 test.use({ timezoneId: 'America/Chicago' });
 

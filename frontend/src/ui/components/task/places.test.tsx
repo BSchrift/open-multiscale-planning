@@ -1,5 +1,5 @@
 // A task's popup opens from every place the task shows, by its name. Where a tap on a row or block already does
-// something, that stays, and the name in what it opens is the way in.
+// something, that stays, and the name in what it opens is the way in. A block on Today's timeline opens it directly.
 
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -87,17 +87,16 @@ describe('the task popup opens from', () => {
     await closeBackTo(name);
   });
 
-  it("a block on Today's timeline on phone, whose tap still opens its sheet", async () => {
-    await open('today', 'phone');
-    await userEvent.click(await screen.findByRole('slider', { name: /^Draft the summary, 4pm to 5pm/ }));
-    const sheet = await screen.findByRole('dialog', { name: 'Draft the summary' });
-    const name = within(sheet).getByRole('button', { name: 'Draft the summary' });
-    await userEvent.click(name);
-    await popup('Draft the summary');
-    await closeBackTo(name);
-    // The block's sheet is still there beneath it.
-    expect(sheet).toBeVisible();
-  });
+  for (const layout of ['desktop', 'phone'] as const) {
+    it(`a block on Today's timeline, by a tap on the block itself (${layout})`, async () => {
+      await open('today', layout);
+      // On phone a block still to come is a slider, so VoiceOver's swipes move it.
+      const block = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
+      await userEvent.click(block);
+      await popup('Draft the summary');
+      await closeBackTo(block);
+    });
+  }
 
   it("a block in the week's grid on desktop, whose tap still opens its details", async () => {
     await open('week');

@@ -154,6 +154,16 @@ describe('when each goal last changed', () => {
     await db.run('UPDATE records SET clocks = json_set(clocks, \'$.state\', :c, \'$.not_now_until\', :c) WHERE id = \'g3\'', { c: at(25) });
     expect(await goalChanges(db)).toEqual({ g1: Date.parse('2026-10-09T12:00:00Z'), g2: Date.parse('2026-10-07T12:00:00Z'), g3: Date.parse('2026-10-03T12:00:00Z') });
   });
+
+  it('leaves out the expiry that archiving a goal, or undoing that, writes with its state', async () => {
+    const db = await openDb(nodeSqliteDriver());
+    const at = (day: number) => `${String(Date.parse(`2026-10-${String(day).padStart(2, '0')}T12:00:00Z`))}-000000-dev`;
+    await db.transaction(async (tx) => {
+      await add(tx, 'g1', 'objective', { title: 'Learn Spanish', state: 'active' }, at(3));
+    });
+    await db.run('UPDATE records SET clocks = json_set(clocks, \'$.state\', :c, \'$.expires_at\', :c) WHERE id = \'g1\'', { c: at(25) });
+    expect(await goalChanges(db)).toEqual({ g1: Date.parse('2026-10-03T12:00:00Z') });
+  });
 });
 
 describe('query answers on node:sqlite', () => {

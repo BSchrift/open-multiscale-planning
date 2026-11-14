@@ -185,6 +185,13 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await card.click();
   await page.getByRole('group', { name: title }).getByRole('button', { name: 'Mark done' }).click();
   await expect(card).toHaveCount(0);
+});
+
+// The checks the journey left are cleared after it in a test of their own too, so a slow clear-up on prod can't spend
+// the journey's time limit.
+test('clears the checks this run left on the shared test user', async ({}, info) => {
+  test.skip(info.project.name !== 'desktop', 'The journey that leaves them is desktop only');
+  test.setTimeout(300_000);
   await clearChecks(page);
 });
 

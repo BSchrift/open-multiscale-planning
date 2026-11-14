@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { startPlanningThenUndo } from '../seed';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
@@ -188,9 +189,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(current).toContainText('First good loaf');
   await expect(current).toContainText('Share a loaf');
   await tab(page, phone, 'Today');
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
-  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await startPlanningThenUndo(page);
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Schedule/ }).click();
   if (phone) {
     await page.getByRole('button', { name: /^All picked tasks/ }).click();

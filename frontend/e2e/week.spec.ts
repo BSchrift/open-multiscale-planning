@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, openSeeded, overNowLine, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -65,6 +65,30 @@ test('the current time is a line on today only, which moves with the time and le
   await page.getByRole('button', { name: 'Previous week' }).click();
   await expect(page.getByText('Oct 26 to Nov 1')).toBeVisible();
   await expect(line).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('the current time passes behind the block under way, with only its dot in front', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const under: Seed = { type: 'time_block', id: 'b9', fields: { task_id: 't1', start: at(2, '13:00'), end: at(2, '15:00'), tz: 'America/Chicago', started_at: at(2, '13:00') } };
+  // With another block at the same time, so the two are drawn side by side.
+  const beside: Seed = { type: 'time_block', id: 'b10', fields: { task_id: 't2', start: at(2, '13:30'), end: at(2, '14:30'), tz: 'America/Chicago', started_at: at(2, '13:30') } };
+  const errors = await openWeek(page, [...records, under, beside]);
+  const line = page.getByRole('img', { name: 'Current time' });
+  await line.scrollIntoViewIfNeeded();
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  if (phone) {
+    // A row's block sits in the flow, so in the row that holds it the line isn't drawn, only its dot.
+    await expect(line).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    expect((await overNowLine(line, (await line.boundingBox())!.x + 40)).dotOnTop).toBe(true);
+  } else {
+    const b = page.getByRole('button', { name: /^Draft the summary, Mon Nov 2, 1pm to 3pm/ });
+    const box = (await b.boundingBox())!;
+    expect(await overNowLine(line, box.x + box.width / 2)).toEqual({ at: expect.stringMatching(/^Draft the summary, Mon Nov 2, 1pm to 3pm/), dotOnTop: true });
+    const other = (await page.getByRole('button', { name: /^Paint the fence, Mon Nov 2, 1:30pm to 2:30pm/ }).boundingBox())!;
+    expect(other.x).toBeGreaterThanOrEqual(box.x + box.width - 1);
+    expect((await overNowLine(line, other.x + other.width / 2)).at).toMatch(/^Paint the fence, Mon Nov 2, 1:30pm to 2:30pm/);
+  }
   expect(errors).toEqual([]);
 });
 

@@ -7,9 +7,9 @@ import { defineConfig, devices } from '@playwright/test';
 const port = Number(process.env.E2E_PORT) || 5183;
 export default defineConfig({
   testDir: 'e2e',
-  // Those sign in to a backend, check a deployment, need two builds or a seeded five-year account, and run from their
-  // own configs.
-  testIgnore: ['**/e2e/stack/**', '**/e2e/deployed/**', '**/e2e/compat/**', '**/e2e/history/**'],
+  // Those sign in to a backend, check a deployment, need two builds or a seeded five-year account, or time the app, and
+  // run from their own configs.
+  testIgnore: ['**/e2e/stack/**', '**/e2e/deployed/**', '**/e2e/compat/**', '**/e2e/history/**', '**/e2e/perf/**'],
   fullyParallel: true,
   // CI also writes an HTML report, which it keeps when a run fails.
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',

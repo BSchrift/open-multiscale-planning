@@ -42,6 +42,7 @@ nothing from the package.
 | Against a deployment | The deployed web app, sync, on staging the last release's web bundle beside this one, the integration suite, smoke, the iPhone signed-in test | `make test-deployed` (staging), `ENV=prod CONFIRM_PROD=yes` |
 | CI | Everything in the local layer, on every PR and every push to main | `.github/workflows/ci.yml` |
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |
+| On demand | The performance KPIs on the browser at desktop and phone sizes and on the Mac app, against [config/perf.ts](config/perf.ts), report-only; with a base commit, what this checkout made slower | `make test-perf`, `BASE=<commit>` |
 | Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
 
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it

@@ -88,8 +88,7 @@ port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0))
 python3 -m http.server "$port" --bind 127.0.0.1 --directory "$work" >/dev/null 2>&1 &
 server=$!
 
-# From a result bundle, the tests that failed a run, retried or quarantined: in the log, and in CI's job summary, so a
-# test that passes only on a retry stays in sight.
+# From a result bundle, the tests that failed and why: in the log, and in CI's job summary.
 report() {
   # The tests pass or fail by xcodebuild's result, so a bundle that can't be read only says so.
   xcrun xcresulttool get test-results tests --path "$1" --compact >"$work/tests.json" 2>/dev/null &&
@@ -165,11 +164,7 @@ for extensions in $runs; do
 
   # Only CI sets IOS_RESULTS: against a deployment the bundle would keep what XCTest typed, the password included.
   bundle="${IOS_RESULTS:+$IOS_RESULTS/extensions-$extensions.xcresult}"
-  # CI's Simulator now and then holds every process it starts for up to 40 s, which can fail a test that passes on its
-  # next go. So a failed test runs up to twice more, and the bundle's report lists each one that needed it. A single
-  # class, as the history test runs, goes once: its one test takes up to half an hour.
-  retries=()
-  [ -n "${MULTISCALE_ONLY:-}" ] || retries=(-retry-tests-on-failure -test-iterations 3)
+  # Each test runs once. A test that fails now and then is fixed, never run again until it passes.
 
   # The test runner now and then never starts on CI's Simulator ("Early unexpected exit, operation never finished
   # bootstrapping"), and xcodebuild doesn't restart it. No test has run then, so the whole run goes again, once.
@@ -177,10 +172,11 @@ for extensions in $runs; do
     results=()
     [ -z "$bundle" ] || { rm -rf "$bundle"; results=(-resultBundlePath "$bundle"); }
     status=0
-    # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password.
+    # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password. Line
+    # by line (-l), so the log shows where a run is as it happens, rather than when sed's buffer fills.
     TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
-      TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} ${retries[@]+"${retries[@]}"} ${results[@]+"${results[@]}"} 2>&1 |
-      sed -E "s/Type '[^']*'/Type '…'/" | tee "$work/test.log" || status=$?
+      TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} ${results[@]+"${results[@]}"} 2>&1 |
+      sed -l -E "s/Type '[^']*'/Type '…'/" | tee "$work/test.log" || status=$?
     if [ "$status" = 0 ] || [ "$attempt" = 2 ] || ! grep -q 'never finished bootstrapping' "$work/test.log"; then break; fi
     echo "The test runner never started, so the run goes again"
   done

@@ -1,6 +1,7 @@
 // A test page for XCUITest: buttons that drive the real adapter and real plugins, and print what happened. The test
 // script builds it into the app's test copy only, so it never ships.
 
+import { registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
 import { systemClock } from '../core/clock';
@@ -13,6 +14,9 @@ import { getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
+
+/** The debug build's hooks for this page (ChecksPlugin in BridgeViewController.swift). */
+const Checks = registerPlugin<{ openCapture(): Promise<void> }>('MultiscaleChecks');
 
 const output = document.getElementById('log')!;
 const log = (line: string) => {
@@ -78,9 +82,9 @@ const MINUTE_MS = 60_000;
 
 /**
  * Where an app flow starts, timed from now: past setup, this week planned, a goal with a project and a milestone, and
- * a two-hour task with a block for each entry, minutes from now. Seeded like the browser tests seed, since the
- * Simulator's clock can't be moved. The UI tests wait near midnight until the earliest block fits in today, so a
- * change to how far back a seed reaches goes in their launchApp call too.
+ * a two-hour task with a block for each entry, minutes from now. Seeded like the browser tests seed. The Simulator's
+ * clock can't be set, so the UI tests run a seeded app on a page clock shifted to the morning, except where they need
+ * the real one (launchApp in MultiscaleUITests.swift).
  */
 async function seed(db: Db, blocks: readonly { title: string; from: number; to: number; started?: boolean }[], picked: readonly string[] = []): Promise<string> {
   const clock = systemClock;
@@ -141,13 +145,13 @@ platform.lifecycle.onForeground(() => log('foreground'));
 platform.notifications.onResponse((r) => log(`response:${r.reminder_id}:${r.action_id}`));
 
 button('Ask', async () => `permission:${await platform.notifications.requestPermission()}`);
-button('Remind', async () => {
+const remind = async (inMs: number) => {
   await platform.notifications.replaceAll([
     {
       id: 'check-block:end',
       kind: 'block_end',
       block_id: 'check-block',
-      at: new Date(Date.now() + 4000).toISOString(),
+      at: new Date(Date.now() + inMs).toISOString(),
       title: 'Paint the fence',
       body: 'How did it go?',
       actions: [
@@ -157,7 +161,10 @@ button('Remind', async () => {
     },
   ]);
   return `pending:${(await platform.notifications.scheduled()).map((r) => r.id).join(',')}`;
-});
+};
+// An hour out, so it's still waiting however slow the Simulator. The UI test's launch has the debug build bring it
+// forward once the app leaves the screen.
+button('Remind', () => remind(60 * MINUTE_MS));
 button('Cancel', async () => {
   await platform.notifications.cancel(['check-block:end']);
   return `pending:${(await platform.notifications.scheduled()).length}`;
@@ -182,6 +189,11 @@ button('Shared', async () => {
   await share.remove(items.map((item) => item.id));
   return `shared:${items.map((item) => item.text).join('|')}`;
 });
+// The Control Center button's intent, through the debug build's hook, which logs capture as the button would.
+button('Control', async () => {
+  await Checks.openCapture();
+  return 'control:ran';
+});
 button('Diagnostics', async () => {
   const snap = await platform.diagnostics!.snapshot();
   log(`previous:${snap.previous?.state ?? 'none'}`);
@@ -198,9 +210,9 @@ button('Seed today', () =>
     { title: 'Shape the dough', from: -6, to: 24 },
   ]),
 );
-// A started block that ends in two minutes, so its end notification is the only one, and comes after even a slow
-// Simulator has opened the app and scheduled it.
-button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 2, started: true }]));
+// A started block, so its end notification is the app's soonest. It ends 20 minutes out, so the notification comes only
+// when the UI test's launch has the debug build bring it forward, once the app leaves the screen.
+button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
 // Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
 button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');

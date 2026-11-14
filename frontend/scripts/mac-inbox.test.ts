@@ -363,3 +363,23 @@ describe('the Mac release workflow', () => {
     }
   });
 });
+
+describe('the staging update check workflow', () => {
+  const text = readFileSync(join(import.meta.dirname, '../../.github/workflows/mac-update-check.yml'), 'utf8');
+  const workflow = parse(text) as { on: Record<string, unknown>; permissions: object; jobs: Record<string, { environment?: string; 'runs-on': string; steps: { uses?: string; run?: string }[] }> };
+  const [job] = Object.values(workflow.jobs);
+
+  it('runs on a Mac every half hour and by hand, never for pull requests', () => {
+    expect(Object.keys(workflow.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
+    expect(job!['runs-on']).toMatch(/^macos-/);
+    expect(workflow.permissions).toEqual({});
+  });
+
+  it('writes to the inbox from the release environment, reads no signing secret, and pins every action by commit', () => {
+    expect(job!.environment).toBe('release');
+    expect(text).not.toMatch(/MAC_CERT|ASC_API_KEY|APPLE_API_KEY|release-key/);
+    for (const step of job!.steps) if (step.uses) expect(step.uses).toMatch(/^(actions|aws-actions)\/[\w-]+@[0-9a-f]{40}$/);
+    expect(job!.steps.some((step) => step.run?.includes('scripts/mac-update-check.sh'))).toBe(true);
+    expect(text).toContain('inbox/update-check/$version.json');
+  });
+});

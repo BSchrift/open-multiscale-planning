@@ -311,6 +311,23 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    A build that also needs a new iPhone app leaves the iPhone feed until testers can install one
    ([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
 
+### The staging update check
+
+Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.
+`.github/workflows/mac-update-check.yml` runs every half hour on one of GitHub's Macs, in the `release` environment
+for the inbox role, with no signing secret, and by hand (`gh workflow run mac-update-check.yml`).
+`scripts/mac-update-check.sh` reads which app staging's desktop feed names. If it hasn't passed that app, it installs
+the app it passed before from its folder on staging's downloads host, opens it, and waits for it to download and
+stage the new one. Then it quits the app, as from the menu bar, waits for Squirrel to install the new app, checks that
+the app didn't open again, and opens it to check it's the new version and starts. A pass goes to
+`inbox/update-check/<app version>.json`. The app it passed is kept in the run's artifact, so the next run updates
+from it. With no app passed before, as for the first app that updates itself, it checks only that the new app installs
+and starts.
+
+**Prod waits for it.** Prod's release publishes a new Mac app only once the inbox has its pass. Until then prod's
+desktop feed stays as it is, and the run says so, as the iPhone feed does for TestFlight. A run that needs no new app
+doesn't wait. Staging gets each new app a promote window ahead, which is time for the check to run.
+
 ### What the check proves
 
 For each environment's upload, on Linux, with OpenSSL and 7-Zip:

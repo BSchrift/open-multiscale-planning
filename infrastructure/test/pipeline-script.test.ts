@@ -688,6 +688,46 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.deepEqual(JSON.parse(s.get('s3://bucket/mac/manifest.json')!), { record: APP_RECORD });
   });
 
+  // Prod's app, for the update check: the MacApp step's output for prod, with its record.
+  const withProdApp = (s: ReturnType<typeof sandbox>, built: object) => {
+    const mac = join(s.root, 'mac-apps');
+    mkdirSync(join(mac, 'prod'), { recursive: true });
+    mkdirSync(join(mac, 'app-record'), { recursive: true });
+    for (const [name, data] of [['Multiscale.dmg', 'disk image'], ['Multiscale.zip', 'zip of app'], ['Multiscale.zip.blockmap', 'blockmap'], ['manifest.json', JSON.stringify({ record: APP_RECORD })]]) writeFileSync(join(mac, `prod/${name}`), data!);
+    writeFileSync(join(mac, 'app-record/prod.json'), JSON.stringify(APP_RECORD));
+    return { ...artifacts(s, built, 'prod'), CODEBUILD_SRC_DIR_MacApps: mac, MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT };
+  };
+
+  it("holds prod's new Mac app until the staging update check passed it, still switching the web app and the iPhone feed", () => {
+    const s = configured();
+    live(s);
+    const r = s.run(['release-prod'], withProdApp(s, { electron: 'e2', ios: 'i1' }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE= s3api head-object --bucket inbox-bucket --key inbox\/update-check\/0\.1\.5\.json/);
+    assert.match(r.stdout, /The staging update check hasn't passed Mac app 0\.1\.5 yet, so prod's desktop feed stays as it is/);
+    assert.equal(s.get(`${FOLDER}latest-mac.yml`), null);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), null);
+    assert.equal(s.get(FEEDS.desktop), feedWith(shell));
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>new</html>');
+    assert.match(s.log(), /EXPECT_FEEDS= iphone SKIP_IOS/);
+  });
+
+  it("publishes prod's new Mac app once the staging update check passed it, and staging's never waits", () => {
+    const s = configured();
+    live(s);
+    s.put('s3://inbox-bucket/inbox/update-check/0.1.5.json', JSON.stringify({ version: '0.1.5' }));
+    const r = s.run(['release-prod'], withProdApp(s, { electron: 'e2', ios: 'i1' }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.notEqual(s.get(`${FOLDER}latest-mac.yml`), null);
+    assert.equal(s.get(FEEDS.desktop), release);
+    const staging = configured();
+    live(staging);
+    assert.equal(staging.run(['release-staging'], withApp(staging, { electron: 'e2', ios: 'i1' })).status, 0);
+    assert.doesNotMatch(staging.log(), /update-check/);
+    assert.notEqual(staging.get(`${FOLDER}latest-mac.yml`), null);
+  });
+
   it("leaves an app's folder that's already published, and stops before publishing anything for another build of that version", () => {
     const same = configured();
     live(same);

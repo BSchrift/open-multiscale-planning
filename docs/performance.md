@@ -194,6 +194,14 @@ samples and 20 cold and warm starts after emptying the file cache, set beside th
 the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25
 minutes, 60 at most.
 
+**Staging, each night main moved**, in the release pipeline's nightly run before its suites: the request mix the
+per-route targets are for (`TestNightlyRequestMix` in the integration suite, which a deployment runs only with `MULTISCALE_REQUEST_MIX=1` and the local suite always): 10
+pushes of 99 records, 10 pulls of the two pages they make, 20 telemetry batches, 20 calls to `/files/usage` and 5 to
+`/calendar/refresh`, as the test user, whose records it then empties and deletes as every test does. Then sync
+between two browsers against staging as that user (`PERF_SYNC=staging scripts/test-perf.sh`), whose `sync.send`,
+`sync.push` and `sync.pull` go straight to the dashboard as a staging run, since that run can't write to `perf-data`.
+Neither stops the suites. Together they add about five minutes to the nightly.
+
 **Results** go to the `perf-data` branch, which only the scheduled and main performance workflows write (`scripts/perf-data.sh`):
 one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
 `baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The

@@ -60,8 +60,10 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
   writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
-  writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
-  chmodSync(join(s.root, 'scripts/perf-publish.sh'), 0o755);
+  writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE $*" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
+  writeFileSync(join(s.root, 'scripts/integration.sh'), '#!/bin/sh\necho "integration ENV=$ENV MULTISCALE_REQUEST_MIX=$MULTISCALE_REQUEST_MIX INTEGRATION_RUN=$INTEGRATION_RUN" >> "$LOG"\n[ -z "$MIX_FAILS" ]\n');
+  writeFileSync(join(s.root, 'scripts/test-perf.sh'), '#!/bin/sh\necho "test-perf PERF_SYNC=$PERF_SYNC PERF_PLATFORMS=$PERF_PLATFORMS" >> "$LOG"\n[ -z "$PERF_FAILS" ]\n');
+  for (const script of ['perf-publish', 'integration', 'test-perf']) chmodSync(join(s.root, `scripts/${script}.sh`), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
@@ -776,8 +778,27 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
       kept(s);
       const r = s.run(['nightly'], { PUBLISH_FAILS: fails });
       assert.equal(r.status, 0, r.stderr);
-      assert.match(s.log(), /perf-publish AWS_PROFILE=ms-staging\n(.*\n)*test-deployed ENV=staging/);
+      assert.match(s.log(), /perf-publish AWS_PROFILE=ms-staging \n(.*\n)*test-deployed ENV=staging/);
       if (fails) assert.match(r.stderr, /Publishing the performance results failed, above\. The suites go on\./);
+    }
+  });
+
+  it("runs the request mix and times sync against staging each night, publishing that too, and goes on if they fail", () => {
+    for (const fails of ['', '1']) {
+      const s = configured();
+      kept(s);
+      const r = s.run(['nightly'], { MIX_FAILS: fails, PERF_FAILS: fails });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(s.log(), /integration ENV=staging MULTISCALE_REQUEST_MIX=1 INTEGRATION_RUN=\^TestNightlyRequestMix\$\n/);
+      assert.match(s.log(), /test-perf PERF_SYNC=staging PERF_PLATFORMS=none\n/);
+      assert.match(s.log(), /test-deployed ENV=staging/);
+      if (fails) {
+        assert.match(r.stderr, /The request mix failed, above\. The suites go on\./);
+        assert.match(r.stderr, /Timing sync against staging failed, above\. The suites go on\./);
+        assert.doesNotMatch(s.log(), /perf-publish \S+ \S*summary/);
+      } else {
+        assert.match(s.log(), /perf-publish AWS_PROFILE=ms-staging \S*frontend\/test-results\/perf\/summary\/this\.json/);
+      }
     }
   });
 

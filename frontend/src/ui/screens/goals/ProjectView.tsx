@@ -27,6 +27,7 @@ import { useShowCompleted } from '../../app/showCompleted';
 import { useApp, useMutation } from '../../app/store';
 import { CloseProject, diamondFor, doneDiamond, GoalSelect, MilestoneEditor, OverdueFix, TaskEditor, useLeave, usePlanChange } from '../../components/editors';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { ChevronIcon } from '../../components/icons';
 import { LateWarning, lateSaid, lateText } from '../../components/LateWarning';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
@@ -357,9 +358,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
       <button className={layout === 'phone' ? 'card projbtn morerow' : 'link small settingsbtn'} type="button" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
         <span>Project settings</span>
         {layout === 'phone' && (
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+          <span className="chev" aria-hidden="true"><ChevronIcon /></span>
         )}
       </button>
       {settingsOpen && (

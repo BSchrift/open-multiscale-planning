@@ -137,6 +137,22 @@ describe('the week grid', () => {
       expect(line).toHaveStyle({ top: `${8 * (editing ? 40 : 26)}px` });
     });
 
+    it.each([false, true])('is drawn over closed time but before events, blocks and suggestions, so it passes behind them, editing %s', (editing) => {
+      const draft: GridBlock = { id: 'b9', date: '2026-11-04', start: 13 * 60, end: 15 * 60, title: 'Draft the summary', kind: 'project' };
+      const busy = [{ date: '2026-11-04', start: 14 * 60, end: 15 * 60, id: 'e2', title: 'Team call' }];
+      const ghosts = [{ date: '2026-11-04', start: 15 * 60, end: 16 * 60, label: 'Wed Nov 4, 3pm', onAccept: vi.fn() }];
+      draw({ now, editing, ctx: ctx({ busy }), blocks: [draft], ghosts });
+      const line = screen.getByRole('img', { name: 'Current time' });
+      const column = line.parentElement!;
+      const before = (e: Element) => !!(e.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const closed = [...column.children].filter((e) => e.matches('.ev-closed'));
+      const drawn = [...column.children].filter((e) => e !== line && !e.matches('.ev-closed'));
+      expect(closed.length).toBeGreaterThan(0);
+      expect(drawn.length).toBe(3);
+      expect(closed.every(before)).toBe(true);
+      expect(drawn.some(before)).toBe(false);
+    });
+
     it.each([
       ['in another week', { date: '2026-11-11', minutes: 14 * 60 }],
       ['before 6am', { ...now, minutes: 5 * 60 + 30 }],

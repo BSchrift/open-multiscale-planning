@@ -304,21 +304,14 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         data-drop-from={from}
         data-drop-to={to}
       >
-        <div className="zoomwrap">
-          <div className="zoomgroup" role="group" aria-label="Calendar zoom">
-            <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
-              <ZoomIcon />
-            </button>
-            <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
-              <ZoomIcon plus />
-            </button>
-          </div>
-        </div>
         {hours.map((h) => (
           <span key={h} className="dayhr" style={{ top: y(h * 60) }} aria-hidden="true">
             {formatTimeOfDay(h * 60)}
           </span>
         ))}
+        {/* Before the blocks, so it passes behind them and never strikes through the one under way. Only its dot is
+            drawn in front. */}
+        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
         {items.map((i) => {
           const height = Math.max(13, y(i.to) - y(i.from) - 1);
           const compact = height < 24 ? ' compact' : '';
@@ -390,8 +383,18 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             Suggested {formatTimeOfDay(drag.ghost.start)}
           </div>
         )}
-        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
       </div>
+    </div>
+  );
+  // Beside Calendar and List, out of the calendar, so they never cover a block.
+  const zoom = (
+    <div className="zoomgroup" role="group" aria-label="Calendar zoom">
+      <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
+        <ZoomIcon />
+      </button>
+      <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
+        <ZoomIcon plus />
+      </button>
     </div>
   );
 
@@ -459,12 +462,15 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     <div className={phone ? 'card' : 'tl card'} role="region" aria-label="Today's timeline">
       <div className="between tlhead">
         <h3>Timeline</h3>
-        <div className="row" role="group" aria-label="Timeline view">
-          {(['calendar', 'list'] as const).map((v) => (
-            <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
-              {v === 'calendar' ? 'Calendar' : 'List'}
-            </button>
-          ))}
+        <div className="row">
+          {view === 'calendar' && zoom}
+          <div className="row" role="group" aria-label="Timeline view">
+            {(['calendar', 'list'] as const).map((v) => (
+              <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
+                {v === 'calendar' ? 'Calendar' : 'List'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}

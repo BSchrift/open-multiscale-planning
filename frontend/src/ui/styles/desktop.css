@@ -263,8 +263,7 @@
 :where([data-layout='desktop']) .num{font-size:28px;font-weight:600;line-height:1.1}
 :where([data-layout='desktop']) .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:16px}
 :where([data-layout='desktop']) .daywrap{padding:8px 0 8px 56px}
-:where([data-layout='desktop']) .zoomwrap{position:sticky;top:8px;height:0;display:flex;justify-content:flex-end;align-items:flex-start;margin-right:6px;z-index:4}
-:where([data-layout='desktop']) .zoomgroup{display:flex;gap:2px;margin-top:6px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--white);box-shadow:0 2px 8px rgba(var(--ink-rgb),.12)}
+:where([data-layout='desktop']) .zoomgroup{display:flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--white)}
 :where([data-layout='desktop']) .zoombtn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:0;border-radius:6px;background:transparent}
 :where([data-layout='desktop']) .zoombtn:hover{background:var(--hover)}
 :where([data-layout='desktop']) .zoombtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, openSeeded, overNowLine, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -258,6 +258,35 @@ test('a block gone by is struck through only when done; Not done and Partly are 
   // Said in words on the block, so colour is never the only sign.
   await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^✕ Not done Paint the fence/);
   await expect(timeline.getByRole('button', { name: /Partly\.$/ })).toContainText(/^Partly Read the notes/);
+  expect(errors).toEqual([]);
+});
+
+test('the current-time line passes behind the block under way, its dot in front, and the zoom buttons sit beside Calendar and List', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', 't1', '13:00', '15:00', { started_at: at('13:00') })]);
+  const timeline = page.getByRole('region', { name: "Today's timeline" });
+  const zoom = timeline.getByRole('group', { name: 'Calendar zoom' });
+  const view = timeline.getByRole('group', { name: 'Timeline view' });
+  // In the heading row, beside the view buttons, rather than over the calendar.
+  const [z, v] = [(await zoom.boundingBox())!, (await view.boundingBox())!];
+  expect(Math.abs(z.y + z.height / 2 - (v.y + v.height / 2))).toBeLessThan(4);
+  expect(z.x + z.width).toBeLessThanOrEqual(v.x);
+  const day = (await timeline.locator('.day').boundingBox())!;
+  expect(z.y + z.height).toBeLessThanOrEqual(day.y);
+  if (phone) for (const name of ['Zoom out', 'Zoom in']) await expectTapTarget(zoom.getByRole('button', { name }));
+  await zoom.getByRole('button', { name: 'Zoom in' }).click();
+  await zoom.getByRole('button', { name: 'Zoom in' }).click();
+
+  const b = timeline.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 1pm to 3pm/ });
+  const line = timeline.getByRole('img', { name: 'Current time' });
+  await line.scrollIntoViewIfNeeded();
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  const box = (await b.boundingBox())!;
+  const drawn = (await line.boundingBox())!;
+  // Across the block, the block is on top; past its right edge the line shows; and its dot is in front of everything.
+  expect(await overNowLine(line, box.x + box.width / 2)).toEqual({ at: expect.stringMatching(/^Write the report, 1pm to 3pm/), dotOnTop: true });
+  expect((await overNowLine(line, drawn.x + drawn.width - 1)).at).toBe('line');
+  await page.screenshot({ path: info.outputPath(`today-now-line-${info.project.name}.png`) });
   expect(errors).toEqual([]);
 });
 

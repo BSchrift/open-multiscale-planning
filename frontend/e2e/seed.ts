@@ -69,6 +69,23 @@ export async function setDate(page: Page, title: string, date: string) {
 }
 
 /**
+ * What's drawn on top at a point on the current-time line, and whether its dot is on top at its centre. The line and dot
+ * let pointers through, so for a moment they're made to take them, and the hit test then finds whatever paints highest.
+ */
+export async function overNowLine(line: Locator, x: number): Promise<{ at: string; dotOnTop: boolean }> {
+  return line.evaluate((el, x) => {
+    const dot = el.querySelector('i')!;
+    el.style.pointerEvents = dot.style.pointerEvents = 'auto';
+    const r = el.getBoundingClientRect();
+    const d = dot.getBoundingClientRect();
+    const hit = document.elementFromPoint(x, r.top + r.height / 2);
+    const onDot = document.elementFromPoint(d.left + d.width / 2, d.top + d.height / 2);
+    el.style.pointerEvents = dot.style.pointerEvents = '';
+    return { at: hit === el ? 'line' : (hit?.closest('[aria-label]')?.getAttribute('aria-label') ?? hit?.className ?? ''), dotOnTop: onDot === dot };
+  }, x);
+}
+
+/**
  * A finger held on an element, then dragged to a point and let go, as touch pointer events: Playwright's touchscreen
  * only taps. The hold is real time, so the app's hold-to-drag timer runs as it would.
  */

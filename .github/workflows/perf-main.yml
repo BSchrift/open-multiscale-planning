@@ -1,0 +1,109 @@
+name: Performance on main
+# Each merge to main (docs/performance.md, "In CI"): the fuller set of performance KPIs, on Linux, timed beside the
+# previous main commit, with the results added to the perf-data branch, whose baseline is main's last 10 runs.
+# Report-only. A run still going when main moves again finishes; only the newest commit waiting runs after it.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-main
+  cancel-in-progress: false
+
+jobs:
+  time:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [web-desktop, web-phone, mac]
+        scenario: [one-year, empty, five-year]
+        include:
+          - { scenario: one-year, samples: "500", launches: "30" }
+          - { scenario: empty, samples: "100", launches: "10" }
+          - { scenario: five-year, samples: "100", launches: "10" }
+          # A phone cold start over slow 4G takes 15 to 30 seconds, so fewer of them.
+          - { platform: web-phone, scenario: one-year, launches: "10" }
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: versions
+        run: |
+          echo "playwright=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+          echo "electron=$(node -p "require('electron/package.json').version")" >>"$GITHUB_OUTPUT"
+          . /etc/os-release && echo "os=$ID-$VERSION_ID" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.versions.outputs.os }}-${{ steps.versions.outputs.playwright }}-chromium
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      # The Mac app's Electron, fetched with retries as CI's Electron job does.
+      - if: matrix.platform == 'mac'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
+      - if: matrix.platform == 'mac'
+        name: Download Electron
+        run: |
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep $((attempt * 20))
+          done
+          exit 1
+        working-directory: frontend
+      - name: Time this commit beside the one before
+        run: scripts/test-perf.sh
+        env:
+          BASE: ${{ github.event.before }}
+          PERF_PLATFORMS: ${{ matrix.platform }}
+          PERF_SCENARIOS: ${{ matrix.scenario }}
+          PERF_SAMPLES: ${{ matrix.samples }}
+          PERF_LAUNCHES: ${{ matrix.launches }}
+      - run: cat frontend/test-results/perf/comparison.md >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-main-${{ matrix.platform }}-${{ matrix.scenario }}
+          path: frontend/test-results/perf
+          retention-days: 30
+          if-no-files-found: ignore
+
+  record:
+    needs: time
+    # What did run is kept even when a job failed.
+    if: always() && needs.time.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: perf-main-*
+          path: results
+      - name: Add the run to perf-data
+        env:
+          COMMIT: ${{ github.sha }}
+          RUNNER: ubuntu-latest
+        run: |
+          mapfile -t summaries < <(find results -path '*/summary/this.json')
+          if [ "${#summaries[@]}" -eq 0 ]; then echo "No results to add." >&2; exit 1; fi
+          scripts/perf-data.sh main "${summaries[@]}"

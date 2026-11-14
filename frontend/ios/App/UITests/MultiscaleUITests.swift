@@ -177,10 +177,15 @@ private func allowNotificationsIfAsked() {
     if allow.waitForExistence(timeout: 5) { allow.tap() }
 }
 
-/// iOS asks before another app's link opens this one.
-private func openLinkPrompt() {
+/// Opens one of the app's links, as another app would. iOS asks first, though not every time, and on CI's Simulator the
+/// question can take longer than any fixed wait. So this waits for whichever comes first, the question or `opened`, and
+/// answers the question when that's the one.
+private func openLink(_ link: String, until opened: @escaping () -> Bool) {
+    XCUIDevice.shared.system.open(URL(string: link)!)
     let open = springboard.alerts.buttons["Open"]
-    if open.waitForExistence(timeout: 5) { open.tap() }
+    let either = NSPredicate { _, _ in open.exists || opened() }
+    _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: either, object: nil)], timeout: patience)
+    if open.exists { open.tap() }
 }
 
 /// The real app, through its web view.
@@ -307,8 +312,7 @@ final class ShellUITests: XCTestCase {
         // The link the Control Center button opens, so a cold launch from either goes the same way.
         app.terminate()
         let loaded = XCTDarwinNotificationExpectation(notificationName: pageLoaded)
-        XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
-        openLinkPrompt()
+        openLink("multiscale://capture") { app.state == .runningForeground }
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: patience))
         waitForPage(loaded)
         exists(app.page.textFields["Capture to Inbox"], timeout: launchPatience)
@@ -504,9 +508,9 @@ final class NativeUITests: XCTestCase {
         // Told by our own page being covered and uncovered, since the sheet's buttons are named differently across
         // iOS versions (Done, then Close).
         XCTAssertTrue(wait(for: browser, hittable: false), "the browser sheet never came up. On screen:\n\(app.debugDescription)")
-        XCUIDevice.shared.system.open(URL(string: "multiscale://auth/callback?code=abc&state=def")!)
-        openLinkPrompt()
-        exists(app.webText("link:multiscale://auth/callback?code=abc&state=def"))
+        let linked = app.webText("link:multiscale://auth/callback?code=abc&state=def")
+        openLink("multiscale://auth/callback?code=abc&state=def") { linked.exists }
+        exists(linked)
         XCTAssertTrue(wait(for: browser, hittable: true), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
     }
 
@@ -516,9 +520,9 @@ final class NativeUITests: XCTestCase {
     }
 
     func testCaptureLinkIsNotTreatedAsSignIn() {
-        XCUIDevice.shared.system.open(URL(string: "multiscale://capture")!)
-        openLinkPrompt()
-        exists(app.webText("capture"))
+        let captured = app.webText("capture")
+        openLink("multiscale://capture") { captured.exists }
+        exists(captured)
     }
 
     func testBackgroundThenForegroundIsReported() {

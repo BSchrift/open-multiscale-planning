@@ -266,18 +266,22 @@ test('the current-time line passes behind the block under way, its dot in front,
   const errors = await open(page, [planned, report, block('b1', 't1', '13:00', '15:00', { started_at: at('13:00') })]);
   const timeline = page.getByRole('region', { name: "Today's timeline" });
   const zoom = timeline.getByRole('group', { name: 'Calendar zoom' });
-  const view = timeline.getByRole('group', { name: 'Timeline view' });
-  // In the heading row, beside the view buttons, rather than over the calendar.
-  const [z, v] = [(await zoom.boundingBox())!, (await view.boundingBox())!];
+  // In the heading row, beside the view buttons, rather than over the calendar. Measured in one go, as the page may
+  // still be scrolling.
+  await expect(zoom).toBeVisible();
+  const { z, v, day } = await timeline.evaluate((t) => {
+    const rect = (sel: string) => t.querySelector(sel)!.getBoundingClientRect().toJSON() as DOMRect;
+    return { z: rect('[aria-label="Calendar zoom"]'), v: rect('[aria-label="Timeline view"]'), day: rect('.day') };
+  });
   expect(Math.abs(z.y + z.height / 2 - (v.y + v.height / 2))).toBeLessThan(4);
   expect(z.x + z.width).toBeLessThanOrEqual(v.x);
-  const day = (await timeline.locator('.day').boundingBox())!;
   expect(z.y + z.height).toBeLessThanOrEqual(day.y);
   if (phone) for (const name of ['Zoom out', 'Zoom in']) await expectTapTarget(zoom.getByRole('button', { name }));
   await zoom.getByRole('button', { name: 'Zoom in' }).click();
   await zoom.getByRole('button', { name: 'Zoom in' }).click();
 
-  const b = timeline.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 1pm to 3pm/ });
+  // Under way, it no longer moves, so it's a button on phone too.
+  const b = timeline.getByRole('button', { name: /^Write the report, 1pm to 3pm/ });
   const line = timeline.getByRole('img', { name: 'Current time' });
   await line.scrollIntoViewIfNeeded();
   await expect(line).toHaveCSS('pointer-events', 'none');

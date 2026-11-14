@@ -213,6 +213,8 @@ async function answered(w: Writer, blockId: string): Promise<boolean> {
 
 /** Pause: the countdown and the time spent stop here. Only a started block under way that isn't paused, ended or answered. */
 export async function pauseBlock(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {
+  // TEMPORARY BREAK, to prove TodayUITests' ring test fails: Pause pauses nothing.
+  if (blockId) return { writes: [] };
   const block = await readBlock(w, blockId);
   if (!block.started_at || block.ended_at || block.paused_at || clock.now() >= instantMs(block.end) || (await answered(w, blockId))) {
     return { writes: [] };

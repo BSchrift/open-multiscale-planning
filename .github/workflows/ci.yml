@@ -280,8 +280,8 @@ jobs:
   # with them on; the smoke set runs the native checks and a test of each main flow, with them on (scripts/test-ios.sh).
   ios:
     runs-on: macos-15
-    needs: [frontend, changes]
-    if: needs.changes.outputs.ios != 'none'
+    # TEMPORARY, for the can-fail check: runs even though the broken behaviours fail their unit tests.
+    needs: [changes]
     # The full suite takes about 80 minutes and the smoke set about 25, plus up to 11 when a test on the real clock reaches
     # its seed in the last ten minutes of a day (UTC), which it waits out.
     timeout-minutes: ${{ needs.changes.outputs.ios == 'full' && 120 || 45 }}
@@ -322,7 +322,7 @@ jobs:
       - run: make test-ios
         env:
           IOS_RESULTS: ${{ runner.temp }}/ios-results
-          MULTISCALE_SUITE: ${{ needs.changes.outputs.ios }}
+          MULTISCALE_SUITE: smoke
       # Kept even when the job passes, since a test marked as an expected failure passes the job with its screenshots. The
       # job's summary lists them.
       - uses: actions/upload-artifact@v4

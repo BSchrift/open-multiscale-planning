@@ -201,7 +201,8 @@ function Patterns(props: { layout: Layout; patterns: Pattern[]; projects: { id: 
     const was = await setAvoided.run((slots) => toggleAvoidedSlot(slots, p.slot));
     if (!was) return;
     toast.show(p.kind === 'avoid' ? 'Stopped suggesting those times.' : 'Suggesting those times again.', {
-      undo: () => setAvoided.run(() => was),
+      // TEMPORARY BREAK, to prove AnalyticsUITests fails: Undo does nothing.
+      undo: () => void was,
       focusUndo: true,
     });
   };

@@ -45,6 +45,9 @@ smoke=(
   ShellUITests/testABlocksNotificationActionAnswersItInToday
   TodayUITests/testTheRingPausesAndResumesTheBlockUnderWayEachWithAToastWhoseUndoTakesItBack
   WeekUITests/testWeekStepsToOtherWeeksThenABlockNextWeekMovesToAnotherDayAndIsRemovedWithUndo
+  # TEMPORARY, for the can-fail check.
+  AnalyticsUITests/testAnalyticsReadsAWeekMovesBetweenWeeksAndStopsSuggestingAPatternWithUndo
+  SettingsUITests/testAwayDatesForTodayHoldBackItsMissedBlockUntilRemovedWithUndoThenForGood
 )
 cd "$root/frontend"
 runtime_device="${IOS_DEVICE:-iPhone 16}"

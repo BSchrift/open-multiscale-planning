@@ -41,7 +41,8 @@ export function useWeekActions() {
   return {
     /** Saves as you go, with no message: the block shows where it landed. */
     move: (id: string, slot: Slot) => run((w) => moveBlock(w, id, slotInstants(slot, zone))),
-    moveWithUndo: (id: string, title: string, slot: Slot) => withUndo((w) => moveBlock(w, id, slotInstants(slot, zone)), `Moved ${title} to ${at(slot)}`),
+    // TEMPORARY BREAK, to prove WeekUITests fails: Move says it moved and moves nothing.
+    moveWithUndo: (id: string, title: string, slot: Slot) => withUndo(async () => (void id, { writes: [] }), `Moved ${title} to ${at(slot)}`),
     /**
      * A practice session moved to another day: this week only, and it stays the session of the day it's for. A day that
      * has another of its sessions refuses it. Resolves to whether it moved.

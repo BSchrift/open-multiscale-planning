@@ -2,7 +2,8 @@
 // by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so.
 // On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
 // the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
-// click or tap opens a task's block in the task's popup, and a practice's session or a planning block in its details.
+// click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
+// session or a planning block in its details.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
@@ -17,6 +18,8 @@ import type { Slot } from '../../../core/slots';
 import type { CalendarEvent } from '../../../core/types';
 import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
+import { BlockSection } from '../../components/blocks/BlockSection';
+import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
 import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
@@ -24,6 +27,7 @@ import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
 import { DRAG_PX, HOLD_MS, SLOP_PX, swallowClick } from '../../components/weekgrid';
+import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
@@ -75,6 +79,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
   const toast = useToast();
   const openTask = useOpenTask();
+  const actions = useBlockActions();
+  /** A task's block opened in the task's popup. */
+  const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
@@ -139,14 +146,17 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}`;
   const overlaps = (i: Item) => items.some((o) => o !== i && !o.block !== !i.block && o.from < i.to && i.from < o.to);
   const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
-  // A task's block opens the task's popup, as the task does anywhere else. A practice's session and a planning block
-  // open their details, as before.
+  // A task's block opens the task's popup, as the task does anywhere else, with the block's section at its top. A
+  // practice's session and a planning block open their details, as before.
   const taskOf = (i: Item) => (i.kind === 'project' || i.kind === 'one_off' ? i.block?.task_id : null);
   const openItem = (i: Item) => {
     const id = taskOf(i);
-    if (id) openTask(id);
+    if (id) setPop({ block: i.id, task: id });
     else toggle(i.id);
   };
+  const popBlock = pop && data.blocks.find((b) => b.id === pop.block);
+  // One not yet started can come off the calendar, as Have you started's Skip takes it.
+  const removable = (b: BlockRow) => !b.started_at && !b.result && !b.ended_at && instantMs(b.end) > clock.now();
   // Both open over the page on phone, and a task's popup does on desktop too; the rest open in place there.
   const opens = (i: Item) => (phone || taskOf(i) ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': open.has(i.id) });
 
@@ -475,6 +485,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
+      {pop && (
+        <TaskPopupFor
+          id={pop.task}
+          close={() => setPop(null)}
+          block={popBlock && <BlockSection block={popBlock} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+        />
+      )}
     </div>
   );
 }

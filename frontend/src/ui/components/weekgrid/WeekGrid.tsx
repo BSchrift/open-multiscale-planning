@@ -37,6 +37,8 @@ export interface GridBlock extends Slot {
   ended?: boolean;
   /** How it went, once answered: said in words, and Done struck through. */
   result?: BlockResult | null;
+  /** Opens a dialog, a task's popup, rather than details in place. */
+  popup?: boolean;
 }
 
 /** A block already on the week, as Week and the Schedule step show it. */
@@ -336,7 +338,9 @@ export function WeekGrid(props: WeekGridProps) {
                   // Under two lines tall, the title stays on one line rather than being cut through.
                   const cls = `${b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''}` : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}${b.ended ? ' ended' : ''}${outcomeClass(b.result)}`}${h < 30 ? ' short' : ''}`;
                   if (movable(b)) {
-                    const help = b.draft ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.' : ' Arrow keys move it, Shift and arrows change its length.';
+                    const help = b.draft
+                      ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.'
+                      : ` Arrow keys move it, Shift and arrows change its length${b.popup ? ', Enter opens it' : ''}.`;
                     return (
                       <div
                         key={b.id}
@@ -375,7 +379,7 @@ export function WeekGrid(props: WeekGridProps) {
                         className={cls}
                         style={style}
                         aria-label={said}
-                        aria-expanded={props.openId === b.id}
+                        {...(b.popup ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': props.openId === b.id })}
                         title={b.note}
                         onClick={() => props.onOpen?.(b.id)}
                       >

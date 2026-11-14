@@ -1,5 +1,6 @@
-// A task's popup opens from every place the task shows, by its name. Where a tap on a row or block already does
-// something, that stays, and the name in what it opens is the way in. A block on Today's timeline opens it directly.
+// A task's popup opens from every place the task shows, by its name. Where a tap on a row or card already does
+// something, that stays, and the name in what it opens is the way in. A task's block on a calendar opens it directly,
+// with the block's own section at its top.
 
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -87,34 +88,32 @@ describe('the task popup opens from', () => {
     await closeBackTo(name);
   });
 
+  /** The block's section, at the popup's top, with its time and what can be done to it. */
+  const blockSection = (element: HTMLElement) => {
+    const section = within(element).getByRole('region', { name: 'Time block' });
+    expect(within(section).getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
+    expect(within(section).getByRole('button', { name: 'Start now' })).toBeVisible();
+    expect(within(section).getByRole('button', { name: 'Remove from calendar' })).toBeVisible();
+    return section;
+  };
+
   for (const layout of ['desktop', 'phone'] as const) {
     it(`a block on Today's timeline, by a tap on the block itself (${layout})`, async () => {
       await open('today', layout);
       // On phone a block still to come is a slider, so VoiceOver's swipes move it.
       const block = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ });
       await userEvent.click(block);
-      await popup('Draft the summary');
+      blockSection(await popup('Draft the summary'));
+      await closeBackTo(block);
+    });
+
+    it(`a block on Week, by a tap on the block itself (${layout})`, async () => {
+      await open('week', layout);
+      const block = await screen.findByRole('button', { name: layout === 'phone' ? /^Draft the summary, 4pm to 5pm/ : /^Draft the summary/ });
+      expect(block).toHaveAttribute('aria-haspopup', 'dialog');
+      await userEvent.click(block);
+      expect(within(blockSection(await popup('Draft the summary'))).getByRole('button', { name: 'Move' })).toBeVisible();
       await closeBackTo(block);
     });
   }
-
-  it("a block in the week's grid on desktop, whose tap still opens its details", async () => {
-    await open('week');
-    await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary/ }));
-    const details = await screen.findByRole('region', { name: 'Draft the summary' });
-    const name = within(details).getByRole('button', { name: 'Draft the summary' });
-    await userEvent.click(name);
-    await popup('Draft the summary');
-    await closeBackTo(name);
-  });
-
-  it("a block on the week's phone day, whose tap still opens its sheet", async () => {
-    await open('week', 'phone');
-    await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary, 4pm to 5pm/ }));
-    const sheet = await screen.findByRole('dialog', { name: 'Draft the summary' });
-    const name = within(sheet).getByRole('button', { name: 'Draft the summary' });
-    await userEvent.click(name);
-    await popup('Draft the summary');
-    await closeBackTo(name);
-  });
 });

@@ -57,7 +57,8 @@ test('desktop: drag the task to a time, place it, then place the rest with Undo'
 
   await page.getByRole('button', { name: 'Place here' }).click();
   await expect(page.getByText('2 of 4 placed')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
+  // The row in the list, rather than the same task's name under Now, which opens its popup.
+  await expect(page.getByRole('list', { name: 'Tasks' }).getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
   // Now moves on to the next task, and focus with it, at the top of the list rather than falling to the page.
   await expect(page.getByRole('region', { name: 'Now' }).getByRole('heading', { name: 'Write chapter one' })).toBeFocused();
 
@@ -158,6 +159,14 @@ test('phone: compare days, move the task to another day, place it, and place the
   const summary = page.getByRole('button', { name: 'All picked tasks, 1 of 4 placed' });
   await expectTapTarget(summary);
   await page.screenshot({ path: info.outputPath('schedule-phone.png') });
+  // The task's name in the dock opens its popup, and is a whole tap target.
+  const name = page.locator('.flowdock').getByRole('button', { name: 'Collect the sources', exact: true });
+  await expectTapTarget(name);
+  await name.click();
+  const popup = page.getByRole('dialog', { name: 'Collect the sources' });
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
 
   await strip.getByRole('button', { name: /^Tue Nov 3, .*suggested 7:30am$/ }).click();
   await expect(page.getByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
@@ -258,7 +267,7 @@ test('desktop: in a long list the one being placed stays at the top under Now, a
   await page.screenshot({ path: info.outputPath('schedule-long-desktop.png') });
 
   // Down the list, a row clicked stays under the pointer, keeps focus, and Now, pinned at the top, shows it.
-  const far = page.getByRole('button', { name: /^Write the summary/ });
+  const far = page.getByRole('list', { name: 'Tasks' }).getByRole('button', { name: /^Write the summary/ });
   await far.scrollIntoViewIfNeeded();
   const before = (await far.boundingBox())!;
   await far.click();

@@ -351,9 +351,20 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
   const popup = page.getByRole('dialog', { name: 'Write the report' });
   await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
   await expect(popup.getByRole('heading', { name: 'Write the report' })).toBeFocused();
+  // The block's own section, at the top, with what can be done to it.
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
+  for (const name of ['Start now', 'Remove from calendar']) {
+    const action = section.getByRole('button', { name });
+    await expect(action).toBeVisible();
+    if (phone) await expectTapTarget(action);
+  }
   // Once the popup has finished sliding in.
   await page.waitForTimeout(300);
   await page.screenshot({ path: info.outputPath(phone ? 'today-open-phone.png' : 'today-open-desktop.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: info.outputPath(phone ? 'today-open-phone-dark.png' : 'today-open-desktop-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(b).toBeVisible();

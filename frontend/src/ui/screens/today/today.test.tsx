@@ -939,8 +939,64 @@ describe('the timeline', () => {
     const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
     expect(el).toHaveAttribute('aria-haspopup', 'dialog');
     await userEvent.click(el);
-    await taskPopup('Write the report');
+    const popup = await taskPopup('Write the report');
     expect(screen.queryByRole('region', { name: 'Write the report' })).toBeNull();
+    // The block's own time, what it belongs to and what can be done to it, above the task's fields.
+    const section = within(popup).getByRole('region', { name: 'Time block' });
+    expect(within(section).getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
+    expect(await within(section).findByText('Write more > Finish the essay')).toBeVisible();
+    expect(within(section).getByRole('button', { name: 'Start now' })).toBeVisible();
+    expect(within(section).getByRole('button', { name: 'Remove from calendar' })).toBeVisible();
+    // Esc closes it, and focus goes back to the block.
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('button', { name: /^Write the report, 4pm to 5pm/ })).toHaveFocus();
+  });
+
+  it("Start now in a block's popup starts it now, keeping its length, with Undo", async () => {
+    const t = await open(day);
+    await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+    const popup = await taskPopup('Write the report');
+    await userEvent.click(within(popup).getByRole('button', { name: 'Start now' }));
+    expect(await screen.findByText('Started Write the report. It now runs 2pm to 3pm.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(NOW);
+    // Started, it has nothing left to start.
+    await waitFor(() => expect(within(popup).queryByRole('button', { name: /^Start/ })).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeNull());
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00'));
+  });
+
+  it("a block gone by asks how it went in its popup: Partly takes the time left, and saves with Undo", async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await block(w, 'b0', 't1', '11:00', '12:00');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 11am to 12pm/ }));
+    const popup = await taskPopup('Write the report');
+    const asks = within(popup).getByRole('group', { name: 'How did it go?' });
+    expect(within(popup).queryByRole('button', { name: /^Start/ })).toBeNull();
+    await userEvent.click(within(asks).getByRole('button', { name: 'Partly' }));
+    // 3 hours estimated, an hour of it done.
+    expect(within(asks).getByText('2h left')).toBeVisible();
+    await userEvent.click(within(asks).getByRole('button', { name: 'More time left: Write the report' }));
+    await userEvent.click(within(asks).getByRole('button', { name: 'Save Partly' }));
+    expect(await screen.findByText('Write the report: partly, 2h 30m left.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'block_outcome', outcomeId('b0')))?.result).toBe('partly'));
+    expect((await getRecord(t.db, 'task', 't1'))?.remaining_min).toBe(150);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'block_outcome', outcomeId('b0')))?.deleted_at).toBeTruthy());
+  });
+
+  it("Remove from calendar in a block's popup takes it off and into To schedule, with Undo", async () => {
+    const t = await open(day);
+    await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+    await userEvent.click(within(await taskPopup('Write the report')).getByRole('button', { name: 'Remove from calendar' }));
+    expect(await screen.findByText("Took Write the report off the calendar. It's in To schedule on Week.")).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull());
   });
 
   it("a practice's session and a planning block open their details, as before", async () => {

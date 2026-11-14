@@ -110,6 +110,49 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   expect(errors).toEqual([]);
 });
 
+test("a task's block opens the task's popup, with the block's own section at its top, and Remove from calendar offers Undo", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openWeek(page);
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  const block = page.getByRole('button', { name: /^Draft the summary, (Tue Nov 3, )?6pm to 7pm/ });
+  await expect(block).toHaveAttribute('aria-haspopup', 'dialog');
+  await block.click();
+  const popup = page.getByRole('dialog', { name: 'Draft the summary' });
+  await expect(popup.getByRole('heading', { name: 'Draft the summary' })).toBeFocused();
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
+  await expect(section.getByText('Write the report')).toBeVisible();
+  // A centred dialog on desktop, a sheet along the bottom on phone, once it has finished sliding in.
+  await popup.evaluate((e) => Promise.all(e.getAnimations().map((a) => a.finished)));
+  const box = (await popup.boundingBox())!;
+  const view = page.viewportSize()!;
+  if (phone) expect(Math.round(box.y + box.height)).toBe(view.height);
+  else expect(Math.abs(box.x + box.width / 2 - view.width / 2)).toBeLessThan(2);
+  if (phone) {
+    for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+    await expectTapTarget(section.getByRole('slider', { name: 'Length' }));
+  }
+  await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}.png`) });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}-dark.png`) });
+  await page.emulateMedia({ colorScheme: 'light' });
+  // Esc closes it, and focus goes back to the block.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(block).toBeFocused();
+
+  await block.click();
+  await section.getByRole('button', { name: 'Remove from calendar' }).click();
+  await expect(page.getByText('Removed Draft the summary')).toBeVisible();
+  // The block's section goes with it; the task stays open.
+  await expect(section).toHaveCount(0);
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(section).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('desktop: add a task at its suggested time', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openWeek(page);

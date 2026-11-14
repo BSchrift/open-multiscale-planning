@@ -315,8 +315,10 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
 
 Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.
 `.github/workflows/mac-update-check.yml` runs every half hour on one of GitHub's Macs, in the `release` environment
-for the inbox role, with no signing secret, and by hand (`gh workflow run mac-update-check.yml`).
-`scripts/mac-update-check.sh` reads which app staging's desktop feed names. If it hasn't passed that app, it installs
+for the inbox role, with no signing secret, and by hand (`gh workflow run mac-update-check.yml`). A Linux job looks
+first: a Mac is taken only when staging's desktop feed names an app the check hasn't passed, which it reads from the
+artifact the last passing check wrote beside its pass, since the inbox role can't read the inbox. On the Mac,
+`scripts/mac-update-check.sh` installs
 the app it passed before from its folder on staging's downloads host, opens it, and waits for it to download and
 stage the new one. Then it quits the app, as from the menu bar, waits for Squirrel to install the new app, checks that
 the app didn't open again, and opens it to check it's the new version and starts. A pass goes to

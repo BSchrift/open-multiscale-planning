@@ -2,7 +2,7 @@
 # secrets, the staging app passed before updates itself to the app staging's desktop feed names, quits so Squirrel
 # installs it, and opens again as that app. A pass goes to the pipeline's inbox as inbox/update-check/<app version>.json,
 # which prod's release waits for before it takes a new Mac app. It runs every half hour, so it follows staging soon after
-# a release publishes a new app, and does nothing when the app passed already; and by hand.
+# a release publishes a new app, and by hand. A Linux job looks first, and a Mac is taken only for an app not yet passed.
 
 name: Mac update check
 
@@ -18,8 +18,75 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check:
+  # On Linux, which is cheap: whether staging's desktop feed names an app this check hasn't passed. Most runs stop here,
+  # so a Mac, which CI and the Mac release queue for too, is only taken when there's an app to check.
+  needed:
     if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    # For MAC_BUILD_CONFIG, which names staging's hosts. No signing secret is read here.
+    environment: release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # To read which app the last passing check passed, from its artifact.
+      actions: read
+    outputs:
+      check: ${{ steps.feed.outputs.check }}
+      previous: ${{ steps.previous.outputs.previous }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+      # From the lockfile, running no package's install script, for mac-inbox.ts. Not cached.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: frontend
+
+      # The app the last passing check passed, from the artifact it wrote beside its pass in the inbox, which the inbox
+      # role can only write. Only this workflow's runs on main, in the release environment, count.
+      - name: Find the app passed before
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          previous=""
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=update-check&per_page=20" \
+            -q '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main" and .workflow_run.head_repository_id == .workflow_run.repository_id)][0].workflow_run.id // empty')"
+          if [ -n "$run_id" ] && [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" -q .path)" = .github/workflows/mac-update-check.yml ] &&
+            gh run download "$run_id" -n update-check -D "$RUNNER_TEMP/previous"; then
+            previous="$(cat "$RUNNER_TEMP/previous/passed.txt")"
+          fi
+          echo "previous=$previous" >>"$GITHUB_OUTPUT"
+          echo "The app passed before: ${previous:-none}."
+
+      # The app staging's desktop feed names. The release host is kept out of the log.
+      - name: Read which app staging's desktop feed names
+        id: feed
+        env:
+          MAC_BUILD_CONFIG: ${{ secrets.MAC_BUILD_CONFIG }}
+          PREVIOUS: ${{ steps.previous.outputs.previous }}
+        run: |
+          [ -n "$MAC_BUILD_CONFIG" ] || { echo "::error::The release environment lacks MAC_BUILD_CONFIG. See docs/releasing.md."; exit 1; }
+          node frontend/scripts/mac-inbox.ts unpack-config "$RUNNER_TEMP/config"
+          release_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseUrl)' "$RUNNER_TEMP/config/staging.outputs.json")"
+          rm -rf "$RUNNER_TEMP/config"
+          version="$(curl -fsS --retry 3 "$release_url/desktop/release.json" | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => console.log(JSON.parse(JSON.parse(s).manifest).app?.version ?? ""));')"
+          if [ -z "$version" ]; then
+            echo "Staging's desktop feed names no app yet, so there's nothing to check."
+            echo "check=false" >>"$GITHUB_OUTPUT"
+          elif [ "$version" = "$PREVIOUS" ]; then
+            echo "App $version passed already."
+            echo "check=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "App $version hasn't passed, so a Mac checks it."
+            echo "check=true" >>"$GITHUB_OUTPUT"
+          fi
+
+  check:
+    needs: needed
+    if: ${{ needs.needed.outputs.check == 'true' }}
     runs-on: macos-15
     # The environment whose role may write to the inbox. No signing secret is read here.
     environment: release
@@ -27,8 +94,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      # To read which app the last passing run passed, from its artifact.
-      actions: read
+    env:
+      PREVIOUS: ${{ needs.needed.outputs.previous }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,26 +112,9 @@ jobs:
         env:
           MAC_BUILD_CONFIG: ${{ secrets.MAC_BUILD_CONFIG }}
         run: |
-          [ -n "$MAC_BUILD_CONFIG" ] || { echo "::error::The release environment lacks MAC_BUILD_CONFIG. See docs/releasing.md."; exit 1; }
           node frontend/scripts/mac-inbox.ts unpack-config "$RUNNER_TEMP/config"
           node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log("RELEASE_URL=" + o.ReleaseUrl); console.log("DOWNLOADS_URL=" + o.DownloadsUrl);' "$RUNNER_TEMP/config/staging.outputs.json" >>"$GITHUB_ENV"
           rm -rf "$RUNNER_TEMP/config"
-
-      # The app the last passing run passed, which this run updates from. Only this workflow, on main in the release
-      # environment, writes that artifact.
-      - name: Find the app passed before
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          previous=""
-          for id in $(gh run list --workflow mac-update-check.yml --branch main --status success --limit 20 --json databaseId -q '.[].databaseId'); do
-            if gh run download "$id" -n update-check -D "$RUNNER_TEMP/previous" 2>/dev/null; then
-              previous="$(cat "$RUNNER_TEMP/previous/passed.txt")"
-              break
-            fi
-          done
-          echo "PREVIOUS=$previous" >>"$GITHUB_ENV"
-          echo "The app passed before: ${previous:-none}."
 
       - name: Check the update
         run: OUT="$RUNNER_TEMP/out" scripts/mac-update-check.sh

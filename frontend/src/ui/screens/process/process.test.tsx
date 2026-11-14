@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { formatClock } from '../../../core/clock';
+import { doneOn, loadDone } from '../../../core/done';
 import { applyRemote, getRecord, listRecords, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
@@ -78,7 +79,7 @@ describe('Process on desktop', () => {
       ['New practice from this item', 'Alt PNew practice'],
       ['New goal from this item', 'Alt GNew goal'],
     ]);
-    for (const [name, k] of [['‹ Undo and go back', 'Z'], ['Skip', 'S'], ['Delete/done', 'D'], ['Add to this week', 'W']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
+    for (const [name, k] of [['‹ Undo and go back', 'Z'], ['Skip', 'S'], ['Done', 'F'], ['Delete', 'D'], ['Add to this week', 'W']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
     expect(btn('‹ Undo and go back')).toBeDisabled();
     // The card no longer reports what happened: the toast does.
     expect(within(card()).queryByRole('status')).toBeNull();
@@ -127,11 +128,11 @@ describe('Process on desktop', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
     await addTo('Learn to bake bread');
     await screen.findByRole('heading', { name: 'Fix the gate' });
-    btn('Delete/done').focus();
+    btn('Delete').focus();
     await userEvent.tab();
     expect(toastUndo()).toHaveFocus();
     await userEvent.tab();
-    expect(btn('Delete/done')).toHaveFocus();
+    expect(btn('Delete')).toHaveFocus();
   });
 
   it('narrows by name or goal as you type, lights the best match, says how many match, and adds it with Enter', async () => {
@@ -308,20 +309,41 @@ describe('Process on desktop', () => {
     expect(toast()).toHaveTextContent('Skipped Buy stamps. It stays in your Inbox.');
     expect(toastUndo()).toBeInTheDocument();
 
-    await userEvent.click(btn('Delete/done'));
+    await userEvent.click(btn('Delete'));
     expect(within(card()).getByRole('alert')).toHaveTextContent('Delete this item?');
     await userEvent.click(btn('Cancel'));
     expect(title()).toHaveTextContent('Return the books');
-    await userEvent.click(btn('Delete/done'));
+    await userEvent.click(btn('Delete'));
     await userEvent.click(btn('Yes, delete'));
     // That was the last: Process closes, and the last toast shows once the check has gone.
     await waitFor(() => expect(close).toHaveBeenCalled());
     expect((await task(t.db, 'i5'))?.deleted_at).toBeTruthy();
+    expect((await task(t.db, 'i5'))?.done_at).toBeUndefined();
     expect((await task(t.db, 'i4'))?.kind).toBe('inbox');
     fireEvent.pointerDown(document.querySelector('.clearveil')!);
     await waitFor(() => expect(toast()).toHaveTextContent('Deleted Return the books.'));
     await userEvent.click(toastUndo());
     await waitFor(async () => expect((await task(t.db, 'i5'))?.deleted_at).toBeNull());
+  });
+
+  it('finishes an item as done, without asking: it counts as done and shows in Done, and Undo brings it back', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('Done'));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(within(card()).queryByRole('alert')).toBeNull();
+    expect(toast()).toHaveTextContent('Marked Call the bank done.');
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'inbox', done_at: '2026-11-02T20:00:00Z' });
+    expect((await task(t.db, 'i1'))?.deleted_at).toBeUndefined();
+    // Done lists it as finished today, as it does any finished task, and a deleted item never.
+    const finished = async () => doneOn('2026-11-02', await loadDone(t.db, t.clock, '2026-11-02'), t.clock).finished.map((f) => [f.title, f.deleted]);
+    expect(await finished()).toEqual([['Call the bank', false]]);
+    expect(within(card()).getByText('2 of 5')).toBeInTheDocument();
+
+    await userEvent.click(toastUndo());
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect((await task(t.db, 'i1'))?.done_at).toBeNull();
+    expect(await finished()).toEqual([]);
   });
 
   it('works from the keyboard, with Option or Alt keys in Add to too, and letters there only searching', async () => {
@@ -357,6 +379,14 @@ describe('Process on desktop', () => {
     key('d');
     await screen.findByRole('heading', { name: 'Read the article' });
     expect((await task(t.db, 'i2'))?.deleted_at).toBeTruthy();
+    // F is Done, with no question, from Add to with Option or Alt, and alone away from a field.
+    altKey('KeyF', picker());
+    await screen.findByRole('heading', { name: 'Buy stamps' });
+    expect((await task(t.db, 'i3'))?.done_at).toBeTruthy();
+    key('f');
+    await screen.findByRole('heading', { name: 'Return the books' });
+    expect((await task(t.db, 'i4'))?.done_at).toBeTruthy();
+    expect((await task(t.db, 'i4'))?.deleted_at).toBeUndefined();
     altKey('KeyP', picker());
     expect(form()).toHaveAccessibleName('New practice');
   });
@@ -377,7 +407,7 @@ describe('Process on desktop', () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     // Speech input can type letters, and they mustn't skip or delete items.
-    for (const k of ['s', 'w', 'd', 'p']) key(k);
+    for (const k of ['s', 'w', 'd', 'f', 'p']) key(k);
     expect(title()).toHaveTextContent('Call the bank');
     expect(within(card()).queryByRole('form')).toBeNull();
     expect(within(card()).queryByRole('alert')).toBeNull();
@@ -415,12 +445,12 @@ describe('Process on desktop', () => {
     const caps = () => [...card().querySelectorAll('.keycap')].map((k) => k.textContent).filter((c) => c !== '↩');
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['⌥D', '⌥E', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
+    expect(caps().sort()).toEqual(['⌥D', '⌥E', '⌥F', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
     cleanup();
     keysOn();
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['D', 'E', 'G', 'P', 'S', 'W', 'Z']);
+    expect(caps().sort()).toEqual(['D', 'E', 'F', 'G', 'P', 'S', 'W', 'Z']);
   });
 
   it('labels the held key Alt away from a Mac', async () => {
@@ -480,6 +510,15 @@ describe('When the last item is handled', () => {
   const one = (w: Writer) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1');
   const check = () => document.querySelector<HTMLElement>('.clearveil');
 
+  it('counts a Done as processed, as it does a Delete', async () => {
+    const close = vi.fn();
+    await renderScreen('process', { presentation: 'overlay', close, seed: one });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('Done'));
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    expect(check()).toHaveTextContent('Inbox clear1 item processed');
+  });
+
   it('closes Process itself and shows a green check over the page, Inbox clear with how many, then the last toast', async () => {
     const close = vi.fn();
     await renderScreen('process', { presentation: 'overlay', close, seed: one });
@@ -510,7 +549,7 @@ describe('When the last item is handled', () => {
     await screen.findByRole('heading', { name: 'Buy stamps' });
     await userEvent.click(btn('Skip'));
     await screen.findByRole('heading', { name: 'Return the books' });
-    await userEvent.click(btn('Delete/done'));
+    await userEvent.click(btn('Delete'));
     await userEvent.click(btn('Yes, delete'));
     await waitFor(() => expect(close).toHaveBeenCalled());
     expect(check()).toHaveTextContent('3 items processed2 still in your Inbox');
@@ -958,7 +997,7 @@ describe('Editing the item on the card', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
   });
 
-  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, New practice and goal, Skip, Delete/done', async () => {
+  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, New practice and goal, Skip, Done, Delete', async () => {
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     const stops = Array.from(card().querySelectorAll<HTMLElement>('button, input, textarea, select'))
@@ -975,7 +1014,8 @@ describe('Editing the item on the card', () => {
       'New practice from this item',
       'New goal from this item',
       'SkipAlt S',
-      'Delete/doneAlt D',
+      'DoneAlt F',
+      'DeleteAlt D',
     ]);
   });
 
@@ -1158,7 +1198,7 @@ describe('Process for planning a stretch', () => {
 });
 
 describe('Process on phone', () => {
-  it('puts the item on top, then Add to low in thumb reach, then New practice and goal, then Undo, Skip and Delete', async () => {
+  it('puts the item on top, then Add to low in thumb reach, then New practice and goal, then Undo, Skip, Done and Delete', async () => {
     await open({ layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
     const order = Array.from(card().querySelectorAll('h1, button, input')).map((e) =>
@@ -1178,7 +1218,8 @@ describe('Process on phone', () => {
       'New goal from this item',
       '‹ Undo',
       'Skip',
-      'Delete/done',
+      'Done',
+      'Delete',
     ]);
     await waitFor(() => expect(btn('Add to a project or One offs')).toHaveFocus());
     // A phone has no keyboard: no setting, and keys do nothing, Option or not.

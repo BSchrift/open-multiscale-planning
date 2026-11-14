@@ -204,7 +204,8 @@ async function clearChecks(page: Page) {
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
-    await page.getByRole('button', { name: 'Delete/done' }).click();
+    // Delete was "Delete/done" before, which a deployment may still be serving.
+    await page.getByRole('button', { name: /^Delete(\/done)?$/ }).click();
     await page.getByRole('button', { name: 'Yes, delete' }).click();
     // The last one closes this release's Process by itself.
     const process = page.getByRole('dialog', { name: 'Process Inbox' });

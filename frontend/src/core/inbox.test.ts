@@ -76,7 +76,7 @@ describe('the Inbox select mode, many items at once', () => {
     expect(await getRecord(db, 'task', 'i3')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-16', to: '2026-11-18' }, next_due: '2026-11-16' });
   });
 
-  it("deletes items as Process's Delete/done does each, freeing their picks, with one reverse", async () => {
+  it("deletes items as Process's Delete does each, freeing their picks, with one reverse", async () => {
     const { clock, db, titles } = await setup();
     const undo = await transact(db, clock, (w) => deleteInboxItems(w, ['i2', 'i3'], clock));
 

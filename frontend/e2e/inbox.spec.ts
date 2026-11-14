@@ -59,6 +59,28 @@ test("shows the Inbox's count in a circle", async ({ page }, info) => {
   expect(badge && badge.width).toBe(badge?.height);
 });
 
+test("Process's Done finishes an item, so Done lists it: a tap on phone, Option or Alt and F on desktop", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  await inboxPane(page).getByRole('button', { name: 'Process 3 items' }).click();
+  await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
+  if (phone) await card(page).getByRole('button', { name: 'Done', exact: true }).click();
+  else await page.keyboard.press('Alt+KeyF');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
+  await expect(page.locator('.toast')).toContainText('Marked Call the bank done.');
+  await card(page).getByRole('button', { name: 'Exit' }).click();
+
+  const done = page.locator(".pane[aria-label='Done']:visible");
+  if (phone) {
+    await nav(page).getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: /^Done/ }).click();
+  } else {
+    await nav(page).getByRole('button', { name: 'Done' }).click();
+  }
+  await expect(done.getByRole('region', { name: 'Finished' }).getByRole('listitem')).toHaveText([/^2pmCall the bank/]);
+  await page.screenshot({ path: info.outputPath('process-done.png') });
+});
+
 test('processes the Inbox one card at a time: one picker for where it goes, and a toast for each, with Undo', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);
@@ -73,7 +95,7 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   const field = phone ? card(page).getByRole('button', { name: /^Add to a project or One offs/ }) : page.getByRole('combobox', { name: 'Add to a project or One offs' });
   await expect(field).toBeFocused();
   await page.screenshot({ path: info.outputPath('process.png') });
-  if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', '‹ Undo', 'Skip', 'Delete/done']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
+  if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', '‹ Undo', 'Skip', 'Done', 'Delete']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
 
   /** Picks a place: typed and Enter on desktop, a tap in the sheet on phone. */
   const addTo = async (typed: string, option: string) => {
@@ -119,7 +141,7 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   await addTo('report', 'Write the report');
   await expect(toast).toContainText('Added Fix the gate to Write the report.');
 
-  await card(page).getByRole('button', { name: 'Delete/done' }).click();
+  await card(page).getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(card(page).getByRole('alert')).toContainText('Delete this item?');
   await card(page).getByRole('button', { name: 'Yes, delete' }).click();
   // That was the last: Process closes itself, and a green check over the empty Inbox says so, then fades.

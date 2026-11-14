@@ -283,8 +283,7 @@ function Away(props: { layout: Layout }) {
   const phone = props.layout === 'phone';
   const remove = async (id: string, text: string) => {
     const previous = await setAway.run(id, { deleted_at: nowInstant(clock) });
-    // TEMPORARY BREAK, to prove SettingsUITests' away test fails: Undo does nothing.
-    if (previous) toast.show(`Removed away dates ${text}.`, { undo: () => void previous, focusUndo: true });
+    if (previous) toast.show(`Removed away dates ${text}.`, { undo: () => setAway.run(id, previous), focusUndo: true });
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();

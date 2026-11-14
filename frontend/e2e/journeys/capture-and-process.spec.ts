@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../platform';
 import type { Page } from '@playwright/test';
 import { addMilestones, addProject, chicago, firstRun, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 

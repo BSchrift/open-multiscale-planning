@@ -493,8 +493,9 @@ case "$command" in
     done
     ;;
   deploy-staging)
-    # Waits out staging's short canary.
-    (cd "$root/infrastructure" && npx cdk deploy --app "$(built)/infrastructure/cdk.out/staging" Multiscale-staging --require-approval never)
+    # Waits out staging's short canary. Assigned first: a failed $(built) inside an argument wouldn't stop the script.
+    assembly="$(built)/infrastructure/cdk.out/staging"
+    (cd "$root/infrastructure" && npx cdk deploy --app "$assembly" Multiscale-staging --require-approval never)
     ;;
   mac)
     # For each environment whose feed needs a newer Mac app than this build's, or whose downloads host serves none the
@@ -556,7 +557,8 @@ case "$command" in
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.
-    (cd "$root/infrastructure" && npx cdk publish-assets --unstable=publish-assets --app "$(built)/infrastructure/cdk.out/prod" Multiscale-prod)
+    assembly="$(built)/infrastructure/cdk.out/prod"
+    (cd "$root/infrastructure" && npx cdk publish-assets --unstable=publish-assets --app "$assembly" Multiscale-prod)
     ;;
   test-prod)
     fetch_config

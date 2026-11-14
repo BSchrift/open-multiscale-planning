@@ -53,6 +53,8 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 .ptick{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
 .pweekband{position:absolute;top:0;bottom:0;background:var(--blue-soft)}
 .planshow{display:flex;flex-direction:column;gap:4px}
+/* A name with nowhere to break, such as a pasted link, breaks anywhere rather than run out of the card. */
+.planshow>h3,.planshowrow .grow{overflow-wrap:anywhere}
 .planshowrow .grow{flex:1 1 auto;min-width:0}
 .oodate{padding-top:8px}
 .pdot.oo,.msdia.oo{border-color:var(--purple);background:var(--purple);border-radius:50%;transform:none}

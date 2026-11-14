@@ -234,12 +234,17 @@ async function clearChecks(page: Page) {
     // keeps no trace.
     const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
     const yes = page.getByRole('button', { name: 'Yes, delete' });
+    // The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no Process open),
+    // so an item that's gone needs nothing more.
+    const asking = () => del.or(yes).first().isVisible();
+    const gone = async () => !(await page.getByRole('button', { name: `Assign ${name}`, exact: true }).count());
     try {
-      await expect(del.or(yes).first()).toBeVisible({ timeout: 15_000 });
+      await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
     } catch (error) {
       console.log(`clearChecks found neither Delete nor Yes, delete after Assign ${name}:\n${await page.locator('body').ariaSnapshot()}`);
       throw error;
     }
+    if (!(await asking())) continue;
     if (await del.isVisible()) await del.click();
     await yes.click();
     // The last one closes this release's Process by itself.

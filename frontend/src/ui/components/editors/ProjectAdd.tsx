@@ -45,7 +45,7 @@ export function ProjectAdd(props: {
     const name = title.trim();
     if (!name) return setError('Give it a name.');
     if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-    const fields: Fields<'project'> = { objective_id: props.goals ? goal || null : props.objectiveId, title: name, state: 'active', start, end };
+    const fields: Fields<'project'> = { objective_id: props.goals ? goal || null : props.objectiveId, title: name, state: 'active', start, end, added_on: on };
     if (props.save) {
       if (await props.save({ ...fields, title: name })) props.onClose();
       return;

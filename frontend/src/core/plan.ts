@@ -131,6 +131,20 @@ export function planStretch(settings: CadenceSettings, on: LocalDate, planning =
   return !cur || planning || settings.plan_stretch.last_planned === next.start || planningWindow(cur, on) ? next : cur;
 }
 
+/**
+ * The stretches whose plans count as this stretch when picking a week's tasks: the current one once it's planned, and
+ * the next with it once that's planned, so planning the next one early keeps this one's work in view. None while
+ * neither is planned.
+ */
+export function plannedStretches(settings: CadenceSettings, on: LocalDate): Stretch[] {
+  const last = settings.plan_stretch.last_planned;
+  if (!last) return [];
+  const cur = currentStretch(settings, on);
+  const next = nextStretch(settings, on);
+  if (last === next.start) return cur ? [cur, next] : [next];
+  return cur && last === cur.start ? [cur] : [];
+}
+
 /** Whether to ask for planning now. With no cadence there are no prompts. Never planned, the first plan is due at once. */
 export function planningDue(settings: CadenceSettings, on: LocalDate): boolean {
   const cur = currentStretch(settings, on);
@@ -537,7 +551,7 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
       const due = taskDue(c.task, plan, week.weekStart, ctx);
       if (due.dueDay != null) total += give(c, c.left, dueWhy(due));
     }
-    for (const c of offerable.filter((x) => isPlanned(x.task, plan, st))) {
+    for (const c of offerable.filter((x) => isPlanned(x.task, plan, [st]))) {
       if (total < aim) total += give(c, Math.ceil((aim - total) / 30) * 30, 'Suggested: reaches aim');
     }
   };
@@ -558,11 +572,14 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
   return out;
 }
 
-/** A task counts as planned if its milestone is in the plan, or Done is for one with no milestone. One offs don't need it. */
-function isPlanned(t: Task, plan: ProjectPlan | null, st: Stretch): boolean {
+/**
+ * A task counts as planned if its milestone is in one of the stretches' plans, or with no milestone its project ends in
+ * one, so Done is. One offs don't need it.
+ */
+export function isPlanned(t: Pick<Task, 'milestone_id'>, plan: ProjectPlan | null, stretches: readonly Stretch[]): boolean {
   if (!plan) return true;
   const m = t.milestone_id ? plan.milestones.find((x) => x.id === t.milestone_id) : null;
-  return m ? msInPlan(plan, m, st) : doneInPlan(plan, st);
+  return stretches.some((st) => (m ? msInPlan(plan, m, st) : doneInPlan(plan, st)));
 }
 
 /** Everything picked, due work first, then project order with one offs last, then carried work and milestone date. */

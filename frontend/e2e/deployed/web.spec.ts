@@ -105,6 +105,14 @@ test('a second tab is refused while the first holds the database', async () => {
   await second.close();
 });
 
+// Checks earlier runs left on the shared test user are taken away first, in a test of their own: a run that failed part
+// way can leave many, and clearing them inside the journey spent its time limit before the journey began.
+test('clears the checks earlier runs left on the shared test user', async ({}, info) => {
+  test.skip(info.project.name !== 'desktop', 'The journey that leaves them is desktop only');
+  test.setTimeout(300_000);
+  await clearChecks(page);
+});
+
 test('work goes from Capture to this week, onto the calendar by suggestion and by drag, back off, and done', async ({}, info) => {
   test.skip(info.project.name !== 'desktop', 'The mouse journey is the desktop layout; phone is covered by the local suites');
   // shortcut: suggestions stay in this week and out of the default closed hours from 10pm, so after 9:30pm on Sunday
@@ -114,7 +122,6 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   test.skip(now.getDay() === 0 && now.getHours() * 60 + now.getMinutes() >= 21 * 60 + 30, "late on Sunday this week has no room left");
   const nav = page.getByRole('navigation', { name: 'Main' });
   const title = `Deployed check ${new Date().toISOString().slice(11, 19)}`;
-  await clearChecks(page);
 
   // A second check follows it in the Inbox. Process closes itself after its last card, and on a shared test user what
   // else the Inbox holds varies from run to run; with this one after it, Process is still open, on a card, once the

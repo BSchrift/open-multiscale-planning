@@ -445,8 +445,9 @@ describe('Goals', () => {
       expect(await screen.findByText('Project added, Nov 2 to Feb 1.')).toBeVisible();
       expect(screen.queryByRole('form', { name: 'Add project' })).toBeNull();
       expect(await screen.findByText('Draft chapters')).toBeVisible();
-      const rows = await t.db.all<{ title: string; end: string }>("SELECT title, end FROM project WHERE title = 'Draft chapters'");
-      expect(rows).toEqual([{ title: 'Draft chapters', end: '2027-02-01' }]);
+      // added_on says when it was made, so Pick can tell a project new since the stretch was planned.
+      const rows = await t.db.all<{ title: string; end: string; added_on: string }>("SELECT title, end, added_on FROM project WHERE title = 'Draft chapters'");
+      expect(rows).toEqual([{ title: 'Draft chapters', end: '2027-02-01', added_on: '2026-11-02' }]);
     });
 
     it('ends a new project in 3 months when planning has no cadence', async () => {

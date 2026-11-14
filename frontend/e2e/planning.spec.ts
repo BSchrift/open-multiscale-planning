@@ -41,8 +41,8 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
   await expect(page.getByRole('button', { name: 'Process 1 item' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
-  // Pick: a card per project, open with two of them. A task's title opens its popup, and a rename shows at once, with
-  // focus back on the title.
+  // Pick: one list, each project's tasks under its name. A task's title opens its popup, and a rename shows at once,
+  // with focus back on the title.
   await page.getByRole('button', { name: /^Edit task Write chapter one/ }).click();
   const editor = page.getByRole('dialog', { name: 'Write chapter one' });
   await editor.getByRole('button', { name: 'Rename Write chapter one' }).click();
@@ -86,14 +86,15 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
   await expect(done).not.toBeChecked();
 
   const report = page.getByRole('region', { name: 'Write the report' });
-  // Overdue is asked inside its card, and the link at the top jumps there.
-  const ask = report.getByRole('group', { name: 'Gather notes was due Oct 18' });
+  // Overdue is asked on its milestone's line, where on phone Answer opens it in place.
+  const ask = report.getByRole('group', { name: 'Milestone: Gather notes, overdue since Oct 18' });
   await expect(ask).toBeVisible();
-  if (phone) await expectTapTarget(ask.getByRole('button', { name: 'Keep in plan: Gather notes' }));
-  else {
-    await page.getByRole('button', { name: '1 overdue' }).click();
-    await expect(ask).toBeFocused();
-  }
+  if (phone) {
+    const answer = ask.getByRole('button', { name: 'Answer: Gather notes, overdue since Oct 18' });
+    await expectTapTarget(answer);
+    await answer.click();
+    await expectTapTarget(ask.getByRole('button', { name: 'Keep Gather notes in the plan' }));
+  } else await expect(ask.getByRole('button', { name: 'Keep Gather notes in the plan' })).toBeVisible();
   const collect = report.getByRole('button', { name: 'Add 2h to this week: Collect the sources' });
   if (phone) await expectTapTarget(collect.locator('xpath=..'));
   await collect.click();
@@ -107,7 +108,7 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
     await expect(page.getByRole('region', { name: 'This week', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: 'In this week' }).getByText('Paint the fence', { exact: true })).toBeVisible();
     await expectTapTarget(page.getByRole('button', { name: 'Remove Paint the fence from this week' }));
-    await page.getByRole('button', { name: 'Projects' }).click();
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
 
     // Add suggested lists what it would add, each ticked, before it adds them.
     await page.getByRole('button', { name: /^Add suggested/ }).click();
@@ -215,10 +216,9 @@ test('adds a task while picking, from the card or from Add, in this week, with U
   await startPlanning(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   const report = page.getByRole('region', { name: 'Write the report' });
-  const addTask = report.getByRole('button', { name: 'Add task to Write the report' });
   if (phone) {
-    await expectTapTarget(addTask);
-    await expectTapTarget(report.getByRole('button', { name: 'Add milestone to Write the report' }));
+    // Each project's adder line goes on phone: the bottom bar's + adds to the project under the sticky name.
+    await expect(report.getByRole('button', { name: 'Add task to Write the report' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Add a task, one off, milestone or project' }).click();
     const menu = page.getByRole('dialog', { name: 'Add' });
     await expect(menu.getByRole('button', { name: 'Task to Inbox' })).toBeVisible();
@@ -260,16 +260,23 @@ test('week arrows have no limit, with This week to come back, and the step is ke
   await expect(steps(page).locator('[aria-current="step"]')).toHaveText(/Pick/);
 });
 
-/** Before the app loads: counts the transactions the app's database worker (src/platform/web.ts) commits. */
-function countCommits() {
+/**
+ * Before the app loads: counts the transactions the app's database worker (src/platform/web.ts) commits that write one
+ * of these records. The planning flow writes on its own too, such as picking a dated one off as it opens and adding up
+ * planning time, so counting every commit would count those.
+ */
+function countCommits(ids: readonly string[]) {
   const counted = window as unknown as { commits: number };
   counted.commits = 0;
+  let writes = false;
   window.Worker = class extends window.Worker {
     constructor(url: string | URL, options?: WorkerOptions) {
       super(url, options);
       const post = this.postMessage.bind(this) as (message: unknown) => void;
-      this.postMessage = ((message: { op?: string; sql?: string }) => {
-        if (message?.op === 'exec' && message.sql === 'COMMIT') counted.commits++;
+      this.postMessage = ((message: { op?: string; sql?: string; values?: Record<string, unknown> | unknown[] }) => {
+        if (message?.op === 'exec' && message.sql?.startsWith('BEGIN')) writes = false;
+        if (message?.op === 'run' && Object.values(message.values ?? {}).some((v) => ids.includes(v as string))) writes = true;
+        if (message?.op === 'exec' && message.sql === 'COMMIT' && writes) counted.commits++;
         post(message);
       }) as Worker['postMessage'];
     }
@@ -280,7 +287,8 @@ const commits = (page: Page) => page.evaluate(() => (window as unknown as { comm
 // The owner's report: dragging an estimate was laggy. Every step saved, and the thumb jumped back until it read back.
 test('dragging an estimate in Pick follows the mouse and saves once, where it was let go, with Undo', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', "Playwright's touchscreen only taps, and touch pointer events don't move a native range");
-  await page.addInitScript(countCommits);
+  // The task's estimate and its pick for this week.
+  await page.addInitScript(countCommits, ['t1', 'pick:2026-11-02:t1']);
   await startPlanning(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   await page.getByRole('button', { name: 'Add 2h to this week: Collect the sources' }).click();

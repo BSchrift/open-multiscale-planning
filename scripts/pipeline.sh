@@ -631,6 +631,11 @@ case "$command" in
     profiles
     outputs staging
     outputs prod
+    # CI's performance results onto staging's performance dashboard. It never stops the suites.
+    (
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      AWS_PROFILE="$profile" "$root/scripts/perf-publish.sh"
+    ) || echo "Publishing the performance results failed, above. The suites go on." >&2
     frontend_deps
     browsers
     # Each surface back one version and forward again, as make release-surface would, then the suites against it.

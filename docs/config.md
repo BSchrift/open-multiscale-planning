@@ -5,7 +5,7 @@ Every setting has one home, picked by who reads it and who it belongs to.
 | What | Where | Example |
 | --- | --- | --- |
 | Limits and formats the server and the apps share, the same in every environment | `config/protocol.yaml` | `sync.maxChanges`, `clock.pattern`, `attachments.maxFileBytes` and the content types a file may be |
-| Settings that differ by environment, but not between one deployment and another | `config/env/local.yaml`, `staging.yaml` and `prod.yaml` | `stack.terminationProtection`; the backend's canary, `stack.canaryPercent` of traffic for `stack.canaryMinutes`; whether throttles stop a release, `stack.throttleReleaseAlarm`; and each person's storage quota and hourly limits for attachments, `attachments.defaultQuotaBytes`, `attachments.uploadsPerHour` and `attachments.downloadBytesPerHour` |
+| Settings that differ by environment, but not between one deployment and another | `config/env/local.yaml`, `staging.yaml` and `prod.yaml` | `stack.terminationProtection`; the backend's canary, `stack.canaryPercent` of traffic for `stack.canaryMinutes`; whether throttles stop a release, `stack.throttleReleaseAlarm`; whether the stack has the performance KPIs' dashboard, `stack.performanceDashboard`; and each person's storage quota and hourly limits for attachments, `attachments.defaultQuotaBytes`, `attachments.uploadsPerHour` and `attachments.downloadBytesPerHour` |
 | Values only TypeScript reads | The TypeScript module that uses them | How often the app syncs |
 | What only your deployment has: accounts, domains, emails, test users | Your private config folder, `MULTISCALE_CONFIG_DIR` | `aws.account`, `dns.zone` |
 | Secrets | SSM, in the environment's account | Google's client secret, test-user passwords |

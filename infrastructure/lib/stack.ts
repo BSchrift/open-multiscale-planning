@@ -34,6 +34,7 @@ import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { loadRetention } from '../../config/retention.ts';
 import type { Config, ControlConfig, EnvName } from './config.ts';
 import { DELEGATION_ROLE_NAME } from './control-stack.ts';
+import { PERF_NAMESPACE, perfDashboard, serverWidgets } from './perf-dashboard.ts';
 import { PIPELINE_ROLE_NAME, RELEASE_ROLE_NAME } from './pipeline-stack.ts';
 
 export interface MultiscaleStackProps {
@@ -535,8 +536,12 @@ export class MultiscaleStack extends Stack {
             'sort times desc',
             'limit 20'),
         ],
+        // The server's performance KPIs, here for this environment's own traffic (docs/performance.md).
+        serverWidgets(accessLogs, [apiLogs, calendarLogs, retentionLogs]),
       ],
     });
+    // The performance KPIs, in the spec's sections, where CI's results are published.
+    if (settings.performanceDashboard) perfDashboard(this, `${id}-performance`, accessLogs, [apiLogs, calendarLogs, retentionLogs, canaryLogs]);
 
     // Budgets cover the whole account, so with both environments in one account either one's alert means the total.
     new CfnBudget(this, 'Budget', {
@@ -764,6 +769,10 @@ export class MultiscaleStack extends Stack {
       release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:GetMetricStatistics'], resources: ['*'] }));
       // The bake check after each surface's release (scripts/pipeline.sh bake-check): whether a release alarm is in ALARM.
       release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:DescribeAlarms'], resources: ['*'] }));
+      // The nightly publishes CI's performance results to the dashboard (scripts/perf-publish.sh): that namespace alone.
+      if (settings.performanceDashboard) {
+        release.addToPolicy(new PolicyStatement({ actions: ['cloudwatch:PutMetricData'], resources: ['*'], conditions: { StringEquals: { 'cloudwatch:namespace': PERF_NAMESPACE } } }));
+      }
       // The outputs the app builds and suites read.
       release.addToPolicy(new PolicyStatement({ actions: ['cloudformation:DescribeStacks'], resources: [this.stackId] }));
       releaseBucket.grantReadWrite(release);

@@ -55,7 +55,8 @@ export const envs = {
       "terminationProtection": false,
       "canaryPercent": 5,
       "canaryMinutes": 10,
-      "throttleReleaseAlarm": false
+      "throttleReleaseAlarm": false,
+      "performanceDashboard": false
     },
     "attachments": {
       "defaultQuotaBytes": 20971520,
@@ -68,7 +69,8 @@ export const envs = {
       "terminationProtection": false,
       "canaryPercent": 5,
       "canaryMinutes": 10,
-      "throttleReleaseAlarm": false
+      "throttleReleaseAlarm": false,
+      "performanceDashboard": true
     },
     "attachments": {
       "defaultQuotaBytes": 20971520,
@@ -81,7 +83,8 @@ export const envs = {
       "terminationProtection": true,
       "canaryPercent": 10,
       "canaryMinutes": 90,
-      "throttleReleaseAlarm": true
+      "throttleReleaseAlarm": true,
+      "performanceDashboard": false
     },
     "attachments": {
       "defaultQuotaBytes": 1073741824,

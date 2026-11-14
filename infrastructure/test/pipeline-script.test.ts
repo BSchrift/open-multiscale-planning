@@ -60,6 +60,8 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   writeFileSync(join(s.root, 'frontend/scripts/mac-inbox.ts'), `${logArgs('mac-inbox')}process.exit(process.env.VERIFY_FAILS ? 1 : 0);\n`);
   writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
+  writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
+  chmodSync(join(s.root, 'scripts/perf-publish.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
@@ -766,6 +768,17 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(served(s, 'release/release.json'), '0.1.0-ccc');
     // Then the suites, against what it serves again.
     assert.match(s.log(), /test-deployed ENV=staging/);
+  });
+
+  it("publishes CI's performance results to staging's dashboard each night, as staging's release role, and goes on if that fails", () => {
+    for (const fails of ['', '1']) {
+      const s = configured();
+      kept(s);
+      const r = s.run(['nightly'], { PUBLISH_FAILS: fails });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(s.log(), /perf-publish AWS_PROFILE=ms-staging\n(.*\n)*test-deployed ENV=staging/);
+      if (fails) assert.match(r.stderr, /Publishing the performance results failed, above\. The suites go on\./);
+    }
   });
 
   it('fails the nightly run when a host keeps serving the old version, after switching that surface forward again', () => {

@@ -16,6 +16,13 @@
 /* The current time crosses the day's row that holds it, from beside its time. */
 [data-layout='phone'] .wkdaycard .tlrow { position: relative; }
 [data-layout='phone'] .wkdaycard .tlrow > .nowline { grid-column: 2; }
+/* Blocks at the same time share their row, side by side, with +N more under them when they don't all fit. */
+[data-layout='phone'] .tlcols { position: relative; }
+/* In a column, a name wraps from the top of its block, rather than being cut to a few letters. */
+[data-layout='phone'] .tlcols > .tlblock { position: absolute; display: flex; flex-direction: column; justify-content: flex-start; }
+[data-layout='phone'] .tlcols .tlname { white-space: normal; overflow-wrap: anywhere; }
+[data-layout='phone'] .tlcols > .tlblock > * { flex-shrink: 0; }
+[data-layout='phone'] .tlmore { grid-column: 2; min-height: 44px; margin-top: 2px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--blue-ink); font: inherit; font-size: 13px; font-weight: 600; text-align: left; }
 /* While dragging, the day keeps room below it for the tray. */
 [data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
 [data-layout] .wknote { color: var(--amber-ink-2); }

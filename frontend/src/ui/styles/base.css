@@ -77,6 +77,8 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 .prog i{position:absolute;top:-3px;width:2px;height:14px;background:var(--ink)}
 .day{position:relative;border-left:1px solid var(--line)}
 .cev.compact{padding:0 6px;font-size:11px;line-height:13px}
+/* +N more beside blocks at the same time, for those with no room: over the day, under one being dragged. */
+.cev.cevmore{z-index:2;display:block;padding:2px;border:1px solid var(--line);background:var(--white);color:var(--blue-ink);font:inherit;font-size:12px;font-weight:600;line-height:1.2;text-align:center;white-space:normal;cursor:pointer}
 .zoombtn:disabled{opacity:.35;cursor:default}
 .tb.on{background:var(--blue)}
 /* Over the day and its blocks, under one being dragged; drops and drags pass through it. */

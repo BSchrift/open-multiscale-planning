@@ -198,6 +198,70 @@ test('phone: a day with no slot stays readable', async ({ page }, info) => {
   expect(errors).toEqual([]);
 });
 
+// As the owner had it: an hour's practice at 5:30pm on Friday, and planning from 5:30pm to 6:45pm.
+const together: Seed[] = [
+  ...records,
+  { type: 'practice', id: 'meals', fields: { title: 'Plan meals for the week', target_min: 60, per: 'week', state: 'active' } },
+  { type: 'time_block', id: 'bm', fields: { practice_id: 'meals', start: at(6, '17:30'), end: at(6, '18:30'), tz: 'America/Chicago' } },
+  { type: 'task', id: 'planning:week:2026-11-09', fields: { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 75 } },
+  { type: 'time_block', id: 'bp', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:30'), end: at(6, '18:45'), tz: 'America/Chicago' } },
+];
+
+test('phone: blocks at the same time sit side by side with their time once, and each opens its sheet', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', "The day's rows are the phone layout");
+  const errors = await openWeek(page, together);
+  await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(4).click();
+  await expect(page.getByRole('heading', { name: 'Fri Nov 6' })).toBeVisible();
+  const plan = page.getByRole('button', { name: 'Plan the week of Nov 9, 5:30pm to 6:45pm, Planning. Overlaps Plan meals for the week.' });
+  const meals = page.getByRole('button', { name: 'Plan meals for the week, 5:30pm to 6:30pm, Practice. Overlaps Plan the week of Nov 9.' });
+  const sideBySide = async () => {
+    const [left, right] = [(await plan.boundingBox())!, (await meals.boundingBox())!];
+    expect(left.y).toBeCloseTo(right.y, 0);
+    expect(left.x + left.width).toBeLessThanOrEqual(right.x);
+    expect(left.width).toBeCloseTo(right.width, 0);
+    await expectTapTarget(plan);
+    await expectTapTarget(meals);
+  };
+  await sideBySide();
+  await expect(page.locator('.wkdaycard .tltime').filter({ hasText: /^5:30pm$/ })).toHaveCount(1);
+  await expect(page.getByText('Free, 7pm to 10pm')).toBeVisible();
+  await plan.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('week-phone-together.png') });
+  // The narrowest phones still fit both.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await sideBySide();
+  await page.screenshot({ path: info.outputPath('week-phone-together-320.png') });
+
+  await meals.click();
+  const sheet = page.getByRole('dialog', { name: 'Plan meals for the week' });
+  await expect(sheet.getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
+  await sheet.getByRole('button', { name: 'Close' }).click();
+  await plan.click();
+  await expect(page.getByRole('dialog', { name: 'Plan the week of Nov 9' }).getByText('Fri Nov 6, 5:30pm to 6:45pm')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('phone: a third block at the same time goes behind +1 more, which lists all three', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', "The day's rows are the phone layout");
+  const errors = await openWeek(page, [...together, { type: 'time_block', id: 'bc', fields: { task_id: 't2', start: at(6, '18:00'), end: at(6, '18:30'), tz: 'America/Chicago' } }]);
+  await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(4).click();
+  // A 390pt phone's row has room for two readable columns.
+  await expect(page.getByRole('button', { name: /^Plan the week of Nov 9, 5:30pm/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Plan meals for the week, 5:30pm/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 6pm/ })).toHaveCount(0);
+  const more = page.getByRole('button', { name: '+1 more: Paint the fence' });
+  await expectTapTarget(more);
+  await more.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('week-phone-more.png') });
+  await more.click();
+  const list = page.getByRole('dialog', { name: 'Blocks from 5:30pm to 6:45pm' });
+  const fence = list.getByRole('button', { name: /^Paint the fence, 6pm to 6:30pm, One off\./ });
+  await expectTapTarget(fence);
+  await fence.click();
+  await expect(page.getByRole('dialog', { name: 'Paint the fence' }).getByText('Fri Nov 6, 6pm to 6:30pm')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("phone: Edit this week's plan and add a task from the drawer", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The drawer is the phone layout');
   const errors = await openWeek(page);

@@ -101,7 +101,9 @@ export function NavProvider(props: { layout: Layout; initial?: Route; children: 
         const entry: Route = { area, params, ...(returnTab ? { returnTab } : {}) };
         const top = base[base.length - 1]!;
         if (!isRoot && top.area === area && JSON.stringify(top.params) === JSON.stringify(params)) {
-          return { ...s, tab, flow: null };
+          // Already showing, it now goes back to the tab it was opened from this time, as a new entry would.
+          if (!returnTab) return { ...s, tab, flow: null };
+          return { ...s, tab, flow: null, stacks: { ...s.stacks, [tab]: [...base.slice(0, -1), { ...top, returnTab }] } };
         }
         // A plain visit to a tab shows that tab as it was, unless it needs a specific page.
         const stack = isRoot ? (tab === s.tab ? [root(tab)] : base) : [...base, entry];

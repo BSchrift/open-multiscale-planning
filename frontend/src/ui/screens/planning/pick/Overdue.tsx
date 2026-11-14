@@ -172,7 +172,7 @@ export function AskRow(props: ListProps & { row: PickTask }) {
     </span>
   );
   return (
-    <li className="tk ask" data-ask={r.c.task.id} tabIndex={-1}>
+    <li className="tk ask" data-ask={r.c.task.id} data-task={r.c.task.id} tabIndex={-1}>
       <span className="ckt" />
       <span className="tkw">
         <button className="tt" type="button" aria-haspopup="dialog" aria-label={`Edit task ${r.title}`} onClick={() => openTask(r.c.task.id, r.note)}>

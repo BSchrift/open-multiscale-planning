@@ -211,7 +211,8 @@
 :where([data-layout='desktop']) .schedmark{flex:none;width:18px;text-align:center}
 :where([data-layout='desktop']) .evdrag{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 :where([data-layout='desktop']) .evdrag:focus-visible{outline:2px solid var(--blue);outline-offset:1px;z-index:4}
-:where([data-layout='desktop']) .evh{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize;opacity:.35}
+/* The edge that changes a block's length: at most a quarter of the block, so most of it still moves it. Blocks too short for that draw none. */
+:where([data-layout='desktop']) .evh{position:absolute;left:0;right:0;bottom:0;height:clamp(4px,25%,7px);cursor:ns-resize;opacity:.35}
 :where([data-layout='desktop']) .evdrag:hover .evh{background:var(--blue)}
 :where([data-layout='desktop']) .evx{position:absolute;top:0;right:0;width:18px;height:18px;padding:0;border:0;border-radius:3px;background:transparent;color:inherit;font-size:13px;line-height:1;opacity:0}
 :where([data-layout='desktop']) .evdrag:hover .evx,:where([data-layout='desktop']) .evdrag:focus-within .evx{opacity:1}
@@ -279,7 +280,7 @@
 :where([data-layout='desktop']) .cev{position:absolute;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:2px 8px;border:0;border-radius:6px;font-size:13px;line-height:1.3;overflow:hidden;text-align:left}
 :where([data-layout='desktop']) .cev .time{flex:none;font-size:12px}
 :where([data-layout='desktop']) .cev.cur{outline:2px solid var(--blue);outline-offset:-2px;font-weight:600}
-:where([data-layout='desktop']) .cev.ended{background:var(--closed);color:var(--quiet);border-color:var(--line);text-decoration:line-through}
+:where([data-layout='desktop']) .cev.ended,:where([data-layout='desktop']) .ev.ended{background:var(--closed);color:var(--quiet);border-color:var(--line)}
 @media (max-width:640px){
   :where([data-layout='desktop']) .tlbtn{grid-template-columns:96px minmax(0,1fr)}
   :where([data-layout='desktop']) .tlbusy{grid-template-columns:96px minmax(0,1fr)}

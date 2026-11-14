@@ -3,7 +3,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
 import { expectSaved, goOffline, loadEveryScreen, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
-import { openSeeded, pane, readRecord } from './seed';
+import { openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 // Each main flow done with no connection, start to finish, by a signed-out app: everything it does is on this device,
@@ -225,9 +225,8 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
     { type: 'time_block', id: 's1', fields: { practice_id: 'pr', start: at(3, '07:00'), end: at(3, '07:30'), tz: 'America/Chicago' } },
     { type: 'time_block', id: 's2', fields: { practice_id: 'pr', start: at(4, '07:00'), end: at(4, '07:30'), tz: 'America/Chicago' } },
   ]);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
   // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await startPlanningThenUndo(page);
   await steps(page).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
   const placed = (n: number) => (phone ? page.getByRole('button', { name: `All picked tasks, ${n} of 4 placed` }) : page.getByText(`${n} of 4 placed`));
   await expect(placed(1)).toBeVisible();

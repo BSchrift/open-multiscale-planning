@@ -1,4 +1,5 @@
-// The desktop week: seven day columns from 6am to 11pm, with closed hours and calendar events behind the blocks.
+// The desktop week: seven day columns from 6am to 11pm, with closed hours and calendar events behind the blocks, and
+// blocks at the same time side by side.
 // While editing, blocks drag on a 15-minute grid and snap to a suggested time within 20 minutes; the bottom edge
 // changes the length, on a block tall enough to have one. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
 // calendar through onUnschedule. Week and the planning Schedule step share it.
@@ -18,6 +19,7 @@ import { KIND_WORD, OUTCOME_WORD } from '../blocks/describe';
 import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
 import { outcomeClass, OutcomeTag } from '../blocks/Outcome';
+import { columnStyle, overlapGroups, overlapNote } from './columns';
 import { clearLane, overLane } from './drop';
 import './weekgrid.css';
 
@@ -169,6 +171,19 @@ export function WeekGrid(props: WeekGridProps) {
   }, [positions]);
 
   const days = weekDates(ctx.week);
+  // Blocks at the same time sit side by side, laid out where they're saved, so one being dragged keeps its column.
+  // Beside an event one of them conflicts with, they share the half of the day it leaves. The block being placed
+  // floats over them instead.
+  const laneOf = new Map(
+    days.flatMap((date) =>
+      overlapGroups(blocks.filter((b) => b.date === date && !b.draft))
+        .filter((group) => group.cols > 1)
+        .flatMap((group) => {
+          const left = group.items.some((c) => c.item.clash) ? '50%' : '2px';
+          return group.items.map((c) => [c.item.id, { style: columnStyle(c.col, group.cols, left, '2px'), with: c.with }] as const);
+        }),
+    ),
+  );
   const isPast = (date: LocalDate, minute: number) =>
     lockPast && (date < ctx.earliest.date || (date === ctx.earliest.date && minute < ctx.earliest.minutes));
   const movable = (b: GridBlock) => editing && !b.fixed && !isPast(b.date, b.start) && !!props.onChange;
@@ -310,8 +325,9 @@ export function WeekGrid(props: WeekGridProps) {
                 {closed.map((z, i) => (
                   <div key={`c${i}`} className="ev ev-closed" style={{ top: z.top, height: z.h }} aria-hidden="true" />
                 ))}
+                {/* Planning is busy too, but its own block is drawn instead, so the gaps between columns stay clear. */}
                 {ctx.busy
-                  .filter((e) => e.date === date)
+                  .filter((e) => e.date === date && !blocks.some((b) => b.id === e.id))
                   .map((e, i) => (
                     <div key={`b${i}`} className="ev ev-busy" style={{ top: y(e.start), height: y(e.end) - y(e.start) }}>
                       {e.title || 'Busy'}
@@ -328,9 +344,10 @@ export function WeekGrid(props: WeekGridProps) {
                   const at = drag?.id === b.id ? { ...b, ...drag.slot } : b;
                   if (at.date !== date) return null;
                   const h = y(at.end) - y(at.start);
-                  const style = { top: y(at.start), height: Math.max(13, h) };
+                  const lane = laneOf.get(b.id);
+                  const style = { top: y(at.start), height: Math.max(13, h), ...lane?.style };
                   const when = `${dayName(at.date)}, ${formatTimeOfDay(at.start)} to ${formatTimeOfDay(at.end)}`;
-                  const said = `${b.title}, ${when}, ${KIND_WORD[b.kind]}.${b.result ? ` ${OUTCOME_WORD[b.result]}.` : ''}${b.note ? ` ${b.note}.` : ''}`;
+                  const said = `${b.title}, ${when}, ${KIND_WORD[b.kind]}.${b.result ? ` ${OUTCOME_WORD[b.result]}.` : ''}${b.note ? ` ${b.note}.` : ''}${overlapNote(lane?.with ?? [])}`;
                   // The block being placed floats beside what it overlaps, so nothing under it moves or hides.
                   const beside = b.draft && [...blocks.filter((o) => !o.draft), ...ctx.busy].some((o) => o.date === at.date && o.start < at.end && at.start < o.end);
                   // Under two lines tall, the title stays on one line rather than being cut through.

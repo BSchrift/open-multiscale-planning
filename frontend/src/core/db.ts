@@ -135,7 +135,7 @@ export function createDb(driver: SqlDriver): Db {
 /** The fields on each record type, which become its view's columns. The checks below keep this list complete. */
 export const RECORD_FIELDS = {
   objective: ['title', 'state', 'not_now_until', 'order', 'deleted_at'],
-  project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'slip_log', 'paused_on', 'estimates_raised_at', 'deleted_at'],
+  project: ['objective_id', 'title', 'state', 'start', 'end', 'weekly_aim', 'slip_log', 'paused_on', 'estimates_raised_at', 'added_on', 'deleted_at'],
   milestone: ['project_id', 'title', 'start', 'due', 'stretch', 'added_on', 'met_at', 'dropped_at', 'deleted_at'],
   task: [
     'kind',

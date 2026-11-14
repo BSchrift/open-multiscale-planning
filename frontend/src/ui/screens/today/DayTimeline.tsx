@@ -1,5 +1,6 @@
 // The day's timeline: a calendar column that zooms (buttons, or pinching on phone), or a list. Blocks are coloured
-// by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so.
+// by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so, and
+// blocks at the same time sit side by side.
 // On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
 // the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
 // click or tap opens a task's block in the task's popup, and a practice's session or a planning block in its details.
@@ -23,7 +24,8 @@ import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
-import { DRAG_PX, HOLD_MS, SLOP_PX } from '../../components/weekgrid';
+import { columnStyle, DRAG_PX, HOLD_MS, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, SLOP_PX, swallowClick, useWidth } from '../../components/weekgrid';
+import { MoreButton } from '../../components/weekgrid/MoreButton';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
@@ -79,7 +81,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
   const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null } | null>(null);
-  const droppedAt = useRef(0);
   const steps = useRef<{ id: string; at: Slot; reverse: PlanChange } | null>(null);
   // Arrow steps save one after another, each from where the last one put the block, since the day can redraw from a
   // step's save while the next is still saving and show the block a step behind.
@@ -102,34 +103,39 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const clashOf = (b: BlockRow) =>
     !b.result && instantMs(b.end) > clock.now() ? events.find((e) => instantMs(e.start) < instantMs(b.end) && instantMs(b.start) < instantMs(e.end)) : undefined;
 
+  const blockItems = data.blocks.map((b): Item => {
+    const task = records.tasks.get(b.task_id ?? '');
+    const practice = records.practices.get(b.practice_id ?? '');
+    const project = records.projects.get(task?.project_id ?? '');
+    const objective = records.objectives.get(practice?.objective_id ?? project?.objective_id ?? '');
+    const info = describeBlock(b, { task, practice, project, objective });
+    const clash = clashOf(b);
+    const isCur = b.id === cur?.id;
+    const at = drag?.id === b.id ? drag.slot : null;
+    return {
+      id: b.id,
+      start: b.start,
+      from: at ? at.start : minutesOf(b.start, 0),
+      to: at ? at.end : minutesOf(b.end, 1440),
+      title: b.title ?? 'Time block',
+      time: at ? range(at) : formatRange(b.start, b.end, zone),
+      block: b,
+      kind: info.kind,
+      word: info.word,
+      path: info.path,
+      clash: !!clash,
+      cur: isCur,
+      note: b.result ? OUTCOME_WORD[b.result] : clash ? `Conflicts with ${clash.title}` : isCur ? 'Now' : '',
+    };
+  });
+  // Blocks at the same time sit side by side, laid out where they're saved, so one being dragged keeps its column.
+  const lanes = overlapGroups(blockItems.map((i) => ({ id: i.id, title: i.title, kind: i.kind!, start: minutesOf(i.block!.start, 0), end: minutesOf(i.block!.end, 1440) })));
+  const laneOf = new Map(lanes.flatMap((group) => group.items.map((c) => [c.item.id, { col: c.col, with: c.with, group }] as const)));
+  // By start, an event before a block, and blocks at the same time by column: the order they're read in.
   const items: Item[] = [
     ...events.map((e): Item => ({ id: `event:${e.id}`, start: e.start, from: minutesOf(e.start, 0), to: minutesOf(e.end, 1440), title: e.title, time: formatRange(e.start, e.end, zone) })),
-    ...data.blocks.map((b): Item => {
-      const task = records.tasks.get(b.task_id ?? '');
-      const practice = records.practices.get(b.practice_id ?? '');
-      const project = records.projects.get(task?.project_id ?? '');
-      const objective = records.objectives.get(practice?.objective_id ?? project?.objective_id ?? '');
-      const info = describeBlock(b, { task, practice, project, objective });
-      const clash = clashOf(b);
-      const isCur = b.id === cur?.id;
-      const at = drag?.id === b.id ? drag.slot : null;
-      return {
-        id: b.id,
-        start: b.start,
-        from: at ? at.start : minutesOf(b.start, 0),
-        to: at ? at.end : minutesOf(b.end, 1440),
-        title: b.title ?? 'Time block',
-        time: at ? range(at) : formatRange(b.start, b.end, zone),
-        block: b,
-        kind: info.kind,
-        word: info.word,
-        path: info.path,
-        clash: !!clash,
-        cur: isCur,
-        note: b.result ? OUTCOME_WORD[b.result] : clash ? `Conflicts with ${clash.title}` : isCur ? 'Now' : '',
-      };
-    }),
-  ].sort((a, b) => a.from - b.from || (a.block ? 1 : -1));
+    ...blockItems,
+  ].sort((a, b) => a.from - b.from || (a.block ? 1 : 0) - (b.block ? 1 : 0) || (laneOf.get(a.id)?.col ?? 0) - (laneOf.get(b.id)?.col ?? 0));
 
   const from = Math.min(DAY_FROM, ...items.map((i) => Math.floor(i.from / 60) * 60));
   const to = Math.max(DAY_TO, ...items.map((i) => Math.ceil(i.to / 60) * 60));
@@ -137,8 +143,21 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const nowMin = localMinutes(clock.now(), zone);
   const hours: number[] = [];
   for (let h = from / 60; h < to / 60; h += ph < 48 ? 2 : 1) hours.push(h);
-  const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}`;
+  const others = (i: Item) => laneOf.get(i.id)?.with ?? [];
+  const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}${overlapNote(others(i))}`;
   const overlaps = (i: Item) => items.some((o) => o !== i && !o.block !== !i.block && o.from < i.to && i.from < o.to);
+  // Each group of blocks at the same time shares the room left of any event one of them overlaps, in as many columns
+  // as stay readable there, then +N more.
+  const [measure, width] = useWidth<HTMLDivElement>();
+  const shapes = new Map(
+    lanes
+      .filter((group) => group.cols > 1)
+      .map((group) => {
+        const clash = group.items.some((c) => overlaps(blockItems.find((i) => i.id === c.item.id)!));
+        const room = width && (clash ? width * 0.6 : width - 4) - 4;
+        return [group, { right: clash ? '40%' : '4px', shown: shownColumns(group.cols, room, MORE_PX) }] as const;
+      }),
+  );
   const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
   // A task's block opens the task's popup, as the task does anywhere else. A practice's session and a planning block
   // open their details, as before.
@@ -170,7 +189,12 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const first = key && prev?.id === i.id && same(prev.at, from) ? prev.reverse : reverse;
     steps.current = key ? { id: i.id, at: to, reverse: first } : null;
     const notes = slotNotes({ ...to, id: i.id }, workOf(i), ctx);
-    toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo: () => run((w) => applyPlanChange(w, first)) });
+    // Undo can put the block back where the day last drew it, before it drew the steps, which wouldn't redraw it.
+    const undo = () => {
+      setDrag(null);
+      return run((w) => applyPlanChange(w, first));
+    };
+    toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo });
   };
 
   const press = (i: Item, mode: 'move' | 'resize') => (e: ReactPointerEvent) => {
@@ -181,6 +205,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const start = mode === 'move' ? dayOffer(data.date, len, workOf(i), { ...ctx, placed: ctx.placed.filter((s) => s.id !== i.id) }) : null;
     const ghost = start === null ? null : { date: data.date, start, end: start + len };
     const [x0, y0, perPx] = [e.clientX, e.clientY, 60 / ph];
+    // A press on the length handle drags the block it's in, and the click after a drag lands on the block.
+    const target = (e.currentTarget as Element).closest('.cev') ?? e.currentTarget;
     let lifted = false;
     let moved = false;
     let last = slot;
@@ -211,7 +237,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         stop();
         // A click, or a tap let go before the hold: it opens the block.
         if (!lifted) return;
-        droppedAt.current = Date.now();
+        swallowClick(target);
         if (same(last, slot)) return setDrag(null);
         setDrag({ id: i.id, slot: last, ghost: null });
         void save(i, slot, last);
@@ -298,6 +324,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </span>
       ))}
       <div
+        ref={measure}
         className="day"
         style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}
         data-drop-date={data.date}
@@ -323,7 +350,28 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const height = Math.max(13, y(i.to) - y(i.from) - 1);
           const compact = height < 24 ? ' compact' : '';
           const apart = overlaps(i);
-          const style = { top: y(i.from), height, left: apart && !i.block ? '62%' : '4px', right: apart && i.block ? '40%' : '4px' };
+          const lane = laneOf.get(i.id);
+          const shape = lane && shapes.get(lane.group);
+          // Behind +N more, which follows the last of its group that's drawn.
+          if (lane && shape && lane.col >= shape.shown) return null;
+          const hiding = !!lane && !!shape && shape.shown < lane.group.cols;
+          const more = hiding && lane.group.items.filter((c) => c.col < shape.shown).at(-1)!.item.id === i.id && (
+            <MoreButton
+              key={`more${i.id}`}
+              group={lane.group}
+              shown={shape.shown}
+              className="cev cevmore"
+              style={{ top: y(lane.group.start), height: Math.max(44, y(lane.group.end) - y(lane.group.start)), left: 'auto', right: shape.right, width: MORE_PX }}
+              onOpen={(x) => openItem(items.find((o) => o.id === x.id)!)}
+            />
+          );
+          const style = {
+            top: y(i.from),
+            height,
+            ...(lane && shape
+              ? columnStyle(lane.col, shape.shown, '4px', hiding ? `(${shape.right} + ${MORE_INSET})` : shape.right)
+              : { left: apart && !i.block ? '62%' : '4px', right: apart && i.block ? '40%' : '4px' }),
+          };
           const time = !phone && height >= 24 && <span className="time">{i.time}</span>;
           if (!i.block) {
             return (
@@ -343,7 +391,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const slider = phone && move;
           const Tag = slider ? 'div' : 'button';
           const last = bounds(slotOf(i)).to;
-          return (
+          const drawn = (
             <Tag
               key={i.id}
               className={`cev ${cls}${compact}${phone ? (resize ? ' tlhold' : '') : move ? ' evdrag' : ''}${lifted ? ' lifted' : ''}`}
@@ -364,8 +412,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               style={style}
               aria-label={alt(i)}
               aria-describedby={helpOf(move, resize, !!compact)}
-              // The release after a drag also clicks the block; that click shouldn't open it.
-              onClick={() => Date.now() - droppedAt.current >= HOLD_MS && openItem(i)}
+              // The release after a drag also clicks the block; press() stops that click before it gets here.
+              onClick={() => openItem(i)}
               onPointerDown={move ? press(i, 'move') : undefined}
               onKeyDown={resize ? step(i, move) : undefined}
               // Steps in a row undo together; once focus leaves, the next is a change of its own.
@@ -384,6 +432,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               )}
             </Tag>
           );
+          return more ? [drawn, more] : drawn;
         })}
         {drag?.ghost && (
           <div className={`cev ${phone ? 'ghost' : 'ev-ghost'}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">
@@ -414,6 +463,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const titleCls = i.block.result === 'done' ? 'done' : i.cur ? 'strong' : undefined;
     // Partly and Not done are said as on the calendar; Done is struck through.
     const note = i.block.result === 'partly' || i.block.result === 'not' ? <OutcomeTag result={i.block.result} /> : i.note;
+    // A list has no room to draw blocks at the same time apart, so each says what it overlaps.
+    const overlap = overlapsText(others(i));
     if (phone) {
       return (
         <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} {...opens(i)} onClick={() => openItem(i)}>
@@ -423,6 +474,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             <span className="small quiet">
               {i.kind === 'project' ? 'Project' : i.word}
               {i.note && <>, {note}</>}
+              {overlap && `, ${overlap}`}
             </span>
           </span>
         </button>
@@ -437,7 +489,11 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             <span className={titleCls}>{i.title}</span>
             <span className="small quiet">{label}</span>
           </span>
-          <span className="small quiet">{note}</span>
+          <span className="small quiet">
+            {note}
+            {note && overlap && ', '}
+            {overlap}
+          </span>
         </button>
         {open.has(i.id) && (
           <div className="tldet stack8 small">

@@ -15,6 +15,7 @@ import {
   effectiveDue,
   FIRST_BLOCK_MIN,
   gatherPlans,
+  isPlanned,
   markMilestoneDone,
   markMilestoneNotMet,
   milestoneWarnings,
@@ -30,6 +31,7 @@ import {
   pickToPlace,
   plannable,
   plannedIds,
+  plannedStretches,
   planningDue,
   planMinutes,
   planStretch,
@@ -175,6 +177,31 @@ describe('the stretch a plan speaks for', () => {
     expect(planningDue(cadence(months, { last_planned: '2026-10-01' }), '2026-12-24')).toBe(true);
     expect(planningDue(cadence(months, { last_planned: '2027-01-01' }), '2026-12-24')).toBe(false);
     expect(planningDue(cadence(null), '2026-12-24')).toBe(false);
+  });
+
+  it("counts the current stretch once planned, and the next with it once that's planned early", () => {
+    const q4 = { start: '2026-10-01', end: '2026-12-31' };
+    const q1 = { start: '2027-01-01', end: '2027-03-31' };
+    expect(plannedStretches(cadence(months, {}), '2026-11-16')).toEqual([]);
+    expect(plannedStretches(cadence(months, { last_planned: '2026-07-01' }), '2026-11-16')).toEqual([]);
+    expect(plannedStretches(cadence(months, { last_planned: '2026-10-01' }), '2026-11-16')).toEqual([q4]);
+    // In its last week this stretch still counts: the next isn't planned yet.
+    expect(plannedStretches(cadence(months, { last_planned: '2026-10-01' }), '2026-12-28')).toEqual([q4]);
+    expect(plannedStretches(cadence(months, { last_planned: '2027-01-01' }), '2026-12-07')).toEqual([q4, q1]);
+  });
+
+  it("a task is planned when its milestone is in any of the stretches' plans, or with none its project ends in one", () => {
+    const q4 = { start: '2026-10-01', end: '2026-12-31' };
+    const q1 = { start: '2027-01-01', end: '2027-03-31' };
+    const plan = reportPlan({ end: '2027-06-30' });
+    plan.milestones.push(milestone('m4', 'Order the appliances', '2027-04-10'), milestone('m5', 'Fit the worktops', null, { stretch: '2027-01-01' }));
+    expect(isPlanned({ milestone_id: 'm3' }, plan, [q4, q1])).toBe(true);
+    expect(isPlanned({ milestone_id: 'm3' }, plan, [q1])).toBe(false);
+    expect(isPlanned({ milestone_id: 'm5' }, plan, [q4, q1])).toBe(true);
+    expect(isPlanned({ milestone_id: 'm4' }, plan, [q4, q1])).toBe(false);
+    expect(isPlanned({ milestone_id: null }, plan, [q4, q1])).toBe(false);
+    expect(isPlanned({ milestone_id: null }, reportPlan(), [q4])).toBe(true);
+    expect(isPlanned({ milestone_id: null }, null, [])).toBe(true);
   });
 });
 

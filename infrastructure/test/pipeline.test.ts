@@ -105,17 +105,10 @@ describe('the release pipeline', () => {
     assert.equal(input.alarms, '#{variables.ALARMS}');
   });
 
-  it('builds may assume only CDK\'s bootstrap roles and the release role in staging and prod', () => {
-    const [[roleId]] = ofType('AWS::IAM::Role').filter(([, r]) => r.Properties.RoleName === 'multiscale-pipeline');
-    const statements = ofType('AWS::IAM::Policy')
-      .filter(([, p]) => p.Properties.Roles.some((r: any) => r.Ref === roleId))
-      .flatMap(([, p]) => p.Properties.PolicyDocument.Statement as any[]);
+  it('builds may assume only the release role in staging and prod', () => {
+    const statements = policiesOf(roleNamed('multiscale-pipeline'));
     const assume = statements.filter((s) => s.Action === 'sts:AssumeRole').flatMap((s) => s.Resource);
-    const expected = ['111111111111', '222222222222'].flatMap((account) => [
-      ...['deploy', 'file-publishing', 'lookup'].map((kind) => bootstrapRole(account, kind)),
-      roleArn(account, 'multiscale-release'),
-    ]);
-    assert.deepEqual(assume, expected);
+    assert.deepEqual(assume, ['111111111111', '222222222222'].map((account) => roleArn(account, 'multiscale-release')));
     for (const s of statements) {
       assert.ok(![s.Action].flat().some((a: string) => a === '*' || a.endsWith(':*')), JSON.stringify(s.Action));
     }
@@ -128,14 +121,35 @@ describe('the release pipeline', () => {
     assert.ok(writes.length === 2 && writes.every((r) => /pipeline\/(released|nightly)"/.test(r)), writes.join());
   });
 
-  it("signs each environment's feed in a step of its own, after prod's suites, from the Build output alone", () => {
+  it("deploys with CDK's bootstrap roles only from the two deploy steps, which run none of the app's packages", () => {
+    const deployer = roleNamed('multiscale-pipeline-deployer');
+    const statements = policiesOf(deployer);
+    const assume = statements.filter((s) => s.Action === 'sts:AssumeRole').flatMap((s) => s.Resource);
+    assert.deepEqual(assume, ['111111111111', '222222222222'].flatMap((account) => ['deploy', 'file-publishing', 'lookup'].map((kind) => bootstrapRole(account, kind))));
+    // No parameters, and the pipeline's artifacts only to read: it writes no output.
+    const actionsOf = statements.flatMap((s) => [s.Action].flat() as string[]);
+    assert.ok(!actionsOf.some((a) => a.startsWith('ssm:') || /^s3:(Put|Delete|Abort|\*)/.test(a)), actionsOf.join());
+    assert.ok(actionsOf.includes('s3:GetObject*'));
+    // Only staging's deploy and prod's assets use its project, and no other role may assume a bootstrap role.
+    const ofRole = stages.flatMap((s) => s.Actions).filter((a) => a.ActionTypeId.Provider === 'CodeBuild' && projectOf(a).Properties.ServiceRole['Fn::GetAtt'][0] === deployer);
+    assert.deepEqual(ofRole.map(step).sort(), ['deploy-staging', 'prod-assets']);
+    for (const [, deploy] of ofRole.map((a) => [a, projectOf(a)])) assert.deepEqual(deploy.Properties.Artifacts, { Type: 'CODEPIPELINE' });
+    // CodePipeline's own role assumes prod's deploy role for the CloudFormation actions, and runs no code.
+    const runsCode = (r: any) => !JSON.stringify(r.Properties.AssumeRolePolicyDocument).includes('codepipeline.amazonaws.com');
+    for (const [roleId, r] of ofType('AWS::IAM::Role').filter(([, r]) => runsCode(r))) {
+      if (roleId === deployer) continue;
+      assert.ok(!JSON.stringify(policiesOf(roleId)).includes('cdk-hnb659fds'), `${r.Properties.RoleName ?? roleId} may assume a bootstrap role`);
+    }
+  });
+
+  it("signs each environment's feed in a step of its own, after prod's suites, with the checkout's script", () => {
     for (const [stage, env, output, after] of [['Staging', 'staging', 'SignedStaging', 'deploy-staging'], ['Prod', 'prod', 'SignedProd', 'test-prod']] as const) {
       const list = actions(stage);
       const at = list.findIndex((a) => a.Name === 'Sign');
       assert.equal(step(list[at - 1]), after);
       const signAction = list[at];
-      // Not the checkout: only the tested build, which carries the web build and the script that signs it.
-      assert.deepEqual(signAction.InputArtifacts.map((a: any) => a.Name), ['Built']);
+      // The signing script from the checkout, which the build's packages can't rewrite, over the tested web build.
+      assert.deepEqual(signAction.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built']);
       assert.deepEqual(signAction.OutputArtifacts.map((a: any) => a.Name), [output]);
       assert.deepEqual(envOf(signAction), [
         { name: 'ENV_NAME', type: 'PLAINTEXT', value: env },
@@ -146,7 +160,7 @@ describe('the release pipeline', () => {
       const spec = JSON.parse(project.Properties.Source.BuildSpec);
       // It installs nothing and runs nothing but the signing script, on the image's own Node.
       assert.deepEqual(Object.keys(spec.phases), ['build']);
-      assert.deepEqual(spec.phases.build.commands, ['node web/sign-release.mjs "web/$ENV_NAME" signed']);
+      assert.deepEqual(spec.phases.build.commands, ['node frontend/scripts/sign-release.mjs "$CODEBUILD_SRC_DIR_Built/web/$ENV_NAME" signed']);
     }
   });
 
@@ -169,9 +183,9 @@ describe('the release pipeline', () => {
     for (const statement of key.Properties.KeyPolicy.Statement) {
       assert.deepEqual(statement.Principal, { AWS: { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':iam::333333333333:root']] } });
     }
-    // And the signer may do nothing else.
+    // And the signer may do nothing else but check out the commit, through the GitHub connection, for its script.
     const signerActions = new Set(policiesOf(signer).flatMap((st) => [st.Action].flat() as string[]));
-    for (const action of signerActions) assert.match(action, /^(ssm:GetParameters?|kms:\w+\*?|s3:\w+\*?|logs:\w+|codebuild:\w+)$/, action);
+    for (const action of signerActions) assert.match(action, /^(ssm:GetParameters?|kms:\w+\*?|s3:\w+\*?|logs:\w+|codebuild:\w+|codestar-connections:UseConnection)$/, action);
     assert.ok(![...signerActions].some((a) => a.startsWith('sts:') || a === 'ssm:PutParameter'));
   });
 

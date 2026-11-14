@@ -1,5 +1,5 @@
-// Adding while you pick: one adder at the foot of each open project's card, "+ Task · + Milestone", "+ One off" at
-// the foot of One offs, and "+ Add project" after the cards, as the stretch flow adds while it plans. The task form is
+// Adding while you pick: one adder at the foot of each project's tasks, "+ Task · + Milestone", "+ One off" at the
+// foot of One offs, and "+ Add project" after the list, as the stretch flow adds while it plans. The task form is
 // TaskEditor, with a This week tick that starts on and its milestone on the last one used; + Milestone takes a name
 // and an optional date, then opens the task form under it; + Add project is ProjectAdd with its goal. Each add saves at
 // once with a toast whose Undo deletes it, so the forms close with Close, not Cancel.
@@ -11,7 +11,6 @@ import type { ProjectPlan } from '../../../../core/plan';
 import { ProjectAdd, TaskEditor } from '../../../components/editors';
 import { SheetOnPhone } from '../../../components/editors/SheetOnPhone';
 import { OneOffForm } from '../../../components/oneoff';
-import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import { useNav } from '../../../app/nav';
 import type { AddItem } from '../../../components/AddMenu';
 import { useAddItems } from '../WeekFit';
@@ -30,30 +29,36 @@ export type AddingState = ReturnType<typeof useAdding>;
 
 /**
  * What + Add offers on Pick: a task or milestone in the project in view, a one off, a project, or a task to the Inbox,
- * where + used to capture on phone. before() runs first, such as to show the cards.
+ * where + used to capture on phone. before() runs first, such as to show the list.
  */
-export function usePickAddMenu(props: PickProps, adder: AddingState, cards: { open(id: string): void }, inView: string | undefined, before: () => void) {
+export function usePickAddMenu(props: PickProps, adder: AddingState, inView: string | undefined, before: () => void) {
   const nav = useNav();
   const project = props.view.projects.find((p) => p.plan.project.id === inView)?.plan.project;
-  const go = (run: () => void, card?: string) => () => {
+  const go = (run: () => void) => () => {
     before();
-    if (card) cards.open(card);
     run();
   };
   const items: AddItem[] = [
-    ...(project ? [{ label: `Task in ${project.title}`, onPick: go(() => adder.setAdding({ kind: 'task', project: project.id }), project.id) }] : []),
-    { label: 'One off', onPick: go(() => adder.setAdding({ kind: 'oneoff' }), ONE_OFFS_BUCKET) },
-    ...(project ? [{ label: `Milestone in ${project.title}`, onPick: go(() => adder.setAdding({ kind: 'milestone', project: project.id }), project.id) }] : []),
+    ...(project ? [{ label: `Task in ${project.title}`, onPick: go(() => adder.setAdding({ kind: 'task', project: project.id })) }] : []),
+    { label: 'One off', onPick: go(() => adder.setAdding({ kind: 'oneoff' })) },
+    ...(project ? [{ label: `Milestone in ${project.title}`, onPick: go(() => adder.setAdding({ kind: 'milestone', project: project.id })) }] : []),
     { label: 'Project', onPick: go(() => adder.setAdding({ kind: 'project' })) },
     { label: 'Task to Inbox', onPick: () => nav.openOverlay('capture') },
   ];
   useAddItems(items);
 }
 
-/** A project card's foot: its adder, or the form it opened. */
-export function CardAdder(props: PickProps & { plan: ProjectPlan; phone: boolean; adder: AddingState }) {
+/**
+ * The foot of a project's tasks: its adder, or the form it opened. Without links only the form shows, for + Add to open.
+ * A task added to a folded milestone, not in the week, closes the form and puts focus on that fold, which counts it,
+ * with a toast that stays until the next action.
+ */
+export function CardAdder(
+  props: PickProps & { plan: ProjectPlan; phone: boolean; adder: AddingState; links?: boolean; folded?(milestone: string | null): boolean; toFold?(milestone: string | null): void },
+) {
   const { plan, adder: add, model } = props;
   const { project } = plan;
+  const landed = useRef(false);
   const a = add.adding;
   const here = a && 'project' in a && a.project === project.id ? a : null;
   const back = (id: string) => () => {
@@ -72,8 +77,16 @@ export function CardAdder(props: PickProps & { plan: ProjectPlan; phone: boolean
         inPlace
         label={`New task in ${project.title}`}
         week
-        write={(fields, inWeek) => props.addTask(plan, fields, inWeek)}
-        onAdded={(_, milestone) => add.setLast((l) => ({ ...l, [project.id]: milestone }))}
+        write={(fields, inWeek) => {
+          landed.current = !inWeek && !!props.folded?.(fields.milestone_id ?? null);
+          return props.addTask(plan, fields, inWeek, landed.current);
+        }}
+        onAdded={(_, milestone) => {
+          add.setLast((l) => ({ ...l, [project.id]: milestone }));
+          if (!landed.current) return;
+          add.setAdding(null);
+          props.toFold?.(milestone);
+        }}
         onClose={back(taskId)}
       />
     );
@@ -87,6 +100,7 @@ export function CardAdder(props: PickProps & { plan: ProjectPlan; phone: boolean
       />
     );
   }
+  if (props.links === false) return null;
   return (
     <div className="pkadd">
       <button id={taskId} className="addlink" type="button" aria-label={`Add task to ${project.title}`} onClick={() => add.setAdding({ kind: 'task', project: project.id })}>

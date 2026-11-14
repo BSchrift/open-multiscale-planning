@@ -22,6 +22,8 @@ interface ToastOptions {
   focusUndo?: boolean;
   /** Said after the message but not shown, such as what the change leaves free. */
   spoken?: string;
+  /** Stays until the next action, such as a tap, rather than going after a few seconds: for a change made out of sight. */
+  stay?: boolean;
 }
 
 interface ToastApi {
@@ -103,7 +105,7 @@ export function ToastProvider(props: { children: ReactNode }) {
 
   const paused = held.focus || held.hover;
   useEffect(() => {
-    if (!current || paused || check) return;
+    if (!current || paused || check || current.stay) return;
     const timer = setTimeout(() => setCurrent(null), current.undo ? WITH_UNDO_MS : PLAIN_MS);
     return () => clearTimeout(timer);
   }, [current, paused, !!check]);

@@ -23,9 +23,26 @@ interface FitHooks {
   show(open: (() => void) | null): void;
   /** What + Add offers on this step, if anything; without it the phone's + captures to the Inbox. */
   add(items: readonly AddItem[] | null): void;
+  /** The phone's Continue button's full name on this step, and the element that describes it, if the step has one. */
+  next(name: NextName | null): void;
 }
 
-export const FitContext = createContext<FitHooks>({ preview: () => {}, show: () => {}, add: () => {} });
+export interface NextName {
+  label: string;
+  describedBy?: string;
+}
+
+export const FitContext = createContext<FitHooks>({ preview: () => {}, show: () => {}, add: () => {}, next: () => {} });
+
+/** For a step: names the phone's Continue in full while it's showing, such as with what still needs you. */
+export function useNextName(name: NextName) {
+  const hooks = useContext(FitContext);
+  useEffect(() => {
+    hooks.next(name);
+    return () => hooks.next(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name.label, name.describedBy]);
+}
 
 /** For a step: what + Add offers while it's showing. Each item's action is read when it's picked. */
 export function useAddItems(items: readonly AddItem[]) {

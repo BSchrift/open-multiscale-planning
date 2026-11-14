@@ -231,6 +231,36 @@ test('an unplanned week opens on the prompt to plan; skipping leaves a banner an
   expect(errors).toEqual([]);
 });
 
+test('a block gone by is struck through only when done; Not done and Partly are outlined and say so instead', async ({ page }) => {
+  const outcome = (id: string, result: string, time: string): Seed => ({ type: 'block_outcome', id: `outcome:${id}`, fields: { result, answered_at: at(time) } });
+  const notes: Seed = { type: 'task', id: 't3', fields: { kind: 'project', project_id: 'p', title: 'Read the notes', estimate_min: 60 } };
+  const errors = await open(page, [
+    planned,
+    report,
+    fence,
+    notes,
+    block('b1', 't1', '09:00', '10:00'),
+    block('b2', 't2', '10:00', '11:00'),
+    block('b3', 't3', '11:00', '12:00'),
+    outcome('b1', 'done', '10:00'),
+    outcome('b2', 'not', '11:00'),
+    outcome('b3', 'partly', '12:00'),
+  ]);
+  const timeline = page.getByRole('region', { name: "Today's timeline" });
+  const look = (name: string) =>
+    timeline.getByRole('button', { name }).evaluate((e) => {
+      const style = getComputedStyle(e);
+      return { strike: style.textDecorationLine, outline: style.outlineStyle };
+    });
+  expect(await look('Write the report, 9am to 10am, Project. Done.')).toEqual({ strike: 'line-through', outline: 'none' });
+  expect(await look('Paint the fence, 10am to 11am, One off. Not done.')).toEqual({ strike: 'none', outline: 'dashed' });
+  expect(await look('Read the notes, 11am to 12pm, Project. Partly.')).toEqual({ strike: 'none', outline: 'dashed' });
+  // Said in words on the block, so colour is never the only sign.
+  await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^✕ Not done Paint the fence/);
+  await expect(timeline.getByRole('button', { name: /Partly\.$/ })).toContainText(/^Partly Read the notes/);
+  expect(errors).toEqual([]);
+});
+
 test('on phone, a short block on the calendar still has a 44pt tap target', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'Phone only');
   const errors = await open(page, [planned, fence, block('b2', 't2', '16:00', '16:15')]);
@@ -297,6 +327,72 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   await expect(page.getByRole(role, { name: /^Write the report, 5:45pm to 6:45pm/ })).toBeFocused();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole(role, { name: /^Write the report, 4:30pm to 5:30pm/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("a click or tap on a block opens its task, a hand's wobble is still a click, and on phone a swipe leaves it be", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', 't1', '16:00', '17:00')]);
+  const role = phone ? 'slider' : 'button';
+  // Measured once To schedule above the day has settled its height, as in the drag test above.
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
+  await b.scrollIntoViewIfNeeded();
+  const box = (await b.boundingBox())!;
+  const mid = { x: box.x + box.width / 3, y: box.y + box.height / 2 };
+  if (phone) await b.tap();
+  else {
+    // 3px is six minutes at this zoom, under the few pixels a drag needs.
+    await page.mouse.move(mid.x, mid.y);
+    await page.mouse.down();
+    await page.mouse.move(mid.x + 2, mid.y + 3, { steps: 2 });
+    await page.mouse.up();
+  }
+  const popup = page.getByRole('dialog', { name: 'Write the report' });
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  await expect(popup.getByRole('heading', { name: 'Write the report' })).toBeFocused();
+  // Once the popup has finished sliding in.
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: info.outputPath(phone ? 'today-open-phone.png' : 'today-open-desktop.png') });
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(b).toBeVisible();
+  await expect(page.getByText(/^Write the report is now/)).toHaveCount(0);
+
+  if (phone) {
+    // A finger that moves before the hold is scrolling: the block stays put and nothing opens.
+    // shortcut: synthetic touch pointers can't scroll WebKit's page, so this checks a move before the hold, not a real
+    // swipe; add one when a test can swipe the timeline on the iPhone Simulator.
+    await touchDrag(page, b, { x: mid.x, y: mid.y + 60 }, 50);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(b).toBeVisible();
+    // Held, then dragged: it moves, and opens nothing. 15px is half an hour.
+    await touchDrag(page, b, { x: mid.x, y: mid.y + 15 }, 500);
+    await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('on desktop, a 15-minute block moves from wherever it is pressed, even right by its bottom edge', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'Phone holds first, and draws no handle on a short block');
+  const errors = await open(page, [planned, report, block('b1', 't1', '16:00', '16:15')]);
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  const b = page.getByRole('button', { name: /^Write the report, 4pm to 4:15pm/ });
+  await b.scrollIntoViewIfNeeded();
+  const box = (await b.boundingBox())!;
+  expect(box.height).toBeLessThan(24);
+  // 2px from its bottom, where a handle to change its length used to take most of a block this short.
+  const x = box.x + box.width / 3;
+  const y = box.y + box.height - 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  // 15px is half an hour: start and end both move.
+  await page.mouse.move(x, y + 8, { steps: 3 });
+  await page.mouse.move(x, y + 15, { steps: 3 });
+  await page.mouse.up();
+  await expect(page.getByText('Write the report is now 4:30pm to 4:45pm.')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

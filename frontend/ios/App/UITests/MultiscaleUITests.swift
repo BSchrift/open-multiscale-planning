@@ -360,7 +360,8 @@ final class ShellUITests: XCTestCase {
         notDone.tap()
 
         app.activate()
-        let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
+        // A task's block opens its popup, so iOS gives it the pop-up button type rather than button: match by label alone.
+        let answered = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
         onToday(answered, in: app)
     }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -38,48 +39,71 @@ func main() {
 	}
 	db := dynamodb.NewFromConfig(cfg)
 	table, logger := os.Getenv("TABLE_NAME"), obs.NewLogger(os.Stdout)
+	h := handler{
+		env: env,
+		log: logger,
+		raise: func(ctx context.Context, pk string, seq int64) error {
+			return sync.RaiseMark(ctx, db, table, pk, seq, time.Now())
+		},
+	}
 	// Nil where the environment stores no files.
 	remover := files.RemoverFromEnvironment(cfg, db)
-	var cleanup *sync.Cleanup
+	if remover != nil {
+		h.removing = remover.Removing
+	}
 	if retention.Cleanup != nil {
-		cleanup = &sync.Cleanup{DB: db, Table: table, Now: time.Now, Log: logger, Env: env, ReadUnitsPerSecond: retention.CleanupReadUnitsPerSecond}
-		if remover != nil {
-			cleanup.Removing = remover.Removing
+		cleanup := &sync.Cleanup{DB: db, Table: table, Now: time.Now, Log: logger, Env: env, ReadUnitsPerSecond: retention.CleanupReadUnitsPerSecond, Removing: h.removing}
+		h.cleanup = func(ctx context.Context, requestID string) error {
+			_, err := cleanup.Run(ctx, requestID)
+			return err
 		}
 	}
-	lambda.Start(func(ctx context.Context, payload json.RawMessage) error {
-		requestID := ""
-		if lc, ok := lambdacontext.FromContext(ctx); ok {
-			requestID = lc.AwsRequestID
+	lambda.Start(h.handle)
+}
+
+// handler is the Lambda's work, given what it raises marks, removes files and cleans up with.
+type handler struct {
+	env   string
+	log   *slog.Logger
+	raise func(ctx context.Context, pk string, seq int64) error
+	// Nil where the environment stores no files.
+	removing func(ctx context.Context, pk, sk string) error
+	// Nil where TTL alone removes records, as on prod.
+	cleanup func(ctx context.Context, requestID string) error
+}
+
+// handle takes a batch from the table's stream, or else a scheduled run of the cleanup.
+func (h handler) handle(ctx context.Context, payload json.RawMessage) error {
+	requestID := ""
+	if lc, ok := lambdacontext.FromContext(ctx); ok {
+		requestID = lc.AwsRequestID
+	}
+	var stream events.DynamoDBEvent
+	if json.Unmarshal(payload, &stream) == nil && len(stream.Records) > 0 {
+		marks := marksFrom(stream.Records)
+		for pk, seq := range marks {
+			// An error retries the batch, which only raises marks again.
+			if err := h.raise(ctx, pk, seq); err != nil {
+				h.log.Info("marks", "request_id", requestID, "outcome", "failed", "records", len(stream.Records))
+				return err
+			}
 		}
-		var stream events.DynamoDBEvent
-		if json.Unmarshal(payload, &stream) == nil && len(stream.Records) > 0 {
-			marks := marksFrom(stream.Records)
-			for pk, seq := range marks {
-				// An error retries the batch, which only raises marks again.
-				if err := sync.RaiseMark(ctx, db, table, pk, seq, time.Now()); err != nil {
-					logger.Info("marks", "request_id", requestID, "outcome", "failed", "records", len(stream.Records))
+		if h.removing != nil {
+			for _, removed := range attachmentsFrom(stream.Records) {
+				// The same: a retried batch finds the files already gone and moves on.
+				if err := h.removing(ctx, removed[0], removed[1]); err != nil {
+					h.log.Info("marks", "request_id", requestID, "outcome", "failed", "records", len(stream.Records), "error_type", "file_removal")
 					return err
 				}
 			}
-			if remover != nil {
-				for _, removed := range attachmentsFrom(stream.Records) {
-					// The same: a retried batch finds the files already gone and moves on.
-					if err := remover.Removing(ctx, removed[0], removed[1]); err != nil {
-						logger.Info("marks", "request_id", requestID, "outcome", "failed", "records", len(stream.Records), "error_type", "file_removal")
-						return err
-					}
-				}
-			}
-			logger.Info("marks", "request_id", requestID, "outcome", "ok", "records", len(stream.Records), "users", len(marks))
-			return nil
 		}
-		if cleanup == nil {
-			return errors.New("retention: no cleanup in " + env)
-		}
-		_, err := cleanup.Run(ctx, requestID)
-		return err
-	})
+		h.log.Info("marks", "request_id", requestID, "outcome", "ok", "records", len(stream.Records), "users", len(marks))
+		return nil
+	}
+	if h.cleanup == nil {
+		return errors.New("retention: no cleanup in " + h.env)
+	}
+	return h.cleanup(ctx, requestID)
 }
 
 // marksFrom is the highest sequence number TTL removed for each user, from a batch of stream records.

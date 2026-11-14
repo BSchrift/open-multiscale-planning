@@ -58,13 +58,19 @@ final class InboxUITests: XCTestCase {
         app.tapLabeled("Make it a practice")
         exists(app.webText("Water the plants is now a practice."))
 
-        // Buy stamps, the last: Delete/done asks first. Process closes itself after it, and the toast that waits for its
-        // check still has Undo, which brings the item back.
-        app.tapLabeled("Delete/done", until: app.labeled("Yes, delete"))
+        // Buy stamps, the last: Delete asks first. Process closes itself after it, and the toast that waits for its check
+        // still has Undo, which brings the item back.
+        app.tapLabeled("Delete", until: app.labeled("Yes, delete"))
         app.tapLabeled("Yes, delete")
         exists(app.webText("Deleted Buy stamps."))
         app.tapLabeled("Undo", until: app.labeled("Inbox, 2 to sort"))
-        exists(app.labeled("Rename Buy stamps"))
+
+        // Then Done, which finishes it as any task finishes rather than deleting it. Process goes on to Fix the gate.
+        app.tapLabeled("Process Buy stamps", until: app.labeled("Done"))
+        app.tapLabeled("Done")
+        exists(app.webText("Marked Buy stamps done."))
+        app.tapLabeled("Exit")
+        exists(app.labeled("Inbox, 1 to sort"))
 
         // Each landed where it was sent: both goals, the practice under its goal, and the item under its milestone.
         app.tapWeb("Goals", until: app.webButton(startingWith: "Keep the house"))

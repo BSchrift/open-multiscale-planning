@@ -172,10 +172,11 @@ for extensions in $runs; do
     results=()
     [ -z "$bundle" ] || { rm -rf "$bundle"; results=(-resultBundlePath "$bundle"); }
     status=0
-    # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password.
+    # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password. Line
+    # by line (-l), so the log shows where a run is as it happens, rather than when sed's buffer fills.
     TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
       TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} ${results[@]+"${results[@]}"} 2>&1 |
-      sed -E "s/Type '[^']*'/Type '…'/" | tee "$work/test.log" || status=$?
+      sed -l -E "s/Type '[^']*'/Type '…'/" | tee "$work/test.log" || status=$?
     if [ "$status" = 0 ] || [ "$attempt" = 2 ] || ! grep -q 'never finished bootstrapping' "$work/test.log"; then break; fi
     echo "The test runner never started, so the run goes again"
   done

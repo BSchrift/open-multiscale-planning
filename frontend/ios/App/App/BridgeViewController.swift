@@ -27,6 +27,25 @@ class BridgeViewController: CAPBridgeViewController {
             let name = CFNotificationName("io.github.bschrift.multiscale.page-loaded" as CFString)
             CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
         }
+        // XCUITest runs a seeded app on a clock of its choosing, which the Simulator's can't be: the page's Date runs
+        // this far ahead of the real one, and on from there.
+        if let shift = ProcessInfo.processInfo.environment["MULTISCALE_CLOCK_SHIFT_MS"].flatMap(Int.init) {
+            let clock = """
+            (() => {
+              const RealDate = Date;
+              function ShiftedDate(...args) {
+                if (!new.target) return new RealDate(RealDate.now() + \(shift)).toString();
+                return args.length === 0 ? new RealDate(RealDate.now() + \(shift)) : new RealDate(...args);
+              }
+              ShiftedDate.prototype = RealDate.prototype;
+              ShiftedDate.now = () => RealDate.now() + \(shift);
+              ShiftedDate.parse = RealDate.parse;
+              ShiftedDate.UTC = RealDate.UTC;
+              globalThis.Date = ShiftedDate;
+            })();
+            """
+            webView?.configuration.userContentController.addUserScript(WKUserScript(source: clock, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         #endif
         startTrial()
         let center = NotificationCenter.default

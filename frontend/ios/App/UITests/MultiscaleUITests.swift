@@ -82,37 +82,50 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
     XCTFail("\(element) did not appear. On screen:\n\(owner.debugDescription)", file: file, line: line)
 }
 
-/// The app with its data as a new install has it, then seeded from the test page when a seed is given. `reach` is how
-/// far back the seed's earliest block starts, as capacitor-checks.ts times it.
-private func launchApp(seed: String? = nil, reach: TimeInterval = 0) -> XCUIApplication {
+/**
+ * The app with its data as a new install has it, then seeded from the test page when a seed is given. The Simulator's
+ * clock can't be set, and Today shows and says "today" only for blocks that start today, so a seeded app's web view
+ * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
+ * at any hour. A test that waits for a notification needs the `realClock`, since iOS shows one at the real time.
+ */
+private func launchApp(seed: String? = nil, realClock: Bool = false) -> XCUIApplication {
     let checks = XCUIApplication()
+    let app = XCUIApplication()
+    if seed != nil, !realClock {
+        let shift = String(Int(morningShift(now: Date()) * 1000))
+        for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
+    }
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launchLoaded()
     exists(checks.webText("ready"), timeout: launchPatience)
     checks.tapWeb("Erase", until: checks.webText("erased"))
     if let seed {
-        let at = seedTime(now: Date(), reach: reach)
+        let at = realClock ? seedTime(now: Date()) : Date()
         if at > Date() {
-            print("Waiting until \(at) so \(seed) fits in one day")
+            print("Waiting until \(at) so the test after \(seed) ends on the day it starts")
             Thread.sleep(until: at)
         }
         // A tap after that wait, like the first after a launch, can be lost.
         checks.tapWeb(seed, until: checks.webText("seeded"))
     }
     checks.terminate()
-    let app = XCUIApplication()
     app.launchLoaded()
     return app
 }
 
-/// When a seed can run. The Simulator's clock can't be moved, and Today shows and says "today" only for blocks that
-/// start today, so a seed whose blocks start `reach` back waits until they fit after midnight, and keeps the last ten
-/// minutes of the day clear for the test that follows it.
-func seedTime(now: Date, reach: TimeInterval, calendar: Calendar = .current) -> Date {
-    let midnight = calendar.startOfDay(for: now)
-    let next = calendar.date(byAdding: .day, value: 1, to: midnight)!
-    if now.addingTimeInterval(10 * 60) > next { return next.addingTimeInterval(reach + 60) }
-    return max(now, midnight.addingTimeInterval(reach + 60))
+/// How far ahead of the real clock a seeded app's runs: to the next 10am, never back, since a reminder the app sets for
+/// a time already past on the real clock makes iOS refuse the whole batch.
+func morningShift(now: Date, calendar: Calendar = .current) -> TimeInterval {
+    let ten = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now)!
+    return (ten >= now ? ten : calendar.date(byAdding: .day, value: 1, to: ten)!).timeIntervalSince(now)
+}
+
+/// When a seed on the real clock can run: at once, except in the last ten minutes of a day, which it waits out so the
+/// test that follows ends on the day it started. A block of its that's under way starts no earlier than midnight
+/// (capacitor-checks.ts), so it's on today's timeline at any hour.
+func seedTime(now: Date, calendar: Calendar = .current) -> Date {
+    let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+    return now.addingTimeInterval(10 * 60) > next ? next.addingTimeInterval(60) : now
 }
 
 final class SeedTimeTests: XCTestCase {
@@ -123,12 +136,18 @@ final class SeedTimeTests: XCTestCase {
     }()
     private func at(_ time: String) -> Date { ISO8601DateFormatter().date(from: time + ":00Z")! }
 
-    func testASeedWaitsUntilItsBlocksStartTodayAndTheTestEndsBeforeMidnight() {
-        XCTAssertEqual(seedTime(now: at("2026-11-02T12:00"), reach: 90 * 60, calendar: calendar), at("2026-11-02T12:00"))
-        XCTAssertEqual(seedTime(now: at("2026-11-02T01:00"), reach: 20 * 60, calendar: calendar), at("2026-11-02T01:00"))
-        XCTAssertEqual(seedTime(now: at("2026-11-02T00:10"), reach: 90 * 60, calendar: calendar), at("2026-11-02T01:31"))
-        XCTAssertEqual(seedTime(now: at("2026-11-02T23:55"), reach: 20 * 60, calendar: calendar), at("2026-11-03T00:21"))
-        XCTAssertEqual(seedTime(now: at("2026-11-02T23:55"), reach: 0, calendar: calendar), at("2026-11-03T00:01"))
+    func testASeededAppsClockRunsFromTheNextTenAM() {
+        XCTAssertEqual(morningShift(now: at("2026-11-02T09:00"), calendar: calendar), 60 * 60)
+        XCTAssertEqual(morningShift(now: at("2026-11-02T10:00"), calendar: calendar), 0)
+        XCTAssertEqual(morningShift(now: at("2026-11-02T00:10"), calendar: calendar), (9 * 60 + 50) * 60)
+        XCTAssertEqual(morningShift(now: at("2026-11-02T23:30"), calendar: calendar), 10.5 * 60 * 60)
+    }
+
+    func testASeedOnTheRealClockWaitsOutTheLastTenMinutesOfTheDay() {
+        XCTAssertEqual(seedTime(now: at("2026-11-02T00:05"), calendar: calendar), at("2026-11-02T00:05"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T12:00"), calendar: calendar), at("2026-11-02T12:00"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T23:49"), calendar: calendar), at("2026-11-02T23:49"))
+        XCTAssertEqual(seedTime(now: at("2026-11-02T23:55"), calendar: calendar), at("2026-11-03T00:01"))
     }
 }
 
@@ -307,7 +326,8 @@ final class ShellUITests: XCTestCase {
     }
 
     func testCaptureSitsAboveTheKeyboardOpenedByItsLinkWithTheAppClosedAndFromThePlusButton() {
-        let app = launchApp(seed: "Seed plan")
+        // On the real clock, since the link launches the app with none of the test's settings, its clock included.
+        let app = launchApp(seed: "Seed plan", realClock: true)
         exists(app.webButton("Capture a task"))
         // The link the Control Center button opens, so a cold launch from either goes the same way.
         app.terminate()
@@ -346,10 +366,8 @@ final class ShellUITests: XCTestCase {
     }
 
     func testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday() throws {
-        // shortcut: work dropped on today lands no earlier than now and ends by 11pm, so after 10:15pm there's no room
-        // for the half hour and the test skips; run it at any hour once a test can set the Simulator's clock.
-        let late = Calendar.current.date(bySettingHour: 22, minute: 15, second: 0, of: Date())!
-        try XCTSkipIf(Date() > late, "after 10:15pm today has no room left for the half hour")
+        // Work dropped on today lands no earlier than now and ends by 11pm, which the seeded app's morning clock leaves
+        // room for at any hour.
         let app = launchApp(seed: "Seed to schedule")
         // Its own label, since the block it becomes is a button too once it's under way.
         let card = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, ' AND label ENDSWITH ', to schedule'")).firstMatch
@@ -368,7 +386,7 @@ final class ShellUITests: XCTestCase {
     }
 
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
-        let app = launchApp(seed: "Seed today", reach: 90 * 60)
+        let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()
 
         // The block that ended half an hour ago asks first. Partly opens the slider at the time left.
@@ -393,7 +411,8 @@ final class ShellUITests: XCTestCase {
     }
 
     func testABlocksNotificationActionAnswersItInToday() {
-        let app = launchApp(seed: "Seed soon", reach: 20 * 60)
+        // On the real clock, which iOS shows the block's notification by.
+        let app = launchApp(seed: "Seed soon", realClock: true)
         allowNotificationsIfAsked()
         onToday(app.webText("In progress, time left"), in: app)
 

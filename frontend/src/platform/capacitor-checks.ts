@@ -82,9 +82,9 @@ const MINUTE_MS = 60_000;
 
 /**
  * Where an app flow starts, timed from now: past setup, this week planned, a goal with a project and a milestone, and
- * a two-hour task with a block for each entry, minutes from now. Seeded like the browser tests seed, since the
- * Simulator's clock can't be moved. The UI tests wait near midnight until the earliest block fits in today, so a
- * change to how far back a seed reaches goes in their launchApp call too.
+ * a two-hour task with a block for each entry, minutes from now. Seeded like the browser tests seed. The Simulator's
+ * clock can't be set, so the UI tests run a seeded app on a page clock shifted to the morning, except where they need
+ * the real one (launchApp in MultiscaleUITests.swift).
  */
 async function seed(db: Db, blocks: readonly { title: string; from: number; to: number; started?: boolean }[], picked: readonly string[] = []): Promise<string> {
   const clock = systemClock;
@@ -105,11 +105,15 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title, estimate_min: 30 });
       await setWeekPick(w, thisWeek(clock), task, 30);
     }
+    // A block under way starts no earlier than midnight, so it's on today's timeline at any hour: the notification
+    // test seeds on the real clock.
+    const midnight = new Date(now).setHours(0, 0, 0, 0);
     for (const b of blocks) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title: b.title, estimate_min: 120 });
+      const from = now + b.from * MINUTE_MS;
       await w.create('time_block', {
         task_id: task,
-        start: toInstant(now + b.from * MINUTE_MS),
+        start: toInstant(b.to > 0 ? Math.max(from, midnight) : from),
         end: toInstant(now + b.to * MINUTE_MS),
         tz: clock.zone(),
         ...(b.started ? { started_at: nowInstant(clock) } : {}),

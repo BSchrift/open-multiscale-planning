@@ -247,8 +247,9 @@ jobs:
   ios:
     runs-on: macos-15
     needs: [frontend]
-    # About 30 minutes, plus up to 91 when a run starts just after midnight UTC: a seed waits until its blocks fit in one day.
-    timeout-minutes: 135
+    # About 40 minutes, plus up to 11 when a test on the real clock reaches its seed in the last ten minutes of a day (UTC),
+    # which it waits out.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

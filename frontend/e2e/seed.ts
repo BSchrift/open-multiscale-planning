@@ -4,6 +4,7 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { formatDate } from '../src/core/dates';
+import type { RecordChange } from '../src/core/types';
 
 export interface Seed {
   type: string;
@@ -15,6 +16,16 @@ export interface Seed {
 export async function seed(page: Page, records: readonly Seed[]): Promise<void> {
   await page.waitForFunction(() => 'multiscaleSeed' in window);
   await page.evaluate((r) => (window as unknown as { multiscaleSeed(r: readonly Seed[]): Promise<void> }).multiscaleSeed(r), records);
+}
+
+/**
+ * Opens the app with a history already in its database, applied as a sync would apply it: the performance KPIs' data
+ * (core/history-testing.ts). The history's settings take it past first-run setup.
+ */
+export async function openWithHistory(page: Page, changes: readonly RecordChange[]): Promise<void> {
+  await page.goto('/');
+  await page.waitForFunction(() => 'multiscaleApply' in window);
+  await page.evaluate((c) => (window as unknown as { multiscaleApply(c: readonly RecordChange[]): Promise<void> }).multiscaleApply(c), changes);
 }
 
 /** A record as this device has it, for fields no screen shows. */

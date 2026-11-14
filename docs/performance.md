@@ -91,6 +91,19 @@ on Today's timeline and Week, and `plan.step` in Plan the week, whose screens we
 in; `capture.control` and `capture.share`, which start in the iPhone's extensions. `e2e/perf-marks.spec.ts` and
 `electron/e2e/perf-marks.spec.ts` check that each action makes exactly one measure.
 
+### The KPIs' data
+
+Each KPI runs on one of three accounts, made by `frontend/src/core/history-testing.ts` and loaded straight into the
+device's database, as a sync would apply it, so no sync is timed but `sync.first`:
+
+- **Empty:** `emptyAccount(now)`, a new account past first-run setup.
+- **One year:** `historyChanges({ weeks: 52, now })`, the history-scale account's weekly mix over 52 weeks, about 7,800
+  records, ending when the run starts, so Today and Week have this week's blocks.
+- **Five years:** `historyChanges({ weeks: 260, now })`, the same 38,836 records as the history-scale test, ending now.
+
+The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
+perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

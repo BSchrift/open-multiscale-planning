@@ -19,6 +19,13 @@
 /* A block in a row fills it and sits in the flow, under anything positioned, so the line would cross it: there only
    the dot shows, as if the line ran behind the block. */
 [data-layout='phone'] .wkdaycard .tlrow:has(.tlblock) > .nowline { background: none; }
+/* Blocks at the same time share their row, side by side, with +N more under them when they don't all fit. */
+[data-layout='phone'] .tlcols { position: relative; }
+/* In a column, a name wraps from the top of its block, rather than being cut to a few letters. */
+[data-layout='phone'] .tlcols > .tlblock { position: absolute; display: flex; flex-direction: column; justify-content: flex-start; }
+[data-layout='phone'] .tlcols .tlname { white-space: normal; overflow-wrap: anywhere; }
+[data-layout='phone'] .tlcols > .tlblock > * { flex-shrink: 0; }
+[data-layout='phone'] .tlmore { grid-column: 2; min-height: 44px; margin-top: 2px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--blue-ink); font: inherit; font-size: 13px; font-weight: 600; text-align: left; }
 /* While dragging, the day keeps room below it for the tray. */
 [data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
 [data-layout] .wknote { color: var(--amber-ink-2); }

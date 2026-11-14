@@ -36,17 +36,16 @@ final class SettingsUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [moved], timeout: patience), .completed, "the aim still reads No aim")
         let aimed = try XCTUnwrap(aim.value as? String)
 
-        // The cadence changes on the Plan page, and back returns here.
+        // The planning cadence is changed on the Plan page, which the planning tests cover; here, only that it reads.
         exists(app.labeled("Calendar quarters"))
-        app.tapWeb("Change planning cadence", until: app.webButton("Back to Settings"))
-        app.tapWeb("Back to Settings", until: app.labeled("Calendar quarters"))
 
         // Connecting Google Calendar needs Google, so only that it isn't connected.
         exists(app.labeled("Not connected."))
 
         // Reminders: without the check-in, its delay and the note about pauses go with it.
         let delay = app.page.sliders["After"]
-        let pauses = app.labeled("A paused block also gets one reminder after 30 minutes.")
+        // WebKit splits the note around its number, so it's matched by its start.
+        let pauses = app.labeled(startingWith: "A paused block also gets one reminder after")
         exists(delay)
         exists(pauses)
         toggle("Ask if I've started, unless I already tapped Start", in: app)
@@ -89,10 +88,13 @@ final class SettingsUITests: XCTestCase {
         XCUIDevice.shared.appearance = .light
         looks(dark: false)
 
-        // The unavailable time removed, its hours are back.
+        // The unavailable time removed, and put back by Undo. Undo is tapped straight after reading its toast, which
+        // lasts five seconds.
         app.tapLabeled("Remove 12pm to 1pm")
-        gone(lunch)
-        exists(app.labeled("105h a week for projects and 105h for one offs."))
+        exists(app.labeled("Removed unavailable time 12pm to 1pm."))
+        app.tapLabeled("Undo")
+        exists(lunch)
+        exists(app.labeled("100h a week for projects and 105h for one offs."))
     }
 
     func testAwayDatesForTodayHoldBackItsMissedBlockUntilRemovedWithUndoThenForGood() {
@@ -122,10 +124,10 @@ final class SettingsUITests: XCTestCase {
         app.open("Today")
         goneFromToday(missed, in: app)
 
-        // Removed, then put back by Undo. More still holds Settings, so its tab goes straight there.
+        // Removed, then put back by Undo, tapped straight after reading its toast, which lasts five seconds. More still
+        // holds Settings, so its tab goes straight there.
         app.tapWeb("More")
         app.tap(remove)
-        gone(remove)
         exists(app.labeled("Removed away dates \(dates)."))
         app.tapLabeled("Undo", until: remove)
 

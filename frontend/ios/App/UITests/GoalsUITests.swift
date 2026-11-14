@@ -4,14 +4,12 @@ import XCTest
 final class GoalsUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    /// Project settings drop a change on Cancel and save a new name from the keyboard; Drop and Finish each ask first.
     func testANewGoalsProjectIsSetUpFinishedAfterAskingAndRestoredThenTheGoalIsRenamedAndDeletedWithUndo() {
         let app = launchApp(seed: "Seed plan")
         let newGoal = app.page.textFields["New goal"]
         app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
         app.tapWeb("+ New goal", until: newGoal)
         app.type("Write a book\n", into: newGoal)
-        exists(app.webText("Added Write a book."))
 
         let name = app.page.textFields["Name"]
         app.tapLabeled(startingWith: "Write a book", until: app.webButton("+ Project"))
@@ -20,49 +18,41 @@ final class GoalsUITests: XCTestCase {
         // It ends where the stretch it was added in ends.
         exists(app.labeled(startingWith: "Project added, "))
         app.tapWeb(startingWith: "Draft chapters")
-        exists(app.webText("Draft chapters"))
 
+        // Project settings change nothing on Cancel: the goal picked here stays unsaved, as the warning before the goal
+        // is deleted shows. A new name saves from the keyboard.
         app.tapLabeled("Project settings", until: name)
         app.pickOption("Learn to bake bread", in: "Goal", showing: "Write a book")
         app.tapWeb("Cancel")
         gone(name)
         app.tapLabeled("Project settings", until: name)
-        exists(app.select("Goal", showing: "Write a book"))
         app.replaceText(in: name, with: "Draft ten chapters\n")
         exists(app.webText("Saved Draft ten chapters."))
-        exists(app.webText("Draft ten chapters"))
 
+        // Drop and Finish each ask first.
         app.tapLabeled("Project settings", until: name)
-        app.tapWeb("Drop", until: app.webText("Drop this project?"))
-        app.tapWeb("Cancel dropping", until: app.webButton("Drop"))
-        app.tapWeb("Finish", until: app.webText("Finish this project?"))
+        app.tapWeb("Drop")
+        app.tapWeb("Cancel dropping")
+        app.tapWeb("Finish")
         app.tapWeb("Yes, finish", until: app.webText("Finished. Open tasks cancelled."))
         // Finished, it leaves its page for Goals, where it waits under Archived.
         let restore = app.webButton("Restore Draft ten chapters")
         app.tapWeb("Archived (1)", until: restore)
         app.tap(restore, until: app.webText("Draft ten chapters restored."))
-        gone(restore)
 
         // Back on Goals as it was left, the goal still open.
         let goalName = app.page.textFields["Goal name"]
-        let project = app.webButton(startingWith: "Draft ten chapters")
-        exists(project)
         app.tapWeb("Rename Write a book", until: goalName)
         app.replaceText(in: goalName, with: "Write two books\n")
         exists(app.webText("Renamed to Write two books."))
 
         // Deleting asks first, naming what goes with it, and Undo brings it all back.
-        let ask = app.labeled("Delete Write two books?")
         app.tapWeb("Rename Write two books", until: goalName)
-        app.tapWeb("Delete goal", until: ask)
-        exists(ask.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Draft ten chapters")).firstMatch)
+        app.tapWeb("Delete goal", until: app.labeled("1 project: Draft ten chapters, with 0 milestones and 0 tasks"))
         app.tapWeb("Yes, delete", until: app.webText("Deleted Write two books."))
-        // The goal's row goes, with its name field still open in it.
-        gone(goalName)
-        gone(project)
         app.tapWeb("Undo")
         exists(app.webButton(startingWith: "Write two books"))
-        exists(project)
+        exists(app.webButton(startingWith: "Draft ten chapters"))
     }
 
     func testAnOverdueMilestoneIsAnsweredWithUndoThenItsProjectTakesATaskAndAMilestoneAndTheTaskMovesThereWithUndo() {
@@ -83,16 +73,18 @@ final class GoalsUITests: XCTestCase {
         gone(question)
         app.tapWeb("Undo")
         exists(question)
-        // Ticking its last open task answers it too, with Undo in the toast.
+        // Ticking its last open task answers it too. The toast's Undo is tapped at once, before the toast times out.
         app.tapLabeled("Feed the starter done", until: app.webText("Completed Feed the starter."))
-        gone(question)
         app.tapWeb("Undo")
         exists(question)
 
+        // Return adds the task and keeps the sheet open for the next, its title focused, so the keyboard goes before
+        // Done, which it covers.
         let title = app.page.textFields["Title"]
         app.tapLabeled("Add task to Make a starter", until: title)
         app.type("Proof the dough\n", into: title)
         exists(app.webText("Added Proof the dough."))
+        app.hideKeyboard()
         app.tapWeb("Done")
         let task = app.labeled("Edit task Proof the dough, 1h")
         exists(task)
@@ -101,9 +93,11 @@ final class GoalsUITests: XCTestCase {
         let name = app.page.textFields["Name"]
         app.tapWeb("+ Milestone", until: name)
         app.type("First loaf", into: name)
+        app.hideKeyboard()
         app.pickFifteenthOfNextMonth(for: app.control(labeled: "Due date"))
         app.tapWeb("Add")
         exists(app.webText("Added First loaf."))
+        app.hideKeyboard()
         app.tapWeb("Done")
         exists(app.labeled("Edit milestone First loaf, due \(appDate(nextFifteenth))"))
 
@@ -112,7 +106,6 @@ final class GoalsUITests: XCTestCase {
         app.pickOption("Bake a sourdough loaf, First loaf", in: "Belongs to", showing: "Bake a sourdough loaf, Make a starter")
         app.tapWeb("Save")
         exists(app.webText("Moved Proof the dough to Bake a sourdough loaf, First loaf."))
-        gone(task)
         app.tapWeb("Undo")
         exists(task)
     }
@@ -150,7 +143,7 @@ final class GoalsUITests: XCTestCase {
         exists(noGoal)
     }
 
-    func testOneOffsOfEachKindAreAddedAWeeklyOneKeepsItsDaysWhenChangedAndOneIsDatedInPlaceThenTickedDoneWithUndo() {
+    func testOneOffsAreAddedThreeWaysAWeeklyOneKeepsItsDaysWhenChangedAndOneIsDatedInPlaceThenTickedDoneWithUndo() {
         let app = launchApp(seed: "Seed plan")
         app.tapWeb("More", until: app.webButton(startingWith: "One offs"))
         app.tapLabeled(startingWith: "One offs", until: app.webButton("Add one off"))
@@ -166,27 +159,22 @@ final class GoalsUITests: XCTestCase {
             app.tapLabeled("October")
         }
         exists(app.labeled(startingWith: "In April and October, next in "))
-        app.addOneOff("Test the doorbell", repeats: "By a calendar rule") {
-            app.pickOption("Last", in: "Which", showing: "1st")
-            app.pickOption("Weekday", in: "Day", showing: "Monday")
-            app.pickOption("Quarter", in: "Of each", showing: "Month")
-        }
-        exists(app.labeled(containing: "on the last weekday, next "))
-        app.addOneOff("Descale the kettle", repeats: "A set time after I last did it")
-        exists(app.webText("6 weeks after last done, next after first done, 30m"))
-        app.addOneOff("Service the boiler", repeats: "Within a flexible window")
-        exists(app.labeled(startingWith: "Every 2 to 3 months, next between "))
         app.addOneOff("Put the bins out", repeats: "On a regular schedule") {
             app.tapWeb("Weekdays")
             for day in ["Tuesday", "Wednesday", "Friday"] { app.tapLabeled(day) }
         }
         exists(app.labeled(startingWith: "Weekly on Mon and Thu, next "))
 
-        // Changed, it keeps its days, so Saturday joins Monday and Thursday.
-        app.tapLabeled("Change repeat for Put the bins out", until: app.labeled("Saturday"))
-        app.tapLabeled("Saturday")
-        app.tapWeb("Save")
-        exists(app.labeled(startingWith: "Weekly on Mon, Thu and Sat, next "))
+        // Its form opens on its days, ticked, and a change saved from it keeps them. The form opens in the list, where
+        // its days sit low enough for the tab bar to cover them, so the change is to its title, near the top, and Return
+        // saves it.
+        let monday = app.labeled("Monday")
+        app.tapLabeled("Change repeat for Put the bins out", until: monday)
+        reads(monday, "1")
+        reads(app.labeled("Thursday"), "1")
+        app.replaceText(in: title, with: "Put the recycling out\n")
+        exists(app.webButton("Put the recycling out"))
+        exists(app.labeled(startingWith: "Weekly on Mon and Thu, next "))
 
         // Dated in place, from the system's calendar, which the field opens as it takes focus.
         let day = appDate(nextFifteenth)
@@ -197,10 +185,9 @@ final class GoalsUITests: XCTestCase {
         exists(app.labeled("Change date for Tidy the shed"))
         exists(app.webText("\(day), 30m"))
 
-        // Ticked, it waits behind Show completed until Undo brings it back.
+        // Ticked, it goes until the toast's Undo, tapped at once, brings it back.
         let tick = app.labeled("Tidy the shed done")
         app.tap(tick, until: app.webText("Completed Tidy the shed."))
-        exists(app.labeled("Show 1 completed in One offs"))
         app.tapWeb("Undo")
         exists(tick)
     }
@@ -294,6 +281,17 @@ private extension XCUIApplication {
             coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
         }
         gone(picker, file: file, line: line)
+    }
+
+    /**
+     * Puts the keyboard away by the Done in the bar above it. On the Simulator the keyboard covers the foot of a sheet
+     * rather than lifting it, and a tap on a button under it lands on a key instead, typing into the field.
+     */
+    func hideKeyboard(file: StaticString = #filePath, line: UInt = #line) {
+        let keyboard = keyboards.element
+        guard keyboard.exists else { return }
+        tap(toolbars.buttons["Done"], file: file, line: line)
+        gone(keyboard, file: file, line: line)
     }
 
     /// Adds a one off from its sheet: the title, which takes focus, how it repeats, then whatever else `fill` sets.

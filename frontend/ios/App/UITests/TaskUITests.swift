@@ -19,6 +19,8 @@ final class TaskUITests: XCTestCase {
         app.tapWeb("Italic")
         app.typeText("slowly")
         reads(description, "- Weigh the flour *slowly*")
+        // The keyboard covers the foot of the popup on the Simulator, so it goes before Save.
+        app.hideKeyboard()
         app.tapWeb("Save")
         gone(description)
 
@@ -39,27 +41,30 @@ final class TaskUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [moved], timeout: patience), .completed, "the estimate still reads 30m")
         let set = try XCTUnwrap(estimate.value as? String)
         XCTAssertTrue(["1h 15m", "1h 30m", "1h 45m"].contains(set), "the estimate reads \(set)")
+        // Return in the name saves, as Save does. The renamed row is the one check before the toast's Undo, which goes
+        // after 5 s.
         app.tapWeb("Rename Mix the dough")
-        app.replaceText(in: app.page.textFields["Name"], with: "Mix the rye dough")
-        app.tapWeb("Save")
+        app.replaceText(in: app.page.textFields["Name"], with: "Mix the rye dough\n")
         let renamed = app.labeled("Edit task Mix the rye dough, \(set), has details")
         exists(renamed)
-        exists(app.webText("Saved Mix the rye dough."))
         app.tapWeb("Undo")
         exists(row)
         gone(renamed)
 
-        // A link goes in as it's added, apart from Save, and Enter in its fields adds it rather than saving the task.
+        // A link goes in as it's added, apart from Save, and Return in its fields adds it rather than saving the task.
+        // The bar above the keyboard moves on to the name, which the keyboard can cover.
         let address = app.page.textFields["Address"]
         let link = app.page.links["Recipe"]
         app.tap(row, until: rename)
         app.tapWeb("Add link", until: address)
         app.type("https://example.com/recipe", into: address)
-        app.type("Recipe\n", into: app.page.textFields["Name (optional)"])
+        app.tap(app.toolbars.buttons["Next"])
+        app.typeText("Recipe\n")
         exists(link)
         exists(app.webText("Link · example.com"))
         // A device that has never signed in has nowhere to keep a photo, so it isn't offered.
         XCTAssertFalse(app.labeled("Add photo").exists, "Add photo is offered with nowhere to keep the photo")
+        app.hideKeyboard()
         app.tapWeb("Cancel")
         gone(rename)
         app.tap(row, until: link)
@@ -88,5 +93,13 @@ private extension XCUIApplication {
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         XCTAssertTrue(keyboards.element.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(debugDescription)", file: file, line: line)
         typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + text)
+    }
+
+    /// Puts the keyboard away by the Done in the bar above it, so a tap on a button it covered doesn't land on a key.
+    func hideKeyboard(file: StaticString = #filePath, line: UInt = #line) {
+        let keyboard = keyboards.element
+        guard keyboard.exists else { return }
+        tap(toolbars.buttons["Done"], file: file, line: line)
+        gone(keyboard, file: file, line: line)
     }
 }

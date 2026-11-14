@@ -29,9 +29,9 @@ final class TodayUITests: XCTestCase {
         gone(free)
         exists(app.webText("In progress, time left"))
 
-        // The task's name on the card opens its popup.
+        // The task's name on the card opens its popup, which on phone closes by Cancel.
         app.tap(app.webButton("Mix the dough"), until: app.webButton("Rename Mix the dough"))
-        app.tapLabeled("Close")
+        app.tapLabeled("Cancel")
         gone(app.webButton("Rename Mix the dough"))
 
         // On the calendar a block still to come is a slider, which a tap opens.
@@ -39,22 +39,22 @@ final class TodayUITests: XCTestCase {
         let shape = app.page.sliders.matching(NSPredicate(format: "label BEGINSWITH 'Shape the dough, '")).firstMatch
         let popup = app.webButton("Rename Shape the dough")
         app.tap(shape, until: popup)
-        app.tapLabeled("Close")
+        app.tapLabeled("Cancel")
         gone(popup)
 
         // Held, then dragged up an hour and a half at the calendar's 30 points an hour. The tap above brought it into
-        // view, and up stays in view however near the bottom that left it. Wherever it lands, the toast says, and the
-        // block reads the same.
+        // view, and up stays in view however near the bottom that left it. Wherever it lands, the toast says. The
+        // block is drawn there from the moment it's let go, so one quick look sees it before the toast's Undo.
         let before = shape.label
         let from = shape.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.3))
         from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -45)), withVelocity: .slow, thenHoldForDuration: 0.5)
         let moved = app.labeled(startingWith: "Shape the dough is now ")
         exists(moved)
         let to = words(of: moved, after: "is now ")
-        exists(app.page.sliders.matching(NSPredicate(format: "label BEGINSWITH %@", "Shape the dough, \(to), ")).firstMatch)
-        XCTAssertFalse(before.hasPrefix("Shape the dough, \(to), "), "the block stayed at \(to)")
-        app.tapLabeled("Undo")
+        XCTAssertTrue(app.page.sliders.matching(NSPredicate(format: "label BEGINSWITH %@", "Shape the dough, \(to), ")).firstMatch.exists, "the block isn't drawn at \(to)")
+        app.labeled("Undo").tap()
         exists(app.page.sliders.matching(NSPredicate(format: "label == %@", before)).firstMatch)
+        XCTAssertFalse(before.hasPrefix("Shape the dough, \(to), "), "the block stayed at \(to)")
 
         // The list shows the same blocks as rows, none of them a slider, and a row opens its task too.
         app.tapLabeled("List")
@@ -63,7 +63,7 @@ final class TodayUITests: XCTestCase {
         gone(shape)
         exists(app.labeled(startingWith: "Mix the dough, "))
         app.tap(app.labeled(startingWith: "Shape the dough, "), until: popup)
-        app.tapLabeled("Close")
+        app.tapLabeled("Cancel")
         gone(popup)
         app.tapLabeled("Calendar", until: app.labeled("Zoom in"))
         exists(shape)
@@ -104,21 +104,20 @@ final class TodayUITests: XCTestCase {
         app.tapLabeled("What the ring means")
         gone(key)
 
-        // A toast with Undo goes after five seconds, so its Undo comes before anything else is checked.
-        app.tap(pause, until: app.webText("Paused Proof the loaf"))
-        exists(app.labeled(startingWith: "Resume, "))
-        app.tapLabeled("Undo", until: pause)
+        // Each look costs CI about a second, and a toast with Undo goes after five, so between a change and its Undo
+        // only the toast is looked for. What the Undo did is checked after it.
+        tapQuickly(pause, until: app.webText("Paused Proof the loaf"))
+        app.labeled("Undo").tap()
+        exists(pause)
         exists(app.webText("In progress, time left"))
         gone(app.labeled(startingWith: "Ends at"))
 
+        // Paused again, Resume says when the block now ends, and its Undo puts the pause back. The block resumed seconds
+        // after its pause, so its end barely moves; the test of a pause that ran to its end checks that end.
         app.tap(pause, until: app.labeled(startingWith: "Ends at"))
-        let resumed = app.labeled(startingWith: "Resumed. It now ends at ")
-        app.tap(app.labeled(startingWith: "Resume, "), until: resumed)
-        // The block on the timeline ends where the toast says.
-        let end = words(of: resumed, after: "ends at ")
-        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label CONTAINS %@", " to \(end), ")).firstMatch)
-        // Resume's Undo puts the pause back.
-        app.tapLabeled("Undo", until: app.labeled(startingWith: "Ends at"))
+        tapQuickly(app.labeled(startingWith: "Resume, "), until: app.labeled(startingWith: "Resumed. It now ends at "))
+        app.labeled("Undo").tap()
+        exists(app.labeled(startingWith: "Ends at"))
         exists(app.labeled(startingWith: "Resume, "))
     }
 
@@ -131,11 +130,12 @@ final class TodayUITests: XCTestCase {
         // A paused block can't still be going.
         XCTAssertFalse(app.labeled(startingWith: "Still going").exists, "a paused block offers Still going")
 
-        // Resume gives back what was left, from now. The minutes spent hold for a minute after, unlike the percent.
-        app.tapLabeled("Resume, 28m left", until: app.labeled(startingWith: "Pause, 22 minutes spent, "))
+        // Resume gives back what was left, from now, and its toast, read before it goes, says when that ends.
         let resumed = app.labeled(startingWith: "Resumed. It now ends at ")
-        exists(resumed)
+        app.tapLabeled("Resume, 28m left", until: resumed)
         let end = words(of: resumed, after: "ends at ")
+        // The minutes spent hold for a minute after, unlike the percent.
+        exists(app.labeled(startingWith: "Pause, 22 minutes spent, "))
         exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label CONTAINS %@", " to \(end), ")).firstMatch)
 
         // That runs into the next block, and the shift moves it to start where the resumed one now ends.
@@ -144,9 +144,12 @@ final class TodayUITests: XCTestCase {
         exists(bake)
         let before = bake.label
         app.tapLabeled("Shift rest of today", until: app.labeled("Apply"))
-        app.tapLabeled("Apply", until: app.webText("Rest of today shifted."))
-        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Bake the loaf, \(end) to ")).firstMatch)
-        app.tapLabeled("Undo")
+        // The toast shows as the shift saves, before the day draws the block again, so once the block reads its new
+        // time a single quick look finds the toast, and its Undo still comes inside the toast's five seconds.
+        let shifted = app.webText("Rest of today shifted.")
+        tapQuickly(app.labeled("Apply"), until: app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Bake the loaf, \(end) to ")).firstMatch)
+        XCTAssertTrue(shifted.exists, "no toast says the rest of today shifted")
+        app.labeled("Undo").tap()
         exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label == %@", before)).firstMatch)
         exists(app.webText("Bake the loaf conflicts with Proof the loaf."))
     }
@@ -212,6 +215,17 @@ final class TodayUITests: XCTestCase {
         exists(app.webText("In progress, time left"))
         XCTAssertFalse(prompt.exists, "Today asks to plan the skipped week again")
     }
+}
+
+/**
+ * Taps an element the step before has shown, then waits for what the tap brings, tapping again if CI lost the tap.
+ * Unlike tap(_:until:) it looks for neither twice: each look costs CI about a second, and a toast's Undo has only five.
+ */
+private func tapQuickly(_ element: XCUIElement, until effect: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+    element.tap()
+    if effect.waitForExistence(timeout: 5) { return }
+    if element.exists, element.isHittable { element.tap() }
+    exists(effect, file: file, line: line)
 }
 
 /// Any element whose label starts and ends as given, such as a block on the timeline with how it went.

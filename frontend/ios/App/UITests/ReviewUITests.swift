@@ -45,6 +45,11 @@ final class DoneUITests: XCTestCase {
         app.tapLabeled("Next day", until: app.labeled(todayTitle))
         XCTAssertFalse(app.labeled("Next day").isEnabled, "Next day goes past today")
 
+        // Back returns to Today, where Done was opened from, whose line now has both finishes. Done is left this way
+        // because opening the same day again from Week keeps the first opening's way back, to Today.
+        app.tapLabeled("Back to Today")
+        onToday(app.labeled("Done today: 2 finished, 2h worked"), in: app)
+
         // Week's heading for the chosen day, today, opens Done on it.
         app.tapWeb("Week", until: app.webButton("Previous week"))
         let heading = app.labeled("Done on \(written(today, "EEE MMM d")): 2 finished")

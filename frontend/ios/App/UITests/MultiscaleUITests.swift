@@ -4,18 +4,18 @@ import XCTest
 /// CI's Simulator now and then holds every process it starts for up to 40 s: its logs show each one waiting between
 /// xpcproxy_sim and exec, then all starting together. Anything that needs a process started meanwhile, such as the
 /// keychain or a web view's network process, waits that out, so a wait allows longer than the longest hold seen.
-private let patience: TimeInterval = 60
+let patience: TimeInterval = 60
 /// For the first page after a launch, when the web view starts WebKit's processes, which that hold can delay on top of
 /// the page's own second or two.
-private let launchPatience: TimeInterval = 120
+let launchPatience: TimeInterval = 120
 /// Posted by the debug build each time its web view finishes loading a page (BridgeViewController.swift).
-private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
+let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
-private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
-private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
+let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
-private extension XCUIApplication {
+extension XCUIApplication {
     var page: XCUIElement { webViews.firstMatch }
     func webButton(_ label: String) -> XCUIElement { page.buttons[label] }
     func webText(_ text: String) -> XCUIElement { page.staticTexts[text] }
@@ -72,11 +72,11 @@ private extension XCUIApplication {
 }
 
 /// Waits for an expectation made, before whatever opens the page, from the debug build's page-loaded notification.
-private func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #filePath, line: UInt = #line) {
+func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #filePath, line: UInt = #line) {
     XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: launchPatience), .completed, "the web view never loaded its page", file: file, line: line)
 }
 
-private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
+func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: timeout) { return }
     // The tree shows what was on screen instead, since labels change between iOS versions.
     XCTFail("\(element) did not appear. On screen:\n\(owner.debugDescription)", file: file, line: line)
@@ -88,7 +88,7 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
  * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
  * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead.
  */
-private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
+func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
     if seed != nil, !realClock {
@@ -158,7 +158,7 @@ final class SeedTimeTests: XCTestCase {
  * longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or screen changes didn't bring
  * the content in reliably. Hiding Today and showing it again did, every time: so the test goes to Week and back.
  */
-private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
     app.tapWeb("Week", until: app.webButton("Previous week"), file: file, line: line)
     app.tapWeb("Today", file: file, line: line)
@@ -167,7 +167,7 @@ private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: Stat
 
 /// Set on a launch so the debug build brings the app's soonest reminder forward to two seconds after the app leaves the
 /// screen (BridgeViewController.swift).
-private let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
+let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
 
 /**
  * Goes to the Home Screen and answers the app's notification from its banner. The app was launched with
@@ -175,7 +175,7 @@ private let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
  * Home Screen. One due at a set time could come while the test was still in the app, and its banner went with the app.
  * Notification Center keeps a notification for longer, but XCUITest can't see the actions a long press there brings up.
  */
-private func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
+func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
                                 file: StaticString = #filePath, line: UInt = #line) {
     XCUIDevice.shared.press(.home)
     let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
@@ -189,7 +189,7 @@ private func answerNotification(with action: String, alsoOffering others: [Strin
 }
 
 /// The app asks once there's a block to remind about. Whichever test gets there first answers.
-private func allowNotificationsIfAsked() {
+func allowNotificationsIfAsked() {
     let allow = springboard.alerts.buttons["Allow"]
     if allow.waitForExistence(timeout: 5) { allow.tap() }
 }
@@ -197,7 +197,7 @@ private func allowNotificationsIfAsked() {
 /// Opens one of the app's links, as another app would. iOS asks first, though not every time, and on CI's Simulator the
 /// question can take longer than any fixed wait. So this waits for whichever comes first, the question or `opened`, and
 /// answers the question when that's the one.
-private func openLink(_ link: String, until opened: @escaping () -> Bool) {
+func openLink(_ link: String, until opened: @escaping () -> Bool) {
     XCUIDevice.shared.system.open(URL(string: link)!)
     let open = springboard.alerts.buttons["Open"]
     let either = NSPredicate { _, _ in open.exists || opened() }
@@ -420,21 +420,6 @@ final class ShellUITests: XCTestCase {
         // A task's block opens its popup, so iOS gives it the pop-up button type rather than button: match by label alone.
         let answered = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
         onToday(answered, in: app)
-    }
-
-    /// A select opens as a menu of the app's own options, whatever element type this iOS gives its items.
-    private func choose(_ option: String, in label: String, app: XCUIApplication) {
-        let select = app.webElement(label)
-        exists(select)
-        select.tap()
-        let types = [XCUIElement.ElementType.button, .menuItem, .cell].map(\.rawValue)
-        let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND elementType IN %@", option, types)).firstMatch
-        exists(item)
-        item.tap()
-        // The select shows what's saved, so it goes back to the old value until the save lands, which on CI's Simulator
-        // can take longer than the tap does.
-        let chosen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", option), object: select)
-        XCTAssertEqual(XCTWaiter.wait(for: [chosen], timeout: patience), .completed, "\(label) shows \(select.value ?? "nothing"), not \(option)")
     }
 }
 

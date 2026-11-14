@@ -78,16 +78,23 @@ test('edits settings in place', async ({ page }, info) => {
   await expect(account.getByText('Signed out')).toBeVisible();
   await expect(account.getByRole('button', { name: 'Sign in' })).toBeVisible();
 
-  // Available hours, with next week's busy time from the blocking calendar.
-  const hours = p.getByRole('region', { name: 'Available hours' });
+  // Unavailable hours, with next week's busy time from the blocking calendar.
+  const hours = p.getByRole('region', { name: 'Unavailable hours' });
   await expect(hours.getByText('105h a week for projects and 105h for one offs, before 2h of calendar busy time next week.')).toBeVisible();
   await hours.getByRole('button', { name: 'Add unavailable time' }).click();
   const lunch = hours.getByRole('group', { name: 'Unavailable, 12pm to 1pm' });
   await lunch.getByRole('combobox', { name: 'Days' }).selectOption('weekdays');
   await expect(hours.getByText(/^100h a week for projects and 100h for one offs/)).toBeVisible();
   // A click, as uncheck() wants the box changed at once, and it shows what was saved, a moment later.
-  await lunch.getByRole('checkbox', { name: 'One offs' }).click();
+  await lunch.getByRole('group', { name: 'Closed to' }).getByRole('checkbox', { name: 'One offs' }).click();
   await expect(hours.getByText(/^100h a week for projects and 105h for one offs/)).toBeVisible();
+  await lunch.getByRole('button', { name: 'Remove 12pm to 1pm' }).click();
+  await expect(hours.getByRole('group', { name: /^Unavailable, / })).toHaveCount(1);
+  // Undo puts it back as it was, then it goes for good.
+  await expect(page.locator('.toast')).toContainText('Removed unavailable time 12pm to 1pm.');
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(lunch.getByRole('checkbox', { name: 'One offs' })).not.toBeChecked();
+  await expect(lunch.getByRole('combobox', { name: 'Days' })).toHaveValue('weekdays');
   await lunch.getByRole('button', { name: 'Remove 12pm to 1pm' }).click();
   await expect(hours.getByRole('group', { name: /^Unavailable, / })).toHaveCount(1);
 

@@ -128,7 +128,7 @@ function AvailableHours(props: { layout: Layout }) {
   const { data: settings } = useQuery((sql) => getSettings(sql), []);
   const setAim = useMutation((w, minutes: number) => updateSettings(w, { one_offs_weekly_aim: minutes || null }));
   return (
-    <Section title="Available hours">
+    <Section title="Unavailable hours">
       {summary && <p className={props.layout === 'phone' ? 'small quiet' : 'quiet'}>{summary}</p>}
       <UnavailableList layout={props.layout} />
       {settings && (

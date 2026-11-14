@@ -18,7 +18,7 @@
 :where([data-layout='phone']) .tl{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:8px;min-height:44px;padding:6px 0;border-top:1px solid var(--line-soft)}
 :where([data-layout='phone']) .cur{background:var(--blue-pale);margin:0 -8px;padding:6px 8px;border-radius:8px}
 :where([data-layout='phone']) .panel{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel)}
-:where([data-layout='phone']) .link{min-height:44px;padding:4px 0;border:0;background:transparent;color:var(--blue);text-decoration:underline;text-underline-offset:2px}
+:where([data-layout='phone']) .link{min-width:var(--tap);min-height:44px;padding:4px 0;border:0;background:transparent;color:var(--blue);text-decoration:underline;text-underline-offset:2px}
 /* Links side by side keep the gap their padding used to give. */
 :where([data-layout='phone']) .row:has(> .link){column-gap:20px}
 :where([data-layout='phone']) .badge{display:inline-block;padding:0 6px;border:1px solid var(--border-strong);border-radius:4px;font-size:12px;color:var(--ink-2)}

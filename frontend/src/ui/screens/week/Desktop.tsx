@@ -5,13 +5,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, weekStart } from '../../../core/dates';
+import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, localMinutes, today, weekStart } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, DRAWN_DAY, GRID, otherOffers, slotNotes } from '../../../core/slots';
 import type { Slot, Work } from '../../../core/slots';
 import { onceWhen } from '../../../core/schedule';
 import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
+import { useApp } from '../../app/store';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { PlanningSet } from '../../components/planning/PlanningRow';
@@ -35,6 +36,7 @@ const PLANNING = 'planning';
 
 export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
+  const { clock } = useApp();
   const nav = useNav();
   const act = useWeekActions();
   const planning = usePlanningActions();
@@ -372,6 +374,8 @@ export function DesktopWeek(props: WeekProps) {
               blocks={gridBlocks}
               info={model.info}
               done={{ finished: props.finished, open: props.openDone }}
+              // Read on each of the screen's ticks, so the line moves with the time.
+              now={{ date: today(clock), minutes: localMinutes(clock.now(), clock.zone()) }}
               ghosts={ghosts}
               editing={editing || !!plan}
               lockPast={editing || !!plan}

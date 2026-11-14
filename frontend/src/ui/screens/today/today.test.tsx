@@ -115,7 +115,7 @@ describe('the Now card', () => {
     await waitFor(() => expect(within(now).getByRole('heading', { name: 'Paint the fence' })).toHaveFocus());
   });
 
-  it('Start early moves the next block to now and starts it', async () => {
+  it('Start early moves the next block to now and starts it, and Undo puts it back', async () => {
     const t = await open(async (w) => {
       await task(w, 't1', 'Write the report');
       await block(w, 'b1', 't1', '16:00', '17:00');
@@ -126,6 +126,11 @@ describe('the Now card', () => {
     expect(await within(now).findByText('Now, 2pm to 3pm')).toBeVisible();
     expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: NOW, end: at('15:00'), started_at: NOW });
     await waitFor(() => expect(within(now).getByRole('heading', { name: 'Write the report' })).toHaveFocus());
+    expect(await screen.findByText('Started Write the report early')).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await within(now).findByText('Free until 4pm')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00'), end: at('17:00'), started_at: null });
   });
 
   it('says when nothing else is planned', async () => {
@@ -451,7 +456,7 @@ describe('the end-of-block prompt', () => {
     expect((await getRecord(t.db, 'task', 't1'))?.remaining_min).toBe(90);
   });
 
-  it('Not done sends it to Needs a new time, and Still going adds 30 minutes', async () => {
+  it('Not done sends it to Needs a new time, and Still going adds 30 minutes, with Undo', async () => {
     const t = await open(async (w) => {
       await ended(w);
       await task(w, 't2', 'Paint the fence');
@@ -467,6 +472,12 @@ describe('the end-of-block prompt', () => {
     const prompt = await dialog('Block finished');
     await userEvent.click(within(prompt).getByRole('button', { name: 'Still going, add 30m' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.end).toBe(at('14:25')));
+    expect(await screen.findByText('Added 30 minutes to Paint the fence')).toBeVisible();
+
+    // Undo puts the end back where it was, and the block is missed again.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.end).toBe(at('13:55')));
+    expect(await screen.findByRole('button', { name: 'Review' })).toBeVisible();
   });
 
   it('Select all then Not done sends every missed block to Needs a new time', async () => {
@@ -713,6 +724,7 @@ describe('Needs a new time', () => {
       expect(await within(panel).findByText('Nothing needs a new time.')).toBeVisible();
       // The row and its button have gone, so focus goes to Undo rather than the page.
       expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+      expect(screen.getByText('Deleted Water the plants.')).toBeVisible();
       const task = await getRecord(t.db, 'task', 'r');
       expect(task?.deleted_at).toBeUndefined();
       expect(task?.schedule).toEqual(weekly);

@@ -49,7 +49,7 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
   };
   const remove = async () => {
     const reverse = await write.run((w) => deleteWork(w, item, clock));
-    if (reverse) toast.show('Deleted', { undo: () => write.run((w) => applyPlanChange(w, reverse)), focusUndo: true });
+    if (reverse) toast.show(`Deleted ${item.title}.`, { undo: () => write.run((w) => applyPlanChange(w, reverse)), focusUndo: true });
   };
   const keep = async () => {
     const reverse = await write.run((w) => keepWork(w, item, clock));

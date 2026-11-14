@@ -148,6 +148,7 @@ describe('changing how a one off repeats', () => {
     // The row has gone, so focus goes to Undo rather than the page.
     const undo = screen.getByRole('button', { name: 'Undo' });
     await waitFor(() => expect(undo).toHaveFocus());
+    expect(screen.getByText('Deleted Return the drill.')).toBeVisible();
     await userEvent.click(undo);
     expect(await screen.findByRole('checkbox', { name: 'Return the drill done' })).toBeVisible();
     expect((await getRecord(t.db, 'time_block', 'day-block'))?.cancelled).toBeFalsy();

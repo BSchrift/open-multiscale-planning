@@ -47,7 +47,7 @@ jobs:
         run: |
           [ -n "$MAC_BUILD_CONFIG" ] || { echo "::error::The release environment lacks MAC_BUILD_CONFIG. See docs/releasing.md."; exit 1; }
           node frontend/scripts/mac-inbox.ts unpack-config "$RUNNER_TEMP/config"
-          node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(`RELEASE_URL=${o.ReleaseUrl}\nDOWNLOADS_URL=${o.DownloadsUrl}`)' "$RUNNER_TEMP/config/staging.outputs.json" >>"$GITHUB_ENV"
+          node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log("RELEASE_URL=" + o.ReleaseUrl); console.log("DOWNLOADS_URL=" + o.DownloadsUrl);' "$RUNNER_TEMP/config/staging.outputs.json" >>"$GITHUB_ENV"
           rm -rf "$RUNNER_TEMP/config"
 
       # The app the last passing run passed, which this run updates from. Only this workflow, on main in the release

@@ -472,6 +472,53 @@ describe('startAppSync', () => {
     t.sync.stop();
   });
 
+  it('connecting opens only a web page: a link to another app, or no link, opens nothing and starts no polling', async () => {
+    const t = await app();
+    await t.finishSignIn();
+    const opened = t.platform.opened.length;
+    for (const body of [{ url: 'otherapp://pay?amount=100' }, { url: 'javascript:alert(1)' }, { url: 42 }, {}, 'not json']) {
+      t.fetchFn.mockImplementationOnce(async () => new Response(typeof body === 'string' ? body : JSON.stringify(body)));
+      await expect(t.sync.connectCalendar()).rejects.toMatchObject({ code: 'error' });
+    }
+    expect(t.platform.opened.length).toBe(opened);
+    const before = t.server.requests.length;
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(t.server.requests.length).toBe(before);
+    t.sync.stop();
+  });
+
+  it('a calendar request the server refuses fails, and syncs nothing for it', async () => {
+    const t = await app();
+    await t.finishSignIn();
+    const before = t.server.requests.length;
+    for (const request of [() => t.sync.refreshCalendar(), () => t.sync.disconnectCalendar(), () => t.sync.connectCalendar()]) {
+      t.fetchFn.mockImplementationOnce(async () => new Response('{}', { status: 500 }));
+      await expect(request()).rejects.toMatchObject({ code: 'error' });
+    }
+    expect(t.server.requests.length).toBe(before);
+    expect(t.platform.opened.filter((url) => url.startsWith('https://consent.'))).toEqual([]);
+    t.sync.stop();
+  });
+
+  it('Erase and sign in with no account to make the device erases nothing, and syncing carries on', async () => {
+    const t = await app();
+    await flush();
+    const id = await transact(t.platform.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    // Signed out: no token at all.
+    await expect(t.sync.eraseAndSignIn()).rejects.toMatchObject({ code: 'sign_in_expired' });
+    // Signed in with a token that names no account, which the identity provider never issues but the device mustn't trust.
+    await t.finishSignIn();
+    const later = await transact(t.platform.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Buy brushes' }));
+    await expect(t.sync.eraseAndSignIn()).rejects.toMatchObject({ code: 'error' });
+    expect(await getRecord(t.platform.db, 'task', id)).toMatchObject({ title: 'Paint the fence' });
+    expect(await getRecord(t.platform.db, 'task', later)).toMatchObject({ title: 'Buy brushes' });
+    expect(await outboxCount(t.platform.db)).toBe(2);
+    // The edit's sync still comes, so the runner was never stopped.
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    expect(t.server.record(later)!.title!.v).toBe('Buy brushes');
+    t.sync.stop();
+  });
+
   describe('signing in as another account than the one this device’s data belongs to', () => {
     /**
      * One device, with a capture shared from another app still waiting, and two accounts with a server each. Access

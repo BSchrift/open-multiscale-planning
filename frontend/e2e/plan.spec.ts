@@ -316,11 +316,17 @@ test('Add opens over the pinned Does it fit line, so every kind can be picked wh
   }
 });
 
-test("phone: a one off's date in Projects is a whole tap target, however short the date", async ({ page }, info) => {
+test("phone: a one off's date and name in Projects are whole tap targets, and the name opens the task's popup", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'Tap targets are a phone matter');
   const card: Seed = { type: 'task', id: 'o1', fields: { kind: 'one_off', title: 'Renew the library card', estimate_min: 30, schedule: { type: 'once', from: '2027-01-05' } } };
   await openPlan(page, true, [...records, planned, card]);
   await page.getByRole('button', { name: 'Plan now' }).click();
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Projects/ }).click();
   await expectTapTarget(page.getByRole('button', { name: 'Change date for Renew the library card, Jan 5' }));
+  const name = page.getByRole('button', { name: 'Renew the library card', exact: true });
+  await expectTapTarget(name);
+  await name.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('one-off-name-phone.png') });
+  await name.click();
+  await expect(page.getByRole('dialog', { name: 'Renew the library card' }).getByRole('button', { name: 'Delete task' })).toBeVisible();
 });

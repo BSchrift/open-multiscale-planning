@@ -618,6 +618,13 @@ describe('Needs a new time', () => {
     await w.create('block_outcome', { result: 'not', answered_at: answered }, outcomeId('old'));
   };
 
+  it("a row's name opens the task's popup", async () => {
+    await open(missed(at('09:00')));
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Needs a new time' })).getByRole('button', { name: 'Rake the leaves' }));
+    await taskPopup('Rake the leaves');
+  });
+
   it('offers the best open time, and placing it clears the row', async () => {
     const t = await open(missed(at('09:00')));
     expect(await screen.findByText("1 task that didn't get done. Choose when it suits you.")).toBeVisible();
@@ -757,6 +764,13 @@ describe('when the week is not planned', () => {
     expect((await listRecords(t.db, 'time_block'))[0]).toMatchObject({ task_id: 't2', start: NOW, started_at: NOW });
   });
 
+  it("Next up's task names open the task's popup", async () => {
+    await unplanned(work);
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip planning this week' }));
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Next up' })).getByRole('button', { name: 'Paint the fence' }));
+    await taskPopup('Paint the fence');
+  });
+
   it('after time away, welcomes you back, returns missed blocks, and asks for one thing', async () => {
     const t = await unplanned(async (w) => {
       await work(w);
@@ -858,6 +872,16 @@ describe('Google Calendar', () => {
 
 describe('one offs due today', () => {
   const dated = (w: Writer) => w.create('task', { kind: 'one_off', title: 'Paint the fence', schedule: { type: 'once', from: DAY }, next_due: DAY }, 't2');
+
+  it("its name opens the task's popup, and Esc brings focus back to it", async () => {
+    await open(dated);
+    const name = within(await screen.findByRole('region', { name: 'One offs today' })).getByRole('button', { name: 'Paint the fence' });
+    await userEvent.click(name);
+    await taskPopup('Paint the fence');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(name).toHaveFocus();
+  });
 
   it('a tick takes it out of view with Undo; shown, it unticks in place', async () => {
     const t = await open(dated);

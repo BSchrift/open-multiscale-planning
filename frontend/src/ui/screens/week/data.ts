@@ -5,7 +5,8 @@ import { openTime, plannedByKind, pushbackLately, weekAlerts, weeklyAims } from 
 import type { Clock } from '../../../core/clock';
 import { addDays, addWeeks, formatMinutes, formatTimeOfDay, instantMs, thisWeek, today, weekday, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { FIRST_BLOCK_MIN, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
+import { isBacklog } from '../../../core/backlog';
+import { FIRST_BLOCK_MIN, gatherBacklogs, gatherPlans, minutesLeft, NO_ESTIMATE_MIN, oneOffCandidates, pickToPlace, plannable, projectCandidates, scheduleOrder, taskDue, taskWork } from '../../../core/plan';
 import type { Candidate, PlanContext, ProjectPlan, WeekInput } from '../../../core/plan';
 import { loadWeekPlanning, PLANNING_LEAD_DAYS, weekEstimate, weekGate, weekRow } from '../../../core/planning';
 import type { WeekPlanning } from '../../../core/planning';
@@ -100,7 +101,8 @@ export function landOn(date: LocalDate, from: Slot, kind: Work['kind'], ctx: Slo
 
 /** The due and open dates slots.ts ranks by, from a task's milestone or its own dates. */
 function workOf(t: Task, plan: ProjectPlan | null, week: LocalDate, ctx: PlanContext): { work: Work; label: string } {
-  const due = taskDue(t, plan, week, ctx);
+  // A goal backlog's dates are placeholders, so its tasks are never due.
+  const due = taskDue(t, plan && !isBacklog(plan.project) ? plan : null, week, ctx);
   return { work: taskWork(t, due, week), label: due.label };
 }
 
@@ -133,7 +135,8 @@ export function weekModel(d: WeekData, clock: Clock) {
 
   // Tasks to add, in the same order as the drawer: work needing a new time, One offs, then projects soonest first.
   const planCtx: PlanContext = { settings, clock, away: records.away };
-  const plans = gatherPlans(records.projects, records.milestones, records.tasks);
+  // Goal backlogs come after every project, so a picked backlog task waits in To schedule like any other.
+  const plans = [...gatherPlans(records.projects, records.milestones, records.tasks), ...gatherBacklogs(records.projects, records.milestones, records.tasks)];
   const ranked = plannable(plans, planCtx);
   const queue = queueItems(d.queue, d.weekPlans, d.picks, clock);
   const carried = new Set(queue.filter((q) => !q.stale).map((q) => q.id));

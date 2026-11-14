@@ -47,7 +47,7 @@ The local API listens on `localhost:8787` and signs in anyone. For iPhone, run `
 | `make test` | Both of the above |
 | `make test-e2e` | Playwright: screens in Chrome and WebKit at desktop and phone sizes, two signed-in browsers syncing, then the real Electron app as two devices, then `make test-compat`. Needs Docker. |
 | `make test-compat` | The last release's web bundle beside this checkout's: each opens a database the other wrote, as an update and a rollback after a failed trial do, and an old and a new device sync. `BASE` picks the old bundle's commit, by default the one prod serves when your config folder has prod, else `origin/main`. Needs Docker. |
-| `make test-ios` | XCUITest on a throwaway iPhone Simulator (`IOS_DEVICE`, default `iPhone 16`), with the share sheet and widget off and on. A failed test runs up to twice more, and CI's job summary lists each test that needed it |
+| `make test-ios` | XCUITest on a throwaway iPhone Simulator (`IOS_DEVICE`, default `iPhone 16`), with the share sheet and widget off and on. Each test runs once, and CI's job summary lists any that failed |
 | `make test-history` | The history-scale test: a made-up five-year account, about 40,000 records, seeded through the sync API, then a new browser, Mac app and iPhone Simulator of it timed against the budgets in [docs/performance.md](docs/performance.md). Slow, so it runs on demand and before releases, not on every PR. `HISTORY_REPORT_ONLY=1` reports missed budgets and failed parts, failing only when a device holds fewer records than were seeded, and `SKIP_IOS=1` leaves out the iPhone. Needs Docker. |
 | `make scan` | gitleaks over the working tree |
 

@@ -176,6 +176,13 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).press('Enter');
   }
   await expect(card).toHaveCount(0);
+  // On phone its toast sits above the bottom bar and goes at the next press, so Schedule's sheet would move down under
+  // that press before its release (planning-toast.spec.ts). Let it go first: it waits while the pointer rests on it,
+  // where the last tap was, so move away, then it goes 5 seconds later.
+  if (phone) {
+    await page.mouse.move(0, 0);
+    await expect(toast(page)).toHaveCount(0, { timeout: 10_000 });
+  }
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
   // Pick: a task's time button adds it to the week.

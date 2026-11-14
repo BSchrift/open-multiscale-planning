@@ -136,7 +136,7 @@ test('processes the Inbox offline: a home for each item, Undo, and Delete', asyn
   expect(await readRecord(page, 'task', 'i2')).toMatchObject({ kind: 'inbox' });
   await addTo('one', 'One offs, and to this week');
   await expect(card.getByRole('heading', { name: 'Buy stamps' })).toBeVisible();
-  await card.getByRole('button', { name: 'Delete/done' }).click();
+  await card.getByRole('button', { name: 'Delete', exact: true }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card).toHaveCount(0);
   await expect(page.locator('.clearveil')).toHaveText('Inbox clear3 items processed');

@@ -105,13 +105,17 @@ export const UNTOUCHED_MONTHS = 6;
  */
 export async function backlogTouches(sql: Sql): Promise<Record<string, number>> {
   const rows = await sql.all<{ id: string; clocks: string; picked: string | null; placed: string | null }>(
-    `SELECT r.id, r.clocks,
-       (SELECT MAX(p.week_start) FROM week_pick p WHERE p.task_id = r.id AND p.deleted_at IS NULL) AS picked,
-       (SELECT MAX(b.start) FROM time_block b WHERE b.task_id = r.id AND b.deleted_at IS NULL) AS placed
-     FROM records r
-     WHERE r.type = 'task' AND json_extract(r.data, '$.project_id') >= :from AND json_extract(r.data, '$.project_id') < :to
-       AND json_extract(r.data, '$.done_at') IS NULL AND json_extract(r.data, '$.cancelled_at') IS NULL
-       AND json_extract(r.data, '$.deleted_at') IS NULL`,
+    // Picks and blocks are each read once, grouped, rather than once per task: picks have no index by task.
+    `WITH bt AS (
+       SELECT id, clocks FROM records
+       WHERE type = 'task' AND json_extract(data, '$.project_id') >= :from AND json_extract(data, '$.project_id') < :to
+         AND json_extract(data, '$.done_at') IS NULL AND json_extract(data, '$.cancelled_at') IS NULL
+         AND json_extract(data, '$.deleted_at') IS NULL)
+     SELECT bt.id, bt.clocks, p.picked, b.placed FROM bt
+     LEFT JOIN (SELECT task_id, MAX(week_start) AS picked FROM week_pick
+                WHERE deleted_at IS NULL AND task_id IN (SELECT id FROM bt) GROUP BY task_id) p ON p.task_id = bt.id
+     LEFT JOIN (SELECT task_id, MAX(start) AS placed FROM time_block
+                WHERE deleted_at IS NULL AND task_id IN (SELECT id FROM bt) GROUP BY task_id) b ON b.task_id = bt.id`,
     { from: PREFIX, to: 'backlog;' },
   );
   const out: Record<string, number> = {};

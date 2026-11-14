@@ -189,7 +189,12 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   const errors = await open(page, [planned, report, block('b1', 't1', '12:00', '13:00')]);
   const prompt = page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText('Write the report')).toBeVisible();
-  await expect(prompt.getByRole('button', { name: 'Not done' })).toBeVisible();
+  // Each answer is its word after its icon, a whole tap target on phone.
+  for (const name of ['Done', 'Partly', 'Not done']) {
+    const answer = prompt.getByRole('button', { name, exact: true });
+    await expect(answer.locator('svg')).toBeVisible();
+    if (phone) await expectTapTarget(answer);
+  }
   await page.screenshot({ path: info.outputPath('today-prompt.png') });
   await prompt.getByRole('button', { name: 'Partly' }).click();
 

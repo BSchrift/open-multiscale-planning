@@ -31,6 +31,10 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 /* Destructive, such as finishing or dropping a project: red, and solid red when it's the confirming choice. */
 .btn.danger{border-color:var(--red);color:var(--red)}
 .btn.pri.danger{background:var(--red);color:var(--white)}
+/* An answer's icon before its word (AnswerIcon), in the word's colour, as the missed blocks sheet's bar draws it. */
+.btn:has(>.ansicon){display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.ansicon{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ansicon .solid{fill:currentColor;stroke:none}
 .now h2{font-size:22px;line-height:1.25}
 .clock{font-size:44px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums}
 .done{color:var(--quiet);text-decoration:line-through}

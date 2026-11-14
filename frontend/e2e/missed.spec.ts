@@ -126,7 +126,7 @@ test('on desktop, a small dialog in the middle, answered row by row, in Select m
   await page.getByRole('button', { name: 'Review' }).click();
   await five.getByRole('button', { name: 'Select', exact: true }).click();
   await five.getByRole('button', { name: 'Select all' }).click();
-  await expect(five.getByText('For a practice, Finished counts as Did it.')).toBeVisible();
+  await expect(five.getByText('For a practice, Done counts as Did it.')).toBeVisible();
   await five.getByRole('button', { name: 'Not done', exact: true }).click();
   await expect(page.getByText('Answered 5 blocks.')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -145,7 +145,7 @@ test('on phone, a sheet from the bottom: tap a row, Partly for a selection, and 
   const frame = await box(dialog);
   expect(Math.round(frame.y + frame.height)).toBe(viewport.height);
   expect(frame.height).toBeLessThanOrEqual(viewport.height * 0.6 + 1);
-  for (const name of ['Finished: Draft chapter five', 'Partly: Draft chapter five', 'Not done: Draft chapter five', 'What the icons mean', 'Select']) {
+  for (const name of ['Done: Draft chapter five', 'Partly: Draft chapter five', 'Not done: Draft chapter five', 'What the icons mean', 'Select']) {
     await expectTapTarget(dialog.getByRole('button', { name, exact: true }).first());
   }
 

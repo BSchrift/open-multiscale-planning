@@ -269,7 +269,8 @@ test('a block gone by is struck through only when done; Not done and Partly are 
 
 test('the current-time line passes behind the block under way, its dot in front, and the zoom buttons sit beside Calendar and List', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const errors = await open(page, [planned, report, block('b1', 't1', '13:00', '15:00', { started_at: at('13:00') })]);
+  // Two blocks at once, so they're drawn side by side, each in its own column.
+  const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:00', '15:00', { started_at: at('13:00') }), block('b2', 't2', '13:30', '14:30', { started_at: at('13:30') })]);
   const timeline = page.getByRole('region', { name: "Today's timeline" });
   const zoom = timeline.getByRole('group', { name: 'Calendar zoom' });
   // In the heading row, beside the view buttons, rather than over the calendar. Measured in one go, as the page may
@@ -295,6 +296,9 @@ test('the current-time line passes behind the block under way, its dot in front,
   const drawn = (await line.boundingBox())!;
   // Across the block, the block is on top; past its right edge the line shows; and its dot is in front of everything.
   expect(await overNowLine(line, box.x + box.width / 2)).toEqual({ at: expect.stringMatching(/^Write the report, 1pm to 3pm/), dotOnTop: true });
+  const other = (await timeline.locator('.cev').filter({ hasText: 'Paint the fence' }).boundingBox())!;
+  expect(other.x).toBeGreaterThanOrEqual(box.x + box.width - 1);
+  expect((await overNowLine(line, other.x + other.width / 2)).at).toMatch(/^Paint the fence, 1:30pm to 2:30pm/);
   expect((await overNowLine(line, drawn.x + drawn.width - 1)).at).toBe('line');
   await page.screenshot({ path: info.outputPath(`today-now-line-${info.project.name}.png`) });
   expect(errors).toEqual([]);

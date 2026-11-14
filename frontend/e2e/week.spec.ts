@@ -71,7 +71,9 @@ test('the current time is a line on today only, which moves with the time and le
 test('the current time passes behind the block under way, with only its dot in front', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const under: Seed = { type: 'time_block', id: 'b9', fields: { task_id: 't1', start: at(2, '13:00'), end: at(2, '15:00'), tz: 'America/Chicago', started_at: at(2, '13:00') } };
-  const errors = await openWeek(page, [...records, under]);
+  // With another block at the same time, so the two are drawn side by side.
+  const beside: Seed = { type: 'time_block', id: 'b10', fields: { task_id: 't2', start: at(2, '13:30'), end: at(2, '14:30'), tz: 'America/Chicago', started_at: at(2, '13:30') } };
+  const errors = await openWeek(page, [...records, under, beside]);
   const line = page.getByRole('img', { name: 'Current time' });
   await line.scrollIntoViewIfNeeded();
   await expect(line).toHaveCSS('pointer-events', 'none');
@@ -83,6 +85,9 @@ test('the current time passes behind the block under way, with only its dot in f
     const b = page.getByRole('button', { name: /^Draft the summary, Mon Nov 2, 1pm to 3pm/ });
     const box = (await b.boundingBox())!;
     expect(await overNowLine(line, box.x + box.width / 2)).toEqual({ at: expect.stringMatching(/^Draft the summary, Mon Nov 2, 1pm to 3pm/), dotOnTop: true });
+    const other = (await page.getByRole('button', { name: /^Paint the fence, Mon Nov 2, 1:30pm to 2:30pm/ }).boundingBox())!;
+    expect(other.x).toBeGreaterThanOrEqual(box.x + box.width - 1);
+    expect((await overNowLine(line, other.x + other.width / 2)).at).toMatch(/^Paint the fence, Mon Nov 2, 1:30pm to 2:30pm/);
   }
   expect(errors).toEqual([]);
 });

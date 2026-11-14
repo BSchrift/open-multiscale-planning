@@ -114,17 +114,23 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   test.skip(now.getDay() === 0 && now.getHours() * 60 + now.getMinutes() >= 21 * 60 + 30, "late on Sunday this week has no room left");
   const nav = page.getByRole('navigation', { name: 'Main' });
   const title = `Deployed check ${new Date().toISOString().slice(11, 19)}`;
+  await clearChecks(page);
 
-  await nav.getByRole('button', { name: /Capture/ }).click();
-  const field = page.getByRole('dialog', { name: 'Capture' }).getByRole('textbox', { name: 'Capture to Inbox' });
-  await field.fill(title);
-  await field.press('Enter');
-  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  // A second check follows it in the Inbox. Process closes itself after its last card, and on a shared test user what
+  // else the Inbox holds varies from run to run; with this one after it, Process is still open, on a card, once the
+  // first is made a practice.
+  for (const item of [title, `${title}, next`]) {
+    await nav.getByRole('button', { name: /Capture/ }).click();
+    const field = page.getByRole('dialog', { name: 'Capture' }).getByRole('textbox', { name: 'Capture to Inbox' });
+    await field.fill(item);
+    await field.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  }
 
   // Process: a practice made from the card takes the item with it, in one change that one Undo takes back. The release
   // before, which the prod Test step meets, has had the picker since Nov 13, so both take the same steps.
   await nav.getByRole('button', { name: /Inbox/ }).click();
-  await page.getByRole('button', { name: `Assign ${title}` }).click();
+  await page.getByRole('button', { name: `Assign ${title}`, exact: true }).click();
   await page.getByRole('button', { name: 'New practice from this item' }).click();
   await page.getByRole('button', { name: 'Make it a practice' }).click();
   await expect(page.getByText(`${title} is now a practice.`)).toBeVisible();
@@ -136,9 +142,8 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
   await page.keyboard.press('Enter');
   await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
-  // With nothing else in the Inbox, this release's Process has closed itself.
-  const process = page.getByRole('dialog', { name: 'Process Inbox' });
-  if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
+  // The second check is on the card now, for the cleanup below to delete.
+  await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
 
   // Week: it waits in To schedule; a suggestion places it, and Undo brings it back.
   await nav.getByRole('button', { name: 'Week' }).click();
@@ -179,10 +184,22 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await expect(card).toBeVisible();
   await page.getByRole('button', { name: 'Done editing' }).click();
 
-  // Marked done, it leaves; earlier checks left in the Inbox go too.
+  // Marked done, it leaves.
   await card.click();
   await page.getByRole('group', { name: title }).getByRole('button', { name: 'Mark done' }).click();
   await expect(card).toHaveCount(0);
+  await clearChecks(page);
+});
+
+/**
+ * Takes away the checks the journey leaves on the shared test user: Inbox items are deleted, and a one off still waiting
+ * in this week's To schedule is marked done. It runs first as well as last, since a run that fails part way leaves its
+ * checks behind, and they change what the next run meets, such as how far down the week the calendar starts. It syncs
+ * before, to see what earlier runs sent, and after, or the deployment keeps them for the next suite to trip on.
+ */
+async function clearChecks(page: Page) {
+  await syncNow(page);
+  const nav = page.getByRole('navigation', { name: 'Main' });
   await nav.getByRole('button', { name: /Inbox/ }).click();
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
@@ -194,9 +211,16 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
     await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);
     if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
   }
-  // Sent before the browser closes, or the deployment keeps these checks as Inbox items for the next suite to trip on.
+  await nav.getByRole('button', { name: 'Week' }).click();
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  for (let left = lane.getByRole('button', { name: /^(Deployed|Staging) check [^,]*, One off, .*, to schedule$/ }); await left.count(); ) {
+    const name = (await left.first().getAttribute('aria-label'))!;
+    await left.first().click();
+    await page.getByRole('group', { name: name.replace(/, One off, .*$/, '') }).getByRole('button', { name: 'Mark done' }).click();
+    await expect(lane.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
   await syncNow(page);
-});
+}
 
 test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, with Does it fit in view, and saves and exits', async ({}, info) => {
   test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");

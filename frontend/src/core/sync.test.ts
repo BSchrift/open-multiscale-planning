@@ -691,6 +691,35 @@ describe('runSync after records expire', () => {
     expect(await ids(db)).toEqual(['kept', 'made']);
   });
 
+  it("keeps what every page of a reset's pull brought, dropping only what the server no longer has", async () => {
+    time.set(NOW);
+    const s = fakeSyncServer({ now: () => time.now(), pageSize: 2 });
+    const db = await openTestDb();
+    await transact(db, time, async (w) => {
+      for (let i = 0; i < 5; i++) await w.create('task', { kind: 'inbox', title: `Task ${i}` }, `t${i}`);
+      await w.create('task', { kind: 'inbox', title: 'Oil the hinges' }, 'gone');
+    });
+    await runSync(db, s.send);
+    await s.send({ cursor: s.counter, changes: [{ type: 'task', id: 'gone', fields: theirs({ deleted_at: at(time.now()), expires_at: at(time.now() + 1000) }) }] });
+    time.set(NOW + 3_600_000);
+    s.remove('gone');
+    s.requests.length = 0;
+
+    await runSync(db, s.send);
+
+    // The pull after the reset starts from 0 and takes three pages of two, then the device sends from the counter.
+    expect(s.requests.map((r) => [r.cursor, r.expiry_reset ?? false])).toEqual([
+      [6, true],
+      [0, false],
+      [3, false],
+      [5, false],
+      [7, true],
+    ]);
+    // A reset finished after its first page would take the tasks on the later pages for expired ones.
+    expect(await ids(db)).toEqual(['t0', 't1', 't2', 't3', 't4']);
+    expect(await cursorOf(db)).toBe('7');
+  });
+
   it('treats a reset answering a pull sent without expiry_reset as a failure', async () => {
     const { s, db } = await deviceWithOldCopies();
     s.remove('gone');

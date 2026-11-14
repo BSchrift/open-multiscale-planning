@@ -105,15 +105,11 @@ async function seed(db: Db, blocks: readonly { title: string; from: number; to: 
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title, estimate_min: 30 });
       await setWeekPick(w, thisWeek(clock), task, 30);
     }
-    // A block under way starts no earlier than midnight, so it's on today's timeline at any hour: the notification
-    // test seeds on the real clock.
-    const midnight = new Date(now).setHours(0, 0, 0, 0);
     for (const b of blocks) {
       const task = await w.create('task', { kind: 'project', project_id: project, milestone_id: milestone, title: b.title, estimate_min: 120 });
-      const from = now + b.from * MINUTE_MS;
       await w.create('time_block', {
         task_id: task,
-        start: toInstant(b.to > 0 ? Math.max(from, midnight) : from),
+        start: toInstant(now + b.from * MINUTE_MS),
         end: toInstant(now + b.to * MINUTE_MS),
         tz: clock.zone(),
         ...(b.started ? { started_at: nowInstant(clock) } : {}),
@@ -166,9 +162,9 @@ const remind = async (inMs: number) => {
   ]);
   return `pending:${(await platform.notifications.scheduled()).map((r) => r.id).join(',')}`;
 };
-button('Remind', () => remind(4000));
-// Still waiting however slow the Simulator, for a test of what happens before it's due.
-button('Remind later', () => remind(60 * MINUTE_MS));
+// An hour out, so it's still waiting however slow the Simulator. The UI test's launch has the debug build bring it
+// forward once the app leaves the screen.
+button('Remind', () => remind(60 * MINUTE_MS));
 button('Cancel', async () => {
   await platform.notifications.cancel(['check-block:end']);
   return `pending:${(await platform.notifications.scheduled()).length}`;
@@ -214,9 +210,9 @@ button('Seed today', () =>
     { title: 'Shape the dough', from: -6, to: 24 },
   ]),
 );
-// A started block that ends in two minutes, so its end notification is the only one, and comes after even a slow
-// Simulator has opened the app and scheduled it.
-button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 2, started: true }]));
+// A started block, so its end notification is the app's soonest. It ends 20 minutes out, so the notification comes only
+// when the UI test's launch has the debug build bring it forward, once the app leaves the screen.
+button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
 // Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
 button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');

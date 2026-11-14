@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import CryptoKit
+import UserNotifications
 
 class BridgeViewController: CAPBridgeViewController {
     /// The web bundle loaded: the one inside the app, or a newer one downloaded over the air.
@@ -45,6 +46,24 @@ class BridgeViewController: CAPBridgeViewController {
             })();
             """
             webView?.configuration.userContentController.addUserScript(WKUserScript(source: clock, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        // XCUITest answers a notification from its banner on the Home Screen, so it needs the notification to come after
+        // the app has left the screen: the app's soonest reminder, as it scheduled it, comes two seconds after.
+        if ProcessInfo.processInfo.environment["MULTISCALE_REMINDERS_ON_LEAVE"] != nil {
+            NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                let task = UIApplication.shared.beginBackgroundTask()
+                let done = { DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(task) } }
+                let notifications = UNUserNotificationCenter.current()
+                notifications.getPendingNotificationRequests { pending in
+                    func due(_ request: UNNotificationRequest) -> Date {
+                        (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()
+                            ?? (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate() ?? .distantFuture
+                    }
+                    guard let soonest = pending.min(by: { due($0) < due($1) }) else { return done() }
+                    let soon = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+                    notifications.add(UNNotificationRequest(identifier: soonest.identifier, content: soonest.content, trigger: soon)) { _ in done() }
+                }
+            }
         }
         #endif
         startTrial()

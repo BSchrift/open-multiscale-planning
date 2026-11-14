@@ -86,15 +86,16 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
  * The app with its data as a new install has it, then seeded from the test page when a seed is given. The Simulator's
  * clock can't be set, and Today shows and says "today" only for blocks that start today, so a seeded app's web view
  * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
- * at any hour. A test that waits for a notification needs the `realClock`, since iOS shows one at the real time.
+ * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead.
  */
-private func launchApp(seed: String? = nil, realClock: Bool = false) -> XCUIApplication {
+private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
     if seed != nil, !realClock {
         let shift = String(Int(morningShift(now: Date()) * 1000))
         for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
     }
+    if remindingOnLeave { app.launchEnvironment[remindersOnLeave] = "YES" }
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launchLoaded()
     exists(checks.webText("ready"), timeout: launchPatience)
@@ -121,8 +122,7 @@ func morningShift(now: Date, calendar: Calendar = .current) -> TimeInterval {
 }
 
 /// When a seed on the real clock can run: at once, except in the last ten minutes of a day, which it waits out so the
-/// test that follows ends on the day it started. A block of its that's under way starts no earlier than midnight
-/// (capacitor-checks.ts), so it's on today's timeline at any hour.
+/// test that follows ends on the day it started. Only a seed that places no blocks runs on the real clock.
 func seedTime(now: Date, calendar: Calendar = .current) -> Date {
     let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
     return now.addingTimeInterval(10 * 60) > next ? next.addingTimeInterval(60) : now
@@ -165,24 +165,22 @@ private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: Stat
     exists(element, file: file, line: line)
 }
 
+/// Set on a launch so the debug build brings the app's soonest reminder forward to two seconds after the app leaves the
+/// screen (BridgeViewController.swift).
+private let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
+
 /**
- * Answers a notification from Notification Center, where it waits until it's answered, whether it arrived with the app
- * in front, at the Home Screen or with Notification Center open. Its banner shows for a few seconds only, and one that
- * arrives over the app goes when the app does, so a test that waits for the banner misses it whenever the notification
- * comes before the test reaches the Home Screen.
+ * Goes to the Home Screen and answers the app's notification from its banner. The app was launched with
+ * `remindersOnLeave`, so the notification comes only once the app has left the screen, and its banner shows on the
+ * Home Screen. One due at a set time could come while the test was still in the app, and its banner went with the app.
+ * Notification Center keeps a notification for longer, but XCUITest can't see the actions a long press there brings up.
  */
 private func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
-                                within timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
+                                file: StaticString = #filePath, line: UInt = #line) {
     XCUIDevice.shared.press(.home)
-    let notification = springboard.descendants(matching: .any)["NotificationShortLookView"]
-    // A banner still up goes into Notification Center when it closes, and the swipe below could catch it instead.
-    XCTAssertTrue(notification.waitForNonExistence(timeout: patience), "a banner stayed up", file: file, line: line)
-    // Down from the top edge left of the Dynamic Island: from the right it's Control Center.
-    let window = springboard.windows.firstMatch
-    window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.0))
-        .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.6)))
-    exists(notification, timeout: timeout, in: springboard, file: file, line: line)
-    notification.press(forDuration: 1.5)
+    let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
+    exists(banner, in: springboard, file: file, line: line)
+    banner.press(forDuration: 1.5)
     let button = springboard.buttons[action]
     exists(button, in: springboard, file: file, line: line)
     for other in others { XCTAssertTrue(springboard.buttons[other].exists, "\(other) isn't offered", file: file, line: line) }
@@ -411,13 +409,12 @@ final class ShellUITests: XCTestCase {
     }
 
     func testABlocksNotificationActionAnswersItInToday() {
-        // On the real clock, which iOS shows the block's notification by.
-        let app = launchApp(seed: "Seed soon", realClock: true)
+        let app = launchApp(seed: "Seed soon", remindingOnLeave: true)
         allowNotificationsIfAsked()
         onToday(app.webText("In progress, time left"), in: app)
 
-        // The block ends two minutes after it was seeded. A task is never finished from a notification, so there's no Done.
-        answerNotification(with: "Not done", alsoOffering: ["Still going", "Partly"], notOffering: ["Done"], within: 180)
+        // The block's end notification, brought forward. A task is never finished from a notification, so there's no Done.
+        answerNotification(with: "Not done", alsoOffering: ["Still going", "Partly"], notOffering: ["Done"])
 
         app.activate()
         let answered = app.page.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
@@ -448,6 +445,7 @@ final class NativeUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
+        app.launchEnvironment[remindersOnLeave] = "YES"
         app.launchLoaded()
         exists(app.webText("ready"), timeout: launchPatience)
     }
@@ -467,9 +465,9 @@ final class NativeUITests: XCTestCase {
     private func run(_ button: String, expect result: String, timeout: TimeInterval = patience, file: StaticString = #filePath, line: UInt = #line) {
         let before = count(result)
         tap(button)
-        let arrived = logged(result, after: before).waitForExistence(timeout: timeout)
+        if logged(result, after: before).waitForExistence(timeout: timeout) { return }
         let page = app.page.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n")
-        XCTAssertTrue(arrived, "\(result) did not appear. The page says:\n\(page)", file: file, line: line)
+        XCTFail("\(result) did not appear. The page says:\n\(page)", file: file, line: line)
     }
 
     func testDiagnosticsMeasureMemoryAndReportARunThatWasKilled() {
@@ -494,10 +492,10 @@ final class NativeUITests: XCTestCase {
 
         // An hour out, so it's still waiting when Cancel comes, however slow the Simulator. One due in seconds could
         // arrive first, and then Cancel took back a notification already shown.
-        run("Remind later", expect: "pending:check-block:end")
+        run("Remind", expect: "pending:check-block:end")
         run("Cancel", expect: "pending:0")
 
-        // Due in seconds, answered wherever the test is when it arrives.
+        // Brought forward once the app leaves the screen, so it comes at the Home Screen.
         run("Remind", expect: "pending:check-block:end")
         answerNotification(with: "Done", alsoOffering: ["Partly"])
 

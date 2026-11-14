@@ -4,18 +4,18 @@ import XCTest
 /// CI's Simulator now and then holds every process it starts for up to 40 s: its logs show each one waiting between
 /// xpcproxy_sim and exec, then all starting together. Anything that needs a process started meanwhile, such as the
 /// keychain or a web view's network process, waits that out, so a wait allows longer than the longest hold seen.
-private let patience: TimeInterval = 60
+let patience: TimeInterval = 60
 /// For the first page after a launch, when the web view starts WebKit's processes, which that hold can delay on top of
 /// the page's own second or two.
-private let launchPatience: TimeInterval = 120
+let launchPatience: TimeInterval = 120
 /// Posted by the debug build each time its web view finishes loading a page (BridgeViewController.swift).
 private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
-private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
+let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
 private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
-private extension XCUIApplication {
+extension XCUIApplication {
     var page: XCUIElement { webViews.firstMatch }
     func webButton(_ label: String) -> XCUIElement { page.buttons[label] }
     func webText(_ text: String) -> XCUIElement { page.staticTexts[text] }
@@ -76,7 +76,7 @@ private func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #file
     XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: launchPatience), .completed, "the web view never loaded its page", file: file, line: line)
 }
 
-private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
+func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: timeout) { return }
     // The tree shows what was on screen instead, since labels change between iOS versions.
     XCTFail("\(element) did not appear. On screen:\n\(owner.debugDescription)", file: file, line: line)
@@ -86,9 +86,10 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
  * The app with its data as a new install has it, then seeded from the test page when a seed is given. The Simulator's
  * clock can't be set, and Today shows and says "today" only for blocks that start today, so a seeded app's web view
  * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
- * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead.
+ * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead. An `offline`
+ * app starts with no network (`offlineFlag`).
  */
-private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
+func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false, offline: Bool = false) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
     if seed != nil, !realClock {
@@ -96,6 +97,7 @@ private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOn
         for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
     }
     if remindingOnLeave { app.launchEnvironment[remindersOnLeave] = "YES" }
+    if offline { app.launchEnvironment[offlineFlag] = "YES" }
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launchLoaded()
     exists(checks.webText("ready"), timeout: launchPatience)
@@ -158,7 +160,7 @@ final class SeedTimeTests: XCTestCase {
  * longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or screen changes didn't bring
  * the content in reliably. Hiding Today and showing it again did, every time: so the test goes to Week and back.
  */
-private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
     app.tapWeb("Week", until: app.webButton("Previous week"), file: file, line: line)
     app.tapWeb("Today", file: file, line: line)
@@ -189,7 +191,7 @@ private func answerNotification(with action: String, alsoOffering others: [Strin
 }
 
 /// The app asks once there's a block to remind about. Whichever test gets there first answers.
-private func allowNotificationsIfAsked() {
+func allowNotificationsIfAsked() {
     let allow = springboard.alerts.buttons["Allow"]
     if allow.waitForExistence(timeout: 5) { allow.tap() }
 }
@@ -596,7 +598,7 @@ final class NativeUITests: XCTestCase {
 }
 
 /// What scripts/test-ios.sh signs in to: the local stack it started, or a deployment as its test user.
-private struct Target: Decodable {
+struct Target: Decodable {
     struct User: Decodable { let username, password: String }
     let env: String
     let api_url: String
@@ -612,7 +614,7 @@ private struct Target: Decodable {
 }
 
 /// Another device of the same user, straight through the API, to see what reached the server.
-private struct SecondDevice {
+struct SecondDevice {
     let target: Target
     let token: String
     let start: Int
@@ -776,7 +778,7 @@ final class SignedInUITests: XCTestCase {
     }
 
     /// A deployment's hosted sign-in page, in the browser sheet over the app. The local stack's signs in with no page.
-    private func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
+    func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
         fillHostedSignIn(app, user)
         app.typeText("\n")
         dismissSavePassword(app, within: 10)

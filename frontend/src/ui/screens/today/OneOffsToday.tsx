@@ -8,6 +8,7 @@ import { useShowCompleted } from '../../app/showCompleted';
 import { useApp } from '../../app/store';
 import { OneOffDates, useOneOffTick } from '../../components/oneoff';
 import { ShowCompleted } from '../../components/ShowCompleted';
+import { useOpenTask } from '../../components/task/TaskName';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import { TaskRow } from '../../components/TaskRow';
 import type { TodayData } from './data';
@@ -17,8 +18,16 @@ function Row(props: { row: OneOffRow; onToggle(box: HTMLInputElement): void; onS
   const { task, checked } = row;
   const { layout } = useApp();
   const nav = useNav();
+  const openTask = useOpenTask();
   return (
-    <TaskRow title={task.title} checked={checked} onToggle={(_, box) => props.onToggle(box)} line={rowLine(row)}>
+    <TaskRow
+      title={task.title}
+      checked={checked}
+      details={!!task.notes}
+      onOpen={() => openTask(task.id)}
+      onToggle={(_, box) => props.onToggle(box)}
+      line={rowLine(row)}
+    >
       {!checked && (
         <div className="row oorow">
           <button className={layout === 'phone' ? 'btn plain' : 'btn sm'} type="button" aria-label={`Find a time for ${task.title}`} onClick={() => nav.go('week', { place: task.id })}>

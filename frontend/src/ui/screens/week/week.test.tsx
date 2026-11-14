@@ -854,6 +854,111 @@ describe('Week on phone', () => {
     expect(parseFloat(early.style.top)).toBeGreaterThanOrEqual(0);
   });
 
+  describe('blocks at the same time', () => {
+    const FRI = '2026-11-06';
+    // As the owner had it: an hour's practice at 5:30pm, and planning from 5:30pm to 6:45pm.
+    const together = async (w: Writer, planFrom = '17:30', planTo = '18:45') => {
+      await w.create('practice', { title: 'Plan meals for the week', target_min: 60, per: 'week', state: 'active' }, 'meals');
+      await w.create('time_block', { practice_id: 'meals', start: at('17:30', FRI), end: at('18:30', FRI), tz: ZONE }, 'bm');
+      await w.create('task', { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 75 }, 'planning:week:2026-11-09');
+      await w.create('time_block', { task_id: 'planning:week:2026-11-09', start: at(planFrom, FRI), end: at(planTo, FRI), tz: ZONE }, 'bp');
+    };
+    const fence = (w: Writer) => w.create('time_block', { task_id: 't2', start: at('18:00', FRI), end: at('18:30', FRI), tz: ZONE }, 'bc');
+    const friday = async () => userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button')[4]!);
+    const sideBySide = (els: HTMLElement[]) => {
+      expect(new Set(els.map((e) => e.style.width)).size).toBe(1);
+      expect(new Set(els.map((e) => e.style.left)).size).toBe(els.length);
+    };
+
+    it('sit side by side in one row with its time once, each named with what it overlaps and opening its own sheet', async () => {
+      await phone({ seed: (w) => together(w) });
+      await friday();
+      const plan = await screen.findByRole('button', { name: 'Plan the week of Nov 9, 5:30pm to 6:45pm, Planning. Overlaps Plan meals for the week.' });
+      const meals = screen.getByRole('button', { name: 'Plan meals for the week, 5:30pm to 6:30pm, Practice. Overlaps Plan the week of Nov 9.' });
+      expect(meals.closest('.tlrow')).toBe(plan.closest('.tlrow'));
+      expect(screen.getAllByText('5:30pm')).toHaveLength(1);
+      sideBySide([plan, meals]);
+      // Read by start, then column: the longer one is first, on the left.
+      expect(plan.compareDocumentPosition(meals) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Free time is what's left of the union of both, so none starts inside it.
+      expect(screen.getAllByText(/^Free, /).map((e) => e.textContent)).toEqual(['Free, 7am to 9am', 'Free, 5pm to 5:30pm', 'Free, 7pm to 10pm']);
+
+      await userEvent.click(meals);
+      const sheet = await screen.findByRole('dialog', { name: 'Plan meals for the week' });
+      expect(within(sheet).getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+      await userEvent.click(plan);
+      expect(within(await screen.findByRole('dialog', { name: 'Plan the week of Nov 9' })).getByText('Fri Nov 6, 5:30pm to 6:45pm')).toBeVisible();
+    });
+
+    it('overlapping in part, the later one sits lower in its column and says when it starts', async () => {
+      await phone({ seed: (w) => together(w, '18:00', '19:15') });
+      await friday();
+      const meals = await screen.findByRole('button', { name: /^Plan meals for the week, 5:30pm to 6:30pm, Practice\. Overlaps Plan the week of Nov 9\./ });
+      const plan = screen.getByRole('button', { name: 'Plan the week of Nov 9, 6pm to 7:15pm, Planning. Overlaps Plan meals for the week.' });
+      expect(plan.closest('.tlrow')).toBe(meals.closest('.tlrow'));
+      sideBySide([meals, plan]);
+      expect(meals.style.top).toBe('0px');
+      // Half an hour lower, a row's cell, and down to the end of its own cells.
+      expect(plan.style.top).toBe('46px');
+      expect(within(plan).getByText('Planning, 1h 15m, from 6pm')).toBeVisible();
+      expect(screen.queryByText('6pm')).toBeNull();
+      expect(screen.getAllByText(/^Free, /).map((e) => e.textContent)).toEqual(['Free, 7am to 9am', 'Free, 5pm to 5:30pm', 'Free, 7:30pm to 10pm']);
+    });
+
+    it('three at once get a column each', async () => {
+      await phone({ seed: async (w) => { await together(w); await fence(w); } });
+      await friday();
+      const call = await screen.findByRole('button', { name: 'Paint the fence, 6pm to 6:30pm, One off. Overlaps Plan the week of Nov 9 and Plan meals for the week.' });
+      const plan = screen.getByRole('button', { name: /^Plan the week of Nov 9, .* Overlaps Plan meals for the week and Paint the fence\.$/ });
+      const meals = screen.getByRole('button', { name: /^Plan meals for the week, .* Overlaps Plan the week of Nov 9 and Paint the fence\.$/ });
+      sideBySide([plan, meals, call]);
+      expect(screen.queryByRole('button', { name: /more/ })).toBeNull();
+    });
+
+    it('on a phone too narrow for three, two are drawn and +1 more lists them all, each opening its sheet', async () => {
+      // A 390pt phone's day row is 272px wide: room for two 96px columns, not three.
+      const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 272, height: 136, top: 0, left: 0, right: 272, bottom: 136, x: 0, y: 0, toJSON: () => ({}) });
+      try {
+        await phone({ seed: async (w) => { await together(w); await fence(w); } });
+        await friday();
+        const plan = await screen.findByRole('button', { name: /^Plan the week of Nov 9, 5:30pm/ });
+        const meals = screen.getByRole('button', { name: /^Plan meals for the week, 5:30pm/ });
+        sideBySide([plan, meals]);
+        expect(screen.queryByRole('button', { name: /^Paint the fence, 6pm/ })).toBeNull();
+        const more = screen.getByRole('button', { name: '+1 more: Paint the fence' });
+        expect(more).toHaveTextContent('+1 more');
+        expect(more.closest('.tlrow')).toBe(plan.closest('.tlrow'));
+
+        await userEvent.click(more);
+        const list = await screen.findByRole('dialog', { name: 'Blocks from 5:30pm to 6:45pm' });
+        expect(within(list).getAllByRole('button', { name: /, (Planning|Practice|One off)\./ }).map((b) => b.textContent)).toEqual([
+          'Plan the week of Nov 9Planning, 5:30pm to 6:45pm',
+          'Plan meals for the weekPractice, 5:30pm to 6:30pm',
+          'Paint the fenceOne off, 6pm to 6:30pm',
+        ]);
+        await userEvent.click(within(list).getByRole('button', { name: /^Paint the fence, 6pm to 6:30pm/ }));
+        expect(within(await screen.findByRole('dialog', { name: 'Paint the fence' })).getByText('Fri Nov 6, 6pm to 6:30pm')).toBeVisible();
+        expect(screen.queryByRole('dialog', { name: /^Blocks from/ })).toBeNull();
+      } finally {
+        measure.mockRestore();
+      }
+    });
+
+    it('while editing, sit side by side on the drawn day, each named with what it overlaps', async () => {
+      await phone({ seed: async (w) => { await planned(w); await together(w); } });
+      await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+      await friday();
+      const plan = await screen.findByRole('slider', { name: /^Plan the week of Nov 9\. Overlaps Plan meals for the week\. Drag/ });
+      const meals = screen.getByRole('slider', { name: /^Plan meals for the week\. Overlaps Plan the week of Nov 9\. Drag/ });
+      sideBySide([plan, meals]);
+      expect(plan).toHaveAttribute('aria-valuetext', 'Fri Nov 6, 5:30pm to 6:45pm');
+      expect(plan.style.top).toBe(meals.style.top);
+      // Planning is busy time too, but it's drawn once, as its block, so nothing shows between the columns.
+      expect(document.querySelectorAll('.dragday .c-busy')).toHaveLength(0);
+    });
+  });
+
   it("Edit this week's plan, then Add a task places one at a suggested time", async () => {
     const t = await phone({ seed: planned });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));

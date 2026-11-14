@@ -11,6 +11,7 @@ import type { Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { usePlanningActions } from '../../components/planning/usePlanning';
+import { TaskName } from '../../components/task/TaskName';
 import type { TodayData } from './data';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -129,7 +130,9 @@ export function NextUp(props: { data: TodayData; pick: string | null }) {
           <div key={t.id} className={phone ? 'rowline' : 'qrow'}>
             <div className={phone ? 'between' : undefined}>
               <div>
-                <div>{t.title}</div>
+                <div>
+                  <TaskName className="rowname" id={t.id} title={t.title} details={!!t.notes} />
+                </div>
                 <div className="small quiet">{sub(t)}</div>
               </div>
               {phone && (

@@ -7,7 +7,7 @@ import type { Writer } from '../../core/records';
 import { setAppearance } from './appearance';
 import { AREAS, DESKTOP_TABS, PHONE_TABS, tabForArea } from './registry';
 import type { AreaId } from './registry';
-import { renderApp, renderScreen } from './testing';
+import { fakeUpdater, renderApp, renderScreen } from './testing';
 
 afterEach(cleanup);
 
@@ -329,6 +329,70 @@ describe('over-the-air updates', () => {
     expect(t.container.querySelector('.pane')).not.toBeNull();
     await act(() => t.write((w) => updateSettings(w, { setup_done_at: '2026-11-02T20:00:00Z' })));
     expect(nativeUpdates.ready).toHaveBeenCalledOnce();
+  });
+});
+
+// Today's Mac apps can't replace themselves, so an update that needs a new one says so where it's seen, once.
+describe('the notice for the new Mac app', () => {
+  const DMG = 'https://downloads.example.test/Multiscale.dmg';
+  const NEEDS_APP = { state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 } as const;
+  const LATER = 'Later, hide the update notice until Multiscale next opens';
+  const statusIn = () => within(main()).getByRole('status');
+
+  it('shows at the bottom of the sidebar once an update needs the new Mac app, and says so once to a screen reader', async () => {
+    const updates = fakeUpdater({ state: 'idle' }, { download: DMG });
+    await renderApp({ updates });
+    await showsPane('Today');
+    expect(within(main()).queryByText('Install the new Mac app')).toBeNull();
+    // The region is there before the notice, so what goes into it is announced.
+    expect(statusIn()).toHaveTextContent('');
+    act(() => void updates.set(NEEDS_APP));
+    expect(within(main()).getByText('Install the new Mac app')).toBeVisible();
+    expect(within(main()).getByText('One last install by hand. After this, Multiscale updates itself.')).toBeVisible();
+    expect(within(main()).getByRole('button', { name: 'How to update' })).toBeVisible();
+    expect(within(main()).getByRole('button', { name: LATER })).toHaveTextContent('Later');
+    expect(statusIn()).toHaveTextContent('Install the new Mac app. One last install by hand. After this, Multiscale updates itself.');
+  });
+
+  it("isn't there for an update the app can take, or where there's no Mac app to download", async () => {
+    await renderApp({ updates: fakeUpdater({ state: 'ready', version: '0.2.0-bbbbbbb', build: 200 }, { download: DMG }) });
+    await showsPane('Today');
+    expect(within(main()).queryByText('Install the new Mac app')).toBeNull();
+    cleanup();
+    await renderApp({ updates: fakeUpdater(NEEDS_APP) });
+    await showsPane('Today');
+    expect(within(main()).queryByText('Install the new Mac app')).toBeNull();
+  });
+
+  it('How to update opens the steps over an inert app, and Close brings focus back', async () => {
+    const t = await renderApp({ updates: fakeUpdater(NEEDS_APP, { download: DMG }) });
+    await showsPane('Today');
+    const how = within(main()).getByRole('button', { name: 'How to update' });
+    await userEvent.click(how);
+    const dialog = screen.getByRole('dialog', { name: 'Install the new Mac app' });
+    expect(main()).toHaveAttribute('inert');
+    expect(document.querySelector('.mainarea')).toHaveAttribute('inert');
+    expect(dialog.closest('[inert]')).toBeNull();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Download the app' }));
+    expect(t.platform.opened).toEqual([DMG]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(main()).not.toHaveAttribute('inert');
+    expect(document.querySelector('.mainarea')).not.toHaveAttribute('inert');
+    expect(how).toHaveFocus();
+  });
+
+  it('Later hides it until the app next opens, moving focus to the current page and saying so', async () => {
+    await renderApp({ updates: fakeUpdater(NEEDS_APP, { download: DMG }) });
+    await showsPane('Today');
+    await userEvent.click(within(main()).getByRole('button', { name: LATER }));
+    expect(within(main()).queryByText('Install the new Mac app')).toBeNull();
+    expect(tab('Today')).toHaveFocus();
+    expect(statusIn()).toHaveTextContent('Hidden until Multiscale next opens.');
+    // It stays hidden as the app goes on.
+    await userEvent.click(tab('Goals'));
+    await showsPane('Goals');
+    expect(within(main()).queryByText('Install the new Mac app')).toBeNull();
   });
 });
 

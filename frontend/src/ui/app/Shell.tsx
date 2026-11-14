@@ -7,7 +7,7 @@ import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
 import { HowToUpdate } from '../components/HowToUpdate';
 import { PlusIcon, TabIcon } from '../components/icons';
-import { ToastProvider } from '../components/Toast';
+import { ToastProvider, useToast } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
 import { NavProvider, PaneShown, useNav, useOverlay } from './nav';
@@ -131,34 +131,50 @@ function useInboxCount(): number {
 
 const NEW_APP_TITLE = 'Install the new Mac app';
 const NEW_APP_LINE = 'One last install by hand. After this, Multiscale updates itself.';
+const READY_TITLE = 'Update ready';
+const READY_LINE = 'Installs when Multiscale quits or your Mac restarts.';
 
 /**
- * Today's Mac app can't replace itself, and Settings alone would hide an update that needs the new one for weeks: a
- * notice at the foot of the sidebar says so until Later, which holds until the app next opens. Its text goes into a
- * status region that's always there, once, as it appears.
+ * An update that needs the Mac app replaced, at the foot of the sidebar, since a login-item app is rarely quit and
+ * Settings alone would hide it for weeks: on today's apps, the new app to install by hand; on an app that replaces
+ * itself, a ready update to restart into. Later hides it until the app next opens. Its text goes into a status region
+ * that's always there, once, as it appears.
  */
-function NewAppNotice(props: { updates: Updater; download: string }) {
-  const status = useSyncExternalStore(props.updates.subscribe, props.updates.status);
+function UpdateNotice(props: { updates: Updater }) {
+  const { updates } = props;
+  const status = useSyncExternalStore(updates.subscribe, updates.status);
   const [later, setLater] = useState(false);
   const [howTo, setHowTo] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [said, setSaid] = useState('');
-  const shown = status.state === 'needs-app' && !later;
+  const kind = later ? null : status.state === 'app-ready' && updates.app ? 'ready' : status.state === 'needs-app' && updates.download ? 'new-app' : null;
+  const [title, line] = kind === 'ready' ? [READY_TITLE, READY_LINE] : [NEW_APP_TITLE, NEW_APP_LINE];
   useEffect(() => {
-    if (shown) setSaid((was) => was || `${NEW_APP_TITLE}. ${NEW_APP_LINE}`);
-  }, [shown]);
+    if (kind) setSaid(`${title}. ${line}`);
+  }, [kind, title, line]);
+  const download = status.state === 'needs-app' ? status.dmg ?? updates.download : undefined;
   return (
     <>
       <div className="sr" role="status">
         {said}
       </div>
-      {shown && (
+      {kind && (
         <div className="updnote">
-          <span className="strong">{NEW_APP_TITLE}</span>
-          <span className="small">{NEW_APP_LINE}</span>
+          <span className="strong">{title}</span>
+          <span className="small">{line}</span>
           <div className="row">
-            <button className="btn sm pri" type="button" onClick={() => setHowTo(true)}>
-              How to update
-            </button>
+            {kind === 'ready' ? (
+              <button className="btn sm pri" type="button" disabled={restarting} onClick={() => {
+                setRestarting(true);
+                void updates.app?.restart();
+              }}>
+                {restarting ? 'Restarting…' : 'Restart to update'}
+              </button>
+            ) : (
+              <button className="btn sm pri" type="button" onClick={() => setHowTo(true)}>
+                How to update
+              </button>
+            )}
             <button
               className="btn sm"
               type="button"
@@ -175,9 +191,35 @@ function NewAppNotice(props: { updates: Updater; download: string }) {
           </div>
         </div>
       )}
-      {howTo && <HowToUpdate download={props.download} onClose={() => setHowTo(false)} />}
+      {howTo && download && <HowToUpdate download={download} onClose={() => setHowTo(false)} />}
     </>
   );
+}
+
+/** "Multiscale updated." the first time the window shows after the app replaced itself: it may open hidden at login. */
+function useUpdatedToast() {
+  const { updates } = useApp();
+  const toast = useToast();
+  useEffect(() => {
+    const app = updates?.app;
+    if (!app) return;
+    let shown = false;
+    let stop = false;
+    const show = () => {
+      if (stop || shown || document.visibilityState !== 'visible') return;
+      shown = true;
+      toast.show('Multiscale updated.');
+    };
+    void app.updated().then((updated) => {
+      if (!updated) return;
+      show();
+      document.addEventListener('visibilitychange', show);
+    });
+    return () => {
+      stop = true;
+      document.removeEventListener('visibilitychange', show);
+    };
+  }, [updates, toast]);
 }
 
 function DesktopNav() {
@@ -209,8 +251,8 @@ function DesktopNav() {
           );
         })}
       </div>
-      {/* Only the Mac app offers a download. */}
-      {updates?.download && <NewAppNotice updates={updates} download={updates.download} />}
+      {/* Only the Mac app offers a download or replaces itself. */}
+      {(updates?.download || updates?.app) && <UpdateNotice updates={updates} />}
     </nav>
   );
 }
@@ -255,6 +297,7 @@ function Frame() {
   useReminders();
   useShareImport();
   useKeyboardInset();
+  useUpdatedToast();
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 

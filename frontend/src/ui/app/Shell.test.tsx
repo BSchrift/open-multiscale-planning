@@ -396,6 +396,49 @@ describe('the notice for the new Mac app', () => {
   });
 });
 
+// A Mac app that replaces itself: a ready update shows outside Settings, since the app is rarely quit.
+describe('a ready Mac app update', () => {
+  const READY = { state: 'app-ready', version: '0.2.0-bbbbbbb', build: 200 } as const;
+  const statusIn = () => within(main()).getByRole('status');
+
+  it('shows at the foot of the sidebar, says so once, and restarts to update', async () => {
+    const updates = fakeUpdater({ state: 'app-downloading', version: '0.2.0-bbbbbbb', build: 200, percent: 50 }, { download: 'https://downloads.example.test/Multiscale.dmg', app: {} });
+    await renderApp({ updates });
+    await showsPane('Today');
+    expect(within(main()).queryByText('Update ready')).toBeNull();
+    act(() => void updates.set(READY));
+    expect(within(main()).getByText('Update ready')).toBeVisible();
+    expect(within(main()).getByText('Installs when Multiscale quits or your Mac restarts.')).toBeVisible();
+    expect(statusIn()).toHaveTextContent('Update ready. Installs when Multiscale quits or your Mac restarts.');
+    await userEvent.click(within(main()).getByRole('button', { name: 'Restart to update' }));
+    expect(updates.app!.restart).toHaveBeenCalled();
+    expect(within(main()).getByRole('button', { name: 'Restarting…' })).toBeDisabled();
+  });
+
+  it('hides with Later until the app next opens', async () => {
+    await renderApp({ updates: fakeUpdater(READY, { app: {} }) });
+    await showsPane('Today');
+    await userEvent.click(within(main()).getByRole('button', { name: 'Later, hide the update notice until Multiscale next opens' }));
+    expect(within(main()).queryByText('Update ready')).toBeNull();
+    expect(tab('Today')).toHaveFocus();
+  });
+
+  it('says Multiscale updated, once, the first time the window shows after an update', async () => {
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const updates = fakeUpdater({ state: 'current' }, { app: { updated: { from: 100, to: 200 } } });
+    await renderApp({ updates });
+    await showsPane('Today');
+    // Opened at login, the window starts hidden: nothing until it shows.
+    await act(async () => await Promise.resolve());
+    expect(screen.queryByText('Multiscale updated.')).toBeNull();
+    hidden.mockReturnValue('visible');
+    act(() => void document.dispatchEvent(new Event('visibilitychange')));
+    expect(await screen.findByText('Multiscale updated.')).toBeVisible();
+    act(() => void document.dispatchEvent(new Event('visibilitychange')));
+    expect(screen.getAllByText('Multiscale updated.')).toHaveLength(1);
+  });
+});
+
 describe('first run', () => {
   it('shows setup with no navigation until it finishes', async () => {
     const t = await renderApp({ firstRun: true });

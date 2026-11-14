@@ -23,6 +23,16 @@
 		A1B2C3D4E5F6000000000044 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000006 /* ShareViewController.swift */; };
 		A1B2C3D4E5F6000000000045 /* CaptureControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000008 /* CaptureControl.swift */; };
 		A1B2C3D4E5F6000000000046 /* MultiscaleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000A /* MultiscaleUITests.swift */; };
+		A1B2C3D4E5F6000000000321 /* FeatureHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000301 /* FeatureHelpers.swift */; };
+		A1B2C3D4E5F6000000000322 /* InboxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000302 /* InboxUITests.swift */; };
+		A1B2C3D4E5F6000000000323 /* TodayUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000303 /* TodayUITests.swift */; };
+		A1B2C3D4E5F6000000000324 /* WeekUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000304 /* WeekUITests.swift */; };
+		A1B2C3D4E5F6000000000325 /* PlanningUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000305 /* PlanningUITests.swift */; };
+		A1B2C3D4E5F6000000000326 /* GoalsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000306 /* GoalsUITests.swift */; };
+		A1B2C3D4E5F6000000000327 /* TaskUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000307 /* TaskUITests.swift */; };
+		A1B2C3D4E5F6000000000328 /* SettingsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000308 /* SettingsUITests.swift */; };
+		A1B2C3D4E5F6000000000329 /* RemindersUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000309 /* RemindersUITests.swift */; };
+		A1B2C3D4E5F600000000032A /* ReviewUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000030A /* ReviewUITests.swift */; };
 		A1B2C3D4E5F6000000000202 /* OpenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000201 /* OpenCapture.swift */; };
 		A1B2C3D4E5F6000000000203 /* OpenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000201 /* OpenCapture.swift */; };
 /* End PBXBuildFile section */
@@ -73,6 +83,16 @@
 		A1B2C3D4E5F6000000000008 /* CaptureControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureControl.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000A /* MultiscaleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiscaleUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000301 /* FeatureHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureHelpers.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000302 /* InboxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000303 /* TodayUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000304 /* WeekUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000305 /* PlanningUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000306 /* GoalsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalsUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000307 /* TaskUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000308 /* SettingsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000309 /* RemindersUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersUITests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000030A /* ReviewUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewUITests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000B /* MultiscaleShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MultiscaleShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000000C /* MultiscaleCapture.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MultiscaleCapture.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000000D /* MultiscaleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MultiscaleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -166,6 +186,16 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F600000000000A /* MultiscaleUITests.swift */,
+				A1B2C3D4E5F6000000000301 /* FeatureHelpers.swift */,
+				A1B2C3D4E5F6000000000302 /* InboxUITests.swift */,
+				A1B2C3D4E5F6000000000303 /* TodayUITests.swift */,
+				A1B2C3D4E5F6000000000304 /* WeekUITests.swift */,
+				A1B2C3D4E5F6000000000305 /* PlanningUITests.swift */,
+				A1B2C3D4E5F6000000000306 /* GoalsUITests.swift */,
+				A1B2C3D4E5F6000000000307 /* TaskUITests.swift */,
+				A1B2C3D4E5F6000000000308 /* SettingsUITests.swift */,
+				A1B2C3D4E5F6000000000309 /* RemindersUITests.swift */,
+				A1B2C3D4E5F600000000030A /* ReviewUITests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -356,6 +386,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4E5F6000000000046 /* MultiscaleUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000321 /* FeatureHelpers.swift in Sources */,
+				A1B2C3D4E5F6000000000322 /* InboxUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000323 /* TodayUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000324 /* WeekUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000325 /* PlanningUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000326 /* GoalsUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000327 /* TaskUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000328 /* SettingsUITests.swift in Sources */,
+				A1B2C3D4E5F6000000000329 /* RemindersUITests.swift in Sources */,
+				A1B2C3D4E5F600000000032A /* ReviewUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

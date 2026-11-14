@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Every night on main, for the iPhone's full suite: see the changes job.
+  schedule:
+    - cron: "0 7 * * *"
   # Every job, the iPhone's included, on the branch it's started on.
   workflow_dispatch:
 
@@ -246,13 +249,15 @@ jobs:
             frontend/playwright-report
             frontend/test-results
 
-  # Whether the iPhone job runs, since it holds one of the few macOS runners for about 40 minutes: always on main and on a
-  # run started by hand, and for a pull request only when it changes something the iPhone app is built from or runs
-  # (scripts/ci-changes.sh). The run's summary says which, and why.
+  # Whether the iPhone job runs, and which suite, since it holds one of the few macOS runners for its whole length: the
+  # full suite on main, every night and on a run started by hand; for a pull request, the smoke set when it changes
+  # something the iPhone app is built from or runs, the full suite when it changes the iPhone's tests, and nothing
+  # otherwise (scripts/ci-changes.sh). The run's summary says which, and why.
   changes:
     runs-on: ubuntu-latest
     outputs:
       ios: ${{ steps.ios.outputs.ios }}
+      suite: ${{ steps.ios.outputs.suite }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -274,15 +279,16 @@ jobs:
         env:
           MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
 
-  # The real app on an iPhone Simulator, with the extensions off and then on. Skipped, which counts as passing, when the
-  # changes job finds nothing it would test.
+  # The real app on an iPhone Simulator. The full suite runs every test with the extensions off, then the native checks
+  # with them on; the smoke set runs the native checks and a test of each main flow, with them on (scripts/test-ios.sh).
+  # Skipped, which counts as passing, when the changes job finds nothing it would test.
   ios:
     runs-on: macos-15
     needs: [frontend, changes]
     if: needs.changes.outputs.ios == 'true'
-    # About 40 minutes, plus up to 11 when a test on the real clock reaches its seed in the last ten minutes of a day (UTC),
-    # which it waits out.
-    timeout-minutes: 60
+    # The full suite takes about 70 minutes and the smoke set about 22, plus up to 11 when a test on the real clock reaches
+    # its seed in the last ten minutes of a day (UTC), which it waits out.
+    timeout-minutes: ${{ needs.changes.outputs.suite == 'full' && 120 || 45 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -320,6 +326,7 @@ jobs:
       - run: make test-ios
         env:
           IOS_RESULTS: ${{ runner.temp }}/ios-results
+          MULTISCALE_SUITE: ${{ needs.changes.outputs.suite }}
       # Kept even when the job passes, since a test marked as an expected failure passes the job with its screenshots. The
       # job's summary lists them.
       - uses: actions/upload-artifact@v4

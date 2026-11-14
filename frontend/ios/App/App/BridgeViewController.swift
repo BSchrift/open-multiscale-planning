@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import CryptoKit
+import UserNotifications
 
 class BridgeViewController: CAPBridgeViewController {
     /// The web bundle loaded: the one inside the app, or a newer one downloaded over the air.
@@ -9,12 +10,62 @@ class BridgeViewController: CAPBridgeViewController {
     private var backgroundAt: Date?
     /// Kept until the page loaded after the rollback asks, so telemetry can report it.
     var rolledBack: Int?
+    #if DEBUG
+    private var loading: NSKeyValueObservation?
+    #endif
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
         bridge?.registerPluginInstance(UpdatesPlugin())
+        #if DEBUG
+        bridge?.registerPluginInstance(ChecksPlugin())
+        // XCUITest waits for this before it reads the page: reading a web view whose WebKit processes the Simulator is
+        // still starting fails at once, rather than waiting.
+        loading = webView?.observe(\.isLoading) { webView, _ in
+            guard !webView.isLoading else { return }
+            let name = CFNotificationName("io.github.bschrift.multiscale.page-loaded" as CFString)
+            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
+        }
+        // XCUITest runs a seeded app on a clock of its choosing, which the Simulator's can't be: the page's Date runs
+        // this far ahead of the real one, and on from there.
+        if let shift = ProcessInfo.processInfo.environment["MULTISCALE_CLOCK_SHIFT_MS"].flatMap(Int.init) {
+            let clock = """
+            (() => {
+              const RealDate = Date;
+              function ShiftedDate(...args) {
+                if (!new.target) return new RealDate(RealDate.now() + \(shift)).toString();
+                return args.length === 0 ? new RealDate(RealDate.now() + \(shift)) : new RealDate(...args);
+              }
+              ShiftedDate.prototype = RealDate.prototype;
+              ShiftedDate.now = () => RealDate.now() + \(shift);
+              ShiftedDate.parse = RealDate.parse;
+              ShiftedDate.UTC = RealDate.UTC;
+              globalThis.Date = ShiftedDate;
+            })();
+            """
+            webView?.configuration.userContentController.addUserScript(WKUserScript(source: clock, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        // XCUITest answers a notification from its banner on the Home Screen, so it needs the notification to come after
+        // the app has left the screen: the app's soonest reminder, as it scheduled it, comes two seconds after.
+        if ProcessInfo.processInfo.environment["MULTISCALE_REMINDERS_ON_LEAVE"] != nil {
+            NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                let task = UIApplication.shared.beginBackgroundTask()
+                let done = { DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(task) } }
+                let notifications = UNUserNotificationCenter.current()
+                notifications.getPendingNotificationRequests { pending in
+                    func due(_ request: UNNotificationRequest) -> Date {
+                        (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()
+                            ?? (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate() ?? .distantFuture
+                    }
+                    guard let soonest = pending.min(by: { due($0) < due($1) }) else { return done() }
+                    let soon = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+                    notifications.add(UNNotificationRequest(identifier: soonest.identifier, content: soonest.content, trigger: soon)) { _ in done() }
+                }
+            }
+        }
+        #endif
         startTrial()
         let center = NotificationCenter.default
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.backgroundAt = Date() }
@@ -38,6 +89,23 @@ class BridgeViewController: CAPBridgeViewController {
         descriptor.appLocation = web.root
         return descriptor
     }
+
+    #if DEBUG
+    /// XCUITest launches with MULTISCALE_OFFLINE to run the app as a phone with no network: the web view refuses every
+    /// http and https load, so the page's requests fail as they do offline, while the app's own pages, which load from
+    /// capacitor://, are untouched. The page loads only once the rule is in place, so nothing it asks for gets out first.
+    /// A launch without it is the network back. Release builds never read it.
+    override func viewDidLoad() {
+        guard ProcessInfo.processInfo.environment["MULTISCALE_OFFLINE"] != nil else { return super.viewDidLoad() }
+        let rules = #"[{"trigger": {"url-filter": "^https?://"}, "action": {"type": "block"}}]"#
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "multiscale-offline", encodedContentRuleList: rules) { list, error in
+            // A test that asked for no network must never run with it.
+            guard let list else { fatalError("The offline rule didn't compile: \(String(describing: error))") }
+            self.webView?.configuration.userContentController.add(list)
+            super.viewDidLoad()
+        }
+    }
+    #endif
 
     /// Reloads into the newest bundle this app can run, when that's newer than the one loaded.
     func applyNewest() {
@@ -336,6 +404,31 @@ class DiagnosticsPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 }
+
+#if DEBUG
+/// For XCUITest's test page only: what iOS otherwise starts on its own, run here as iOS runs it.
+@objc(MultiscaleChecksPlugin)
+class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
+    let identifier = "MultiscaleChecksPlugin"
+    let jsName = "MultiscaleChecks"
+    let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "openCapture", returnType: CAPPluginReturnPromise),
+    ]
+
+    /// The Control Center button's intent, which iOS runs in the app's process when the button is tapped.
+    @objc func openCapture(_ call: CAPPluginCall) {
+        guard #available(iOS 18.0, *) else { return call.reject("the Control Center button needs iOS 18") }
+        Task { @MainActor in
+            do {
+                _ = try await OpenCapture().perform()
+                call.resolve()
+            } catch {
+                call.reject(String(describing: error))
+            }
+        }
+    }
+}
+#endif
 
 /// Settings > Appearance. Light or Dark overrides the phone's setting for the whole window, so the status bar, the
 /// keyboard and the web view's background match the page; System goes back to following the phone.

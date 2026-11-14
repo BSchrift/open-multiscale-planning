@@ -39,6 +39,7 @@ import { OneOffDateForm } from '../../components/oneoff';
 import { Pill } from '../../components/Pill';
 import { Popover } from '../../components/Popover';
 import { Sheet } from '../../components/Sheet';
+import { TaskName } from '../../components/task/TaskName';
 import { axisMonths } from '../../components/TimelineBar';
 import { useToast } from '../../components/Toast';
 import { useFocusLanding } from '../../components/useFocusLanding';
@@ -851,7 +852,9 @@ function OneOffRow(props: { task: Task; axis: Axis; st: Stretch; on: LocalDate; 
       {phone ? (
         <div className="prow">
           <div className="between">
-            <span className="small strong">{task.title}</span>
+            <span className="grow small strong">
+              <TaskName className="rowname" id={task.id} title={task.title} />
+            </span>
             {dateButton}
           </div>
           {track}
@@ -859,7 +862,9 @@ function OneOffRow(props: { task: Task; axis: Axis; st: Stretch; on: LocalDate; 
       ) : (
         <div className="qline">
           <div className="qname">
-            <span className="small strong">{task.title}</span>
+            <span className="small strong">
+              <TaskName id={task.id} title={task.title} />
+            </span>
             {dateButton}
           </div>
           {track}
@@ -876,7 +881,9 @@ function Undated(props: { task: Task; phone: boolean; act: Act; onSave(): void }
   return (
     <>
       <div className="planshowrow small undated">
-        <span className="grow">{props.task.title}</span>
+        <span className="grow">
+          <TaskName className="rowname" id={props.task.id} title={props.task.title} />
+        </span>
         <button ref={addRef} className={props.phone ? 'btn' : 'btn sm'} type="button" aria-label={`Add date for ${props.task.title}`} onClick={() => setEditing(true)}>
           Add date
         </button>
@@ -928,7 +935,8 @@ export function ProjectsStep(props: {
   const oneOffsHeadRef = useRef<HTMLHeadingElement>(null);
   const landFrom = (i: number) =>
     land(() => {
-      const adds = oneOffsRef.current?.querySelectorAll<HTMLElement>('.undated button');
+      // Each row's Add date, not its name, which opens the task's popup.
+      const adds = oneOffsRef.current?.querySelectorAll<HTMLElement>('.undated > button');
       return adds?.[i] ?? adds?.[i - 1] ?? looseRef.current ?? oneOffsHeadRef.current;
     });
   const oneOffsHead = (

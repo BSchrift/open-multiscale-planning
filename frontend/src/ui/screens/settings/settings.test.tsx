@@ -48,7 +48,7 @@ describe('Settings', () => {
     it('shows each section', async () => {
       await renderScreen('settings', { layout });
       expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-      for (const name of ['Account', 'Available hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention']) {
+      for (const name of ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention']) {
         expect(screen.getByRole('heading', { level: 2, name })).toBeVisible();
       }
     });
@@ -146,7 +146,7 @@ describe('Settings', () => {
     });
   });
 
-  describe('available hours', () => {
+  describe('unavailable hours', () => {
     const rows = () => screen.getAllByRole('group', { name: /^Unavailable, / });
 
     it('starts with 10pm to 7am every day, and sums the week', async () => {
@@ -209,6 +209,22 @@ describe('Settings', () => {
       expect((await stored(t)).availability[0]).toMatchObject({ projects: true, one_offs: false });
     });
 
+    it.each(['desktop', 'phone'] as const)('on %s, the ticks sit under Closed to, since a tick closes that time to its kind', async (layout) => {
+      const t = await renderScreen('settings', { layout });
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      const closed = within(rows()[0]!).getByRole('group', { name: 'Closed to' });
+      const boxes = within(closed).getAllByRole('checkbox') as HTMLInputElement[];
+      expect(boxes.map((c) => [c.labels?.[0]?.textContent, c.checked])).toEqual([
+        ['Projects', true],
+        ['One offs', true],
+      ]);
+      // Ticked, 10pm to 7am is closed to projects: 168h less 63h. Unticked, projects may use it.
+      expect(screen.getByText('105h a week for projects and 105h for one offs.')).toBeVisible();
+      await userEvent.click(within(closed).getByRole('checkbox', { name: 'Projects' }));
+      expect(await screen.findByText('168h a week for projects and 105h for one offs.')).toBeVisible();
+      expect((await stored(t)).availability[0]).toMatchObject({ projects: false, one_offs: true });
+    });
+
     it('adds a block, with its own days, and removes it', async () => {
       const t = await renderScreen('settings');
       await userEvent.click(await screen.findByRole('button', { name: 'Add unavailable time' }));
@@ -219,6 +235,32 @@ describe('Settings', () => {
       await userEvent.click(within(rows()[1]!).getByRole('button', { name: 'Remove 12pm to 1pm' }));
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect((await stored(t)).availability).toHaveLength(1);
+    });
+
+    it('says what a remove took away, and Undo puts that time back as it was, in its place', async () => {
+      const t = await renderScreen('settings', {
+        seed: (w) =>
+          updateSettings(w, {
+            availability: [
+              { days: 'all', from: 1320, to: 420, projects: true, one_offs: true },
+              { days: 'weekends', from: 720, to: 780, projects: true, one_offs: false },
+              { days: 'weekdays', from: 1020, to: 1080, projects: false, one_offs: true },
+            ],
+          }),
+      });
+      await waitFor(() => expect(rows()).toHaveLength(3));
+      const before = (await stored(t)).availability;
+      await userEvent.click(within(rows()[1]!).getByRole('button', { name: 'Remove 12pm to 1pm' }));
+      await waitFor(() => expect(rows()).toHaveLength(2));
+      expect((await stored(t)).availability).toEqual([before[0], before[2]]);
+      expect(screen.getByText('Removed unavailable time 12pm to 1pm.')).toBeVisible();
+      // The Remove button went with its row, so focus goes to Undo.
+      const undo = screen.getByRole('button', { name: 'Undo' });
+      expect(undo).toHaveFocus();
+      await userEvent.click(undo);
+      await waitFor(() => expect(rows()).toHaveLength(3));
+      expect(rows()[1]).toHaveAccessibleName('Unavailable, 12pm to 1pm');
+      expect((await stored(t)).availability).toEqual(before);
     });
 
     it('the one offs aim is a slider, all the way left is no aim', async () => {

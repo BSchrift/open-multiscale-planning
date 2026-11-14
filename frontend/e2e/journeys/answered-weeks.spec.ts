@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { startPlanningThenUndo } from '../seed';
 import { addProject, chicago, firstRun, jumpTo, pane, slide, start, tab, TZ } from './journey';
 
 // Five weeks of planning and answering blocks, where Monday evenings never hold and Tuesday evenings always do.
@@ -14,9 +15,7 @@ const nextDay = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) + 86_40
 /** Plans this week from Today: picks, Place the rest at suggested times, Review, Finish. Returns where they went. */
 async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
   await tab(page, phone, 'Today');
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
-  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await startPlanningThenUndo(page);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
   if (phone) {
     const sheet = page.getByRole('region', { name: 'Finish the first draft' });

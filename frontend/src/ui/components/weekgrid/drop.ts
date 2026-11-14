@@ -53,6 +53,17 @@ export function overLane(x: number, y: number): boolean {
 export const clearLane = () => document.querySelectorAll('[data-unscheduled].drop').forEach((el) => el.classList.remove('drop'));
 
 /**
+ * The click that follows a drag isn't a tap, so it stops before the element's own handler. Called as the drag is let go:
+ * the browser sends that click in the same turn as the release, however long the page then takes to draw, and the
+ * listener is gone by the next turn, so a later click is a click.
+ */
+export function swallowClick(el: Element) {
+  const swallow = (e: Event) => e.stopPropagation();
+  el.addEventListener('click', swallow, { capture: true, once: true });
+  setTimeout(() => el.removeEventListener('click', swallow, { capture: true }));
+}
+
+/**
  * A copy of the card follows the pointer, saying the time it would land at; let go over a day, the item is placed
  * there. A mouse drags at once. A finger holds first, and moving before then scrolls instead. A press without a drag
  * is a click.
@@ -134,10 +145,7 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
     (ghost as HTMLElement).remove();
     card.classList.remove('lifted');
     on.preview(null);
-    // The click that follows a drag isn't a tap.
-    const swallow = (e: Event) => e.stopPropagation();
-    card.addEventListener('click', swallow, { capture: true, once: true });
-    setTimeout(() => card.removeEventListener('click', swallow, { capture: true }));
+    swallowClick(card);
     if (drop && last) on.drop(last);
   };
   const up = (e: PointerEvent) => own(e) && end(true)();

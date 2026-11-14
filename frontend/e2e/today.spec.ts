@@ -212,16 +212,22 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   await expect(queue.getByText('Partly done today, 1h 30m left')).toBeVisible();
   await expect(queue.getByRole('button', { name: /^Place Write the report, / })).toBeVisible();
   if (phone) await expect(queue.getByRole('button', { name: 'Place on calendar' })).toBeVisible();
+  // The task's name opens its popup, a whole tap target on phone.
+  const name = queue.getByRole('button', { name: 'Write the report', exact: true });
+  if (phone) await expectTapTarget(name);
+  await name.click();
+  await expect(page.getByRole('dialog', { name: 'Write the report' }).getByRole('button', { name: 'Delete task' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('an unplanned week opens on the prompt to plan; skipping leaves a banner and Next up', async ({ page }) => {
+test('an unplanned week opens on the prompt to plan; skipping leaves a banner and Next up', async ({ page }, info) => {
   const errors = await open(page, [fence]);
   await expect(page.getByRole('heading', { name: 'Plan your week' })).toBeVisible();
   await expect(page.getByText('1 one off due.')).toHaveCount(0);
   await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
   await expect(page.getByText("This week isn't planned", { exact: true })).toBeVisible();
   const next = page.getByRole('region', { name: 'Next up' });
+  if (info.project.name === 'phone') await expectTapTarget(next.getByRole('button', { name: 'Paint the fence', exact: true }));
   await next.getByRole('button', { name: 'Start Paint the fence' }).click();
   await expect(page.getByRole('region', { name: 'Current block' }).getByText('Now, 2pm to 2:30pm')).toBeVisible();
   // The skip is saved on the week's plan now, and phone WebKit's database saves 200ms after a change (platform/web.ts).

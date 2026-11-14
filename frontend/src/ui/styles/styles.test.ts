@@ -38,6 +38,24 @@ describe('the stylesheets', () => {
     expect(struck).toEqual([]);
   });
 
+  // The current-time line passes behind blocks, so it never strikes through the block under way, and only its dot is
+  // drawn in front. Each calendar draws the line before its blocks, so the line takes no z-index of its own (which would
+  // lift it, dot and all, over them); the dot takes one. Phone Week's rows hold a block in the flow, under anything
+  // positioned, so there the line is left out of a row that holds one, and only the dot shows. Neither takes a pointer.
+  it('draw the current-time line behind blocks, with only its dot in front, and let pointers through', () => {
+    const rules = sheets.flatMap((file) =>
+      readFileSync(join(ui, file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('}')
+        .filter((rule) => rule.includes('.nowline'))
+        .map((rule) => rule.split('{').map((part) => part.trim()) as [string, string]),
+    );
+    const style = (selector: string) => rules.find(([sel]) => sel === selector)?.[1] ?? '';
+    expect(style('.nowline')).toMatch(/pointer-events:none/);
+    expect(rules.filter(([, body]) => /z-index/.test(body)).map(([sel]) => sel)).toEqual(['.nowline i']);
+    expect(rules.some(([sel, body]) => /\.tlrow:has\(\.tlblock\)\s*>\s*\.nowline$/.test(sel) && /background:\s*none/.test(body))).toBe(true);
+  });
+
   // Dark mode reaches only colours that come from tokens.css. Black shadows suit both themes, and the select's
   // mid-grey chevron, inside an image, is 3:1 on both themes' fields.
   it('take every colour from the tokens', () => {

@@ -760,6 +760,8 @@ export function DragDay(props: {
             {formatTimeOfDay(m)}
           </span>
         ))}
+        {/* Over closed time but before what's drawn on the day, so it passes behind events and blocks. */}
+        {date === today(clock) && nowMin >= DAY_FROM && nowMin <= DAY_TO && <NowLine top={y(nowMin)} />}
         {ctx.busy
           .filter((e) => e.date === date)
           .map((e, i) => (
@@ -802,7 +804,6 @@ export function DragDay(props: {
               <span className="cevt">Suggested {formatTimeOfDay(g.start)}</span>
             </button>
           ))}
-        {date === today(clock) && nowMin >= DAY_FROM && nowMin <= DAY_TO && <NowLine top={y(nowMin)} />}
         {moving && handle('moving', moving.title, moving.kind, moving.slot, false, { change: props.onMoving, enter: props.onDone })}
       </div>
     </div>

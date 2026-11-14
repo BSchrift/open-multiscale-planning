@@ -16,6 +16,9 @@
 /* The current time crosses the day's row that holds it, from beside its time. */
 [data-layout='phone'] .wkdaycard .tlrow { position: relative; }
 [data-layout='phone'] .wkdaycard .tlrow > .nowline { grid-column: 2; }
+/* A block in a row fills it and sits in the flow, under anything positioned, so the line would cross it: there only
+   the dot shows, as if the line ran behind the block. */
+[data-layout='phone'] .wkdaycard .tlrow:has(.tlblock) > .nowline { background: none; }
 /* While dragging, the day keeps room below it for the tray. */
 [data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
 [data-layout] .wknote { color: var(--amber-ink-2); }

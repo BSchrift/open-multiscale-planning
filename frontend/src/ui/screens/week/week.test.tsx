@@ -797,6 +797,25 @@ describe('Week on phone', () => {
     expect(line).toHaveStyle({ top: `${8 * 48}px` });
   });
 
+  it('while editing, draws the line over closed and gone time but before blocks, so it passes behind the one under way', async () => {
+    await phone({
+      seed: async (w) => {
+        await planned(w);
+        await w.create('time_block', { task_id: 't1', start: at('13:00'), end: at('15:00'), tz: ZONE }, 'b9');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    const day = [...line.parentElement!.children];
+    const before = (e: Element) => !!(e.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const zones = day.filter((e) => e.matches('.dzone'));
+    const drawn = day.filter((e) => e.matches('.cev'));
+    expect(zones.length).toBeGreaterThan(0);
+    expect(drawn.length).toBeGreaterThanOrEqual(2);
+    expect(zones.every(before)).toBe(true);
+    expect(drawn.some(before)).toBe(false);
+  });
+
   it('a block opens a sheet: the slider changes its length, Move carries it to another day, Remove takes it off', async () => {
     const t = await phone();
     await userEvent.click(within(await screen.findByRole('group', { name: 'Choose a day' })).getAllByRole('button')[1]!);

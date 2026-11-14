@@ -990,6 +990,39 @@ describe('the timeline', () => {
     expect(out).toBeEnabled();
   });
 
+  it.each(['desktop', 'phone'] as const)('on %s, the zoom buttons sit beside Calendar and List, out of the calendar, and only with it', async (layout) => {
+    await open(day, { layout });
+    const zoom = await screen.findByRole('group', { name: 'Calendar zoom' });
+    expect(within(zoom).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Zoom out', 'Zoom in']);
+    // In the timeline's heading row with the view buttons, so they never cover a block.
+    const view = screen.getByRole('group', { name: 'Timeline view' });
+    expect(zoom.closest('.tlhead')).not.toBeNull();
+    expect(zoom.closest('.tlhead')).toBe(view.closest('.tlhead'));
+    expect(document.querySelector('.day')).not.toContainElement(zoom);
+    await userEvent.click(within(view).getByRole('button', { name: 'List' }));
+    expect(screen.queryByRole('group', { name: 'Calendar zoom' })).toBeNull();
+    await userEvent.click(within(view).getByRole('button', { name: 'Calendar' }));
+    expect(await screen.findByRole('group', { name: 'Calendar zoom' })).toBeInTheDocument();
+  });
+
+  it.each(['desktop', 'phone'] as const)('on %s, the current-time line is drawn before the blocks, so it passes behind the one under way', async (layout) => {
+    await open(
+      async (w) => {
+        await day(w);
+        await block(w, 'b0', 't1', '13:00', '15:00');
+        await w.create('calendar', { connected: true, events: [{ id: 'e1', calendar: 'work', title: 'Team call', start: at('14:30'), end: at('15:30') }] }, CALENDAR_ID);
+      },
+      { layout },
+    );
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    await screen.findByText('Team call');
+    const drawn = [...document.querySelectorAll('.day .cev')];
+    expect(drawn.length).toBeGreaterThanOrEqual(3);
+    for (const item of drawn) expect(line.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Its dot is the one part drawn in front of them (styles.test.ts).
+    expect(line.querySelector('i')).not.toBeNull();
+  });
+
   it("on phone, a tap on a task's block opens the task, and a practice's session opens its details in a sheet", async () => {
     await open(
       async (w) => {

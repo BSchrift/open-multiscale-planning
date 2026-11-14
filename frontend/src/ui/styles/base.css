@@ -80,8 +80,10 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 .zoombtn:disabled{opacity:.35;cursor:default}
 .tb.on{background:var(--blue)}
 /* Over the day and its blocks, under one being dragged; drops and drags pass through it. */
-.nowline{position:absolute;left:-6px;right:0;height:2px;background:var(--ink);z-index:1;pointer-events:none}
-.nowline i{position:absolute;left:0;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--ink)}
+/* The current time. Calendars draw it before their blocks and give it no z-index, so it passes behind them and never
+   strikes through the block under way; only its dot comes in front. */
+.nowline{position:absolute;left:-6px;right:0;height:2px;background:var(--ink);pointer-events:none}
+.nowline i{position:absolute;left:0;top:-3px;z-index:1;width:8px;height:8px;border-radius:50%;background:var(--ink)}
 .p-r{background:var(--red-tint);color:var(--red)}
 .pillbtn:hover .p-r{background:var(--red-soft)}
 .gdia{position:absolute;top:4px;z-index:1;width:10px;height:10px;margin-left:-5px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}

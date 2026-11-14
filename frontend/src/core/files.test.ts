@@ -62,11 +62,36 @@ describe('uploads', () => {
 
   it("waits for its record's sync, and leaves another device's photo to that device", async () => {
     const { files, kept, calls } = setup();
-    await photo(kept, { synced: false });
+    const id = await photo(kept, { synced: false });
     await files.run();
+    expect(calls).toEqual([]);
+    // Synced now, beside a photo added on another device, whose bytes aren't here.
     await db.run('DELETE FROM outbox');
     await photo(kept, { bytes: false });
-    expect(calls).toEqual([]);
+    await files.run();
+    expect(calls).toEqual([`grant ${id}`, `put https://bucket.example/u/abc/${id}`]);
+  });
+
+  it("moves on past a file the server has no record of yet, and stops at a failed or malformed grant, marking nothing uploaded", async () => {
+    let answer = () => json(404, { error: 'not_found' });
+    const { files, kept, calls } = setup({ grantUpload: async (id) => (calls.push(`grant ${id}`), answer()) });
+    const ids = [await photo(kept), await photo(kept)].sort();
+    await files.run();
+    expect(calls).toEqual(ids.map((id) => `grant ${id}`));
+    for (const failed of [() => json(500, {}), () => json(200, { headers: {} }), () => json(200, { url: 'https://bucket.example/u' }), () => new Response('<html>')]) {
+      calls.length = 0;
+      answer = failed;
+      await files.run();
+      // The rest would fail the same way, so the run stops at the first.
+      expect(calls).toEqual([`grant ${ids[0]}`]);
+      for (const id of ids) {
+        expect(files.state(id)).toEqual({ kind: 'waiting' });
+        expect((await getRecord(db, 'attachment', id))?.uploaded_at).toBeUndefined();
+      }
+    }
+    answer = () => grant('x');
+    await files.run();
+    for (const id of ids) expect((await getRecord(db, 'attachment', id))?.uploaded_at).toBe(NOW);
   });
 
   it('holds a photo the server found no room for until Retry', async () => {

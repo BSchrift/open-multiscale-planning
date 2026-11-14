@@ -382,6 +382,118 @@ func TestTheQuotaAndARaisedOne(t *testing.T) {
 	}
 }
 
+// unprocessedDB leaves every key unprocessed for the next Remaining batch reads, as a throttled DynamoDB does.
+type unprocessedDB struct {
+	files.DB
+	Remaining atomic.Int64
+}
+
+func (d *unprocessedDB) BatchGetItem(ctx context.Context, in *dynamodb.BatchGetItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
+	if d.Remaining.Add(-1) < 0 {
+		return d.DB.BatchGetItem(ctx, in, opts...)
+	}
+	return &dynamodb.BatchGetItemOutput{UnprocessedKeys: in.RequestItems}, nil
+}
+
+// A key a throttled read leaves unprocessed would count as nothing stored, no raised quota and no uploads this hour.
+// So it's read again, and reads that stay throttled fail rather than answer as if the account were empty.
+func TestThrottledReadsNeverCountAsAnEmptyAccount(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.attach("abc", "a1", bytes.Repeat([]byte("1"), 1000))
+	e.attach("abc", "a2", bytes.Repeat([]byte("2"), 1000))
+	e.attach("abc", "a3", bytes.Repeat([]byte("3"), 600))
+	e.grant("abc", "a1")
+	e.grant("abc", "a2")
+	if _, err := e.client.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(e.store.Table), Item: map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "user#abc"}, "sk": &types.AttributeValueMemberS{Value: "meta#quota"},
+		"value": &types.AttributeValueMemberN{Value: "2200"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	db := &unprocessedDB{DB: e.client}
+	e.service.DB = db
+
+	db.Remaining.Store(2)
+	if u := e.usage("abc"); u != (files.Usage{UsedBytes: 2000, QuotaBytes: 2200}) {
+		t.Errorf("usage %+v", u)
+	}
+	db.Remaining.Store(2)
+	_, err := e.service.GrantUpload(ctx, "abc", "a3")
+	refusal(t, err, http.StatusForbidden, "quota_exceeded")
+
+	// Throttled past every retry.
+	db.Remaining.Store(1000)
+	if u, err := e.service.Usage(ctx, "abc"); err == nil {
+		t.Errorf("throttled usage answered %+v", u)
+	}
+	db.Remaining.Store(1000)
+	if _, err := e.service.GrantUpload(ctx, "abc", "a3"); err == nil || errors.As(err, new(*files.Refusal)) {
+		t.Errorf("throttled grant: %v", err)
+	}
+	db.Remaining.Store(0)
+	if u := e.usage("abc"); u.UsedBytes != 2000 {
+		t.Errorf("a failed read granted room: %+v", u)
+	}
+}
+
+// interleavedDB runs between, once, after a read and before the write that follows it, as another request landing
+// there would.
+type interleavedDB struct {
+	files.DB
+	between func()
+}
+
+func (d *interleavedDB) BatchGetItem(ctx context.Context, in *dynamodb.BatchGetItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
+	out, err := d.DB.BatchGetItem(ctx, in, opts...)
+	if between := d.between; between != nil {
+		d.between = nil
+		between()
+	}
+	return out, err
+}
+
+// The same race as below, made to happen every time: another grant takes the last room between a grant's read and its
+// write. The write's condition refuses the stale count, and the grant reads again and is refused.
+func TestAGrantThatReadBeforeAnotherTookTheLastRoomIsRefused(t *testing.T) {
+	t.Run("storage", func(t *testing.T) {
+		e := newEnv(t)
+		ctx := context.Background()
+		e.attach("abc", "a1", bytes.Repeat([]byte("1"), 1000))
+		e.attach("abc", "a2", bytes.Repeat([]byte("2"), 1000))
+		e.attach("abc", "a3", bytes.Repeat([]byte("3"), 1000))
+		e.grant("abc", "a1")
+		e.service.DB = &interleavedDB{DB: e.client, between: func() { e.grant("abc", "a2") }}
+		_, err := e.service.GrantUpload(ctx, "abc", "a3")
+		refusal(t, err, http.StatusForbidden, "quota_exceeded")
+		if u := e.usage("abc"); u.UsedBytes != 2000 {
+			t.Errorf("both grants counted: %+v", u)
+		}
+	})
+	t.Run("downloads", func(t *testing.T) {
+		e := newEnv(t)
+		ctx := context.Background()
+		e.attach("abc", "a1", bytes.Repeat([]byte("1"), 1000))
+		e.attach("abc", "a2", bytes.Repeat([]byte("2"), 1000))
+		e.grant("abc", "a1")
+		e.grant("abc", "a2")
+		// 2000 of the hour's 3000 bytes.
+		if _, err := e.service.GrantDownloads(ctx, "abc", []string{"a1", "a2"}); err != nil {
+			t.Fatal(err)
+		}
+		e.service.DB = &interleavedDB{DB: e.client, between: func() {
+			if _, err := e.service.GrantDownloads(ctx, "abc", []string{"a2"}); err != nil {
+				t.Errorf("the grant between: %v", err)
+			}
+		}}
+		_, err := e.service.GrantDownloads(ctx, "abc", []string{"a1"})
+		refusal(t, err, http.StatusTooManyRequests, "download_rate")
+		if n := e.item("abc", "meta#rate")["download_bytes"].(*types.AttributeValueMemberN).Value; n != "3000" {
+			t.Errorf("counted %s bytes", n)
+		}
+	})
+}
+
 // Grants racing each other can't pass the quota between them: each is conditional on the bytes it read.
 func TestGrantsRacingForTheLastRoomGetOneEach(t *testing.T) {
 	e := newEnv(t)

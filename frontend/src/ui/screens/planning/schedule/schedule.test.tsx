@@ -59,6 +59,15 @@ describe('Schedule on desktop', () => {
     ]);
   });
 
+  it("marks the current time across today's column only", async () => {
+    await open();
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(document.querySelectorAll('.nowline')).toHaveLength(1);
+    expect(document.querySelectorAll('.colbody')[0]).toContainElement(line);
+    // 2pm is 8 hours after 6am, at 40px an hour.
+    expect(line).toHaveStyle({ top: `${8 * 40}px` });
+  });
+
   it('Place here puts the block on the week; a shorter block keeps the task current, and a placed task is ticked', async () => {
     const t = await open();
     await userEvent.click(await screen.findByRole('button', { name: 'Place here' }));
@@ -469,6 +478,14 @@ describe('Schedule on phone', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
     await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at(WEEK, 14), at(WEEK, 16)]]));
     expect(await screen.findByRole('button', { name: 'All picked tasks, 1 of 3 placed' })).toBeInTheDocument();
+  });
+
+  it('marks the current time on today', async () => {
+    await phone();
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    expect(line.closest('.dragday')).not.toBeNull();
+    // 8 hours after 6am, at 48px an hour.
+    expect(line).toHaveStyle({ top: `${8 * 48}px` });
   });
 
   it('says a day looked at is packed, as on Week', async () => {

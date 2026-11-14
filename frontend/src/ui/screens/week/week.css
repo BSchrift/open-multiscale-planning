@@ -13,6 +13,9 @@
 [data-layout='phone'] .wksum .wstrip { margin-inline: -4px; }
 [data-layout='phone'] .wkdaycard > .daywrap { padding-block: 0; }
 [data-layout='phone'] .wkdaycard .dragday { margin-bottom: 0; }
+/* The current time crosses the day's row that holds it, from beside its time. */
+[data-layout='phone'] .wkdaycard .tlrow { position: relative; }
+[data-layout='phone'] .wkdaycard .tlrow > .nowline { grid-column: 2; }
 /* While dragging, the day keeps room below it for the tray. */
 [data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
 [data-layout] .wknote { color: var(--amber-ink-2); }

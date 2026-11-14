@@ -1,6 +1,6 @@
 // The desktop week: seven day columns from 6am to 11pm, with closed hours and calendar events behind the blocks.
 // While editing, blocks drag on a 15-minute grid and snap to a suggested time within 20 minutes; the bottom edge
-// changes the length. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
+// changes the length, on a block tall enough to have one. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
 // calendar through onUnschedule. Week and the planning Schedule step share it.
 //
 //   <WeekGrid ctx={slotContext(...)} blocks={blocks} editing onChange={(id, slot) => save(id, slot)} />
@@ -13,9 +13,11 @@ import { diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, in
 import type { BlockRow } from '../../../core/queries';
 import { dayBaseAhead, dayFree, dragResult, DRAWN_DAY, isOpen, TIGHT_SHARE } from '../../../core/slots';
 import type { Slot, SlotContext, Span } from '../../../core/slots';
-import type { LocalDate } from '../../../core/types';
-import { KIND_WORD } from '../blocks/describe';
+import type { BlockResult, LocalDate } from '../../../core/types';
+import { KIND_WORD, OUTCOME_WORD } from '../blocks/describe';
+import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
+import { outcomeClass, OutcomeTag } from '../blocks/Outcome';
 import { clearLane, overLane } from './drop';
 import './weekgrid.css';
 
@@ -31,6 +33,10 @@ export interface GridBlock extends Slot {
   fixed?: boolean;
   /** The block being placed: solid orange over the others, and Enter places it through onOpen. */
   draft?: boolean;
+  /** Answered or over: it reads as done with, drawn muted. */
+  ended?: boolean;
+  /** How it went, once answered: said in words, and Done struck through. */
+  result?: BlockResult | null;
 }
 
 /** A block already on the week, as Week and the Schedule step show it. */
@@ -39,8 +45,8 @@ export interface PlacedBlock extends GridBlock {
   practice_id: string | null;
   /** Answered, or begun before now: it stays where it is. */
   past: boolean;
-  /** Answered or over: it reads as done with. */
   ended: boolean;
+  result: BlockResult | null;
 }
 
 const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off', planning: 'planning' };
@@ -62,6 +68,7 @@ export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[],
       practice_id: row.practice_id,
       past: answered || instantMs(row.start) < now,
       ended: answered || instantMs(row.end) <= now,
+      result: row.result,
     };
   });
 }
@@ -120,6 +127,8 @@ export interface WeekGridProps {
   onOpen?(id: string): void;
   /** The block whose details are open, when not editing. */
   openId?: string | null;
+  /** Now, in the week's zone: a line marks it across today's column, when today is in the week. */
+  now?: { date: LocalDate; minutes: number };
   /** How many things were finished each day up to today: those days' headings say so, and open Done. */
   done?: { finished: Readonly<Record<LocalDate, number>>; open(date: LocalDate): void };
 }
@@ -128,6 +137,9 @@ const { from: FROM, to: TO } = DRAWN_DAY;
 const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
 const KIND_CLASS: Record<BlockKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint', planning: 'ev-planning' };
 const COLUMN_GAP = 2;
+// Shorter than this, a block draws no edge to change its length: the edge, at least 4px, would take more than a quarter
+// of it, and most presses would change its length instead of moving it. Shift and the arrow keys still do.
+const EDGE_MIN = 16;
 const LANE_ROW = 28;
 
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
@@ -318,18 +330,18 @@ export function WeekGrid(props: WeekGridProps) {
                   const h = y(at.end) - y(at.start);
                   const style = { top: y(at.start), height: Math.max(13, h) };
                   const when = `${dayName(at.date)}, ${formatTimeOfDay(at.start)} to ${formatTimeOfDay(at.end)}`;
-                  const said = `${b.title}, ${when}, ${KIND_WORD[b.kind]}.${b.note ? ` ${b.note}.` : ''}`;
+                  const said = `${b.title}, ${when}, ${KIND_WORD[b.kind]}.${b.result ? ` ${OUTCOME_WORD[b.result]}.` : ''}${b.note ? ` ${b.note}.` : ''}`;
                   // The block being placed floats beside what it overlaps, so nothing under it moves or hides.
                   const beside = b.draft && [...blocks.filter((o) => !o.draft), ...ctx.busy].some((o) => o.date === at.date && o.start < at.end && at.start < o.end);
                   // Under two lines tall, the title stays on one line rather than being cut through.
-                  const cls = `${b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''}` : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}`}${h < 30 ? ' short' : ''}`;
+                  const cls = `${b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''}` : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}${b.ended ? ' ended' : ''}${outcomeClass(b.result)}`}${h < 30 ? ' short' : ''}`;
                   if (movable(b)) {
                     const help = b.draft ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.' : ' Arrow keys move it, Shift and arrows change its length.';
                     return (
                       <div
                         key={b.id}
                         data-id={b.id}
-                        className={b.draft ? cls : `${cls} evdrag`}
+                        className={b.draft ? cls : `${cls} evdrag${drag?.id === b.id ? ' lifted' : ''}`}
                         tabIndex={0}
                         role="group"
                         aria-label={said + help}
@@ -339,7 +351,7 @@ export function WeekGrid(props: WeekGridProps) {
                         onKeyDown={(e) => onKey(e, b)}
                       >
                         {b.draft ? `${b.title}, ${formatTimeOfDay(at.start)}` : b.title}
-                        <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />
+                        {h >= EDGE_MIN && <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />}
                         {!b.draft && props.onRemove && (
                           <button
                             type="button"
@@ -367,16 +379,19 @@ export function WeekGrid(props: WeekGridProps) {
                         title={b.note}
                         onClick={() => props.onOpen?.(b.id)}
                       >
+                        <OutcomeTag result={b.result} />
                         {b.title}
                       </button>
                     );
                   }
                   return (
                     <div key={b.id} className={cls} style={style} title={said}>
+                      <OutcomeTag result={b.result} />
                       {b.title}
                     </div>
                   );
                 })}
+                {props.now?.date === date && props.now.minutes >= FROM && props.now.minutes <= TO && <NowLine top={y(props.now.minutes)} />}
                 {ghosts
                   .filter((g) => g.date === date)
                   .map((g) => (

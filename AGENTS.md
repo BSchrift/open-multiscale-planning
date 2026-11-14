@@ -59,6 +59,9 @@ For contributors and agents alike. None of this needs a deployment or AWS access
 - While working, run just that test:
   - `npx vitest run <file>` and `npx tsc --noEmit -p .` in `frontend`;
   - `go test ./internal/<package>` in `backend`.
+- To find what no test reaches: `npx vitest run --coverage --maxWorkers=3` in `frontend`, and `go test -cover ./...` in
+  `backend` with `DYNAMODB_ENDPOINT` and `SSM_ENDPOINT` set, as `make test-integration` sets them. No threshold gates
+  either.
 
 **2. Run the suites for what you changed.** Run every row that applies, so it's green before CI sees it.
 

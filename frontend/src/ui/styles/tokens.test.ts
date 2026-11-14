@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -70,6 +70,8 @@ const PAIRS: [string, string, number][] = [
   ['white', 'red', BODY],
   ['white', 'red-dark', BODY],
   ['amber-ink', 'amber-soft', BODY],
+  ['amber-ink', 'closed', BODY], // Not done, said on a block gone by.
+  ['ink-2', 'closed', BODY], // Partly, said on a block gone by.
   ['amber-ink', 'page', BODY],
   ['amber-ink', 'white', BODY],
   ['amber-ink-2', 'amber-pale', BODY],
@@ -85,6 +87,8 @@ const PAIRS: [string, string, number][] = [
   ...['blue', 'teal', 'purple', 'amber', 'green'].map((part): [string, string, number] => [part, 'fill', PART]),
   // The Projects step's meter sits on the ground with a white track.
   ['amber', 'white', PART],
+  // Not done's dashed outline, on the block gone by and on the day around it.
+  ['amber', 'closed', PART],
   ['red', 'red-soft', PART],
 ];
 
@@ -118,6 +122,31 @@ describe('the colour tokens', () => {
       const rule = rules.find((r) => r.split('{')[0]!.split(',').some((s) => s.trim() === `${button}:focus-visible`));
       const ring = /outline-color: var\(--([\w-]+)\)/.exec(rule ?? '')?.[1] ?? 'blue';
       expect(contrast(value(ring), value('ink'))).toBeGreaterThanOrEqual(PART);
+    });
+
+    // The hour sliders' handles drop the usual ring for one drawn round the handle, so that ring has to show on the card.
+    it('ring a focused hour handle at 3:1 on its card', () => {
+      const css = readFileSync(join(import.meta.dirname, '../screens/settings/settings.css'), 'utf8');
+      const rings = [...css.matchAll(/:focus-visible::-(?:webkit-slider|moz-range)-thumb\s*\{[^}]*radial-gradient\(([^;]*)\);/g)].map(
+        (m) => [...m[1]!.matchAll(/var\(--([\w-]+)\)/g)].at(-1)![1]!,
+      );
+      expect(rings).toHaveLength(2);
+      for (const ring of rings) expect(contrast(value(ring), value('white'))).toBeGreaterThanOrEqual(PART);
+    });
+
+    // An icon button with no fill, such as a planning row's Delete, is only its icon, so the icon is what has to show.
+    it('draw every icon button at 3:1 on its card', () => {
+      const ui = join(import.meta.dirname, '..');
+      const sheets = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.css'));
+      const colours = sheets.flatMap((file) =>
+        readFileSync(join(ui, file), 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .split('}')
+          .filter((rule) => /\.icbtn(?![\w-])(?![^{]*:(disabled|hover))[^{]*\{/.test(rule))
+          .flatMap((rule) => [...rule.matchAll(/(?:^|[;{\s])color:\s*var\(--([\w-]+)\)/g)].map((m) => `${file}: ${m[1]}`)),
+      );
+      expect(colours.length).toBeGreaterThan(0);
+      expect(colours.filter((c) => contrast(value(c.split(': ')[1]!), value('white')) < PART)).toEqual([]);
     });
   });
 });

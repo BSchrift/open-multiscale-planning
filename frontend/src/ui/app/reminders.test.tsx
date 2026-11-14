@@ -280,6 +280,54 @@ describe('reminders', () => {
     expect(within(prompt).getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '1h');
   });
 
+  it("Do next block instead trades this block's work with the next block's, and each keeps its time", async () => {
+    const t = await open();
+    await act(() =>
+      t.write(async (w) => {
+        await w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't2');
+        await w.create('time_block', { task_id: 't2', start: at(17), end: at(18), tz: ZONE }, 'b2');
+      }),
+    );
+    await waitFor(async () => expect(await t.scheduled()).toHaveLength(6));
+    await respond(t, REMINDER_ACTION.nextBlock, 'start');
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.task_id).toBe('t2'));
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at(15), end: at(16) });
+    expect(await getRecord(t.db, 'time_block', 'b2')).toMatchObject({ task_id: 't1', start: at(17), end: at(18) });
+  });
+
+  it("a check-in's Skip tapped after the block ended answers Not done, rather than moving the block", async () => {
+    const t = await open();
+    t.clock.set(at(16, 5));
+    await respond(t, REMINDER_ACTION.skip, 'check_in');
+    await waitFor(async () => expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.result).toBe('not'));
+    // A task's answer logs no practice time.
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('b1')))?.logged_min ?? null).toBeNull();
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy();
+  });
+
+  describe("a practice's end notification logs its time rather than asking whether it's done", () => {
+    const practice = async (w: Writer) => {
+      await w.create('week_plan', { week_start: '2026-11-02', finished_at: at(8) }, 'week:2026-11-02');
+      await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr');
+      await w.create('time_block', { practice_id: 'pr', start: at(15), end: at(16), tz: ZONE }, 'b1');
+    };
+
+    it('All logs the whole block', async () => {
+      const t = await open({ seed: practice });
+      t.clock.set(at(16, 1));
+      await respond(t, REMINDER_ACTION.logAll);
+      await waitFor(async () => expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toMatchObject({ result: 'done', logged_min: 60 }));
+    });
+
+    it('Skip logs none of it, and leaves the block where it was', async () => {
+      const t = await open({ seed: practice });
+      t.clock.set(at(16, 1));
+      await respond(t, REMINDER_ACTION.skip);
+      await waitFor(async () => expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toMatchObject({ result: 'not', logged_min: 0 }));
+      expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy();
+    });
+  });
+
   // A notification was scheduled from this device's copy of the plan, which can be behind another device's.
   describe('syncs before acting, and opens Today instead of acting on a block changed since', () => {
     const today = () => screen.findByRole('region', { name: 'Today' });

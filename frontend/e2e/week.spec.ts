@@ -46,6 +46,28 @@ test('week arrows reach any week and This week comes back', async ({ page }, inf
   expect(errors).toEqual([]);
 });
 
+test('the current time is a line on today only, which moves with the time and lets drops through', async ({ page }, info) => {
+  const errors = await openWeek(page);
+  const line = page.getByRole('img', { name: 'Current time' });
+  await expect(line).toHaveCount(1);
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  if (info.project.name === 'desktop') {
+    // Within Monday's column, and no wider.
+    const [drawn, monday] = [(await line.boundingBox())!, (await page.locator('.colbody:visible').first().boundingBox())!];
+    expect(drawn.x).toBeGreaterThanOrEqual(monday.x);
+    expect(drawn.x + drawn.width).toBeLessThanOrEqual(monday.x + monday.width);
+  }
+  // On desktop it moves down the column; on phone, to the row that holds the new time.
+  const where = () => line.evaluate((e) => `${e.style.top} ${e.parentElement!.dataset.dropFrom ?? ''}`);
+  const before = await where();
+  await page.clock.fastForward('01:00:00');
+  await expect.poll(where).not.toBe(before);
+  await page.getByRole('button', { name: 'Previous week' }).click();
+  await expect(page.getByText('Oct 26 to Nov 1')).toBeVisible();
+  await expect(line).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('desktop: drag a block to another day and time, then remove it with Undo', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openWeek(page);
@@ -54,6 +76,10 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
 
   await page.getByRole('button', { name: "Edit this week's plan" }).click();
   await expect(page.getByRole('heading', { name: 'Editing this week' })).toBeVisible();
+  // A half-hour block keeps its edge to drag, no more than a quarter of it, so most of it still moves the block.
+  const piano = page.getByRole('group', { name: /^Piano practice/ });
+  const [pianoBox, pianoEdge] = [(await piano.boundingBox())!, (await piano.locator('.evh').boundingBox())!];
+  expect(pianoEdge.height).toBeLessThanOrEqual(pianoBox.height / 4);
   const block = page.getByRole('group', { name: /^Draft the summary/ });
   const box = (await block.boundingBox())!;
   const column = (await page.locator('.colbody').first().boundingBox())!;

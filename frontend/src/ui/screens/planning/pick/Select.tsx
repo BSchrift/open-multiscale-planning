@@ -1,6 +1,6 @@
-// Select mode, as Inbox has it: tick rows, then add them to this week, finish them, or take them out of it together,
-// each as one change with one toast and Undo. Does it fit previews what adding them would do. In select mode a
-// selection is the checkbox and one tint, and whether a task is in the week shows as words.
+// Select mode, as Inbox has it: tick rows that show, never folded ones, then add them to this week, finish them, or
+// take them out of it together, each as one change with one toast and Undo. Does it fit previews what adding them
+// would do. In select mode a selection is the checkbox and one tint, and whether a task is in the week shows as words.
 
 import { useEffect, useState } from 'react';
 import { formatMinutes } from '../../../../core/dates';
@@ -67,7 +67,7 @@ export function SelectBar(props: PickProps & { rows: readonly PickTask[]; sel: R
           {spoken}
         </span>
         <button className="link small" type="button" onClick={() => sel.set(props.rows)}>
-          Select all
+          Select all shown ({props.rows.length})
         </button>
         {props.phone && (
           <button className="link small" type="button" onClick={props.onCancel}>

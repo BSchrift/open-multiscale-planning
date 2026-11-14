@@ -1,7 +1,8 @@
 // Week on desktop: the header with week arrows, how the week's time is used, and the grid with To schedule above
-// it. Its cards drag onto a day, or open with suggested times. Editing adds a list of tasks to place on the left, and
-// the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning from Choose another time
-// waits on the grid with Place here above it, and the week arrows carry it to another week.
+// it. Its cards drag onto a day, or open with suggested times. A task's block opens the task's popup, with the block's
+// section at its top; a practice's session or planning opens its details beside the grid. Editing adds a list of tasks
+// to place on the left, and the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning
+// from Choose another time waits on the grid with Place here above it, and the week arrows carry it to another week.
 
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -14,6 +15,7 @@ import type { Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp } from '../../app/store';
 import { BlockDetail } from '../../components/blocks/BlockDetail';
+import { BlockSection } from '../../components/blocks/BlockSection';
 import { PlanPrompt } from '../../components/PlanPrompt';
 import { PlanningSet } from '../../components/planning/PlanningRow';
 import { PlanningTimes } from '../../components/planning/PlanningTimes';
@@ -30,6 +32,7 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { TaskPopupFor } from '../task';
 
 /** The grid's id for the planning block being placed. */
 const PLANNING = 'planning';
@@ -41,6 +44,17 @@ export function DesktopWeek(props: WeekProps) {
   const act = useWeekActions();
   const planning = usePlanningActions();
   const [openBlock, setOpenBlock] = useState<string | null>(null);
+  /** A task's block opened in the task's popup. */
+  const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
+  /** A block Move took from its popup, which takes focus once editing draws it, ready for the arrow keys. */
+  const moving = useRef<string | null>(null);
+  useEffect(() => {
+    const id = moving.current;
+    const el = id && right.current?.querySelector<HTMLElement>(`[data-id="${id}"]`);
+    if (!el) return;
+    moving.current = null;
+    el.focus();
+  });
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [planningFor, setPlanningFor] = useState<string | null>(null);
   /** A card being dragged over a day, and where it would land. */
@@ -144,7 +158,8 @@ export function DesktopWeek(props: WeekProps) {
   };
   const dragItem = (item: LaneItem) => ({ preview: (slot: Slot | null) => setDropAt(slot && { item, slot }), drop: (slot: Slot) => placeItem(item, slot) });
 
-  const gridBlocks: GridBlock[] = plan ? model.blocks.map((b) => ({ ...b, fixed: true })) : [...model.blocks];
+  const isTask = (b: GridBlock) => b.kind === 'project' || b.kind === 'one_off';
+  const gridBlocks: GridBlock[] = plan ? model.blocks.map((b) => ({ ...b, fixed: true })) : model.blocks.map((b) => ({ ...b, popup: isTask(b) }));
   if (plan && planAt) gridBlocks.push({ ...planAt, id: PLANNING, title: plan.title, kind: 'planning', draft: true });
   let ghosts: GridGhost[] = [];
   const item = model.unscheduled.find((x) => x.id === openItem);
@@ -164,6 +179,23 @@ export function DesktopWeek(props: WeekProps) {
   }
 
   const opened = openBlock ? data.blocks.find((b) => b.id === openBlock) : undefined;
+  const popRow = pop && data.blocks.find((b) => b.id === pop.block);
+  const popPlaced = pop && model.blocks.find((b) => b.id === pop.block);
+  // As on phone: from now on, this week or later, it can come off; this week, it moves while editing.
+  const popActions =
+    popPlaced && offset >= 0 && !popPlaced.past
+      ? {
+          onRemove: () => void act.remove(popPlaced.id, popPlaced.title),
+          ...(isThis
+            ? {
+                onMove: () => {
+                  moving.current = popPlaced.id;
+                  props.setEditing(true);
+                },
+              }
+            : {}),
+        }
+      : {};
   const lastMoved = moved ? model.blocks.find((b) => b.id === moved) : undefined;
   const anyDay = model.unscheduled.filter((x) => !x.dates);
 
@@ -409,11 +441,15 @@ export function DesktopWeek(props: WeekProps) {
                 if (b) void act.remove(id, b.title);
               }}
               onOpen={(id) => {
+                const b = model.blocks.find((x) => x.id === id);
                 if (id === 'draft' && cur && draft) void place(cur, draft);
                 else if (id === PLANNING) void placePlanning();
+                // A task's block opens its popup while editing too, as on phone.
+                else if (b?.task_id && isTask(b)) setPop({ block: id, task: b.task_id });
                 else if (!editing) setOpenBlock(openBlock === id ? null : id);
               }}
             />
+            {pop && <TaskPopupFor id={pop.task} close={() => setPop(null)} block={popRow && <BlockSection block={popRow} {...popActions} />} />}
             {!editing && (
               <div className="legend wklegend">
                 <span>

@@ -219,3 +219,20 @@
     animation: none;
   }
 }
+
+/* Opened from a block on a calendar: that block's own section, set apart above the task's fields. */
+[data-layout] .taskpopbody > .blocksec {
+  flex: none;
+  padding: var(--space-3);
+  border-radius: 10px;
+  background: var(--track);
+}
+
+[data-layout] .blocksec:focus:not(:focus-visible) {
+  outline: none;
+}
+
+[data-layout] .blocksecacts {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

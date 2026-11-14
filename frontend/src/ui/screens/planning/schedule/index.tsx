@@ -24,6 +24,7 @@ import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
 import { Popover } from '../../../components/Popover';
 import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
+import { TaskName } from '../../../components/task/TaskName';
 import { useFocusLanding } from '../../../components/useFocusLanding';
 import { dayName, slotRange, WeekGrid } from '../../../components/weekgrid';
 import type { GridBlock, GridGhost, PlacedBlock } from '../../../components/weekgrid';
@@ -280,6 +281,10 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   // What the current task or block says about itself.
   const title = cur?.title ?? editB?.title ?? '';
+  // Selecting places it; its name opens the task's popup, as a task's name does anywhere it shows, filling its line so
+  // it's a whole tap target on phone.
+  const taskId = cur ? cur.task?.id : editB && (editB.kind === 'project' || editB.kind === 'one_off') ? editB.task_id : null;
+  const name = taskId ? <TaskName className="rowname" id={taskId} title={title} /> : title;
   const when = b ? `${dayName(b.date)}, ${slotRange(b)} (${formatMinutes(len)})` : '';
   const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
   const amount =
@@ -419,7 +424,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 </h3>
                 <div className="scheddetail stack8">
                   <h4 ref={nowRef} className="schedtitle" tabIndex={-1}>
-                    {cur.title}
+                    {name}
                   </h4>
                   <div className="small quiet">{context}</div>
                   {b && <div className="strong">{when}</div>}
@@ -641,7 +646,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           ) : (
             <>
               <div className={oneOffCls}>
-                <div className="strong">{title}</div>
+                <div className="strong">{name}</div>
                 <div className="small quiet">{context}</div>
                 {b && (
                   <div className="small strong" role="status">

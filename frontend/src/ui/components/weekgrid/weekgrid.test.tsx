@@ -86,6 +86,67 @@ describe('the week grid', () => {
     expect(screen.getByRole('button', { name: 'Paint the fence, Sat Nov 7, 10am to 11am, One off.' })).toBeVisible();
   });
 
+  describe('a block gone by', () => {
+    const gone = (title: string, start: number, result?: GridBlock['result']): GridBlock => ({
+      id: title,
+      date: '2026-11-03',
+      start: start * 60,
+      end: (start + 1) * 60,
+      title,
+      kind: 'project',
+      ended: true,
+      result: result ?? null,
+    });
+    const blocks = [gone('Write the report', 9, 'done'), gone('Read the notes', 10, 'not'), gone('Email the editor', 11, 'partly'), gone('File the receipts', 12)];
+
+    it.each([false, true])('is struck through only when done; Partly and Not done say so in words instead, editing %s', (editing) => {
+      const { container } = draw({ blocks, editing, lockPast: editing });
+      const drawn = (title: string) => [...container.querySelectorAll('.ev')].find((e) => e.textContent?.endsWith(title))!;
+      expect(drawn('Write the report')).toHaveClass('ended', 'done');
+      expect(drawn('Read the notes')).toHaveClass('ended', 'notdone');
+      expect(drawn('Read the notes')).not.toHaveClass('done');
+      expect(within(drawn('Read the notes') as HTMLElement).getByText('Not done')).toBeVisible();
+      expect(drawn('Email the editor')).toHaveClass('ended', 'partly');
+      expect(drawn('Email the editor')).not.toHaveClass('done');
+      expect(within(drawn('Email the editor') as HTMLElement).getByText('Partly')).toBeVisible();
+      // One with no answer yet is only muted.
+      expect(drawn('File the receipts')).toHaveClass('ended');
+      expect(drawn('File the receipts')).not.toHaveClass('done');
+      expect(drawn('File the receipts')).toHaveTextContent(/^File the receipts$/);
+    });
+
+    it('says how it went to a screen reader', () => {
+      draw({ blocks });
+      expect(screen.getByRole('button', { name: 'Write the report, Tue Nov 3, 9am to 10am, Project. Done.' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Read the notes, Tue Nov 3, 10am to 11am, Project. Not done.' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Email the editor, Tue Nov 3, 11am to 12pm, Project. Partly.' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'File the receipts, Tue Nov 3, 12pm to 1pm, Project.' })).toBeVisible();
+    });
+  });
+
+  describe('the current time', () => {
+    const now = { date: '2026-11-04', minutes: 14 * 60 };
+
+    it.each([false, true])("is a line across today's column only, at the time, editing %s", (editing) => {
+      const { container } = draw({ now, editing });
+      const line = screen.getByRole('img', { name: 'Current time' });
+      expect(container.querySelectorAll('.nowline')).toHaveLength(1);
+      expect(line).toHaveClass('nowline');
+      expect(container.querySelectorAll('.colbody')[2]).toContainElement(line);
+      // 8 hours after 6am, at 26px an hour, or 40 while editing.
+      expect(line).toHaveStyle({ top: `${8 * (editing ? 40 : 26)}px` });
+    });
+
+    it.each([
+      ['in another week', { date: '2026-11-11', minutes: 14 * 60 }],
+      ['before 6am', { ...now, minutes: 5 * 60 + 30 }],
+      ['after 11pm', { ...now, minutes: 23 * 60 + 30 }],
+    ])('is not drawn %s', (_, at) => {
+      const { container } = draw({ now: at });
+      expect(container.querySelectorAll('.nowline')).toHaveLength(0);
+    });
+  });
+
   it('a drop whose save fails goes back to where the block was saved', async () => {
     draw({ editing: true, onChange: vi.fn(async () => undefined) });
     drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });
@@ -160,6 +221,18 @@ describe('the week grid', () => {
     expect(t.onChange).toHaveBeenLastCalledWith('b1', { date: '2026-11-05', start: 17 * 60, end: 18 * 60 + 30 });
     drag(edge, { x: 50, y: 100 }, { x: 50, y: -400 });
     expect(t.onChange).toHaveBeenLastCalledWith('b1', { date: '2026-11-05', start: 17 * 60, end: 17 * 60 + 15 });
+  });
+
+  it('a 15-minute block has no edge to drag, so a press anywhere on it moves it; a 30-minute one keeps its edge', () => {
+    const t = draw({ editing: true, blocks: [{ ...piano, end: piano.start + 15 }] });
+    const el = block(/^Piano practice/);
+    expect(el.querySelector('.evh')).toBeNull();
+    // 20px is half an hour at 40px an hour: start and end both move.
+    drag(el, { x: 50, y: 100 }, { x: 50, y: 120 });
+    expect(t.onChange).toHaveBeenCalledWith('b2', { date: '2026-11-06', start: 7 * 60 + 30, end: 7 * 60 + 45 });
+    cleanup();
+    draw({ editing: true });
+    expect(block(/^Piano practice/).querySelector('.evh')).not.toBeNull();
   });
 
   it('a press that does not move opens the block', () => {

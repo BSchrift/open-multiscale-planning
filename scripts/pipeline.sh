@@ -11,7 +11,7 @@
 #                                    ALARMS=off
 #   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
 #   release-surface  make release-surface  ENV=staging|prod, signed in with that environment's profile: lists what each
-#                                    surface serves and the versions kept, or with SURFACE=web|desktop|iphone|shared and
+#                                    surface serves and the versions kept, or with SURFACE=web|desktop|iphone and
 #                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
@@ -101,19 +101,18 @@ differs() {
   node -e 'const [a, b, app] = process.argv.slice(1); const of = (s) => { try { return JSON.parse(s)[app]; } catch { return undefined; } }; process.exit(of(a) !== undefined && of(a) === of(b) ? 1 : 0);' "$1" "$2" "$3"
 }
 
-# Where each feed is in the release bucket, on the release host: the desktop and iphone feeds the apps read, and the
-# shared one that bundles from before them read (frontend/src/core/updates.ts).
-feed_key() { case "$1" in shared) echo release/release.json ;; *) echo "release/$1/release.json" ;; esac; }
+# Where each app's feed is in the release bucket, on the release host: desktop or iphone (frontend/src/core/updates.ts).
+feed_key() { echo "release/$1/release.json"; }
+# The feed bundles from before the apps' own feeds read, at the release host's root. Releases delete it: no bundle that
+# reads it is left to take an update from it.
+shared_feed=release/release.json
 
-# The shell of what a feed serves now, signed in as the environment's release role: desktop, iphone or shared. Until a
-# surface's own feed exists, the shared one's, which is what installed apps took.
+# The shell of what an app's feed serves now, signed in as the environment's release role: desktop or iphone.
 live_shell() {
-  local env_name="$1" feed="${2:-shared}" account region profile bucket shell
+  local env_name="$1" feed="$2" account region profile bucket
   read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
   bucket="$(release_bucket "$env_name")"
-  shell="$(AWS_PROFILE="$profile" aws s3 cp "s3://$bucket/$(feed_key "$feed")" - 2>/dev/null | shell_of || true)"
-  if [ "$shell" = none ] && [ "$feed" != shared ]; then shell="$(live_shell "$env_name")"; fi
-  echo "$shell"
+  AWS_PROFILE="$profile" aws s3 cp "s3://$bucket/$(feed_key "$feed")" - 2>/dev/null | shell_of || true
 }
 
 # Whether an environment's downloads host serves a Mac app the MacApp step checked, as publish records it. A Mac app
@@ -168,7 +167,7 @@ upload() {
   aws s3 cp "$signed/release.json" "s3://$bucket/versions/$version/release.json" --cache-control 'public, max-age=60' --content-type application/json >&2
 }
 
-# Points one surface at a version already uploaded: web, or the desktop, iphone or shared feed. A few small copies inside
+# Points one surface at a version already uploaded: web, or the desktop or iphone feed. A few small copies inside
 # the bucket, which keep the headers the upload set. Web's version.json goes last, so it names the version web serves
 # only once the page is there. Each switch adds a line to state/history.json. Signed in to the environment: AWS_PROFILE.
 switch() {
@@ -180,8 +179,8 @@ switch() {
       aws s3 cp "s3://$bucket/versions/$version/web/" "s3://$bucket/web/" --recursive --exclude version.json >&2
       aws s3 cp "s3://$bucket/versions/$version/web/version.json" "s3://$bucket/web/version.json" >&2
       ;;
-    desktop | iphone | shared) aws s3 cp "s3://$bucket/versions/$version/release.json" "s3://$bucket/$(feed_key "$surface")" >&2 ;;
-    *) echo "There's no surface $surface: web, desktop, iphone or shared." >&2; return 1 ;;
+    desktop | iphone) aws s3 cp "s3://$bucket/versions/$version/release.json" "s3://$bucket/$(feed_key "$surface")" >&2 ;;
+    *) echo "There's no surface $surface: web, desktop or iphone." >&2; return 1 ;;
   esac
   # Each surface's versions in the order it got them, for going back one.
   history="$(aws s3 cp "s3://$bucket/state/history.json" - 2>/dev/null || echo '{}')"
@@ -210,7 +209,7 @@ served_before() {
 # serves now. Says why.
 refuses() {
   local env_name="$1" surface="$2" info="$3" version app apps
-  case "$surface" in desktop) apps=electron ;; iphone) apps=ios ;; shared) apps="electron ios" ;; *) return 1 ;; esac
+  case "$surface" in desktop) apps=electron ;; iphone) apps=ios ;; *) return 1 ;; esac
   version="$(field_of version <<<"$info")"
   for app in $apps; do
     if differs "$(live_shell "$env_name" "$surface")" "$(shell_of <<<"$info")" "$app"; then
@@ -245,14 +244,15 @@ list_surfaces() {
   local env_name="$1" bucket surface
   bucket="$(release_bucket "$env_name")"
   echo "$env_name serves:"
-  for surface in web desktop iphone shared; do printf '  %-8s %s\n' "$surface" "$(serves "$bucket" "$surface")"; done
+  for surface in web desktop iphone; do printf '  %-8s %s\n' "$surface" "$(serves "$bucket" "$surface")"; done
   echo "Each surface's last versions, newest first:"
+  # The history may still have lines for the shared feed, which is gone.
   aws s3 cp "s3://$bucket/state/history.json" - 2>/dev/null |
-    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { let h = {}; try { h = JSON.parse(s); } catch {} for (const [surface, lines] of Object.entries(h)) console.log(`  ${surface.padEnd(8)} ${lines.slice(-3).reverse().map((l) => `${l.version} ${l.at}`).join(", ")}`); });' || true
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { let h = {}; try { h = JSON.parse(s); } catch {} for (const surface of ["web", "desktop", "iphone"]) if (h[surface]) console.log(`  ${surface.padEnd(8)} ${h[surface].slice(-3).reverse().map((l) => `${l.version} ${l.at}`).join(", ")}`); });' || true
   echo "Versions kept, newest first:"
   aws s3 ls "s3://$bucket/versions/" --recursive 2>/dev/null |
     node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const kept = s.split("\n").map((l) => /^(\S+ \S+) +\d+ versions\/([^/]+)\/web\/version\.json$/.exec(l)).filter(Boolean); for (const [, at, version] of kept.sort((a, b) => b[1].localeCompare(a[1]))) console.log(`  ${version.padEnd(16)} uploaded ${at}`); });' || true
-  echo "To switch one: make release-surface ENV=$env_name SURFACE=web|desktop|iphone|shared VERSION=<version>"
+  echo "To switch one: make release-surface ENV=$env_name SURFACE=web|desktop|iphone VERSION=<version>"
 }
 
 # Waits up to two minutes for a surface's host to serve a version: a feed caches for a minute at the edge.
@@ -293,12 +293,12 @@ round_trip() {
 # Publishes one environment's build in today's single step, as release.sh does from a Mac: uploads it, then switches
 # every surface that can take it, and sets version and feeds to the version and the feeds it switched. The web app
 # always switches. Each feed compares only its own app's native code with what it serves now: the desktop feed switches
-# when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, the iPhone feed when the
-# iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, and the shared feed only
-# when both do, so no installed app is told it needs an app that isn't out. A run doesn't wait for Beta App Review,
-# which can take a day: the first run after it passes the build switches the iPhone feed. A Mac app the MacApp step
-# checked is published whenever it hands one on, as when the downloads host served none it checked, with the record
-# that it's a checked one.
+# when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, and the iPhone feed when the
+# iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, so no installed app is
+# told it needs an app that isn't out. A run doesn't wait for Beta App Review, which can take a day: the first run after
+# it passes the build switches the iPhone feed. A Mac app the MacApp step checked is published whenever it hands one on,
+# as when the downloads host served none it checked, with the record that it's a checked one. Last, it deletes the
+# shared feed, if the bucket still has it.
 publish() {
   local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" waiting="" feed testflight=""
   web="$(built)/web/$env_name"
@@ -325,7 +325,6 @@ publish() {
     testflight="$(testflight_build "$build")"
     if [ -n "$testflight" ]; then feeds="$feeds iphone"; else waiting="${waiting:+$waiting and }iPhone"; fi
   fi
-  [ -n "$waiting" ] || feeds="$feeds shared"
   (
     export AWS_PROFILE="$profile"
     upload "$env_name" "$web" "$signed"
@@ -338,12 +337,14 @@ publish() {
       echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
     fi
     for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
+    # Gone once, then a no-op: S3 answers a delete of a missing key as done.
+    aws s3 rm "s3://$(release_bucket "$env_name")/$shared_feed" >&2
   )
   if [ -n "$testflight" ]; then
     echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
   fi
   if [ -n "$waiting" ]; then
-    echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds and the shared one stay as they are."
+    echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds stay as they are."
     case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
     case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
@@ -413,8 +414,12 @@ case "$command" in
   release-surface)
     env_name="${ENV:-staging}"
     case "$env_name" in staging | prod) ;; *) echo "ENV must be staging or prod, not $env_name" >&2; exit 1 ;; esac
-    case "${SURFACE:-}" in "" | web | desktop | iphone | shared) ;; *) echo "SURFACE must be web, desktop, iphone or shared, not $SURFACE" >&2; exit 1 ;; esac
-    [ -z "${VERSION:-}" ] || [ -n "${SURFACE:-}" ] || { echo "Name the SURFACE to switch to $VERSION: web, desktop, iphone or shared." >&2; exit 1; }
+    case "${SURFACE:-}" in
+      "" | web | desktop | iphone) ;;
+      shared) echo "There's no shared feed any more: each app reads its own. SURFACE must be web, desktop or iphone." >&2; exit 1 ;;
+      *) echo "SURFACE must be web, desktop or iphone, not $SURFACE" >&2; exit 1 ;;
+    esac
+    [ -z "${VERSION:-}" ] || [ -n "${SURFACE:-}" ] || { echo "Name the SURFACE to switch to $VERSION: web, desktop or iphone." >&2; exit 1; }
     sign_in "$env_name"
     signed_in="$(aws sts get-caller-identity --query Account --output text)"
     if [ "$signed_in" != "$account" ]; then
@@ -445,7 +450,7 @@ case "$command" in
     version_of "$3"
     ;;
   switch)
-    # scripts/pipeline.sh switch <env> web|desktop|iphone|shared <version>.
+    # scripts/pipeline.sh switch <env> web|desktop|iphone <version>.
     switch "$2" "$3" "$4"
     ;;
 
@@ -586,10 +591,9 @@ case "$command" in
   bake-check)
     # After a surface's bake on prod, web or desktop: whether a release alarm is in ALARM. If one is, the surface switches
     # back by itself to what it served before this run switched it, and the step fails, which stops the run before the
-    # next surface and emails. Desktop is its feed and the shared one, each back to its own version before. A surface no
-    # longer on this run's version, switched since by hand, stays. A run with ALARMS=off only reports, since its release
-    # went out with the alarms off.
-    case "${2:-}" in web) surfaces=web ;; desktop) surfaces="desktop shared" ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop" >&2; exit 1 ;; esac
+    # next surface and emails. A surface no longer on this run's version, switched since by hand, stays. A run with
+    # ALARMS=off only reports, since its release went out with the alarms off.
+    case "${2:-}" in web) surfaces=web ;; desktop) surfaces=desktop ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop" >&2; exit 1 ;; esac
     fetch_config
     profiles
     outputs prod

@@ -9,9 +9,10 @@ import { releaseKeyIn } from '../../scripts/sign-release.mjs';
 import { deployed } from './target';
 
 const d = deployed();
-// Where each feed is on the release host. The desktop and iPhone apps read their own; bundles from before that read the
-// shared one (src/core/updates.ts).
-const FEEDS = { desktop: 'desktop/release.json', iphone: 'iphone/release.json', shared: 'release.json' };
+// Where each app's feed is on the release host (src/core/updates.ts).
+const FEEDS = { desktop: 'desktop/release.json', iphone: 'iphone/release.json' };
+// Prod's Test step runs before its release publishes, and so before that release deletes the shared feed.
+const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 // An Ed25519 public key's DER prefix, before the 32 bytes a build carries.
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
@@ -49,4 +50,16 @@ test('each feed checks out with the release key and names the version released, 
       downloaded.add(file.sha256);
     }
   }
+});
+
+// Bundles from before the apps' own feeds read release.json at the host's root. Each release deletes it, so no one is
+// left reading a feed nothing switches.
+test('the shared feed at the root is gone', async ({ request }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The feeds are the same at every size');
+  test.skip(!d.releaseUrl, `${d.env} has no release host`);
+  test.skip(beforePublish, "needs: this release's publish, which deletes it, and which release-prod checks");
+  // A copy may stay at the edge for the minute it cached for.
+  await expect
+    .poll(async () => [403, 404].includes((await request.get(`${d.releaseUrl}/release.json`)).status()), { message: `${d.releaseUrl}/release.json answers 403 or 404`, timeout: 90_000, intervals: [10_000] })
+    .toBe(true);
 });

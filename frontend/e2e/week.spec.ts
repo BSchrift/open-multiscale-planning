@@ -120,6 +120,7 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   await row.click();
   const sheet = page.getByRole('dialog', { name: 'Draft the summary' });
   await expect(sheet.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
+  await expectTapTarget(sheet.getByRole('slider', { name: 'Length' }));
   await sheet.getByRole('button', { name: 'Move', exact: true }).click();
   await expect(page.getByText('Moving Draft the summary, 1h, from Tue 6pm')).toBeVisible();
   const handle = page.getByRole('slider', { name: /^Time for Draft the summary/ });

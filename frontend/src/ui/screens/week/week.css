@@ -33,6 +33,8 @@
 [data-layout] .wkgroup { margin-bottom: 4px; }
 [data-layout] .wkrow { padding: 0; }
 [data-layout] .wkrange { width: 100%; }
+/* On phone a length slider is a whole tap target tall, as the estimate sliders are. */
+[data-layout='phone'] .wkrange { min-height: var(--tap); }
 [data-layout] .day.dragday { background: repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) 48px); }
 @media (prefers-reduced-motion: reduce) {
   [data-layout] .dragblock, [data-layout] .evdrag { transition: none; }

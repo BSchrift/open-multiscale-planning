@@ -40,6 +40,12 @@ test.beforeAll(async ({ browser }, info) => {
 
 test.afterAll(() => context?.close());
 
+// CodeBuild keeps no trace, so a failed test logs what the page showed.
+test.afterEach(async ({}, info) => {
+  if (info.status !== info.expectedStatus && page && !page.isClosed())
+    console.log(`${info.title} failed; the page showed:\n${await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)')}`);
+});
+
 test('serves the version released, its pages with the security policy, and assets that cache for good', async () => {
   for (const path of ['/', '/auth/callback', '/version.json']) {
     const r = await page.request.get(path);
@@ -229,9 +235,18 @@ async function clearChecks(page: Page) {
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
-    // Delete was "Delete/done" before, which a deployment may still be serving; on desktop its keycap follows in the name.
-    await page.getByRole('button', { name: /^Delete(\/done)?( |$)/ }).click();
-    await page.getByRole('button', { name: 'Yes, delete' }).click();
+    // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
+    // already showing, so answer it if it's there.
+    const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
+    const yes = page.getByRole('button', { name: 'Yes, delete' });
+    // The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no Process open),
+    // so an item that's gone needs nothing more.
+    const asking = () => del.or(yes).first().isVisible();
+    const gone = async () => !(await page.getByRole('button', { name: `Assign ${name}`, exact: true }).count());
+    await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
+    if (!(await asking())) continue;
+    if (await del.isVisible()) await del.click();
+    await yes.click();
     // The last one closes this release's Process by itself.
     const process = page.getByRole('dialog', { name: 'Process Inbox' });
     await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);

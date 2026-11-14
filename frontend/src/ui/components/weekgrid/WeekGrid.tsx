@@ -327,6 +327,8 @@ export function WeekGrid(props: WeekGridProps) {
                 {closed.map((z, i) => (
                   <div key={`c${i}`} className="ev ev-closed" style={{ top: z.top, height: z.h }} aria-hidden="true" />
                 ))}
+                {/* Over closed time but before what's drawn on the day, so it passes behind events and blocks. */}
+                {props.now?.date === date && props.now.minutes >= FROM && props.now.minutes <= TO && <NowLine top={y(props.now.minutes)} />}
                 {/* Planning is busy too, but its own block is drawn instead, so the gaps between columns stay clear. */}
                 {ctx.busy
                   .filter((e) => e.date === date && !blocks.some((b) => b.id === e.id))
@@ -412,7 +414,6 @@ export function WeekGrid(props: WeekGridProps) {
                     </div>
                   );
                 })}
-                {props.now?.date === date && props.now.minutes >= FROM && props.now.minutes <= TO && <NowLine top={y(props.now.minutes)} />}
                 {ghosts
                   .filter((g) => g.date === date)
                   .map((g) => (

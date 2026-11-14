@@ -1,4 +1,4 @@
-// The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Task finished, Partly with the
+// The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Done, Partly with the
 // time left, Not done) and a practice's time logged. Several missed blocks share one sheet, MissedSheet. On desktop
 // these sit in the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they
 // close. One that opens while you're typing or in another dialog waits until you're done.
@@ -13,6 +13,7 @@ import { useOverlay } from '../../app/nav';
 import { STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
+import { AnswerIcon } from '../icons';
 import { Sheet } from '../Sheet';
 import { useDialogFocus } from '../useDialogFocus';
 import { useBlockActions } from './useBlockActions';
@@ -135,8 +136,8 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
 }
 
 /**
- * The end-of-block prompt. Work asks Task finished, Partly or Not done, with Partly setting the time left; a practice logs
- * how much was done. onClose without an answer means "Answer later".
+ * The end-of-block prompt. Work asks Done, Partly or Not done, each after its icon as the missed blocks sheet draws it,
+ * with Partly setting the time left; a practice logs how much was done. onClose without an answer means "Answer later".
  */
 export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean }) {
   const { block } = props;
@@ -158,12 +159,15 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
       <div className="stack8">
         <div className="row">
           <button className="btn pri" type="button" disabled={actions.pending} onClick={() => answer('done')}>
-            Task finished
+            <AnswerIcon answer="done" />
+            Done
           </button>
           <button className="btn" type="button" onClick={() => setPartly(true)}>
+            <AnswerIcon answer="partly" />
             Partly
           </button>
           <button className="btn" type="button" disabled={actions.pending} onClick={() => answer('not')}>
+            <AnswerIcon answer="not" />
             Not done
           </button>
         </div>

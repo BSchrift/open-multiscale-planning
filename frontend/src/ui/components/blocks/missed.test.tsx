@@ -42,7 +42,7 @@ describe('the missed blocks sheet', () => {
     expect(rows(dialog)).toEqual(['Draft chapter five', 'Email the editor', 'Piano', 'Draft chapter five', 'Pay the water bill']);
     const first = within(dialog).getAllByRole('group')[0]!;
     expect(within(first).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Finished: Draft chapter five',
+      'Done: Draft chapter five',
       'Partly: Draft chapter five',
       'Not done: Draft chapter five',
     ]);
@@ -80,9 +80,9 @@ describe('the missed blocks sheet', () => {
     await waitFor(async () => expect((await outcome(t, 'pb'))?.logged_min).toBe(30));
   });
 
-  it('Finished saves at once with Undo, and the task takes its later missed block with it', async () => {
+  it('Done saves at once with Undo, and the task takes its later missed block with it', async () => {
     const t = await open();
-    await userEvent.click(within(await sheet()).getAllByRole('button', { name: 'Finished: Draft chapter five' })[0]!);
+    await userEvent.click(within(await sheet()).getAllByRole('button', { name: 'Done: Draft chapter five' })[0]!);
     expect(await screen.findByText('Draft chapter five: finished, and 1 later block.')).toBeVisible();
     const dialog = await sheet(3);
     expect(rows(dialog)).toEqual(['Email the editor', 'Piano', 'Pay the water bill']);
@@ -104,8 +104,23 @@ describe('the missed blocks sheet', () => {
     expect(await screen.findByText('Piano: skipped.')).toBeVisible();
     expect(await outcome(t, 'b2')).toMatchObject({ result: 'not' });
     expect(await outcome(t, 'pb')).toMatchObject({ result: 'not', logged_min: 0 });
-    await userEvent.click(within(await sheet(3)).getByRole('button', { name: 'Finished: Pay the water bill' }));
+    await userEvent.click(within(await sheet(3)).getByRole('button', { name: 'Done: Pay the water bill' }));
     expect(await screen.findByText('Pay the water bill: finished.')).toBeVisible();
+  });
+
+  it("the top row's Done is filled, as the end-of-block prompt's is, and the row under takes it once that one is answered", async () => {
+    await open();
+    const filled = (dialog: HTMLElement) =>
+      within(dialog)
+        .getAllByRole('button')
+        .filter((b) => b.classList.contains('pri'))
+        .map((b) => b.getAttribute('aria-label'));
+    expect(filled(await sheet())).toEqual(['Done: Draft chapter five']);
+    await userEvent.click(within(await sheet()).getAllByRole('button', { name: 'Not done: Draft chapter five' })[0]!);
+    expect(filled(await sheet(4))).toEqual(['Done: Email the editor']);
+    await userEvent.click(within(await sheet(4)).getByRole('button', { name: 'Not done: Email the editor' }));
+    // A practice's first answer, Did it, is its Done.
+    expect(filled(await sheet(3))).toEqual(['Did it: Piano']);
   });
 
   it('Partly asks for the time left inside the sheet, from what was left, and Back saves nothing', async () => {
@@ -142,20 +157,20 @@ describe('the missed blocks sheet', () => {
     expect(await outcome(t, 'pb')).toMatchObject({ result: 'done', logged_min: 20 });
   });
 
-  it('Select mode answers every ticked row at once, with one Undo, and Finished is Did it for a practice', async () => {
+  it('Select mode answers every ticked row at once, with one Undo, and Done is Did it for a practice', async () => {
     const t = await open();
     const dialog = await sheet();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Select' }));
     const boxes = within(dialog).getAllByRole('checkbox');
     expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([false, false, false, false, false]);
     expect(within(dialog).getByRole('status')).toHaveTextContent('0 selected');
-    for (const name of ['Finished', 'Partly', 'Not done']) expect(within(dialog).getByRole('button', { name })).toBeDisabled();
+    for (const name of ['Done', 'Partly', 'Not done']) expect(within(dialog).getByRole('button', { name })).toBeDisabled();
 
     await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Email the editor' }));
     await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Piano' }));
     expect(within(dialog).getByRole('status')).toHaveTextContent('2 selected');
-    expect(within(dialog).getByText('For a practice, Finished counts as Did it.')).toBeVisible();
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Finished' }));
+    expect(within(dialog).getByText('For a practice, Done counts as Did it.')).toBeVisible();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     expect(await screen.findByText('Answered 2 blocks.')).toBeVisible();
     expect(await outcome(t, 'b2')).toMatchObject({ result: 'done' });
     expect(await outcome(t, 'pb')).toMatchObject({ result: 'done', logged_min: 30 });
@@ -226,7 +241,7 @@ describe('the missed blocks sheet', () => {
     await userEvent.click(info);
     expect(info).toHaveAttribute('aria-expanded', 'true');
     const key = within(dialog).getByRole('group', { name: 'Key' });
-    expect(key).toHaveTextContent('Finished');
+    expect(key).toHaveTextContent('Done');
     expect(key).toHaveTextContent('Partly, some is left');
     expect(key).toHaveTextContent('Not done');
     expect(key).toHaveTextContent('For a practice: Did it, Some and Skipped.');

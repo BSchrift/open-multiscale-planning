@@ -1,7 +1,6 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Component, Suspense, useEffect, useRef } from 'react';
-import type { ReactNode } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
 import { PlusIcon, TabIcon } from '../components/icons';
@@ -16,28 +15,10 @@ import { useReminders } from './reminders';
 import { useShareImport } from './shareImport';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
+import { preloadScreens, ScreenBoundary } from './screenLoad';
 import { useApp, useQuery } from './store';
 import { useCaptureShortcut } from './captureShortcut';
 import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
-
-class ScreenBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  override state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  override componentDidCatch(error: unknown) {
-    console.error('Screen failed', error);
-  }
-  override render() {
-    if (!this.state.failed) return this.props.children;
-    return (
-      <div role="alert" className="stack8">
-        <h1>Something went wrong</h1>
-        <p className="quiet">Your data is safe. Restart the app to try again.</p>
-      </div>
-    );
-  }
-}
 
 function AreaScreen(props: { area: AreaId; params: RouteParams; presentation: Presentation; close(): void }) {
   const { layout } = useApp();
@@ -248,6 +229,9 @@ export function Shell(props: { initial?: Route }) {
   useEffect(() => {
     if (started) platform.updates?.ready();
   }, [started, platform]);
+  // The browser fetches each screen's code from the server, so fetch it all once the app has drawn: a screen first
+  // opened offline then still opens. The apps carry their code.
+  useEffect(() => (started && platform.kind === 'web' ? preloadScreens(Object.values(AREAS).map((a) => a.Screen)) : undefined), [started, platform]);
   if (!settings.data) {
     return settings.error ? <div className="boot">Couldn't open your data. Restart the app to try again.</div> : null;
   }

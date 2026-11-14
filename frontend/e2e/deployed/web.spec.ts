@@ -229,9 +229,19 @@ async function clearChecks(page: Page) {
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
-    // Delete was "Delete/done" before, which a deployment may still be serving; on desktop its keycap follows in the name.
-    await page.getByRole('button', { name: /^Delete(\/done)?( |$)/ }).click();
-    await page.getByRole('button', { name: 'Yes, delete' }).click();
+    // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
+    // already showing, so answer it if it's there; if neither comes, the log gets what the page shows, since CodeBuild
+    // keeps no trace.
+    const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
+    const yes = page.getByRole('button', { name: 'Yes, delete' });
+    try {
+      await expect(del.or(yes).first()).toBeVisible({ timeout: 15_000 });
+    } catch (error) {
+      console.log(`clearChecks found neither Delete nor Yes, delete after Assign ${name}:\n${await page.locator('body').ariaSnapshot()}`);
+      throw error;
+    }
+    if (await del.isVisible()) await del.click();
+    await yes.click();
     // The last one closes this release's Process by itself.
     const process = page.getByRole('dialog', { name: 'Process Inbox' });
     await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);

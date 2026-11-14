@@ -243,6 +243,17 @@ describe('shell on phone', () => {
     expect(await screen.findByText('Nothing finished yet today', { selector: '.morerow .small' })).toBeVisible();
   });
 
+  it('Done opened from Today, then from Week’s heading for the same day, goes back to Week', async () => {
+    await renderApp({ layout: 'phone', seed: planned });
+    await userEvent.click(await screen.findByRole('button', { name: 'Done: nothing finished yet today' }));
+    await showsPane('Done');
+    await userEvent.click(tab('Week'));
+    await userEvent.click(await screen.findByRole('button', { name: /^Done on Mon Nov 2/ }));
+    await showsPane('Done');
+    await userEvent.click(screen.getByRole('button', { name: 'Back to Week' }));
+    await showsPane('Week');
+  });
+
   it('tapping the current tab returns to its root, and other tabs keep their page', async () => {
     await renderApp({ layout: 'phone' });
     await userEvent.click(await screen.findByRole('button', { name: 'More' }));

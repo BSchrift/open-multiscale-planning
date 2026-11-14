@@ -40,6 +40,12 @@ test.beforeAll(async ({ browser }, info) => {
 
 test.afterAll(() => context?.close());
 
+// CodeBuild keeps no trace, so a failed test logs what the page showed.
+test.afterEach(async ({}, info) => {
+  if (info.status !== info.expectedStatus && page && !page.isClosed())
+    console.log(`${info.title} failed; the page showed:\n${await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)')}`);
+});
+
 test('serves the version released, its pages with the security policy, and assets that cache for good', async () => {
   for (const path of ['/', '/auth/callback', '/version.json']) {
     const r = await page.request.get(path);
@@ -230,20 +236,14 @@ async function clearChecks(page: Page) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
     // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
-    // already showing, so answer it if it's there; if neither comes, the log gets what the page shows, since CodeBuild
-    // keeps no trace.
+    // already showing, so answer it if it's there.
     const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
     const yes = page.getByRole('button', { name: 'Yes, delete' });
     // The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no Process open),
     // so an item that's gone needs nothing more.
     const asking = () => del.or(yes).first().isVisible();
     const gone = async () => !(await page.getByRole('button', { name: `Assign ${name}`, exact: true }).count());
-    try {
-      await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
-    } catch (error) {
-      console.log(`clearChecks found neither Delete nor Yes, delete after Assign ${name}:\n${await page.locator('body').ariaSnapshot()}`);
-      throw error;
-    }
+    await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
     if (!(await asking())) continue;
     if (await del.isVisible()) await del.click();
     await yes.click();

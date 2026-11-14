@@ -77,6 +77,8 @@ export interface Project extends BaseRecord {
   paused_on?: LocalDate | null;
   /** When Raise estimates was last pressed: tasks finished before it no longer argue for raising. */
   estimates_raised_at?: Instant | null;
+  /** The day it was made, as a milestone has, so Pick can tell one made since its stretch was planned. Older ones have none. */
+  added_on?: LocalDate | null;
 }
 
 /** A dated checkpoint in a project, not something you do. */

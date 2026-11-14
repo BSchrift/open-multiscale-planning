@@ -1,25 +1,43 @@
-// This week, beside the cards on desktop and as a tab on phone: how the open time splits between projects, One offs
-// and practices, amber past it, and each project against its aim. On desktop it holds Add suggested, Change aims and
-// Continue; on phone, the week's tasks follow it, each with its time and a way out of the week.
+// This week, beside the list on desktop and as a tab on phone: how the open time splits between projects, One offs
+// and practices, amber past it, and each project against its aim. On desktop it holds Add suggested, Change aims, what
+// still needs you, and Continue, named with it; on phone, the week's tasks follow it, each with its time and a way out
+// of the week.
 
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
+import type { AimRow } from '../../../../core/capacity';
 import { formatMinutes } from '../../../../core/dates';
 import type { Minutes } from '../../../../core/types';
 import { AimsPopover } from './Aims';
-import { AimMeter } from './Cards';
-import { weekText } from './model';
+import { aimWords, weekText } from './model';
 import type { PickTask } from './model';
+import { needOf, NeedYou } from './NeedYou';
 import type { PickProps } from './PickStep';
 import { SuggestPreview } from './Suggest';
 import { TimePopover } from './TimePopover';
 
 const pct = (share: number) => `${(share * 100).toFixed(1)}%`;
 
+export function AimMeter(props: { aim: AimRow }) {
+  const w = aimWords(props.aim);
+  return (
+    <>
+      <span className="mmeter" role="img" aria-label={w.alt}>
+        {/* Short of its aim, or past it, is calm blue, never amber, which means over the week's open time. Green is met. */}
+        <span className={`mfill ${props.aim.got > props.aim.aim && !props.aim.skipped ? 'calm' : w.cls || 'calm'}`} style={{ width: `${props.aim.pct}%` }} />
+        <span className="mtick" style={{ left: `${props.aim.tickPct}%` }} />
+      </span>
+      <span>{w.value}</span>
+    </>
+  );
+}
+
 export function WeekShape(props: PickProps & { phone: boolean; preview: { project: Minutes; oneOff: Minutes } }) {
   const { view, model, phone } = props;
   const [open, setOpen] = useState<'suggest' | 'aims' | null>(null);
   const suggestRef = useRef<HTMLButtonElement>(null);
   const aimsRef = useRef<HTMLButtonElement>(null);
+  const namesId = useId();
+  const need = needOf(view);
   const { used, free } = model.use;
   const over = free < 0;
   const proj = view.projects.reduce((sum, p) => sum + p.planned, 0);
@@ -64,7 +82,8 @@ export function WeekShape(props: PickProps & { phone: boolean; preview: { projec
         ))}
       </div>
       <div className="wsrows">
-        {view.projects.map((p) => (
+        {/* A project hidden outside this stretch, with nothing in the week or to aim for, has nothing to show here. */}
+        {view.projects.filter((p) => p.shown || p.planned > 0 || p.aim).map((p) => (
           <div key={p.plan.project.id} className="wsr">
             <span className="wn">{p.plan.project.title}</span>
             {p.aim ? <AimMeter aim={p.aim} /> : <><span /><span className="wv">{formatMinutes(p.planned)}, no aim</span></>}
@@ -93,7 +112,11 @@ export function WeekShape(props: PickProps & { phone: boolean; preview: { projec
               {open === 'aims' && <AimsPopover {...props} onClose={close(aimsRef.current)} />}
             </div>
           )}
-          <button className="btn pri" type="button" onClick={props.onNext}>
+          <NeedYou {...props} phone={false} />
+          <span id={namesId} className="sr">
+            {need.names}
+          </span>
+          <button className="btn pri" type="button" data-continue aria-label={need.words.next} aria-describedby={need.words.n ? namesId : undefined} onClick={props.onNext}>
             Continue to scheduling
           </button>
         </>

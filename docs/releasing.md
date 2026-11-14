@@ -240,6 +240,12 @@ Once. The steps marked **by hand** need the AWS console or your own credentials.
        "aws://$(aws sts get-caller-identity --profile $p --query Account --output text)/<region>"
    done
    ```
+
+   Through these roles CloudFormation may do anything in the account, so only the pipeline's two deploy steps, staging's
+   deploy and prod's assets, may use them, as `multiscale-pipeline-deployer`. They run the CDK command line on the
+   Build output's assemblies and nothing of the app's. The steps that install and run the app's npm packages, the
+   build, the suites and the Mac check, sign in as `multiscale-pipeline`, which may assume only each environment's
+   release role.
 3. **Each environment's release role.** `make deploy ENV=staging`, then `make deploy ENV=prod`. With the `pipeline`
    section in place, each gets the `multiscale-release` role the pipeline tests and publishes as.
 4. **The pipeline.** `make deploy ENV=pipeline`. It makes the KMS key the release keys are uploaded with.
@@ -503,10 +509,11 @@ Only the signing step may read it:
 - **The signing step has its own CodeBuild project and role,** `multiscale-pipeline-signer`. That role may read only
   the two key parameters and decrypt with only their KMS key, besides reading and writing its artifacts. No other
   role in the pipeline may do either, and an infrastructure test checks that.
-- **It runs as little as it can.** It installs nothing, and checks out nothing. It runs `sign-release.mjs`, which uses
-  Node's standard library alone, on the image's own Node. The script comes from the tested Build output, beside the web
-  builds it signs. CodeBuild hands it the key in an environment variable and keeps it out of the log. Its output, the
-  feed's `release.json` and files, is all the publishing step gets.
+- **It runs as little as it can.** It installs nothing. It runs `sign-release.mjs`, which uses Node's standard library
+  alone, on the image's own Node, over the web builds in the tested Build output. The script comes from this commit's
+  checkout rather than the Build output, which the build's npm packages could rewrite. CodeBuild hands it the key in an
+  environment variable and keeps it out of the log. Its output, the feed's `release.json` and files, is all the
+  publishing step gets.
 - **The steps that build, deploy and test never see a key.** The web build only needs a key's public half, uploaded as
   `/multiscale/pipeline/config/<env>.release-key.pub`.
 

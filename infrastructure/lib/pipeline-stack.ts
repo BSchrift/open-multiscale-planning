@@ -33,6 +33,8 @@ import type { Config, ControlConfig, EnvName, PipelineConfig } from './config.ts
 
 /** The pipeline's CodeBuild role. Each environment's release role trusts it by this name. */
 export const PIPELINE_ROLE_NAME = 'multiscale-pipeline';
+/** The deploy steps' role: the only one that may use CDK's bootstrap roles in staging and prod. */
+export const DEPLOYER_ROLE_NAME = 'multiscale-pipeline-deployer';
 /** The signing step's role: the only one that may read the release keys. */
 export const SIGNER_ROLE_NAME = 'multiscale-pipeline-signer';
 /** The KMS key the release keys' SecureStrings are encrypted with. scripts/pipeline.sh config uploads them with it. */
@@ -70,15 +72,21 @@ export class PipelineStack extends Stack {
     const topic = new Topic(this, 'ReleaseTopic');
     topic.addSubscription(new EmailSubscription(email));
 
-    // What each step signs in as. It deploys through CDK's bootstrap roles in staging and prod, which trust this account
-    // once they are bootstrapped with --trust, and tests and publishes as each one's release role.
+    // What each step signs in as. The build, the suites and the Mac check test and publish as each environment's release
+    // role. They install and run the app's npm dependencies, so they never hold CDK's bootstrap roles: through those,
+    // CloudFormation may do anything in an account, and a dependency that read this role's credentials would have it.
     const role = new Role(this, 'BuildRole', { roleName: PIPELINE_ROLE_NAME, assumedBy: new ServicePrincipal('codebuild.amazonaws.com') });
     role.addToPolicy(new PolicyStatement({
       actions: ['sts:AssumeRole'],
-      resources: Object.values(environments).flatMap(({ aws }) => [
-        ...['deploy', 'file-publishing', 'lookup'].map((kind) => `arn:${this.partition}:iam::${aws.account}:role/cdk-hnb659fds-${kind}-role-${aws.account}-${aws.region}`),
-        `arn:${this.partition}:iam::${aws.account}:role/${RELEASE_ROLE_NAME}`,
-      ]),
+      resources: Object.values(environments).map(({ aws }) => `arn:${this.partition}:iam::${aws.account}:role/${RELEASE_ROLE_NAME}`),
+    }));
+    // Only the two deploy steps use CDK's bootstrap roles in staging and prod, which trust this account once they are
+    // bootstrapped with --trust. They run the CDK command line on the Build output's assemblies, and nothing of the app's.
+    const deployerRole = new Role(this, 'DeployerRole', { roleName: DEPLOYER_ROLE_NAME, assumedBy: new ServicePrincipal('codebuild.amazonaws.com') });
+    deployerRole.addToPolicy(new PolicyStatement({
+      actions: ['sts:AssumeRole'],
+      resources: Object.values(environments).flatMap(({ aws }) =>
+        ['deploy', 'file-publishing', 'lookup'].map((kind) => `arn:${this.partition}:iam::${aws.account}:role/cdk-hnb659fds-${kind}-role-${aws.account}-${aws.region}`)),
     }));
     const parameter = (name: string) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `${PIPELINE_PARAMETERS.slice(1)}/${name}` });
     // The config folder's files with the keys' public halves, the pause switch, and the commits the last release and
@@ -115,8 +123,8 @@ export class PipelineStack extends Stack {
     }) : undefined;
 
     // Each step's work is scripts/pipeline.sh $STEP, so the steps are read and reviewed in one file.
-    const project = (projectId: string, artifacts?: object, environmentVariables?: Record<string, BuildEnvironmentVariable>) => new PipelineProject(this, projectId, {
-      role,
+    const project = (projectId: string, artifacts?: object, environmentVariables?: Record<string, BuildEnvironmentVariable>, projectRole = role) => new PipelineProject(this, projectId, {
+      role: projectRole,
       environment,
       environmentVariables,
       timeout: Duration.hours(2),
@@ -135,10 +143,13 @@ export class PipelineStack extends Stack {
     // The releases switch the iPhone feed to a build with new native code once the TestFlight review's record in the
     // inbox says testers can install an iPhone app with it (scripts/pipeline.sh, publish).
     const releaser = project('Release', undefined, inbox && { MAC_INBOX_BUCKET: { value: inbox.bucketName } });
+    // Staging's deploy and prod's assets. With no output, it may only read the pipeline's artifacts.
+    const deployer = project('Deploy', undefined, undefined, deployerRole);
 
     // Signing. Only this step reads a release key: its own project and role, which may read the keys and nothing else
-    // but its artifacts. It installs nothing and runs nothing from the repo but the signing script, taken with the web
-    // build from the tested Build output, on the image's own Node. CodeBuild hands it the key from SSM in RELEASE_KEY.
+    // but its artifacts. It installs nothing and runs nothing from the repo but the signing script, on the image's own
+    // Node, over the web build in the tested Build output. The script comes from this commit's checkout, not from the
+    // Build output, which the build's npm dependencies could rewrite. CodeBuild hands it the key from SSM in RELEASE_KEY.
     // CloudTrail records each read.
     const signingKey = new Key(this, 'SigningKey', {
       alias: SIGNING_KEY_ALIAS,
@@ -159,14 +170,15 @@ export class PipelineStack extends Stack {
       logging: { cloudWatch: { logGroup } },
       buildSpec: BuildSpec.fromObject({
         version: '0.2',
-        phases: { build: { commands: ['node web/sign-release.mjs "web/$ENV_NAME" signed'] } },
+        phases: { build: { commands: ['node frontend/scripts/sign-release.mjs "$CODEBUILD_SRC_DIR_Built/web/$ENV_NAME" signed'] } },
         artifacts: { 'base-directory': 'signed', files: ['**/*'] },
       }),
     });
     const sign = (envName: EnvName, signed: Artifact, runOrder: number) => new CodeBuildAction({
       actionName: 'Sign',
       project: signer,
-      input: built,
+      input: source,
+      extraInputs: [built],
       outputs: [signed],
       runOrder,
       environmentVariables: {
@@ -263,7 +275,7 @@ export class PipelineStack extends Stack {
       const providerArn = mac.githubOidcProvider === 'existing'
         ? this.formatArn({ service: 'iam', region: '', resource: 'oidc-provider', resourceName: GITHUB_OIDC })
         : new OidcProviderNative(this, 'GitHubOidc', { url: `https://${GITHUB_OIDC}`, clientIds: ['sts.amazonaws.com'] }).oidcProviderArn;
-      // Only a job in this repository's release environment, which needs the owner's approval and runs only from main.
+      // Only a job in this repository's release environment, which runs only from main.
       const inboxRole = new Role(this, 'MacInboxRole', {
         roleName: MAC_INBOX_ROLE_NAME,
         description: "GitHub Actions' Mac release and TestFlight review: upload to the release pipeline's inbox, and nothing else",
@@ -317,7 +329,7 @@ export class PipelineStack extends Stack {
         {
           stageName: 'Staging',
           actions: [
-            step('Deploy', 'deploy-staging', 1),
+            step('Deploy', 'deploy-staging', 1, [], [], deployer),
             // Beside staging's deploy, since it may wait a while for GitHub Actions' build. A failed check stops the run.
             ...(macProject ? [step('MacApp', 'mac', 1, macApps, [], macProject)] : []),
             sign('staging', signedStaging, 2),
@@ -343,7 +355,7 @@ export class PipelineStack extends Stack {
         {
           stageName: 'Prod',
           actions: [
-            step('PublishAssets', 'prod-assets', 1),
+            step('PublishAssets', 'prod-assets', 1, [], [], deployer),
             new CloudFormationCreateReplaceChangeSetAction({
               actionName: 'Prepare',
               ...changeSet,

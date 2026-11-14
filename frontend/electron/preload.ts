@@ -2,6 +2,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcRendererEvent } from 'electron';
+import type { NativeAppUpdates } from '../src/core/updates';
 import type { ElectronBridge } from './bridge';
 
 function subscribe<A extends unknown[]>(channel: string, listener: (...args: A) => void) {
@@ -41,6 +42,30 @@ const bridge: ElectronBridge = {
     apply: () => ipcRenderer.invoke('updates:apply'),
     ready: () => ipcRenderer.send('updates:ready'),
     rolledBack: () => ipcRenderer.invoke('updates:rolledBack'),
+    // On a packaged app that replaces itself (electron/appUpdates.ts).
+    ...(ipcRenderer.sendSync('app-updates:available')
+      ? {
+          app: {
+            place: () => ipcRenderer.invoke('app-updates:place'),
+            staged: () => ipcRenderer.invoke('app-updates:staged'),
+            async download(release, progress) {
+              const onProgress = (_event: unknown, percent: number) => progress(percent);
+              ipcRenderer.on('app-updates:progress', onProgress);
+              try {
+                await ipcRenderer.invoke('app-updates:download', release);
+              } finally {
+                ipcRenderer.removeListener('app-updates:progress', onProgress);
+              }
+            },
+            install: (release) => ipcRenderer.invoke('app-updates:install', release),
+            restart: () => ipcRenderer.invoke('app-updates:restart'),
+            move: () => ipcRenderer.invoke('app-updates:move'),
+            updated: () => ipcRenderer.invoke('app-updates:updated'),
+            moved: () => ipcRenderer.invoke('app-updates:moved'),
+            built: () => ipcRenderer.invoke('app-updates:built'),
+          } satisfies NativeAppUpdates,
+        }
+      : {}),
   },
   captureShortcut: {
     get: () => ipcRenderer.invoke('shortcut:get'),

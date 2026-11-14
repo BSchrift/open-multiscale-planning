@@ -56,6 +56,21 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('on coming back online', async () => {
+    const t = await setup();
+    const online = memoryLifecycle();
+    const runner = createSyncRunner({ db: t.db, clock: t.clock, lifecycle: t.lifecycle, onOnline: online.onForeground, send: t.send });
+    runner.start();
+    await flush();
+    online.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+    runner.stop();
+    online.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+  });
+
   it('2 seconds after the last edit', async () => {
     const t = await setup();
     t.runner.start();

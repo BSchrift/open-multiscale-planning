@@ -64,6 +64,20 @@ describe('a screen whose code is loaded on first use', () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it('opens when shown again once back online, though it failed offline in a page since closed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const load = vi.fn(() => Promise.resolve({ default: Goals }));
+    const Screen = lazyScreen(load);
+    show(Screen);
+    await screen.findByRole('alert');
+    cleanup();
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event('online'));
+    show(Screen);
+    expect(await screen.findByRole('heading', { name: 'Goals' })).toBeVisible();
+  });
+
   it('loads offline in the apps, which carry their code', async () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     vi.stubGlobal('location', { protocol: 'capacitor:' });

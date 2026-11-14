@@ -52,6 +52,9 @@ function retryFailedScreens() {
   failed.clear();
 }
 
+// Back online, a screen that failed offline loads afresh, even one whose page has closed since.
+window.addEventListener('online', retryFailedScreens);
+
 // Safari has no requestIdleCallback.
 const whenIdle = (fn: () => void): (() => void) => {
   if (typeof requestIdleCallback === 'function') {

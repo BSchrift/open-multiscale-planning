@@ -398,7 +398,7 @@ describe('makeHome', () => {
     const before = await getRecord(db, 'task', 'i');
     const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true, milestone: 'Visas sorted' });
     expect(made).toMatchObject({ type: 'project', milestone: expect.any(String) });
-    expect(await getRecord(db, 'project', made.id)).toMatchObject({ title: 'Japan trip', state: 'active', ...dates, objective_id: made.goal });
+    expect(await getRecord(db, 'project', made.id)).toMatchObject({ title: 'Japan trip', state: 'active', ...dates, objective_id: made.goal, added_on: '2026-11-04' });
     expect(await getRecord(db, 'objective', made.goal!)).toMatchObject({ title: 'See Asia', state: 'active' });
     expect(await getRecord(db, 'milestone', made.milestone!)).toMatchObject({ project_id: made.id, title: 'Visas sorted', due: '2026-12-31', added_on: '2026-11-04' });
     // The item waits on the card, to be added on a second Enter.

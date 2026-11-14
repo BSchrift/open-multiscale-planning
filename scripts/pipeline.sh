@@ -17,7 +17,8 @@
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
 # In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check
 # and nightly.
-# The signing step runs frontend/scripts/sign-release.mjs on its own, from the Build output (pipeline-stack.ts).
+# The signing step runs frontend/scripts/sign-release.mjs on its own, from the checkout, over the Build output
+# (pipeline-stack.ts).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -450,9 +451,10 @@ case "$command" in
 
   install)
     # Node and Go as CI has them. Go fetches go.mod's toolchain itself.
-    command -v n >/dev/null || npm install --global --silent n
+    command -v n >/dev/null || npm install --global --silent n@10.2.0
     n 25 >/dev/null
-    (cd "$root/infrastructure" && npm ci --no-audit --no-fund)
+    # No install scripts, as the frontend's: none of these packages needs one, and the deploy steps run this too.
+    (cd "$root/infrastructure" && npm ci --ignore-scripts --no-audit --no-fund)
     ;;
   build)
     # The pause switch holds back runs that main commits start, never one started by hand.
@@ -480,7 +482,7 @@ case "$command" in
       npx cdk synth --quiet -c deploy=staging ${alarms[@]+"${alarms[@]}"} -o cdk.out/staging Multiscale-staging
       npx cdk synth --quiet -c deploy=prod ${skip[@]+"${skip[@]}"} ${alarms[@]+"${alarms[@]}"} -o cdk.out/prod Multiscale-prod
     )
-    # Each environment's web build, from this commit, carrying its key's public half, and the script that signs them.
+    # Each environment's web build, from this commit, carrying its key's public half.
     profiles
     frontend_deps
     for env_name in "${environments[@]}"; do
@@ -489,8 +491,6 @@ case "$command" in
       # And its Mac app's main process, which a Mac app GitHub Actions built must hold exactly.
       (cd "$root/frontend" && ENV="$env_name" node scripts/electron-compile.mjs && mkdir -p "$root/mac/$env_name" && cp -R dist-electron "$root/mac/$env_name/")
     done
-    mkdir -p "$root/web"
-    cp "$root/frontend/scripts/sign-release.mjs" "$root/web/sign-release.mjs"
     ;;
   deploy-staging)
     # Waits out staging's short canary. Assigned first: a failed $(built) inside an argument wouldn't stop the script.

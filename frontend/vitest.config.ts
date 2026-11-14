@@ -5,6 +5,14 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react()],
   test: {
+    // Off unless asked for, with `npx vitest run --coverage`. Every source file counts, so code no test loads shows as
+    // uncovered rather than missing. There's no threshold: the numbers are for finding what's untested.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}', 'electron/**/*.ts'],
+      exclude: ['**/*.test.{ts,tsx}'],
+      reporter: ['text-summary', 'html', 'json-summary'],
+    },
     projects: [
       {
         extends: true,

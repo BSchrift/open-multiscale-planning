@@ -8,6 +8,8 @@
 #     slower only if both agree.
 #   PERF_PLATFORMS: web-desktop,web-phone,mac (all three). PERF_SAMPLES, PERF_WARMUP, PERF_LAUNCHES, PERF_CPU and
 #     PERF_SCENARIOS: as frontend/e2e/perf/harness.ts says.
+#   PERF_SYNC=1 also times sync between two signed-in browsers through a local stack behind Toxiproxy, on a good, a slow
+#     3G and a flaky network, with Docker and Go as make test-integration needs them. Nightly.
 #   PERF_OUT: where the raw samples, the summaries and the comparison go (frontend/test-results/perf).
 set -euo pipefail
 
@@ -19,8 +21,11 @@ platforms="${PERF_PLATFORMS:-web-desktop,web-phone,mac}"
 out="${PERF_OUT:-$root/frontend/test-results/perf}"
 work="$(mktemp -d)"
 server=""
+stack=""
+proxy=""
 clean_up() {
-  [ -z "$server" ] || kill "$server" 2>/dev/null || true
+  for pid in "$server" "$proxy" "$stack"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null || true; done
+  [ -z "$stack" ] || wait "$stack" 2>/dev/null || true
   git -C "$root" worktree remove --force "$work/base" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -42,6 +47,25 @@ if [ -n "${BASE:-}" ]; then
 fi
 checkouts=("this=$root")
 [ -z "${BASE:-}" ] || checkouts=("base=$work/base" "${checkouts[@]}")
+
+free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+if [ "${PERF_SYNC:-}" = 1 ]; then
+  # The local stack, and Toxiproxy in front of its API, which the builds talk to so the network can be shaped.
+  "$root/scripts/local-stack.sh" "$work/api-url" >"$work/stack.log" 2>&1 &
+  stack=$!
+  for _ in $(seq 240); do [ -s "$work/api-url" ] && break; kill -0 "$stack" 2>/dev/null || { cat "$work/stack.log" >&2; exit 1; }; sleep 0.5; done
+  upstream="$(sed 's#^http://##' "$work/api-url")"
+  toxi_port="$(free_port)"
+  proxy_port="$(free_port)"
+  (cd "$root/backend" && go run github.com/Shopify/toxiproxy/v2/cmd/server@v2.9.0 -host 127.0.0.1 -port "$toxi_port") >"$work/toxiproxy.log" 2>&1 &
+  proxy=$!
+  toxi="http://127.0.0.1:$toxi_port"
+  for _ in $(seq 240); do curl -s -o /dev/null "$toxi/version" && break; sleep 0.5; done
+  export LOCAL_API_URL="http://127.0.0.1:$proxy_port"
+  # The specs shape it once their devices are signed in (e2e/perf/sync.spec.ts).
+  curl -sf -X POST "$toxi/proxies" -d "{\"name\":\"api\",\"listen\":\"127.0.0.1:$proxy_port\",\"upstream\":\"$upstream\"}" >/dev/null
+  export PERF_TOXIPROXY="$toxi"
+fi
 
 # The browser's build keeps the hook that loads data straight into the database (vite build --mode perf); the Mac app's
 # is the build it ships, since its data folder is filled before it starts.
@@ -74,11 +98,18 @@ run=(npx playwright test -c e2e/perf/playwright.config.ts "${projects[@]}")
 if [[ ",$platforms," == *,mac,* ]] && [ "$(uname)" = Linux ] && [ -z "${DISPLAY:-}" ]; then run=(xvfb-run -a "${run[@]}"); fi
 "${run[@]}"
 
+if [ "${PERF_SYNC:-}" = 1 ]; then
+  for shape in good slow-3g flaky; do
+    echo "Sync on a $shape network"
+    PERF_NETWORK="$shape" npx playwright test -c e2e/perf/playwright.config.ts --project=sync
+  done
+fi
+
 report=(node scripts/perf-report.ts "$out/raw" --summary "$out/summary")
 if [ -n "${BASE:-}" ]; then
   # The page's first bytes, whose growth the comparison notes.
   node scripts/bundle-budget.ts "$work/this-web" --base "$work/base-web" | tail -n +2 >"$out/notes.txt" || true
-  report+=(--base base --head this --notes "$out/notes.txt" --markdown "$out/comparison.md")
+  report+=(--base base --head this --notes "$out/notes.txt" --markdown "$out/comparison.md" --flagged "$out/flagged.txt")
   if [ "${PERF_CONFIRM:-}" = 1 ] && "${report[@]}" | grep -q '^| .* slower |$'; then
     echo "Something was slower, so a second round of fresh samples decides."
     PERF_OUT="$out/raw-again" "${run[@]}"

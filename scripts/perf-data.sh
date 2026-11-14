@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Adds one run's performance results to the perf-data branch (docs/performance.md) and pushes it, starting the branch
 # if it isn't there. Only the main and nightly performance workflows run this: they alone may write the repo's contents.
-#   COMMIT=<sha> RUNNER=<runner> scripts/perf-data.sh <kind> <summary.json>...
+#   COMMIT=<sha> RUNNER=<runner> [FLAGGED=<A/A's flagged KPIs>] scripts/perf-data.sh <kind> <summary.json>...
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +24,7 @@ for try in 1 2 3 4 5; do
     git -C "$work/data" rm -r --quiet --force .
     printf '%s\n' '# perf-data' '' 'Performance results, written only by the main and nightly performance workflows. See docs/performance.md on main.' >"$work/data/README.md"
   fi
-  node "$root/frontend/scripts/perf-data.ts" add "$work/data" "${summaries[@]}" --kind "$kind" --commit "${COMMIT:?}" --runner "${RUNNER:-unknown}"
+  node "$root/frontend/scripts/perf-data.ts" add "$work/data" "${summaries[@]}" --kind "$kind" --commit "${COMMIT:?}" --runner "${RUNNER:-unknown}" ${FLAGGED:+--flagged "$FLAGGED"}
   git -C "$work/data" add -A
   git -C "$work/data" "${bot[@]}" commit --quiet -m "Add the $kind run at ${COMMIT:0:7}"
   if git -C "$work/data" push --quiet origin HEAD:refs/heads/perf-data; then exit 0; fi

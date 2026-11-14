@@ -5,10 +5,12 @@
 //   PERF_WARMUP    actions done first and thrown away (20)
 //   PERF_LAUNCHES  launches for the start KPIs, cold and warm each (5; 0 skips them)
 //   PERF_CPU       how much the phone rows slow the CPU (4)
-//   PERF_SCENARIOS which data: empty, one-year, five-year (one-year)
+//   PERF_SCENARIOS which data: empty, one-year, five-year (one-year), each with a condition after a + (web.spec.ts)
+//   PERF_PURGE     1 empties the OS file cache before each cold start (needs sudo)
 //   PERF_TARGETS   the builds, name=url,... as scripts/test-perf.sh serves them
 //   PERF_OUT       where the results go (test-results/perf/raw)
 
+import { execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
@@ -80,6 +82,15 @@ export async function slowCpu(page: Page, rate: number) {
   await cdp.send('Emulation.setCPUThrottlingRate', { rate });
 }
 
+/**
+ * Empties the OS file cache before a cold start, with PERF_PURGE=1 as the nightly sets it on runners that allow sudo:
+ * purge on macOS, which covers the iPhone Simulator too, and drop_caches on Linux.
+ */
+export function purgeFileCache() {
+  if (process.env.PERF_PURGE !== '1') return;
+  execSync(process.platform === 'darwin' ? 'sudo purge' : 'sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null');
+}
+
 /** The page's JavaScript heap in MB, as Chromium counts it (JSHeapUsedSize). */
 export async function heapMb(page: Page): Promise<number> {
   const cdp = await page.context().newCDPSession(page);
@@ -143,7 +154,8 @@ export async function keep(page: Page) {
   for (const [name, values] of Object.entries(taken)) (into[name] ??= []).push(...values);
   pending.set(page, into);
 }
-function collect(page: Page): Record<string, number[]> {
+/** What the actions on a page kept since the last call. */
+export function collect(page: Page): Record<string, number[]> {
   const taken = pending.get(page) ?? {};
   pending.delete(page);
   return taken;

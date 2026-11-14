@@ -159,6 +159,25 @@ data (500 samples, 30 cold and warm starts, 10 on the phone, whose cold start ov
 new account and five years (100 samples, 10 starts each). A run still going when main moves again finishes, and only
 the newest commit waiting runs after it. Each run's comparison is in its summary.
 
+**Each night main moved** (`.github/workflows/perf-nightly.yml`, at 04:30 UTC, away from midnight UTC when the iPhone
+tests' seed waits for its blocks to fit in a day): every scenario on Linux, each job a platform and a scenario, each
+timed beside the same commit built again (an A/A run), with the OS file cache emptied before each cold start:
+
+- the browser and the Mac app on a year (500 samples, 30 cold and warm starts, 10 on the phone), a new account and five
+  years; the browser offline once loaded (`+offline`), which should stay within 10% of online; and the phone with its
+  CPU slowed 6× for low-end phones (`+cpu6x`);
+- sync between two signed-in browsers through the local stack behind Toxiproxy (`PERF_SYNC=1`), on a good network, a
+  slow 3G (about 2 s round trips and 400 kbps) and a flaky one (5% of connections reset, up to a second of jitter and
+  a 10-second outage every 2 minutes), shaped once the devices are signed in: `sync.send`, `sync.push` and `sync.pull`;
+- on the good network, capture and the screens while 5,000 records from a third device come down, against the same
+  device idle (p95 within 1.5 times, and no main-thread task over 200 ms), and two devices capturing every second for
+  a minute, which must end up with the same Inbox.
+
+What the A/A run calls slower or faster is a false alarm. Each night's go to `perf-data` with the results, and their
+rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more than 10% and its floor over main's
+baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
+in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
+
 **Results** go to the `perf-data` branch, which only the main and nightly workflows write (`scripts/perf-data.sh`):
 one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
 `baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The

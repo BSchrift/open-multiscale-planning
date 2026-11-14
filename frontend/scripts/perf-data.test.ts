@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addRun, baseline, readRuns } from './perf-data';
+import { addRun, baseline, readRuns, regressions } from './perf-data';
 import type { Run } from './perf-data';
 
 const row = (p95: number) => ({ kpi: 'capture.save', platform: 'web-desktop' as const, scenario: 'one-year', n: 500, p50: p95 / 2, p95, p99: p95 * 1.5 });
@@ -30,4 +30,13 @@ describe('perf-data', () => {
     // 52..61, so 56.5.
     expect(b!.p95).toBe(56.5);
   });
+
+  it("finds a nightly KPI more than 10% and its floor over main's baseline, at p95", () => {
+    const base = baseline([run('main', '2026-11-01T00:00:00.000Z', 60)]);
+    expect(regressions(base, [row(80)])).toEqual(['capture.save on web-desktop, one-year: p95 80 ms against a baseline of 60 ms (+33%)']);
+    // 10% over but within capture.save's 5 ms floor.
+    expect(regressions(baseline([run('main', '2026-11-01T00:00:00.000Z', 30)]), [row(34)])).toEqual([]);
+    expect(regressions(base, [row(62)])).toEqual([]);
+  });
 });
+

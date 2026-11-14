@@ -618,6 +618,13 @@ describe('Needs a new time', () => {
     await w.create('block_outcome', { result: 'not', answered_at: answered }, outcomeId('old'));
   };
 
+  it("a row's name opens the task's popup", async () => {
+    await open(missed(at('09:00')));
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Needs a new time' })).getByRole('button', { name: 'Rake the leaves' }));
+    await taskPopup('Rake the leaves');
+  });
+
   it('offers the best open time, and placing it clears the row', async () => {
     const t = await open(missed(at('09:00')));
     expect(await screen.findByText("1 task that didn't get done. Choose when it suits you.")).toBeVisible();
@@ -757,6 +764,13 @@ describe('when the week is not planned', () => {
     expect((await listRecords(t.db, 'time_block'))[0]).toMatchObject({ task_id: 't2', start: NOW, started_at: NOW });
   });
 
+  it("Next up's task names open the task's popup", async () => {
+    await unplanned(work);
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip planning this week' }));
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Next up' })).getByRole('button', { name: 'Paint the fence' }));
+    await taskPopup('Paint the fence');
+  });
+
   it('after time away, welcomes you back, returns missed blocks, and asks for one thing', async () => {
     const t = await unplanned(async (w) => {
       await work(w);
@@ -858,6 +872,16 @@ describe('Google Calendar', () => {
 
 describe('one offs due today', () => {
   const dated = (w: Writer) => w.create('task', { kind: 'one_off', title: 'Paint the fence', schedule: { type: 'once', from: DAY }, next_due: DAY }, 't2');
+
+  it("its name opens the task's popup, and Esc brings focus back to it", async () => {
+    await open(dated);
+    const name = within(await screen.findByRole('region', { name: 'One offs today' })).getByRole('button', { name: 'Paint the fence' });
+    await userEvent.click(name);
+    await taskPopup('Paint the fence');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(name).toHaveFocus();
+  });
 
   it('a tick takes it out of view with Undo; shown, it unticks in place', async () => {
     const t = await open(dated);
@@ -1007,6 +1031,73 @@ describe('the timeline', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await userEvent.click(screen.getByRole('slider', { name: /^Piano practice, 6pm to 6:30pm/ }));
     expect(await within(await dialog('Piano practice')).findByText(/^Write more/)).toBeVisible();
+  });
+});
+
+describe.each(['desktop', 'phone'] as const)('blocks at the same time on the timeline, on %s', (layout) => {
+  afterEach(() => localStorage.clear());
+  // On phone a block still to come is a slider, so VoiceOver's swipes move it.
+  const role = layout === 'phone' ? 'slider' : 'button';
+  const together = async (w: Writer) => {
+    await w.create('project', { title: 'Finish the essay', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+    await task(w, 't1', 'Write the report');
+    await block(w, 'b1', 't1', '16:00', '17:00');
+    await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr');
+    await w.create('time_block', { practice_id: 'pr', start: at('16:00'), end: at('16:30'), tz: ZONE }, 'b2');
+  };
+  const sideBySide = (els: HTMLElement[]) => {
+    expect(new Set(els.map((e) => e.style.width)).size).toBe(1);
+    expect(new Set(els.map((e) => e.style.left)).size).toBe(els.length);
+  };
+
+  it('sit side by side on the calendar, each named with what it overlaps, and open as they did', async () => {
+    await open(together, { layout });
+    const report = await screen.findByRole(role, { name: 'Write the report, 4pm to 5pm, Project. Overlaps Piano practice.' });
+    const piano = screen.getByRole(role, { name: 'Piano practice, 4pm to 4:30pm, Practice. Overlaps Write the report.' });
+    sideBySide([report, piano]);
+    // Read by start, then column: the longer one is first, on the left.
+    expect(report.compareDocumentPosition(piano) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(piano);
+    if (layout === 'phone') expect(await dialog('Piano practice')).toBeVisible();
+    else expect(await screen.findByRole('region', { name: 'Piano practice' })).toBeVisible();
+  });
+
+  it('beside a calendar event they overlap, share the room left of it', async () => {
+    await open(async (w) => { await together(w); await dinner(w); }, { layout });
+    const report = await screen.findByRole(role, { name: 'Write the report, 4pm to 5pm, Project. Conflicts with Quiz night. Overlaps Piano practice.' });
+    const piano = screen.getByRole(role, { name: 'Piano practice, 4pm to 4:30pm, Practice. Conflicts with Quiz night. Overlaps Write the report.' });
+    sideBySide([report, piano]);
+    for (const el of [report, piano]) expect(el.style.width).toContain('40%');
+    expect(screen.getByText('Quiz night').closest<HTMLElement>('.cev')!.style.left).toBe('62%');
+  });
+
+  it('in the list, each says what it overlaps', async () => {
+    await open(together, { layout });
+    await userEvent.click(await screen.findByRole('button', { name: 'List' }));
+    if (layout === 'phone') {
+      const piano = screen.getByRole('button', { name: 'Piano practice, 4pm to 4:30pm, Practice. Overlaps Write the report.' });
+      expect(within(piano).getByText('Practice, Overlaps Write the report')).toBeVisible();
+    } else {
+      expect(screen.getByRole('button', { name: /^4pm to 4:30pm\s*Piano practice.*Overlaps Write the report$/ })).toBeVisible();
+    }
+  });
+
+  it('with no room for all three, draw what fits and +N more lists them, each opening as it does', async () => {
+    // A 320pt phone's day: one 96px column, beside the strip for +N more.
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 220, height: 600, top: 0, left: 0, right: 220, bottom: 600, x: 0, y: 0, toJSON: () => ({}) });
+    try {
+      await open(async (w) => { await together(w); await task(w, 't3', 'Call the editor'); await block(w, 'b3', 't3', '16:15', '16:45'); }, { layout });
+      expect(await screen.findByRole(role, { name: /^Write the report, 4pm to 5pm/ })).toBeVisible();
+      expect(screen.queryByRole(role, { name: /^Piano practice/ })).toBeNull();
+      const more = screen.getByRole('button', { name: '+2 more: Piano practice and Call the editor' });
+      await userEvent.click(more);
+      const list = await dialog('Blocks from 4pm to 5pm');
+      await userEvent.click(within(list).getByRole('button', { name: /^Piano practice, 4pm to 4:30pm, Practice\. Overlaps Write the report and Call the editor\.$/ }));
+      if (layout === 'phone') expect(await dialog('Piano practice')).toBeVisible();
+      else expect(await screen.findByRole('region', { name: 'Piano practice' })).toBeVisible();
+    } finally {
+      measure.mockRestore();
+    }
   });
 });
 

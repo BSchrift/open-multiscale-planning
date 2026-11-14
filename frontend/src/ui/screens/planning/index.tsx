@@ -109,7 +109,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
       {
         [
           <InboxStep key="inbox" week={week} layout={layout} onNext={() => go(1)} />,
-          <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} />,
+          <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} onInbox={() => go(0)} />,
           <ScheduleStep key="schedule" week={week} layout={layout} onContinue={() => go(3)} />,
           <ReviewStep key="review" week={week} began={time.began} layout={layout} onFinish={onFinish} />,
         ][step]

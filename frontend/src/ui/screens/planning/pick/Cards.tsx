@@ -1,211 +1,139 @@
-// Pick's cards, the same at both sizes: one per project with its pill, aim and a thin timeline, then its overdue
-// question, then its tasks under their milestones; One offs in purple; the projects that can't be planned now, quietly;
-// and a dashed card when there's nothing to plan from.
+// Pick's list, the same at both sizes: one list, not a card per project. A project's name is a heading over its tasks,
+// which sit under their milestones, and a project outside this stretch says why it shows, in words, inside the
+// heading. An overdue question sits on its milestone's line and a task that needs a new time asks on its own row. Then
+// One offs, the projects that can't be planned now, and a dashed card when there's nothing to plan from. Nothing here
+// opens or closes: a project's tasks are always listed under its name.
 
 import type { ReactNode } from 'react';
-import type { AimRow } from '../../../../core/capacity';
-import { formatMinutes } from '../../../../core/dates';
-import type { Minutes } from '../../../../core/types';
+import { useNav } from '../../../app/nav';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
 import { Pill } from '../../../components/Pill';
-import { TimelineBar } from '../../../components/TimelineBar';
-import { useNav } from '../../../app/nav';
 import { useToast } from '../../../components/Toast';
-import { useStickyState } from '../../../app/store';
-import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import { aimWords } from './model';
-import type { PickGroup, PickProject, PickTask, PickView } from './model';
+import type { PickGroup, PickProject, PickTask } from './model';
 import { CardAdder, OneOffAdder } from './Adders';
 import type { AddingState } from './Adders';
-import { CarriedAsk, MilestoneAsk } from './Overdue';
+import { AskRow, MilestoneLine } from './Overdue';
 import { PickRow } from './PickRow';
 import type { PickProps } from './PickStep';
 import type { Selection } from './Select';
 
-/**
- * Which cards are open: each as it was last left on this device, else every one when there are four projects or fewer,
- * else the first with overdue work or suggestions.
- */
-export function useOpenCards(view: PickView) {
-  const [stored, setStored] = useStickyState<Record<string, boolean>>('pick.open', {});
-  const busy = (rows: readonly PickTask[]) => rows.some((r) => r.hint || asking(r, false));
-  const first =
-    view.projects.find((p) => p.status.late || busy(p.groups.flatMap((g) => g.rows)))?.plan.project.id ?? (busy(view.oneOffs.rows) ? ONE_OFFS_BUCKET : undefined);
-  const isOpen = (id: string) => stored[id] ?? (view.projects.length <= 4 || id === first);
-  return { isOpen, toggle: (id: string) => setStored({ ...stored, [id]: !isOpen(id) }), open: (id: string) => !isOpen(id) && setStored({ ...stored, [id]: true }) };
-}
-
-export function AimMeter(props: { aim: AimRow }) {
-  const w = aimWords(props.aim);
-  return (
-    <>
-      <span className="mmeter" role="img" aria-label={w.alt}>
-        {/* Short of its aim, or past it, is calm blue, never amber, which means over the week's open time. Green is met. */}
-        <span className={`mfill ${props.aim.got > props.aim.aim && !props.aim.skipped ? 'calm' : w.cls || 'calm'}`} style={{ width: `${props.aim.pct}%` }} />
-        <span className="mtick" style={{ left: `${props.aim.tickPct}%` }} />
-      </span>
-      <span>{w.value}</span>
-    </>
-  );
-}
-
-export interface CardProps extends PickProps {
+export interface ListProps extends PickProps {
   phone: boolean;
   select: Selection;
   adder: AddingState;
 }
 
-/** Needs a new time and not yet in the week: asked about above the card's tasks, not listed among them. */
+/** Needs a new time and not yet in the week: its row asks, rather than offering its time. */
 export const asking = (r: PickTask, done: boolean) => r.c.carried && !r.c.picked && !done;
 
-function Rows(props: CardProps & { rows: PickTask[] }) {
+function Rows(props: ListProps & { rows: PickTask[]; describedBy?: string; source?: string }) {
   return (
     <ul className="picklist">
-      {props.rows.map((r) => (
-        <PickRow key={r.c.task.id} {...props} row={r} />
-      ))}
+      {props.rows.map((r) =>
+        asking(r, props.isDone(r)) ? <AskRow key={r.c.task.id} {...props} row={r} /> : <PickRow key={r.c.task.id} {...props} row={r} />,
+      )}
     </ul>
   );
 }
 
-function Group(props: CardProps & { group: PickGroup }) {
-  const { group: g } = props;
-  const rows = g.rows.filter((r) => !asking(r, props.isDone(r)));
-  if (!rows.length) return null;
+function Group(props: ListProps & { s: PickProject; group: PickGroup; head: string }) {
+  const { group: g, s } = props;
+  const ask = !!g.milestone && s.status.late?.id === g.milestone.id;
+  if (!g.rows.length && !ask) return null;
+  // A row of a project in this stretch is described by the project's heading; one outside it says where it's from.
+  const where = g.outside ? { source: `, ${s.plan.project.title}, outside this stretch` } : { describedBy: props.head };
   return (
-    <>
-      <h3 className={`gh${g.late ? ' late' : ''}`} aria-label={`${g.isMs ? 'Milestone: ' : ''}${g.head}${g.isMs && g.planned > 0 ? `, ${formatMinutes(g.planned)} planned` : ''}`}>
-        <span className="ghl">
-          {g.isMs && <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />}
-          {g.head}
-        </span>
-        {g.isMs && g.planned > 0 && <span className="ghr">{formatMinutes(g.planned)} planned</span>}
-      </h3>
-      <Rows {...props} rows={rows} />
-    </>
-  );
-}
-
-function Card(props: {
-  name: string;
-  /** A project's id, for what + Add finds in view. */
-  project?: string;
-  open: boolean;
-  toggle(): void;
-  planned: Minutes;
-  className?: string;
-  head?: ReactNode;
-  meter: ReactNode;
-  strip?: ReactNode;
-  asks?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className={`card pcd${props.className ? ` ${props.className}` : ''}`} aria-label={props.name} data-project={props.project}>
-      <div className="pcdh">
-        <button className="pchev" type="button" aria-expanded={props.open} aria-label={`${props.name}, ${formatMinutes(props.planned)} planned`} onClick={props.toggle}>
-          <span className={`chev2${props.open ? ' open' : ''}`} aria-hidden="true">
-            ›
-          </span>
-          <span className="pn">{props.name}</span>
-        </button>
-        {props.head}
-        <span className="pmr">{props.meter}</span>
-      </div>
-      {props.strip}
-      {props.asks}
-      {props.open && (
-        <div className="pcbody" role="group" aria-label={`${props.name} tasks`}>
-          {props.children}
-        </div>
+    <div className="pgroup">
+      {ask ? (
+        <MilestoneLine {...props} plan={s.plan} milestone={g.milestone!} group={g} outside={!s.inStretch} />
+      ) : (
+        g.key !== 'carried' && (
+          <h4 className={`gh${g.late ? ' late' : ''}`} aria-label={`${g.isMs ? 'Milestone: ' : ''}${g.head}`}>
+            {g.isMs && <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />}
+            {g.head}
+          </h4>
+        )
       )}
-    </section>
+      {g.rows.length > 0 && <Rows {...props} rows={g.rows} {...where} />}
+    </div>
   );
 }
 
-export function ProjectCard(props: CardProps & { s: PickProject; open: boolean; toggle(): void }) {
-  const { s, view, phone } = props;
+/** A project's name, with the reason it shows when it's outside this stretch: shown as a tag, read as part of the name. */
+export function ProjectSection(props: ListProps & { s: PickProject }) {
+  const { s, phone } = props;
   const { project } = s.plan;
-  const late = s.status.late;
-  const carried = s.groups.flatMap((g) => g.rows).filter((r) => asking(r, props.isDone(r)));
-  // On phone a pill shows only when something needs you.
-  const pill = phone && !late && s.status.pill === 'On track' ? null : <Pill tone={s.status.tone}>{s.status.pill}</Pill>;
+  const head = `ph-${project.id}`;
   return (
-    <Card
-      name={project.title}
-      project={project.id}
-      open={props.open}
-      toggle={props.toggle}
-      planned={s.planned}
-      head={
-        <>
-          {pill}
-          {!props.open && s.hintN > 0 && <span className="pstar small">★ {s.hintN} suggested</span>}
-        </>
-      }
-      meter={s.aim ? <AimMeter aim={s.aim} /> : <span>{formatMinutes(s.planned)} planned</span>}
-      strip={
-        <div className="pcstrip">
-          <TimelineBar
-            axis={view.axis}
-            bar={{ start: project.start, end: project.end }}
-            {...(view.stretch ? { stretch: view.stretch } : {})}
-            week={view.weekSpan}
-            diamonds={s.marks}
-            alt={s.alt}
-          />
-        </div>
-      }
-      asks={
-        <>
-          {late && <MilestoneAsk {...props} plan={s.plan} milestone={late} />}
-          {carried.map((r) => (
-            <CarriedAsk key={r.c.task.id} {...props} row={r} />
-          ))}
-        </>
-      }
-    >
+    <section className="pproj" aria-label={project.title} data-project={project.id}>
+      <h3 className="pph" id={head}>
+        <span className="pn">{project.title}</span>
+        {s.reason && (
+          <>
+            <span className={`rtag ${s.reason.tone}`.trim()} aria-hidden="true">
+              {phone ? s.reason.short : s.reason.long}
+            </span>
+            <span className="sr">, {s.reason.sr}</span>
+          </>
+        )}
+      </h3>
       {s.groups.map((g) => (
-        <Group key={g.key} {...props} group={g} />
+        <Group key={g.key} {...props} group={g} head={head} />
       ))}
       {s.groups.length === 0 && <p className="small quiet emptyline">No open tasks.</p>}
       {!props.select.on && <CardAdder {...props} plan={s.plan} />}
-    </Card>
-  );
-}
-
-export function OneOffsCard(props: CardProps & { open: boolean; toggle(): void }) {
-  const { view } = props;
-  const carried = view.oneOffs.rows.filter((r) => asking(r, props.isDone(r)));
-  const rows = view.oneOffs.rows.filter((r) => !asking(r, props.isDone(r)));
-  return (
-    <Card
-      name="One offs"
-      className="oo"
-      open={props.open}
-      toggle={props.toggle}
-      planned={view.oneOffs.planned}
-      meter={view.oneOffs.aim ? <AimMeter aim={view.oneOffs.aim} /> : <span>{formatMinutes(view.oneOffs.planned)} planned</span>}
-      asks={carried.map((r) => (
-        <CarriedAsk key={r.c.task.id} {...props} row={r} />
-      ))}
-    >
-      {rows.length ? <Rows {...props} rows={rows} /> : <p className="small quiet emptyline">Nothing due this week.</p>}
-      {!props.select.on && <OneOffAdder {...props} />}
-    </Card>
-  );
-}
-
-/** A project that can't be planned now, such as a paused one. */
-export function OtherCard(props: { title: string; pill: ReactNode; sum: string }) {
-  return (
-    <section className="card pcd muted" aria-label={props.title}>
-      <div className="pcdh">
-        <span className="pn">{props.title}</span>
-        {props.pill}
-        <span className="small pmr">{props.sum}</span>
-      </div>
     </section>
+  );
+}
+
+/** One offs, never filtered: those this week, then the rest, and what's still in the Inbox, with a way back to it. */
+export function OneOffsSection(props: ListProps) {
+  const { view } = props;
+  const n = view.inbox;
+  return (
+    <section className="pproj oo" aria-label="One offs">
+      <h3 className="pph">
+        <span className="pn">One offs</span>
+        <span className="ppr small">Not part of a project</span>
+      </h3>
+      {view.oneOffs.groups.map((g) => (
+        <div key={g.key} className="pgroup">
+          <h4 className="gh">{g.head}</h4>
+          <Rows {...props} rows={g.rows} />
+        </div>
+      ))}
+      {!view.oneOffs.rows.length && <p className="small quiet emptyline">Nothing due this week.</p>}
+      {n > 0 && (
+        <p className="pinbox small">
+          {n} still in your Inbox. Sort them to pick them here.{' '}
+          <button className="link small" type="button" onClick={props.onInbox}>
+            Go to Inbox
+          </button>
+        </p>
+      )}
+      {!props.select.on && <OneOffAdder {...props} />}
+    </section>
+  );
+}
+
+/** A project that can't be planned now, such as a paused one: a line, with its open tasks counted. */
+export function OtherLine(props: { title: string; pill: ReactNode; sum: string }) {
+  return (
+    <section className="pother" aria-label={props.title}>
+      <span className="pn">{props.title}</span>
+      {props.pill}
+      <span className="small pmr">{props.sum}</span>
+    </section>
+  );
+}
+
+export function Others(props: ListProps) {
+  return (
+    <>
+      {props.view.others.map((o) => (
+        <OtherLine key={o.plan.project.id} title={o.plan.project.title} pill={<Pill tone={o.status.tone}>{o.status.pill}</Pill>} sum={o.sum} />
+      ))}
+    </>
   );
 }
 
@@ -214,7 +142,7 @@ export function EmptyCard(props: { children?: ReactNode }) {
   const nav = useNav();
   const toast = useToast();
   return (
-    <div className="card pcd emptycard">
+    <div className="card emptycard">
       <p>No projects to plan from yet.</p>
       <div className="row">
         {props.children}
@@ -229,43 +157,6 @@ export function EmptyCard(props: { children?: ReactNode }) {
           Go to Goals
         </button>
       </div>
-    </div>
-  );
-}
-
-export function Legend(props: { stretch: boolean; className?: string }) {
-  return (
-    <div className={`legend pklegend ${props.className ?? ''}`.trim()}>
-      <span>
-        <i className="lg-dates" />
-        Project dates
-      </span>
-      <span>
-        <i className="lg-week" />
-        This week
-      </span>
-      {props.stretch && (
-        <span>
-          <i className="lg-stretch" />
-          This stretch. Projects keep their own dates.
-        </span>
-      )}
-      <span>
-        <MilestoneDiamond state={{ on: true }} />
-        In the plan
-      </span>
-      <span>
-        <MilestoneDiamond />
-        Not in the plan
-      </span>
-      <span>
-        <MilestoneDiamond state={{ met: true }} />
-        Met
-      </span>
-      <span>
-        <MilestoneDiamond state={{ late: true }} />
-        Overdue
-      </span>
     </div>
   );
 }

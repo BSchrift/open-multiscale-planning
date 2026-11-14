@@ -89,9 +89,11 @@ export interface PickProps {
   addOneOff(fields: Fields<'task'>, inWeek: boolean): Promise<string | undefined>;
   skipPastEnd(projectId: string): void;
   onNext(): void;
+  /** Back to step 1, where what's still in the Inbox is sorted. */
+  onInbox(): void;
 }
 
-export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): void }) {
+export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): void; onInbox(): void }) {
   const { week } = props;
   const { clock } = useApp();
   const data = useQuery((sql) => loadPlanning(sql, clock, week), [week]).data;
@@ -233,9 +235,11 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       const where = plan.milestones.find((m) => m.id === fields.milestone_id)?.title ?? plan.project.title;
       return create('task', fields, inWeek ? minutes : null, `Added ${fields.title} to ${where}${inThisWeek(minutes, inWeek)}.`);
     },
+    // Tagged to this stretch, so one with no date reads "by" its end and is never outside it as soon as it's made.
     addMilestone: (plan, title, due) =>
-      create('milestone', { project_id: plan.project.id, title, due, added_on: today(clock) }, null, `Added milestone ${title} to ${plan.project.title}.`),
-    addProject: (fields) => create('project', fields, null, `Added project ${fields.title}, ${formatDate(fields.start!)} to ${formatDate(fields.end!)}.`),
+      create('milestone', { project_id: plan.project.id, title, due, stretch: view.stretch?.start ?? null, added_on: today(clock) }, null, `Added milestone ${title} to ${plan.project.title}.`),
+    addProject: (fields) =>
+      create('project', { ...fields, added_on: today(clock) }, null, `Added project ${fields.title}, ${formatDate(fields.start!)} to ${formatDate(fields.end!)}.`),
     addOneOff: (fields, inWeek) => {
       const minutes = fields.estimate_min ?? 0;
       return create('task', fields, inWeek ? minutes : null, `Added ${fields.title} to One offs${inThisWeek(minutes, inWeek)}.`);
@@ -286,6 +290,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       setDoneHere(({ [t.id]: _, ...rest }) => rest);
     },
     onNext: props.onNext,
+    onInbox: props.onInbox,
   };
   return props.layout === 'phone' ? <PickPhone {...pickProps} /> : <PickDesktop {...pickProps} />;
 }

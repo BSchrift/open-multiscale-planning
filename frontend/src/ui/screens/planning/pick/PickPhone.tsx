@@ -1,15 +1,13 @@
-// Pick tasks on phone: the same cards as desktop, one under another, under two tabs: Projects, and This week, which
-// holds the week's shape and its tasks. Does it fit, in the top bar, shows This week. ⋯ holds Change aims, Select and
-// the timeline's key; Select's bar takes the bottom bar's place.
+// Pick tasks on phone: the same list as desktop under two tabs: Projects, and This week, which holds the week's shape
+// and its tasks. Does it fit, in the top bar, shows This week. ⋯ holds Change aims and Select; Select's bar takes the
+// bottom bar's place.
 
 import { useEffect, useRef, useState } from 'react';
 import { formatMinutes } from '../../../../core/dates';
-import { ONE_OFFS_BUCKET } from '../../../../core/types';
-import { Pill } from '../../../components/Pill';
 import { Sheet } from '../../../components/Sheet';
 import { useFit } from '../WeekFit';
 import { AimsPopover } from './Aims';
-import { EmptyCard, Legend, OneOffsCard, OtherCard, ProjectCard, useOpenCards } from './Cards';
+import { EmptyCard, OneOffsSection, Others, ProjectSection } from './Cards';
 import { ProjectAdder, useAdding, usePickAddMenu } from './Adders';
 import { PastEnd } from './PastEnd';
 import { selectable } from './PickDesktop';
@@ -21,19 +19,17 @@ import { WeekList, WeekShape } from './WeekShape';
 export function PickPhone(props: PickProps) {
   const { view, model } = props;
   const [tab, setTab] = useState<'projects' | 'week'>('projects');
-  const [sheet, setSheet] = useState<'menu' | 'key' | 'aims' | 'suggest' | null>(null);
-  const cards = useOpenCards(view);
+  const [sheet, setSheet] = useState<'menu' | 'aims' | 'suggest' | null>(null);
   const sel = useSelection();
   const adder = useAdding();
-  // The project in view: the first card still showing at the top of the list as it scrolls.
+  // The project in view: the first one still showing at the top of the list as it scrolls.
   const [inView, setInView] = useState<string | undefined>(undefined);
-  const firstOpen = (view.projects.find((p) => cards.isOpen(p.plan.project.id)) ?? view.projects[0])?.plan.project.id;
   const onScroll = () => {
     const top = root.current?.getBoundingClientRect().top ?? 0;
-    const card = [...(root.current?.querySelectorAll<HTMLElement>('.pcd[data-project]') ?? [])].find((c) => c.getBoundingClientRect().bottom > top + 48);
-    setInView(card?.dataset.project);
+    const section = [...(root.current?.querySelectorAll<HTMLElement>('.pproj[data-project]') ?? [])].find((c) => c.getBoundingClientRect().bottom > top + 48);
+    setInView(section?.dataset.project);
   };
-  usePickAddMenu(props, adder, cards, inView ?? firstOpen, () => {
+  usePickAddMenu(props, adder, inView ?? view.projects[0]?.plan.project.id, () => {
     sel.exit();
     setTab('projects');
   });
@@ -45,22 +41,13 @@ export function PickPhone(props: PickProps) {
     setTab('week');
     root.current?.scrollTo?.({ top: 0 });
   });
-  const rows = selectable(props, cards.isOpen);
+  const rows = selectable(props);
   useEffect(() => {
     if (sel.on) root.current?.querySelector<HTMLElement>('.selbox')?.focus();
   }, [sel.on]);
   const closeSheet = () => setSheet(null);
-  const card = { ...props, phone: true, select: sel, adder };
-  const projectAdder = (
-    <ProjectAdder
-      {...props}
-      adder={adder}
-      onAdded={(id) => {
-        cards.open(id);
-        adder.setAdding({ kind: 'task', project: id });
-      }}
-    />
-  );
+  const list = { ...props, phone: true, select: sel, adder };
+  const projectAdder = <ProjectAdder {...props} adder={adder} onAdded={(id) => adder.setAdding({ kind: 'task', project: id })} />;
 
   return (
     <>
@@ -72,7 +59,7 @@ export function PickPhone(props: PickProps) {
               Add suggested {formatMinutes(view.hintMin)}
             </button>
           )}
-          <button ref={moreRef} className="pkmore" type="button" aria-haspopup="dialog" aria-label="More: change aims, select, timeline key" onClick={() => setSheet('menu')}>
+          <button ref={moreRef} className="pkmore" type="button" aria-haspopup="dialog" aria-label="More: change aims, select" onClick={() => setSheet('menu')}>
             ⋯
           </button>
         </div>
@@ -97,14 +84,14 @@ export function PickPhone(props: PickProps) {
               </div>
             ))}
             {empty && <EmptyCard>{projectAdder}</EmptyCard>}
-            {view.projects.map((s) => (
-              <ProjectCard key={s.plan.project.id} {...card} s={s} open={cards.isOpen(s.plan.project.id)} toggle={() => cards.toggle(s.plan.project.id)} />
-            ))}
-            <OneOffsCard {...card} open={cards.isOpen(ONE_OFFS_BUCKET)} toggle={() => cards.toggle(ONE_OFFS_BUCKET)} />
-            {view.others.map((o) => (
-              <OtherCard key={o.plan.project.id} title={o.plan.project.title} pill={<Pill tone={o.status.tone}>{o.status.pill}</Pill>} sum={o.sum} />
-            ))}
-            {!empty && !sel.on && <div className="card pcd emptycard addcard">{projectAdder}</div>}
+            <div className="card plist">
+              {view.projects.map((s) => (
+                <ProjectSection key={s.plan.project.id} {...list} s={s} />
+              ))}
+              <OneOffsSection {...list} />
+              <Others {...list} />
+            </div>
+            {!empty && !sel.on && <div className="addline">{projectAdder}</div>}
           </>
         )}
         <div className="sr" role="status">
@@ -143,23 +130,9 @@ export function PickPhone(props: PickProps) {
           >
             Select
           </button>
-          <button className="btn" type="button" onClick={() => setSheet('key')}>
-            Timeline key
-          </button>
           <button className="btn" type="button" onClick={closeSheet}>
             Close
           </button>
-        </Sheet>
-      )}
-      {sheet === 'key' && (
-        <Sheet key="key" label="Timeline key" onClose={closeSheet}>
-          <div className="between">
-            <h2>Timeline key</h2>
-            <button className="btn" type="button" onClick={closeSheet}>
-              Close
-            </button>
-          </div>
-          <Legend stretch={!!view.stretch} className="col" />
         </Sheet>
       )}
     </>

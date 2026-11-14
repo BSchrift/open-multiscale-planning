@@ -41,8 +41,8 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
   await expect(page.getByRole('button', { name: 'Process 1 item' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
-  // Pick: a card per project, open with two of them. A task's title opens its popup, and a rename shows at once, with
-  // focus back on the title.
+  // Pick: one list, each project's tasks under its name. A task's title opens its popup, and a rename shows at once,
+  // with focus back on the title.
   await page.getByRole('button', { name: /^Edit task Write chapter one/ }).click();
   const editor = page.getByRole('dialog', { name: 'Write chapter one' });
   await editor.getByRole('button', { name: 'Rename Write chapter one' }).click();
@@ -86,11 +86,15 @@ test('plans a week: Inbox, pick with Does it fit, then finish at Review', async 
   await expect(done).not.toBeChecked();
 
   const report = page.getByRole('region', { name: 'Write the report' });
-  // Overdue is asked inside its card, and the link at the top jumps there.
-  const ask = report.getByRole('group', { name: 'Gather notes was due Oct 18' });
+  // Overdue is asked on its milestone's line, where on phone Answer opens it in place. The link at the top jumps there.
+  const ask = report.getByRole('group', { name: 'Milestone: Gather notes, overdue since Oct 18' });
   await expect(ask).toBeVisible();
-  if (phone) await expectTapTarget(ask.getByRole('button', { name: 'Keep in plan: Gather notes' }));
-  else {
+  if (phone) {
+    const answer = ask.getByRole('button', { name: 'Answer: Gather notes, overdue since Oct 18' });
+    await expectTapTarget(answer);
+    await answer.click();
+    await expectTapTarget(ask.getByRole('button', { name: 'Keep Gather notes in the plan' }));
+  } else {
     await page.getByRole('button', { name: '1 overdue' }).click();
     await expect(ask).toBeFocused();
   }

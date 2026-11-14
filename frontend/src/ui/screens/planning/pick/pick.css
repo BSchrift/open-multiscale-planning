@@ -1,21 +1,13 @@
 /* Pick tasks additions to the shared desktop and phone styles. */
 :where([data-layout]) .planning .captop{border-top:1px solid var(--line);padding-top:8px}
-:where([data-layout]) .planning .pklegend .lg-dates{background:var(--grey)}
-:where([data-layout]) .planning .pklegend .lg-week{background:var(--blue-soft)}
-:where([data-layout]) .planning .pklegend .lg-stretch{background:var(--stretch);border:1px solid var(--tick)}
-:where([data-layout]) .pklegend .msdia{margin:0 2px}
-:where([data-layout]) .pklegend.col{flex-direction:column;align-items:flex-start}
 /* Milestone heads are headings and rows a list, for VoiceOver; neither looks any different. */
 :where([data-layout]) .planning .picklist{margin:0;padding:0;list-style:none}
 /* The done circle's grey edge is under 3:1 on a tint, so it takes the quiet ink there, and on every row here. */
 :where([data-layout]) :is(.mband,.added,.oo,.is-maint,.tk) .checkcircle:not(:checked){border-color:var(--quiet)}
 
-:where([data-layout='phone']) .pklegend{display:flex;gap:8px;font-size:14px;color:var(--ink-2)}
-:where([data-layout='phone']) .pklegend span{display:inline-flex;align-items:center;gap:6px}
-:where([data-layout='phone']) .pklegend i{display:inline-block;width:10px;height:10px;border-radius:2px}
 :where([data-layout='phone']) .sheet .pastacts .btn{flex:1 1 auto}
 
-/* Direction C: a card per project, the week's shape beside them. */
+/* One list of every project's tasks, the week's shape beside it. */
 :where([data-layout='desktop']) .planning .colC{display:flex;gap:24px;align-items:flex-start}
 :where([data-layout='desktop']) .planning .cleft{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:12px}
 :where([data-layout='desktop']) .planning .cright{flex:0 0 340px;position:sticky;top:48px;display:flex;flex-direction:column;gap:12px}
@@ -24,39 +16,43 @@
 :where([data-layout='desktop']) .planning .cleft>.selbar{position:sticky;top:32px;z-index:5}
 :where([data-layout='desktop']) .planning .pickhead>.row{flex:none}
 :where([data-layout]) .planning .selbtn[aria-pressed='true']{border-color:var(--blue);background:var(--blue-tint);color:var(--blue-ink)}
-:where([data-layout]) .planning .pcd{padding:0;overflow:visible}
-:where([data-layout]) .planning .pcdh{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 16px 6px 8px}
-:where([data-layout]) .planning .pchev{display:inline-flex;align-items:center;gap:6px;min-width:0;min-height:44px;padding:0 4px;border:0;background:transparent;color:inherit;text-align:left}
-:where([data-layout]) .planning .chev2{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;color:var(--ink-2);font-size:17px;line-height:1}
-:where([data-layout]) .planning .chev2.open{transform:rotate(90deg)}
-@media (prefers-reduced-motion:no-preference){:where([data-layout]) .planning .chev2{transition:transform .15s}}
-:where([data-layout]) .planning .pn{min-width:0;font-size:15px;font-weight:600}
-:where([data-layout]) .planning .pstar{color:var(--blue-ink);font-weight:500}
-:where([data-layout]) .planning .pmr{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);white-space:nowrap}
-:where([data-layout]) .planning .pmr .mmeter,:where([data-layout]) .planning .wsr .mmeter{flex:none;width:100px;background:var(--white);box-shadow:inset 0 0 0 1px var(--grey)}
-:where([data-layout]) .planning .pcstrip{padding:0 16px 8px}
-:where([data-layout]) .planning .pcstrip .ptrack{height:14px}
-:where([data-layout]) .planning .pcstrip .pspan{top:4px;height:6px}
-:where([data-layout]) .planning .pcstrip .gdia{top:2px}
-:where([data-layout]) .planning .pcbody{display:flex;flex-direction:column;padding:0 12px 8px}
-:where([data-layout]) .planning .pcd.oo{box-shadow:var(--card-shadow),inset 4px 0 0 var(--purple)}
-:where([data-layout]) .planning .pcd.oo .pn{color:var(--purple-ink)}
-:where([data-layout]) .planning .pcd.oo .pcdh{padding-left:12px}
-:where([data-layout]) .planning .pcd.muted{color:var(--quiet)}
-:where([data-layout]) .planning .pcd.muted .pcdh{min-height:44px;padding:6px 16px}
-:where([data-layout]) .planning .pcd.muted .pn{font-weight:500}
+:where([data-layout]) .planning .plist{padding:0;overflow:visible}
+/* A project's name is a band over its tasks, with the reason it shows when it's outside this stretch. */
+:where([data-layout]) .planning .pproj{display:flex;flex-direction:column;padding:0 12px 6px}
+:where([data-layout]) .planning .pproj+.pproj,:where([data-layout]) .planning .pproj+.pother,:where([data-layout]) .planning .pother+.pother{border-top:1px solid var(--line)}
+:where([data-layout]) .planning .pph{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:44px;margin:0 -12px;padding:6px 16px;background:var(--fill);font-size:15px;font-weight:600;color:var(--ink)}
+:where([data-layout]) .planning .pproj:first-child .pph{border-radius:var(--radius) var(--radius) 0 0}
+:where([data-layout]) .planning .pn{min-width:0;font-weight:600}
+:where([data-layout]) .planning .ppr{margin-left:auto;font-weight:400;color:var(--ink-2)}
+:where([data-layout]) .planning .rtag{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border:1px solid var(--line-strong);border-radius:999px;background:var(--white);color:var(--ink-2);font-size:12px;font-weight:600;line-height:1.5}
+:where([data-layout]) .planning .rtag::before{content:'';flex:none;width:6px;height:6px;border:1.5px solid currentColor;transform:rotate(45deg)}
+:where([data-layout]) .planning .rtag.red{border-color:var(--red);background:var(--red-tint);color:var(--red)}
+:where([data-layout]) .planning .rtag.blue{border-color:var(--blue-line);background:var(--blue-tint);color:var(--blue-ink)}
+:where([data-layout]) .planning .rtag.new::before{border-radius:50%;transform:none;background:currentColor}
+:where([data-layout]) .planning .pproj.oo{box-shadow:inset 4px 0 0 var(--purple)}
+:where([data-layout]) .planning .pproj.oo .pn{color:var(--purple-ink)}
+:where([data-layout]) .planning .pinbox{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:6px 0 2px 14px;color:var(--ink-2)}
+:where([data-layout]) .planning .pinbox .link{min-height:var(--tap)}
+:where([data-layout]) .planning .pother{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:44px;padding:6px 16px;color:var(--quiet)}
+:where([data-layout]) .planning .pother .pn{font-weight:500}
+:where([data-layout]) .planning .pmr{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+:where([data-layout]) .planning .wsr .mmeter{flex:none;width:100px;background:var(--white);box-shadow:inset 0 0 0 1px var(--grey)}
+:where([data-layout]) .planning .addline{display:flex}
 :where([data-layout]) .planning .emptycard{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px dashed var(--line-strong);box-shadow:none;background:transparent}
 :where([data-layout]) .planning .emptyline{padding:4px 4px 10px 14px}
-/* A milestone's head: its diamond and name, and what's planned under it. */
-:where([data-layout]) .planning .gh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0;padding:12px 6px 4px 14px;font-size:13px;font-weight:600;color:var(--ink-2)}
+/* A milestone's line: its diamond, name and date. An overdue one asks its question on the same line. */
+:where([data-layout]) .planning .gh{display:flex;align-items:center;gap:8px;margin:0;padding:12px 6px 4px 14px;font-size:13px;font-weight:600;color:var(--ink-2)}
 :where([data-layout]) .planning .gh.late{color:var(--red)}
-:where([data-layout]) .planning .gh .ghl{display:flex;align-items:center;min-width:0}
-:where([data-layout]) .planning .gh .ghr{flex:none;font-weight:400;color:var(--quiet)}
-:where([data-layout]) .planning .gh .msdia{margin:0 10px 0 0}
-/* The overdue question, inside its card. */
-:where([data-layout]) .planning .ovstrip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:4px 12px 6px;padding:10px 12px;border-radius:8px;background:var(--red-tint);color:var(--ink)}
-:where([data-layout]) .planning .ovstrip .ovw{flex:1 1 260px;min-width:0;font-size:14px}
-:where([data-layout]) .planning .ovstrip .k{color:var(--red);font-weight:600}
+:where([data-layout]) .planning .gh .msdia{flex:none;margin:0 2px 0 0}
+:where([data-layout]) .planning .msl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:6px 0 2px}
+:where([data-layout]) .planning .msl .mslw{flex:1 1 240px;min-width:0;display:flex;flex-direction:column}
+:where([data-layout]) .planning .msl .gh{padding-top:6px}
+:where([data-layout]) .planning .msl .msub{padding-left:34px;color:var(--ink-2)}
+:where([data-layout]) .planning .ovacts{flex:none;gap:6px}
+:where([data-layout]) .planning .tm.late{color:var(--red)}
+:where([data-layout]) .planning .tk.ask{grid-template-columns:44px minmax(0,1fr) auto}
+:where([data-layout]) .planning .link.answer{min-width:var(--tap);min-height:var(--tap);padding:0 6px;font-size:15px}
+:where([data-layout]) .planning .keepnote{flex:1 1 100%;margin:0;color:var(--ink-2)}
 :where([data-layout]) .planning .keepform{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;background:var(--white)}
 :where([data-layout]) .planning .keepform .keepdate{flex:1 1 100%}
 :where([data-layout]) .planning .keepform .keeptick{flex:1 1 100%;display:flex;align-items:center;gap:8px;min-height:44px;font-size:14px}
@@ -99,13 +95,12 @@
 :where([data-layout='phone']) .planning .seg{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--fill)}
 :where([data-layout='phone']) .planning .seg>button{flex:1 1 0;min-height:var(--tap);padding:4px 12px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font-size:14px}
 :where([data-layout='phone']) .planning .seg>button[aria-pressed='true']{background:var(--white);color:var(--ink);font-weight:600;box-shadow:var(--card-shadow)}
-:where([data-layout='phone']) .planning .pcdh{padding:6px 12px 4px 4px}
-:where([data-layout='phone']) .planning .pmr .mmeter{width:56px;height:6px}
-:where([data-layout='phone']) .planning .pcstrip{padding:0 12px 6px}
-:where([data-layout='phone']) .planning .pcbody{padding:0 8px 6px}
-:where([data-layout='phone']) .planning .ovstrip{margin:4px 8px 6px}
-:where([data-layout='phone']) .planning .ovstrip .acts{display:flex;gap:6px;width:100%}
-:where([data-layout='phone']) .planning .ovstrip .acts .btn{flex:1 1 0;padding-inline:6px;font-size:14px}
+:where([data-layout='phone']) .planning .pproj{padding:0 8px 4px}
+:where([data-layout='phone']) .planning .pph{margin:0 -8px;padding:4px 12px;font-size:16px}
+:where([data-layout='phone']) .planning .msl .gh{flex:1 1 auto;min-width:0}
+:where([data-layout='phone']) .planning :is(.msl,.tk) .acts{grid-column:1/-1;display:flex;gap:6px;width:100%;padding:2px 0 6px}
+:where([data-layout='phone']) .planning :is(.msl,.tk) .acts .btn{flex:1 1 0;padding-inline:6px;font-size:14px}
+:where([data-layout='phone']) .planning .msl .msub{flex:1 1 100%;padding-left:34px}
 :where([data-layout='phone']) .planning .keepform .btn{flex:1 1 0}
 :where([data-layout='phone']) .planning .wkshape{padding:14px}
 :where([data-layout='phone']) .planning .wsr{grid-template-columns:minmax(0,1fr) 64px auto;font-size:14px}
@@ -179,9 +174,8 @@
 :where([data-layout]) .planning .pkadd .addlink:hover{background:var(--blue-tint)}
 :where([data-layout]) .planning .pkadd .addlink.oo{color:var(--purple)}
 :where([data-layout]) .planning .pkadd .dot{color:var(--quiet)}
-:where([data-layout]) .planning .pcbody>.inlineform,:where([data-layout]) .planning .pcbody>.addform{margin:4px 0;padding:10px 12px;border-radius:8px;background:var(--blue-pale);box-shadow:inset 0 0 0 1px var(--blue-line)}
+:where([data-layout]) .planning .pproj>.inlineform,:where([data-layout]) .planning .pproj>.addform{margin:4px 0;padding:10px 12px;border-radius:8px;background:var(--blue-pale);box-shadow:inset 0 0 0 1px var(--blue-line)}
 :where([data-layout]) .planning .weektick{gap:8px;min-height:var(--tap)}
 :where([data-layout]) .planning .weektick input{width:20px;height:20px;margin:0;accent-color:var(--blue)}
-:where([data-layout]) .planning .addcard{align-items:stretch}
 :where([data-layout='phone']) .planning .pkadd{min-height:var(--tap)}
 :where([data-layout='phone']) .planning .pkadd .addlink{min-height:var(--tap)}

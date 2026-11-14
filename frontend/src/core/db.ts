@@ -154,6 +154,7 @@ export const RECORD_FIELDS = {
     'notes',
     'plans',
     'became',
+    'kept_at',
     'deleted_at',
   ],
   task_completion: ['task_id', 'done_at', 'previous_next', 'undo', 'deleted_at'],

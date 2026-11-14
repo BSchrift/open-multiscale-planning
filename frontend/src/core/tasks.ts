@@ -2,6 +2,7 @@
 // future blocks and picks here, or it would keep its time and fire reminders. Also making a home for an Inbox item,
 // which can close it.
 
+import { fileToBacklog } from './backlog';
 import type { Clock } from './clock';
 import { formatDate, instantMs, nowInstant, thisWeek, today } from './dates';
 import type { Params, Sql } from './db';
@@ -11,7 +12,7 @@ import { futureBlocks, futurePicks } from './queries';
 import { getRecord } from './records';
 import type { Writer } from './records';
 import { blocksToRelease, isRepeating, retick, tick, untick } from './schedule';
-import type { Fields, Instant, LocalDate, Minutes, Practice, SlipEntry, Task, TaskCompletion, TimeBlock, WeekPick } from './types';
+import type { Fields, Instant, LocalDate, Minutes, Practice, Project, SlipEntry, Task, TaskCompletion, TimeBlock, WeekPick } from './types';
 
 export type TaskClose = 'done' | 'cancelled' | 'deleted';
 
@@ -51,14 +52,24 @@ export async function scheduledWork(sql: Sql, taskIds: readonly string[], clock:
   return { blocks, picks };
 }
 
-/** Finishes or drops a project, cancelling its open tasks through closeTask. Returns the exact reverse, for Undo. */
-export async function closeProject(w: Writer, projectId: string, state: 'finished' | 'dropped', clock: Clock): Promise<PlanChange> {
-  const open = await w.sql.all<{ id: string }>(
-    'SELECT id FROM task WHERE project_id = :project AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL',
+/**
+ * Finishes or drops a project, cancelling its open tasks through closeTask, or with moveToBacklog and a goal, moving
+ * them to the goal's backlog. Returns the exact reverse, for Undo.
+ */
+export async function closeProject(
+  w: Writer,
+  projectId: string,
+  state: 'finished' | 'dropped',
+  clock: Clock,
+  options: { moveToBacklog?: boolean } = {},
+): Promise<PlanChange> {
+  const open = await w.sql.all<{ id: string; milestone_id: string | null }>(
+    'SELECT id, milestone_id FROM task WHERE project_id = :project AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL',
     { project: projectId },
   );
   const project = await getRecord(w.sql, 'project', projectId);
   if (!project) throw new Error(`No project ${projectId}`);
+  if (options.moveToBacklog && project.objective_id) return closeMovingTasks(w, project, state, open, clock);
   const reverses: PlanChange[] = [];
   for (const { id } of open) reverses.unshift(await closeTask(w, id, 'cancelled', clock));
   // Each task is marked, so Restore can reopen it later; the time it gave up stays free. The entry is history, and
@@ -75,6 +86,33 @@ export async function closeProject(w: Writer, projectId: string, state: 'finishe
   const writes: RecordWrite[] = [
     { type: 'project', id: projectId, fields: { state, slip_log: [...(project.slip_log ?? []), entry] } },
     ...open.map(({ id }): RecordWrite => ({ type: 'task', id, fields: { cancelled_by: projectId } })),
+  ];
+  reverses.unshift(await applyPlanChange(w, { writes }));
+  return { writes: reverses.flatMap((r) => r.writes) };
+}
+
+/**
+ * Closes a project and moves its open tasks to its goal's backlog, each remembering its milestone in moved_from. A
+ * milestone they leave with nothing open would read as met, so it is dropped, as cancelling would have left it. Only
+ * the state goes in the close's log entry, since Restore in any app version only reopens the project; the toast's Undo
+ * reverses the rest from the change returned.
+ */
+async function closeMovingTasks(w: Writer, project: Project, state: 'finished' | 'dropped', open: readonly { id: string; milestone_id: string | null }[], clock: Clock): Promise<PlanChange> {
+  const now = nowInstant(clock);
+  const losing = [...new Set(open.map((t) => t.milestone_id).filter((m): m is string => !!m))];
+  const milestones = (await Promise.all(losing.map((id) => getRecord(w.sql, 'milestone', id)))).filter((m) => m && !m.met_at && !m.dropped_at);
+  const reverses: PlanChange[] = [await fileToBacklog(w, project.objective_id!, open.map((t) => t.id), clock)];
+  const from = open.filter((t) => t.milestone_id).map((t): RecordWrite => ({ type: 'task', id: t.id, fields: { moved_from: t.milestone_id } }));
+  reverses.unshift(await applyPlanChange(w, { writes: from }));
+  const entry: SlipEntry = {
+    at: now,
+    kind: 'close',
+    text: `${formatDate(today(clock))}: ${state === 'finished' ? 'Finished' : 'Dropped'}.`,
+    undo: [{ type: 'project', id: project.id, fields: { state: project.state } }] satisfies RecordWrite[],
+  };
+  const writes: RecordWrite[] = [
+    { type: 'project', id: project.id, fields: { state, slip_log: [...(project.slip_log ?? []), entry] } },
+    ...milestones.map((m): RecordWrite => ({ type: 'milestone', id: m!.id, fields: { dropped_at: now } })),
   ];
   reverses.unshift(await applyPlanChange(w, { writes }));
   return { writes: reverses.flatMap((r) => r.writes) };

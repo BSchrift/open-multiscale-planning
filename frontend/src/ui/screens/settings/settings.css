@@ -100,10 +100,10 @@
   outline: none;
 }
 .hourtrack input[type='range']:focus-visible::-webkit-slider-thumb {
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, var(--blue-soft) 12.5px 16px, transparent 16.5px);
+  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 16px, transparent 16.5px);
 }
 .hourtrack input[type='range']:focus-visible::-moz-range-thumb {
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, var(--blue-soft) 12.5px 16px, transparent 16.5px);
+  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 16px, transparent 16.5px);
 }
 .hourticks {
   position: relative;

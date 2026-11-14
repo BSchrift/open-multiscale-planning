@@ -23,7 +23,7 @@ import { ReviewStep } from './review/ReviewStep';
 import { ScheduleStep } from './schedule';
 import { usePlanningTime } from './usePlanningTime';
 import { FitContext, WeekFit } from './WeekFit';
-import type { FitPreview } from './WeekFit';
+import type { FitPreview, NextName } from './WeekFit';
 import './planning.css';
 
 const STEPS = ['1. Inbox', '2. Pick tasks', '3. Schedule', '4. Review'] as const;
@@ -64,7 +64,9 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
   const [addItems, setAddItems] = useState<readonly AddItem[] | null>(null);
   const [menu, setMenu] = useState(false);
   const addRef = useRef<HTMLButtonElement>(null);
-  const fitHooks = useMemo(() => ({ preview: setPreview, show: (open: (() => void) | null) => setOnShow(() => open), add: setAddItems }), []);
+  // The phone's Continue, named in full by a step that has more to say, such as Pick's "6 need you".
+  const [nextName, setNextName] = useState<NextName | null>(null);
+  const fitHooks = useMemo(() => ({ preview: setPreview, show: (open: (() => void) | null) => setOnShow(() => open), add: setAddItems, next: setNextName }), []);
   // Each step starts at its top. Focus left behind, by the screen underneath or a step's own button that went away,
   // goes to the current step's tab, which names the step.
   useEffect(() => {
@@ -109,7 +111,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
       {
         [
           <InboxStep key="inbox" week={week} layout={layout} onNext={() => go(1)} />,
-          <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} />,
+          <PickStep key="pick" week={week} layout={layout} onNext={() => go(2)} onInbox={() => go(0)} />,
           <ScheduleStep key="schedule" week={week} layout={layout} onContinue={() => go(3)} />,
           <ReviewStep key="review" week={week} began={time.began} layout={layout} onFinish={onFinish} />,
         ][step]
@@ -161,16 +163,26 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
           {tabs(PHONE_STEPS, 'flowsteps')}
           {fit}
         </div>
-        <div className="pwk">
-          <span className="small strong">{formatWeekRange(week)}</span>
-          <WeekArrows {...props} />
-        </div>
+        {/* Pick puts the week's dates on its heading's row, so four tasks fit on its first screen. */}
+        {step !== 1 && (
+          <div className="pwk">
+            <span className="small strong">{formatWeekRange(week)}</span>
+            <WeekArrows {...props} />
+          </div>
+        )}
         {body}
         <div className="flowbot">
           <button className="icbtn" type="button" aria-label="Previous step" disabled={step === 0} onClick={() => go(step - 1)}>
             ‹
           </button>
-          <button className="btn pri grow" type="button" onClick={step === STEPS.length - 1 ? onFinish : () => go(step + 1)}>
+          <button
+            className="btn pri grow"
+            type="button"
+            data-continue
+            aria-label={nextName?.label}
+            aria-describedby={nextName?.describedBy}
+            onClick={step === STEPS.length - 1 ? onFinish : () => go(step + 1)}
+          >
             {NEXT[step]}
           </button>
           {/* On a step with things to add, + is Add; elsewhere it captures to the Inbox. */}

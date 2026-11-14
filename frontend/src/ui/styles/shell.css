@@ -427,6 +427,11 @@ p {
   min-height: var(--tap);
 }
 
+/* A practice's "How much did you do?" slider, a whole tap target tall on phone, as the estimate sliders are. */
+[data-layout='phone'] .logrange {
+  min-height: var(--tap);
+}
+
 [data-layout='phone'] .estval {
   flex: none;
   min-width: 76px;

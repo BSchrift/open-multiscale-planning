@@ -230,6 +230,19 @@ test('a reminder fires from the main process, and its action reaches the page', 
     .toEqual([{ reminder_id: 'r1', block_id: 'b1', action_id: 'start' }]);
 });
 
+test('the page syncs when the computer wakes from sleep or its screen unlocks', async () => {
+  const { app: running, page } = await launch();
+  // Signed out, a sync fails at once and records why, so the record coming back shows that one ran.
+  const syncError = () =>
+    page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.all("SELECT value FROM meta WHERE key = 'last_sync_error'", []));
+  await expect.poll(syncError).toEqual([{ value: 'sign_in_expired' }]);
+  for (const event of ['resume', 'unlock-screen'] as const) {
+    await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.run("DELETE FROM meta WHERE key = 'last_sync_error'", []));
+    await running.evaluate(({ powerMonitor }, name) => void powerMonitor.emit(name), event);
+    await expect.poll(syncError, { message: event }).toEqual([{ value: 'sign_in_expired' }]);
+  }
+});
+
 test('a sign-in return reaches the page, a foreign link does not, and links open only in the browser', async () => {
   const { app: running, page } = await launch();
   const scheme = (await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).signInRedirectUri)).split('://')[0];

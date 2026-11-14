@@ -16,7 +16,7 @@ export const SCREEN_URLS = [...readFileSync(join(import.meta.dirname, '../src/ui
 /**
  * Loads every screen's code now, as the app's own lazy imports would, so the page's module map has it and each screen
  * opens offline. It stands in for the app loading its screens in the background, which it doesn't do yet (the first test
- * in offline.spec.ts shows that), so the flows test the flows rather than that.
+ * in offline-flows.spec.ts shows that), so the flows test the flows rather than that.
  * shortcut: once the app loads its screens itself, wait for its requests as that first test does, and drop this.
  */
 export async function loadEveryScreen(page: Page): Promise<void> {

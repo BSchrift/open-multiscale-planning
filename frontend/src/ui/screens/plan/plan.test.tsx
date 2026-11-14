@@ -268,7 +268,7 @@ describe('A first plan', () => {
       expect(await screen.findByText('Your plan for Nov 2 to Dec 31 is set.')).toBeVisible();
     });
 
-    it("takes a first plan back with its toast's Undo, to settings with no stretch planned rather than none at all", async () => {
+    it("takes a first plan back with its toast's Undo, storing no stretch planned rather than none at all", async () => {
       const { t, close } = await flow(layout, 'projects', { seed: unplanned });
       expect(await screen.findByRole('heading', { name: 'Step 3 of 5, Projects. What will you reach by Dec 31?' })).toBeVisible();
       await userEvent.click(tab('Finish'));
@@ -276,7 +276,8 @@ describe('A first plan', () => {
       await userEvent.click(finishButton(layout));
       await waitFor(() => expect(close).toHaveBeenCalled());
       await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-      await waitFor(async () => expect((await getSettings(t.db)).plan_stretch).toEqual({}));
+      // Stored as an empty stretch, as an older app reads it, not as null.
+      await waitFor(async () => expect((await getRecord(t.db, 'settings', 'settings'))?.plan_stretch).toEqual({}));
     });
   });
 });

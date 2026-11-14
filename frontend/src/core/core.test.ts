@@ -44,7 +44,7 @@ import {
   weekPickId,
 } from './records';
 import { RECORD_TYPES } from './types';
-import type { RecordChange } from './types';
+import type { PlanStretch, RecordChange } from './types';
 import { nodeSqliteDriver, openTestDb } from '../platform/node-sqlite';
 import { sqliteWasmDriver } from '../platform/sqlite-wasm-driver';
 import { sqlJsDriver } from '../platform/sqljs-driver';
@@ -597,6 +597,12 @@ describe('records', () => {
     const saved = await getSettings(db);
     expect(saved).toMatchObject({ one_offs_weekly_aim: 180, plan_cadence: null, reminders: { check_in_delay_min: 5 } });
     expect(await listRecords(db, 'settings')).toHaveLength(1);
+  });
+
+  it('reads a stretch stored as null, as an Undo of a first plan once left it, as none planned', async () => {
+    const db = await openTestDb();
+    await transact(db, clock, (w) => updateSettings(w, { plan_stretch: null as unknown as PlanStretch }));
+    expect((await getSettings(db)).plan_stretch).toEqual({});
   });
 
   it('announces local changes after commit, with the types touched', async () => {

@@ -48,7 +48,7 @@ describe('Inbox on phone', () => {
   it('lists rows whose › opens Process on that item, and docks the Process button', async () => {
     const t = await renderScreen('inbox', { seed, layout: 'phone' });
     await screen.findByText('Call the bank');
-    expect(rows()).toEqual(['Call the bank›', 'Fix the gate2h estimate›']);
+    expect(rows()).toEqual(['Call the bank', 'Fix the gate2h estimate']);
     await userEvent.click(screen.getByRole('button', { name: 'Process Fix the gate' }));
     expect(t.nav().overlay).toEqual({ area: 'process', params: { item: 'i2' } });
     expect(screen.getByRole('button', { name: 'Process 2 items' })).toHaveClass('tray', 'go');

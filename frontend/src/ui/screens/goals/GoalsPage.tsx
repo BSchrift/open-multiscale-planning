@@ -13,7 +13,7 @@ import type { Fields, Objective, Practice } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { PracticeAdd, PracticeFields, practiceRule, PracticeSheet, ProjectAdd, usePlanChange } from '../../components/editors';
-import { PenIcon } from '../../components/icons';
+import { ChevronIcon, PenIcon } from '../../components/icons';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -233,9 +233,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               </span>
               <span className="small quiet lineblock">{time}</span>
             </span>
-            <span className="chev" aria-hidden="true">
-              ›
-            </span>
+            <span className="chev" aria-hidden="true"><ChevronIcon /></span>
           </button>
         </div>
       );
@@ -284,9 +282,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               <span className="small quiet">{shortWord(st)}</span>
             </span>
           </span>
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+          <span className="chev" aria-hidden="true"><ChevronIcon /></span>
         </button>
       );
     }

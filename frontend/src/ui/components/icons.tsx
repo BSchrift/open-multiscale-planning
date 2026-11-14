@@ -16,6 +16,15 @@ export function PenIcon() {
   );
 }
 
+/** A chevron at the end of a row that opens something. As tall as the pencil, so the two read as a pair. */
+export function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8.5 4.5l7.5 7.5-7.5 7.5" />
+    </svg>
+  );
+}
+
 /** An answer to a missed block: Finished (a tick), Partly (half a circle, filled) or Not done (a cross). */
 export function AnswerIcon(props: { answer: 'done' | 'partly' | 'not' }) {
   return (

@@ -10,7 +10,7 @@ import { formatMinutes } from '../../../core/dates';
 import type { InboxRow } from '../../../core/queries';
 import type { Fields } from '../../../core/types';
 import { useMutation } from '../../app/store';
-import { PenIcon } from '../icons';
+import { ChevronIcon, PenIcon } from '../icons';
 import { TaskName, useOpenTask } from '../task/TaskName';
 import { useToast } from '../Toast';
 import { useFocusLanding } from '../useFocusLanding';
@@ -119,12 +119,10 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
               </div>
             );
           }
-          const lines = (
-            <div className="inboxlines">
-              <TaskName id={i.id} title={i.title} details={!!i.has_notes} className={phone ? 'rowname inboxname' : 'rowname'} />
-              {est && <span className="small quiet">{est}</span>}
-            </div>
-          );
+          // The name, its estimate and the icons are cells of one grid, so the icons centre on the name's line, not on
+          // the name and estimate together.
+          const name = <TaskName id={i.id} title={i.title} details={!!i.has_notes} className={phone ? 'rowname inboxname' : 'rowname'} />;
+          const estimate = est && <span className="small quiet inboxest">{est}</span>;
           const pencil = (
             <button className="rowpen" type="button" aria-label={`Rename ${i.title}`} title="Rename" onClick={() => setRenaming(i.id)}>
               <PenIcon />
@@ -132,18 +130,18 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
           );
           return phone ? (
             <div key={i.id} className="inboxrow phone whole" data-id={i.id} onClick={(event) => openRow(event, i.id)}>
-              {lines}
+              {name}
+              {estimate}
               {pencil}
               <button className="inboxgo" type="button" aria-label={`Process ${i.title}`} onClick={() => onOpen(i.id)}>
-                <span className="chev" aria-hidden="true">
-                  ›
-                </span>
+                <ChevronIcon />
               </button>
             </div>
           ) : (
             <div key={i.id} className="inboxrow whole" data-id={i.id} onClick={(event) => openRow(event, i.id)}>
               <div className="rowmain">
-                {lines}
+                {name}
+                {estimate}
                 {pencil}
               </div>
               <button className="btn sm" type="button" aria-label={`Assign ${i.title}`} onClick={() => onOpen(i.id)}>

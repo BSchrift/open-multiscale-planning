@@ -7,6 +7,7 @@ import { moreLine as doneLine } from '../screens/done/moreLine';
 import { moreLine as oneoffsLine } from '../screens/oneoffs/moreLine';
 import { moreLine as planLine } from '../screens/plan/moreLine';
 import { moreLine as settingsLine } from '../screens/settings/moreLine';
+import { inputTime, perf } from '../../core/perf';
 import { useNav } from './nav';
 import { AREAS, MORE_ROWS } from './registry';
 import type { AreaId } from './registry';
@@ -24,7 +25,11 @@ function MoreRow(props: { area: AreaId }) {
   const nav = useNav();
   const { data: line } = useQuery((sql, clock) => LINES[props.area]?.(sql, clock) ?? Promise.resolve(null), [props.area]);
   return (
-    <button className="projbtn morerow" type="button" onClick={() => nav.go(props.area)}>
+    <button className="projbtn morerow" type="button" onClick={(e) => {
+        perf.start(`nav.${props.area}`, inputTime(e));
+        nav.go(props.area);
+      }}
+    >
       <span className={props.area === 'oneoffs' ? 'mhead' : undefined}>
         <span style={{ display: 'block' }}>{AREAS[props.area].label}</span>
         {line && (

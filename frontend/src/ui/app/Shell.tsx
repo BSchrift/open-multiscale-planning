@@ -2,6 +2,7 @@
 
 import { Component, Suspense, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { inputTime, perf } from '../../core/perf';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
 import { PlusIcon, TabIcon } from '../components/icons';
@@ -127,6 +128,19 @@ function useInboxCount(): number {
   return useQuery((sql) => inboxCount(sql), []).data ?? 0;
 }
 
+type Input = { type: string; timeStamp: number; detail?: number };
+
+/** Starts the screen's nav KPI from the tap or click, as docs/performance.md defines it, then goes there. */
+function selectTab(nav: ReturnType<typeof useNav>, tab: TabId, event: Input) {
+  perf.start(`nav.${tab}`, inputTime(event));
+  nav.selectTab(tab);
+}
+
+function openCapture(nav: ReturnType<typeof useNav>, event: Input) {
+  perf.start('capture.open', inputTime(event));
+  nav.openOverlay('capture');
+}
+
 function DesktopNav() {
   const nav = useNav();
   const count = useInboxCount();
@@ -138,7 +152,7 @@ function DesktopNav() {
         Multiscale
       </button>
       <div>
-        <button className="capture" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={() => nav.openOverlay('capture')}>
+        <button className="capture" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={(e) => openCapture(nav, e)}>
           <PlusIcon />
           <span>Capture</span>
           <span className="key">{shortcutLabel(shortcut?.accelerator ?? DEFAULT_SHORTCUT)}</span>
@@ -148,7 +162,7 @@ function DesktopNav() {
         {nav.tabs.map((tab) => {
           const on = tab === lit;
           return (
-            <button key={tab} type="button" className={on ? 'on' : ''} aria-current={on ? 'page' : undefined} onClick={() => nav.selectTab(tab)}>
+            <button key={tab} type="button" className={on ? 'on' : ''} aria-current={on ? 'page' : undefined} onClick={(e) => selectTab(nav, tab, e)}>
               <span>{tabLabel(tab)}</span>
               {tab === 'inbox' && count > 0 && <span className="navcount">{count}</span>}
             </button>
@@ -175,7 +189,7 @@ function PhoneNav() {
               className={on ? 'on' : ''}
               aria-current={on ? 'page' : undefined}
               aria-label={tab === 'inbox' && count > 0 ? `Inbox, ${count} to sort` : undefined}
-              onClick={() => nav.selectTab(tab)}
+              onClick={(e) => selectTab(nav, tab, e)}
             >
               <span className="ticon" aria-hidden="true">
                 <TabIcon tab={tab} />
@@ -186,7 +200,7 @@ function PhoneNav() {
           );
         })}
       </nav>
-      <button className="fab" type="button" aria-label="Capture a task" onClick={() => nav.openOverlay('capture')}>
+      <button className="fab" type="button" aria-label="Capture a task" onClick={(e) => openCapture(nav, e)}>
         <PlusIcon />
       </button>
     </>
@@ -202,10 +216,21 @@ function Frame() {
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 
+  // Back to the app while it's still running: the first frame after, once whatever the return set off has run.
+  useEffect(
+    () =>
+      platform.lifecycle.onForeground(() => {
+        perf.start('start.resume');
+        perf.stopAfterPaint('start.resume');
+      }),
+    [platform],
+  );
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code === 'Space' && event.shiftKey && event.metaKey) {
         event.preventDefault();
+        perf.start('capture.open', event.timeStamp);
         nav.openOverlay('capture');
       }
     };

@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatDayLong, instantMs, thisWeek } from '../../../core/dates';
 import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
+import { perf } from '../../../core/perf';
+import { useDrawn } from '../../app/drawn';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useNow, useQuery, useStickyState, useToday } from '../../app/store';
 import { PlanningRow, PlanningSet } from '../../components/planning/PlanningRow';
@@ -226,6 +228,12 @@ export default function Screen(_props: ScreenProps) {
   }, [makeDueRun, day]);
   const skip = useMutation((w) => skipWeek(w, thisWeek(clock), clock));
   const [pick, setPick] = useStickyState<{ date: string; id: string } | null>('today.pick', null);
+  useDrawn('nav.today', !!data);
+  // Where the start KPIs end: Today drawn with its data and taking input.
+  const loaded = !!data;
+  useEffect(() => {
+    if (loaded) perf.markAfterPaint('today:interactive');
+  }, [loaded]);
   if (!data) return <div className={layout === 'phone' ? 'stack' : 'wrap stack24'} />;
 
   const welcome = welcomeBack(data.recent, data.away, clock);

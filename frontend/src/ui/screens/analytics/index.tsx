@@ -10,6 +10,7 @@ import type { PlanChange, RecordWrite } from '../../../core/plan';
 import { getSettings, listRecords, updateSettings } from '../../../core/records';
 import type { AvoidedSlot, LocalDate } from '../../../core/types';
 import { ONE_OFFS_BUCKET } from '../../../core/types';
+import { useDrawn } from '../../app/drawn';
 import type { Layout, ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { useToast } from '../../components/Toast';
@@ -63,6 +64,7 @@ export default function Screen({ params, layout }: ScreenProps) {
   const wrapClass = phone ? 'stack analytics' : 'wrap stack32 analytics';
 
   // Same root and header while loading, so focus and the heading survive the first read.
+  useDrawn('nav.analytics', !!data);
   if (!data) return <div className={wrapClass}>{header}</div>;
   // While a new view loads, data still holds the last one, so draw what it holds.
   const { figures, stretch, week, now } = data;

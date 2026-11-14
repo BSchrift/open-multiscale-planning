@@ -16,6 +16,7 @@ import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
 import { backfillExpiry, expireLocal } from './expiry';
 import { createFiles } from './files';
+import { perf } from './perf';
 import type { FileBytes, FilesApi } from './files';
 import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
 import type { Diagnostics } from './telemetry';
@@ -67,15 +68,18 @@ export function createSyncRunner(deps: {
         await expireLocal(db, clock);
       });
     }
+    // sync.pull ends when a screen draws what this brought (ui/app/store.tsx), unless it brought nothing.
+    perf.start('sync.pull');
     try {
       await rebaseClocks(db, clock);
-      await runSync(db, send);
+      if ((await runSync(db, send)) === 0) perf.cancel('sync.pull');
       await db.transaction(async (tx) => {
         await setMeta(tx, META.lastSyncAt, nowInstant(clock));
         await tx.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
       });
       db.notifyChanged({ source: 'remote' });
     } catch (err) {
+      perf.cancel('sync.pull');
       if (!(err instanceof SyncError)) console.error('Sync failed', err);
       await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
       return;
@@ -109,6 +113,8 @@ export function createSyncRunner(deps: {
       const stopForeground = lifecycle.onForeground(() => void syncNow());
       const stopChanges = db.subscribe((change) => {
         if (change.source !== 'local') return;
+        // sync.push runs from the first change the next push carries.
+        if (perf.pending('sync.push') === undefined) perf.start('sync.push');
         clearTimeout(editTimer);
         editTimer = setTimeout(() => void syncNow(), EDIT_DELAY_MS);
       });

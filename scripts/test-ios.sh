@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Builds the web app into the iOS project and runs XCUITest on a throwaway Simulator: once as a free team would
-# install it, with the extensions off, and once with them on. MULTISCALE_RUNS=NO or YES runs just that one.
+# Builds the web app into the iOS project and runs XCUITest on a throwaway Simulator: every test once as a free team
+# would install it, with the extensions off, then the native checks again with them on, where the share sheet and the
+# Control Center button are. MULTISCALE_RUNS=NO or YES runs just that one.
+#   MULTISCALE_SUITE=smoke runs the smoke set CI runs on a pull request instead: one run with the extensions on, of the
+#   native checks and one test of each main flow, listed below. The default is full, which CI runs on main and nightly.
 #   ENV=local (default) also starts a local stack for the signed-in test, which skips where Docker doesn't run, or uses
 #   the one LOCAL_API_URL names.
 #   ENV=staging, or ENV=prod with CONFIRM_PROD=yes, builds the app for that deployment and runs only the signed-in
 #   test, as integration.testUser in <env>.yaml, with its password from SSM (frontend/scripts/test-target.mjs).
-#   MULTISCALE_ONLY=<test class> runs only that class, on any ENV, as scripts/test-history.sh does with HistoryUITests.
+#   MULTISCALE_ONLY="<class or class/test> ..." runs only those, on any ENV, as scripts/test-history.sh does with
+#   HistoryUITests.
 #   The config folder is $MULTISCALE_CONFIG_DIR, or config/ in the repo.
 set -euo pipefail
 
@@ -25,9 +29,25 @@ case "$ENV" in
     ;;
   *) echo "ENV must be local, staging or prod, not $ENV" >&2; exit 1 ;;
 esac
+suite="${MULTISCALE_SUITE:-full}"
+case "$suite" in
+  full) runs="${MULTISCALE_RUNS:-NO YES}" ;;
+  smoke) runs="${MULTISCALE_RUNS:-YES}" ;;
+  *) echo "MULTISCALE_SUITE must be full or smoke, not $suite" >&2; exit 1 ;;
+esac
+# The smoke set: the native checks, which need nothing seeded and are quick, then one test of each main flow, chosen
+# for what a change to shared UI most often breaks on the phone. Each is a class, or a class/test.
+smoke=(
+  NativeUITests
+  ShellUITests/testFirstRunSetupThenItRemembersAfterARestart
+  ShellUITests/testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff
+  ShellUITests/testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted
+  ShellUITests/testABlocksNotificationActionAnswersItInToday
+  TodayUITests/testTheRingPausesAndResumesTheBlockUnderWayEachWithAToastWhoseUndoTakesItBack
+  WeekUITests/testWeekStepsToOtherWeeksThenABlockNextWeekMovesToAnotherDayAndIsRemovedWithUndo
+)
 cd "$root/frontend"
 runtime_device="${IOS_DEVICE:-iPhone 16}"
-runs="${MULTISCALE_RUNS:-NO YES}"
 derived="$PWD/ios/DerivedData"
 
 work="$(mktemp -d)"
@@ -67,7 +87,10 @@ if [ "$ENV" = local ]; then
 else
   only=(-only-testing:MultiscaleUITests/SignedInUITests)
 fi
-[ -z "${MULTISCALE_ONLY:-}" ] || only=("-only-testing:MultiscaleUITests/$MULTISCALE_ONLY")
+if [ -n "${MULTISCALE_ONLY:-}" ]; then
+  only=()
+  for test in $MULTISCALE_ONLY; do only+=("-only-testing:MultiscaleUITests/$test"); done
+fi
 target=""
 if [ "$ENV" != local ]; then
   # Run from scripts/test-deployed.sh, it's already read, test user's password and all.
@@ -166,6 +189,17 @@ for extensions in $runs; do
   bundle="${IOS_RESULTS:+$IOS_RESULTS/extensions-$extensions.xcresult}"
   # Each test runs once. A test that fails now and then is fixed, never run again until it passes.
 
+  # The tests this run takes: those asked for, else the smoke set, else every test with the extensions off and only the
+  # native checks with them on. Nothing the flows do depends on the extensions, so they run once.
+  tests=()
+  if [ "${#only[@]}" != 0 ]; then
+    tests=("${only[@]}")
+  elif [ "$suite" = smoke ]; then
+    for test in "${smoke[@]}"; do tests+=("-only-testing:MultiscaleUITests/$test"); done
+  elif [ "$extensions" = YES ]; then
+    tests=(-only-testing:MultiscaleUITests/NativeUITests)
+  fi
+
   # The test runner now and then never starts on CI's Simulator ("Early unexpected exit, operation never finished
   # bootstrapping"), and xcodebuild doesn't restart it. No test has run then, so the whole run goes again, once.
   for attempt in 1 2; do
@@ -175,7 +209,7 @@ for extensions in $runs; do
     # XCTest logs the start of whatever it types, and against a deployment that includes the test user's password. Line
     # by line (-l), so the log shows where a run is as it happens, rather than when sed's buffer fills.
     TEST_RUNNER_MULTISCALE_EXTENSIONS="$extensions" TEST_RUNNER_MULTISCALE_SHARE_URL="http://127.0.0.1:$port/" \
-      TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${only[@]+"${only[@]}"} ${results[@]+"${results[@]}"} 2>&1 |
+      TEST_RUNNER_MULTISCALE_TARGET="$target" TEST_RUNNER_MULTISCALE_HISTORY_INBOX="${MULTISCALE_HISTORY_INBOX:-}" xcodebuild test-without-building "${build_settings[@]}" ${tests[@]+"${tests[@]}"} ${results[@]+"${results[@]}"} 2>&1 |
       sed -l -E "s/Type '[^']*'/Type '…'/" | tee "$work/test.log" || status=$?
     if [ "$status" = 0 ] || [ "$attempt" = 2 ] || ! grep -q 'never finished bootstrapping' "$work/test.log"; then break; fi
     echo "The test runner never started, so the run goes again"

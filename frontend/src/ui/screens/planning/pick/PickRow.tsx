@@ -60,7 +60,7 @@ function Why(props: { row: PickTask; selecting: boolean }) {
  * describedBy is the heading of a project in this stretch, which describes its rows; source is where a row outside this
  * stretch is from, which its time button and checkbox say instead: ', Sort the photo albums, outside this stretch'.
  */
-export function PickRow(props: PickProps & { row: PickTask; phone: boolean; select?: Selection; describedBy?: string; source?: string }) {
+export function PickRow(props: PickProps & { row: PickTask; phone: boolean; select?: Selection; describedBy?: string; source?: string; revealed?: boolean }) {
   const { row: r, phone } = props;
   const source = props.source ?? '';
   const selecting = !!props.select?.on;
@@ -96,7 +96,12 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean; sele
     </button>
   );
   return (
-    <li className={`tk editrow${r.c.picked && !done && !selecting ? ' on' : ''}${chosen ? ' chk' : ''}${r.oneOff ? ' oo' : ''}${done ? ' done' : ''}`}>
+    <li
+      className={`tk editrow${r.c.picked && !done && !selecting ? ' on' : ''}${chosen ? ' chk' : ''}${r.oneOff ? ' oo' : ''}${done ? ' done' : ''}`}
+      data-task={r.c.task.id}
+      // Shown by a fold or the toggle: focus can move here, without making it a tab stop.
+      {...(props.revealed ? { tabIndex: -1, 'data-revealed': true } : {})}
+    >
       {selecting ? (
         <span className="ckt">
           {!done && (

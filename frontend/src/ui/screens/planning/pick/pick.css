@@ -38,6 +38,35 @@
 :where([data-layout]) .planning .pmr{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
 :where([data-layout]) .planning .wsr .mmeter{flex:none;width:100px;background:var(--white);box-shadow:inset 0 0 0 1px var(--grey)}
 :where([data-layout]) .planning .addline{display:flex}
+/* This stretch first: the lede, which is the toggle, why nothing's filtered, folds in place, and the toggle again. */
+:where([data-layout]) .planning .plede{display:flex;align-items:center;gap:8px 12px;padding:8px 10px 8px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--white)}
+:where([data-layout]) .planning .plede p{flex:1 1 auto;min-width:0;margin:0;color:var(--ink-2)}
+:where([data-layout]) .planning .plede strong{color:var(--ink)}
+:where([data-layout]) .planning .plede .btn{flex:none}
+:where([data-layout]) .planning .pstretch{margin:0;padding:8px 14px;border-radius:var(--radius);background:var(--blue-pale);color:var(--ink)}
+:where([data-layout]) .planning .pstretch .link{min-height:var(--tap)}
+:where([data-layout]) .planning .fold{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:44px;margin:4px 0;padding:10px 12px;border:1px dashed var(--line-strong);border-radius:8px;background:transparent;color:var(--blue-ink);font-size:14px;text-align:left}
+:where([data-layout]) .planning .fold:hover{background:var(--blue-pale)}
+:where([data-layout]) .planning .fold .foldh{font-weight:500}
+:where([data-layout]) .planning .foldc{flex:none;width:12px;color:var(--ink-2)}
+:where([data-layout]) .planning .msl .foldhide{flex:none;min-height:var(--tap);margin-left:auto;padding:0 6px}
+:where([data-layout]) .planning .tk[data-revealed]:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+:where([data-layout]) .planning .pend{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--white)}
+:where([data-layout]) .planning .pend p{margin:0 0 0 20px;color:var(--ink-2)}
+:where([data-layout]) .planning .pend .link{min-height:var(--tap)}
+:where([data-layout]) .planning .endtog{display:flex;align-items:center;gap:8px;min-height:44px;padding:0;border:0;background:transparent;color:var(--blue-ink);font-size:15px;font-weight:600;text-align:left}
+/* What needs you, by Continue on desktop and over the bottom bar on phone, and the list Show opens. */
+:where([data-layout]) .planning .needyou{padding:8px 10px;border-radius:8px;background:var(--fill);color:var(--ink-2)}
+:where([data-layout]) .planning .needyou strong{color:var(--ink)}
+:where([data-layout]) .needgrp{display:flex;flex-direction:column}
+:where([data-layout]) .needh{margin:8px 0 2px;font-size:13px;font-weight:600;color:var(--ink-2)}
+:where([data-layout]) .needrow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 8px;min-height:44px;border-top:1px solid var(--line-soft)}
+:where([data-layout]) .needrow .tkw{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:4px 0}
+:where([data-layout]) .needrow .tt{padding:0;border:0;background:transparent;color:inherit;font-size:14px;text-align:left}
+:where([data-layout]) .needrow .tt:hover{text-decoration:underline}
+:where([data-layout]) .needrow .tm{font-size:13px;color:var(--ink-2)}
+:where([data-layout]) .needrow .tp{display:inline-flex;align-items:center;justify-content:center;min-width:72px;min-height:32px;padding:0 10px;border:1px solid var(--blue-line);border-radius:999px;background:var(--white);color:var(--blue);font-size:14px;font-weight:500;white-space:nowrap}
+:where([data-layout]) .needrow .answer{min-height:var(--tap)}
 :where([data-layout]) .planning .emptycard{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px dashed var(--line-strong);box-shadow:none;background:transparent}
 :where([data-layout]) .planning .emptyline{padding:4px 4px 10px 14px}
 /* A milestone's line: its diamond, name and date. An overdue one asks its question on the same line. */
@@ -49,7 +78,7 @@
 :where([data-layout]) .planning .msl .gh{padding-top:6px}
 :where([data-layout]) .planning .msl .msub{padding-left:34px;color:var(--ink-2)}
 :where([data-layout]) .planning .ovacts{flex:none;gap:6px}
-:where([data-layout]) .planning .tm.late{color:var(--red)}
+:where([data-layout]) .planning .tk .tm.late{color:var(--red)}
 :where([data-layout]) .planning .tk.ask{grid-template-columns:44px minmax(0,1fr) auto}
 :where([data-layout]) .planning .link.answer{min-width:var(--tap);min-height:var(--tap);padding:0 6px;font-size:15px}
 :where([data-layout]) .planning .keepnote{flex:1 1 100%;margin:0;color:var(--ink-2)}
@@ -96,8 +125,23 @@
 :where([data-layout='phone']) .planning .seg>button{flex:1 1 0;min-height:var(--tap);padding:4px 12px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font-size:14px}
 :where([data-layout='phone']) .planning .seg>button[aria-pressed='true']{background:var(--white);color:var(--ink);font-weight:600;box-shadow:var(--card-shadow)}
 :where([data-layout='phone']) .planning .pproj{padding:0 8px 4px}
-:where([data-layout='phone']) .planning .pph{margin:0 -8px;padding:4px 12px;font-size:16px}
-:where([data-layout='phone']) .planning .msl .gh{flex:1 1 auto;min-width:0}
+/* The real heading sticks as its tasks scroll under it: one line, 44px at most, and a focused row is never under it.
+   Where there's little height, or the text is large, it stays put. */
+:where([data-layout='phone']) .planning .pkscroll{scroll-padding-top:44px}
+:where([data-layout='phone']) .planning .pph{position:sticky;top:-16px;z-index:3;flex-wrap:nowrap;max-height:44px;margin:0 -8px;padding:4px 12px;font-size:16px;white-space:nowrap}
+:where([data-layout='phone']) .planning .pph .pn{overflow:hidden;text-overflow:ellipsis}
+:where([data-layout='phone']) .planning .pph .rtag{flex:none}
+@media (max-height:37.5em){:where([data-layout='phone']) .planning .pph{position:static;flex-wrap:wrap;max-height:none;white-space:normal}}
+:where([data-layout='phone']) .planning .pkt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+:where([data-layout='phone']) .planning .pkt .small{color:var(--ink-2)}
+:where([data-layout='phone']) .planning .plede{padding:4px 6px 4px 12px}
+:where([data-layout='phone']) .planning .plede p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:where([data-layout='phone']) .planning .needstrip{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-top:1px solid var(--line);background:var(--white);color:var(--ink-2);white-space:nowrap}
+:where([data-layout='phone']) .planning .needstrip .needw{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+:where([data-layout='phone']) .planning .needstrip strong{color:var(--ink)}
+:where([data-layout='phone']) .planning .needstrip .link{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 4px}
+:where([data-layout='phone']) .planning .msl{padding:2px 0 0}
+:where([data-layout='phone']) .planning .msl .gh{flex:1 1 auto;min-width:0;padding:4px 0 0 14px}
 :where([data-layout='phone']) .planning :is(.msl,.tk) .acts{grid-column:1/-1;display:flex;gap:6px;width:100%;padding:2px 0 6px}
 :where([data-layout='phone']) .planning :is(.msl,.tk) .acts .btn{flex:1 1 0;padding-inline:6px;font-size:14px}
 :where([data-layout='phone']) .planning .msl .msub{flex:1 1 100%;padding-left:34px}

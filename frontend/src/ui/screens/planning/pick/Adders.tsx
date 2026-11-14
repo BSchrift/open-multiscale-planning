@@ -48,10 +48,17 @@ export function usePickAddMenu(props: PickProps, adder: AddingState, inView: str
   useAddItems(items);
 }
 
-/** The foot of a project's tasks: its adder, or the form it opened. */
-export function CardAdder(props: PickProps & { plan: ProjectPlan; phone: boolean; adder: AddingState }) {
+/**
+ * The foot of a project's tasks: its adder, or the form it opened. Without links only the form shows, for + Add to open.
+ * A task added to a folded milestone, not in the week, closes the form and puts focus on that fold, which counts it,
+ * with a toast that stays until the next action.
+ */
+export function CardAdder(
+  props: PickProps & { plan: ProjectPlan; phone: boolean; adder: AddingState; links?: boolean; folded?(milestone: string | null): boolean; toFold?(milestone: string | null): void },
+) {
   const { plan, adder: add, model } = props;
   const { project } = plan;
+  const landed = useRef(false);
   const a = add.adding;
   const here = a && 'project' in a && a.project === project.id ? a : null;
   const back = (id: string) => () => {
@@ -70,8 +77,16 @@ export function CardAdder(props: PickProps & { plan: ProjectPlan; phone: boolean
         inPlace
         label={`New task in ${project.title}`}
         week
-        write={(fields, inWeek) => props.addTask(plan, fields, inWeek)}
-        onAdded={(_, milestone) => add.setLast((l) => ({ ...l, [project.id]: milestone }))}
+        write={(fields, inWeek) => {
+          landed.current = !inWeek && !!props.folded?.(fields.milestone_id ?? null);
+          return props.addTask(plan, fields, inWeek, landed.current);
+        }}
+        onAdded={(_, milestone) => {
+          add.setLast((l) => ({ ...l, [project.id]: milestone }));
+          if (!landed.current) return;
+          add.setAdding(null);
+          props.toFold?.(milestone);
+        }}
         onClose={back(taskId)}
       />
     );
@@ -85,6 +100,7 @@ export function CardAdder(props: PickProps & { plan: ProjectPlan; phone: boolean
       />
     );
   }
+  if (props.links === false) return null;
   return (
     <div className="pkadd">
       <button id={taskId} className="addlink" type="button" aria-label={`Add task to ${project.title}`} onClick={() => add.setAdding({ kind: 'task', project: project.id })}>

@@ -1,9 +1,11 @@
 // Pick's list, the same at both sizes: one list, not a card per project. A project's name is a heading over its tasks,
 // which sit under their milestones, and a project outside this stretch says why it shows, in words, inside the
-// heading. An overdue question sits on its milestone's line and a task that needs a new time asks on its own row. Then
-// One offs, the projects that can't be planned now, and a dashed card when there's nothing to plan from. Nothing here
-// opens or closes: a project's tasks are always listed under its name.
+// heading. An overdue question sits on its milestone's line and a task that needs a new time asks on its own row. A
+// milestone outside this stretch with nothing that needs you folds in place, named and counted; opened, it stays on
+// its line as Hide, and focus moves to the first task it showed. Then One offs, the projects that can't be planned
+// now, and a dashed card when there's nothing to plan from. A project itself never opens or closes.
 
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useNav } from '../../../app/nav';
 import { MilestoneDiamond } from '../../../components/MilestoneDiamond';
@@ -13,6 +15,8 @@ import type { PickGroup, PickProject, PickTask } from './model';
 import { CardAdder, OneOffAdder } from './Adders';
 import type { AddingState } from './Adders';
 import { AskRow, MilestoneLine } from './Overdue';
+import { foldKey } from './Outside';
+import type { Outside } from './Outside';
 import { PickRow } from './PickRow';
 import type { PickProps } from './PickStep';
 import type { Selection } from './Select';
@@ -21,12 +25,15 @@ export interface ListProps extends PickProps {
   phone: boolean;
   select: Selection;
   adder: AddingState;
+  out: Outside;
 }
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Needs a new time and not yet in the week: its row asks, rather than offering its time. */
 export const asking = (r: PickTask, done: boolean) => r.c.carried && !r.c.picked && !done;
 
-function Rows(props: ListProps & { rows: PickTask[]; describedBy?: string; source?: string }) {
+function Rows(props: ListProps & { rows: PickTask[]; describedBy?: string; source?: string; revealed?: boolean }) {
   return (
     <ul className="picklist">
       {props.rows.map((r) =>
@@ -37,33 +44,106 @@ function Rows(props: ListProps & { rows: PickTask[]; describedBy?: string; sourc
 }
 
 function Group(props: ListProps & { s: PickProject; group: PickGroup; head: string }) {
-  const { group: g, s } = props;
+  const { group: g, s, out } = props;
+  const foldable = out.foldable(s, g);
+  const open = out.isOpen(s, g);
+  const wrap = useRef<HTMLDivElement>(null);
+  const foldRef = useRef<HTMLButtonElement>(null);
+  // Opening a fold moves focus to the first task it showed; Hide gives it back to the fold, which stays where it was.
+  const moving = useRef<'rows' | 'fold' | null>(null);
+  useEffect(() => {
+    const to = moving.current;
+    moving.current = null;
+    if (to === 'rows') wrap.current?.querySelector<HTMLElement>('li')?.focus();
+    if (to === 'fold') foldRef.current?.focus();
+  }, [open]);
   const ask = !!g.milestone && s.status.late?.id === g.milestone.id;
   if (!g.rows.length && !ask) return null;
+  const { title } = s.plan.project;
+  const tasks = plural(g.open, 'task');
+  if (foldable && !open) {
+    const rest = g.counts.slice(tasks.length).replace(/^, /, '');
+    return (
+      <div ref={wrap} className="pgroup">
+        <button
+          ref={foldRef}
+          className="fold"
+          type="button"
+          data-fold={foldKey(s, g)}
+          aria-expanded={false}
+          aria-label={`Show ${tasks} in ${title}, outside this stretch: ${g.head}${rest ? `, ${rest}` : ''}`}
+          onClick={() => {
+            moving.current = 'rows';
+            out.setFold(s, g, true);
+          }}
+        >
+          <span className="foldc" aria-hidden="true">
+            ›
+          </span>
+          <span>
+            <span className="foldh">Show {g.head}</span> · {g.counts}
+          </span>
+        </button>
+      </div>
+    );
+  }
   // A row of a project in this stretch is described by the project's heading; one outside it says where it's from.
-  const where = g.outside ? { source: `, ${s.plan.project.title}, outside this stretch` } : { describedBy: props.head };
+  const where = g.outside ? { source: `, ${title}, outside this stretch` } : { describedBy: props.head };
+  const hide = foldable && (
+    <button
+      ref={foldRef}
+      className="link small foldhide"
+      type="button"
+      data-fold={foldKey(s, g)}
+      aria-expanded
+      aria-label={`Hide ${tasks} in ${title}`}
+      onClick={() => {
+        moving.current = 'fold';
+        out.setFold(s, g, false);
+      }}
+    >
+      Hide {tasks}
+    </button>
+  );
+  const head = (
+    <h4 className={`gh${g.late ? ' late' : ''}`} aria-label={`${g.isMs ? 'Milestone: ' : ''}${g.head}`}>
+      {g.isMs && <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />}
+      {g.head}
+    </h4>
+  );
   return (
-    <div className="pgroup">
+    <div ref={wrap} className="pgroup">
       {ask ? (
         <MilestoneLine {...props} plan={s.plan} milestone={g.milestone!} group={g} outside={!s.inStretch} />
       ) : (
-        g.key !== 'carried' && (
-          <h4 className={`gh${g.late ? ' late' : ''}`} aria-label={`${g.isMs ? 'Milestone: ' : ''}${g.head}`}>
-            {g.isMs && <MilestoneDiamond {...(g.state ? { state: g.state } : {})} />}
-            {g.head}
-          </h4>
-        )
+        g.key !== 'carried' &&
+        (hide ? (
+          <div className="msl">
+            {head}
+            {hide}
+          </div>
+        ) : (
+          head
+        ))
       )}
-      {g.rows.length > 0 && <Rows {...props} rows={g.rows} {...where} />}
+      {g.rows.length > 0 && <Rows {...props} rows={g.rows} {...where} revealed={out.revealed(s, g)} />}
     </div>
   );
 }
 
 /** A project's name, with the reason it shows when it's outside this stretch: shown as a tag, read as part of the name. */
 export function ProjectSection(props: ListProps & { s: PickProject }) {
-  const { s, phone } = props;
+  const { s, phone, out } = props;
   const { project } = s.plan;
   const head = `ph-${project.id}`;
+  if (!out.visible(s)) return null;
+  // A task added to a folded milestone, not in the week, stays folded: focus goes to the fold, which counts it.
+  const folded = (milestone: string | null) => {
+    const g = s.groups.find((x) => x.key === (milestone ?? 'none'));
+    return !!g && out.foldable(s, g) && !out.isOpen(s, g);
+  };
+  const toFold = (milestone: string | null) =>
+    setTimeout(() => document.querySelector<HTMLElement>(`[data-fold="${project.id}:${milestone ?? 'none'}"]`)?.focus());
   return (
     <section className="pproj" aria-label={project.title} data-project={project.id}>
       <h3 className="pph" id={head}>
@@ -81,7 +161,8 @@ export function ProjectSection(props: ListProps & { s: PickProject }) {
         <Group key={g.key} {...props} group={g} head={head} />
       ))}
       {s.groups.length === 0 && <p className="small quiet emptyline">No open tasks.</p>}
-      {!props.select.on && <CardAdder {...props} plan={s.plan} />}
+      {/* On phone the bottom bar's + adds to the project under the sticky name, so only its form shows here. */}
+      {!props.select.on && <CardAdder {...props} plan={s.plan} links={!phone} folded={folded} toFold={toFold} />}
     </section>
   );
 }
@@ -128,6 +209,7 @@ export function OtherLine(props: { title: string; pill: ReactNode; sum: string }
 }
 
 export function Others(props: ListProps) {
+  if (!props.out.others) return null;
   return (
     <>
       {props.view.others.map((o) => (

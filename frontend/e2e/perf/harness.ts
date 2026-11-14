@@ -69,9 +69,9 @@ export const takeMeasures = (page: Page) =>
     return all;
   });
 
-/** Waits until the page holds at least count measures of the name. */
+/** Waits until the page holds at least count measures of the name: half a minute at most, so a lost one fails the run. */
 export const waitForMeasure = (page: Page, name: string, count = 1) =>
-  page.waitForFunction(([n, c]) => performance.getEntriesByName(n as string, 'measure').length >= (c as number), [name, count] as const, { polling: 20 });
+  page.waitForFunction(([n, c]) => performance.getEntriesByName(n as string, 'measure').length >= (c as number), [name, count] as const, { polling: 20, timeout: 30_000 });
 
 /** The phone rows' slower CPU, as Lighthouse slows it for phones. Chromium only. */
 export async function slowCpu(page: Page, rate: number) {
@@ -154,6 +154,8 @@ function collect(page: Page): Record<string, number[]> {
  * (ABBAAB...), so neither always goes first.
  */
 export async function interleave(builds: { page: Page; results: Results }[], action: Action, phone: boolean) {
+  const began = Date.now();
+  const rounds = Math.ceil(SAMPLES / ROUND);
   for (const { page } of builds) {
     for (let i = 0; i < WARMUP; i++) await action(page, phone);
     collect(page);
@@ -164,5 +166,7 @@ export async function interleave(builds: { page: Page; results: Results }[], act
       for (let i = 0; i < ROUND; i++) await action(page, phone);
       for (const [name, values] of Object.entries(collect(page))) results.add(name, values);
     }
+    // The pace, so a run that's slow or stuck shows where.
+    if ((round + 1) % 5 === 0 || round + 1 === rounds) console.log(`${action.name}: round ${round + 1} of ${rounds} after ${Math.round((Date.now() - began) / 1000)} s`);
   }
 }

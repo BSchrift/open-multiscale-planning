@@ -76,6 +76,18 @@ describe('perf', () => {
     performance.clearMarks('today:interactive');
   });
 
+  it('counts only what the page still holds, so a reader that clears them never loses one to the limit', () => {
+    // Three keys an action, as the runner types, cleared after each.
+    for (let i = 0; i < MEASURE_LIMIT; i++) {
+      for (let key = 0; key < 3; key++) {
+        perf.start('capture.key');
+        perf.stop('capture.key');
+      }
+      expect(measures('capture.key')).toHaveLength(3);
+      performance.clearMeasures();
+    }
+  });
+
   it('keeps memory flat: past the limit the oldest measures go', () => {
     for (let i = 0; i <= MEASURE_LIMIT; i++) {
       perf.start('drag.frame');

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addRun, baseline, readRuns, regressions } from './perf-data';
+import { addRun, baseline, readRuns, regressions, track } from './perf-data';
 import type { Run } from './perf-data';
 
 const row = (p95: number) => ({ kpi: 'capture.save', platform: 'web-desktop' as const, scenario: 'one-year', n: 500, p50: p95 / 2, p95, p99: p95 * 1.5 });
@@ -37,6 +37,14 @@ describe('perf-data', () => {
     // 10% over but within capture.save's 5 ms floor.
     expect(regressions(baseline([run('main', '2026-11-01T00:00:00.000Z', 30)]), [row(34)])).toEqual([]);
     expect(regressions(base, [row(62)])).toEqual([]);
+  });
+
+  it("sets the Mac's numbers beside Linux's for the same KPI and scenario", () => {
+    const linux = [{ ...row(60), platform: 'mac' as const }];
+    const lines = track(linux, [{ ...row(90), platform: 'mac' as const }, { ...row(10), kpi: 'nav.week', platform: 'mac' as const }]);
+    expect(lines[0]).toBe('| KPI | Scenario | macOS p50 | macOS p95 | Linux p50 | Linux p95 | macOS ÷ Linux, p95 |');
+    expect(lines).toContain('| capture.save | one-year | 45 | 90 | 30 | 60 | 1.5 |');
+    expect(lines).toContain('| nav.week | one-year | 5 | 10 | | | |');
   });
 });
 

@@ -178,7 +178,12 @@ rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more 
 baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
 in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
 
-**Results** go to the `perf-data` branch, which only the main and nightly workflows write (`scripts/perf-data.sh`):
+**Once a week** (`.github/workflows/perf-mac.yml`, Sunday at 06:00 UTC): the Mac app's KPIs on a macOS runner, 200
+samples and 20 cold and warm starts after emptying the file cache, set beside the Linux numbers in main's baseline in
+the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25
+minutes, 60 at most.
+
+**Results** go to the `perf-data` branch, which only the scheduled and main performance workflows write (`scripts/perf-data.sh`):
 one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
 `baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The
 targets stay here, in `config/perf.ts` and this file.

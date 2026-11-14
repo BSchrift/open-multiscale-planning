@@ -133,6 +133,15 @@ and Enter-to-saved timings are `capture.open`, `capture.key` and `capture.save`,
 13 to 16 ms on desktop and 48 to 205 ms on the phone; cold starts 5.2 s on desktop, 29 s on the phone over slow 4G,
 and 1.9 s in the Mac app; 291 KB fetched on a cold first load.
 
+### Bundle bytes
+
+`web.initial`, the gzipped bytes of the scripts and styles the web app's page links, is exact, so it blocks a merge
+from the first day: the frontend CI job runs `node scripts/bundle-budget.ts dist` on its build and fails over the
+200 KB in `config/perf.ts`. On 14 November 2026 it was 173.3 KB in 15 files. Given the base's build too
+(`--base <dist>`), it notes a change that adds more than 5 KB, which the PR check puts in its comment. `web.firstload`,
+everything a cold first load fetches until Today is interactive, is counted by the runner's cold starts in a browser:
+291 KB on that day, gzipped.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

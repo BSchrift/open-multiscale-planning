@@ -34,7 +34,7 @@ import { Sheet } from '../../components/Sheet';
 import { NoteMark } from '../../components/notes/NoteMark';
 import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
 import { useOpenTask } from '../../components/task/TaskName';
-import { HOLD_MS, SLOP_PX } from '../../components/weekgrid';
+import { HOLD_MS, SLOP_PX, swallowClick } from '../../components/weekgrid';
 import { ProjectProgress } from './ProjectTimeline';
 
 type Editing =
@@ -52,9 +52,9 @@ type Point = { clientX: number; clientY: number };
  */
 function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
   const [drag, setDrag] = useState<{ id: string; title: string; y: number; over: string } | null>(null);
-  const droppedAt = useRef(0);
   const press = (id: string, title: string) => (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
+    const row = e.currentTarget;
     const x0 = e.clientX;
     const y0 = e.clientY;
     let lifted = false;
@@ -72,7 +72,8 @@ function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
       pointerup: (ev) => {
         stop();
         if (!lifted) return;
-        droppedAt.current = Date.now();
+        // The release after a drop also clicks the row; that click shouldn't open it.
+        swallowClick(row);
         setDrag(null);
         const key = over(ev as PointerEvent);
         if (key) onDrop(id, key);
@@ -95,9 +96,7 @@ function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
       track({ clientX: x0, clientY: y0 });
     }, HOLD_MS);
   };
-  // The release after a drop also clicks the row; that click shouldn't open it.
-  const justDropped = () => Date.now() - droppedAt.current < HOLD_MS;
-  return { drag, press, justDropped };
+  return { drag, press };
 }
 
 /** onMoved runs as the project is moved to another goal (null for none), before the move is saved. */
@@ -113,7 +112,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
   const showCompleted = useShowCompleted();
   const tickAway = useTickAway();
   const ticked = useRef(new Map<string, PlanChange>());
-  const { drag, press, justDropped } = useHoldToMove((taskId, key) => {
+  const { drag, press } = useHoldToMove((taskId, key) => {
     const t = plan.tasks.find((x) => x.id === taskId);
     if (!t) return;
     const to = key === LOOSE ? null : key;
@@ -183,7 +182,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
             type="button"
             aria-label={`Edit task ${t.title}, ${when ? `${when}, ` : ''}${meta}${lateSaid(late)}${t.notes ? ', has details' : ''}`}
             onPointerDown={phone ? press(t.id, t.title) : undefined}
-            onClick={() => !justDropped() && openTask(t.id)}
+            onClick={() => openTask(t.id)}
           >
             <span className="grow">
               {t.title}

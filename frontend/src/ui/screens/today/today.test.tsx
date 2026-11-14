@@ -1162,6 +1162,39 @@ describe('moving a block on the timeline', () => {
         expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') });
       });
 
+      it("the click that comes with letting go doesn't open it, however long the drop takes to draw", async () => {
+        await open(day, { layout });
+        const el = await movable();
+        await drag(el, 11, layout);
+        // A busy device draws the drop between the release and its click, for longer than a hold.
+        const later = Date.now() + 1000;
+        const now = vi.spyOn(Date, 'now').mockReturnValue(later);
+        fireEvent.click(el);
+        now.mockRestore();
+        expect(await screen.findByText('Write the report is now 4:15pm to 5:15pm.')).toBeVisible();
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+
+      it('Undo straight after arrow steps, before the day has drawn them, shows the block back where it was', async () => {
+        const t = await open(day, { layout });
+        const el = await movable();
+        el.focus();
+        // The day reads slowly, as the web app's database does on a busy device, so it doesn't redraw between the steps
+        // and Undo: its next drawing has the block where it started.
+        const all = t.db.all.bind(t.db);
+        let slow = true;
+        vi.spyOn(t.db, 'all').mockImplementation(async (sql, params) => {
+          if (slow) await wait(150);
+          return all(sql, params);
+        });
+        await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+        expect(await screen.findByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') }));
+        slow = false;
+        expect(await movable(/^Write the report, 4pm to 5pm/)).toBeVisible();
+      });
+
       it('Enter opens the task, and arrow keys still move it', async () => {
         const t = await open(day, { layout });
         const el = await movable();

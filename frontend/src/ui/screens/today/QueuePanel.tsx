@@ -16,6 +16,7 @@ import type { LocalDate } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { Sheet } from '../../components/Sheet';
+import { TaskName } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 
 const INTRO = "Planned work that didn't get done. It still belongs to its project or One offs, and you choose a new time when it suits you.";
@@ -63,7 +64,9 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
   return (
     <div className={phone ? 'rowline' : 'qrow'}>
       <div>
-        <div>{item.title}</div>
+        <div>
+          <TaskName className="rowname" id={item.id} title={item.title} />
+        </div>
         <div className="small quiet">{item.reason}</div>
       </div>
       {item.stale ? (

@@ -671,6 +671,19 @@ describe('Planning ahead', () => {
       expect(await record(t, 'project', rows[0]!.id)).toMatchObject({ start: '2026-11-02', end: '2027-03-31', objective_id: null });
     });
 
+    it("a one off's name opens the task's popup, dated or not", async () => {
+      await flow(layout, 'projects');
+      const oneOffs = await screen.findByRole('region', { name: 'One offs in this plan' });
+      await userEvent.click(within(oneOffs).getByRole('button', { name: 'Clean the windows' }));
+      const popup = await screen.findByRole('dialog', { name: 'Clean the windows' });
+      expect(within(popup).getByRole('button', { name: 'Delete task' })).toBeVisible();
+      await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await userEvent.click(within(oneOffs).getByRole('button', { name: 'No date yet (1)' }));
+      await userEvent.click(within(oneOffs).getByRole('button', { name: 'Fix the gate' }));
+      expect(within(await screen.findByRole('dialog', { name: 'Fix the gate' })).getByRole('button', { name: 'Delete task' })).toBeVisible();
+    });
+
     it("changes a one off's date in place, refusing an end before its start, with Undo", async () => {
       const { t } = await flow(layout, 'projects');
       const oneOffs = await screen.findByRole('region', { name: 'One offs in this plan' });

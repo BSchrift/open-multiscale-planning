@@ -6,14 +6,16 @@ import type { Writer } from '../../../core/records';
 import type { AvailabilityBlock, TimeOfDay } from '../../../core/types';
 import type { Layout } from '../../app/registry';
 import { useMutation, useQuery } from '../../app/store';
+import { useToast } from '../../components/Toast';
 import './settings.css';
 
 const NEW_BLOCK: AvailabilityBlock = { days: 'all', from: 12 * 60, to: 13 * 60, projects: true, one_offs: true };
 
-/** Reads the list inside the transaction, so quick changes in a row never write over each other. */
+/** Reads the list inside the transaction, so quick changes in a row never write over each other. Returns it as it was. */
 async function editList(w: Writer, edit: (list: AvailabilityBlock[]) => AvailabilityBlock[]) {
   const { availability } = await getSettings(w.sql);
   await updateSettings(w, { availability: edit(availability) });
+  return availability;
 }
 
 const blockName = (b: AvailabilityBlock) => `${formatTimeOfDay(b.from)} to ${formatTimeOfDay(b.to)}`;
@@ -75,8 +77,10 @@ function BlockRow(props: { block: AvailabilityBlock; layout: Layout; onChange(pa
       Remove
     </button>
   );
+  // A tick closes this time to that kind of work, so the ticks sit under what they mean.
   const kinds = (
-    <>
+    <fieldset className={`closedto ${layout === 'phone' ? 'stack8' : 'row'}`}>
+      <legend>Closed to</legend>
       <label className="taskrow">
         <input type="checkbox" checked={b.projects} onChange={() => onChange({ projects: !b.projects })} />
         <span>Projects</span>
@@ -85,7 +89,7 @@ function BlockRow(props: { block: AvailabilityBlock; layout: Layout; onChange(pa
         <input type="checkbox" checked={b.one_offs} onChange={() => onChange({ one_offs: !b.one_offs })} />
         <span>One offs</span>
       </label>
-    </>
+    </fieldset>
   );
   const sliders = <HoursSlider block={b} onChange={onChange} />;
   if (layout === 'phone') {
@@ -119,6 +123,14 @@ function BlockRow(props: { block: AvailabilityBlock; layout: Layout; onChange(pa
 export function UnavailableList(props: { layout: Layout }) {
   const { data: settings } = useQuery((sql) => getSettings(sql), []);
   const edit = useMutation((w, change: (list: AvailabilityBlock[]) => AvailabilityBlock[]) => editList(w, change));
+  const toast = useToast();
+  // Undo puts the block back as it was, in its place.
+  const remove = async (i: number) => {
+    const block = (await edit.run((list) => list.filter((_, j) => j !== i)))?.[i];
+    if (!block) return;
+    const undo = () => edit.run((list) => [...list.slice(0, i), block, ...list.slice(i)]);
+    toast.show(`Removed unavailable time ${blockName(block)}.`, { undo, focusUndo: true });
+  };
   if (!settings) return null;
   return (
     <>
@@ -129,7 +141,7 @@ export function UnavailableList(props: { layout: Layout }) {
           block={block}
           layout={props.layout}
           onChange={(patch) => void edit.run((list) => list.map((x, j) => (j === i ? { ...x, ...patch } : x)))}
-          onRemove={() => void edit.run((list) => list.filter((_, j) => j !== i))}
+          onRemove={() => void remove(i)}
         />
       ))}
       <div className={props.layout === 'phone' ? undefined : 'setrow'}>

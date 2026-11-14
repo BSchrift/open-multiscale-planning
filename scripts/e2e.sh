@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The app end to end: screens in the browser build at desktop and phone sizes, then the browser build as two devices
 # signed in to a local stack started for them, then the core database tests under Electron's runtime, then the real
-# Electron app, also as two devices on that stack, then the last release's web bundle beside this one's
-# (scripts/test-compat.sh) on that stack.
+# Electron app: its own checks, the browser's journeys run on it, and two devices on that stack. Then the last
+# release's web bundle beside this one's (scripts/test-compat.sh) on that stack.
 #   ENV=local (default). ENV=staging, or ENV=prod with CONFIRM_PROD=yes, runs only the signed-in specs, against that
 #   deployment as integration.testUser in <env>.yaml, with its password from SSM (scripts/test-target.mjs).
 #   The config folder is $MULTISCALE_CONFIG_DIR, or config/ in the repo.

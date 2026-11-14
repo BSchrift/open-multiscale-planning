@@ -11,6 +11,7 @@ import type { ElectronBridge } from '../bridge';
 declare global {
   var firedNotifications: Electron.Notification[];
   var browserUrls: string[];
+  var trayMenu: Electron.Menu;
 }
 
 // Always the unpackaged app: the packaged one has its inspector fuse off, so Playwright can't attach to it.
@@ -35,6 +36,17 @@ const inbox = (page: Page) =>
   page.evaluate(() =>
     (window.multiscaleElectron as ElectronBridge).db.all("SELECT title FROM task WHERE kind = 'inbox'", []),
   );
+
+/** Through first-run setup without answering anything. */
+async function pastSetup(page: Page) {
+  await page.getByRole('button', { name: 'Skip' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Skip' }).click();
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+}
+
+const visibleWindows = (electronApp: ElectronApplication) =>
+  electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible()).length);
 
 /** The capture window, which the app makes hidden once its page is up. */
 async function captureWindow(electronApp: ElectronApplication): Promise<Page> {
@@ -299,4 +311,122 @@ test('Appearance in Settings sets the native theme and the window background, an
   ({ app: running, page } = await launch());
   await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#141517' });
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+});
+
+test('a new capture shortcut from Settings replaces the old one, shows in the tray menu, and a restart keeps it', async () => {
+  let { app: running, page } = await launch();
+  await pastSetup(page);
+  // The tray's menu is made again for a new shortcut: kept here so the test can read and click it as the menu bar would.
+  await running.evaluate(({ Tray }) => {
+    const set = Tray.prototype.setContextMenu;
+    Tray.prototype.setContextMenu = function (this: Electron.Tray, menu: Electron.Menu) {
+      globalThis.trayMenu = menu;
+      set.call(this, menu);
+    };
+  });
+  const registered = (electronApp: ElectronApplication) =>
+    electronApp.evaluate(({ globalShortcut }) => [globalShortcut.isRegistered('Control+Alt+Shift+K'), globalShortcut.isRegistered('Shift+Command+Space')]);
+  const settings = async () => {
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+    return page.getByRole('region', { name: 'Capture shortcut' });
+  };
+
+  let section = await settings();
+  await expect(section.getByText('Opens capture from anywhere: ⇧⌘Space')).toBeVisible();
+  await section.getByRole('button', { name: 'Change' }).click();
+  // Escape leaves it as it was.
+  await section.getByRole('button', { name: 'Press the new keys, or Escape' }).press('Escape');
+  await section.getByRole('button', { name: 'Change' }).click();
+  await section.getByRole('button', { name: 'Press the new keys, or Escape' }).press('Control+Alt+Shift+KeyK');
+  await expect(section.getByRole('status')).toHaveText('Capture opens with ⌃⌥⇧K now.');
+  await expect(section.getByText('Opens capture from anywhere: ⌃⌥⇧K')).toBeVisible();
+  expect(await registered(running)).toEqual([true, false]);
+
+  const items = await running.evaluate(() => globalThis.trayMenu.items.map((i) => ({ label: i.label, accelerator: i.accelerator ?? null, role: i.role ?? null })));
+  expect(items.find((i) => i.label === 'Capture')?.accelerator).toBe('Control+Alt+Shift+K');
+  expect(items.find((i) => i.label === 'Quit')?.role).toBe('quit');
+  // Its items open capture, and bring back the window once it's closed.
+  await running.evaluate(() => globalThis.trayMenu.items.find((i) => i.label === 'Capture')!.click());
+  const capture = running.windows().find((w) => w.url().endsWith('capture.html'))!;
+  await expect(capture.getByRole('textbox', { name: 'Capture' })).toBeFocused();
+  await capture.getByRole('textbox', { name: 'Capture' }).press('Escape');
+  await running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.close());
+  await expect.poll(() => visibleWindows(running)).toBe(0);
+  await running.evaluate(() => globalThis.trayMenu.items.find((i) => i.label.startsWith('Open '))!.click());
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(true);
+  await running.close();
+
+  ({ app: running, page } = await launch());
+  expect(await registered(running)).toEqual([true, false]);
+  section = await settings();
+  await expect(section.getByText('Opens capture from anywhere: ⌃⌥⇧K')).toBeVisible();
+  await section.getByRole('button', { name: 'Use ⇧⌘Space' }).click();
+  await expect(section.getByRole('status')).toHaveText('Capture opens with ⇧⌘Space now.');
+  expect(await registered(running)).toEqual([false, true]);
+});
+
+test('closing the window keeps the edits not yet saved in an open task, for when it comes back', async () => {
+  const { app: running, page } = await launch();
+  await pastSetup(page);
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await nav.getByRole('button', { name: /Capture/ }).click();
+  await page.getByRole('dialog', { name: 'Capture' }).getByRole('textbox', { name: 'Capture to Inbox' }).fill('Return the books');
+  await page.keyboard.press('Enter');
+  await nav.getByRole('button', { name: /^Inbox/ }).click();
+  await page.locator('.pane:visible .inboxrow').getByRole('button', { name: 'Return the books', exact: true }).click();
+  const popup = page.getByRole('dialog', { name: 'Return the books' });
+  await popup.getByLabel('Description').fill('Two are overdue');
+
+  // Close hides the window, as its red button does; the page and its popup stay as they were.
+  await running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.close());
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(false);
+  await running.evaluate(({ app: a }) => void a.emit('activate'));
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(true);
+  await expect(popup.getByLabel('Description')).toHaveValue('Two are overdue');
+  await popup.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('.toast')).toContainText('Saved Return the books.');
+  const notes = await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).db.all("SELECT notes FROM task WHERE title = 'Return the books'", []));
+  expect(notes).toEqual([{ notes: 'Two are overdue' }]);
+});
+
+test("the app menu has Edit's undo, cut, copy, paste and select all, which text fields on the Mac need", async () => {
+  const { app: running } = await launch();
+  // The app sets no menu of its own, so this is Electron's: without an Edit menu, ⌘C and ⌘V do nothing in a field.
+  const roles = await running.evaluate(({ Menu }) => {
+    const edit = Menu.getApplicationMenu()?.items.find((i) => i.label === 'Edit');
+    return edit?.submenu?.items.map((i) => i.role?.toLowerCase()).filter(Boolean) ?? [];
+  });
+  expect(roles).toEqual(expect.arrayContaining(['undo', 'redo', 'cut', 'copy', 'paste', 'selectall']));
+});
+
+test('a reminder clicked, not one of its buttons, brings the window back and tells the page', async () => {
+  const { app: running, page } = await launch();
+  await running.evaluate(({ Notification }) => {
+    globalThis.firedNotifications = [];
+    const shared = (new Notification({ title: '' }) as unknown as { __proto__: Electron.Notification }).__proto__;
+    const show = shared.show;
+    shared.show = function (this: Electron.Notification) {
+      globalThis.firedNotifications.push(this);
+      show.call(this);
+    };
+  });
+  await running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.close());
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(false);
+  await page.evaluate(
+    (reminderAt) => {
+      const api = window.multiscaleElectron as ElectronBridge;
+      (window as unknown as { responses: unknown[] }).responses = [];
+      api.notifications.onResponse((r) => (window as unknown as { responses: unknown[] }).responses.push(r));
+      return api.notifications.replaceAll([
+        { id: 'r1', kind: 'block_end', block_id: 'b1', at: reminderAt, title: 'How did Paint the fence go?', actions: [{ id: 'done', title: 'Done' }] },
+      ]);
+    },
+    new Date(Date.now() + 500).toISOString(),
+  );
+  await expect.poll(() => running.evaluate(() => globalThis.firedNotifications.length)).toBe(1);
+  await running.evaluate(() => void globalThis.firedNotifications[0]!.emit('click', {}));
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { responses: unknown[] }).responses))
+    .toEqual([{ reminder_id: 'r1', block_id: 'b1', action_id: null }]);
+  await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(true);
 });

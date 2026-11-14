@@ -66,8 +66,9 @@ test('Cancel drops the popup’s changes, and Esc, the close button or a tap out
   const row = page.getByRole('button', { name: 'Edit task Draft the summary, 2h' });
   const popup = popupOf(page, 'Draft the summary');
 
-  // Unchanged, Esc just closes it.
+  // Unchanged, Esc just closes it. Once open, so Esc isn't pressed before the popup is there to hear it.
   await row.click();
+  await expect(popup.getByRole('heading', { name: 'Draft the summary' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);
 

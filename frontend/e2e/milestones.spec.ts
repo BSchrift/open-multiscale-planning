@@ -104,6 +104,9 @@ test('Mark met and Not met are in the popover of a milestone with no tasks, and 
   // Met again, Not met takes it back from the popover.
   await milestone(page, 'Bake for friends').click();
   await editor.getByRole('button', { name: 'Mark met' }).click();
+  // Once it has saved and closed, so the popover's own close doesn't shut the one opened next.
+  await expect(editor).toHaveCount(0);
+  await expect(milestone(page, 'Bake for friends')).toHaveAccessibleName('Edit milestone Bake for friends, Met Nov 2');
   await milestone(page, 'Bake for friends').click();
   await expect(editor.getByLabel('Due date')).toHaveCount(0);
   const notMet = editor.getByRole('button', { name: 'Not met' });

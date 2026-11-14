@@ -54,14 +54,15 @@ interface Step {
   est: Minutes | null;
   planOn: boolean;
   sorted: number;
-  deleted: number;
+  /** Finished as done or deleted. */
+  closed: number;
   /** A project just made from the card, which the picker holds until the item is added, with the milestone named with it. */
   made: { id: string; milestone: string | null; under: string | null } | null;
   /** The exact reverse of what's been changed on this item, latest first, which puts it back as it arrived. */
   edits: RecordWrite[];
 }
 
-const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, deleted: 0, made: null, edits: [] };
+const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, closed: 0, made: null, edits: [] };
 
 /** A home made from the card, for its Undo and the toast that reports it. */
 interface HomeUndo {
@@ -297,10 +298,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
 
   /**
    * After the last item, Process closes itself, and a green check over the page it was opened from says how many were
-   * processed: added, made into a home or deleted. The last item's toast waits for it, its Undo still to hand.
+   * processed: added, made into a home, done or deleted. The last item's toast waits for it, its Undo still to hand.
    */
   const finish = (step: Step) => {
-    const done = step.sorted + step.deleted;
+    const done = step.sorted + step.closed;
     const left = queue.length - done;
     const items = `${done} ${done === 1 ? 'item' : 'items'} processed`;
     if (left > 0) toast.check(items, `${left} still in your Inbox`, false);
@@ -391,7 +392,11 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const openForm = (kind: HomeKind, opener: string, name?: string) => setForm({ kind, opener, ...(name !== undefined ? { name } : {}) });
 
   const skip = () => item && void commit(null, () => ({}), () => `Skipped ${name}. It stays in your Inbox.`);
-  const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ deleted: s.deleted + 1 }), () => `Deleted ${name}.`);
+  // Done finishes the item as any task finishes, so Done lists it; Delete asks first and leaves no trace there.
+  // shortcut: an item that repeats, which only a field-by-field merge from another device can make, fails to finish as
+  // done and says so; give Done a repeat's own finish if that ever turns up.
+  const markDone = () => item && void commit((w) => closeTask(w, item.id, 'done', clock), () => ({ closed: s.closed + 1 }), () => `Marked ${name} done.`);
+  const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ closed: s.closed + 1 }), () => `Deleted ${name}.`);
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
 
   // Single keys need the device setting, since speech input can type them; with Option or Alt they always work, in Add
@@ -417,6 +422,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     const keys: Record<string, () => unknown> = {
       e: () => setEditing('title'),
       s: skip,
+      f: markDone,
       d: () => setDelAsk(true),
       p: () => openForm('practice', 'p'),
       g: () => openForm('goal', 'g'),
@@ -580,8 +586,11 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
                 <button className="btn" type="button" onClick={skip}>
                   Skip
                 </button>
+                <button className="btn" type="button" onClick={markDone}>
+                  Done
+                </button>
                 <button className="btn" type="button" onClick={() => setDelAsk(true)}>
-                  Delete/done
+                  Delete
                 </button>
               </div>
             )}
@@ -622,10 +631,16 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
                     {delAsk ? (
                       deleteAsk
                     ) : (
-                      <button className="btn sm" type="button" onClick={() => setDelAsk(true)}>
-                        Delete/done
-                        {cap('D')}
-                      </button>
+                      <>
+                        <button className="btn sm" type="button" onClick={markDone}>
+                          Done
+                          {cap('F')}
+                        </button>
+                        <button className="btn sm" type="button" onClick={() => setDelAsk(true)}>
+                          Delete
+                          {cap('D')}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

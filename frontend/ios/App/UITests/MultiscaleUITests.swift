@@ -757,7 +757,7 @@ final class SignedInUITests: XCTestCase {
         app.tapWeb(startingWith: "Inbox")
         // The item's › opens Process on it; its name opens its popup.
         app.tapWeb("Process \(title)")
-        app.tapWeb("Delete/done")
+        app.tapWeb("Delete")
         app.tapWeb("Yes, delete")
         // Process goes on to whatever else is in the Inbox, so the server is what shows it worked.
         other.eventually("the capture deleted") { $0["title"] as? String == title && $0["deleted_at"] is String }

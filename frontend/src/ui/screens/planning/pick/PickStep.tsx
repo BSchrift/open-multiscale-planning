@@ -82,8 +82,8 @@ export interface PickProps {
   /** Goals a new project can go under. */
   goals: Objective[];
   /** Adding while you pick: each saves at once, with a toast whose Undo deletes it, and resolves to its id. A task or one
-   * off can start in this week. */
-  addTask(plan: ProjectPlan, fields: Fields<'task'>, inWeek: boolean): Promise<string | undefined>;
+   * off can start in this week. A task added out of sight, to a folded milestone, keeps its toast until the next action. */
+  addTask(plan: ProjectPlan, fields: Fields<'task'>, inWeek: boolean, folded?: boolean): Promise<string | undefined>;
   addMilestone(plan: ProjectPlan, title: string, due: LocalDate | null): Promise<string | undefined>;
   addProject(fields: Fields<'project'>): Promise<string | undefined>;
   addOneOff(fields: Fields<'task'>, inWeek: boolean): Promise<string | undefined>;
@@ -123,7 +123,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
   // own value, and a change with a toast isn't, since the toast says it.
   const changeBy = (title: string, delta: Minutes, verb: 'added' | 'removed') => setSaid(`${title} ${verb}. ${fitWords(use.used + delta)}.`);
   const freeWords = (free: Minutes) => (free < 0 ? `${formatMinutes(-free)} over` : `${formatMinutes(free)} free`);
-  const undoable = (reverse: PlanChange | undefined, message: string, options: { spoken?: string; focusUndo?: boolean } = {}) => {
+  const undoable = (reverse: PlanChange | undefined, message: string, options: { spoken?: string; focusUndo?: boolean; stay?: boolean } = {}) => {
     if (reverse) toast.show(message, { ...options, undo: () => taskWrite.run((w) => applyPlanChange(w, reverse)) });
   };
   const aimsNow = weekPlan?.aims ?? {};
@@ -142,7 +142,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     });
   const finish = (w: Writer, t: PickTask['c']['task']) => (t.kind === 'one_off' ? tickOneOff(w, t.id, clock) : closeTask(w, t.id, 'done', clock));
   // A new record, and with it, for a task in this week, its pick; Undo deletes both.
-  const create = async <T extends 'task' | 'milestone' | 'project'>(type: T, fields: Fields<T>, pick: Minutes | null, message: string) => {
+  const create = async <T extends 'task' | 'milestone' | 'project'>(type: T, fields: Fields<T>, pick: Minutes | null, message: string, stay = false) => {
     const id = newId(clock);
     const reverse = await taskWrite.run(async (w) => {
       await w.create(type, fields, id);
@@ -150,7 +150,7 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
       return { writes: [...picked.writes, { type, id, fields: { deleted_at: nowInstant(clock) } }] };
     });
     if (!reverse) return undefined;
-    undoable(reverse, message, pick === null ? {} : { spoken: `${fitWords(use.used + pick)}.` });
+    undoable(reverse, message, { ...(pick === null ? {} : { spoken: `${fitWords(use.used + pick)}.` }), ...(stay ? { stay } : {}) });
     return id;
   };
   const inThisWeek = (minutes: Minutes, inWeek: boolean) => (inWeek ? `, ${formatMinutes(minutes)} in this week` : '');
@@ -230,10 +230,10 @@ export function PickStep(props: { week: LocalDate; layout: Layout; onNext(): voi
     },
     skipPastEnd: (id) => void planWrite.run({ skipped_past_end: [...(weekPlan?.skipped_past_end ?? []), id] }),
     goals: data.records.objectives,
-    addTask: (plan, fields, inWeek) => {
+    addTask: (plan, fields, inWeek, folded = false) => {
       const minutes = fields.estimate_min ?? 0;
       const where = plan.milestones.find((m) => m.id === fields.milestone_id)?.title ?? plan.project.title;
-      return create('task', fields, inWeek ? minutes : null, `Added ${fields.title} to ${where}${inThisWeek(minutes, inWeek)}.`);
+      return create('task', fields, inWeek ? minutes : null, `Added ${fields.title} to ${where}${inThisWeek(minutes, inWeek)}.`, folded);
     },
     // Tagged to this stretch, so one with no date reads "by" its end and is never outside it as soon as it's made.
     addMilestone: (plan, title, due) =>

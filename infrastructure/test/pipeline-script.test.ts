@@ -283,13 +283,22 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     for (const name of ['api', 'calendar', 'retention', 'canary']) assert.match(s.log(), new RegExp(`go build .* \\./cmd/${name}`));
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=staging -o cdk.out\/staging Multiscale-staging/);
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=prod -o cdk.out\/prod Multiscale-prod/);
-    // Each environment's web build, from its stack's outputs and its key's public half, beside the script that signs it.
+    // Each environment's web build, from its stack's outputs and its key's public half.
     for (const env of ['staging', 'prod']) assert.match(s.log(), new RegExp(`npx vite build --outDir ${s.root}/web/${env} --emptyOutDir`));
     // And each one's Mac main process, which a Mac app from GitHub Actions must hold.
     for (const env of ['staging', 'prod']) assert.equal(readFileSync(join(s.root, `mac/${env}/dist-electron/main.cjs`), 'utf8'), env);
-    assert.equal(readFileSync(join(s.root, 'web/sign-release.mjs'), 'utf8'), '// the signer\n');
+    // Not the script that signs them: the signing step takes it from the checkout, which the build can't rewrite.
+    assert.ok(!existsSync(join(s.root, 'web/sign-release.mjs')));
     assert.doesNotMatch(s.log(), /signing\//);
     assert.equal(readFileSync(join(s.root, 'multiscale-config/prod.release-key.pub'), 'utf8'), 'cHVibGlj\n');
+  });
+
+  it("installs the infrastructure's packages without running their install scripts, as the deploy steps do", () => {
+    const s = configured();
+    s.stub('n', `echo "n $*" >> "$LOG"`);
+    const r = s.run(['install']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /^npm ci --ignore-scripts /m);
   });
 
   it("synthesizes prod with all traffic at once when the run skips the canary, and staging keeps its own", () => {

@@ -1,27 +1,35 @@
-// Pick tasks on phone: the same list as desktop under two tabs: Projects, and This week, which holds the week's shape
-// and its tasks. Does it fit, in the top bar, shows This week. ⋯ holds Change aims and Select; Select's bar takes the
-// bottom bar's place.
+// Pick tasks on phone: the same list as desktop under two tabs: Tasks, and This week, which holds the week's shape and
+// its tasks. The week's dates sit on the heading's row and each project's adder goes to the bottom bar's +, which adds
+// to the project under the sticky name, so four tasks fit on the first screen. A one-line strip over the bottom bar
+// counts what still needs you, at any scroll. Does it fit, in the top bar, shows This week. ⋯ holds Change aims and
+// Select; Select's bar takes the bottom bar's place, and the strip's.
 
-import { useEffect, useRef, useState } from 'react';
-import { formatMinutes } from '../../../../core/dates';
+import { useEffect, useId, useRef, useState } from 'react';
+import { formatMinutes, formatWeekRange } from '../../../../core/dates';
 import { Sheet } from '../../../components/Sheet';
-import { useFit } from '../WeekFit';
+import { useFit, useNextName } from '../WeekFit';
 import { AimsPopover } from './Aims';
-import { EmptyCard, OneOffsSection, Others, ProjectSection } from './Cards';
+import { EmptyCard } from './Cards';
 import { ProjectAdder, useAdding, usePickAddMenu } from './Adders';
-import { PastEnd } from './PastEnd';
-import { selectable } from './PickDesktop';
+import { needOf, NeedYou } from './NeedYou';
+import { Lede, StretchLine, useOutside } from './Outside';
+import { PickList, selectable } from './PickDesktop';
 import type { PickProps } from './PickStep';
 import { SelectBar, useSelection } from './Select';
 import { SuggestPreview } from './Suggest';
 import { WeekList, WeekShape } from './WeekShape';
 
 export function PickPhone(props: PickProps) {
-  const { view, model } = props;
+  const { view } = props;
   const [tab, setTab] = useState<'projects' | 'week'>('projects');
   const [sheet, setSheet] = useState<'menu' | 'aims' | 'suggest' | null>(null);
   const sel = useSelection();
   const adder = useAdding();
+  const out = useOutside(view, props.week);
+  const descId = useId();
+  const namesId = useId();
+  const need = needOf(view);
+  useNextName({ label: need.words.next, ...(need.words.n ? { describedBy: namesId } : {}) });
   // The project in view: the first one still showing at the top of the list as it scrolls.
   const [inView, setInView] = useState<string | undefined>(undefined);
   const onScroll = () => {
@@ -29,7 +37,7 @@ export function PickPhone(props: PickProps) {
     const section = [...(root.current?.querySelectorAll<HTMLElement>('.pproj[data-project]') ?? [])].find((c) => c.getBoundingClientRect().bottom > top + 48);
     setInView(section?.dataset.project);
   };
-  usePickAddMenu(props, adder, inView ?? view.projects[0]?.plan.project.id, () => {
+  usePickAddMenu(props, adder, inView ?? view.projects.find((s) => out.visible(s))?.plan.project.id, () => {
     sel.exit();
     setTab('projects');
   });
@@ -41,19 +49,22 @@ export function PickPhone(props: PickProps) {
     setTab('week');
     root.current?.scrollTo?.({ top: 0 });
   });
-  const rows = selectable(props);
+  const rows = selectable(props, out);
   useEffect(() => {
     if (sel.on) root.current?.querySelector<HTMLElement>('.selbox')?.focus();
   }, [sel.on]);
   const closeSheet = () => setSheet(null);
-  const list = { ...props, phone: true, select: sel, adder };
+  const list = { ...props, phone: true, select: sel, adder, out };
   const projectAdder = <ProjectAdder {...props} adder={adder} onAdded={(id) => adder.setAdding({ kind: 'task', project: id })} />;
 
   return (
     <>
       <div ref={root} className="scroll pkscroll" onScroll={onScroll}>
         <div className="pkhead">
-          <h2>Pick tasks</h2>
+          <div className="pkt">
+            <span className="small strong">{formatWeekRange(props.week)}</span>
+            <h2>Pick tasks</h2>
+          </div>
           {view.hintMin > 0 && (
             <button className="btn" type="button" aria-haspopup="dialog" onClick={() => setSheet('suggest')}>
               Add suggested {formatMinutes(view.hintMin)}
@@ -65,7 +76,7 @@ export function PickPhone(props: PickProps) {
         </div>
         <div className="seg" role="group" aria-label="Show">
           <button type="button" aria-pressed={tab === 'projects'} onClick={() => setTab('projects')}>
-            Projects
+            Tasks
           </button>
           <button type="button" aria-pressed={tab === 'week'} aria-label={`This week, ${n} ${n === 1 ? 'task' : 'tasks'}`} onClick={() => setTab('week')}>
             This week · {n}
@@ -78,19 +89,10 @@ export function PickPhone(props: PickProps) {
           </>
         ) : (
           <>
-            {view.pastEnd.map(({ plan, status }) => (
-              <div key={plan.project.id} className="card stack8">
-                <PastEnd plan={plan} status={status} ctx={model.ctx} onSkip={() => props.skipPastEnd(plan.project.id)} />
-              </div>
-            ))}
+            <Lede view={view} out={out} phone descId={descId} />
+            <StretchLine view={view} />
             {empty && <EmptyCard>{projectAdder}</EmptyCard>}
-            <div className="card plist">
-              {view.projects.map((s) => (
-                <ProjectSection key={s.plan.project.id} {...list} s={s} />
-              ))}
-              <OneOffsSection {...list} />
-              <Others {...list} />
-            </div>
+            <PickList {...list} descId={descId} />
             {!empty && !sel.on && <div className="addline">{projectAdder}</div>}
           </>
         )}
@@ -98,6 +100,10 @@ export function PickPhone(props: PickProps) {
           {props.said}
         </div>
       </div>
+      {!sel.on && <NeedYou {...props} phone />}
+      <span id={namesId} className="sr">
+        {need.names}
+      </span>
 
       {sel.on && (
         <SelectBar

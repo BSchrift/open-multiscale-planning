@@ -161,20 +161,14 @@ test('the Now card, a To schedule card and a block on Today open the popup', asy
   await expect(popupOf(page, 'Check the totals')).toHaveCount(0);
   await actions.getByRole('button', { name: 'Close' }).click();
 
-  if (phone) {
-    await page.getByRole('slider', { name: /^Draft the summary, 4pm to 5pm/ }).click();
-    const sheet = page.locator('.sheet:not(.taskpop)[aria-label="Draft the summary"]');
-    await sheet.getByRole('button', { name: 'Draft the summary' }).click();
-    await expect(popup).toBeVisible();
-    // Over the block's sheet, which waits beneath it.
-    await page.keyboard.press('Escape');
-    await expect(sheet).toBeVisible();
-  } else {
-    await page.getByRole('button', { name: 'List' }).click();
-    await page.getByRole('button', { name: /^4pm to 5pm/ }).click();
-    await page.getByRole('button', { name: 'Open Draft the summary' }).click();
-    await expect(popup).toBeVisible();
-  }
+  // A block on the timeline opens it itself, on the calendar and in the list. On phone a block still to come is a slider.
+  await page.getByRole(phone ? 'slider' : 'button', { name: /^Draft the summary, 4pm to 5pm/ }).click();
+  await expect(popup).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+  await page.getByRole('button', { name: 'List' }).click();
+  await page.getByRole('button', { name: phone ? /^Draft the summary, 4pm to 5pm/ : /^4pm to 5pm/ }).click();
+  await expect(popup).toBeVisible();
 });
 
 test("Capture's Add details opens with Time first, takes a description, and keeps Save in reach", async ({ page }, info) => {

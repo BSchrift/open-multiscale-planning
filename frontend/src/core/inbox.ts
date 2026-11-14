@@ -28,7 +28,7 @@ export async function sendInboxItems(w: Writer, ids: readonly string[], projectI
   return applyPlanChange(w, { writes });
 }
 
-/** Deletes items as Process's Delete/done does each, freeing what they had picked or placed. */
+/** Deletes items as Process's Delete does each, freeing what they had picked or placed. */
 export async function deleteInboxItems(w: Writer, ids: readonly string[], clock: Clock): Promise<PlanChange> {
   const reverse: RecordWrite[] = [];
   // The last item closed is the first put back.

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectTapTarget, openSeeded, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -30,9 +30,7 @@ async function openSchedule(page: Page, phone: boolean, seeded: readonly Seed[] 
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, seeded);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
-  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await startPlanningThenUndo(page);
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
   return errors;
 }
@@ -201,8 +199,7 @@ test("a practice's row reads its schedule, and on desktop Place the rest puts ea
   await openSeeded(page, [
     { type: 'practice', id: 'pr', fields: { title: 'Morning stretch', target_min: 30, per: 'day', days: [1, 2], preferred_times: [420], day_times: [null, null, 540, null, null, null, null], state: 'active' } },
   ]);
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await startPlanningThenUndo(page);
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
   await expect(page.getByText('Practice, 30m on Tue around 7am, Wed around 9am').first()).toBeVisible();
   await expect(page.getByText('Also this week: Wed 9am.')).toBeVisible();

@@ -57,4 +57,8 @@ export default defineConfig({
   worker: { format: 'es' },
   // As SQLite's WebAssembly build asks. Only the worker imports it, so prebundling would find it late and reload the page.
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
+  // Dependencies prebundled for the dev server stay in this checkout rather than node_modules/.vite. Checkouts that link
+  // to another's node_modules, as agents' do, would otherwise rewrite one shared copy, and each rewrite reloads the other
+  // dev servers' pages, mid-test.
+  cacheDir: '.vite',
 });

@@ -316,3 +316,11 @@ test('Add opens over the pinned Does it fit line, so every kind can be picked wh
   }
 });
 
+test("phone: a one off's date in Projects is a whole tap target, however short the date", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'Tap targets are a phone matter');
+  const card: Seed = { type: 'task', id: 'o1', fields: { kind: 'one_off', title: 'Renew the library card', estimate_min: 30, schedule: { type: 'once', from: '2027-01-05' } } };
+  await openPlan(page, true, [...records, planned, card]);
+  await page.getByRole('button', { name: 'Plan now' }).click();
+  await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Projects/ }).click();
+  await expectTapTarget(page.getByRole('button', { name: 'Change date for Renew the library card, Jan 5' }));
+});

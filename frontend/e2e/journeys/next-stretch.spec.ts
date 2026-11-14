@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { startPlanningThenUndo } from '../seed';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
 // A first stretch planned from the first day, with some work done, then planning the next one in late December: Goals
@@ -44,12 +45,15 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await add.getByRole('button', { name: 'Add practice' }).click();
   await expect(page.getByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
 
-  // Do the starter's one task now, from Today's Next up, and answer the block.
+  // Do the starter's one task now, from Today's Next up, and answer the block. Started on the hour: the clock has run on
+  // since 9am while the steps above took real time, and a block starts on the minute but counts from the second it was
+  // started, so starting late in a minute counted 29m rather than 30m.
   await tab(page, phone, 'Today');
+  await jumpTo(page, chicago('2026-12-07', '10:00'));
   await page.getByRole('region', { name: 'Next up' }).getByRole('button', { name: 'Start Mix the starter' }).click();
   // Saved before the clock moves on, or the block would start at the later time.
   await expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible();
-  await jumpTo(page, chicago('2026-12-07', '09:31'));
+  await jumpTo(page, chicago('2026-12-07', '10:31'));
   await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Task finished', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
 
@@ -188,9 +192,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(current).toContainText('First good loaf');
   await expect(current).toContainText('Share a loaf');
   await tab(page, phone, 'Today');
-  await page.getByRole('button', { name: 'Start planning' }).first().click();
-  // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await startPlanningThenUndo(page);
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: /Schedule/ }).click();
   if (phone) {
     await page.getByRole('button', { name: /^All picked tasks/ }).click();

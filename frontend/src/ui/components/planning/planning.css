@@ -1,7 +1,7 @@
 /* The planning row, the prompt to plan and the times sheet. */
 .planrow .between{align-items:flex-start}
 .planrow .icbtn svg{display:block;width:20px;height:20px;margin:auto;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
-:where([data-layout='desktop']) .planrow .icbtn{flex:none;width:32px;height:32px;padding:0;border:1px solid transparent;border-radius:var(--radius-sm);background:none;color:var(--muted);cursor:pointer}
+:where([data-layout='desktop']) .planrow .icbtn{flex:none;width:32px;height:32px;padding:0;border:1px solid transparent;border-radius:var(--radius-sm);background:none;color:var(--grey);cursor:pointer}
 :where([data-layout='desktop']) .planrow .icbtn:hover{border-color:var(--border);color:var(--ink)}
 :where([data-layout='phone']) .planrow .planbtn{width:100%;min-height:44px}
 .planset{justify-content:space-between;gap:var(--space-2)}

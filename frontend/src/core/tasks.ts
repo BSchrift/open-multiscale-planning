@@ -260,7 +260,7 @@ export async function makeHome(w: Writer, itemId: string, home: Home, clock: Clo
   const { title } = home;
   let made: Made;
   if (home.kind === 'project') {
-    const id = await w.create('project', { objective_id, title, state: 'active', start: home.start, end: home.end });
+    const id = await w.create('project', { objective_id, title, state: 'active', start: home.start, end: home.end, added_on: today(clock) });
     const milestone = home.milestone ? await w.create('milestone', { project_id: id, title: home.milestone, due: home.end, added_on: today(clock) }) : null;
     made = { type: 'project', id, goal, milestone };
   } else if (home.kind === 'practice') {

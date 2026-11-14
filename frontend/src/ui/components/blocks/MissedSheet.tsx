@@ -22,10 +22,10 @@ import { useBlockActions } from './useBlockActions';
 import './missed.css';
 
 type Choice = BlockAnswer['result'];
-const CHOICES: readonly Choice[] = ['done', 'partly', 'not'];
+export const CHOICES: readonly Choice[] = ['done', 'partly', 'not'];
 
 /** What the three answers are called, for work and for a practice. */
-const WORDS: Record<'task' | 'practice', Record<Choice, string>> = {
+export const WORDS: Record<'task' | 'practice', Record<Choice, string>> = {
   task: { done: 'Finished', partly: 'Partly', not: 'Not done' },
   practice: { done: 'Did it', partly: 'Some', not: 'Skipped' },
 };
@@ -43,7 +43,7 @@ function stepsFor(b: BlockRow): readonly Minutes[] {
   return Array.from({ length: Math.max(1, Math.floor(workMinutes(b) / 5)) }, (_, i) => (i + 1) * 5);
 }
 
-function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
+export function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
   if (b.practice_id) {
     if (choice === 'not') return { result: 'not', logged_min: 0 };
     return { result: 'done', logged_min: choice === 'done' ? workMinutes(b) : minutes };
@@ -52,14 +52,14 @@ function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
 }
 
 /** The toast for one row: 'Draft chapter five: finished.' */
-function saidOf(b: BlockRow, choice: Choice, minutes: Minutes, freed: number): string {
+export function saidOf(b: BlockRow, choice: Choice, minutes: Minutes, freed: number): string {
   const name = nameOf(b);
   if (b.practice_id) return { done: `${name}: did it.`, partly: `${name}: logged ${formatMinutes(minutes)}.`, not: `${name}: skipped.` }[choice];
   if (choice === 'done') return `${name}: finished${andLater(freed)}.`;
   return choice === 'partly' ? `${name}: partly, ${formatMinutes(minutes)} left.` : `${name}: not done. It's in Needs a new time.`;
 }
 
-function Stepper(props: { block: BlockRow; value: Minutes; onChange(minutes: Minutes): void }) {
+export function Stepper(props: { block: BlockRow; value: Minutes; onChange(minutes: Minutes): void }) {
   const { block, value } = props;
   const steps = stepsFor(block);
   const less = steps.filter((m) => m < value).at(-1);

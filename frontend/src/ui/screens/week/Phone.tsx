@@ -25,7 +25,8 @@ import { TaskName } from '../../components/task/TaskName';
 import { BlockSection } from '../../components/blocks/BlockSection';
 import { KIND_WORD } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
-import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
+import { OutcomeTag } from '../../components/blocks/Outcome';
+import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
 import { clearLane, columnStyle, dayName, finishedCount, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
 import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
@@ -42,7 +43,6 @@ import { Icon } from '../../components/ds/Icon';
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
 const CELL_PX = 46;
-const KIND_CLASS = { project: 'c-project', practice: 'c-practice', one_off: 'c-maint', planning: 'c-planning' } as const;
 const y = (m: number) => ((m - DAY_FROM) * HOUR_PX) / 60;
 const overlaps = (list: readonly Slot[], date: LocalDate, start: number, end: number) => list.some((x) => x.date === date && x.start < end && start < x.end);
 
@@ -566,12 +566,14 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
   const draw = (block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties) => {
     const word = KIND_WORD[block.kind];
     const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.start > from ? `, from ${formatTimeOfDay(block.start)}` : ''}${block.note ? `. ${block.note}` : ''}`;
-    const cls = `tlblock ${KIND_CLASS[block.kind]}${block.ended ? ' c-ended' : ''}${outcomeClass(block.result)}`;
+    const state = blockState({ result: block.result, ended: block.ended, now: block.now });
+    const cls = `tlblock ${blockClass(LOOK[block.kind], state)}`;
     const inner = (
       <>
         <span className="tlname">
+          <BlockMarks state={state} />
           <OutcomeTag result={block.result} />
-          {block.title}
+          <span className="blktitle">{block.title}</span>
         </span>
         <span className="tlkind">{kindLine}</span>
       </>
@@ -625,7 +627,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       row(
         `i${inf.id}${inf.start}`,
         inf.start,
-        <div className="tlblock c-info" style={{ height: CELL_PX - 2 }}>
+        <div className={`tlblock ${blockClass('info', 'planned')}`} style={{ height: CELL_PX - 2 }}>
           <span className="tlname">{inf.title}</span>
           <span className="tlkind">Information, {slotRange(inf)}</span>
         </div>,
@@ -636,7 +638,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       continue;
     }
     if (event) {
-      row(`b${event.id}${m}`, event.start, <div className="tlblock c-busy small wkbusy">Busy, {slotRange(event)}</div>, m, event.end);
+      row(`b${event.id}${m}`, event.start, <div className={`tlblock ${blockClass('event', 'planned')} small wkbusy`}>Busy, {slotRange(event)}</div>, m, event.end);
       m = event.end;
       continue;
     }
@@ -701,6 +703,8 @@ function DayGroup(props: {
  * The drawn day behind a drag: hours, closed time, calendar events, and the blocks that move. The planning Schedule
  * step also passes suggested times, which the moving and selected blocks snap to.
  */
+const fixedLook = (b: PlacedBlock, short: boolean) => blockClass(LOOK[b.kind], blockState({ result: b.result, ended: b.ended, now: b.now }), { short });
+
 export function DragDay(props: {
   date: LocalDate;
   ctx: SlotContext;
@@ -823,7 +827,7 @@ export function DragDay(props: {
     return (
       <div
         key={key}
-        className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}`}
+        className={`cev dragblock ${blockClass(LOOK[kind], chosen ? 'placing' : 'planned')}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}`}
         role="slider"
         tabIndex={0}
         aria-label={(on.commit ? title : `Time for ${title}, being placed`) + '.' + overlapNote(column?.others ?? []) + help}
@@ -865,14 +869,14 @@ export function DragDay(props: {
         {ctx.busy
           .filter((e) => e.date === date && !props.blocks.some((b) => b.id === e.id))
           .map((e, i) => (
-            <div key={`b${i}`} className="cev c-busy" style={{ top: y(e.start), height: Math.max(13, y(e.end) - y(e.start)) }}>
+            <div key={`b${i}`} className={`cev ${blockClass('event', 'planned')}`} style={{ top: y(e.start), height: Math.max(13, y(e.end) - y(e.start)) }}>
               {e.title || 'Busy'}
             </div>
           ))}
         {props.info
           .filter((e) => e.date === date)
           .map((e, i) => (
-            <div key={`i${i}`} className="cev c-info" style={{ top: y(e.start), height: y(e.end) - y(e.start) }}>
+            <div key={`i${i}`} className={`cev ${blockClass('info', 'planned')}`} style={{ top: y(e.start), height: y(e.end) - y(e.start) }}>
               {e.title}
             </div>
           ))}
@@ -888,9 +892,10 @@ export function DragDay(props: {
               }
               const h = Math.max(13, y(b.end) - y(b.start));
               return (
-                <div key={b.id} className={`cev ${KIND_CLASS[b.kind]}${b.ended ? ' c-ended' : ''}${outcomeClass(b.result)}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h, ...column?.style }}>
+                <div key={b.id} className={`cev ${fixedLook(b, h < 24)}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h, ...column?.style }}>
+                  <BlockMarks state={blockState({ result: b.result, ended: b.ended, now: b.now })} short={h < 24} />
                   <OutcomeTag result={b.result} />
-                  {b.title}
+                  <span className="blktitle">{b.title}</span>
                 </div>
               );
             });
@@ -914,7 +919,7 @@ export function DragDay(props: {
             <button
               key={`g${g.start}`}
               type="button"
-              className="cev ghost"
+              className={`cev ghost ${blockClass('project', 'suggested')}`}
               aria-label={`Use suggested time, ${g.label}`}
               style={{ top: y(g.start), height: Math.max(28, y(g.end) - y(g.start)) }}
               onClick={g.onAccept}

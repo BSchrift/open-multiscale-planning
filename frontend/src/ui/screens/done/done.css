@@ -34,10 +34,6 @@
 [data-layout] .donepage i.sw, [data-layout] .donepage .legend i { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; }
 [data-layout] .donemark i.sw { margin-top: 4px; }
 [data-layout='desktop'] .unmarked .donemark i.sw { margin-top: 0; }
-[data-layout] .donepage .ev-project { background: var(--project-tint); border: 1px solid var(--project); border-left-width: 3px; }
-[data-layout] .donepage .ev-practice { background: var(--practice-tint); border: 1px solid var(--practice); border-left: 4px double var(--practice); }
-[data-layout] .donepage .ev-maint { background: var(--oneoff-tint); border: 1px solid var(--oneoff); border-left: 4px dotted var(--oneoff); }
-[data-layout] .donepage .ev-planning { background: var(--wash); border: 1px solid var(--line); border-left-width: 3px; }
 
 /* Today's line: a card at the end of Today. */
 [data-layout] .doneline { width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }

@@ -173,7 +173,7 @@ export function GoalsStep(props: {
     const statId = `projst-${project.id}`;
     return (
       <button
-        className={`projblock ${phone ? 'c-project' : 'ev-project'}`}
+        className="projblock blk k-project s-planned"
         type="button"
         aria-haspopup="dialog"
         aria-label={`Open project ${project.title}`}

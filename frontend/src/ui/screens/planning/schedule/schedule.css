@@ -22,6 +22,9 @@
 [data-layout] .planning .schedgh { margin: 0; padding: var(--space-2) var(--space-2) var(--space-1); font-size: var(--fs-caption); font-weight: var(--fw-strong); color: var(--ink-3); }
 [data-layout='desktop'] .planning .schednow .schedgh { padding: 0 0 var(--space-1); }
 [data-layout] .schedtitle { margin: 0; font-size: inherit; font-weight: var(--fw-strong); }
+/* A title with nowhere to break, such as a pasted link, breaks anywhere rather than run out of its card, as a task's
+   name does. */
+[data-layout] .schedtitle, [data-layout] .schedbtn .subline, [data-layout] .pksum .flowdock > div > .strong { overflow-wrap: anywhere; }
 [data-layout='desktop'] .schedx { flex: none; width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--ink-3); font-size: var(--fs-heading); }
 [data-layout='desktop'] .schedx:hover { background: var(--wash); color: var(--ink); }
 /* Practices, drawn as Week draws them: teal with a double edge, and a mark of their own rather than a number. */

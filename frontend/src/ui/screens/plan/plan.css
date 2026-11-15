@@ -305,8 +305,23 @@
   border-color: var(--project-ink);
 }
 
+/* A goal's backlog: goal work, so blue, with a thin solid edge where a project has its thick stripe. */
+[data-layout] .planflow .projblock.ev-backlog,
+[data-layout] .planflow .projblock.c-backlog {
+  border: 1px solid var(--project);
+  background: var(--accent-tint);
+  color: var(--project-ink);
+}
+
 [data-layout] .planflow .projblock .pillrow {
   flex-wrap: wrap;
   align-items: center;
   margin-top: 0;
+}
+
+/* The rest of a backlog in its preview: a plain list. */
+[data-layout] .bltasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

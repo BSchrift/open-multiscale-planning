@@ -45,6 +45,8 @@ h3{font-size:var(--fs-caption);font-weight:var(--fw-strong);color:var(--ink-3)}
 .ptick{position:absolute;top:0;bottom:0;width:1px;background:var(--hairline)}
 .pweekband{position:absolute;top:0;bottom:0;background:var(--project-tint)}
 .planshow{display:flex;flex-direction:column;gap:var(--space-1)}
+/* A name with nowhere to break, such as a pasted link, breaks anywhere rather than run out of the card. */
+.planshow>h3,.planshowrow .grow{overflow-wrap:anywhere}
 .planshowrow .grow{flex:1 1 auto;min-width:0}
 .oodate{padding-top:var(--space-2)}
 .pdot.oo,.msdia.oo{border-color:var(--oneoff);background:var(--oneoff);border-radius:var(--radius-circle);transform:none}
@@ -88,3 +90,17 @@ h3{font-size:var(--fs-caption);font-weight:var(--fw-strong);color:var(--ink-3)}
 .gdia.late,.msdia.late,:where([data-layout='desktop']) .pdot.late{border-color:var(--danger);background:var(--card)}
 .gdia.late.on,.msdia.late.on,:where([data-layout='desktop']) .pdot.late.on{background:var(--danger)}
 .gdia.done,.msdia.done,:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--card),0 0 0 3px var(--accent)}
+
+/* Finish or Drop's box that moves open tasks to the goal's backlog: the whole label is the target. */
+[data-layout] .movecheck {
+  gap: var(--space-2);
+  min-height: var(--tap);
+  cursor: pointer;
+}
+
+[data-layout] .movecheck input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}

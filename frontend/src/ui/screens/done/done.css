@@ -21,7 +21,8 @@
 [data-layout='desktop'] .unmarked .donemark { padding-top: 0; }
 [data-layout] .donemark .tick { display: block; width: 18px; height: 18px; border-radius: var(--radius-circle); background: var(--accent) var(--check) center / 12px no-repeat; }
 [data-layout] .donemark .msdia { margin: var(--space-1) 0 0; }
-[data-layout] .donewhat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* A name with nowhere to break, such as a pasted link, breaks anywhere rather than run over the minutes beside it. */
+[data-layout] .donewhat { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
 [data-layout] .donesub { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
 [data-layout] .doneend { padding-top: 1px; font-size: var(--fs-meta); color: var(--ink-3); text-align: right; white-space: nowrap; }
 [data-layout] .doneend b { display: block; font-weight: var(--fw-strong); color: var(--ink); }

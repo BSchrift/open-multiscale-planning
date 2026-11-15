@@ -115,6 +115,7 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
         </div>
         <input
           id={id}
+          className="logrange"
           type="range"
           min={5}
           max={length}

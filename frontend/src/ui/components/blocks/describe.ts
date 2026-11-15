@@ -1,5 +1,6 @@
 // How a block reads anywhere it's shown: its kind (and so its colour), what it belongs to, and its time.
 
+import { isBacklog } from '../../../core/backlog';
 import { formatTime } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { isRepeating, onceWhen, scheduleLabel } from '../../../core/schedule';
@@ -33,7 +34,7 @@ export interface BlockRecords {
 
 interface BlockDescription {
   kind: BlockKind;
-  /** What the path is: Goal, Project, One off or Practice. */
+  /** What the path is: Goal, Backlog, Project, One off or Practice. */
   word: string;
   /** 'Goal > Project', a one off's schedule, or a practice's goal and target. */
   path: string;
@@ -52,6 +53,8 @@ export function describeBlock(block: Pick<BlockRow, 'practice_id' | 'task_kind'>
     const when = s && (isRepeating(task!) ? scheduleLabel(s) : s.type === 'once' ? onceWhen(s) : '');
     return { kind, word: 'One off', path: when || 'No date' };
   }
+  // A goal backlog says so, and is named by its goal, so a title an older app stored never shows.
+  if (project && isBacklog(project)) return { kind, word: 'Backlog', path: `${objective?.title ?? 'Removed goal'} > Backlog` };
   if (objective && project) return { kind, word: 'Goal', path: `${objective.title} > ${project.title}` };
   return { kind, word: 'Project', path: project?.title ?? '' };
 }

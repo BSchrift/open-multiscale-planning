@@ -620,3 +620,70 @@
 [data-layout='phone'] .pkhead {
   padding: var(--space-3) var(--space-4) var(--space-1);
 }
+
+/* A goal's backlog: the goals in place of the picker on desktop, numbered for their keys, and a sheet of them on phone. */
+[data-layout] .pxbacklogs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--accent-tint);
+}
+
+[data-layout] .pxbacklogrows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+[data-layout] .pxbacklogrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+[data-layout] .pxbacklogpick {
+  display: flex;
+  flex-direction: column;
+  margin: 0 calc(-1 * var(--space-4));
+}
+
+[data-layout] .pxbacklogpick .pickrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+[data-layout] .pxbacklogpick .pickrow[aria-pressed='true'] {
+  background: var(--accent-tint);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+/* A hollow ring, as a backlog has on Goals, where a project has its filled square. */
+[data-layout] .pxbacklogpick .kring {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--project);
+  border-radius: var(--radius-circle);
+}
+
+[data-layout] .pxbacklogs .lineblock,
+[data-layout] .pxbacklogpick .lineblock {
+  display: block;
+}
+
+[data-layout] .pxbacklogs .keycap {
+  white-space: nowrap;
+}

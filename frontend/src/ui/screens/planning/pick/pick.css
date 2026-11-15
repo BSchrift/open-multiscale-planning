@@ -223,3 +223,7 @@
 :where([data-layout]) .planning .weektick input{width:20px;height:20px;margin:0;accent-color:var(--accent)}
 :where([data-layout='phone']) .planning .pkadd{min-height:var(--tap)}
 :where([data-layout='phone']) .planning .pkadd .addlink{min-height:var(--tap)}
+/* A goal's backlog group: a disclosure, closed at first, with a hollow ring's blue edge rather than a project's stripe. */
+:where([data-layout]) .planning .blfold{display:flex;align-items:center;gap:var(--space-2);width:100%;min-height:var(--tap);padding:var(--space-2) var(--space-4);border:0;border-left:2px solid var(--hairline);background:transparent;color:var(--ink);text-align:left;font:inherit}
+:where([data-layout]) .planning .blfold:hover{background:var(--wash)}
+:where([data-layout]) .planning .blfold .caret{width:14px;color:var(--ink-3)}

@@ -446,12 +446,12 @@ describe('Process on desktop', () => {
     const caps = () => [...card().querySelectorAll('.keycap')].map((k) => k.textContent).filter((c) => c !== '↩');
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['⌥D', '⌥E', '⌥F', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
+    expect(caps().sort()).toEqual(['⌥B', '⌥D', '⌥E', '⌥F', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
     cleanup();
     keysOn();
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['D', 'E', 'F', 'G', 'P', 'S', 'W', 'Z']);
+    expect(caps().sort()).toEqual(['B', 'D', 'E', 'F', 'G', 'P', 'S', 'W', 'Z']);
   });
 
   it('labels the held key Alt away from a Mac', async () => {
@@ -998,7 +998,7 @@ describe('Editing the item on the card', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
   });
 
-  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, New practice and goal, Skip, Done, Delete', async () => {
+  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, Goal backlog, New practice and goal, Skip, Done, Delete', async () => {
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     const stops = Array.from(card().querySelectorAll<HTMLElement>('button, input, textarea, select'))
@@ -1012,6 +1012,7 @@ describe('Editing the item on the card', () => {
       'Time',
       'Add to a project or One offs',
       'Add to this weekAlt W',
+      'Alt BGoal backlog',
       'New practice from this item',
       'New goal from this item',
       'SkipAlt S',
@@ -1199,7 +1200,7 @@ describe('Process for planning a stretch', () => {
 });
 
 describe('Process on phone', () => {
-  it('puts the item on top, then Add to low in thumb reach, then New practice and goal, then Undo, Skip, Done and Delete', async () => {
+  it('puts the item on top, then Add to low in thumb reach, then Goal backlog, New practice and goal, then Undo, Skip, Done and Delete', async () => {
     await open({ layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
     const order = Array.from(card().querySelectorAll('h1, button, input')).map((e) =>
@@ -1215,6 +1216,7 @@ describe('Process on phone', () => {
       'Time',
       'Add to this week',
       'Add to a project or One offs',
+      'Goal backlog',
       'New practice from this item',
       'New goal from this item',
       'Undo',

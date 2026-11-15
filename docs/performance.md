@@ -60,6 +60,37 @@ three minutes; later runs write nothing but still send all 393 batches.
 
 Staging's numbers come once its history user is set up, as [docs/setup.md](setup.md) describes. Add them here then.
 
+## KPI marks
+
+The performance KPIs, approved on 14 November 2026, time the flows people use most, the same way on the web, the Mac
+app and the iPhone. Each one is a User Timing measure of its own name, from its start event to its stop event, made by
+`frontend/src/core/perf.ts`. The marks are always on, behind no flag: a start is a map write, a stop one
+`performance.measure`, and past 500 measures the page clears them, so memory stays flat. A start takes the input
+event's own timestamp, a pointer's click from its pointerdown, so time the page spent busy before it could run counts.
+"Drawn" means after the next frame is painted: a frame callback, then a message once it has run.
+
+| Measure | Starts at | Stops at | Where |
+| --- | --- | --- | --- |
+| `capture.open` | The shortcut's keydown, or the Capture button's pointerdown | The capture field focused, drawn | `ui/app/Shell.tsx`, `ui/screens/capture` |
+| `capture.global` | Shift-Command-Space, as the Mac app's main process gets it | The panel shown with its field focused, drawn | `electron/main.ts`, `electron/capture-preload.ts` |
+| `capture.key` | A key's keydown in the capture field | Its character drawn | `ui/screens/capture` |
+| `capture.save` | Enter's keydown, or Save's pointerdown | The task committed and "Saved" drawn | `ui/screens/capture` |
+| `nav.today`, `nav.week`, `nav.done`, `nav.analytics` | The tab's or More row's pointerdown | The screen shown with its data, drawn | `ui/app/Shell.tsx`, `ui/app/MorePage.tsx`, `ui/app/drawn.ts` |
+| `today:interactive` (a mark) | | Today first drawn with its data | `ui/screens/today` |
+| `start.resume` | The app back in front while running | The next frame after | `ui/app/Shell.tsx` |
+| `sync.send` | A push's request sent | Its reply | `core/sync.ts` |
+| `sync.push` | The first change a push carries, committed | That push's reply, after a failed try too | `core/syncRunner.ts`, `core/sync.ts` |
+| `sync.pull` | A sync starting | A screen drawn with what it brought; dropped when it brought nothing | `core/syncRunner.ts`, `ui/app/store.tsx` |
+| `notify.action` | A notification's answer reaching the app | The answer committed | `ui/app/reminders.ts` |
+
+The start KPIs, `start.cold` and `start.warm`, run from the launch to `today:interactive`: navigation start on the web,
+and the launch time the test records for the Mac app. `sync.first` stays the history-scale test's first sync.
+
+Still to mark: `popup.open` and `popup.save` in the task popup, `process.step` in Process, `drag.frame` and `drag.drop`
+on Today's timeline and Week, and `plan.step` in Plan the week, whose screens were being changed when the marks went
+in; `capture.control` and `capture.share`, which start in the iPhone's extensions. `e2e/perf-marks.spec.ts` and
+`electron/e2e/perf-marks.spec.ts` check that each action makes exactly one measure.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

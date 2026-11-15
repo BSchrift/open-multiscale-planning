@@ -4,9 +4,10 @@
 // once the task is saved. A goal's backlog can take it straight away too, with no milestone.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { addToBacklog, backlogTitle, isBacklog } from '../../../core/backlog';
 import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
+import { perf } from '../../../core/perf';
 import { inboxCount } from '../../../core/queries';
 import { listRecords } from '../../../core/records';
 import type { Fields, LocalDate, Minutes } from '../../../core/types';
@@ -32,6 +33,15 @@ const BACKLOG = 'b:';
 const SAVED_MS = 700;
 const FADE_MS = 120;
 
+// The capture KPIs (docs/performance.md), each from its key's own timestamp: Enter to saved, and a key to its character
+// drawn. Open ends when the field takes focus; Shell starts it.
+function startKey(e: KeyboardEvent<HTMLInputElement>) {
+  if (e.key === 'Enter') perf.start('capture.save', e.timeStamp);
+  else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) perf.start('capture.key', e.timeStamp);
+}
+const opened = () => perf.stopAfterPaint('capture.open');
+const saveTapped = (e: { timeStamp: number }) => perf.start('capture.save', e.timeStamp);
+
 function fieldsFor(title: string, where: string, milestone: string, est: Minutes, notes: string, today: LocalDate): Fields<'task'> {
   const described = notes.trim() ? { notes } : {};
   if (where === ONE_OFFS) return { ...oneOffFields({ ...emptyDraft(today), title, estimate: est }, today), ...described };
@@ -47,6 +57,10 @@ export default function Screen(props: ScreenProps) {
   const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active' && !isBacklog(p)) ?? [];
   const goals = useQuery((sql) => listRecords(sql, 'objective'), []).data?.filter((g) => g.state !== 'archived') ?? [];
   const [text, setText] = useState('');
+  const type = (value: string) => {
+    setText(value);
+    perf.stopAfterPaint('capture.key');
+  };
   const [details, setDetails] = useState(false);
   const [where, setWhere] = useState('');
   const [milestone, setMilestone] = useState('');
@@ -97,7 +111,7 @@ export default function Screen(props: ScreenProps) {
     const title = captureTitle(text);
     if (!title || saved || save.pending) return;
     const done = await save.run(fieldsFor(title, where, milestone, est, notes, today), drafts);
-    if (done === undefined) return;
+    if (done === undefined) return perf.cancel('capture.save');
     const { waiting, kept } = done;
     for (const [id, file] of kept) await platform.files.put(id, file);
     const message = where ? `Saved to ${place}` : phone ? 'Saved to Inbox' : `Saved to Inbox, ${waiting} waiting`;
@@ -110,6 +124,7 @@ export default function Screen(props: ScreenProps) {
       setDrafts([]);
       setSaved(message);
     }
+    perf.stopAfterPaint('capture.save');
   };
 
   const whereSelect = (
@@ -151,7 +166,16 @@ export default function Screen(props: ScreenProps) {
     </select>
   );
   const slider = <EstimateSlider label="Time" value={est} onChange={setEst} />;
-  const description = <NotesField value={notes} onChange={setNotes} onSubmit={() => form.current?.requestSubmit()} />;
+  const description = (
+    <NotesField
+      value={notes}
+      onChange={setNotes}
+      onSubmit={() => {
+        perf.start('capture.save');
+        form.current?.requestSubmit();
+      }}
+    />
+  );
   const attachments = <DraftAttachments drafts={drafts} onChange={setDrafts} />;
   const detailsToggle = (className: string) => (
     <button className={className} type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
@@ -173,7 +197,9 @@ export default function Screen(props: ScreenProps) {
             maxLength={MAX_TITLE}
             value={text}
             placeholder="What's on your mind?"
-            onChange={(e) => setText(e.target.value)}
+            onFocus={opened}
+            onKeyDown={startKey}
+            onChange={(e) => type(e.target.value)}
           />
           <div>{detailsToggle('link')}</div>
           {details && (
@@ -197,7 +223,7 @@ export default function Screen(props: ScreenProps) {
               {attachments}
             </>
           )}
-          <Button variant="primary" type="submit">
+          <Button variant="primary" type="submit" onPointerDown={saveTapped}>
             Save
           </Button>
         </form>
@@ -217,7 +243,9 @@ export default function Screen(props: ScreenProps) {
             maxLength={MAX_TITLE}
             value={text}
             placeholder="Type a thought"
-            onChange={(e) => setText(e.target.value)}
+            onFocus={opened}
+            onKeyDown={startKey}
+            onChange={(e) => type(e.target.value)}
           />
           {details && !saved && (
             <div className="capdetails">
@@ -261,7 +289,7 @@ export default function Screen(props: ScreenProps) {
                     </kbd>
                     Cancel
                   </button>
-                  <button className={`capact${text.trim() ? ' ready' : ''}`} type="submit">
+                  <button className={`capact${text.trim() ? ' ready' : ''}`} type="submit" onPointerDown={saveTapped}>
                     <kbd className="keycap" aria-hidden="true">
                       ↵
                     </kbd>

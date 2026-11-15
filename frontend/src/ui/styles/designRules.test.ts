@@ -1,7 +1,7 @@
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cssViolations, tsxViolations, tally } from './designRules';
+import { cssViolations, tsxViolations } from './designRules';
 import type { Violation } from './designRules';
 
 const rules = (found: Violation[]) => found.map((v) => `${v.rule}: ${v.text}`);
@@ -17,6 +17,14 @@ describe('the stylesheet rules', () => {
 
   it('pass a ring drawn as a shadow in a token colour, and none at all', () => {
     expect(rules(cssViolations('a.css', '.a { box-shadow: inset 0 0 0 2px var(--focus); } .b { box-shadow: none; }'))).toEqual([]);
+    expect(rules(cssViolations('a.css', '.a { box-shadow: var(--shadow-2), inset 0 0 0 var(--border-emphasis) var(--placing); }'))).toEqual([]);
+  });
+
+  it('pass a step within a layer, a looping animation, mixed corners, a fluid size between two styles, and a solid shape drawn as a shadow', () => {
+    const css = `.a { z-index: calc(var(--z-raised) + 2); animation: spin .8s linear infinite; border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+      font-size: clamp(var(--fs-title), 4vw, var(--fs-display)); box-shadow: 0 var(--space-3) 0 var(--space-3) var(--card); }
+      .b { box-shadow: inset 0 0 0 100px var(--wash), inset 3px 0 0 var(--oneoff); }`;
+    expect(rules(cssViolations('a.css', css))).toEqual([]);
   });
 
   it('report each raw colour, size, space, radius, shadow, layer and duration', () => {
@@ -69,39 +77,17 @@ describe('the component rules', () => {
   });
 });
 
-describe('tally', () => {
-  it('counts violations by rule and file', () => {
-    const v = (rule: string, file: string): Violation => ({ rule, file, line: 1, text: '' });
-    expect(tally([v('colour', 'a.css'), v('colour', 'a.css'), v('spacing', 'b.css')])).toEqual({ colour: { 'a.css': 2 }, spacing: { 'b.css': 1 } });
-  });
-});
-
-// Report-only until the baseline is zero: each run lists what breaks the rules today and what's new since the
-// baseline, and fails nothing. DESIGN_BASELINE=write records today's counts as the new baseline.
+// Nothing in the app breaks them: a raw value, a glyph icon or a hand-built button fails here, saying where it is.
 describe('the app', () => {
   const ui = join(import.meta.dirname, '..');
   const files = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((file) => !/\.test\.tsx?$/.test(file));
-  const found = files.flatMap((file) => {
-    if (file.endsWith('.css')) return cssViolations(file, readFileSync(join(ui, file), 'utf8'));
-    if (file.endsWith('.tsx')) return tsxViolations(file, readFileSync(join(ui, file), 'utf8'));
-    return [];
-  });
-  const baselineFile = join(import.meta.dirname, 'design-baseline.json');
 
-  it('report what still breaks the design rules, against the baseline', () => {
-    const now = tally(found);
-    if (process.env.DESIGN_BASELINE === 'write') writeFileSync(baselineFile, `${JSON.stringify(now, null, 2)}\n`);
-    const baseline = JSON.parse(readFileSync(baselineFile, 'utf8')) as Record<string, Record<string, number>>;
-    const lines = Object.entries(now).map(([rule, byFile]) => {
-      const total = Object.values(byFile).reduce((a, b) => a + b, 0);
-      const was = Object.values(baseline[rule] ?? {}).reduce((a, b) => a + b, 0);
-      const grew = Object.entries(byFile).filter(([file, n]) => n > (baseline[rule]?.[file] ?? 0));
-      return `${rule}: ${total} (baseline ${was})${grew.length ? `; new in ${grew.map(([file]) => file).join(', ')}` : ''}`;
+  it('breaks none of the design rules', () => {
+    const found = files.flatMap((file) => {
+      if (file.endsWith('.css')) return cssViolations(file, readFileSync(join(ui, file), 'utf8'));
+      if (file.endsWith('.tsx')) return tsxViolations(file, readFileSync(join(ui, file), 'utf8'));
+      return [];
     });
-    process.stdout.write(`Design rules, report-only:\n  ${lines.join('\n  ') || 'nothing breaks them'}\n`);
-    // DESIGN_LIST=spacing,radius lists each one of those rules, where it is.
-    const list = process.env.DESIGN_LIST?.split(',') ?? [];
-    if (list.length) process.stdout.write(`${found.filter((v) => list.includes(v.rule)).map((v) => `${v.file}:${v.line} ${v.text}`).join('\n')}\n`);
-    expect(found.every((v) => v.file && v.rule)).toBe(true);
+    expect(found.map((v) => `${v.file}:${v.line} ${v.rule}: ${v.text}`)).toEqual([]);
   });
 });

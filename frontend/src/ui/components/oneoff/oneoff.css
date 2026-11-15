@@ -6,7 +6,7 @@
 [data-layout] .oomonths {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout='phone'] .oomonths {
@@ -16,7 +16,7 @@
 [data-layout] .oorule {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 [data-layout] .oorule select.field {

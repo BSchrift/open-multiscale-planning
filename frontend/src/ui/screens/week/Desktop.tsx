@@ -455,19 +455,19 @@ export function DesktopWeek(props: WeekProps) {
             {!editing && (
               <div className="legend wklegend">
                 <span>
-                  <i className="ev-project" />
+                  <i className="blk k-project" />
                   Project
                 </span>
                 <span>
-                  <i className="ev-practice" />
+                  <i className="blk k-practice" />
                   Practice
                 </span>
                 <span>
-                  <i className="ev-maint" />
+                  <i className="blk k-oneoff" />
                   One offs
                 </span>
                 <span>
-                  <i className="ev-busy" />
+                  <i className="blk k-event" />
                   Calendar event
                 </span>
                 <span>

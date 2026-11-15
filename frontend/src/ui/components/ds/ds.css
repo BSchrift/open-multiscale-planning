@@ -110,3 +110,168 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* A toggle chip: a day or a filter. On, it takes the accent's tint and a 3:1 boundary. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-compact);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-hairline) solid var(--line);
+  border-radius: var(--radius-block);
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-regular);
+}
+
+[data-layout='phone'] .chip {
+  min-height: var(--tap);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--accent-text);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  font-weight: var(--fw-strong);
+}
+
+/* A switch: the label, then a track whose thumb slides to the end when it's on. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.switchtrack {
+  flex: none;
+  position: relative;
+  width: var(--space-12);
+  height: var(--space-6);
+  margin-left: auto;
+  border-radius: var(--radius-pill);
+  background: var(--pressed);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--line);
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.switchthumb {
+  position: absolute;
+  top: var(--space-1);
+  left: var(--space-1);
+  width: var(--space-4);
+  height: var(--space-4);
+  border-radius: var(--radius-circle);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.switch[aria-checked='true'] .switchtrack {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.switch[aria-checked='true'] .switchthumb {
+  transform: translateX(var(--space-6));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switchtrack,
+  .switchthumb {
+    transition: none;
+  }
+}
+
+/* A segmented control: Calendar | List. The chosen view is filled with the accent's tint. */
+.seg {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--wash);
+}
+
+.seg > button {
+  min-height: var(--tap-compact);
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-block);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+}
+
+[data-layout='phone'] .seg > button {
+  min-height: var(--tap);
+}
+
+.seg > button[aria-pressed='true'] {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--line);
+}
+
+/* A text field with its label above. */
+.textfield {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.textfield > label {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
+}
+
+.fieldhelp {
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+}
+
+/* A list row: title and meta, then one column for trailing icons. */
+.lrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-4);
+}
+
+.lrow + .lrow {
+  border-top: var(--border-hairline) solid var(--hairline);
+}
+
+.lrowmain {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lrowmeta {
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+}
+
+.lrowtrail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-3);
+}
+
+.cardhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}

@@ -79,7 +79,8 @@ describe('Process on desktop', () => {
       ['New practice from this item', 'Alt PNew practice'],
       ['New goal from this item', 'Alt GNew goal'],
     ]);
-    for (const [name, k] of [['Undo and go back', 'Z'], ['Skip', 'S'], ['Done', 'F'], ['Delete', 'D'], ['Add to this week', 'W']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
+    for (const [name, k] of [['Undo and go back', 'Z'], ['Skip', 'S'], ['Done', 'F'], ['Delete', 'D']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
+    expect(screen.getByRole('switch', { name: 'Add to this week' }).querySelector('kbd')).toHaveTextContent('W');
     expect(btn('Undo and go back')).toBeDisabled();
     // The card no longer reports what happened: the toast does.
     expect(within(card()).queryByRole('status')).toBeNull();
@@ -260,10 +261,10 @@ describe('Process on desktop', () => {
 
   it('adds to this week as a pick, not on the calendar, says so on the lit row and in the toast, then resets the toggle', async () => {
     const t = await open();
-    const toggle = await screen.findByRole('button', { name: 'Add to this week' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    const toggle = await screen.findByRole('switch', { name: 'Add to this week' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
     await userEvent.click(toggle);
-    expect(btn('Adding to this week')).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
     await userEvent.click(picker());
     expect(lit()).toHaveTextContent('+ this week');
     expect(lit()).toHaveAccessibleName('One offs, and to this week');
@@ -273,7 +274,7 @@ describe('Process on desktop', () => {
     expect(toast()).toHaveTextContent('Added Call the bank to One offs and to this week.');
     expect(await getRecord(t.db, 'week_pick', weekPickId('2026-11-02', 'i1'))).toMatchObject({ minutes: 30, deleted_at: null });
     expect(await listRecords(t.db, 'time_block')).toHaveLength(0);
-    expect(btn('Add to this week')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'false');
 
     await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
@@ -282,7 +283,7 @@ describe('Process on desktop', () => {
 
   it('adds to the plan being made, as a pick rather than a block', async () => {
     const t = await open({ params: { planning: '2026-11-09' } });
-    await userEvent.click(await screen.findByRole('button', { name: 'Add to the plan for Nov 9 to 15' }));
+    await userEvent.click(await screen.findByRole('switch', { name: 'Add to the plan for Nov 9 to 15' }));
     await addTo('Learn to bake bread');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     expect(toast()).toHaveTextContent('Added Call the bank to Learn to bake bread and to the plan.');
@@ -367,9 +368,9 @@ describe('Process on desktop', () => {
     key('z');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     altKey('KeyW', picker());
-    expect(btn('Adding to this week')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'true');
     key('w');
-    expect(btn('Add to this week')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'false');
     altKey('KeyD', picker());
     expect(within(card()).getByRole('alert')).toHaveTextContent('Delete this item?');
     key('Escape', within(card()).getByRole('alert'));
@@ -1194,7 +1195,7 @@ describe('Process for planning a stretch', () => {
     await open({ seed: seedStretch, params: stretch, layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect(btn('Back to planning')).toBeInTheDocument();
-    expect(within(card()).queryByRole('button', { name: 'Add to this week' })).toBeNull();
+    expect(within(card()).queryByRole('switch', { name: 'Add to this week' })).toBeNull();
   });
 });
 

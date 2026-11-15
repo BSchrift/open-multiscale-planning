@@ -168,11 +168,11 @@ describe('Week on desktop', () => {
     expect(await screen.findByRole('heading', { name: 'This week' })).toBeVisible();
     expect(screen.getByText('Nov 2 to Nov 8')).toBeVisible();
     const report = await screen.findByRole('button', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm, Project\. Conflicts with Quiz night\./ });
-    expect(report).toHaveClass('ev-project');
-    expect(screen.getByRole('button', { name: /^Piano practice, Wed/ })).toHaveClass('ev-practice');
-    expect(screen.getByRole('button', { name: /^Paint the fence/ })).toHaveClass('ev-maint');
-    expect(screen.getByText('Quiz night')).toHaveClass('ev-busy');
-    expect(screen.getByText('Street fair')).toHaveClass('ev-info');
+    expect(report).toHaveClass('k-project');
+    expect(screen.getByRole('button', { name: /^Piano practice, Wed/ })).toHaveClass('k-practice');
+    expect(screen.getByRole('button', { name: /^Paint the fence/ })).toHaveClass('k-oneoff');
+    expect(screen.getByText('Quiz night')).toHaveClass('k-event');
+    expect(screen.getByText('Street fair')).toHaveClass('k-info');
     expect(screen.getByText(/ free$/, { selector: '.capnum' })).toBeVisible();
     expect(screen.getByText(/^of \d+h( \d+m)? available$/)).toBeVisible();
   });
@@ -464,19 +464,19 @@ describe('Week on desktop', () => {
   it('a block gone by says how it went, and is struck through only when done', async () => {
     await open({ seed: morning });
     const named = (name: string) => screen.findByRole('button', { name });
-    expect(await named('Sketch the outline, Mon Nov 2, 9am to 10am, Project. Done.')).toHaveClass('ended', 'done');
+    expect(await named('Sketch the outline, Mon Nov 2, 9am to 10am, Project. Done.')).toHaveClass('s-done');
     const not = await named('Read the notes, Mon Nov 2, 10am to 11am, Project. Not done.');
-    expect(not).toHaveClass('ended', 'notdone');
-    expect(not).not.toHaveClass('done');
+    expect(not).toHaveClass('s-notdone');
+    expect(not).not.toHaveClass('s-done');
     expect(within(not).getByText('Not done')).toBeVisible();
     const partly = await named('Email the editor, Mon Nov 2, 11am to 12pm, Project. Partly.');
-    expect(partly).toHaveClass('ended', 'partly');
-    expect(partly).not.toHaveClass('done');
+    expect(partly).toHaveClass('s-partly');
+    expect(partly).not.toHaveClass('s-done');
     expect(within(partly).getByText('Partly')).toBeVisible();
-    // One with no answer yet is only muted.
+    // One with no answer yet is dashed, with an empty ring.
     const unanswered = await named('Paint the fence, Mon Nov 2, 7:30am to 8:30am, One off.');
-    expect(unanswered).toHaveClass('ended');
-    expect(unanswered).not.toHaveClass('done');
+    expect(unanswered).toHaveClass('s-goneby');
+    expect(unanswered).not.toHaveClass('s-done');
   });
 
   it("marks the current time across today's column only", async () => {
@@ -775,7 +775,7 @@ describe('Week on phone', () => {
     await userEvent.click(days[0]!);
     expect(await screen.findByRole('heading', { name: 'Mon Nov 2' })).toBeVisible();
     expect(screen.queryByText('Mon Nov 2 is packed')).toBeNull();
-    expect(screen.getByText('One off, 5h').closest('.tlblock')).toHaveClass('c-ended');
+    expect(screen.getByText('One off, 5h').closest('.tlblock')!.className).toMatch(/\bs-(done|partly|notdone|goneby)\b/);
     expect(screen.queryAllByText(/^Free, /)).toEqual([]);
     expect(screen.getByText('Gone by, 8:30am to 9am')).toBeVisible();
   });
@@ -816,7 +816,8 @@ describe('Week on phone', () => {
   it('a block in progress still opens, and only a finished one reads as ended', async () => {
     await phone({ seed: (w) => w.create('time_block', { task_id: 't1', start: at('13:30'), end: at('15:00'), tz: ZONE }, 'b4') });
     const now = await screen.findByRole('button', { name: /^Draft the summary, 1:30pm to 3pm/ });
-    expect(now).not.toHaveClass('c-ended');
+    expect(now).toHaveClass('s-now');
+    expect(within(now).getByText('Now')).toBeVisible();
     await userEvent.click(now);
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
     expect(within(popup).getByRole('button', { name: 'Delete task' })).toBeVisible();
@@ -825,7 +826,7 @@ describe('Week on phone', () => {
     expect(within(popup).getByRole('button', { name: 'Start' })).toBeVisible();
     await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByText('Paint the fence').closest('.tlblock')).toHaveClass('c-ended');
+    expect(screen.getByText('Paint the fence').closest('.tlblock')!.className).toMatch(/\bs-(done|partly|notdone|goneby)\b/);
   });
 
   it("a task's block gone by opens its popup too, which asks how it went and saves the answer with Undo", async () => {
@@ -857,18 +858,18 @@ describe('Week on phone', () => {
     await screen.findByRole('heading', { name: 'Mon Nov 2' });
     const day = async () => document.querySelector<HTMLElement>('.wkdaycard')!;
     const drawn = async (title: string) => (await within(await day()).findByText(title)).closest('.tlblock')!;
-    expect(await drawn('Sketch the outline')).toHaveClass('c-ended', 'done');
+    expect(await drawn('Sketch the outline')).toHaveClass('s-done');
     for (const [title, cls, word] of [
       ['Read the notes', 'notdone', 'Not done'],
       ['Email the editor', 'partly', 'Partly'],
     ]) {
-      expect(await drawn(title!)).toHaveClass('c-ended', cls!);
-      expect(await drawn(title!)).not.toHaveClass('done');
+      expect(await drawn(title!)).toHaveClass(`s-${cls}`);
+      expect(await drawn(title!)).not.toHaveClass('s-done');
       expect(within((await drawn(title!)) as HTMLElement).getByText(word!)).toBeVisible();
     }
-    // One with no answer yet is only muted.
-    expect(await drawn('Paint the fence')).toHaveClass('c-ended');
-    expect(await drawn('Paint the fence')).not.toHaveClass('done');
+    // One with no answer yet is dashed, with an empty ring.
+    expect(await drawn('Paint the fence')).toHaveClass('s-goneby');
+    expect(await drawn('Paint the fence')).not.toHaveClass('s-done');
   });
 
   it('marks the current time on today, and not on another day', async () => {
@@ -1088,7 +1089,7 @@ describe('Week on phone', () => {
       expect(plan).toHaveAttribute('aria-valuetext', 'Fri Nov 6, 5:30pm to 6:45pm');
       expect(plan.style.top).toBe(meals.style.top);
       // Planning is busy time too, but it's drawn once, as its block, so nothing shows between the columns.
-      expect(document.querySelectorAll('.dragday .c-busy')).toHaveLength(0);
+      expect(document.querySelectorAll('.dragday .k-event')).toHaveLength(0);
     });
   });
 

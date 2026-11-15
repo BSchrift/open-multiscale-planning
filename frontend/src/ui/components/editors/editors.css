@@ -71,19 +71,19 @@
 
 [data-layout] .homeline {
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 /* The milestone to put the item under, set in under the box that keeps it as the first task. */
 [data-layout] .homems {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-left: 26px;
+  gap: var(--space-1);
+  margin-left: calc(var(--space-6) + var(--space-1));
 }
 
 [data-layout='phone'] .homems {
-  margin-left: 32px;
+  margin-left: var(--space-8);
 }
 
 [data-layout='desktop'] .homems .field {
@@ -91,7 +91,7 @@
 }
 
 [data-layout='desktop'] .homeacts .keycap {
-  margin-left: 6px;
+  margin-left: var(--space-2);
 }
 
 [data-layout='desktop'] .homeacts .btn.pri .keycap {
@@ -122,17 +122,17 @@
 [data-layout] .segrow {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout] .seg {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-height: var(--tap);
-  padding: 6px 12px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--card);
   cursor: pointer;
 }
@@ -149,7 +149,7 @@
 [data-layout] .seg.on {
   border: 1.5px solid var(--accent);
   background: var(--accent-tint);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .seg:has(input:focus-visible) {
@@ -160,14 +160,14 @@
 [data-layout] .stepper {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 [data-layout] .btn.step {
   width: var(--tap);
   min-height: var(--tap);
   padding: 0;
-  font-size: 20px;
+  font-size: var(--fs-heading);
   line-height: 1;
 }
 
@@ -181,7 +181,7 @@
 }
 
 [data-layout] .stepval b {
-  font-size: 20px;
+  font-size: var(--fs-heading);
 }
 
 [data-layout] .schedfields .tfield {
@@ -192,7 +192,7 @@
 [data-layout] .switchrow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-height: var(--tap);
   cursor: pointer;
 }
@@ -204,11 +204,11 @@
   height: 26px;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--radius-card);
   background: var(--line);
   appearance: none;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 [data-layout] .switchrow input::after {
@@ -218,9 +218,9 @@
   left: 3px;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: var(--card);
-  transition: transform 0.15s;
+  transition: transform var(--dur-fast);
 }
 
 [data-layout] .switchrow input:checked {
@@ -241,7 +241,7 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--card);
   container-type: inline-size;
 }
@@ -250,8 +250,8 @@
 [data-layout] .dayrow {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px 10px 12px;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-3) var(--space-3);
   border-top: 1px solid var(--hairline);
 }
 
@@ -263,7 +263,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
 }
 
 [data-layout] .dayrowctl .tfield {
@@ -284,19 +284,19 @@
 }
 
 [data-layout] .usual {
-  padding: 0 4px;
+  padding: 0 var(--space-1);
 }
 
 [data-layout] .rulebox {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-control);
   background: var(--practice-tint);
   color: var(--practice-ink);
 }
 
 [data-layout] .rulelabel {
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {

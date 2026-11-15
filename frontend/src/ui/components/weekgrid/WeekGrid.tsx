@@ -18,7 +18,8 @@ import type { BlockResult, LocalDate } from '../../../core/types';
 import { KIND_WORD, OUTCOME_WORD } from '../blocks/describe';
 import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
-import { outcomeClass, OutcomeTag } from '../blocks/Outcome';
+import { OutcomeTag } from '../blocks/Outcome';
+import { blockClass, BlockMarks, blockState, LOOK } from '../ds/Block';
 import { columnStyle, overlapGroups, overlapNote } from './columns';
 import { clearLane, overLane } from './drop';
 import './weekgrid.css';
@@ -38,6 +39,8 @@ export interface GridBlock extends Slot {
   draft?: boolean;
   /** Answered or over: it reads as done with, drawn muted. */
   ended?: boolean;
+  /** Under way: begun, not yet ended, not answered. */
+  now?: boolean;
   /** How it went, once answered: said in words, and Done struck through. */
   result?: BlockResult | null;
   /** Opens a dialog, a task's popup, rather than details in place. */
@@ -73,6 +76,7 @@ export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[],
       practice_id: row.practice_id,
       past: answered || instantMs(row.start) < now,
       ended: answered || instantMs(row.end) <= now,
+      now: !answered && instantMs(row.start) <= now && now < instantMs(row.end),
       result: row.result,
     };
   });
@@ -140,7 +144,6 @@ export interface WeekGridProps {
 
 const { from: FROM, to: TO } = DRAWN_DAY;
 const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
-const KIND_CLASS: Record<BlockKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint', planning: 'ev-planning' };
 const COLUMN_GAP = 2;
 // Shorter than this, a block draws no edge to change its length: the edge, at least 4px, would take more than a quarter
 // of it, and most presses would change its length instead of moving it. Shift and the arrow keys still do.
@@ -334,14 +337,14 @@ export function WeekGrid(props: WeekGridProps) {
                 {ctx.busy
                   .filter((e) => e.date === date && !blocks.some((b) => b.id === e.id))
                   .map((e, i) => (
-                    <div key={`b${i}`} className="ev ev-busy" style={{ top: y(e.start), height: y(e.end) - y(e.start) }}>
+                    <div key={`b${i}`} className={`ev ${blockClass('event', 'planned')}`} style={{ top: y(e.start), height: y(e.end) - y(e.start) }}>
                       {e.title || 'Busy'}
                     </div>
                   ))}
                 {info
                   .filter((e) => e.date === date)
                   .map((e, i) => (
-                    <div key={`i${i}`} className="ev ev-info" style={{ top: y(e.start), height: y(e.end) - y(e.start) }} title={e.title ?? ''}>
+                    <div key={`i${i}`} className={`ev ${blockClass('info', 'planned')}`} style={{ top: y(e.start), height: y(e.end) - y(e.start) }} title={e.title ?? ''}>
                       {e.title}
                     </div>
                   ))}
@@ -356,7 +359,10 @@ export function WeekGrid(props: WeekGridProps) {
                   // The block being placed floats beside what it overlaps, so nothing under it moves or hides.
                   const beside = b.draft && [...blocks.filter((o) => !o.draft), ...ctx.busy].some((o) => o.date === at.date && o.start < at.end && at.start < o.end);
                   // Under two lines tall, the title stays on one line rather than being cut through.
-                  const cls = `${b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''}` : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}${b.ended ? ' ended' : ''}${outcomeClass(b.result)}`}${h < 30 ? ' short' : ''}`;
+                  // Being placed, or where a card would land (a draft that can't move); otherwise its answer and time.
+                  const state = b.draft ? (b.fixed ? 'drop' : 'placing') : blockState({ result: b.result, ended: !!b.ended, now: b.now });
+                  const look = blockClass(LOOK[b.kind], state, { short: h < 30 });
+                  const cls = b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''} ${look}` : `ev ${look}${b.clash ? ' clash' : ''}`;
                   if (movable(b)) {
                     const help = b.draft
                       ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.'
@@ -374,7 +380,8 @@ export function WeekGrid(props: WeekGridProps) {
                         onPointerDown={(e) => startDrag(e, at, 'move')}
                         onKeyDown={(e) => onKey(e, b)}
                       >
-                        {b.draft ? `${b.title}, ${formatTimeOfDay(at.start)}` : b.title}
+                        <BlockMarks state={state} short={h < 30} />
+                        <span className="blktitle">{b.draft ? `${b.title}, ${formatTimeOfDay(at.start)}` : b.title}</span>
                         {h >= EDGE_MIN && <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />}
                         {!b.draft && props.onRemove && (
                           <button
@@ -403,15 +410,17 @@ export function WeekGrid(props: WeekGridProps) {
                         title={b.note}
                         onClick={() => props.onOpen?.(b.id)}
                       >
+                        <BlockMarks state={state} short={h < 30} />
                         <OutcomeTag result={b.result} />
-                        {b.title}
+                        <span className="blktitle">{b.title}</span>
                       </button>
                     );
                   }
                   return (
                     <div key={b.id} className={cls} style={style} title={said}>
+                      <BlockMarks state={state} short={h < 30} />
                       <OutcomeTag result={b.result} />
-                      {b.title}
+                      <span className="blktitle">{b.title}</span>
                     </div>
                   );
                 })}
@@ -421,7 +430,7 @@ export function WeekGrid(props: WeekGridProps) {
                     <button
                       key={`g${g.start}`}
                       type="button"
-                      className="ev ev-ghost"
+                      className={`ev ev-ghost ${blockClass('project', 'suggested')}`}
                       style={{ top: y(g.start), height: y(g.end) - y(g.start) }}
                       aria-label={`Use suggested time, ${g.label}`}
                       onClick={g.onAccept}

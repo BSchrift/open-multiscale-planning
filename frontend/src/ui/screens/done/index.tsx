@@ -25,7 +25,7 @@ import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
 
 /** Week's colours for each kind. */
-const SWATCH: Record<DoneKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint', planning: 'ev-planning' };
+const SWATCH: Record<DoneKind, string> = { project: 'blk k-project', practice: 'blk k-practice', one_off: 'blk k-oneoff', planning: 'blk k-planning' };
 const SEGMENTS: { kind: DoneKind; label: string; cls: string }[] = [
   { kind: 'project', label: 'Projects', cls: 'seg-project' },
   { kind: 'practice', label: 'Practices', cls: 'seg-practice' },

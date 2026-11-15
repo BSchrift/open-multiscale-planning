@@ -284,6 +284,9 @@ test('started with no network, the Mac app keeps and takes work, and sends it on
   await joinRun(b, user);
   const fenceId = await idOf(a, fence);
   // The access token runs out while the app is closed, as it does overnight, so starting up has to refresh it first.
+  // A sync can still start before the app has closed, such as the one the fence set off two seconds after it was added,
+  // and it would refresh the token again. So this device can't reach the token endpoint from here on.
+  await a.app.context().route(`${API}/cognito/oauth2/token`, (route) => route.abort('internetdisconnected'));
   await a.page.evaluate(async () => {
     const tokens = (window.multiscaleElectron as ElectronBridge).tokens;
     await tokens.set('auth.session', JSON.stringify({ ...JSON.parse((await tokens.get('auth.session'))!), expires_at: 0 }));

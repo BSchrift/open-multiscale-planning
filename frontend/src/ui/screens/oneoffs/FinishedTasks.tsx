@@ -10,6 +10,7 @@ import { useApp, useMutation, useQuery } from '../../app/store';
 import { Became } from '../../components/task/Became';
 import { useOpenTask } from '../../components/task/TaskName';
 import { TaskRow } from '../../components/TaskRow';
+import { Button } from '../../components/ds/Button';
 
 const PAGE = 10;
 const MORE = 20;
@@ -115,9 +116,9 @@ export function FinishedTasks() {
           {data && count === 0 && <p className="small quiet">No finished tasks match.</p>}
           {more > 0 && (
             <div>
-              <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => setShown(shown + MORE)}>
+              <Button size="compact" type="button" onClick={() => setShown(shown + MORE)}>
                 {`Show ${Math.min(MORE, more)} more, ${more} older`}
-              </button>
+              </Button>
             </div>
           )}
         </section>

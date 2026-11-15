@@ -3,6 +3,8 @@
 
 import { addDays, addWeeks } from '../../core/dates';
 import type { LocalDate } from '../../core/types';
+import { Button } from './ds/Button';
+import { Icon } from './ds/Icon';
 
 interface Steps {
   unit: 'week' | 'day';
@@ -19,15 +21,15 @@ function Arrows(props: Steps) {
   return (
     <span className="row wkarrows" role="group" aria-label={`Change ${unit}`}>
       <button className="icon" type="button" aria-label={`Previous ${unit}`} title={`Previous ${unit}`} disabled={!!first && at <= first} onClick={() => go(step(-1))}>
-        ‹
+        <Icon name="chevron-left" />
       </button>
       <button className="icon" type="button" aria-label={`Next ${unit}`} title={`Next ${unit}`} disabled={!!last && at >= last} onClick={() => go(step(1))}>
-        ›
+        <Icon name="chevron-right" />
       </button>
       {at !== current && (
-        <button className="btn sm" type="button" onClick={() => go(current)}>
+        <Button size="compact" type="button" onClick={() => go(current)}>
           {unit === 'week' ? 'This week' : 'Today'}
-        </button>
+        </Button>
       )}
     </span>
   );

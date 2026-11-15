@@ -28,6 +28,7 @@ import { UnavailableList } from './Availability';
 import { RetentionPage } from './Retention';
 import { useCalendarCall } from './useCalendarCall';
 import './settings.css';
+import { Button } from '../../components/ds/Button';
 
 function Section(props: { title: string; children: ReactNode }) {
   const id = useId();
@@ -67,7 +68,7 @@ function Account(props: { layout: Layout }) {
       ? { pill: 'Synced', tone: 'green' as const, line: null }
       : { pill: 'Not synced yet', tone: 'grey' as const, line: null };
   const signedOut = status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed';
-  const btn = props.layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const syncNow = async () => {
     setBusy(true);
     await sync?.syncNow();
@@ -86,17 +87,17 @@ function Account(props: { layout: Layout }) {
         {sync && (
           <div className="row">
             {signedOut ? (
-              <button className={`${btn} pri`} type="button" onClick={() => void sync.signIn()}>
+              <Button {...btn} variant="primary" type="button" onClick={() => void sync.signIn()}>
                 Sign in
-              </button>
+              </Button>
             ) : (
               <>
-                <button className={btn} type="button" disabled={busy} onClick={() => void syncNow()}>
+                <Button {...btn} type="button" disabled={busy} onClick={() => void syncNow()}>
                   Sync now
-                </button>
-                <button className={btn} type="button" onClick={() => void sync.signOut()}>
+                </Button>
+                <Button {...btn} type="button" onClick={() => void sync.signOut()}>
                   Sign out
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -146,9 +147,9 @@ function Cadence(props: { layout: Layout }) {
   const { data: settings } = useQuery((sql) => getSettings(sql), []);
   if (!settings) return null;
   const go = (
-    <button className={props.layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => nav.go('plan', { cadence: 'edit' })}>
+    <Button size="compact" type="button" onClick={() => nav.go('plan', { cadence: 'edit' })}>
       {settings.plan_cadence ? 'Change planning cadence' : 'Set your planning cadence'}
-    </button>
+    </Button>
   );
   const label = <span>{cadenceLabel(settings.plan_cadence)}</span>;
   return (
@@ -190,7 +191,7 @@ function Calendar(props: { layout: Layout }) {
   if (!data) return null;
   const { calendar, sources } = data;
   const phone = props.layout === 'phone';
-  const btn = phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const error = calendar?.last_error ? (CALENDAR_ERRORS[calendar.last_error] ?? "Couldn't read your calendars. It will try again.") : null;
   return (
     <Section title="Google Calendar">
@@ -207,17 +208,17 @@ function Calendar(props: { layout: Layout }) {
           <div className="row">
             {calendar?.connected ? (
               <>
-                <button className={btn} type="button" disabled={busy} onClick={() => void call(sync.refreshCalendar)}>
+                <Button {...btn} type="button" disabled={busy} onClick={() => void call(sync.refreshCalendar)}>
                   Refresh
-                </button>
-                <button className={`${btn} danger`} type="button" disabled={busy} aria-expanded={confirming} onClick={() => setConfirming(!confirming)}>
+                </Button>
+                <Button {...btn} variant="destructive" type="button" disabled={busy} aria-expanded={confirming} onClick={() => setConfirming(!confirming)}>
                   Disconnect
-                </button>
+                </Button>
               </>
             ) : (
-              <button className={`${btn} pri`} type="button" disabled={busy} onClick={() => void call(sync.connectCalendar)}>
+              <Button {...btn} variant="primary" type="button" disabled={busy} onClick={() => void call(sync.connectCalendar)}>
                 Connect
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -226,17 +227,17 @@ function Calendar(props: { layout: Layout }) {
         <div className="stack8">
           <p>Your blocks stay here, and the Time blocks calendar is removed from Google. You can connect again any time.</p>
           <div className="row">
-            <button
-              className={`${btn} pri danger`}
+            <Button
+              {...btn} variant="destructive" filled
               type="button"
               disabled={busy}
               onClick={() => void call(sync.disconnectCalendar).then(() => setConfirming(false))}
             >
               Disconnect Google Calendar
-            </button>
-            <button className={btn} type="button" onClick={() => setConfirming(false)}>
+            </Button>
+            <Button {...btn} type="button" onClick={() => setConfirming(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -308,9 +309,9 @@ function Away(props: { layout: Layout }) {
           {phone ? 'To' : 'to'}
         </label>
         <input id={`${ids}t`} className="field" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-        <button className="btn" type="submit">
+        <Button type="submit">
           Add
-        </button>
+        </Button>
       </form>
       {periods?.map((a) => {
         const text = `${formatDate(a.start)} to ${formatDate(a.end)}`;
@@ -318,9 +319,9 @@ function Away(props: { layout: Layout }) {
           <div key={a.id} className={phone ? 'rowline' : 'setrow'}>
             <div className="between">
               <span>{text}</span>
-              <button className={phone ? 'btn' : 'btn sm'} type="button" aria-label={`Remove ${text}`} onClick={() => void remove(a.id, text)}>
+              <Button size="compact" type="button" aria-label={`Remove ${text}`} onClick={() => void remove(a.id, text)}>
                 Remove
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -439,9 +440,9 @@ function DataRetention(props: { layout: Layout }) {
     <Section title="Data retention">
       <div className={props.layout === 'phone' ? 'stack8' : 'setrow'}>
         <span className={props.layout === 'phone' ? 'small' : undefined}>How long your history is kept before it's removed.</span>
-        <button className={props.layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => nav.go('settings', { page: 'retention' })}>
+        <Button size="compact" type="button" onClick={() => nav.go('settings', { page: 'retention' })}>
           Data retention
-        </button>
+        </Button>
       </div>
     </Section>
   );
@@ -545,12 +546,12 @@ function CaptureKeys() {
         <div className="row">
           {listening ? (
             // Focus has to be on it to hear the keys.
-            <button className="btn sm pri" type="button" autoFocus onKeyDown={onKeyDown} onBlur={() => setListening(false)}>
+            <Button variant="primary" size="compact" type="button" autoFocus onKeyDown={onKeyDown} onBlur={() => setListening(false)}>
               Press the new keys, or Escape
-            </button>
+            </Button>
           ) : (
-            <button
-              className="btn sm"
+            <Button
+              size="compact"
               type="button"
               onClick={() => {
                 setSaid('');
@@ -558,12 +559,12 @@ function CaptureKeys() {
               }}
             >
               Change
-            </button>
+            </Button>
           )}
           {shortcut.accelerator !== DEFAULT_SHORTCUT && (
-            <button className="btn sm" type="button" onClick={() => void choose(DEFAULT_SHORTCUT)}>
+            <Button size="compact" type="button" onClick={() => void choose(DEFAULT_SHORTCUT)}>
               Use {shortcutLabel(DEFAULT_SHORTCUT)}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -586,7 +587,7 @@ function Updates(props: { layout: Layout; updates: Updater }) {
   const built = app?.built();
   const how = card?.how && built ? `App built ${formatDate(localDate(built * 1000, clock.zone()))}, ${localDate(built * 1000, clock.zone()).slice(0, 4)}. Updates download by themselves and install when Multiscale quits or your Mac restarts.` : null;
   const dmg = ('dmg' in status && status.dmg) || updates.download;
-  const btn = props.layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   // Ready and failures are said once as they happen; the line itself isn't live, so a download's percentages aren't read out.
   const announce = status.state === 'app-ready' || (status.state === 'failed' && !!card) ? line : '';
   useEffect(() => {
@@ -597,36 +598,36 @@ function Updates(props: { layout: Layout; updates: Updater }) {
     switch (kind) {
       case 'restart':
         return (
-          <button key={kind} className={`${btn} pri`} type="button" disabled={restarting} onClick={() => {
+          <Button key={kind} {...btn} variant="primary" type="button" disabled={restarting} onClick={() => {
             setRestarting(true);
             void (app && status.state !== 'ready' ? app.restart() : updates.apply());
           }}>
             {restarting ? 'Restarting…' : 'Restart to update'}
-          </button>
+          </Button>
         );
       case 'move':
         return (
-          <button key={kind} className={`${btn} pri`} type="button" onClick={() => void app?.move()}>
+          <Button key={kind} {...btn} variant="primary" type="button" onClick={() => void app?.move()}>
             Move to Applications
-          </button>
+          </Button>
         );
       case 'install':
         return (
-          <button key={kind} className={`${btn} pri`} type="button" onClick={() => void app?.install()}>
+          <Button key={kind} {...btn} variant="primary" type="button" onClick={() => void app?.install()}>
             Update the app
-          </button>
+          </Button>
         );
       case 'dmg':
         return dmg ? (
-          <button key={kind} className={btn} type="button" onClick={() => void platform.openExternal(dmg)}>
+          <Button key={kind} {...btn} type="button" onClick={() => void platform.openExternal(dmg)}>
             Download the app
-          </button>
+          </Button>
         ) : null;
       case 'how-to':
         return (
-          <button key={kind} className={`${btn} pri`} type="button" onClick={() => setHowTo(true)}>
+          <Button key={kind} {...btn} variant="primary" type="button" onClick={() => setHowTo(true)}>
             How to update
-          </button>
+          </Button>
         );
     }
   };
@@ -651,9 +652,9 @@ function Updates(props: { layout: Layout; updates: Updater }) {
         <div className="row">
           {actions.map(action)}
           {check && (
-            <button className={btn} type="button" disabled={status.state === 'checking'} onClick={() => void updates.check()}>
+            <Button {...btn} type="button" disabled={status.state === 'checking'} onClick={() => void updates.check()}>
               Check for updates
-            </button>
+            </Button>
           )}
         </div>
       </div>

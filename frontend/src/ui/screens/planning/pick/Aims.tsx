@@ -7,6 +7,7 @@ import { useLeave } from '../../../components/editors';
 import { EstimateSlider } from '../../../components/EstimateSlider';
 import { Popover } from '../../../components/Popover';
 import type { PickProps } from './PickStep';
+import { Button } from '../../../components/ds/Button';
 
 export function AimsPopover(props: PickProps & { phone: boolean; onClose(): void }) {
   const { aims } = props;
@@ -16,7 +17,7 @@ export function AimsPopover(props: PickProps & { phone: boolean; onClose(): void
   const changed = aims.some((a) => draft[a.bucket] !== a.value || skipped.includes(a.bucket) !== a.skipped);
   const { saveRef, leave } = useLeave(changed, props.onClose, setSaid);
   const usual = aims.every((a) => draft[a.bucket] === a.usual);
-  const btn = props.phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: props.phone ? 'grow' : undefined };
   const save = () => {
     // Only what differs from the usual aim is kept for this week.
     if (changed) props.saveAims(Object.fromEntries(aims.filter((a) => draft[a.bucket] !== a.usual).map((a) => [a.bucket, draft[a.bucket]!])), [...skipped]);
@@ -69,12 +70,12 @@ export function AimsPopover(props: PickProps & { phone: boolean; onClose(): void
         </div>
       )}
       <div className="row">
-        <button ref={saveRef} className={`${btn} pri`} type="button" onClick={save}>
+        <Button ref={saveRef} {...btn} variant="primary" type="button" onClick={save}>
           Save
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Popover>
   );

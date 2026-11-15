@@ -18,6 +18,7 @@ import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import { useHoldToMove } from './ProjectView';
+import { Button } from '../../components/ds/Button';
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 const isOpen = (t: Task) => !t.done_at && !t.cancelled_at;
@@ -171,9 +172,9 @@ export function BacklogBody(props: { goal: Objective; plan: ProjectPlan | undefi
         </div>
       )}
       <div className="editrow addrow">
-        <button ref={addRef} className={phone ? 'btn plain' : 'btn sm'} type="button" aria-label={`Add task to ${list}`} onClick={() => setAdding(true)}>
+        <Button ref={addRef} variant={phone ? 'quiet' : 'secondary'} size="compact" type="button" aria-label={`Add task to ${list}`} onClick={() => setAdding(true)}>
           {phone ? '+ Task' : 'Add task'}
-        </button>
+        </Button>
         {adding && (
           <BacklogAdd
             goal={goal}

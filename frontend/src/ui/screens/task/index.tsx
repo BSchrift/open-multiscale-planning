@@ -25,13 +25,14 @@ import { LeavePopup } from '../../components/blocks/BlockSection';
 import { useLeave } from '../../components/editors/useLeave';
 import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
-import { CloseIcon, PenIcon } from '../../components/icons';
 import { NotesField } from '../../components/notes/NotesField';
 import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
 import { Became } from '../../components/task/Became';
 import { useToast } from '../../components/Toast';
 import './task.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const INBOX = 'inbox';
 const ONE_OFFS = 'oneoffs';
@@ -208,14 +209,14 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
                 <button className="taskpopname" type="button" aria-label={`Rename ${title}`} onClick={() => setRenaming(true)}>
                   <span>{title}</span>
                   <span className="pen" aria-hidden="true">
-                    <PenIcon />
+                    <Icon name="pen" />
                   </span>
                 </button>
               </h2>
             )}
             {!phone && (
               <button className="taskpopclose" type="button" aria-label="Close" onClick={leave}>
-                <CloseIcon />
+                <Icon name="close" />
               </button>
             )}
           </div>
@@ -251,12 +252,12 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
           <button className="link taskpopdelete" type="button" onClick={deleteTask}>
             Delete task
           </button>
-          <button className="btn" type="button" onClick={close}>
+          <Button type="button" onClick={close}>
             Cancel
-          </button>
-          <button ref={saveRef} className="btn pri" type="submit">
+          </Button>
+          <Button ref={saveRef} variant="primary" type="submit">
             Save
-          </button>
+          </Button>
         </div>
       </form>
     </Sheet>

@@ -9,8 +9,8 @@ import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
 import type { PracticeKeep } from '../../../core/blocks';
 import { practiceDays, practiceTime, sessionLength, storedDayTimes, weeklySessions } from '../../../core/slots';
 import type { Fields, LocalDate, Minutes, Practice, TimeOfDay, Weekday } from '../../../core/types';
-import { useApp } from '../../app/store';
 import { DayChips } from '../DayChips';
+import { Button } from '../ds/Button';
 
 export const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const ALL: Weekday[] = [0, 1, 2, 3, 4, 5, 6];
@@ -175,7 +175,6 @@ const toMinutes = (text: string) => Number(text.slice(0, 2)) * 60 + Number(text.
  */
 export function ScheduleFields(props: { value: ScheduleDraft; onChange(s: ScheduleDraft): void; daysError?: string; mondayRef?: Ref<HTMLInputElement> }) {
   const s = props.value;
-  const { layout } = useApp();
   const id = useId();
   const [said, setSaid] = useState('');
   const dayInputs = useRef<(HTMLInputElement | null)[]>([]);
@@ -196,7 +195,7 @@ export function ScheduleFields(props: { value: ScheduleDraft; onChange(s: Schedu
     </label>
   );
   const chips = (legend: string) => <DayChips legend={legend} days={s.days} onChange={(days) => set({ days })} error={props.daysError} firstRef={props.mondayRef} />;
-  const btn = layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
 
   return (
     <div className="stack8 schedfields">
@@ -215,15 +214,15 @@ export function ScheduleFields(props: { value: ScheduleDraft; onChange(s: Schedu
             How many times
           </div>
           <div className="stepper" role="group" aria-labelledby={`${id}-count`}>
-            <button type="button" className="btn step" aria-label="One fewer time a week" aria-disabled={s.count <= 1} onClick={() => step(-1)}>
+            <Button type="button" className="step" aria-label="One fewer time a week" aria-disabled={s.count <= 1} onClick={() => step(-1)}>
               −
-            </button>
+            </Button>
             <span className="stepval">
               <b>{s.count}</b> {s.count === 1 ? 'time' : 'times'} a week
             </span>
-            <button type="button" className="btn step" aria-label="One more time a week" aria-disabled={s.count >= 7} onClick={() => step(1)}>
+            <Button type="button" className="step" aria-label="One more time a week" aria-disabled={s.count >= 7} onClick={() => step(1)}>
               +
-            </button>
+            </Button>
           </div>
           {chips('Preferred days')}
           <div className="small quiet">
@@ -300,9 +299,9 @@ export function ScheduleFields(props: { value: ScheduleDraft; onChange(s: Schedu
                             Usual time
                           </span>
                         ) : (
-                          <button
+                          <Button
                             type="button"
-                            className={`${btn} usebtn`}
+                            {...btn} className="usebtn"
                             aria-label={`Use the usual time, ${sayTime(s.time)}, on ${DAY_NAMES[d]}`}
                             onClick={() => {
                               setDay(d, null);
@@ -310,7 +309,7 @@ export function ScheduleFields(props: { value: ScheduleDraft; onChange(s: Schedu
                             }}
                           >
                             Use {formatTimeOfDay(s.time)}
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>

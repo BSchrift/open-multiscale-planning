@@ -6,6 +6,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Sheet } from '../../components/Sheet';
+import { Button } from '../../components/ds/Button';
 
 export interface BacklogGoal {
   id: string;
@@ -62,19 +63,19 @@ export function BacklogChooser(props: {
         <span id={head} className="strong">
           Which goal's backlog?
         </span>
-        <button className="btn sm" type="button" onClick={onBack}>
+        <Button size="compact" type="button" onClick={onBack}>
           Back
           {/* Esc needs nothing held. */}
           <kbd className="keycap" aria-hidden="true">
             Esc
           </kbd>
-        </button>
+        </Button>
       </div>
       <div className="pxbacklogrows">
         {goals.map((g, i) => (
-          <button
+          <Button
             key={g.id}
-            className="btn pxbacklogrow"
+            className="pxbacklogrow"
             type="button"
             data-goal={g.id}
             aria-label={`Add to the backlog for ${g.title}, ${tasksLine(g.open)}`}
@@ -86,7 +87,7 @@ export function BacklogChooser(props: {
               <span className="strong lineblock">{g.title}</span>
               <span className="small quiet lineblock">{tasksLine(g.open)}</span>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
     </div>
@@ -102,9 +103,9 @@ export function BacklogSheet(props: { goals: readonly BacklogGoal[]; last: strin
     <Sheet label="Which goal's backlog?" tall onClose={onClose}>
       <div className="between">
         <h2>Which goal's backlog?</h2>
-        <button className="btn" type="button" onClick={onClose}>
+        <Button type="button" onClick={onClose}>
           Close
-        </button>
+        </Button>
       </div>
       <div className="pxbacklogpick">
         {goals.map((g) => (
@@ -117,9 +118,9 @@ export function BacklogSheet(props: { goals: readonly BacklogGoal[]; last: strin
           </button>
         ))}
       </div>
-      <button className="btn pri" type="button" disabled={!goal} onClick={() => goal && onAdd(goal.id)}>
+      <Button variant="primary" type="button" disabled={!goal} onClick={() => goal && onAdd(goal.id)}>
         {goal ? `Add to the backlog for ${goal.title}` : 'Choose a goal first'}
-      </button>
+      </Button>
     </Sheet>
   );
 }

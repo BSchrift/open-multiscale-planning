@@ -1,6 +1,6 @@
 /* The week pieces Week and planning share. Shared tokens and classes come from the app styles. */
 [data-layout] .legend .seg-free {
-  background: var(--fill);
+  background: var(--wash);
 }
 
 /* A day with work waiting for it in To schedule, such as a set day's practice session. */
@@ -14,6 +14,6 @@
   right: 6px;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: var(--teal);
+  border-radius: var(--radius-circle);
+  background: var(--practice);
 }

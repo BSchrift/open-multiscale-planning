@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../platform';
 import { addMilestones, addProject, addTasks, chicago, firstRun, goals, jumpTo, openProject, start, tab, TZ } from './journey';
 
 // A milestone passes its date, the project asks what to do, the date moves with Undo; then one project is finished

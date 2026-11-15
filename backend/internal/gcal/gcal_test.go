@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	gosync "sync"
@@ -27,18 +28,22 @@ const testSub = "user-sub-1"
 
 var testNow = time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 
-// memRecords is the store's behaviour with no DynamoDB: real field merging, per user.
+// memRecords is the store's behaviour with no DynamoDB: real field merging, per user, and nothing done once a call's
+// context has ended.
 type memRecords struct {
 	mu      gosync.Mutex
 	records map[string]map[string]sync.Change
 	failing error
 }
 
-func (m *memRecords) List(_ context.Context, sub, recordType string) ([]sync.Change, error) {
+func (m *memRecords) List(ctx context.Context, sub, recordType string) ([]sync.Change, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failing != nil {
 		return nil, m.failing
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	var out []sync.Change
 	for _, change := range m.records[sub] {
@@ -49,11 +54,14 @@ func (m *memRecords) List(_ context.Context, sub, recordType string) ([]sync.Cha
 	return out, nil
 }
 
-func (m *memRecords) Push(_ context.Context, sub string, _ int64, changes []sync.Change) (sync.Stats, error) {
+func (m *memRecords) Push(ctx context.Context, sub string, _ int64, changes []sync.Change) (sync.Stats, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failing != nil {
 		return sync.Stats{}, m.failing
+	}
+	if err := ctx.Err(); err != nil {
+		return sync.Stats{}, err
 	}
 	if m.records == nil {
 		m.records = map[string]map[string]sync.Change{}
@@ -78,9 +86,12 @@ type memSecrets struct {
 	values map[string]string
 }
 
-func (m *memSecrets) Get(_ context.Context, name string) (string, error) {
+func (m *memSecrets) Get(ctx context.Context, name string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	value, ok := m.values[name]
 	if !ok {
 		return "", ErrNoSecret
@@ -931,5 +942,231 @@ func TestStoreFailureThatCannotBeRecordedIsReturned(t *testing.T) {
 	}
 	if lines := w.runLines(); lines[len(lines)-1]["CalendarRunFailures"] != float64(1) {
 		t.Fatalf("%+v", lines)
+	}
+}
+
+// shorten sets one of the worker's durations for the length of a test.
+func shorten(t *testing.T, d *time.Duration, to time.Duration) {
+	t.Helper()
+	was := *d
+	*d = to
+	t.Cleanup(func() { *d = was })
+}
+
+// intercept puts answer in front of the fake Google for the worker's calls: the Calendar API and the token refresh.
+// Calls it leaves alone, by returning false, go on to the fake.
+func (w *world) intercept(answer func(rw http.ResponseWriter, r *http.Request) bool) {
+	w.t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if !answer(rw, r) {
+			w.fake.ServeHTTP(rw, r)
+		}
+	}))
+	w.t.Cleanup(srv.Close)
+	w.g.TokenURL, w.g.APIURL = srv.URL+"/token", srv.URL+"/calendar/v3/"
+}
+
+// hang leaves calls to Google under path unanswered until the caller gives up on them.
+func (w *world) hang(path string) {
+	w.t.Helper()
+	release := make(chan struct{})
+	w.intercept(func(_ http.ResponseWriter, r *http.Request) bool {
+		if !strings.HasPrefix(r.URL.Path, path) {
+			return false
+		}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+		return true
+	})
+	// Before the server closes, which waits for every call to end.
+	w.t.Cleanup(func() { close(release) })
+}
+
+// failCalendarAPI answers the next calls to the Calendar API with fail, every call when calls is negative.
+func (w *world) failCalendarAPI(calls int, fail func(rw http.ResponseWriter)) {
+	w.t.Helper()
+	var mu gosync.Mutex
+	w.intercept(func(rw http.ResponseWriter, r *http.Request) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if calls == 0 || !strings.HasPrefix(r.URL.Path, "/calendar/v3/") {
+			return false
+		}
+		calls--
+		fail(rw)
+		return true
+	})
+}
+
+func unavailable(rw http.ResponseWriter) {
+	http.Error(rw, "Service Unavailable", http.StatusServiceUnavailable)
+}
+
+// dropped closes the connection without an answer, as when the network goes.
+func dropped(http.ResponseWriter) { panic(http.ErrAbortHandler) }
+
+// runWithin runs the worker, and fails the test if the run is still going after limit.
+func (w *world) runWithin(ctx context.Context, limit time.Duration) error {
+	w.t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- w.g.Run(ctx, "schedule", "r") }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(limit):
+		w.t.Fatalf("the run was still waiting on Google after %s", limit)
+		return nil
+	}
+}
+
+// A call that never answers would hold the run until Lambda stopped it at its own limit, with nothing recorded, so the
+// app would show the calendar as fine.
+func TestACallToGoogleThatHangsFailsTheRunAndIsRecorded(t *testing.T) {
+	for name, path := range map[string]string{"the Calendar API": "/calendar/v3/", "the token refresh": "/token"} {
+		t.Run(name, func(t *testing.T) {
+			shorten(t, &callTimeout, 100*time.Millisecond)
+			w := newWorld(t)
+			w.connect(testSub)
+			w.g.Retry = func(time.Duration) {}
+			w.hang(path)
+			if err := w.runWithin(context.Background(), 10*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			if rec := w.calendarRecord(testSub); rec["last_error"].V != ErrorFailed || rec["connected"].V != true {
+				t.Fatalf("%+v", rec)
+			}
+		})
+	}
+}
+
+// Lambda's deadline ends the run's context. The failure is still recorded, on a context of its own.
+func TestARunWhoseContextEndsStillRecordsTheFailure(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.hang("/calendar/v3/")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := w.runWithin(ctx, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if rec := w.calendarRecord(testSub); rec["last_error"].V != ErrorFailed {
+		t.Fatalf("%+v", rec)
+	}
+	if lines := w.runLines(); len(lines) != 1 {
+		t.Fatalf("no time was left for a follow-up run, yet: %+v", lines)
+	}
+}
+
+func TestARunThatCannotReachGoogleIsFollowedByOneMoreAMinuteLater(t *testing.T) {
+	for name, c := range map[string]struct {
+		calls int
+		fail  func(http.ResponseWriter)
+		want  []time.Duration
+	}{
+		"Google answers 503":           {1, unavailable, []time.Duration{time.Minute}},
+		"the connection drops":         {-1, dropped, []time.Duration{time.Minute}},
+		"Google refuses: rate limited": {0, nil, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			w.connect(testSub)
+			var asked []time.Duration
+			w.g.Retry = func(after time.Duration) { asked = append(asked, after) }
+			if c.fail != nil {
+				w.failCalendarAPI(c.calls, c.fail)
+			} else {
+				w.fake.RateLimit(1)
+			}
+			w.run()
+			if !reflect.DeepEqual(asked, c.want) {
+				t.Fatalf("asked for %v, want %v", asked, c.want)
+			}
+			if lines := w.runLines(); len(lines) != 1 {
+				t.Fatalf("ran again itself rather than asking: %+v", lines)
+			}
+		})
+	}
+}
+
+func TestTheFollowUpRunAsksForNoOther(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.g.Retry = func(time.Duration) { t.Fatal("asked again") }
+	w.failCalendarAPI(-1, unavailable)
+	if err := w.g.Run(context.Background(), TriggerRetry, "r"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := w.calendarRecord(testSub); rec["last_error"].V != ErrorFailed {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+// With nothing to ask, as in the Lambda, the run waits and runs again itself.
+func TestWithNothingToAskTheRunWaitsAndRunsAgainItself(t *testing.T) {
+	t.Run("and the follow-up catches up", func(t *testing.T) {
+		shorten(t, &retryDelay, 10*time.Millisecond)
+		w := newWorld(t)
+		w.connect(testSub)
+		w.block("b1", "Paint the fence", at(1), at(2))
+		w.failCalendarAPI(1, unavailable)
+		w.run()
+		if rec := w.calendarRecord(testSub); rec["last_error"].V != nil || w.eventFor("b1") == nil {
+			t.Fatalf("%+v", rec)
+		}
+		lines := w.runLines()
+		if len(lines) != 2 || lines[0]["outcome"] != "failed" || lines[1]["outcome"] != "ok" || lines[1]["trigger"] != TriggerRetry {
+			t.Fatalf("%+v", lines)
+		}
+	})
+	t.Run("only once", func(t *testing.T) {
+		shorten(t, &retryDelay, 10*time.Millisecond)
+		w := newWorld(t)
+		w.connect(testSub)
+		w.failCalendarAPI(-1, unavailable)
+		w.run()
+		if rec := w.calendarRecord(testSub); rec["last_error"].V != ErrorFailed {
+			t.Fatalf("%+v", rec)
+		}
+		if lines := w.runLines(); len(lines) != 2 || lines[1]["trigger"] != TriggerRetry {
+			t.Fatalf("%+v", lines)
+		}
+	})
+	t.Run("not when Lambda's time would run out first", func(t *testing.T) {
+		w := newWorld(t)
+		w.connect(testSub)
+		w.failCalendarAPI(-1, unavailable)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := w.runWithin(ctx, 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if lines := w.runLines(); len(lines) != 1 {
+			t.Fatalf("%+v", lines)
+		}
+	})
+}
+
+func TestUnreachable(t *testing.T) {
+	refused := func(status int) *http.Response { return &http.Response{StatusCode: status} }
+	for _, test := range []struct {
+		err  error
+		want bool
+	}{
+		{&url.Error{Op: "Get", URL: "https://www.googleapis.com", Err: errors.New("connection reset by peer")}, true},
+		{&googleapi.Error{Code: 500}, true},
+		{&googleapi.Error{Code: 503}, true},
+		{fmt.Errorf("wrapped: %w", &googleapi.Error{Code: 502}), true},
+		{&url.Error{Op: "Post", URL: "https://oauth2.googleapis.com/token", Err: &oauth2.RetrieveError{Response: refused(502)}}, true},
+		{&url.Error{Op: "Post", URL: "https://oauth2.googleapis.com/token", Err: &oauth2.RetrieveError{Response: refused(400), ErrorCode: "invalid_grant"}}, false},
+		{&googleapi.Error{Code: 401}, false},
+		{&googleapi.Error{Code: 404}, false},
+		{&googleapi.Error{Code: 429}, false},
+		{errors.New("store down"), false},
+	} {
+		if got := unreachable(test.err); got != test.want {
+			t.Errorf("%v: %v", test.err, got)
+		}
 	}
 }

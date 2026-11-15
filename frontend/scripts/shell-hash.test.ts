@@ -17,7 +17,7 @@ describe('shellHash', () => {
 
   it('changes with the settings the Mac app’s main process is built with', () => {
     const build = macBuild({ apiUrl: 'https://api.example.test', authUrl: 'https://auth.example.test' }, { name: 'Multiscale', scheme: 'multiscale' });
-    expect(build).toEqual({ name: 'Multiscale', scheme: 'multiscale', backendOrigins: ['https://api.example.test', 'https://auth.example.test'] });
+    expect(build).toEqual({ name: 'Multiscale', scheme: 'multiscale', backendOrigins: ['https://api.example.test', 'https://auth.example.test'], downloadsOrigin: null });
     const base = shellHash(files, {}, build);
     expect(shellHash(files, {}, { ...build, backendOrigins: ['https://api.example.test', 'https://auth2.example.test'] })).not.toBe(base);
     expect(shellHash(files, {}, { ...build, scheme: 'multiscale-staging' })).not.toBe(base);
@@ -58,7 +58,7 @@ describe('shellHash', () => {
     for (const path of ['src/platform/shortcut.ts', 'src/core/captureTitle.ts']) write(path, 'one');
     execFileSync('git', ['init', '-q'], { cwd: root });
     execFileSync('git', ['add', '-A'], { cwd: root });
-    const build = { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [] };
+    const build = { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [], downloadsOrigin: null };
     const base = shellHashes(root, build);
     for (const path of ['src/platform/shortcut.ts', 'src/core/captureTitle.ts']) {
       write(path, 'two');
@@ -85,10 +85,10 @@ describe('shellHash', () => {
     expect(isHashed('ios', 'ios/App/Config.example.xcconfig')).toBe(false);
   });
 
-  // A signature changes nothing a bundle can call, so installed apps keep taking bundles from builds signed another way,
-  // such as ad hoc before a Developer ID, or on a contributor's Mac.
-  it('leaves out how the Mac app is signed and notarized', () => {
-    for (const path of ['scripts/mac-signing.ts', 'scripts/entitlements.mac.plist', 'scripts/electron-build.mjs']) expect(isHashed('electron', path), path).toBe(false);
+  // They change the app that ships, which now replaces itself: a change to them releases a new Mac app. Who signs it
+  // isn't in them, so apps signed ad hoc or on a contributor's Mac still take the same bundles.
+  it('covers how the Mac app is built, signed and entitled', () => {
+    for (const path of ['scripts/mac-signing.ts', 'scripts/entitlements.mac.plist', 'scripts/electron-build.mjs']) expect(isHashed('electron', path), path).toBe(true);
   });
 
   // Uploading to TestFlight changes nothing a bundle can call, so a TestFlight build takes the same bundles as one from
@@ -98,16 +98,23 @@ describe('shellHash', () => {
     expect(isHashed('ios', 'ios/App/App/Info.plist')).toBe(true);
   });
 
-  it('picks native packages for each app', () => {
+  it('picks native packages for each app, with what makes the Mac app and what its main process bundles', () => {
     expect(SHELL_SOURCES.electron.packages('better-sqlite3')).toBe(true);
+    for (const name of ['electron-builder', 'electron-updater', 'builder-util-runtime', 'js-yaml', 'electron-updater/node_modules/semver']) expect(SHELL_SOURCES.electron.packages(name), name).toBe(true);
     expect(SHELL_SOURCES.electron.packages('react')).toBe(false);
     expect(SHELL_SOURCES.ios.packages('@capacitor-community/sqlite')).toBe(true);
     expect(SHELL_SOURCES.ios.packages('@aparajita/capacitor-secure-storage')).toBe(true);
     expect(SHELL_SOURCES.ios.packages('electron')).toBe(false);
   });
 
+  it("changes the Mac app's hash with the downloads host it updates from", () => {
+    const at = (downloadsOrigin: string | null) => shellHash({}, {}, { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [], downloadsOrigin });
+    expect(at('https://downloads.example.test')).not.toBe(at('https://downloads.other.test'));
+    expect(macBuild({ apiUrl: 'https://api.example.test', authUrl: 'https://auth.example.test', downloadsUrl: 'https://downloads.example.test/' }, { name: 'Multiscale', scheme: 'multiscale' }).downloadsOrigin).toBe('https://downloads.example.test');
+  });
+
   it('hashes this repo for both apps', () => {
-    const hashes = shellHashes(`${import.meta.dirname}/..`, { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [] });
+    const hashes = shellHashes(`${import.meta.dirname}/..`, { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [], downloadsOrigin: null });
     expect(hashes.electron).toMatch(/^[0-9a-f]{16}$/);
     expect(hashes.ios).toMatch(/^[0-9a-f]{16}$/);
     expect(hashes.electron).not.toBe(hashes.ios);

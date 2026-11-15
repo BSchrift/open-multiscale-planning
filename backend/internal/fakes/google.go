@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
@@ -46,6 +47,8 @@ type Google struct {
 	rateLimited int
 	writes      int
 	ids         int
+	// The Calendar API and the OAuth endpoints are reached separately, so each has its own outage.
+	apiOutage, tokenOutage outage
 }
 
 func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
@@ -55,11 +58,11 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /o/oauth2/auth", g.authorize)
-	mux.HandleFunc("POST /token", g.token)
-	mux.HandleFunc("POST /revoke", g.revoke)
+	mux.HandleFunc("POST /token", g.dropping(&g.tokenOutage, g.token))
+	mux.HandleFunc("POST /revoke", g.dropping(&g.tokenOutage, g.revoke))
 
 	api := func(pattern string, write bool, h func(http.ResponseWriter, *http.Request)) {
-		mux.HandleFunc(pattern, g.authorized(write, h))
+		mux.HandleFunc(pattern, g.dropping(&g.apiOutage, g.authorized(write, h)))
 	}
 	api("GET /calendar/v3/users/me/calendarList", false, g.listCalendars)
 	api("POST /calendar/v3/calendars", true, g.createCalendar)
@@ -81,6 +84,7 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /_test/rate_limit", g.testRateLimit)
+	mux.HandleFunc("POST /_test/outage", g.testOutage)
 	g.mux = mux
 	return g
 }
@@ -166,6 +170,75 @@ func (g *Google) RateLimit(calls int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.rateLimited = calls
+}
+
+// GoogleOutage is the connection to Google dropping, for the calls the worker and the API make to it.
+type GoogleOutage struct {
+	// Token picks Google's OAuth endpoints, token and revoke, rather than the Calendar API.
+	Token bool `json:"token"`
+	// After is how many calls get through first, so that a drop can land partway through a run.
+	After int `json:"after"`
+	// Calls is how many calls then fail. Negative fails every call until another outage replaces this one; zero lifts it.
+	Calls int `json:"calls"`
+	// Status answers a failed call with this code, as a proxy in front of an unreachable Google does, rather than closing
+	// the connection with no answer.
+	Status int `json:"status"`
+	// Applied lets a failed call take effect in Google first, so that only its answer is lost on the way back.
+	Applied bool `json:"applied"`
+}
+
+type outage struct {
+	after, calls, status int
+	applied              bool
+}
+
+// Outage makes calls to the Calendar API, or to the OAuth endpoints, fail as when the connection to Google drops. It
+// replaces any outage set before for the same endpoints.
+func (g *Google) Outage(o GoogleOutage) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	set := outage{after: o.After, calls: o.Calls, status: o.Status, applied: o.Applied}
+	if o.Token {
+		g.tokenOutage = set
+	} else {
+		g.apiOutage = set
+	}
+}
+
+// take counts a call and reports whether the outage ends it.
+func (o *outage) take() bool {
+	switch {
+	case o.calls == 0:
+		return false
+	case o.after > 0:
+		o.after--
+		return false
+	case o.calls > 0:
+		o.calls--
+	}
+	return true
+}
+
+// dropping ends the calls an outage takes, before Google acts on them or, for an applied outage, after.
+func (g *Google) dropping(o *outage, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		g.mu.Lock()
+		taken, current := o.take(), *o
+		g.mu.Unlock()
+		if !taken {
+			next(w, r)
+			return
+		}
+		if current.applied {
+			next(httptest.NewRecorder(), r)
+		}
+		if current.status != 0 {
+			http.Error(w, http.StatusText(current.status), current.status)
+			return
+		}
+		// The server closes the connection without answering, which is what the caller sees when the connection drops.
+		panic(http.ErrAbortHandler)
+	}
 }
 
 func (c *googleCalendar) visible() []*calendar.Event {
@@ -582,6 +655,16 @@ func (g *Google) testRateLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.RateLimit(body.Calls)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (g *Google) testOutage(w http.ResponseWriter, r *http.Request) {
+	var body GoogleOutage
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	g.Outage(body)
 	w.WriteHeader(http.StatusNoContent)
 }
 

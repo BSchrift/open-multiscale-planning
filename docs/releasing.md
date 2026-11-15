@@ -30,7 +30,9 @@ no long-lived key.
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
 because it sets off prod's throttle alarm. The iPhone's signed-in test needs a Mac, so it runs there: `make test-ios`,
-or `make test-deployed`.
+or `make test-deployed`. The integration suite's two full-batch tests, paging and the largest batch, stay off prod too:
+nothing removes a record outright, so their 694 records would stay on prod's shared test user as deleted records for
+the 30-day deleted period, and every new browser of that user, the deployed web suite's included, downloads them all.
 
 The history-scale budgets only report for now (`HISTORY_REPORT_ONLY=1`). A missed budget never stops a release.
 
@@ -310,6 +312,58 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    feed can take the build as its Mac app is, and which serves a checked one, gets no new Mac app, and nothing changes.
    A build that also needs a new iPhone app leaves the iPhone feed until testers can install one
    ([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
+
+### How a Mac app updates itself
+
+An installed Mac app replaces itself with the app a release names (`frontend/electron/appUpdates.ts`), from the first
+app that has this code; every app before it is installed by hand once, as the notice it shows says.
+
+1. **The page finds it.** A release whose native code isn't the app's, and whose signed manifest names an app, goes to
+   the main process. Without one it's the disk image, as before.
+2. **The main process checks it** with the release key inside the app, as it checks a web bundle: a newer build, an
+   app record for that native code, and an app that can replace itself where it is. Run from a disk image or a
+   temporary copy, it offers Move to Applications. An app the person can't replace, an administrator's, or an older
+   app someone went back to, downloads nothing by itself and never installs at quit: Update the app does it on request,
+   and macOS asks for a password where it must.
+3. **electron-updater downloads it** from the record's folder on the downloads host built into the app, once that
+   folder's `latest-mac.yml` says exactly what the signed record does: version, file, SHA-512 and size. It checks the
+   zip's SHA-512, including a zip it builds from the blocks that changed, and falls back to the whole zip if that
+   doesn't match. `autoDownload`, `allowDowngrade` and `allowPrerelease` are off, and `channel` is never set, since
+   setting it turns `allowDowngrade` on.
+4. **Squirrel.Mac installs it** after checking its signature against the running app's Team ID and bundle id: when
+   Multiscale quits or the Mac restarts, or at once with Restart to update, in Settings, the sidebar's notice or the
+   menu bar menu. Quit installs it and doesn't reopen.
+5. **The app reports it.** `app.update.check` carries the outcome or the failure. A Mac that refuses an app for its
+   signature reports `app-signature`, which raises the `AppSignature` alarm: the published app is bad. Stop it
+   spreading with `make release-surface ENV=prod SURFACE=desktop VERSION=<the one before>`, then revert on main.
+
+**Bumping a bundled package releases a Mac app.** The shell hash covers every package esbuild bundles into the main
+process (electron-updater and what it brings), electron-builder, and how the app is built, signed and entitled
+(`scripts/electron-build.mjs`, `scripts/mac-signing.ts`, `scripts/entitlements.mac.plist`). `scripts/electron-compile.mjs`
+fails the build when it bundles a package `ELECTRON_PACKAGES` in `scripts/shell-hash.ts` doesn't list.
+
+**Checked by hand**, since a runner can't: Gatekeeper's first-launch prompt for a disk image downloaded in a browser,
+and translocation, once per major macOS version; the administrator's password dialog, once before shipping; VoiceOver
+on macOS's dialogs and the menu bar menu, once.
+
+### The staging update check
+
+Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.
+`.github/workflows/mac-update-check.yml` runs every half hour on one of GitHub's Macs, in the `release` environment
+for the inbox role, with no signing secret, and by hand (`gh workflow run mac-update-check.yml`). A Linux job looks
+first: a Mac is taken only when staging's desktop feed names an app the check hasn't passed, which it reads from the
+artifact the last passing check wrote beside its pass, since the inbox role can't read the inbox. On the Mac,
+`scripts/mac-update-check.sh` installs
+the app it passed before from its folder on staging's downloads host, opens it, and waits for it to download and
+stage the new one. Then it quits the app, as from the menu bar, waits for Squirrel to install the new app, checks that
+the app didn't open again, and opens it to check it's the new version and starts. A pass goes to
+`inbox/update-check/<app version>.json`. The app it passed is kept in the run's artifact, so the next run updates
+from it. With no app passed before, as for the first app that updates itself, it checks only that the new app installs
+and starts.
+
+**Prod waits for it.** Prod's release publishes a new Mac app only once the inbox has its pass. Until then prod's
+desktop feed stays as it is, and the run says so, as the iPhone feed does for TestFlight. A run that needs no new app
+doesn't wait. Staging gets each new app a promote window ahead, which is time for the check to run.
 
 ### What the check proves
 

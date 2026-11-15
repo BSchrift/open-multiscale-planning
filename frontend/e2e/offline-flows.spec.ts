@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
-import { expectSaved, goOffline, loadEveryScreen, reloadOnline, SCREEN_URLS } from './offline';
+import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
 import { openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
@@ -29,9 +29,10 @@ const broken = (page: Page) => page.getByRole('alert').filter({ hasText: /Someth
 
 /** Opens the app with the records in place and every screen's code loaded, then cuts the connection. */
 async function openOffline(page: Page, context: BrowserContext, records: readonly Seed[]): Promise<Offline> {
+  const loaded = everyScreenLoaded(page);
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
-  await loadEveryScreen(page);
+  await loaded();
   return goOffline(page, context);
 }
 
@@ -42,7 +43,6 @@ function expectOffline(offline: Offline) {
 }
 
 test('every main screen opens offline for the first time, once the app has loaded', async ({ page, context }, info) => {
-  test.fail(true, "Waiting on the offline screen-loading fix: the app doesn't load a screen's code until it first opens, so offline that screen can't open until a restart.");
   const phone = info.project.name === 'phone';
   const requested = new Set<string>();
   page.on('request', (request) => requested.add(new URL(request.url()).pathname));
@@ -230,6 +230,9 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
   // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
   await startPlanningThenUndo(page);
   await steps(page).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
+  // Does it fit reads the week on its own, so it can draw after the step has, as a line above it that moves the step down.
+  // Once it's in, a box measured on the step stays put.
+  await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
   const placed = (n: number) => (phone ? page.getByRole('button', { name: `All picked tasks, ${n} of 4 placed` }) : page.getByText(`${n} of 4 placed`));
   await expect(placed(1)).toBeVisible();
 
@@ -240,6 +243,8 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
     await page.getByRole('group', { name: 'Compare days' }).getByRole('button', { name: /^Tue Nov 3, .*suggested 7:30am$/ }).click();
     await page.getByRole('button', { name: 'Move to Tue Nov 3' }).click();
     const handle = page.getByRole('slider', { name: /^Time for Collect the sources/ });
+    // Moved to Tuesday's suggested time first: a key pressed before that moves the block from Monday.
+    await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7:30am to 9:30am');
     await handle.focus();
     await page.keyboard.press('ArrowDown');
     await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7:45am to 9:45am');
@@ -293,6 +298,8 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   await expect(prompt.getByText('Write the report')).toBeVisible();
   await prompt.getByRole('button', { name: 'Partly' }).click();
   const left = page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' });
+  // It starts at the estimate's time left once the task has loaded; before that, the arrow keys have nothing to move.
+  await expect(left).toHaveAttribute('aria-valuetext', '2h');
   await left.focus();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');

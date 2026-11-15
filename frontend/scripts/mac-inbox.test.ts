@@ -1,11 +1,12 @@
+import { createHash } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { fakeBuild, makeIdentity, trustOf } from './fake-mac-build';
+import { APP_VERSION, BUILD, fakeBuild, file, link, linkedMachO, makeIdentity, OUR_FUSES, signMachO, trustOf, writeApp, writeZip, zipOf } from './fake-mac-build';
 import type { FakeBuild } from './fake-mac-build';
-import { buildConfig, notarizations, parsePlist, readManifest, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
+import { appRecord, appVersion, buildConfig, liveRecord, notarizations, parsePlist, readManifest, readZip, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
 import type { Manifest } from './mac-inbox';
 
 const TEAM = 'TEAMID0001';
@@ -19,7 +20,8 @@ const manifest: Manifest = {
   build: 1700000000,
   electron: '45.2.1',
   shell: '0123456789abcdef',
-  files: { 'Multiscale.dmg': { sha256: 'a'.repeat(64), size: 100 }, 'app.asar': { sha256: 'b'.repeat(64), size: 50 } },
+  appVersion: '0.1.1700000000',
+  files: { 'Multiscale.dmg': { sha256: 'a'.repeat(64), size: 100 }, 'Multiscale.zip': { sha256: 'c'.repeat(64), size: 90 }, 'app.asar': { sha256: 'b'.repeat(64), size: 50 } },
   notarizations: [{ id: 'a1b2c3d4-0000-4000-8000-000000000001', name: 'Multiscale.zip', status: 'Accepted' }],
 };
 
@@ -34,7 +36,8 @@ describe('the inbox manifest', () => {
     expect(bad({ commit: 'c0ffee' })).toThrow("commit is not a full commit hash");
     expect(bad({ env: 'local' })).toThrow('env is not staging or prod');
     expect(bad({ shell: 'x' })).toThrow('shell is not a shell hash');
-    expect(bad({ files: { 'Multiscale.dmg': manifest.files['Multiscale.dmg'] } })).toThrow("files lack app.asar's SHA-256");
+    expect(bad({ files: { 'Multiscale.dmg': manifest.files['Multiscale.dmg'], 'app.asar': manifest.files['app.asar'] } })).toThrow("files lack Multiscale.zip's SHA-256");
+    expect(bad({ appVersion: '0.1.0-c0ffee0' })).toThrow('appVersion is not a version');
     expect(bad({ notarizations: [] })).toThrow('notarizations are missing');
     expect(() => writeManifest({ ...manifest, build: 1.5 })).toThrow('build is not a whole number');
   });
@@ -54,10 +57,11 @@ describe('the inbox manifest', () => {
 
 describe('verifyInbox', () => {
   const verify = (b: FakeBuild, { commit = COMMIT, ticket = true, trust = trustOf(identity) } = {}) =>
-    verifyInbox(b.inbox, { env: 'staging', commit, teamId: TEAM, ...b.build }, {
-      extract: (_dmg, into) => cpSync(b.volume, into, { recursive: true }),
+    verifyInbox(b.inbox, { env: 'staging', commit, teamId: TEAM, identity: b.identity, ...b.build }, {
+      extract: (_dmg, into) => cpSync(b.volume, into, { recursive: true, verbatimSymlinks: true }),
       hasTicket: async () => ticket,
       trust,
+      electron: b.electron,
     });
   const good = () => fakeBuild(identity, TEAM, COMMIT, 'staging');
 
@@ -135,10 +139,155 @@ describe('verifyInbox', () => {
     expect(problems[1]).toMatch(/^The app has no notarization ticket from Apple for its cdhash, [0-9a-f]{40}$/);
   });
 
+  describe('the zip the app updates itself from', () => {
+    const MAIN = 'Contents/MacOS/Multiscale Staging';
+    const LINK = 'Contents/Frameworks/Electron Framework.framework/Electron Framework';
+
+    it('refuses a file more, less or changed than the disk image holds', async () => {
+      const b = good();
+      const tree = new Map(b.tree);
+      tree.set('Contents/Resources/extra.txt', file('1'));
+      tree.delete('Contents/Resources/en.lproj/locale.pak');
+      tree.set('Contents/PkgInfo', file('APPLMSCL'));
+      writeZip(b, tree);
+      expect(await verify(b)).toEqual([
+        "The zip's Contents/PkgInfo differs from the disk image's",
+        "The zip holds Contents/Resources/extra.txt, which the disk image's app doesn't",
+        "The zip lacks Contents/Resources/en.lproj/locale.pak, which the disk image's app holds",
+      ]);
+    });
+
+    it('refuses a link that became a copy of what it points to, or that points out of the app', async () => {
+      const copied = good();
+      const tree = new Map(copied.tree);
+      tree.set(LINK, file(tree.get('Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework')!.data, 0o755));
+      writeZip(copied, tree);
+      expect(await verify(copied)).toEqual([`The zip's ${LINK} is a file, but the disk image's is a link`]);
+      const outside = good();
+      outside.tree.set('Contents/Resources/escape', link('../../../../../etc/passwd'));
+      writeApp(outside);
+      expect(await verify(outside)).toContain('The zip\'s Contents/Resources/escape links outside the app, to ../../../../../etc/passwd');
+    });
+
+    it('refuses a file that lost its execute bit', async () => {
+      const b = good();
+      const tree = new Map(b.tree);
+      tree.set(MAIN, { ...tree.get(MAIN)!, mode: 0o644 });
+      writeZip(b, tree);
+      expect(await verify(b)).toEqual([`The zip's ${MAIN} has mode 644, not 755 as Electron's has`]);
+    });
+
+    it('refuses a zip with a name twice, an absolute or .. path, or a local header unlike its central directory', async () => {
+      const at = (path: string) => [path, file('x')] as [string, ReturnType<typeof file>];
+      expect(() => readZip(zipOf([at('a/b'), at('a/b')]))).toThrow('The zip holds a/b twice');
+      expect(() => readZip(zipOf([at('/etc/passwd')]))).toThrow('which is not a plain relative path');
+      expect(() => readZip(zipOf([at('a/../../b')]))).toThrow('which is not a plain relative path');
+      const zip = zipOf([at('a/b')]);
+      zip[30] = 'c'.charCodeAt(0);
+      expect(() => readZip(zip)).toThrow('has a local header for a/b that disagrees with its central directory');
+      const b = good();
+      writeFileSync(join(b.inbox, 'Multiscale.zip'), zipOf([at('Multiscale Staging.app/x'), at('Multiscale Staging.app/x')]));
+      const manifestFile = JSON.parse(readFileSync(join(b.inbox, 'manifest.json'), 'utf8')) as Manifest;
+      manifestFile.files['Multiscale.zip'] = { sha256: createHash('sha256').update(readFileSync(join(b.inbox, 'Multiscale.zip'))).digest('hex'), size: 0 };
+      writeFileSync(join(b.inbox, 'manifest.json'), JSON.stringify(manifestFile));
+      expect(await verify(b)).toContain('The zip holds Multiscale Staging.app/x twice');
+    });
+
+    it('refuses a zip that is not the one its manifest describes', async () => {
+      const b = good();
+      writeFileSync(join(b.inbox, 'Multiscale.zip'), 'other');
+      expect(await verify(b)).toEqual(["Multiscale.zip's SHA-256 doesn't match its manifest"]);
+    });
+  });
+
+  describe("the app's native code", () => {
+    const FRAMEWORK = 'Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework';
+    const change = (b: FakeBuild, path: string, edit: (data: Buffer) => Buffer) => {
+      b.tree.set(path, { ...b.tree.get(path)!, data: edit(Buffer.from(b.tree.get(path)!.data)) });
+      writeApp(b);
+    };
+
+    it("passes Electron's and better-sqlite3's own binaries signed again, with the fuses the build sets", async () => {
+      expect(await verify(good())).toEqual([]);
+    });
+
+    it('refuses a binary with one byte changed, or one Electron has not got', async () => {
+      const changed = good();
+      change(changed, FRAMEWORK, (data) => {
+        data[300]! ^= 1;
+        return data;
+      });
+      expect(await verify(changed)).toEqual([`${FRAMEWORK} isn't Electron's own`]);
+      const added = good();
+      added.tree.set('Contents/Frameworks/Extra.dylib', file(signMachO(linkedMachO(Buffer.from('extra')), identity, TEAM), 0o755));
+      writeApp(added);
+      expect(await verify(added)).toEqual(["The app holds Contents/Frameworks/Extra.dylib, which Electron's app doesn't"]);
+    });
+
+    it('refuses a fuse set otherwise than the build sets it, though the fuse bytes are left out of the comparison', async () => {
+      const b = good();
+      change(b, FRAMEWORK, (data) => {
+        data.write('1', data.indexOf(OUR_FUSES, 0, 'latin1'), 'latin1');
+        return signMachO(data, identity, TEAM);
+      });
+      expect(await verify(b)).toEqual([`${FRAMEWORK} has the fuses 100011011, not 000011011 as the build sets them`]);
+    });
+
+    it("refuses better-sqlite3 binaries that aren't the installed package's", async () => {
+      const b = good();
+      const node = 'Contents/Resources/app.asar.unpacked/node_modules/better-sqlite3/prebuilds/darwin-x64.node';
+      change(b, node, () => signMachO(linkedMachO(Buffer.from('other sqlite')), identity, TEAM));
+      expect(await verify(b)).toContain(`${node} isn't better-sqlite3's own`);
+    });
+
+    it("refuses an app missing one of Electron's files", async () => {
+      const b = good();
+      b.tree.delete('Contents/Resources/en.lproj/locale.pak');
+      writeApp(b);
+      expect(await verify(b)).toEqual(["The app lacks Electron's Contents/Resources/en.lproj/locale.pak"]);
+    });
+
+    it('refuses an Info.plist with a key electron-builder does not write, or another version', async () => {
+      const b = good();
+      change(b, 'Contents/Frameworks/Multiscale Staging Helper (GPU).app/Contents/Info.plist', (data) => Buffer.from(data.toString().replace('<dict>', '<dict>\n<key>LSEnvironment</key>\n<string>x</string>')));
+      change(b, 'Contents/Info.plist', (data) => Buffer.from(data.toString().replace(`<string>${APP_VERSION}</string>`, '<string>0.1.0</string>')));
+      const problems = await verify(b);
+      expect(problems).toContain(`Contents/Info.plist has CFBundleShortVersionString "0.1.0", not "${APP_VERSION}"`);
+      expect(problems).toContain('Contents/Frameworks/Multiscale Staging Helper (GPU).app/Contents/Info.plist has LSEnvironment "x", not as Electron has it');
+    });
+
+    it("refuses an app whose package.json doesn't say the version 0.1.<build>", async () => {
+      const b = fakeBuild(identity, TEAM, COMMIT, 'staging', (files) => {
+        files['package.json'] = Buffer.from(files['package.json']!.toString().replace(APP_VERSION, '0.1.0'));
+      });
+      expect(await verify(b)).toContain(`package.json in app.asar says version 0.1.0, not ${APP_VERSION}`);
+    });
+  });
+
+  it('names the checked app in a record: its version, build, native code, folder, zip, SHA-512 and size', () => {
+    const b = good();
+    const zip = readFileSync(join(b.inbox, 'Multiscale.zip'));
+    const record = appRecord(b.inbox);
+    expect(record).toEqual({
+      version: APP_VERSION, build: BUILD, shell: '0123456789abcdef', folder: `mac/${APP_VERSION}/`, file: 'Multiscale.zip',
+      sha512: createHash('sha512').update(zip).digest('base64'), size: zip.length,
+    });
+    // The live app's record, once a release has published one with it; none from before records.
+    expect(liveRecord(JSON.stringify({ ...JSON.parse(readFileSync(join(b.inbox, 'manifest.json'), 'utf8')), record }))).toEqual(record);
+    expect(liveRecord(JSON.stringify({ commit: COMMIT }))).toBeNull();
+    expect(liveRecord('')).toBeNull();
+  });
+
   it('refuses an inbox without a manifest it can read', async () => {
     const b = good();
     writeFileSync(join(b.inbox, 'manifest.json'), '{}');
     expect(await verify(b)).toEqual(["The inbox manifest's commit is not a full commit hash"]);
+  });
+});
+
+describe('appVersion', () => {
+  it("is the package's major and minor, then the build", () => {
+    expect(appVersion('0.1.0', 1794000000)).toBe('0.1.1794000000');
   });
 });
 

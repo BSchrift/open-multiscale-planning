@@ -38,7 +38,7 @@ nothing from the package.
 
 | Layer | Runs | Command |
 | --- | --- | --- |
-| Local, no deployment | Unit tests; browser e2e at desktop and phone sizes; the Mac app; a Docker stand-in backend for sync; the last release's web bundle beside this one; the iPhone Simulator | `make test`, `make test-e2e`, `make test-compat`, `make test-ios` |
+| Local, no deployment | Unit tests; browser e2e at desktop and phone sizes, with each KPI mark measured once; the Mac app; a Docker stand-in backend for sync; the last release's web bundle beside this one; the iPhone Simulator | `make test`, `make test-e2e`, `make test-compat`, `make test-ios` |
 | Against a deployment | The deployed web app, sync, on staging the last release's web bundle beside this one, the integration suite, smoke, the iPhone signed-in test | `make test-deployed` (staging), `ENV=prod CONFIRM_PROD=yes` |
 | CI | Everything in the local layer, on every PR and every push to main. A PR runs the iPhone Simulator only when it changes something the iPhone app is built from or runs, as [scripts/ci-changes.sh](scripts/ci-changes.sh) lists, and the run's summary says why it ran or didn't. Main always runs it, and so does a run started by hand from the Actions tab | `.github/workflows/ci.yml` |
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |

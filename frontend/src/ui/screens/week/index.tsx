@@ -11,6 +11,7 @@ import { dayName } from '../../components/weekgrid';
 import { planningToPlace } from '../../components/planning/usePlanning';
 import type { PlanningPlace } from '../../components/planning/usePlanning';
 import type { LocalDate } from '../../../core/types';
+import { useDrawn } from '../../app/drawn';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useQuery, useToday } from '../../app/store';
@@ -107,6 +108,7 @@ export default function WeekScreen(props: ScreenProps) {
     signal.current = nav.topSignal;
   }, [nav.topSignal, nav.tab, current, place]);
 
+  useDrawn('nav.week', !!data && !!model);
   if (!data || !model) return null;
   const offset = Math.round(diffDays(current, data.week) / 7);
   const ahead = blockAhead(data.planning, clock);

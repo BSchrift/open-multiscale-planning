@@ -223,8 +223,12 @@ function createCaptureWindow() {
 }
 
 function openCapture() {
+  // When the shortcut reached this process, for the capture.global KPI the panel's preload measures. The wall clock,
+  // which both processes share: the main process's performance clock drifts from it over a long run.
+  const pressed = Date.now();
   if (!captureWindow) createCaptureWindow();
   void captureDrawn.then(() => {
+    captureWindow?.webContents.send('capture:pressed', pressed);
     captureWindow?.show();
     captureWindow?.focus();
   });

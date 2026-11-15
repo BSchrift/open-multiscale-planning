@@ -23,7 +23,8 @@ import { BlockSection } from '../../components/blocks/BlockSection';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
-import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
+import { OutcomeTag } from '../../components/blocks/Outcome';
+import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
@@ -36,7 +37,6 @@ import { Icon } from '../../components/ds/Icon';
 const ZOOM = [30, 48, 72, 96];
 const DAY_FROM = 7 * 60;
 const DAY_TO = 22 * 60;
-const KIND_CLASS: Record<BlockKind, string> = { project: 'project', one_off: 'maint', practice: 'practice', planning: 'planning' };
 
 const same = (a: Slot, b: Slot) => a.start === b.start && a.end === b.end;
 const range = (s: Slot) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;
@@ -368,15 +368,14 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const time = !phone && height >= 24 && <span className="time">{i.time}</span>;
           if (!i.block) {
             return (
-              <div key={i.id} className={`cev ${phone ? 'c-busy' : 'ev-busy'}${compact}`} title={i.time} style={style}>
+              <div key={i.id} className={`cev ${blockClass('event', 'planned', { short: !!compact })}${compact}`} title={i.time} style={style}>
                 <span>{i.title}</span>
                 {time}
               </div>
             );
           }
-          const cls = phone
-            ? `c-${KIND_CLASS[i.kind!]}${i.cur ? ' c-cur' : ''}${ended(i.block) ? ' c-ended' : ''}${outcomeClass(i.block.result)}`
-            : `ev-${KIND_CLASS[i.kind!]}${i.cur ? ' cur' : ''}${ended(i.block) ? ' ended' : ''}${outcomeClass(i.block.result)}`;
+          const state = blockState({ result: i.block.result, ended: ended(i.block), now: i.cur });
+          const cls = blockClass(LOOK[i.kind!], state, { short: !!compact });
           const move = movable(i.block);
           const resize = resizable(i.block);
           const lifted = drag?.id === i.id;
@@ -413,8 +412,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               onBlur={() => (steps.current = null)}
             >
               <span className="cevt">
+                <BlockMarks state={state} short={!!compact} />
                 <OutcomeTag result={i.block.result} />
-                {phone && lifted ? `${i.time}, ${i.title}` : i.title}
+                <span className="blktitle">{phone && lifted ? `${i.time}, ${i.title}` : i.title}</span>
               </span>
               {time}
               {resize && !phone && !compact && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
@@ -428,7 +428,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           return more ? [drawn, more] : drawn;
         })}
         {drag?.ghost && (
-          <div className={`cev ${phone ? 'ghost' : 'ev-ghost'}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">
+          <div className={`cev ${phone ? 'ghost' : 'ev-ghost'} ${blockClass('project', 'suggested')}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">
             Suggested {formatTimeOfDay(drag.ghost.start)}
           </div>
         )}

@@ -152,6 +152,11 @@ The shared components live in `frontend/src/ui/components/ds`. Use them rather t
   of text). `size="compact"` is 36px on desktop and changes nothing on phone, where every button is 44pt. `icon` and
   `iconEnd` put an icon before or after the label. Without a `type` it behaves as a plain `<button>`, so one in a form
   submits it.
+- **The calendar block**: `blockClass(kind, state, { short })` gives a block its look and `<BlockMarks state short />`
+  draws its answer badge, or the live dot and Now; `blockState()` reads the state from a block's answer and time. Each
+  calendar keeps its own element and geometry. Wrap the title in `.blktitle`, which is what Done strikes through.
+- **`AnswerBadge`**: `<AnswerBadge answer="done" small />`, the round badge on its own, for anywhere else an answer
+  shows.
 
 ## Do and don't
 

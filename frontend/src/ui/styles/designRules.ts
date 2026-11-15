@@ -14,7 +14,7 @@ export interface Violation {
 const COLOUR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|\b(?:white|black|red|blue|green|gray|grey|orange|purple|yellow|pink|silver)\b/i;
 const PX = /(?<![\w.-])-?\d*\.?\d+px\b/g;
 const SPACING = /^(?:padding|margin|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?$/;
-const RING = /^(?:inset\s+)?0\s+0\s+0\s+[\d.]+px\s+var\(--[\w-]+\)$|^inset\s+(?:-?[\d.]+px|0)\s+(?:-?[\d.]+px|0)\s+0\s+var\(--[\w-]+\)$/;
+const RING = /^(?:inset\s+)?0\s+0\s+0\s+(?:[\d.]+px|var\(--[\w-]+\))\s+var\(--[\w-]+\)$|^inset\s+(?:-?[\d.]+px|0)\s+(?:-?[\d.]+px|0)\s+0\s+var\(--[\w-]+\)$/;
 const DURATION = /(?<![\w.-])\d*\.?\d+m?s\b/g;
 
 /** The rule a declaration breaks, if any. */

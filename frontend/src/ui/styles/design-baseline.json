@@ -50,8 +50,8 @@
   "type": {
     "components/late.css": 1,
     "styles/base.css": 13,
-    "styles/desktop.css": 73,
-    "styles/phone.css": 75,
+    "styles/desktop.css": 72,
+    "styles/phone.css": 74,
     "styles/shell.css": 9,
     "components/attachments/attachments.css": 2,
     "components/blocks/missed.css": 3,

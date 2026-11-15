@@ -32,10 +32,6 @@
 [data-layout] .wklegend { margin-top: 8px; }
 [data-layout] .legend i.keyinfo { background: transparent; border: 1px dashed var(--line); }
 [data-layout] .legend i.keyclosed { background: var(--wash); border: 1px solid var(--hairline); }
-[data-layout] .legend i.ev-busy { background: repeating-linear-gradient(135deg, var(--hairline) 0, var(--hairline) 3px, var(--pressed) 3px, var(--pressed) 6px); }
-[data-layout] .legend i.ev-project { background: var(--project-tint); border: 1px solid var(--project); border-left-width: 3px; }
-[data-layout] .legend i.ev-practice { background: var(--practice-tint); border: 1px solid var(--practice); border-left: 4px double var(--practice); }
-[data-layout] .legend i.ev-maint { background: var(--oneoff-tint); border: 1px solid var(--oneoff); border-left: 4px dotted var(--oneoff); }
 [data-layout] .wktitle { min-width: 0; text-align: center; }
 [data-layout] .wkcenter { text-align: center; }
 [data-layout] .wkday { margin: 4px 0 8px; color: var(--ink-2); }

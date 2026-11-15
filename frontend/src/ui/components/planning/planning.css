@@ -6,8 +6,6 @@
 :where([data-layout='phone']) .planrow .planbtn{width:100%;min-height:44px}
 .planset{justify-content:space-between;gap:var(--space-2)}
 /* Planning blocks, in grey: busy time rather than project or one-off work. */
-:where([data-layout='desktop']) .ev-planning{background:var(--wash);color:var(--ink-2);border:1px solid var(--line);border-left-width:4px}
-:where([data-layout='phone']) .c-planning{background:var(--wash);color:var(--ink-2);border:1px solid var(--line);border-left-width:4px}
 [data-layout] .lanecard.k-planning{border-left:4px solid var(--line)}
 .nextplan .between{align-items:center}
 :where([data-layout='desktop']) .oochip.planchip{border-color:var(--line);background:var(--wash);color:var(--ink-2)}

@@ -242,7 +242,7 @@ test('an unplanned week opens on the prompt to plan; skipping leaves a banner an
   expect(errors).toEqual([]);
 });
 
-test('a block gone by is struck through only when done; Not done and Partly are outlined and say so instead', async ({ page }) => {
+test('a block gone by is struck through only when done; Not done and Partly carry their answer badge and say so instead', async ({ page }) => {
   const outcome = (id: string, result: string, time: string): Seed => ({ type: 'block_outcome', id: `outcome:${id}`, fields: { result, answered_at: at(time) } });
   const notes: Seed = { type: 'task', id: 't3', fields: { kind: 'project', project_id: 'p', title: 'Read the notes', estimate_min: 60 } };
   const errors = await open(page, [
@@ -258,14 +258,16 @@ test('a block gone by is struck through only when done; Not done and Partly are 
     outcome('b3', 'partly', '12:00'),
   ]);
   const timeline = page.getByRole('region', { name: "Today's timeline" });
+  // The title is struck only when done; each answer has its round badge; Partly is half filled with its kind's tint.
   const look = (name: string) =>
-    timeline.getByRole('button', { name }).evaluate((e) => {
-      const style = getComputedStyle(e);
-      return { strike: style.textDecorationLine, outline: style.outlineStyle };
-    });
-  expect(await look('Write the report, 9am to 10am, Project. Done.')).toEqual({ strike: 'line-through', outline: 'none' });
-  expect(await look('Paint the fence, 10am to 11am, One off. Not done.')).toEqual({ strike: 'none', outline: 'dashed' });
-  expect(await look('Read the notes, 11am to 12pm, Project. Partly.')).toEqual({ strike: 'none', outline: 'dashed' });
+    timeline.getByRole('button', { name }).evaluate((e) => ({
+      strike: getComputedStyle(e.querySelector('.blktitle')!).textDecorationLine,
+      badge: (e.querySelector('.ansbadge svg') as SVGElement | null)?.dataset.icon,
+      half: getComputedStyle(e).backgroundImage.includes('gradient'),
+    }));
+  expect(await look('Write the report, 9am to 10am, Project. Done.')).toEqual({ strike: 'line-through', badge: 'done', half: false });
+  expect(await look('Paint the fence, 10am to 11am, One off. Not done.')).toEqual({ strike: 'none', badge: 'not-done', half: false });
+  expect(await look('Read the notes, 11am to 12pm, Project. Partly.')).toEqual({ strike: 'none', badge: 'partly', half: true });
   // Said in words on the block, so colour is never the only sign.
   await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^\s*Not done Paint the fence/);
   await expect(timeline.getByRole('button', { name: /Partly\.$/ })).toContainText(/^Partly Read the notes/);

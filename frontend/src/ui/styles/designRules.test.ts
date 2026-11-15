@@ -17,6 +17,7 @@ describe('the stylesheet rules', () => {
 
   it('pass a ring drawn as a shadow in a token colour, and none at all', () => {
     expect(rules(cssViolations('a.css', '.a { box-shadow: inset 0 0 0 2px var(--focus); } .b { box-shadow: none; }'))).toEqual([]);
+    expect(rules(cssViolations('a.css', '.a { box-shadow: var(--shadow-2), inset 0 0 0 var(--border-emphasis) var(--placing); }'))).toEqual([]);
   });
 
   it('report each raw colour, size, space, radius, shadow, layer and duration', () => {

@@ -16,9 +16,10 @@ import { useApp, useNow, useQuery } from '../../app/store';
 import { busy } from '../../components/blocks/BlockPrompts';
 import { formatRange } from '../../components/blocks/describe';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
-import { InfoIcon } from '../../components/icons';
 import { TaskName } from '../../components/task/TaskName';
 import { PlanningNow } from './PlanningNow';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const MINUTE_MS = 60_000;
@@ -107,7 +108,7 @@ function ClockLabel(props: { block: BlockRow; now: number; phone: boolean }) {
           aria-controls={keyId}
           onClick={() => setOpen((o) => !o)}
         >
-          <InfoIcon />
+          <Icon name="info" />
         </button>
       </div>
       {open && (
@@ -176,9 +177,9 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
     const started = !!cur.started_at;
     const paused = isPaused(cur);
     const markDone = (
-      <button className="btn" type="button" disabled={actions.pending} onClick={() => void actions.markDoneNow(cur, next)}>
+      <Button type="button" disabled={actions.pending} onClick={() => void actions.markDoneNow(cur, next)}>
         Mark done now
-      </button>
+      </Button>
     );
     return (
       <section className={`now stack${started ? ' timed' : ''}`} aria-label="Current block">
@@ -201,13 +202,13 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
           <div className="row">
             {!started && (
               <>
-                <button className={`btn pri${phone ? ' grow' : ''}`} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.start(cur))}>
+                <Button variant="primary" className={phone ? ' grow' : ''} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.start(cur))}>
                   Start
-                </button>
+                </Button>
                 {next && (
-                  <button className="btn" type="button" disabled={actions.pending} onClick={() => thenFocus(actions.swap(cur, next))}>
+                  <Button type="button" disabled={actions.pending} onClick={() => thenFocus(actions.swap(cur, next))}>
                     Do next block instead
-                  </button>
+                  </Button>
                 )}
               </>
             )}
@@ -228,9 +229,9 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
           {next.task_id ? <TaskName id={next.task_id} title={next.title ?? ''} /> : next.title}
         </h2>
         <div className="row">
-          <button className={phone ? 'btn pri' : 'btn'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>
+          <Button variant={phone ? 'primary' : 'secondary'} type="button" disabled={actions.pending} onClick={() => thenFocus(actions.startEarly(next))}>
             Start early
-          </button>
+          </Button>
         </div>
       </section>
     );

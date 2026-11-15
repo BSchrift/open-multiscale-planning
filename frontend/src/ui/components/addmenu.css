@@ -3,7 +3,7 @@
 [data-layout='desktop'] .addwrap .qpop {
   left: auto;
   right: 0;
-  z-index: 7;
+  z-index: calc(var(--z-raised) + 6);
   width: max-content;
   min-width: 220px;
   max-width: 320px;

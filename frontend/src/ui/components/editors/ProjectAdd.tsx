@@ -10,6 +10,7 @@ import type { Fields, LocalDate, Objective } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
+import { Button } from '../ds/Button';
 
 
 export function ProjectAdd(props: {
@@ -104,12 +105,12 @@ export function ProjectAdd(props: {
           </div>
         )}
         <div className="row">
-          <button className="btn sm pri grow" type="submit">
+          <Button variant="primary" size="compact" className="grow" type="submit">
             Add project
-          </button>
-          <button className="btn sm" type="button" onClick={props.onClose}>
+          </Button>
+          <Button size="compact" type="button" onClick={props.onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </SheetOnPhone>

@@ -12,6 +12,7 @@ import { useOpenTask } from '../../components/task/TaskName';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import { TaskRow } from '../../components/TaskRow';
 import type { TodayData } from './data';
+import { Button } from '../../components/ds/Button';
 
 function Row(props: { row: OneOffRow; onToggle(box: HTMLInputElement): void; onSave(): void }) {
   const { row } = props;
@@ -30,9 +31,9 @@ function Row(props: { row: OneOffRow; onToggle(box: HTMLInputElement): void; onS
     >
       {!checked && (
         <div className="row oorow">
-          <button className={layout === 'phone' ? 'btn plain' : 'btn sm'} type="button" aria-label={`Find a time for ${task.title}`} onClick={() => nav.go('week', { place: task.id })}>
+          <Button variant={layout === 'phone' ? 'quiet' : 'secondary'} size="compact" type="button" aria-label={`Find a time for ${task.title}`} onClick={() => nav.go('week', { place: task.id })}>
             Find a time
-          </button>
+          </Button>
           <OneOffDates task={task} onSave={props.onSave} />
         </div>
       )}

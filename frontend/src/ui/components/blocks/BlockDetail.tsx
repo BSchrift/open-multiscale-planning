@@ -10,6 +10,7 @@ import { Sheet } from '../Sheet';
 import { TaskName } from '../task/TaskName';
 import { describeBlock, formatRange, OUTCOME_WORD } from './describe';
 import type { BlockRecords } from './describe';
+import { Button } from '../ds/Button';
 
 /** The records describeBlock needs for one block. */
 async function loadBlockRecords(sql: Sql, block: Pick<BlockRow, 'task_id' | 'practice_id'>): Promise<BlockRecords> {
@@ -58,9 +59,9 @@ export function BlockDetail(props: { block: BlockRow; onClose(): void }) {
         <div className="stack8 small">
           <BlockDetailBody block={block} />
         </div>
-        <button className="btn" type="button" onClick={props.onClose}>
+        <Button type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </Sheet>
     );
   }

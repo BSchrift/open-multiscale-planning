@@ -10,11 +10,12 @@ import type { WeekPlanning } from '../../../core/planning';
 import { slotInstants } from '../../../core/slots';
 import type { LocalDate, TimeBlock } from '../../../core/types';
 import { useApp, useStickyState } from '../../app/store';
-import { BinIcon } from '../icons';
 import { About } from './About';
 import { PlanningTimes } from './PlanningTimes';
 import { longTime, requestPlanningTimes, shortTime, usePlanningActions, usePlanningRequest, usePlanningTimes } from './usePlanning';
 import './planning.css';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 /** The best time becomes Start now when it's this close. */
 const SOON_MS = 15 * 60_000;
@@ -76,34 +77,34 @@ export function PlanningRow(props: { planning: WeekPlanning; onGone(after: Eleme
           disabled={act.pending}
           onClick={() => void act.remove(week).then(gone())}
         >
-          <BinIcon />
+          <Icon name="bin" />
         </button>
       </div>
       <div className={phone ? 'stack8' : 'row'}>
         {(best || stopped) &&
           (soon ? (
-            <button
-              className={`btn pri${phone ? ' planbtn' : ''}`}
+            <Button
+              variant="primary" className={phone ? ' planbtn' : ''}
               type="button"
               aria-label={stopped ? 'Keep going' : 'Start planning now'}
               onClick={() => void act.start(week, minutes)}
             >
               {stopped ? 'Keep going' : 'Start now'}
-            </button>
+            </Button>
           ) : (
-            <button
-              className={`btn pri${phone ? ' planbtn' : ''}`}
+            <Button
+              variant="primary" className={phone ? ' planbtn' : ''}
               type="button"
               aria-label={`Schedule planning for ${longTime(best!)}`}
               disabled={act.pending}
               onClick={() => void act.schedule(week, best!).then(gone())}
             >
               Schedule for {shortTime(best!)}
-            </button>
+            </Button>
           ))}
-        <button className={`btn${best || stopped ? '' : ' pri'}${phone ? ' planbtn' : ''}`} type="button" aria-label="Choose a time to plan next week" onClick={() => setChoosing(true)}>
+        <Button variant={best || stopped ? 'secondary' : 'primary'} className={phone ? ' planbtn' : ''} type="button" aria-label="Choose a time to plan next week" onClick={() => setChoosing(true)}>
           Choose a time
-        </button>
+        </Button>
       </div>
       {choosing && <PlanningTimes for={week} name="next week" onClose={() => setChoosing(false)} />}
     </section>
@@ -113,7 +114,7 @@ export function PlanningRow(props: { planning: WeekPlanning; onGone(after: Eleme
 /** In place of the prompt to plan this week, once its planning is set for later: when, and Start now. */
 export function PlanningSet(props: { week: LocalDate; block: TimeBlock }) {
   const { week, block } = props;
-  const { clock, layout } = useApp();
+  const { clock } = useApp();
   const planning = usePlanningTimes(week);
   const act = usePlanningActions();
   const zone = clock.zone();
@@ -122,14 +123,14 @@ export function PlanningSet(props: { week: LocalDate; block: TimeBlock }) {
   return (
     <section className="attn planset" aria-label={title}>
       <span>{title}</span>
-      <button
-        className={layout === 'phone' ? 'btn' : 'btn sm'}
+      <Button
+        size="compact"
         type="button"
         disabled={!planning || act.pending}
         onClick={() => planning && void act.start(week, planning.estimate.minutes)}
       >
         Start now
-      </button>
+      </Button>
     </section>
   );
 }

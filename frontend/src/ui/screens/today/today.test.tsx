@@ -57,11 +57,11 @@ describe('the Done today line', () => {
       await block(w, 'b1', 't1', '13:00', '15:00');
     });
     const empty = await screen.findByRole('button', { name: 'Done: nothing finished yet today' });
-    expect(empty).toHaveTextContent('Nothing finished yet today');
+    expect(empty).toHaveTextContent(/^Nothing finished yet today$/);
     expect(screen.getByRole('heading', { name: 'Timeline' }).compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Mark done now' }));
     const line = await screen.findByRole('button', { name: 'Done today: 1 finished, 1h worked' });
-    expect(line).toHaveTextContent('Done today · 1 · 1h');
+    expect(line).toHaveTextContent(/^Done today · 1 · 1h$/);
     await userEvent.click(line);
     expect(t.nav().route).toMatchObject({ area: 'done', params: { day: DAY } });
   });
@@ -1234,17 +1234,18 @@ describe.each(['desktop', 'phone'] as const)('blocks gone by on the timeline, on
   it('on the calendar, strikes through only what was done; Partly and Not done say so in words instead', async () => {
     await open(morning, { layout });
     const drawn = async (title: string) => (await within(await timeline()).findByText(title)).closest('.cev')!;
-    const ended = layout === 'phone' ? 'c-ended' : 'ended';
-    expect(await drawn('Write the report')).toHaveClass(ended, 'done');
-    expect(await drawn('Read the notes')).toHaveClass(ended, 'notdone');
-    expect(await drawn('Read the notes')).not.toHaveClass('done');
+    expect(await drawn('Write the report')).toHaveClass('s-done');
+    expect(await drawn('Read the notes')).toHaveClass('s-notdone');
+    expect(await drawn('Read the notes')).not.toHaveClass('s-done');
     expect(within((await drawn('Read the notes')) as HTMLElement).getByText('Not done')).toBeVisible();
-    expect(await drawn('Email the editor')).toHaveClass(ended, 'partly');
-    expect(await drawn('Email the editor')).not.toHaveClass('done');
+    expect(await drawn('Email the editor')).toHaveClass('s-partly');
+    expect(await drawn('Email the editor')).not.toHaveClass('s-done');
     expect(within((await drawn('Email the editor')) as HTMLElement).getByText('Partly')).toBeVisible();
-    // One with no answer yet is only muted, as on Week.
-    expect(await drawn('File the receipts')).toHaveClass(ended);
-    expect(await drawn('File the receipts')).not.toHaveClass('done');
+    // One with no answer yet is dashed, with an empty ring, as on Week.
+    expect(await drawn('File the receipts')).toHaveClass('s-goneby');
+    const badge = async (title: string) => ((await drawn(title)).querySelector('.ansbadge svg') as SVGElement | null)?.dataset.icon;
+    expect([await badge('Write the report'), await badge('Read the notes'), await badge('Email the editor'), await badge('File the receipts')]).toEqual(['done', 'not-done', 'partly', 'no-answer']);
+    expect(await drawn('File the receipts')).not.toHaveClass('s-done');
     expect(await drawn('File the receipts')).toHaveTextContent(/^File the receipts/);
     expect(await drawn('Read the notes')).toHaveAccessibleName('Read the notes, 9am to 10am, Project. Not done.');
   });
@@ -1259,7 +1260,7 @@ describe.each(['desktop', 'phone'] as const)('blocks gone by on the timeline, on
       ['Read the notes', 'Not done'],
       ['Email the editor', 'Partly'],
     ]) {
-      expect(await title(name!)).not.toHaveClass('done');
+      expect(await title(name!)).not.toHaveClass('s-done');
       expect(within(await row(name!)).getByText(word!)).toHaveClass('outw');
     }
   });

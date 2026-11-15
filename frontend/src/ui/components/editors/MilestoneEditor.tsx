@@ -30,6 +30,7 @@ import { Popover } from '../Popover';
 import { DropMilestone } from './DropMilestone';
 import { useLeave } from './useLeave';
 import { usePlanChange } from './usePlanChange';
+import { Button } from '../ds/Button';
 
 
 /** How a milestone's diamond reads: solid in the plan, hollow not, red when overdue, grey once met. */
@@ -208,12 +209,12 @@ function Fields(props: {
         {last && `Added ${last}.`}
       </div>
       <div className="row">
-        <button ref={saveRef} className="btn sm pri grow" type="submit">
+        <Button ref={saveRef} variant="primary" size="compact" className="grow" type="submit">
           {m ? 'Save' : 'Add'}
-        </button>
-        <button className="btn sm" type="button" onClick={onClose}>
+        </Button>
+        <Button size="compact" type="button" onClick={onClose}>
           {last && !name.trim() ? 'Done' : 'Cancel'}
-        </button>
+        </Button>
       </div>
       {/* Act at once, each with its Undo, so they sit apart from Save and Cancel. */}
       {m && (
@@ -228,19 +229,19 @@ function Fields(props: {
           )}
           <div className="row">
             {!met && live.length === 0 && (
-              <button className="btn sm" type="button" onClick={after(() => withStatusLine(plan, markMilestoneDone(plan, m.id, {}, ctx), ctx))}>
+              <Button size="compact" type="button" onClick={after(() => withStatusLine(plan, markMilestoneDone(plan, m.id, {}, ctx), ctx))}>
                 Mark met
-              </button>
+              </Button>
             )}
             {!!m.met_at && live.length === 0 && (
-              <button className="btn sm" type="button" onClick={after(() => withStatusLine(plan, markMilestoneNotMet(plan, m.id, ctx), ctx))}>
+              <Button size="compact" type="button" onClick={after(() => withStatusLine(plan, markMilestoneNotMet(plan, m.id, ctx), ctx))}>
                 Not met
-              </button>
+              </Button>
             )}
             {!met && (
-              <button className="btn sm" type="button" onClick={props.onDrop}>
+              <Button size="compact" type="button" onClick={props.onDrop}>
                 Drop milestone
-              </button>
+              </Button>
             )}
           </div>
         </div>

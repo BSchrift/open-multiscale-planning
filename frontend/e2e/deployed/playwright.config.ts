@@ -12,6 +12,9 @@ export default defineConfig({
   workers: 1,
   reporter: 'line',
   timeout: 120_000,
+  // A screen reads the shared test user's whole history again after each change. On prod's, on 15 November, Week showed
+  // a one off just added only once Playwright's 5 seconds had run out: the snapshot taken as they did already had it.
+  expect: { timeout: 15_000 },
   use: { baseURL: url, trace: 'retain-on-failure' },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 1000 } } },

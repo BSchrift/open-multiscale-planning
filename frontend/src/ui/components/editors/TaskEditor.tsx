@@ -1,21 +1,33 @@
 // Adds project tasks: a popover on desktop, a sheet on phone, or in place on desktop for a form at the foot of a list.
 // It stays open with the last one named, so a few can go in together, each with its estimate, milestone and
-// description. A task once added is changed in its popup.
+// description. A task once added is changed in its popup. The goal backlog version has no milestone, and Add saves
+// and closes, reported in a toast with Undo; leaving with a title typed keeps it open and says so.
 
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { sortedMilestones } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
+import { addToBacklog } from '../../../core/backlog';
 import type { Fields } from '../../../core/types';
-import { useMutation } from '../../app/store';
+import { useApp, useMutation } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
 import { NotesField } from '../notes/NotesField';
 import { Popover } from '../Popover';
+import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
+import { useLeave } from './useLeave';
+
+/** A goal's backlog to add to, in place of a project. */
+export interface BacklogOf {
+  goalId: string;
+  goalTitle: string;
+}
 
 export function TaskEditor(props: {
-  plan: ProjectPlan;
-  ctx: PlanContext;
+  /** The project to add to, or with backlog none. */
+  plan?: ProjectPlan;
+  backlog?: BacklogOf;
+  ctx?: PlanContext;
   /** The milestone a new task starts under. */
   milestoneId?: string | null;
   /** Called with each task added, and the milestone it went under. */
@@ -29,7 +41,9 @@ export function TaskEditor(props: {
   /** Saves the task instead of the form, with what goes with it, resolving to its id. The caller then reports it. */
   write?(fields: Fields<'task'>, inWeek: boolean): Promise<string | undefined>;
 }) {
-  const { plan, ctx, onClose } = props;
+  const { plan, ctx, backlog, onClose } = props;
+  const { clock } = useApp();
+  const toast = useToast();
   const [title, setTitle] = useState('');
   const [estimate, setEstimate] = useState(60);
   const [milestone, setMilestone] = useState(props.milestoneId ?? '');
@@ -40,17 +54,23 @@ export function TaskEditor(props: {
   const [error, setError] = useState('');
   const [last, setLast] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
-  const options = sortedMilestones(plan, ctx).filter((m) => !m.dropped_at);
+  const options = plan && ctx ? sortedMilestones(plan, ctx).filter((m) => !m.dropped_at) : [];
 
   const fieldsOf = (name: string): Fields<'task'> => ({
     kind: 'project',
-    project_id: plan.project.id,
+    project_id: plan?.project.id ?? null,
     milestone_id: milestone || null,
     title: name,
     estimate_min: estimate || null,
     ...(notes.trim() ? { notes } : {}),
   });
-  const add = useMutation((w, name: string) => w.create('task', fieldsOf(name)));
+  const add = useMutation((w, name: string) => {
+    if (!backlog) return w.create('task', fieldsOf(name));
+    const { title, estimate_min, notes: details } = fieldsOf(name);
+    return addToBacklog(w, backlog.goalId, { title, estimate_min, ...(details ? { notes: details } : {}) }, clock);
+  });
+  const unadd = useMutation((w, id: string) => w.delete('task', id));
+  const { saveRef, leave } = useLeave(!!backlog && !!title.trim(), onClose, setError, "This task isn't added yet. Add it, or Cancel to drop it.");
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -59,6 +79,11 @@ export function TaskEditor(props: {
     const id = props.write ? await props.write(fieldsOf(name), inWeek) : await add.run(name);
     if (!id) return;
     props.onAdded?.(id, milestone || null);
+    if (backlog) {
+      onClose();
+      toast.show(`Added ${name} to the backlog for ${backlog.goalTitle}.`, { undo: () => unadd.run(id) });
+      return;
+    }
     setTitle('');
     setNotes('');
     setAdded((n) => n + 1);
@@ -71,8 +96,9 @@ export function TaskEditor(props: {
   const form = (
     <form className="stack8 editor" aria-label={props.label} onSubmit={save}>
       <div>
-        {props.label && <div className="small quiet">{plan.project.title}</div>}
+        {props.label && plan && <div className="small quiet">{plan.project.title}</div>}
         <h2>Add task</h2>
+        {backlog && <div className="small quiet">Goes in the backlog for {backlog.goalTitle}.</div>}
       </div>
       <label className="popfield">
         Title
@@ -88,6 +114,7 @@ export function TaskEditor(props: {
         />
       </label>
       <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />
+      {plan && (
       <label className="popfield">
         Milestone
         <select className="field" aria-label="Milestone" value={milestone} onChange={(event) => setMilestone(event.target.value)}>
@@ -100,6 +127,7 @@ export function TaskEditor(props: {
           ))}
         </select>
       </label>
+      )}
       <NotesField key={added} value={notes} onChange={setNotes} />
       {props.week && (
         <label className="row small weektick">
@@ -113,13 +141,13 @@ export function TaskEditor(props: {
         </div>
       )}
       {/* A caller that writes the task says so itself, in a toast with Undo, so it's said once. */}
-      {!props.write && (
+      {!props.write && !backlog && (
         <div className="small quiet" role="status">
           {last && `Added ${last}.`}
         </div>
       )}
       <div className="row">
-        <button className="btn sm pri grow" type="submit">
+        <button ref={saveRef} className="btn sm pri grow" type="submit">
           Add
         </button>
         <button className="btn sm" type="button" onClick={onClose}>
@@ -129,11 +157,11 @@ export function TaskEditor(props: {
     </form>
   );
   return props.inPlace ? (
-    <SheetOnPhone label={label} onClose={onClose}>
+    <SheetOnPhone label={label} onClose={leave}>
       {form}
     </SheetOnPhone>
   ) : (
-    <Popover label={label} onClose={onClose}>
+    <Popover label={label} onClose={leave}>
       {form}
     </Popover>
   );

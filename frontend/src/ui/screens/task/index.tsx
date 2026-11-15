@@ -3,16 +3,19 @@
 // then, opened from a block on a calendar, that block's own section, then Time estimate, where it belongs, Description,
 // Attachments, then Save, Cancel and Delete task. Focus starts on the
 // name, read as the heading, so the phone's keyboard stays down until a field is tapped. Save and Delete each offer
-// Undo. Attachments are added and removed as they go, each with its own Undo, rather than on Save.
+// Undo. Attachments are added and removed as they go, each with its own Undo, rather than on Save. A goal's backlog is a
+// place too: a task moved there loses its milestone and any date, and a repeating one off can't go.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { backlogGoal, backlogTitle, fileToBacklog, isBacklog } from '../../../core/backlog';
 import { MAX_TITLE } from '../../../core/captureTitle';
+import { formatDate, formatWeekday } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import { getRecord, listRecords } from '../../../core/records';
-import { isRepeating, projectDates } from '../../../core/schedule';
+import { isRepeating, onceWhen, projectDates } from '../../../core/schedule';
 import { closeTask } from '../../../core/tasks';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
@@ -39,22 +42,37 @@ interface Place {
   label: string;
   projectId?: string;
   milestoneId?: string;
+  /** A goal's backlog, made if it's new when the task moves in. */
+  goalId?: string;
+  goalTitle?: string;
 }
 
-const placeOf = (task: Task) =>
-  task.kind === 'project' && task.project_id ? (task.milestone_id ? `m:${task.milestone_id}` : `p:${task.project_id}`) : task.kind === 'one_off' ? ONE_OFFS : INBOX;
+const placeOf = (task: Task) => {
+  if (task.kind === 'project' && task.project_id && isBacklog({ id: task.project_id })) return `b:${backlogGoal({ id: task.project_id })}`;
+  return task.kind === 'project' && task.project_id ? (task.milestone_id ? `m:${task.milestone_id}` : `p:${task.project_id}`) : task.kind === 'one_off' ? ONE_OFFS : INBOX;
+};
+
+/** The day or days a task is dated, for the note that moving it to a backlog clears them. */
+function dateOf(task: Task): string {
+  const s = task.schedule?.type === 'once' ? task.schedule : null;
+  if (s?.from) return s.to && s.to !== s.from ? onceWhen(s) : `${formatWeekday(s.from)} ${formatDate(s.from)}`;
+  return task.next_due && !isRepeating(task) ? `${formatWeekday(task.next_due)} ${formatDate(task.next_due)}` : '';
+}
 
 /** The task, and the projects and open milestones it could move to, with wherever it is now. */
 async function loadTask(sql: Sql, id: string) {
   const task = await getRecord(sql, 'task', id);
   if (!task) return { task, places: [] };
-  const projects = (await listRecords(sql, 'project')).filter((p) => p.state === 'active' || p.state === 'paused' || p.id === task.project_id);
+  const projects = (await listRecords(sql, 'project')).filter((p) => !isBacklog(p) && (p.state === 'active' || p.state === 'paused' || p.id === task.project_id));
+  const goals = (await listRecords(sql, 'objective')).filter((g) => g.state !== 'archived' || placeOf(task) === `b:${g.id}`);
+  goals.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.id < b.id ? -1 : 1));
   const milestones = (await listRecords(sql, 'milestone'))
     .filter((m) => (!m.met_at && !m.dropped_at) || m.id === task.milestone_id)
     .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.title.localeCompare(b.title));
   const places: Place[] = [
     { value: INBOX, label: 'Inbox' },
     { value: ONE_OFFS, label: 'One offs' },
+    ...goals.map((g) => ({ value: `b:${g.id}`, label: backlogTitle(g.title), goalId: g.id, goalTitle: g.title })),
     ...projects.flatMap((p) => [
       ...milestones.filter((m) => m.project_id === p.id).map((m) => ({ value: `m:${m.id}`, label: `${p.title}, ${m.title}`, projectId: p.id, milestoneId: m.id })),
       // No milestone: it sits under the project's Done.
@@ -106,6 +124,13 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
   const toast = useToast();
   const apply = usePlanChange();
   const remove = useMutation((w) => closeTask(w, task.id, 'deleted', clock));
+  // Into a backlog, made if it's new, with any other edits in the same change.
+  const file = useMutation(async (w, goalId: string, edits: Fields<'task'>) => {
+    const edited = Object.keys(edits).length ? await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields: edits }] }) : { writes: [] };
+    const moved = await fileToBacklog(w, goalId, [task.id], clock);
+    return { writes: [...moved.writes, ...edited.writes] };
+  });
+  const noteId = useId();
   const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const [title, setTitle] = useState(task.title);
   const [renaming, setRenaming] = useState(false);
@@ -122,18 +147,28 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
   const name = title.trim();
   const notesValue = notes.trim() ? notes : null;
   const moved = place !== placeOf(task) ? places.find((p) => p.value === place) : undefined;
-  const fields: Fields<'task'> = {
+  const edits: Fields<'task'> = {
     ...(name !== task.title ? { title: name } : {}),
     ...((estimate || null) !== (task.estimate_min ?? null) ? { estimate_min: estimate || null } : {}),
     ...(notesValue !== (task.notes || null) ? { notes: notesValue } : {}),
-    ...(moved ? moveFields(moved, task, today) : {}),
   };
+  const fields: Fields<'task'> = { ...edits, ...(moved && !moved.goalId ? moveFields(moved, task, today) : {}), ...(moved?.goalId ? { project_id: moved.value } : {}) };
+  const repeats = isRepeating(task);
+  const dated = moved?.goalId ? dateOf(task) : '';
+  const note = repeats ? 'A repeating task stays in One offs. For regular time toward a goal, add a practice.' : dated ? `Backlog tasks have no date, so ${dated} will be cleared.` : '';
   const { saveRef, leave } = useLeave(Object.keys(fields).length > 0, close, setError);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!name) return setError('Give it a title.');
     if (Object.keys(fields).length === 0) return close();
+    if (moved?.goalId) {
+      const reverse = await file.run(moved.goalId, edits);
+      if (!reverse) return;
+      close();
+      toast.show(`Moved ${name} to the backlog for ${moved.goalTitle}.`, { undo: () => undo.run(reverse) });
+      return;
+    }
     // A failed save keeps the popup open as it was, and has said so.
     const saved = await apply(() => ({ writes: [{ type: 'task', id: task.id, fields }] }), {
       message: moved ? `Moved ${name} to ${moved.label}.${moved.projectId && isRepeating(task) ? " Repeats stay with One offs, so it won't repeat." : ''}` : `Saved ${name}.`,
@@ -192,14 +227,18 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
           <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />
           <label className="popfield">
             Belongs to
-            <select className="field" value={place} onChange={(event) => setPlace(event.target.value)}>
+            <select className="field" value={place} aria-describedby={note ? noteId : undefined} onChange={(event) => setPlace(event.target.value)}>
               {choices.map((p) => (
-                <option key={p.value} value={p.value}>
+                <option key={p.value} value={p.value} disabled={repeats && !!p.goalId}>
                   {p.label}
                 </option>
               ))}
             </select>
           </label>
+          {/* In the select's description, so it's heard as it appears and on returning to the select. */}
+          <div id={noteId} className="small quiet" role="status">
+            {note}
+          </div>
           <NotesField value={notes} onChange={setNotes} />
           <Attachments taskId={task.id} />
           {error && (

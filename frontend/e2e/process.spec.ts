@@ -127,7 +127,7 @@ test('Add to this week is off again on each new card, and the item it adds waits
 
   // The next card starts with it off, so this one goes to the project alone.
   await expect(title(page, 'Fix the gate')).toBeVisible();
-  await expect(week).toHaveAttribute('aria-pressed', 'false');
+  await expect(week).toHaveAttribute('aria-checked', 'false');
   await processTo(page, phone, 'Paint the fence');
   await expect(toast(page)).toContainText('Added Fix the gate to Paint the fence.');
   await exit(page, phone);

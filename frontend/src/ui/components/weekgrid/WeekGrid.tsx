@@ -57,7 +57,7 @@ export interface PlacedBlock extends GridBlock {
   result: BlockResult | null;
 }
 
-const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off', planning: 'planning' };
+const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off', planning: 'planning', inbox: 'inbox' };
 
 /** The placed spans of a slot context, with what their block rows say. */
 export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[], now: number): PlacedBlock[] {
@@ -380,7 +380,7 @@ export function WeekGrid(props: WeekGridProps) {
                         onPointerDown={(e) => startDrag(e, at, 'move')}
                         onKeyDown={(e) => onKey(e, b)}
                       >
-                        <BlockMarks state={state} short={h < 30} />
+                        <BlockMarks state={state} short={h < 30} look={LOOK[b.kind]} />
                         <span className="blktitle">{b.draft ? `${b.title}, ${formatTimeOfDay(at.start)}` : b.title}</span>
                         {h >= EDGE_MIN && <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />}
                         {!b.draft && props.onRemove && (
@@ -410,7 +410,7 @@ export function WeekGrid(props: WeekGridProps) {
                         title={b.note}
                         onClick={() => props.onOpen?.(b.id)}
                       >
-                        <BlockMarks state={state} short={h < 30} />
+                        <BlockMarks state={state} short={h < 30} look={LOOK[b.kind]} />
                         <OutcomeTag result={b.result} />
                         <span className="blktitle">{b.title}</span>
                       </button>
@@ -418,7 +418,7 @@ export function WeekGrid(props: WeekGridProps) {
                   }
                   return (
                     <div key={b.id} className={cls} style={style} title={said}>
-                      <BlockMarks state={state} short={h < 30} />
+                      <BlockMarks state={state} short={h < 30} look={LOOK[b.kind]} />
                       <OutcomeTag result={b.result} />
                       <span className="blktitle">{b.title}</span>
                     </div>

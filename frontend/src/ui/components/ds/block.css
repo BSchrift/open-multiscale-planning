@@ -31,12 +31,24 @@
   --ki: var(--ink-2);
 }
 
+/* An Inbox item's block has no kind yet, so no kind's colour: Planning's neutral wash, told apart by a dashed edge, the
+   inbox icon and the word Inbox. Process files it into a kind, whose look it then takes. */
+.k-inbox {
+  --kc: var(--ink-3);
+  --kt: var(--wash);
+  --ki: var(--ink-2);
+}
+
 .blk.k-practice {
   border-left-style: double;
 }
 
 .blk.k-oneoff {
   border-left-style: dotted;
+}
+
+.blk.k-inbox {
+  border-left-style: dashed;
 }
 
 /* Another calendar's event: grey stripes with a line-coloured edge. Information only: a dashed outline. */
@@ -116,8 +128,13 @@
 
 /* The marks before the title. */
 .ansbadge,
-.blknow {
+.blknow,
+.blkinbox {
   margin-right: var(--space-1);
+}
+
+.blkinbox {
+  vertical-align: -3px;
 }
 
 .ansbadge {

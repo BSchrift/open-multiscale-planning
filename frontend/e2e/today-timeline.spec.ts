@@ -222,3 +222,51 @@ test('the block under way keeps its start and changes only its end, from its edg
   }
   expect(errors).toEqual([]);
 });
+
+test('an Inbox item’s block shows it isn’t sorted yet, on Today and on Week: a dashed edge, the inbox icon and the word Inbox', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const item: Seed = { type: 'task', id: 'i1', fields: { kind: 'inbox', title: 'Book dentist' } };
+  const errors = await open(page, [planned, item, block('bi', { task_id: 'i1' }, '17:45', '18:45')]);
+  await settled(page);
+  const drawn = page.getByRole(phone ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
+  await drawn.scrollIntoViewIfNeeded();
+  await expect(drawn).toHaveClass(/\bk-inbox\b/);
+  await expect(drawn.locator('svg[data-icon="inbox"]')).toBeVisible();
+  expect(await drawn.evaluate((el) => getComputedStyle(el).borderLeftStyle)).toBe('dashed');
+
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  const week = page.getByRole('button', { name: phone ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.' });
+  await week.scrollIntoViewIfNeeded();
+  await expect(week).toHaveClass(/\bk-inbox\b/);
+  await expect(week.locator('svg[data-icon="inbox"]')).toBeVisible();
+  if (phone) await expect(week).toContainText('Inbox, 1h');
+  await week.click();
+  await expect(page.getByRole('dialog', { name: 'Book dentist' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a block held on phone lifts with one light tap from the device; a mouse drag on desktop taps nothing', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  // A phone browser that can vibrate, as on Android, noting each one. WebKit has no vibrate of its own.
+  await page.addInitScript(() => {
+    const taps: unknown[] = [];
+    Object.defineProperty(navigator, 'vibrate', { value: (pattern: unknown) => taps.push(pattern) > 0, configurable: true });
+    Object.assign(window, { taps });
+  });
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  const b = page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  await b.scrollIntoViewIfNeeded();
+  const box = (await b.boundingBox())!;
+  // The first zoom draws 30px an hour, so 15px down is half an hour later.
+  if (phone) await touchDrag(page, b, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 15 });
+  else {
+    await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 + 15, { steps: 4 });
+    await page.mouse.up();
+  }
+  await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { taps: unknown[] }).taps)).toEqual(phone ? [10] : []);
+  expect(errors).toEqual([]);
+});

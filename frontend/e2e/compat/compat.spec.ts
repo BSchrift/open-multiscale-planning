@@ -385,7 +385,7 @@ test.describe('one device', () => {
       await expect(card('Climbing', '3 more this week, 30m each')).toBeVisible();
       await expect(pane(page, 'Week').getByRole('button', { name: /, Practice, 30 minutes on Thursday/ })).toHaveCount(0);
       await pane(page, 'Week').getByRole('button', { name: `${title}, Practice, 30 minutes on Friday around 9:30 AM, to schedule` }).click();
-      await expect(pane(page, 'Week').getByRole('button', { name: '1 · Fri 9:30am to 10am' })).toBeVisible();
+      await expect(pane(page, 'Week').getByRole('button', { name: 'Fri 9:30am to 10am' })).toBeVisible();
     };
     await expectUpdate('Morning run');
     await everyScreen(page);

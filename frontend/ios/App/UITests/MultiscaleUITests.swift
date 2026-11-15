@@ -546,6 +546,11 @@ final class NativeUITests: XCTestCase {
         run("Database", expect: "database:ok")
     }
 
+    /// A hold's light tap goes through the haptics plugin, since iPhones ignore the browser's vibrate.
+    func testAHoldsTapReachesTheHapticsPlugin() {
+        run("Haptic", expect: "haptic:ok")
+    }
+
     func testQueryPlansOnThePluginsSQLite() {
         run("Plans", expect: "queryplans:ok", timeout: 300)
         let version = app.page.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'sqlite:'")).firstMatch

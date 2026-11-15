@@ -12,8 +12,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('heading', { level: 1, name: 'Design system' })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     // Every kind in every state it can be in, and a 15-minute block in each state.
-    await expect(page.locator('.refblocks .blk')).toHaveCount(4 * 9 + 2 + 9);
-    await expect(page.locator('.refblocks .ansbadge')).toHaveCount(4 * 4 + 4);
+    await expect(page.locator('.refblocks .blk')).toHaveCount(5 * 9 + 2 + 9);
+    await expect(page.locator('.refblocks .ansbadge')).toHaveCount(5 * 4 + 4);
     const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(wide, 'the page scrolls sideways').toBe(false);
     await expect(page).toHaveScreenshot(`reference-${theme}.png`, { fullPage: true, maxDiffPixelRatio: 0.01, animations: 'disabled' });

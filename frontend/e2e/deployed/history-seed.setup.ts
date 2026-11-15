@@ -1,4 +1,4 @@
-// Before the history journey: the five-year account on staging's history user, seeded as the history-scale test seeds
+// Before the web app suite's history project: the five-year account on staging's history user, seeded as the history-scale test seeds
 // it. Only records staging keeps go: the live ones, which carry no expiry and so stay, and none of the deleted ones,
 // whose deleted period of minutes has long passed. A rerun writes nothing, and takes the time of its requests.
 

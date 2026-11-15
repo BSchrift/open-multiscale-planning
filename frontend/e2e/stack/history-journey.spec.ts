@@ -13,11 +13,11 @@ import { account } from '../seed';
 import { closeDevices, device, startSignIn } from './devices';
 import { target } from './target';
 
-// The deployed web suite's journey on the history-scale test's five-year account, about 34,000 records. A long history
+// The deployed web suite's journey on the history-scale test's five-year account, about 33,000 records. A long history
 // makes a change take a second or more to read back, where a new user's takes milliseconds: on prod's shared test user, Week took
 // a card away only after the toast holding the Undo the journey pressed next had gone (#312). CI's users start empty
-// and staging keeps records for minutes, so nothing before prod met it. Staging's release tests take the journey on its
-// history user too (e2e/deployed/history-journey.spec.ts); this is the same on the local stack, so a PR meets it first.
+// and staging keeps records for minutes, so nothing before prod met it. Each staging run takes the journey on its history
+// user too (the web app suite's history project); this is the same on the local stack, so a PR meets it first.
 
 const t = target();
 test.use({ baseURL: `http://localhost:${process.env.STACK_WEB_PORT}` });

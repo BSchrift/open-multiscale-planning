@@ -1,7 +1,8 @@
 // The checks a person would make by hand after a release, against the deployment itself: it serves the version
 // released, behind its security policy; the test user signs in through the hosted page and stays signed in; a second
 // tab is refused; on desktop, the data is on OPFS, and work goes from Capture to the calendar and back; and stretch
-// planning's steps open, each with Does it fit.
+// planning's steps open, each with Does it fit. On staging, its history project does the same for a desktop browser of a
+// five-year account: a long first sync, a reload in the middle of one, OPFS, the journey, planning and the console.
 // scripts/test-deployed.sh runs it.
 
 import { expect, test } from '@playwright/test';
@@ -18,6 +19,10 @@ const NETWORK = { timeout: 60_000 };
 // The sync a new browser runs after its first reload, which fills in expiries for what it downloaded and sends them.
 // On prod's shared test user, which held tens of thousands of deleted records, it ran past 70 seconds on 15 November.
 const CATCH_UP = 180_000;
+// The history project (playwright.config.ts) signs in as staging's history user, whose five-year account
+// (history-seed.setup.ts) is about 33,000 records: some 67 pages of 500 for a new browser. Fewer means it isn't seeded.
+const HISTORY_PAGES = 50;
+const HISTORY_ONLY = 'The history project checks only what a long history changes: sign-in, a reload, OPFS, the journey, planning and the console';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -35,6 +40,31 @@ async function noteSync(r: Request) {
   const { startTime, responseEnd } = r.timing();
   const answer = got ? `pulled ${got.changes?.length} to ${got.cursor}${got.more ? ', more' : ''}` : (res?.status() ?? r.failure()?.errorText);
   syncs.push(`${new Date(startTime).toISOString().slice(11, 19)} ${Math.round(responseEnd)} ms: sent ${sent.changes?.length} at ${sent.cursor}, ${answer}`);
+}
+
+/** Signs a page in from the app's Sign in, through the hosted sign-in page. */
+async function signInAs(p: Page, user: { username: string; password: string }) {
+  const opened = p.waitForEvent('popup');
+  await p.getByRole('button', { name: 'Sign in' }).first().click();
+  const popup = await opened;
+  // The hosted sign-in page has a wide and a narrow form, and shows one.
+  await popup.locator('input[name=username]:visible').fill(user.username);
+  await popup.locator('input[name=password]:visible').fill(user.password);
+  await popup.locator('input[name=signInSubmitButton]:visible').click();
+  await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+}
+
+/** Counts the pages of records a page's syncs pull, as they arrive. */
+function pullsOf(p: Page) {
+  const pulled = { pages: 0 };
+  p.on('response', (res) => {
+    if (res.request().method() !== 'POST' || !res.url().endsWith('/sync') || !res.ok()) return;
+    res.json().then(
+      (body: { changes?: unknown[] }) => void (body.changes?.length && pulled.pages++),
+      () => undefined,
+    );
+  });
+  return pulled;
 }
 
 // One signed-in page for the whole file, as a person would keep one tab.
@@ -61,7 +91,15 @@ test.beforeAll(async ({ browser }, info) => {
   page = await context.newPage();
 });
 
-test.afterAll(() => context?.close());
+test.afterAll(async ({}, info) => {
+  // A journey that failed part way leaves its checks, which the serial tests after it don't clear. On the history user
+  // they'd change the Inbox count the history-scale test waits for, so they go here.
+  if (info.project.name === 'history' && page && !page.isClosed()) {
+    test.setTimeout(300_000);
+    await clearChecks(page).catch((e: Error) => console.log(`Clearing the history user's checks failed: ${e.message}`));
+  }
+  await context?.close();
+});
 
 // CodeBuild keeps no trace, so a failed test logs what the page showed, and what its latest syncs carried and took.
 test.afterEach(async ({}, info) => {
@@ -71,7 +109,8 @@ test.afterEach(async ({}, info) => {
   }
 });
 
-test('serves the version released, its pages with the security policy, and assets that cache for good', async () => {
+test('serves the version released, its pages with the security policy, and assets that cache for good', async ({}, info) => {
+  test.skip(info.project.name === 'history', HISTORY_ONLY);
   for (const path of ['/', '/auth/callback', '/version.json']) {
     const r = await page.request.get(path);
     expect(r.status(), path).toBe(200);
@@ -88,6 +127,7 @@ test('serves the version released, its pages with the security policy, and asset
 });
 
 test('signs in through the hosted page as the test user, and stays signed in after a reload', async ({}, info) => {
+  test.skip(info.project.name === 'history', 'The history user signs in below');
   test.setTimeout(NETWORK.timeout + CATCH_UP);
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });
@@ -96,14 +136,7 @@ test('signs in through the hosted page as the test user, and stays signed in aft
   if (await signIn.isVisible()) {
     // The browser build has no Skip at sign-in: it has nowhere to keep work without an account.
     expect(await page.getByRole('button', { name: 'Skip' }).count()).toBe(0);
-    const opened = page.waitForEvent('popup');
-    await signIn.click();
-    const popup = await opened;
-    // The hosted sign-in page has a wide and a narrow form, and shows one.
-    await popup.locator('input[name=username]:visible').fill(d.user.username);
-    await popup.locator('input[name=password]:visible').fill(d.user.password);
-    await popup.locator('input[name=signInSubmitButton]:visible').click();
-    await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+    await signInAs(page, d.user);
     // A browser new to the account goes through first-run setup: Next, Skip the calendar, Next, Skip a first goal.
     for (let i = 0; i < 8 && !(await nav.isVisible()); i++) {
       const go = page.getByRole('button', { name: /^(Next|Skip)$/ }).first();
@@ -125,8 +158,58 @@ test('signs in through the hosted page as the test user, and stays signed in aft
   }
 });
 
+// The history user's records carry no expiry, as records from before retention don't, which keeps its five years on
+// staging. A page that reloads holding them fills in their expiries and sends them, and staging's periods of minutes
+// would then remove most of the account. So its page here is never reloaded, and the reload is a browser of its own,
+// which before it reloads lets through only the web app's own pages and files, and is closed that way.
+test('a new browser of a five-year account pulls the whole history in its first sync, then opens the app', async ({}, info) => {
+  test.skip(info.project.name !== 'history', 'Staging only: the history project');
+  test.setTimeout(NETWORK.timeout + CATCH_UP);
+  if (!d.history) throw new Error('MULTISCALE_HISTORY_TARGET has no history user. Run scripts/test-deployed.sh.');
+  const pulled = pullsOf(page);
+  await page.goto('/');
+  const started = Date.now();
+  await signInAs(page, d.history.test_user!);
+  // Its settings, with setup done, come last, so the app opens once the whole history is in.
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: CATCH_UP });
+  console.log(`The history user's first sync pulled ${pulled.pages} pages in ${Math.round((Date.now() - started) / 1000)} s.`);
+  const unseeded = `fewer than ${HISTORY_PAGES} pages means its five-year account isn't seeded on staging: make test-history ENV=staging seeds it`;
+  await expect.poll(() => pulled.pages, { message: unseeded }).toBeGreaterThanOrEqual(HISTORY_PAGES);
+});
+
+test('a reload in the middle of that first sync opens the database again, once the page it replaces lets go', async ({ browser }, info) => {
+  test.skip(info.project.name !== 'history', 'Staging only: the history project');
+  test.setTimeout(3 * NETWORK.timeout);
+  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL } = info.project.use;
+  const other = await browser.newContext({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL });
+  try {
+    const p = await other.newPage();
+    const held: string[] = [];
+    p.on('console', (m) => void (/another open Access Handle/.test(m.text()) && held.push(m.text())));
+    const pulled = pullsOf(p);
+    await p.goto('/');
+    await signInAs(p, d.history!.test_user!);
+    // Ten pages in, the database worker is writing what it pulled, as it was on prod's reloads that found the SQLite
+    // pool still held. From here only GETs to the web app's own host go out, so the page reloads and nothing is sent.
+    await expect.poll(() => pulled.pages, NETWORK).toBeGreaterThanOrEqual(10);
+    const own = new URL(baseURL!).origin;
+    await other.route('**/*', (route) => {
+      const r = route.request();
+      return r.method() === 'GET' && new URL(r.url()).origin === own ? route.continue() : route.abort();
+    });
+    await p.reload();
+    // Signed in, with its settings not pulled yet, it opens on setup. A pool that never opened shows "Couldn't open your
+    // data." instead.
+    await expect(p.locator('.setup')).toBeVisible(NETWORK);
+    await expect(p.getByText("Couldn't open your data.", { exact: false })).toHaveCount(0);
+    console.log(`The reload's tries at the SQLite pool that found it still held: ${held.length}.`);
+  } finally {
+    await other.close();
+  }
+});
+
 test('keeps its data on OPFS, through a worker and WebAssembly the security policy allows', async ({}, info) => {
-  test.skip(info.project.name !== 'desktop', 'Phone runs WebKit, which has no OPFS in an ephemeral context, as Safari has none in a private window');
+  test.skip(info.project.name === 'phone', 'Phone runs WebKit, which has no OPFS in an ephemeral context, as Safari has none in a private window');
   const pool = await page.evaluate(async () => {
     try {
       return !!(await (await navigator.storage.getDirectory()).getDirectoryHandle('.opfs-sahpool'));
@@ -137,7 +220,8 @@ test('keeps its data on OPFS, through a worker and WebAssembly the security poli
   expect(pool).toBe(true);
 });
 
-test('a second tab is refused while the first holds the database', async () => {
+test('a second tab is refused while the first holds the database', async ({}, info) => {
+  test.skip(info.project.name === 'history', HISTORY_ONLY);
   const second = await context.newPage();
   await second.goto('/');
   await expect(second.getByText('Multiscale is open in another tab.')).toBeVisible({ timeout: 15_000 });
@@ -147,21 +231,23 @@ test('a second tab is refused while the first holds the database', async () => {
 // Checks earlier runs left on the shared test user are taken away first, in a test of their own: a run that failed part
 // way can leave many, and clearing them inside the journey spent its time limit before the journey began.
 test('clears the checks earlier runs left on the shared test user', async ({}, info) => {
-  test.skip(info.project.name !== 'desktop', 'The journey that leaves them is desktop only');
+  test.skip(info.project.name === 'phone', 'The journey that leaves them is desktop only');
   test.setTimeout(300_000);
   await clearChecks(page);
 });
 
 // The cross-version suite takes the same journey on the release before, as this step does on prod: see journey.ts.
 test('work goes from Capture to this week, onto the calendar by suggestion and by drag, back off, and done', async ({}, info) => {
-  test.skip(info.project.name !== 'desktop', 'The mouse journey is the desktop layout; phone is covered by the local suites');
+  // The history project takes it on a long history, where each change takes seconds to read back, as on prod's shared
+  // test user.
+  test.skip(info.project.name === 'phone', 'The mouse journey is the desktop layout; phone is covered by the local suites');
   await workJourney(page, `Deployed check ${new Date().toISOString().slice(11, 19)}`);
 });
 
 // The checks the journey left are cleared after it in a test of their own too, so a slow clear-up on prod can't spend
 // the journey's time limit.
 test('clears the checks this run left on the shared test user', async ({}, info) => {
-  test.skip(info.project.name !== 'desktop', 'The journey that leaves them is desktop only');
+  test.skip(info.project.name === 'phone', 'The journey that leaves them is desktop only');
   test.setTimeout(300_000);
   await clearChecks(page);
 });

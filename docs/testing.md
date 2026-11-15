@@ -27,11 +27,11 @@ there, before prod's Test step meets it.
 **The deployed journey, on a long history.** Prod's shared test user holds tens of thousands of records, so a change
 there takes seconds to read back, where a new user's takes milliseconds; once, Week took a card away only after the
 toast holding the journey's next Undo had gone (#312). So the same journey also runs on the history-scale test's
-five-year account, about 34,000 records: on CI in e2e-stack (`frontend/e2e/stack/history-journey.spec.ts`), seeded for a
+five-year account, about 33,000 records: on CI in e2e-stack (`frontend/e2e/stack/history-journey.spec.ts`), seeded for a
 user of its own, with the page's CPU six times slower once synced, so Week's read-back passes the toast's 5 seconds as
-prod's did; and on every staging run as `integration.historyUser`, seeded first
-(`frontend/e2e/deployed/history-journey.spec.ts`), reported only for now. That page never reloads: a reload would give
-each of the account's records an expiry of staging's minutes and send them.
+prod's did; and on every staging run as `integration.historyUser`, in the web app suite's `history` project, seeded
+first, with the long first sync, a reload during one, OPFS, planning and the console, reported only for now. That page
+never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them.
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app

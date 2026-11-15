@@ -7,6 +7,7 @@ import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { configureRetention } from '../../../core/retention';
 import { fakeUpdater, renderApp, renderScreen } from '../../app/testing';
+import type { UpdateStatus } from '../../../core/updates';
 import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
@@ -512,6 +513,85 @@ describe('Settings updates', () => {
     await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.');
     expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
     expect(within(section('Updates')).queryByRole('button', { name: 'How to update' })).toBeNull();
+  });
+});
+
+// The Mac app that replaces itself: each state's copy and buttons, exactly, and where Check for updates shows.
+describe('Settings updates on a Mac app that updates itself', () => {
+  const DMG = 'https://downloads.example.test/Multiscale.dmg';
+  const VERSIONED = 'https://downloads.example.test/mac/0.1.200/Multiscale.dmg';
+  const named = { version: '0.2.0-bbbbbbb', build: 200, dmg: VERSIONED };
+  const HOW = 'App built Nov 3, 2025. Updates download by themselves and install when Multiscale quits or your Mac restarts.';
+  const render = (status: UpdateStatus, app: NonNullable<Parameters<typeof fakeUpdater>[1]>['app'] = {}) => {
+    const updates = fakeUpdater(status, { download: DMG, app: { built: 1762160000, ...app } });
+    return { updates, t: renderScreen('settings', { updates }) };
+  };
+  const card = () => section('Updates');
+  const buttons = () => within(card()).queryAllByRole('button').map((b) => b.textContent);
+
+  it.each([
+    ['up to date', { state: 'current' }, {}, ['Up to date.', HOW], ['Check for updates']],
+    ['downloading', { state: 'app-downloading', ...named, percent: 42 }, {}, ['Downloading an update… 42%', HOW], []],
+    ['ready', { state: 'app-ready', ...named }, {}, ['An update is ready. It installs the next time Multiscale quits or your Mac restarts.', 'Multiscale closes and opens again in a few seconds.'], ['Restart to update']],
+    ['from the disk image', { state: 'current' }, { place: { kind: 'disk-image' } }, ["Multiscale is running from the disk image, so it can't update itself or open when you log in."], ['Move to Applications', 'Check for updates']],
+    ['from the disk image, with an update waiting', { state: 'failed', failure: 'read-only', place: 'disk-image', ...named }, { place: { kind: 'disk-image' } }, ["Multiscale can't update itself while it runs from the disk image."], ['Move to Applications', 'Check for updates']],
+    ['from a temporary copy', { state: 'failed', failure: 'read-only', place: 'translocated', ...named }, { place: { kind: 'translocated' } }, ["Multiscale can't update itself from where it's running."], ['Move to Applications', 'Check for updates']],
+    ['with an administrator', { state: 'failed', failure: 'needs-admin', ...named }, { place: { kind: 'needs-admin' } }, ["Updating Multiscale needs an administrator's password. Update the app asks macOS for it, then restarts Multiscale."], ['Update the app', 'Download the app']],
+    ['after a failed download', { state: 'failed', failure: 'app-download', failures: 1, ...named }, {}, ["Couldn't download the update. It tries again later.", HOW], ['Check for updates']],
+    ['after three failed downloads', { state: 'failed', failure: 'app-download', failures: 3, ...named }, {}, ["Couldn't download the update. It tries again later.", HOW], ['Download the app', 'Check for updates']],
+    ['out of space', { state: 'failed', failure: 'app-space', ...named }, {}, ["Couldn't download the update: this Mac is out of space. It tries again later.", HOW], ['Check for updates']],
+    ["when it didn't check out", { state: 'failed', failure: 'app-signature', ...named }, {}, ["The update didn't pass its safety check, so it wasn't installed. It tries again with the next update.", HOW], ['Download the app', 'Check for updates']],
+    ["when it didn't install", { state: 'failed', failure: 'app-install', ...named }, {}, ["The update didn't install. It tries again the next time Multiscale quits.", HOW], ['Restart to update', 'Download the app']],
+    ['on an older app', { state: 'failed', failure: 'older-app', ...named }, { place: { kind: 'older' } }, ["You're using an older version of the app. It stays on this version until you choose Update the app."], ['Update the app', 'Check for updates']],
+  ] as [string, UpdateStatus, object, string[], string[]][])('says what is happening %s, with only the buttons that can do something', async (_, status, app, lines, expected) => {
+    await render(status, app).t;
+    // The first is the line shown; a failure or a ready update is also said once in the status region.
+    for (const line of lines) expect((await within(card()).findAllByText(line))[0]).toBeVisible();
+    if (!lines.includes(HOW)) expect(within(card()).queryByText(HOW)).toBeNull();
+    // No version but in the Version row.
+    expect(within(card()).queryByText(/0\.2\.0-bbbbbbb|0\.1\.200/)).toBeNull();
+    expect(buttons()).toEqual(expected);
+  });
+
+  it('names the download bar, with its value, and never reads the percentage out', async () => {
+    await render({ state: 'app-downloading', ...named, percent: 42 }).t;
+    const bar = within(card()).getByRole('progressbar', { name: 'Downloading an update' });
+    expect(bar).toHaveAttribute('aria-valuenow', '42');
+    expect(within(card()).getByText('Downloading an update… 42%').closest('[aria-live],[role=status]')).toBeNull();
+  });
+
+  it('restarts to update, saying so on the button, and offers the versioned disk image', async () => {
+    const { updates, t } = render({ state: 'app-ready', ...named });
+    await t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Restart to update' }));
+    expect(updates.app!.restart).toHaveBeenCalled();
+    expect(within(card()).getByRole('button', { name: 'Restarting…' })).toBeDisabled();
+    cleanup();
+    const failed = render({ state: 'failed', failure: 'app-mismatch', ...named });
+    const harness = await failed.t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Download the app' }));
+    expect(harness.platform.opened).toEqual([VERSIONED]);
+  });
+
+  it('moves the app to Applications, and updates the app on request', async () => {
+    const moving = render({ state: 'current' }, { place: { kind: 'disk-image' } });
+    await moving.t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Move to Applications' }));
+    expect(moving.updates.app!.move).toHaveBeenCalled();
+    cleanup();
+    const older = render({ state: 'failed', failure: 'older-app', ...named }, { place: { kind: 'older' } });
+    await older.t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Update the app' }));
+    expect(older.updates.app!.install).toHaveBeenCalled();
+  });
+
+  it('says once when an update is ready or fails, in a region that stays', async () => {
+    const { updates, t } = render({ state: 'app-downloading', ...named, percent: 10 });
+    await t;
+    const region = within(card()).getByRole('status');
+    expect(region).toHaveTextContent('');
+    act(() => void updates.set({ state: 'app-ready', ...named }));
+    expect(region).toHaveTextContent('An update is ready. It installs the next time Multiscale quits or your Mac restarts.');
   });
 });
 

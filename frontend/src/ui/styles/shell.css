@@ -116,11 +116,11 @@ p {
 
 [data-layout='desktop'] .updnote .row {
   margin-top: 6px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: var(--space-1);
 }
 
-/* Both buttons on one line in the sidebar's width. */
+/* How to update and Later fit on one line in the sidebar's width; Restart to update and Later wrap. */
 [data-layout='desktop'] .updnote .btn.sm {
   padding: 4px 8px;
   font-size: 13px;

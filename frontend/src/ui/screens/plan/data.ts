@@ -7,7 +7,8 @@ import type { TimeRow } from '../../../core/analytics';
 import type { Clock } from '../../../core/clock';
 import { dayRange, today } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherPlans } from '../../../core/plan';
+import { backlogTouches } from '../../../core/backlog';
+import { gatherBacklogs, gatherPlans } from '../../../core/plan';
 import type { ProjectPlan, Stretch } from '../../../core/plan';
 import { goalChanges, inboxTasks, oneOffTasks, projectTasks } from '../../../core/queries';
 import type { InboxRow } from '../../../core/queries';
@@ -19,6 +20,10 @@ export interface PlanData {
   objectives: Objective[];
   /** Every project in added order. Finished and dropped ones carry no tasks. */
   plans: ProjectPlan[];
+  /** Each goal's backlog, its tasks in arrival order. */
+  backlogs: ProjectPlan[];
+  /** When each open backlog task was last touched, in epoch ms, by task id. */
+  touches: Record<string, number>;
   /** Open one offs. */
   oneOffs: Task[];
   practices: Practice[];
@@ -29,7 +34,7 @@ export interface PlanData {
 }
 
 export async function loadPlan(sql: Sql, clock: Clock): Promise<PlanData> {
-  const [settings, objectives, projects, milestones, tasks, oneOffs, practices, away, changed, inbox] = await Promise.all([
+  const [settings, objectives, projects, milestones, tasks, oneOffs, practices, away, changed, inbox, touches] = await Promise.all([
     getSettings(sql),
     listRecords(sql, 'objective'),
     listRecords(sql, 'project'),
@@ -40,11 +45,14 @@ export async function loadPlan(sql: Sql, clock: Clock): Promise<PlanData> {
     listRecords(sql, 'away_period'),
     goalChanges(sql),
     inboxTasks(sql),
+    backlogTouches(sql),
   ]);
   return {
     settings,
     objectives,
     plans: gatherPlans(projects, milestones, tasks),
+    backlogs: gatherBacklogs(projects, milestones, tasks),
+    touches,
     oneOffs: oneOffs.filter((t) => !t.done_at && !t.cancelled_at),
     practices,
     away,

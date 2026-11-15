@@ -74,6 +74,21 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('on the computer waking from sleep or its screen unlocking', async () => {
+    const t = await setup();
+    const wake = memoryLifecycle();
+    const runner = createSyncRunner({ db: t.db, clock: t.clock, lifecycle: t.lifecycle, onWake: wake.onForeground, send: t.send });
+    runner.start();
+    await flush();
+    wake.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+    runner.stop();
+    wake.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+  });
+
   it('not because of changes that came from a sync', async () => {
     const t = await setup();
     t.runner.start();

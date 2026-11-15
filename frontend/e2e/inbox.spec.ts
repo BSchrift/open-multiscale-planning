@@ -412,6 +412,8 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   await page.keyboard.press('Escape');
   await page.keyboard.press('z');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
+  // Back in Add to first: Esc pressed before focus gets there closes the card instead of leaving the field.
+  await expect(picker).toBeFocused();
   // P opens the form on the name, selected; Esc goes back to the button that opened it.
   await page.keyboard.press('Escape');
   await page.keyboard.press('p');

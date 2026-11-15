@@ -60,6 +60,20 @@ export async function saved(page: Page, text: string): Promise<void> {
 
 /** Checks a control is at least 44pt each way, the smallest a finger can hit reliably. */
 export async function expectTapTarget(target: Locator): Promise<void> {
+  // A control that isn't there fails here, by name, rather than as a timeout in the wait below, which reads like an
+  // animation that never ends.
+  await expect(target).toBeVisible();
+  // Measured once it and what it sits in have finished moving in, such as a sheet sliding up: partway, the browser
+  // reads a moved box's corners to the nearest float, so a 44px box can read 43.99997px. An endless animation, such as
+  // a spinner's, never finishes, so it isn't waited for.
+  await target.evaluate((e) =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect instanceof KeyframeEffect && a.effect.getComputedTiming().endTime !== Infinity && a.effect.target?.contains(e))
+        .map((a) => a.finished.catch(() => {})),
+    ),
+  );
   const box = await target.boundingBox();
   const what = await target.evaluate((e) => e.outerHTML.slice(0, 80));
   expect(box?.height, what).toBeGreaterThanOrEqual(44);

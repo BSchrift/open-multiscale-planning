@@ -6,7 +6,8 @@ import type { PracticeRow } from '../../../core/analytics';
 import type { Clock } from '../../../core/clock';
 import { thisWeek, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherPlans } from '../../../core/plan';
+import { backlogTouches } from '../../../core/backlog';
+import { gatherBacklogs, gatherPlans } from '../../../core/plan';
 import type { ProjectPlan } from '../../../core/plan';
 import { blocksInRange, goalChanges, projectTasks } from '../../../core/queries';
 import { getRecord, getSettings, listRecords, outcomeId } from '../../../core/records';
@@ -16,6 +17,10 @@ export interface GoalsData {
   objectives: Objective[];
   /** Every project. Finished and dropped ones carry no tasks, since they only show under Archived. */
   plans: ProjectPlan[];
+  /** Each goal's backlog, its tasks in arrival order. */
+  backlogs: ProjectPlan[];
+  /** When each open backlog task was last touched, in epoch ms, by task id. */
+  touches: Record<string, number>;
   practices: Practice[];
   /** This week's time against target, by practice id. */
   practiceWeek: Record<string, PracticeRow>;
@@ -26,7 +31,7 @@ export interface GoalsData {
 }
 
 export async function loadGoals(sql: Sql, clock: Clock): Promise<GoalsData> {
-  const [objectives, projects, milestones, tasks, practices, settings, away, changed] = await Promise.all([
+  const [objectives, projects, milestones, tasks, practices, settings, away, changed, touches] = await Promise.all([
     listRecords(sql, 'objective'),
     listRecords(sql, 'project'),
     listRecords(sql, 'milestone'),
@@ -35,6 +40,7 @@ export async function loadGoals(sql: Sql, clock: Clock): Promise<GoalsData> {
     getSettings(sql),
     listRecords(sql, 'away_period'),
     goalChanges(sql),
+    backlogTouches(sql),
   ]);
   const week = thisWeek(clock);
   const blocks: TimeBlock[] = (await blocksInRange(sql, weekRange(week, clock.zone())))
@@ -51,6 +57,8 @@ export async function loadGoals(sql: Sql, clock: Clock): Promise<GoalsData> {
   return {
     objectives,
     plans: gatherPlans(projects, milestones, tasks),
+    backlogs: gatherBacklogs(projects, milestones, tasks),
+    touches,
     practices,
     practiceWeek: Object.fromEntries(time.practices.map((row) => [row.id, row])),
     settings,

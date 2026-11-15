@@ -25,6 +25,7 @@ import {
 import type { Candidate, ProjectPlan } from '../../../../core/plan';
 import { status } from '../../../../core/status';
 import type { ProjectStatus } from '../../../../core/status';
+import { backlogId } from '../../../../core/backlog';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { LocalDate, Milestone, Minutes, Task } from '../../../../core/types';
 import type { DiamondState } from '../../../components/MilestoneDiamond';
@@ -312,6 +313,21 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     count: oneOffRows.filter((r) => r.c.picked).length,
   };
 
+  // Goal backlogs, after every project, in goal order. Their tasks keep arrival order, and with no dates of their own,
+  // nothing in them is suggested or due. One with nothing open isn't listed.
+  const goals = d.records.objectives.filter((g) => g.state !== 'archived' && !g.deleted_at);
+  goals.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.id < b.id ? -1 : 1));
+  const backlogs = goals.flatMap((g) => {
+    const plan = m.backlogs.find((b) => b.project.id === backlogId(g.id));
+    if (!plan) return [];
+    const at = new Map(plan.tasks.map((t, i) => [t.id, i]));
+    const key = (c: Candidate) => (c.carried ? -1 : (at.get(c.task.id) ?? 0));
+    const cands = [...projectCandidates(plan, input, ctx, true), ...doneToday(plan.tasks)].sort((a, b) => key(a) - key(b));
+    const rows = cands.map((c) => task(c, null));
+    const { open, counts } = counted(rows);
+    return open ? [{ goalId: g.id, goal: g.title, plan, rows, open, counts, planned: rows.reduce((sum, r) => sum + r.c.week, 0) }] : [];
+  });
+
   const statuses = m.plans.map((plan) => ({ plan, status: status(plan, ctx) }));
   const skipped = m.weekPlan?.skipped_past_end ?? [];
   const pastEnd = statuses.filter(({ plan, status: s }) => plan.project.state === 'active' && s.ended && !skipped.includes(plan.project.id));
@@ -367,6 +383,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
   const cadence = !!d.settings.plan_cadence;
   return {
     projects,
+    backlogs,
     oneOffs,
     pastEnd,
     others,

@@ -277,8 +277,11 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   } else {
     await nav.getByRole('button', { name: 'Plan' }).click();
   }
-  await page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first().click();
+  // Plan opens on a way in, or, while the shared test user's first stretch isn't planned, on the steps themselves.
+  const wayIn = page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  await expect(wayIn.or(steps).first()).toBeVisible(NETWORK);
+  if (!(await steps.isVisible())) await wayIn.click();
   const shown: [string, RegExp][] = [
     ['Goals', /^Step \d of \d, Goals\. (Are these still your goals|What are your goals)\?$/],
     ['Practices', /^Step \d of \d, Practices\. Your practices$/],
@@ -299,8 +302,8 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
   // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
-  // earlier runs may have done, so any of its ways in will do.
-  await expect(page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first()).toBeVisible();
+  // earlier runs may have done, so any of its ways in will do; a first stretch not yet planned shows its steps again.
+  await expect(wayIn.or(steps).first()).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

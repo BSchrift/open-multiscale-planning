@@ -7,6 +7,9 @@
 //
 // Before the first sync it fills in missing expiries and removes what has expired here, and after each sync it removes
 // what has expired again (expiry.ts).
+//
+// On the Mac it also syncs when the computer wakes from sleep or its screen unlocks, so a laptop opened in the morning
+// shows what changed overnight without waiting for a click on the window or the 5-minute timer.
 
 import type { AppConfig } from './appConfig';
 import { createAuth, tokenSubject } from './auth';
@@ -50,6 +53,8 @@ export function createSyncRunner(deps: {
   send: SyncSend;
   /** Runs after each sync that worked, such as uploading what the server now has the records for. Never stops a sync. */
   afterSync?(): Promise<void>;
+  /** Calls back when the computer wakes from sleep or its screen unlocks. Only on the Mac. */
+  onWake?(listener: () => void): () => void;
 }) {
   const { db, clock, lifecycle, send } = deps;
   let running: Promise<void> | null = null;
@@ -113,11 +118,13 @@ export function createSyncRunner(deps: {
         clearTimeout(editTimer);
         editTimer = setTimeout(() => void syncNow(), EDIT_DELAY_MS);
       });
+      const stopWake = deps.onWake?.(() => void syncNow()) ?? (() => {});
       cleanup = () => {
         clearTimeout(editTimer);
         clearInterval(period);
         stopForeground();
         stopChanges();
+        stopWake();
       };
     },
     stop(): void {
@@ -161,6 +168,7 @@ export function startAppSync(
     openExternal(url: string): Promise<void>;
     signInRedirectUri: string;
     onDeepLink(listener: (url: string) => void): () => void;
+    onWake?(listener: () => void): () => void;
     notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
     shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
     files: FileBytes & { clear(): Promise<void> };
@@ -215,7 +223,7 @@ export function startAppSync(
     },
   };
   const files = createFiles({ db: platform.db, clock, store: platform.files, api: filesApi });
-  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, send, afterSync: () => files.run() });
+  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, send, afterSync: () => files.run(), onWake: platform.onWake });
   const calendarPost = async (path: string) => {
     const res = await apiPost(api, path);
     if (!res.ok) throw new SyncError('error');

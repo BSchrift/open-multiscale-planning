@@ -5,9 +5,8 @@ import { META, setMeta } from '../../../core/db';
 import { CALENDAR_ID, getSettings, listRecords, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
-import type { UpdateStatus, Updater } from '../../../core/updates';
 import { configureRetention } from '../../../core/retention';
-import { renderApp, renderScreen } from '../../app/testing';
+import { fakeUpdater, renderApp, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
@@ -455,28 +454,7 @@ describe('Settings', () => {
 });
 
 describe('Settings updates', () => {
-  function fakeUpdater(initial: UpdateStatus, more: { download?: string } = {}) {
-    let status = initial;
-    const listeners = new Set<() => void>();
-    const updater = {
-      version: '0.1.0-aaaaaaa',
-      ...more,
-      status: () => status,
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => void listeners.delete(listener);
-      },
-      check: vi.fn(async () => {
-        status = { state: 'current' };
-        listeners.forEach((l) => l());
-        return status;
-      }),
-      apply: vi.fn(async () => undefined),
-      rolledBack: vi.fn(async () => null),
-      stop: vi.fn(),
-    } satisfies Updater;
-    return updater;
-  }
+  const DMG = 'https://downloads.example.test/Multiscale.dmg';
 
   it("isn't there where nothing publishes updates", async () => {
     await renderScreen('settings');
@@ -493,20 +471,37 @@ describe('Settings updates', () => {
     expect(await within(section('Updates')).findByText('Up to date.')).toBeVisible();
   });
 
+  // One gesture, one name: Restart to update, as a Mac app update will say too.
   it('offers to restart into a downloaded update', async () => {
     const updates = fakeUpdater({ state: 'ready', version: '0.2.0-bbbbbbb', build: 200 });
     await renderScreen('settings', { updates });
-    expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb is ready. It starts the next time the app opens.')).toBeVisible();
-    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Restart now' }));
+    expect(await within(section('Updates')).findByText('An update is ready. It starts the next time Multiscale opens.')).toBeVisible();
+    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Restart to update' }));
     expect(updates.apply).toHaveBeenCalled();
   });
 
-  it('links to the new app when an update needs it', async () => {
-    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }, { download: 'https://downloads.example.test/Multiscale.dmg' });
+  it('on the Mac, says an update needs the new Mac app, and How to update gives the steps and the download', async () => {
+    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }, { download: DMG });
     const t = await renderScreen('settings', { updates });
-    expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.')).toBeVisible();
-    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Download the app' }));
-    expect(t.platform.opened).toEqual(['https://downloads.example.test/Multiscale.dmg']);
+    expect(await within(section('Updates')).findByText("This update needs the new Mac app. It's the last one you install by hand.")).toBeVisible();
+    // No version outside the Version row, and the download is in the steps.
+    expect(within(section('Updates')).queryByText(/0\.2\.0-bbbbbbb/)).toBeNull();
+    expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
+    const how = within(section('Updates')).getByRole('button', { name: 'How to update' });
+    await userEvent.click(how);
+    const dialog = screen.getByRole('dialog', { name: 'Install the new Mac app' });
+    expect(within(dialog).getByText("This is the last time you install Multiscale by hand. Your plans stay as they are: they're saved on this Mac and synced.")).toBeVisible();
+    expect(within(dialog).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Download the app, below.',
+      'Quit Multiscale: click its icon in the menu bar, then Quit.',
+      'Open Multiscale.dmg from Downloads and drag Multiscale to Applications. Choose Replace.',
+      'Open Multiscale from Applications, then eject the disk image.',
+    ]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Download the app' }));
+    expect(t.platform.opened).toEqual([DMG]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(how).toHaveFocus();
   });
 
   it('says when checking failed, with no download offered on iPhone', async () => {
@@ -516,6 +511,7 @@ describe('Settings updates', () => {
     await renderScreen('settings', { updates: fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }) });
     await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.');
     expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
+    expect(within(section('Updates')).queryByRole('button', { name: 'How to update' })).toBeNull();
   });
 });
 

@@ -19,11 +19,19 @@ function dist(releaseKey: string) {
   return dir;
 }
 
-const sign = (dir: string, key: string) => {
+const sign = (dir: string, key: string, record?: string) => {
   const out = mkdtempSync(join(tmpdir(), 'signed-'));
   // As the pipeline's signing step runs it: plain node, the key in the environment, and nothing else.
-  const r = spawnSync(process.execPath, [script, dir, out], { encoding: 'utf8', env: { PATH: process.env.PATH, RELEASE_KEY: key } });
+  const r = spawnSync(process.execPath, [script, dir, out, ...(record === undefined ? [] : [record])], { encoding: 'utf8', env: { PATH: process.env.PATH, RELEASE_KEY: key } });
   return { ...r, out };
+};
+
+// The MacApp step's record of the app that runs this build (mac-inbox.ts appRecord), in its output.
+const app = { version: '0.1.5', build: 5, shell: 'e1', folder: 'mac/0.1.5/', file: 'Multiscale.zip', sha512: `${'A'.repeat(86)}==`, size: 123 };
+const recordFile = (record: object) => {
+  const path = join(mkdtempSync(join(tmpdir(), 'mac-apps-')), 'staging.json');
+  writeFileSync(path, JSON.stringify(record));
+  return path;
 };
 
 it('signs a manifest of every file but the source maps, and names each file by its hash', () => {
@@ -65,4 +73,32 @@ it("reads a build's public key from the key, or from its public half alone, whic
   const other = keyPem();
   writeFileSync(join(dir, 'prod.release-key.pem'), other);
   expect(releaseKeyIn(dir, 'prod')).toBe(publicKeyOf(other));
+});
+
+it("names the app that runs the build, from the MacApp step's record, in what it signs", () => {
+  const key = keyPem();
+  const r = sign(dist(publicKeyOf(key)), key, recordFile(app));
+  expect(r.status, r.stderr).toBe(0);
+  const { manifest, signature } = JSON.parse(readFileSync(join(r.out, 'release.json'), 'utf8'));
+  expect(verify(null, Buffer.from(manifest), createPublicKey(key), Buffer.from(signature, 'base64'))).toBe(true);
+  expect(JSON.parse(manifest).app).toEqual(app);
+});
+
+it('names no app when the MacApp step had no record to give, as before any app had one', () => {
+  const key = keyPem();
+  const r = sign(dist(publicKeyOf(key)), key, join(tmpdir(), 'no-such-record.json'));
+  expect(r.status, r.stderr).toBe(0);
+  expect(JSON.parse(JSON.parse(readFileSync(join(r.out, 'release.json'), 'utf8')).manifest).app).toBeUndefined();
+});
+
+it("refuses a record of an app for other native code than the build's, or one that isn't a record", () => {
+  const key = keyPem();
+  const other = sign(dist(publicKeyOf(key)), key, recordFile({ ...app, shell: 'e2' }));
+  expect(other.status).not.toBe(0);
+  expect(other.stderr).toContain("is for other native code than this build's");
+  for (const bad of [{ ...app, folder: '../elsewhere/' }, { ...app, file: 'a/b.zip' }, { ...app, sha512: 'x' }, { ...app, size: -1 }, { ...app, version: '0.1.0-abc' }]) {
+    const r = sign(dist(publicKeyOf(key)), key, recordFile(bad));
+    expect(r.status, JSON.stringify(bad)).not.toBe(0);
+    expect(r.stderr).toContain('not an app record');
+  }
 });

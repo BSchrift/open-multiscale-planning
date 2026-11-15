@@ -36,6 +36,15 @@ the 30-day deleted period, and every new browser of that user, the deployed web 
 
 The history-scale budgets only report for now (`HISTORY_REPORT_ONLY=1`). A missed budget never stops a release.
 
+Staging's own test user holds next to nothing, since its deleted period is minutes, so staging's web app suite also
+signs a desktop browser in as the history-scale test's user, whose five-year account stays there. It checks that the
+first sync pulls the whole history, about 62 pages, and fails under 50, since then the account isn't seeded
+(`make test-history ENV=staging` seeds it). It also checks that a reload in the middle of a first sync opens the
+database again, that the data is on OPFS, that stretch planning's Save and exit leaves the steps, and that the console
+stays clean. The account's records carry no expiry, so a reload of a browser holding them would fill expiries in and
+send them, and staging's periods would then remove most of the account. So the main page is never reloaded, and the
+reload is a browser of its own that sends nothing once it starts to reload.
+
 Each web build carries its environment's backend addresses, from its stack's outputs as Build finds them. A release
 that changes one of those outputs, such as a new sign-in client, reaches the web app with the run after it.
 

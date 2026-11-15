@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every suite that can run against a deployment, run against one, as make release does after each release:
 #   web app      the deployed web app as people get it (frontend/e2e/deployed), desktop and phone sizes, and the feeds
-#                the apps update from
+#                the apps update from; on staging, also a desktop browser of the history user's five-year account
 #   sync         two browser devices signing in and syncing through its API (frontend/e2e/stack); staging only
 #   compat       on staging, prod's web bundle and this checkout's sharing a database and syncing (scripts/test-compat.sh)
 #   integration  the black-box suite against its API and sign-in
@@ -46,6 +46,15 @@ cd "$root/frontend"
 if ! MULTISCALE_TARGET="$(node scripts/test-target.mjs)"; then
   echo "Couldn't read the $env_name test user. Sign in to AWS for $env_name, then run this again." >&2
   exit 1
+fi
+# On staging the web app suite also signs in as the history-scale test's own user, whose five-year account makes a long
+# first sync, as scripts/test-history.sh reads it.
+if [ "$env_name" = staging ]; then
+  if ! MULTISCALE_HISTORY_TARGET="$(MULTISCALE_TEST_USER=history node scripts/test-target.mjs)"; then
+    echo "Couldn't read the staging history user. See \"The history-scale test\" in docs/setup.md." >&2
+    exit 1
+  fi
+  export MULTISCALE_HISTORY_TARGET
 fi
 release_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseUrl ?? "")' "$outputs")"
 downloads_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).DownloadsUrl ?? "")' "$outputs")"

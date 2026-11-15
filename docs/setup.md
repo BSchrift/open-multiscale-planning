@@ -102,7 +102,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `auth.signInCallbackUrls` | Leave as they are. iPhone returns to `multiscale://`, and a desktop install to `multiscale://` on prod and `multiscale-staging://` on staging. |
    | `dns.zone` | This environment's zone under your domain, such as `staging.example.com` and `app.example.com`. Without a domain, delete the `dns` section. |
    | `integration.testUser` | The email of a dedicated test user, created in step 8. No email is ever sent to it. |
-   | `integration.historyUser` | Optional, staging only: the email of the history-scale test's own user, created in step 8. Only `make test-history ENV=staging` reads it. |
+   | `integration.historyUser` | Staging only: the email of the history-scale test's own user, created in step 8. `make test-history ENV=staging` seeds its account, and staging's deployed web suite (`make test-deployed`, and the release pipeline's staging step) signs in as it too, so the pipeline needs it. |
    | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
    | `files` | Leave it out: `make files-key` writes it in step 7. It holds the public keys CloudFront checks attachments' download links against, and `signWith`, the one the API signs with. |

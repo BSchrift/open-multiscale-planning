@@ -63,3 +63,29 @@ test('the shared feed at the root is gone', async ({ request }, info) => {
     .poll(async () => [403, 404].includes((await request.get(`${d.releaseUrl}/release.json`)).status()), { message: `${d.releaseUrl}/release.json answers 403 or 404`, timeout: 90_000, intervals: [10_000] })
     .toBe(true);
 });
+
+// The Mac app the desktop feed names, as an installed app updates to it: electron-updater reads latest-mac.yml from the
+// record's folder, which must say what the signed record does, then downloads the zip, in single byte ranges for only
+// the blocks that changed, and checks its SHA-512.
+test("the desktop feed's app is on the downloads host as its record says, and the zip downloads in ranges", async ({ request }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The feeds are the same at every size');
+  test.skip(!d.releaseUrl || !d.downloadsUrl, `${d.env} has no release or downloads host`);
+  test.setTimeout(5 * 60_000);
+  const feed = await request.get(`${d.releaseUrl}/desktop/release.json`);
+  expect(feed.status()).toBe(200);
+  const { app } = JSON.parse(((await feed.json()) as { manifest: string }).manifest) as { app?: { version: string; folder: string; file: string; sha512: string; size: number } };
+  if (!app) {
+    info.annotations.push({ type: 'skipped', description: 'The desktop feed names no app yet' });
+    return;
+  }
+  const folder = `${d.downloadsUrl}/${app.folder}`;
+  const yml = await (await request.get(`${folder}latest-mac.yml`)).text();
+  const field = (name: string) => new RegExp(`^\\s*-?\\s*${name}: '?([^'\\n]+)'?$`, 'm').exec(yml)?.[1];
+  expect([field('version'), field('path'), field('sha512'), field('size')], 'latest-mac.yml').toEqual([app.version, app.file, app.sha512, String(app.size)]);
+  const zip = await request.get(`${folder}${app.file}`);
+  const body = await zip.body();
+  expect([body.length, createHash('sha512').update(body).digest('base64')], `${app.file}'s size and SHA-512`).toEqual([app.size, app.sha512]);
+  const range = await request.get(`${folder}${app.file}`, { headers: { Range: 'bytes=100-199' } });
+  expect(range.status(), 'a single byte range').toBe(206);
+  expect((await range.body()).equals(body.subarray(100, 200))).toBe(true);
+});

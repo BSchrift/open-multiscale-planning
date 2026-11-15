@@ -293,6 +293,8 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   await expect(prompt.getByText('Write the report')).toBeVisible();
   await prompt.getByRole('button', { name: 'Partly' }).click();
   const left = page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' });
+  // It starts at the estimate's time left once the task has loaded; before that, the arrow keys have nothing to move.
+  await expect(left).toHaveAttribute('aria-valuetext', '2h');
   await left.focus();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');

@@ -28,6 +28,9 @@ no long-lived key.
 | **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
+Once main's merge queue is on, a pull request merges through it, and the required checks run again on the commit main
+will get, with the pull requests ahead of it: see [merge-queue.md](merge-queue.md).
+
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
 because it sets off prod's throttle alarm. The iPhone's signed-in test needs a Mac, so it runs there: `make test-ios`,
 or `make test-deployed`.

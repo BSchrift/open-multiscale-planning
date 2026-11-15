@@ -118,7 +118,7 @@ describe('startTelemetry', () => {
       status: () => status,
       subscribe: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
       rolledBack: async () => null,
-      app: { place: () => null, built: () => 1, restart: async () => {}, install: async () => {}, move: async () => {}, updated: async () => ({ from: 100, to: 200 }) },
+      app: { place: () => null, built: () => 1, restart: async () => {}, install: async () => {}, move: async () => {}, updated: async () => ({ from: 100, to: 200 }), moved: async () => false },
     });
     const set = (next: UpdateStatus) => {
       status = next;

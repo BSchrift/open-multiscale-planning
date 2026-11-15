@@ -393,9 +393,10 @@ export class PipelineStack extends Stack {
         version: '0.2',
         env: { shell: 'bash', variables: { GOTOOLCHAIN: 'auto' } },
         phases: {
-          // The repo is public, so it clones without a credential.
+          // The repo is public, so it clones without a credential. One shell runs every phase, so the build starts in the
+          // clone install moved to.
           install: { commands: ['git clone --branch "$BRANCH" "https://github.com/$REPOSITORY.git" repo', 'cd repo && scripts/pipeline.sh install'] },
-          build: { commands: ['cd repo && scripts/pipeline.sh nightly'] },
+          build: { commands: ['scripts/pipeline.sh nightly'] },
         },
       }),
     });

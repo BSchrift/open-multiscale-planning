@@ -24,6 +24,8 @@ h3{font-size:var(--fs-caption);font-weight:600;color:var(--ink-3)}
 .card:empty{display:none}
 /* Show completed as a list card's last row, in line with the rows above it. */
 .card>div:has(>.showcompleted){padding:4px 16px 8px;border-top:1px solid var(--hairline)}
+/* A row's trailing icons, the Inbox's pencil and every row's chevron: one size and weight, so they read as a set. */
+.rowpen .ico,.inboxgo .ico,.ico.chev{display:block;width:var(--icon-md);height:var(--icon-md)}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .quiet{color:var(--ink-3)}
 .strong{font-weight:600}

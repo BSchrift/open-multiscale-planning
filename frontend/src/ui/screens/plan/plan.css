@@ -7,7 +7,7 @@
 }
 
 [data-layout] .planflow .overtext {
-  color: var(--amber-ink);
+  color: var(--warn);
 }
 
 /* Each step's groups are cards on the ground; its heading, the steps and Continue stay on the ground. */
@@ -26,25 +26,25 @@
 }
 
 [data-layout='phone'] .planflow h3 {
-  font-size: var(--text-md);
+  font-size: var(--fs-label);
 }
 
 /* A goal names its card at the size the Goals page gives goals, so it reads before the projects under it. */
 [data-layout] .planflow .goalcard h3 {
   color: var(--ink);
-  font-size: var(--text-h2);
+  font-size: var(--fs-heading);
 }
 
 /* The step's meter stays on the ground, where its usual track would vanish. */
 [data-layout] .planstep .mmeter {
-  background: var(--white);
-  box-shadow: inset 0 0 0 1px var(--card-line);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
 
 [data-layout] .planpage .card.due {
-  border-color: var(--amber-line);
-  background: var(--amber-pale);
-  color: var(--amber-ink-2);
+  border-color: var(--hairline);
+  background: var(--warn-tint);
+  color: var(--warn);
 }
 
 [data-layout] .planflow .cadfield,
@@ -130,7 +130,7 @@
   height: 14px;
   vertical-align: -2px;
   border-radius: 0;
-  background: var(--quiet);
+  background: var(--ink-3);
 }
 
 [data-layout='phone'] .planflow .undated {
@@ -164,8 +164,8 @@
 
 [data-layout] .planflow .fitbar .mmeter {
   flex: 0 1 140px;
-  background: var(--white);
-  box-shadow: inset 0 0 0 1px var(--card-line);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
 
 [data-layout='phone'] .planflow .flowtop .fitbar {
@@ -174,11 +174,11 @@
 }
 
 [data-layout] .planflow .fits {
-  color: var(--green);
+  color: var(--ok);
 }
 
 [data-layout] .planflow .stepmark {
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout='desktop'] .planflow .steptab .stepmark {
@@ -195,13 +195,8 @@
 }
 
 [data-layout] .planflow .penbtn svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 /* The goal sits on a line of its own under the project's name. */
@@ -218,16 +213,16 @@
 
 [data-layout='phone'] .planflow .flowstep .stepmark {
   min-height: 1.2em;
-  font-size: var(--text-xs);
+  font-size: var(--fs-caption);
 }
 
 /* A project's goal, under its name: amber while it has none. */
 [data-layout] .planflow .plgoal {
   min-height: 32px;
   padding: 2px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--hairline);
   border-radius: 6px;
-  background: var(--white);
+  background: var(--card);
   color: var(--ink-2);
 }
 
@@ -236,9 +231,9 @@
 }
 
 [data-layout] .planflow .plgoal.none {
-  border-color: var(--amber-line);
-  background: var(--amber-pale);
-  color: var(--amber-ink-2);
+  border-color: var(--hairline);
+  background: var(--warn-tint);
+  color: var(--warn);
 }
 
 [data-layout] .planflow .goalpick .pickrow {
@@ -247,8 +242,8 @@
 }
 
 [data-layout] .planflow .goalpick .pickrow[aria-pressed='true'] {
-  border-color: var(--blue);
-  background: var(--blue-tint);
+  border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 [data-layout] .planflow .planadd {
@@ -298,22 +293,24 @@
   width: 100%;
   min-height: 44px;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   font: inherit;
+  /* A block's title is a label, under the goal's heading. */
+  font-size: var(--fs-label);
   text-align: left;
   cursor: pointer;
 }
 
 [data-layout] .planflow .projblock:hover {
-  border-color: var(--blue-ink);
+  border-color: var(--project-ink);
 }
 
 /* A goal's backlog: goal work, so blue, with a thin solid edge where a project has its thick stripe. */
 [data-layout] .planflow .projblock.ev-backlog,
 [data-layout] .planflow .projblock.c-backlog {
-  border: 1px solid var(--blue);
-  background: var(--blue-pale);
-  color: var(--blue-ink);
+  border: 1px solid var(--project);
+  background: var(--accent-tint);
+  color: var(--project-ink);
 }
 
 [data-layout] .planflow .projblock .pillrow {

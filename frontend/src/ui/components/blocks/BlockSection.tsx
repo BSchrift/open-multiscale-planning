@@ -15,7 +15,6 @@ import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import type { Minutes } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
-import { AnswerIcon } from '../icons';
 import { useToast } from '../Toast';
 import { useFocusLanding } from '../useFocusLanding';
 import { dayName } from '../weekgrid';
@@ -23,6 +22,8 @@ import { BlockDetailBody } from './BlockDetail';
 import { formatRange } from './describe';
 import { answerFor, CHOICES, saidOf, Stepper, WORDS } from './MissedSheet';
 import { useBlockActions } from './useBlockActions';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 /**
  * The popup's own way out, for an action that leaves it for the calendar, such as Move: with changes not yet saved it
@@ -92,27 +93,27 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
           {left === null ? (
             <div className="row blocksecacts">
               {CHOICES.map((c) => (
-                <button
+                <Button
                   key={c}
-                  className={`btn sm${c === 'done' ? ' pri' : ''}`}
+                  variant={c === 'done' ? 'primary' : 'secondary'} size="compact"
                   type="button"
                   disabled={actions.pending}
                   onClick={() => (c === 'partly' ? setLeft(task ? partlyLeft(task, block) : workMinutes(block)) : answer(c))}
                 >
-                  <AnswerIcon answer={c} />
+                  <Icon name={c === 'not' ? 'not-done' : c} size={16} />
                   {WORDS.task[c]}
-                </button>
+                </Button>
               ))}
             </div>
           ) : (
             <div className="row blocksecacts">
               <Stepper block={block} value={left} onChange={setLeft} />
-              <button className="btn sm pri" type="button" disabled={actions.pending} onClick={() => answer('partly', left)}>
+              <Button variant="primary" size="compact" type="button" disabled={actions.pending} onClick={() => answer('partly', left)}>
                 Save Partly
-              </button>
-              <button className="btn sm" type="button" onClick={() => setLeft(null)}>
+              </Button>
+              <Button size="compact" type="button" onClick={() => setLeft(null)}>
                 Back
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -120,19 +121,19 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
       {(startable || props.onMove || props.onRemove) && (
         <div className="row blocksecacts">
           {startable && (
-            <button className="btn sm pri" type="button" disabled={actions.pending} onClick={() => void start()}>
+            <Button variant="primary" size="compact" type="button" disabled={actions.pending} onClick={() => void start()}>
               {early ? 'Start now' : 'Start'}
-            </button>
+            </Button>
           )}
           {props.onMove && (
-            <button className="btn sm" type="button" onClick={move}>
+            <Button size="compact" type="button" onClick={move}>
               Move
-            </button>
+            </Button>
           )}
           {props.onRemove && (
-            <button className="btn sm" type="button" onClick={props.onRemove}>
+            <Button size="compact" type="button" onClick={props.onRemove}>
               Remove from calendar
-            </button>
+            </Button>
           )}
         </div>
       )}

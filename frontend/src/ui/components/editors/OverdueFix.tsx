@@ -11,6 +11,7 @@ import { MilestoneDiamond } from '../MilestoneDiamond';
 import { DropMilestone } from './DropMilestone';
 import { diamondFor } from './MilestoneEditor';
 import { usePlanChange } from './usePlanChange';
+import { Button } from '../ds/Button';
 
 export function OverdueFix(props: { plan: ProjectPlan; ctx: PlanContext }) {
   const { plan, ctx } = props;
@@ -52,19 +53,19 @@ export function OverdueQuestion(props: { plan: ProjectPlan; ctx: PlanContext; mi
           {heading}
           <div className="small">{f.sub}</div>
           <div className="row fixacts">
-            <button className="btn sm pri" type="button" onClick={() => setMode('move')}>
+            <Button variant="primary" size="compact" type="button" onClick={() => setMode('move')}>
               Move date
-            </button>
-            <button className="btn sm" type="button" onClick={() => setMode('drop')}>
+            </Button>
+            <Button size="compact" type="button" onClick={() => setMode('drop')}>
               Drop milestone
-            </button>
-            <button
-              className="btn sm"
+            </Button>
+            <Button
+              size="compact"
               type="button"
               onClick={() => apply((work) => withStatusLine(plan, markMilestoneDone(plan, milestoneId, work, ctx), ctx), { closing: open }).then(saved)}
             >
               {f.markLabel}
-            </button>
+            </Button>
           </div>
           {props.footer}
         </>
@@ -93,17 +94,17 @@ export function OverdueQuestion(props: { plan: ProjectPlan; ctx: PlanContext; mi
             </div>
           ))}
           <div className="row fixacts">
-            <button
-              className="btn sm pri"
+            <Button
+              variant="primary" size="compact"
               type="button"
               disabled={!move.valid}
               onClick={() => apply(() => withStatusLine(plan, moveMilestone(plan, milestoneId, date, ctx), ctx)).then(saved)}
             >
               {move.moveLabel}
-            </button>
-            <button className="btn sm" type="button" onClick={() => setMode('ask')}>
+            </Button>
+            <Button size="compact" type="button" onClick={() => setMode('ask')}>
               Back
-            </button>
+            </Button>
           </div>
         </>
       )}

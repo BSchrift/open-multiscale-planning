@@ -14,6 +14,9 @@ import type { Layout, ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { useToast } from '../../components/Toast';
 import './analytics.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
+import type { IconName } from '../../components/ds/Icon';
 
 type View = 'week' | 'stretch';
 
@@ -159,21 +162,21 @@ function WeekNav(props: { layout: Layout; label: string; sub: string; prev: (() 
       <div className="small quiet">{props.sub}</div>
     </div>
   );
-  const button = (label: string, glyph: string, onClick: (() => void) | null) =>
+  const button = (label: string, icon: IconName, onClick: (() => void) | null) =>
     phone ? (
       <button type="button" className="icbtn" aria-label={label} disabled={!onClick} onClick={onClick ?? undefined}>
-        {glyph}
+        <Icon name={icon} />
       </button>
     ) : (
-      <button type="button" className="btn sm" disabled={!onClick} onClick={onClick ?? undefined}>
+      <Button type="button" size="compact" disabled={!onClick} onClick={onClick ?? undefined}>
         {label}
-      </button>
+      </Button>
     );
   return (
     <div className={phone ? 'between' : 'weeknav'}>
-      {button('Previous week', '‹', props.prev)}
+      {button('Previous week', 'chevron-left', props.prev)}
       {middle}
-      {button('Next week', '›', props.next)}
+      {button('Next week', 'chevron-right', props.next)}
     </div>
   );
 }
@@ -239,14 +242,14 @@ function Patterns(props: { layout: Layout; patterns: Pattern[]; projects: { id: 
           {r.act &&
             (phone ? (
               <div>
-                <button type="button" className="btn" onClick={r.act}>
+                <Button type="button" onClick={r.act}>
                   {r.label}
-                </button>
+                </Button>
               </div>
             ) : (
-              <button type="button" className="btn sm" onClick={r.act}>
+              <Button type="button" size="compact" onClick={r.act}>
                 {r.label}
-              </button>
+              </Button>
             ))}
         </div>
       ))}
@@ -367,9 +370,9 @@ function Trend(props: { layout: Layout; figures: WeekAnalytics; now: LocalDate; 
     <section className="card stack8">
       {head}
       <div>
-        <button type="button" className="btn" aria-expanded={nums} onClick={() => setNums(!nums)}>
+        <Button type="button" aria-expanded={nums} onClick={() => setNums(!nums)}>
           {nums ? "Hide each week's numbers" : "Show each week's numbers"}
-        </button>
+        </Button>
       </div>
       <div className="taxis" aria-hidden="true">
         {weeks.map((w, i) => (

@@ -4,6 +4,7 @@
 import { Component, createElement, lazy } from 'react';
 import type { ComponentType, MouseEvent, ReactNode } from 'react';
 import type { ScreenProps } from './registry';
+import { Button } from '../components/ds/Button';
 
 type ScreenModule = { default: ComponentType<ScreenProps> };
 
@@ -129,9 +130,9 @@ export class ScreenBoundary extends Component<{ children: ReactNode }, { failed:
           <h1>Couldn't open this screen</h1>
           <p className="quiet">It will try again when you're back online.</p>
           <div>
-            <button className="btn" type="button" onClick={this.onTryAgain}>
+            <Button type="button" onClick={this.onTryAgain}>
               Try again
-            </button>
+            </Button>
           </div>
         </div>
       );

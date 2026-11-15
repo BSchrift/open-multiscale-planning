@@ -9,6 +9,7 @@ import type { CadenceUnit, Fields, LocalDate, PlanCadence, Settings } from '../.
 import { updateSettings } from '../../../core/records';
 import { useMutation } from '../../app/store';
 import { useToast } from '../../components/Toast';
+import { Button } from '../../components/ds/Button';
 
 const maxEvery = (unit: CadenceUnit) => (unit === 'weeks' ? 26 : 12);
 
@@ -152,12 +153,12 @@ export function CadenceEditor(props: { settings: Settings; cur: Stretch | null; 
         </>
       )}
       <div className="row">
-        <button className="btn pri" type="button" onClick={submit}>
+        <Button variant="primary" type="button" onClick={submit}>
           {scheduled && now ? 'End this plan and start again' : 'Save'}
-        </button>
-        <button className="btn" type="button" onClick={props.onClose}>
+        </Button>
+        <Button type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

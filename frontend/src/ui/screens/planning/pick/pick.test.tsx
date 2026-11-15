@@ -761,7 +761,7 @@ describe('Pick tasks: the row', () => {
     await userEvent.click(add);
     await waitFor(async () => expect(await minutesOf(t, 't1')).toBe(120));
     const time = await screen.findByRole('button', { name: '2h this week: Collect the sources' });
-    expect(time).toHaveTextContent('2h ▾');
+    expect(time).toHaveTextContent(/^2h$/);
     expect(time).toHaveAttribute('aria-haspopup', 'dialog');
     expect(time).toHaveAttribute('aria-expanded', 'false');
     expect(time).toHaveFocus();
@@ -769,7 +769,7 @@ describe('Pick tasks: the row', () => {
     expect(within(row).queryByText(/milestone overdue/)).toBeNull();
     await waitFor(() => expect(said()).toBe('Collect the sources added. 3h 30m of 98h.'));
     await userEvent.click(screen.getByRole('button', { name: 'Add 2h to this week: Bake a test loaf' }));
-    expect(await screen.findByRole('button', { name: '2h of 3h this week: Bake a test loaf' })).toHaveTextContent('2h of 3h ▾');
+    expect(await screen.findByRole('button', { name: '2h of 3h this week: Bake a test loaf' })).toHaveTextContent(/^2h of 3h$/);
   });
 
   it('the time button opens This week and the estimate, which Save writes as one change with Undo, and Cancel drops', async () => {

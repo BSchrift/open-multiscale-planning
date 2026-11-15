@@ -33,6 +33,8 @@ import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
 import { TaskPopupFor } from '../task';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 /** The grid's id for the planning block being placed. */
 const PLANNING = 'planning';
@@ -223,9 +225,9 @@ export function DesktopWeek(props: WeekProps) {
             </button>
           )}
           {isThis && !editing && !props.gated && !plan && (
-            <button
+            <Button
               ref={editBtn}
-              className="btn pri"
+              variant="primary"
               type="button"
               onClick={() => {
                 swapFocus.current = true;
@@ -233,12 +235,12 @@ export function DesktopWeek(props: WeekProps) {
               }}
             >
               Edit this week's plan
-            </button>
+            </Button>
           )}
           {(offset === 0 || offset === 1) && !editing && !props.gated && !plan && (
-            <button className="btn" type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
+            <Button type="button" onClick={() => void planning.start(model.thisPlanned ? addWeeks(model.current, 1) : model.current)}>
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -253,11 +255,11 @@ export function DesktopWeek(props: WeekProps) {
         {editing && (
           <div className="planleft stack">
             <div className="stack8">
-              <p className="small quiet">Drag or resize anything from now on, or click × to remove it. Changes save as you go.</p>
+              <p className="small quiet">Drag or resize anything from now on, or click <Icon name="close" size={16} /> to remove it. Changes save as you go.</p>
               <div>
-                <button ref={doneBtn} className="btn pri" type="button" onClick={stopEditing}>
+                <Button ref={doneBtn} variant="primary" type="button" onClick={stopEditing}>
                   Done editing
-                </button>
+                </Button>
               </div>
             </div>
             {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
@@ -289,7 +291,7 @@ export function DesktopWeek(props: WeekProps) {
                         <li key={r.task.id} className={`schedrow${on ? ' cur' : ''}${r.work.kind === 'one_off' ? ' is-maint' : ''}`}>
                           <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} aria-expanded={on} onClick={() => choose(on ? null : r.task.id)}>
                             <span className="schedmark" aria-hidden="true">
-                              {on ? '▸' : last ? '✓' : '+'}
+                              <Icon name={on ? 'chevron-right' : last ? 'done' : 'plus'} size={16} />
                             </span>
                             <span>
                               <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
@@ -382,9 +384,9 @@ export function DesktopWeek(props: WeekProps) {
                     <span className="quiet">{model.unscheduled.length ? laneCount(model.unscheduled) : 'Everything this week is on the calendar.'}</span>
                   </div>
                   {model.unscheduled.length > 0 && (
-                    <button className="btn sm" type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
+                    <Button size="compact" type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
                       Schedule one at a time
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {anyDay.length > 0 && (
@@ -453,19 +455,19 @@ export function DesktopWeek(props: WeekProps) {
             {!editing && (
               <div className="legend wklegend">
                 <span>
-                  <i className="ev-project" />
+                  <i className="blk k-project" />
                   Project
                 </span>
                 <span>
-                  <i className="ev-practice" />
+                  <i className="blk k-practice" />
                   Practice
                 </span>
                 <span>
-                  <i className="ev-maint" />
+                  <i className="blk k-oneoff" />
                   One offs
                 </span>
                 <span>
-                  <i className="ev-busy" />
+                  <i className="blk k-event" />
                   Calendar event
                 </span>
                 <span>
@@ -516,12 +518,12 @@ function Placing(props: {
         </div>
       ))}
       <div className="row">
-        <button className="btn sm pri" type="button" disabled={!!props.problem} onClick={props.onPlace}>
+        <Button variant="primary" size="compact" type="button" disabled={!!props.problem} onClick={props.onPlace}>
           Place here
-        </button>
-        <button className="btn sm" type="button" onClick={props.onCancel}>
+        </Button>
+        <Button size="compact" type="button" onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
       <p className="small quiet">{props.hint}</p>
     </div>

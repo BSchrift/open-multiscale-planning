@@ -86,10 +86,10 @@ test('the Inbox step processes into the plan for the week being planned, then sa
   await page.getByRole('button', { name: 'Process 1 item' }).click();
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
   await expect(card.getByRole('heading', { name: 'Rake the leaves', level: 1 })).toBeVisible();
-  const toggle = card.getByRole('button', { name: 'Add to the plan for Nov 2 to 8' });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  const toggle = card.getByRole('switch', { name: 'Add to the plan for Nov 2 to 8' });
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await toggle.click();
-  await expect(card.getByRole('button', { name: 'Adding to the plan for Nov 2 to 8' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await processTo(page, phone, 'Write the report');
   await expect(page.locator('.toast')).toContainText('Added Rake the leaves to Write the report and to the plan.');
 

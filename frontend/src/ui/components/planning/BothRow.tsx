@@ -9,13 +9,14 @@ import type { Stretch } from '../../../core/plan';
 import type { WeekPlanning } from '../../../core/planning';
 import { slotInstants } from '../../../core/slots';
 import { useApp, useStickyState } from '../../app/store';
-import { BinIcon } from '../icons';
 import { About } from './About';
 import { PlanningRow } from './PlanningRow';
 import { PlanningTimes } from './PlanningTimes';
 import { StretchRow } from './StretchRow';
 import { longTime, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
 import './planning.css';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 const SOON_MS = 15 * 60_000;
 
@@ -62,29 +63,29 @@ export function BothRows(props: { week: WeekPlanning; stretch: Stretch; first: b
           disabled={act.pending}
           onClick={() => void act.removeBoth(s, week.week).then(gone())}
         >
-          <BinIcon />
+          <Icon name="bin" />
         </button>
       </div>
       <div className={phone ? 'stack8' : 'row'}>
         {best &&
           (soon ? (
-            <button className={`btn pri${btn}`} type="button" aria-label="Start planning now" onClick={() => void act.startBoth(s, week.week, minutes)}>
+            <Button variant="primary" className={btn} type="button" aria-label="Start planning now" onClick={() => void act.startBoth(s, week.week, minutes)}>
               Start now
-            </button>
+            </Button>
           ) : (
-            <button
-              className={`btn pri${btn}`}
+            <Button
+              variant="primary" className={btn}
               type="button"
               aria-label={`Schedule planning for ${longTime(best)}`}
               disabled={act.pending}
               onClick={() => void act.scheduleBoth(s, week.week, best).then(gone())}
             >
               Schedule for {shortTime(best)}
-            </button>
+            </Button>
           ))}
-        <button className={`btn${best ? '' : ' pri'}${btn}`} type="button" aria-label="Choose a time to plan the next stretch and next week" onClick={() => setChoosing(true)}>
+        <Button variant={best ? 'secondary' : 'primary'} className={btn} type="button" aria-label="Choose a time to plan the next stretch and next week" onClick={() => setChoosing(true)}>
           Choose a time
-        </button>
+        </Button>
       </div>
       {choosing && (
         <PlanningTimes

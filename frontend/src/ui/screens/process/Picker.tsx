@@ -6,10 +6,11 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
-import { SearchIcon } from '../../components/icons';
 import { LateWarning, lateSaid } from '../../components/LateWarning';
 import { Sheet } from '../../components/Sheet';
 import type { Destination, PickGroup } from './data';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 /** A place to add an item to: a project, or One offs as null. */
 export type Place = Destination | null;
@@ -248,10 +249,10 @@ export function Picker(props: {
     </p>
   );
   const addButton = value !== undefined && (
-    <button ref={props.addRef} className="btn pri pkadd" type="button" onClick={() => props.onAdd(value)}>
+    <Button ref={props.addRef} variant="primary" className="pkadd" type="button" onClick={() => props.onAdd(value)}>
       Add to {name}
       {props.cap}
-    </button>
+    </Button>
   );
 
   if (phone) {
@@ -265,7 +266,7 @@ export function Picker(props: {
           aria-label={value === undefined ? LABEL : `${LABEL}: ${name}`}
           onClick={openList}
         >
-          <SearchIcon />
+          <Icon name="search" />
           <span className="pkval">
             {value === undefined ? (
               <span className="quiet">{LABEL}</span>
@@ -283,12 +284,12 @@ export function Picker(props: {
           <Sheet label="Add to" tall className="pksheet" onClose={reset}>
             <div className="between">
               <h2>Add to</h2>
-              <button className="btn" type="button" onClick={reset}>
+              <Button type="button" onClick={reset}>
                 Close
-              </button>
+              </Button>
             </div>
             <div className="pkfield">
-              <SearchIcon />
+              <Icon name="search" />
               {field({ placeholder: 'Search projects', autoFocus: true })}
             </div>
             {listbox}
@@ -310,7 +311,7 @@ export function Picker(props: {
             if (!open) openList();
           }}
         >
-          <SearchIcon />
+          <Icon name="search" />
           {/* As wide as the place it shows, so its goal follows it; as wide as it can be once typed in. */}
           <span className="pksize" data-value={q === null && name ? name : undefined}>
             {field({ placeholder: LABEL })}

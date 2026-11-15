@@ -1,11 +1,16 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { localToInstant } from '../../../core/dates';
 import { listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { renderApp, renderScreen } from '../../app/testing';
+import type { Slot } from '../../../core/slots';
+import { renderApp, renderInApp, renderScreen } from '../../app/testing';
 import type { Layout } from '../../app/registry';
 import { EST_STEPS } from '../../components/EstimateSlider';
+import { slotRange } from '../../components/weekgrid';
+import { Capture } from '.';
 
 afterEach(cleanup);
 
@@ -248,4 +253,105 @@ describe('Capture in the app', () => {
     await userEvent.type(await screen.findByRole('textbox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
     expect(await screen.findByText('Saved to Inbox, 1 waiting')).toBeInTheDocument();
   });
+});
+
+describe.each(['desktop', 'phone'] as const)('Capture from a hold on a calendar, on %s', (layout) => {
+  const at = (minutes: number) => localToInstant('2026-11-02', minutes, 'America/Chicago');
+  /** What a calendar keeps while Capture is open: the draft's time, which Capture's Time slider changes. */
+  function Held(props: { close(): void; anchor?: DOMRect }) {
+    const [slot, setSlot] = useState<Slot>({ date: '2026-11-02', start: 17 * 60 + 45, end: 18 * 60 + 45 });
+    return (
+      <>
+        <p data-testid="draft">{slotRange(slot)}</p>
+        <Capture
+          layout={layout}
+          close={props.close}
+          slot={{
+            slot,
+            overlap: 'Overlaps Team sync prep by 15m.',
+            onLength: (minutes) => setSlot((s) => ({ ...s, end: s.start + minutes })),
+            ...(props.anchor ? { anchor: () => props.anchor } : {}),
+          }}
+        />
+      </>
+    );
+  }
+  const hold = async (anchor?: DOMRect) => {
+    const close = vi.fn();
+    const t = await renderInApp(<Held close={close} {...(anchor ? { anchor } : {})} />, { layout, seed });
+    await screen.findByRole('textbox', { name: /Capture to/ });
+    return { ...t, close };
+  };
+  const draft = () => screen.getByTestId('draft');
+  const blocks = async (db: Parameters<typeof listRecords>[0]) => listRecords(db, 'time_block');
+
+  it('opens on the name, under a line saying the day and time and one saying what it overlaps, and saves to the Inbox', async () => {
+    await hold();
+    await waitFor(() => expect(field()).toHaveFocus());
+    expect(field()).toHaveAccessibleName('Capture to Inbox');
+    expect(screen.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+    expect(screen.getByText('Overlaps Team sync prep by 15m.')).toBeVisible();
+  });
+
+  it('saves an Inbox item with its block at that time, its length as its time, and Undo takes both away', async () => {
+    const t = await hold();
+    await userEvent.type(field(), 'Book dentist{Enter}');
+    expect(await screen.findByText('Saved to Inbox, 5:45pm to 6:45pm')).toBeVisible();
+    expect(t.close).toHaveBeenCalled();
+    const [task] = await tasks(t.db);
+    expect(task).toMatchObject({ kind: 'inbox', title: 'Book dentist', estimate_min: 60 });
+    expect(await blocks(t.db)).toMatchObject([{ task_id: task!.id, start: at(17 * 60 + 45), end: at(18 * 60 + 45), tz: 'America/Chicago' }]);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await tasks(t.db)).toEqual([]));
+    expect(await blocks(t.db)).toEqual([]);
+  });
+
+  it('its Time slider changes the draft’s length as it moves, never under 15 minutes, and saves that length', async () => {
+    const t = await hold();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    const slider = screen.getByRole('slider', { name: 'Time' });
+    expect(slider).toHaveAttribute('aria-valuetext', '1h');
+    fireEvent.change(slider, { target: { value: String(EST_STEPS.indexOf(90)) } });
+    expect(draft()).toHaveTextContent('5:45pm to 7:15pm');
+    expect(screen.getByText('Today, 5:45pm to 7:15pm')).toBeVisible();
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(draft()).toHaveTextContent('5:45pm to 6pm');
+    await waitFor(() => expect(slider).toHaveAttribute('aria-valuetext', '15m'));
+    await userEvent.type(field(), 'Book dentist{Enter}');
+    await screen.findByText('Saved to Inbox, 5:45pm to 6pm');
+    expect(await tasks(t.db)).toMatchObject([{ estimate_min: 15 }]);
+    expect(await blocks(t.db)).toMatchObject([{ end: at(18 * 60) }]);
+  });
+
+  it('files it straight away when Send to says One offs, with its block', async () => {
+    const t = await hold();
+    await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Send to' }), 'One offs');
+    await userEvent.type(field(), 'Book dentist{Enter}');
+    expect(await screen.findByText('Saved to One offs, 5:45pm to 6:45pm')).toBeVisible();
+    const [task] = await tasks(t.db);
+    expect(task).toMatchObject({ kind: 'one_off', title: 'Book dentist' });
+    expect(await blocks(t.db)).toMatchObject([{ task_id: task!.id }]);
+  });
+
+  it('closes with nothing saved on Cancel, and on Esc', async () => {
+    const t = await hold();
+    await userEvent.type(field(), 'Book');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(t.close).toHaveBeenCalledOnce();
+    await userEvent.keyboard('{Escape}');
+    expect(t.close).toHaveBeenCalledTimes(2);
+    expect(await tasks(t.db)).toEqual([]);
+    expect(await blocks(t.db)).toEqual([]);
+  });
+
+  if (layout === 'desktop') {
+    it('opens beside the draft, with no scrim, so the time chosen stays in view', async () => {
+      await hold(new DOMRect(300, 200, 100, 40));
+      const sheet = screen.getByRole('dialog', { name: 'Capture' });
+      expect(sheet.style.left).toBe('408px');
+      expect(sheet.style.top).toBe('188px');
+      expect(sheet.closest('.capoverlay')).toHaveClass('beside');
+    });
+  }
 });

@@ -54,8 +54,10 @@ export interface NativeAppUpdates {
   restart(): Promise<void>;
   /** Moves the app to Applications and opens it from there. */
   move(): Promise<void>;
-  /** On the first launch of an updated app, the app builds before and after. It answers once. */
-  updated(): Promise<{ from: number; to: number } | null>;
+  /** On the first launch of an updated app, the app builds before and after, and whether it reopens on Settings. It answers once. */
+  updated(): Promise<{ from: number; to: number; settings?: boolean } | null>;
+  /** On the first launch after a move to Applications. It answers once. */
+  moved(): Promise<boolean>;
   /** When this app was built: its build, the commit time. */
   built(): Promise<number>;
 }
@@ -126,7 +128,9 @@ export interface Updater {
     install(): Promise<void>;
     move(): Promise<void>;
     /** The app builds before and after an update, on its first launch. Every caller gets the same answer. */
-    updated(): Promise<{ from: number; to: number } | null>;
+    updated(): Promise<{ from: number; to: number; settings?: boolean } | null>;
+    /** Whether the app was just moved to Applications. Every caller gets the same answer. */
+    moved(): Promise<boolean>;
   };
   stop(): void;
 }
@@ -179,7 +183,8 @@ export function createUpdater(deps: {
   let built: number | null = null;
   let downloadFailures = 0;
   let lastRelease: SignedRelease | null = null;
-  let updated: Promise<{ from: number; to: number } | null> | undefined;
+  let updated: Promise<{ from: number; to: number; settings?: boolean } | null> | undefined;
+  let moved: Promise<boolean> | undefined;
   const refused = (): { build: number; failure: string } | null => {
     try {
       return JSON.parse(store?.getItem(REFUSED_KEY) ?? 'null') as { build: number; failure: string } | null;
@@ -292,6 +297,7 @@ export function createUpdater(deps: {
               notify();
             },
             updated: () => (updated ??= app.updated().catch(() => null)),
+            moved: () => (moved ??= app.moved().catch(() => false)),
           },
         }
       : {}),

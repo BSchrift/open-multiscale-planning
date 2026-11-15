@@ -42,7 +42,7 @@ test('connecting Google Calendar reads its calendars, whose events take time fro
   await signIn(a.page);
   const settings = pane(a.page, 'Settings');
   const calendar = settings.getByRole('region', { name: 'Google Calendar' });
-  const hours = settings.getByRole('region', { name: 'Available hours' });
+  const hours = settings.getByRole('region', { name: 'Unavailable hours' });
   await expect(calendar.getByText('Not connected.')).toBeVisible();
 
   // Google's consent opens in a tab of its own, as sign-in does. The stand-in agrees at once, and the server says so there.

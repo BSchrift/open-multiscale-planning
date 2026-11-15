@@ -313,6 +313,39 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    A build that also needs a new iPhone app leaves the iPhone feed until testers can install one
    ([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
 
+### How a Mac app updates itself
+
+An installed Mac app replaces itself with the app a release names (`frontend/electron/appUpdates.ts`), from the first
+app that has this code; every app before it is installed by hand once, as the notice it shows says.
+
+1. **The page finds it.** A release whose native code isn't the app's, and whose signed manifest names an app, goes to
+   the main process. Without one it's the disk image, as before.
+2. **The main process checks it** with the release key inside the app, as it checks a web bundle: a newer build, an
+   app record for that native code, and an app that can replace itself where it is. Run from a disk image or a
+   temporary copy, it offers Move to Applications. An app the person can't replace, an administrator's, or an older
+   app someone went back to, downloads nothing by itself and never installs at quit: Update the app does it on request,
+   and macOS asks for a password where it must.
+3. **electron-updater downloads it** from the record's folder on the downloads host built into the app, once that
+   folder's `latest-mac.yml` says exactly what the signed record does: version, file, SHA-512 and size. It checks the
+   zip's SHA-512, including a zip it builds from the blocks that changed, and falls back to the whole zip if that
+   doesn't match. `autoDownload`, `allowDowngrade` and `allowPrerelease` are off, and `channel` is never set, since
+   setting it turns `allowDowngrade` on.
+4. **Squirrel.Mac installs it** after checking its signature against the running app's Team ID and bundle id: when
+   Multiscale quits or the Mac restarts, or at once with Restart to update, in Settings, the sidebar's notice or the
+   menu bar menu. Quit installs it and doesn't reopen.
+5. **The app reports it.** `app.update.check` carries the outcome or the failure. A Mac that refuses an app for its
+   signature reports `app-signature`, which raises the `AppSignature` alarm: the published app is bad. Stop it
+   spreading with `make release-surface ENV=prod SURFACE=desktop VERSION=<the one before>`, then revert on main.
+
+**Bumping a bundled package releases a Mac app.** The shell hash covers every package esbuild bundles into the main
+process (electron-updater and what it brings), electron-builder, and how the app is built, signed and entitled
+(`scripts/electron-build.mjs`, `scripts/mac-signing.ts`, `scripts/entitlements.mac.plist`). `scripts/electron-compile.mjs`
+fails the build when it bundles a package `ELECTRON_PACKAGES` in `scripts/shell-hash.ts` doesn't list.
+
+**Checked by hand**, since a runner can't: Gatekeeper's first-launch prompt for a disk image downloaded in a browser,
+and translocation, once per major macOS version; the administrator's password dialog, once before shipping; VoiceOver
+on macOS's dialogs and the menu bar menu, once.
+
 ### The staging update check
 
 Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.

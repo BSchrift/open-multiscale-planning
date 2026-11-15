@@ -2,6 +2,7 @@
 
 import type { Clock } from '../../core/clock';
 import type { Sql } from '../../core/db';
+import { ChevronIcon } from '../components/icons';
 import { moreLine as analyticsLine } from '../screens/analytics/moreLine';
 import { moreLine as doneLine } from '../screens/done/moreLine';
 import { moreLine as oneoffsLine } from '../screens/oneoffs/moreLine';
@@ -33,9 +34,7 @@ function MoreRow(props: { area: AreaId }) {
           </span>
         )}
       </span>
-      <span className="chev" aria-hidden="true">
-        ›
-      </span>
+      <span className="chev" aria-hidden="true"><ChevronIcon /></span>
     </button>
   );
 }

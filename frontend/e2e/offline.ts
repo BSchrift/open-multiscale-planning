@@ -14,13 +14,19 @@ export const SCREEN_URLS = [...readFileSync(join(import.meta.dirname, '../src/ui
 );
 
 /**
- * Loads every screen's code now, as the app's own lazy imports would, so the page's module map has it and each screen
- * opens offline. It stands in for the app loading its screens in the background, which it doesn't do yet (the first test
- * in offline-flows.spec.ts shows that), so the flows test the flows rather than that.
- * shortcut: once the app loads its screens itself, wait for its requests as that first test does, and drop this.
+ * Starts noting the code the page asks for, so call it before the page opens. What it returns waits until the app has
+ * asked for every screen's code and the network has gone quiet: the app loads each screen's code by itself once it has
+ * opened (screenLoad.tsx), as the first test in offline-flows.spec.ts checks, and each screen then opens offline. The
+ * app's own loading has to finish, rather than the test importing the code itself, since offline the app doesn't ask for
+ * a screen it hasn't loaded.
  */
-export async function loadEveryScreen(page: Page): Promise<void> {
-  await page.evaluate((urls) => Promise.all(urls.map((url) => import(url))), SCREEN_URLS);
+export function everyScreenLoaded(page: Page): () => Promise<void> {
+  const requested = new Set<string>();
+  page.on('request', (request) => requested.add(new URL(request.url()).pathname));
+  return async () => {
+    await expect.poll(() => SCREEN_URLS.filter((url) => !requested.has(url)), { timeout: 15_000 }).toEqual([]);
+    await page.waitForLoadState('networkidle');
+  };
 }
 
 export interface Offline {

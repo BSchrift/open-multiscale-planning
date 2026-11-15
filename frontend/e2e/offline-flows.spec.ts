@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
-import { expectSaved, goOffline, loadEveryScreen, reloadOnline, SCREEN_URLS } from './offline';
+import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
 import { openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
@@ -29,9 +29,10 @@ const broken = (page: Page) => page.getByRole('alert').filter({ hasText: /Someth
 
 /** Opens the app with the records in place and every screen's code loaded, then cuts the connection. */
 async function openOffline(page: Page, context: BrowserContext, records: readonly Seed[]): Promise<Offline> {
+  const loaded = everyScreenLoaded(page);
   await page.clock.install({ time: NOW });
   await openSeeded(page, records);
-  await loadEveryScreen(page);
+  await loaded();
   return goOffline(page, context);
 }
 
@@ -42,7 +43,6 @@ function expectOffline(offline: Offline) {
 }
 
 test('every main screen opens offline for the first time, once the app has loaded', async ({ page, context }, info) => {
-  test.fail(true, "Waiting on the offline screen-loading fix: the app doesn't load a screen's code until it first opens, so offline that screen can't open until a restart.");
   const phone = info.project.name === 'phone';
   const requested = new Set<string>();
   page.on('request', (request) => requested.add(new URL(request.url()).pathname));

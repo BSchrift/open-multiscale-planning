@@ -41,7 +41,7 @@ export interface DoneBlock {
   deleted: boolean;
 }
 
-/** Time worked: a block answered Task finished or Partly, or a practice logged. */
+/** Time worked: a block answered Done or Partly, or a practice logged. */
 export interface DoneWork extends DoneBlock {
   minutes: Minutes;
   /** After Partly, the time still left. */

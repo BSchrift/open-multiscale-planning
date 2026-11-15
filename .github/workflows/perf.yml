@@ -63,7 +63,8 @@ jobs:
 
   perf:
     needs: time
-    if: always() && needs.time.result != 'skipped'
+    # Not for a run a newer push cancelled, whose comment would say the timing didn't run.
+    if: ${{ !cancelled() && needs.time.result != 'skipped' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

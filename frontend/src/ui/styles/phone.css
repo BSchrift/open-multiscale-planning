@@ -117,8 +117,7 @@
 :where([data-layout='phone']) .c-busy{background:repeating-linear-gradient(135deg,var(--line) 0,var(--line) 6px,var(--stripe-2) 6px,var(--stripe-2) 12px);color:var(--ink-2)}
 :where([data-layout='phone']) .c-cur{outline:2px solid var(--blue);outline-offset:-2px;font-weight:600}
 :where([data-layout='phone']) .c-ended{background:var(--closed);color:var(--quiet)}
-:where([data-layout='phone']) .zoomwrap{position:sticky;top:8px;height:0;display:flex;justify-content:flex-end;align-items:flex-start;margin-right:0;z-index:4}
-:where([data-layout='phone']) .zoomgroup{display:flex;gap:2px;margin-top:6px;padding:2px;border:1px solid var(--border);border-radius:10px;background:var(--white);box-shadow:0 2px 8px rgba(var(--ink-rgb),.12)}
+:where([data-layout='phone']) .zoomgroup{display:flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:10px;background:var(--white)}
 :where([data-layout='phone']) .zoombtn{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:0;border-radius:8px;background:transparent}
 :where([data-layout='phone']) .zoombtn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
 :where([data-layout='phone']) .c-practice{background:var(--teal-soft);color:var(--teal-ink);border:1px solid var(--teal);border-left:4px double var(--teal)}

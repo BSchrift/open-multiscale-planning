@@ -159,7 +159,9 @@ jobs:
           BUCKET: ${{ vars.AWS_INBOX_BUCKET }}
         run: |
           for env_name in staging prod; do
-            aws s3 cp "$RUNNER_TEMP/inbox/$env_name/Multiscale.dmg" "s3://$BUCKET/inbox/$COMMIT/$env_name/Multiscale.dmg" --no-progress
+            for name in Multiscale.dmg Multiscale.zip Multiscale.zip.blockmap; do
+              aws s3 cp "$RUNNER_TEMP/inbox/$env_name/$name" "s3://$BUCKET/inbox/$COMMIT/$env_name/$name" --no-progress
+            done
             aws s3 cp "$RUNNER_TEMP/inbox/$env_name/manifest.json" "s3://$BUCKET/inbox/$COMMIT/$env_name/manifest.json" --no-progress
           done
           echo "Uploaded the Mac apps for $COMMIT. The release pipeline checks and publishes them in its run for that commit."

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, openSeeded, overNowLine, saved, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -189,7 +189,12 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   const errors = await open(page, [planned, report, block('b1', 't1', '12:00', '13:00')]);
   const prompt = page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText('Write the report')).toBeVisible();
-  await expect(prompt.getByRole('button', { name: 'Not done' })).toBeVisible();
+  // Each answer is its word after its icon, a whole tap target on phone.
+  for (const name of ['Done', 'Partly', 'Not done']) {
+    const answer = prompt.getByRole('button', { name, exact: true });
+    await expect(answer.locator('svg')).toBeVisible();
+    if (phone) await expectTapTarget(answer);
+  }
   await page.screenshot({ path: info.outputPath('today-prompt.png') });
   await prompt.getByRole('button', { name: 'Partly' }).click();
 
@@ -264,6 +269,43 @@ test('a block gone by is struck through only when done; Not done and Partly are 
   // Said in words on the block, so colour is never the only sign.
   await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^✕ Not done Paint the fence/);
   await expect(timeline.getByRole('button', { name: /Partly\.$/ })).toContainText(/^Partly Read the notes/);
+  expect(errors).toEqual([]);
+});
+
+test('the current-time line passes behind the block under way, its dot in front, and the zoom buttons sit beside Calendar and List', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  // Two blocks at once, so they're drawn side by side, each in its own column.
+  const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:00', '15:00', { started_at: at('13:00') }), block('b2', 't2', '13:30', '14:30', { started_at: at('13:30') })]);
+  const timeline = page.getByRole('region', { name: "Today's timeline" });
+  const zoom = timeline.getByRole('group', { name: 'Calendar zoom' });
+  // In the heading row, beside the view buttons, rather than over the calendar. Measured in one go, as the page may
+  // still be scrolling.
+  await expect(zoom).toBeVisible();
+  const { z, v, day } = await timeline.evaluate((t) => {
+    const rect = (sel: string) => t.querySelector(sel)!.getBoundingClientRect().toJSON() as DOMRect;
+    return { z: rect('[aria-label="Calendar zoom"]'), v: rect('[aria-label="Timeline view"]'), day: rect('.day') };
+  });
+  expect(Math.abs(z.y + z.height / 2 - (v.y + v.height / 2))).toBeLessThan(4);
+  expect(z.x + z.width).toBeLessThanOrEqual(v.x);
+  expect(z.y + z.height).toBeLessThanOrEqual(day.y);
+  if (phone) for (const name of ['Zoom out', 'Zoom in']) await expectTapTarget(zoom.getByRole('button', { name }));
+  await zoom.getByRole('button', { name: 'Zoom in' }).click();
+  await zoom.getByRole('button', { name: 'Zoom in' }).click();
+
+  // Under way, it no longer moves, so it's a button on phone too.
+  const b = timeline.getByRole('button', { name: /^Write the report, 1pm to 3pm/ });
+  const line = timeline.getByRole('img', { name: 'Current time' });
+  await line.scrollIntoViewIfNeeded();
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  const box = (await b.boundingBox())!;
+  const drawn = (await line.boundingBox())!;
+  // Across the block, the block is on top; past its right edge the line shows; and its dot is in front of everything.
+  expect(await overNowLine(line, box.x + box.width / 2)).toEqual({ at: expect.stringMatching(/^Write the report, 1pm to 3pm/), dotOnTop: true });
+  const other = (await timeline.locator('.cev').filter({ hasText: 'Paint the fence' }).boundingBox())!;
+  expect(other.x).toBeGreaterThanOrEqual(box.x + box.width - 1);
+  expect((await overNowLine(line, other.x + other.width / 2)).at).toMatch(/^Paint the fence, 1:30pm to 2:30pm/);
+  expect((await overNowLine(line, drawn.x + drawn.width - 1)).at).toBe('line');
+  await page.screenshot({ path: info.outputPath(`today-now-line-${info.project.name}.png`) });
   expect(errors).toEqual([]);
 });
 
@@ -357,9 +399,20 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
   const popup = page.getByRole('dialog', { name: 'Write the report' });
   await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
   await expect(popup.getByRole('heading', { name: 'Write the report' })).toBeFocused();
+  // The block's own section, at the top, with what can be done to it.
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
+  for (const name of ['Start now', 'Remove from calendar']) {
+    const action = section.getByRole('button', { name });
+    await expect(action).toBeVisible();
+    if (phone) await expectTapTarget(action);
+  }
   // Once the popup has finished sliding in.
   await page.waitForTimeout(300);
   await page.screenshot({ path: info.outputPath(phone ? 'today-open-phone.png' : 'today-open-desktop.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: info.outputPath(phone ? 'today-open-phone-dark.png' : 'today-open-desktop-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(b).toBeVisible();
@@ -465,6 +518,8 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   const lane = page.getByRole('region', { name: 'To schedule' });
   await expect(lane).toBeVisible();
   await expect(lane.getByRole('button', { name: /^Morning run/ })).toHaveCount(0);
+  // Saved before the reload, which otherwise can come before phone WebKit's save and open a first-run app.
+  await saved(page, 'Morning run');
   // Friday at 8am: there, at 9:30.
   await page.clock.setFixedTime(new Date('2026-11-06T14:00:00Z'));
   await page.reload();

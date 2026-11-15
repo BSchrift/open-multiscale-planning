@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 # A pull request's new push cancels its checks still running for the push before, so they don't hold macOS runners.
-# Each push to main gets a group of its own, so none is cancelled or left waiting behind another.
+# Each push to main gets a group of its own, so none is cancelled or left waiting behind another, except the iPhone job.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
@@ -282,6 +282,11 @@ jobs:
     # About 40 minutes, plus up to 11 when a test on the real clock reaches its seed in the last ten minutes of a day (UTC),
     # which it waits out.
     timeout-minutes: 60
+    # On main, a newer push cancels the iPhone run still going or waiting, which the newer commit includes, so a burst of
+    # merges doesn't queue one 40-minute run each on the few macOS runners the Mac release also needs.
+    concurrency:
+      group: ios-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

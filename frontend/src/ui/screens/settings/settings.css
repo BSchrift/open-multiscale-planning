@@ -166,3 +166,18 @@
   float: left;
   margin-right: var(--space-1);
 }
+
+/* A Mac app update downloading: a plain bar, which doesn't animate. */
+.settings .updbar {
+  height: 6px;
+  max-width: 320px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.settings .updbar > i {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}

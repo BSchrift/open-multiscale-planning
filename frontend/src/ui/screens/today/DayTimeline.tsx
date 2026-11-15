@@ -33,6 +33,7 @@ import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 import { Icon } from '../../components/ds/Icon';
+import { Segmented } from '../../components/ds/Controls';
 
 const ZOOM = [30, 48, 72, 96];
 const DAY_FROM = 7 * 60;
@@ -520,13 +521,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         <h3>Timeline</h3>
         <div className="row">
           {view === 'calendar' && zoom}
-          <div className="row" role="group" aria-label="Timeline view">
-            {(['calendar', 'list'] as const).map((v) => (
-              <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
-                {v === 'calendar' ? 'Calendar' : 'List'}
-              </button>
-            ))}
-          </div>
+          <Segmented label="Timeline view" options={[['calendar', 'Calendar'], ['list', 'List']]} value={view} onChange={setView} />
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}

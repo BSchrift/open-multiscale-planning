@@ -111,8 +111,9 @@ Then wait for CI. A PR merges only with every check green.
 - **Use the shared components and tokens, never raw values.** Buttons, icons and calendar blocks come from the shared
   components; every colour, size, space, radius, shadow, layer and duration comes from
   [tokens.css](frontend/src/ui/styles/tokens.css). No text glyph is ever an icon.
-- **A new component, or a new token, goes into docs/design.md in the same PR.** Pick a colour by its role, not its
-  look, and change the design there rather than adding a value for one screen.
+- **A new component, or a new token, goes into docs/design.md and the reference page in the same PR.** Pick a colour
+  by its role, not its look, and change the design there rather than adding a value for one screen. After a change to
+  how something looks, `scripts/reference-shots.sh` redraws the reference page's screenshots.
 - **The checks enforce it:** `tokens.test.ts` holds the roles, the contrast pairs in both themes and the budget, and
   `designRules.test.ts` finds raw values, glyph icons and hand-built buttons. They report against
   `design-baseline.json` until it reaches zero; never add to it.

@@ -13,6 +13,7 @@ import { useApp, useMutation, useQuery, useStickyState } from '../../app/store';
 import { Pill } from '../../components/Pill';
 import { UnavailableList } from '../settings/Availability';
 import { useCalendarCall } from '../settings/useCalendarCall';
+import { Button } from '../../components/ds/Button';
 
 type Step = 'welcome' | 'calendar' | 'hours' | 'start';
 
@@ -59,16 +60,16 @@ export default function Screen(props: ScreenProps) {
     void finish.run(kind);
   };
   if (!data) return null;
-  const btn = layout === 'phone' ? 'btn grow' : 'btn';
+  const btn = { className: layout === 'phone' ? 'grow' : undefined };
   const back = (
-    <button className={btn} type="button" onClick={() => setStep(steps[index - 1]!)}>
+    <Button {...btn} type="button" onClick={() => setStep(steps[index - 1]!)}>
       Back
-    </button>
+    </Button>
   );
   const next = (primary: boolean, label = 'Next') => (
-    <button className={primary ? `${btn} pri` : btn} type="button" onClick={() => setStep(steps[index + 1]!)}>
+    <Button {...btn} variant={primary ? 'primary' : 'secondary'} type="button" onClick={() => setStep(steps[index + 1]!)}>
       {label}
-    </button>
+    </Button>
   );
 
   // Back from the browser, the sign-in and its first sync take a moment; the account's data may skip the rest of setup.
@@ -101,9 +102,9 @@ export default function Screen(props: ScreenProps) {
           <div className="row">
             {sync && !signedIn ? (
               <>
-                <button className={`${btn} pri`} type="button" onClick={() => void sync.signIn()}>
+                <Button {...btn} variant="primary" type="button" onClick={() => void sync.signIn()}>
                   Sign in
-                </button>
+                </Button>
                 {canSkip && next(false, 'Skip')}
               </>
             ) : (
@@ -120,9 +121,9 @@ export default function Screen(props: ScreenProps) {
           <p>Connect it to plan around your events and see your blocks in Google.</p>
           <div className="row">
             {back}
-            <button className={`${btn} pri`} type="button" disabled={busy} onClick={() => void call(sync.connectCalendar)}>
+            <Button {...btn} variant="primary" type="button" disabled={busy} onClick={() => void call(sync.connectCalendar)}>
               Connect
-            </button>
+            </Button>
             {next(false, 'Skip')}
           </div>
         </>
@@ -160,18 +161,18 @@ export default function Screen(props: ScreenProps) {
             autoFocus
           />
           <div className="row">
-            <button className={`${btn} pri`} type="submit" disabled={!title.trim()}>
+            <Button {...btn} variant="primary" type="submit" disabled={!title.trim()}>
               Add goal
-            </button>
-            <button className={btn} type="button" disabled={!title.trim()} onClick={() => done('capture')}>
+            </Button>
+            <Button {...btn} type="button" disabled={!title.trim()} onClick={() => done('capture')}>
               Capture
-            </button>
+            </Button>
           </div>
           <div className="row">
             {back}
-            <button className={btn} type="button" onClick={() => done(null)}>
+            <Button {...btn} type="button" onClick={() => done(null)}>
               Skip
-            </button>
+            </Button>
           </div>
         </form>
       )}

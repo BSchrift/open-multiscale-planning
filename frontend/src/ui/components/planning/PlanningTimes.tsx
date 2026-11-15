@@ -15,6 +15,7 @@ import { Sheet } from '../Sheet';
 import { About } from './About';
 import { estimateSource, longTime, placePlanningParams, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
 import './planning.css';
+import { Button } from '../ds/Button';
 
 /** The longest planning block, the same cap a first block and Start have. */
 const LONGEST_MIN = 120;
@@ -104,19 +105,19 @@ export function PlanningTimes(props: {
         ))}
         {!now && times.length === 0 && <p className="small">No free time fits. Choose another time.</p>}
       </div>
-      <button className="btn" type="button" onClick={another}>
+      <Button type="button" onClick={another}>
         Choose another time
-      </button>
+      </Button>
       {changing ? (
         <Length minutes={minutes} onChange={setLength} />
       ) : (
-        <button className="btn" type="button" onClick={() => setChanging(true)}>
+        <Button type="button" onClick={() => setChanging(true)}>
           Change length
-        </button>
+        </Button>
       )}
       {both && (
-        <button
-          className="btn"
+        <Button
+         
           type="button"
           onClick={() => {
             onClose();
@@ -124,11 +125,11 @@ export function PlanningTimes(props: {
           }}
         >
           Plan them at separate times
-        </button>
+        </Button>
       )}
-      <button className="btn" type="button" onClick={onClose}>
+      <Button type="button" onClick={onClose}>
         Close
-      </button>
+      </Button>
     </Sheet>
   );
 }

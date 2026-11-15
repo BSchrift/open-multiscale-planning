@@ -9,6 +9,7 @@ import type { BlockKind } from '../blocks/describe';
 import { Sheet } from '../Sheet';
 import { overlapNote } from './columns';
 import type { OverlapGroup } from './columns';
+import { Button } from '../ds/Button';
 
 interface Listed {
   id: string;
@@ -83,9 +84,9 @@ export function MoreButton<T extends Listed>(props: {
               );
             })}
           </div>
-          <button className="btn" type="button" onClick={() => setOpen(false)}>
+          <Button type="button" onClick={() => setOpen(false)}>
             Close
-          </button>
+          </Button>
         </Sheet>
       )}
     </>

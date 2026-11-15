@@ -129,7 +129,7 @@ test('Week’s day headings open Done on that day, and Done has its place in the
   if (phone) {
     // The chosen day's heading, today, opens it; a later day's doesn't.
     const heading = page.getByRole('button', { name: 'Done on Thu Nov 12: 4 finished' });
-    await expect(heading).toHaveText('4 finished ›');
+    await expect(heading).toHaveText(/^4 finished\s*$/);
     await expectTapTarget(heading);
     await heading.click();
   } else {

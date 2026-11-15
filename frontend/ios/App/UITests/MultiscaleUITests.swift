@@ -240,21 +240,23 @@ final class ShellUITests: XCTestCase {
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
     }
 
-    /// Text follows the phone's text-size setting, as Apple's text styles do: Today's title is taller at the largest
-    /// accessibility size than at the default.
-    func testTextFollowsThePhonesTextSize() throws {
-        // The web view's text is the same with the extensions on, and there, relaunched with a text size, the page has
-        // twice been left out of the accessibility tree for the whole wait, so the first run measures it alone.
-        try XCTSkipIf(extensionsEnabled, "text size is measured in the run without the extensions")
+    /// Text follows the phone's text-size setting, as Apple's text styles do: the tab bar's labels, and so its buttons,
+    /// are taller at the largest accessibility size than at the default.
+    ///
+    /// It reads the tab bar rather than Today's title. Today's screen arrives a moment after the shell, behind its lazily
+    /// loaded code, and when the test's first look at the page lands in that moment, WebKit exposes the Today region
+    /// but never its contents for the rest of that launch, though they're drawn. The tab bar is drawn with the shell, so
+    /// it's in the tree from the first look.
+    func testTextFollowsThePhonesTextSize() {
         var heights: [CGFloat] = []
         for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXL"] {
             let app = launchApp(seed: "Seed plan", arguments: ["-UIPreferredContentSizeCategoryName", size])
-            let titles = app.page.staticTexts.matching(NSPredicate(format: "label == 'Today'"))
-            exists(titles.firstMatch, timeout: launchPatience)
-            heights.append(titles.allElementsBoundByIndex.map(\.frame.height).max() ?? 0)
+            let tab = app.page.otherElements["Main, navigation"].buttons["Today"]
+            exists(tab, timeout: launchPatience)
+            heights.append(tab.frame.height)
             app.terminate()
         }
-        XCTAssertGreaterThan(heights[1], heights[0] * 1.3, "Today's title is \(heights[0])pt high at the default size and \(heights[1])pt at the largest")
+        XCTAssertGreaterThan(heights[1], heights[0] * 1.2, "The Today tab is \(heights[0])pt high at the default size and \(heights[1])pt at the largest")
     }
 
     func testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff() {

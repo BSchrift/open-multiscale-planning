@@ -9,7 +9,7 @@ export interface Deployed {
   version: string | null;
   /** Where the apps' feeds are, when the deployment has a release host. */
   releaseUrl: string | null;
-  /** The feeds a release switched to version: desktop, iphone and shared. */
+  /** The feeds a release switched to version: desktop and iphone. */
   feeds: string[];
 }
 

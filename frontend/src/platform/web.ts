@@ -152,6 +152,8 @@ export async function createWebPlatform(): Promise<Platform> {
     if (document.visibilityState === 'visible') lifecycle.foreground();
     else lifecycle.background();
   });
+  // Before the next page loads, while this one still runs: pagehide comes only once that page shows.
+  window.addEventListener('beforeunload', lifecycle.leave);
 
   return {
     kind: 'web',

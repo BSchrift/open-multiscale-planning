@@ -68,7 +68,12 @@ export function swallowClick(el: Element) {
  * there. A mouse drags at once. A finger holds first, and moving before then scrolls instead. A press without a drag
  * is a click.
  */
-export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: number; offers: readonly Slot[] }, ctx: SlotContext, on: { preview(slot: Slot | null): void; drop(slot: Slot): void }) {
+export function dragCard(
+  event: ReactPointerEvent<HTMLElement>,
+  item: { length: number; offers: readonly Slot[] },
+  ctx: SlotContext,
+  on: { preview(slot: Slot | null): void; drop(slot: Slot): void; /** The platform's light tap, as a held card lifts. */ haptic?(): unknown },
+) {
   if (event.button !== 0) return;
   const card = event.currentTarget;
   const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
@@ -157,7 +162,7 @@ export function dragCard(event: ReactPointerEvent<HTMLElement>, item: { length: 
   window.addEventListener('contextmenu', still);
   const timer = touch
     ? setTimeout(() => {
-        navigator.vibrate?.(10);
+        void on.haptic?.();
         lift(x0, y0);
       }, HOLD_MS)
     : undefined;

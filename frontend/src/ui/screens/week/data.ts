@@ -65,7 +65,8 @@ export interface LaneItem {
   /** The task's or practice's. */
   id: string;
   title: string;
-  kind: BlockKind;
+  /** Never the Inbox: only work given a home is picked for a week. */
+  kind: Exclude<BlockKind, 'inbox'>;
   work: Work;
   /** Minutes still to place. */
   left: Minutes;

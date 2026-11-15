@@ -88,7 +88,7 @@ test('Undo steps back over each card in turn, a skip as well as an add, until th
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
   await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
-  const undo = card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' });
+  const undo = card(page).getByRole('button', { name: phone ? 'Undo' : 'Undo and go back' });
   // Nothing has happened yet, so there's nothing to step back over.
   await expect(undo).toBeDisabled();
   await processTo(page, phone, 'Paint the fence');

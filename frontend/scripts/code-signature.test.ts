@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   cdhash, checkCms, codeDirectoryProblems, developerIdProblems, DMG_TRAILER_SLOT, dmgSignature, hasTicket, INFO_PLIST_SLOT, machOSignatures, parseCodeDirectory,
-  RESOURCES_SLOT, TICKET_LOOKUP,
+  fuseWires, RESOURCES_SLOT, TICKET_LOOKUP, unsignedCode,
 } from './code-signature';
-import { makeIdentity, signedDmg, signedMachO, trustOf } from './fake-mac-build';
+import { linkedMachO, makeIdentity, signedDmg, signedMachO, signMachO, trustOf } from './fake-mac-build';
 
 const TEAM = 'TEAMID0001';
 const identity = makeIdentity(TEAM);
@@ -116,5 +116,43 @@ describe('hasTicket', () => {
     expect(await hasTicket(hash, answer({ records: [{ reason: 'Record not found', serverErrorCode: 'NOT_FOUND' }] }))).toBe(false);
     await expect(hasTicket(hash, answer({}, 503))).rejects.toThrow('answered 503');
     await expect(hasTicket(hash, answer({ records: [{ serverErrorCode: 'THROTTLED' }] }))).rejects.toThrow("doesn't know");
+  });
+});
+
+describe('unsignedCode', () => {
+  const original = signMachO(linkedMachO(Buffer.from('some code')), undefined, '', {}, 0x200);
+
+  it('gives the same code for a binary signed again, ad hoc or with a certificate, and for one first signed', () => {
+    expect(unsignedCode(signMachO(original, identity, TEAM)).equals(unsignedCode(original))).toBe(true);
+    const unsigned = linkedMachO(Buffer.from('some code'));
+    expect(unsignedCode(signMachO(unsigned, identity, TEAM)).equals(unsignedCode(unsigned))).toBe(true);
+    // Nothing of the signature is left in what's compared.
+    expect(unsignedCode(original).length).toBeLessThan(original.length - 0x200 + 1);
+  });
+
+  it('keeps every byte of code, so one changed byte differs', () => {
+    const changed = Buffer.from(original);
+    changed[200]! ^= 1;
+    expect(unsignedCode(signMachO(changed, identity, TEAM)).equals(unsignedCode(original))).toBe(false);
+  });
+
+  it('refuses more after the signature, or __LINKEDIT sizes beyond what the signature needs', () => {
+    expect(() => unsignedCode(Buffer.concat([original, Buffer.from('more')]))).toThrow('holds more than its code signature after its code');
+    const bigger = Buffer.from(original);
+    bigger.writeBigUInt64LE(bigger.readBigUInt64LE(32 + 48) + 16n, 32 + 48);
+    expect(() => unsignedCode(bigger)).toThrow('maps more of the file into __LINKEDIT than it holds');
+    const mapped = Buffer.from(original);
+    mapped.writeBigUInt64LE(0x100000n, 32 + 32);
+    expect(() => unsignedCode(mapped)).toThrow('maps more memory for __LINKEDIT than its file size needs');
+    expect(() => unsignedCode(Buffer.from('cafebabe00000000', 'hex'))).toThrow('universal binary');
+  });
+
+  it('zeroes the fuse bytes, which fuseWires reads on their own', () => {
+    const wire = Buffer.concat([Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX'), Buffer.from([1, 3]), Buffer.from('101')]);
+    const withFuses = linkedMachO(Buffer.concat([Buffer.from('code'), wire]));
+    expect(fuseWires(withFuses).map((w) => [w.version, w.fuses.toString()])).toEqual([[1, '101']]);
+    const flipped = Buffer.from(withFuses);
+    flipped[flipped.indexOf(wire) + wire.length - 1] = 0x30;
+    expect(unsignedCode(flipped).equals(unsignedCode(withFuses))).toBe(true);
   });
 });

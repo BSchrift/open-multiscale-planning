@@ -1,12 +1,13 @@
 // A task's popup: everything about one task, to read and change, opened by tapping the task wherever it shows. A sheet
 // on phone and a centred dialog on desktop. Top to bottom: its name, with what Process made of a finished Inbox item,
-// Time estimate, where it belongs, Description, Attachments, then Save, Cancel and Delete task. Focus starts on the
+// then, opened from a block on a calendar, that block's own section, then Time estimate, where it belongs, Description,
+// Attachments, then Save, Cancel and Delete task. Focus starts on the
 // name, read as the heading, so the phone's keyboard stays down until a field is tapped. Save and Delete each offer
 // Undo. Attachments are added and removed as they go, each with its own Undo, rather than on Save. A goal's backlog is a
 // place too: a task moved there loses its milestone and any date, and a repeating one off can't go.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { backlogGoal, backlogTitle, fileToBacklog, isBacklog } from '../../../core/backlog';
 import { MAX_TITLE } from '../../../core/captureTitle';
 import { formatDate, formatWeekday } from '../../../core/dates';
@@ -20,6 +21,7 @@ import type { Fields, LocalDate, Task } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
+import { LeavePopup } from '../../components/blocks/BlockSection';
 import { useLeave } from '../../components/editors/useLeave';
 import { usePlanChange } from '../../components/editors/usePlanChange';
 import { EstimateSlider } from '../../components/EstimateSlider';
@@ -96,19 +98,26 @@ function moveFields(place: Place, task: Task, today: LocalDate): Fields<'task'> 
 }
 
 export default function Screen(props: ScreenProps) {
-  const id = props.params.task ?? '';
+  return <TaskPopupFor id={props.params.task ?? ''} note={props.params.note} close={props.close} />;
+}
+
+/**
+ * The popup, for a calendar that draws it itself, opened from one of its blocks: block is that block's section, whose
+ * actions can reach back into the calendar, such as Move.
+ */
+export function TaskPopupFor(props: { id: string; note?: string | undefined; close(): void; block?: ReactNode }) {
+  const { id, close } = props;
   const data = useQuery((sql) => loadTask(sql, id), [id]).data;
   // Deleted, here or on another device, it has nothing left to show.
   const gone = !!data && (!data.task || !!data.task.deleted_at);
-  const { close } = props;
   useEffect(() => {
     if (gone) close();
   }, [gone, close]);
   if (!data?.task || gone) return null;
-  return <TaskPopup key={id} task={data.task} places={data.places} note={props.params.note} close={close} />;
+  return <TaskPopup key={id} task={data.task} places={data.places} note={props.note} close={close} block={props.block} />;
 }
 
-function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string; close(): void }) {
+function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string | undefined; close(): void; block?: ReactNode }) {
   const { task, places, close } = props;
   const { layout, clock } = useApp();
   const today = useToday();
@@ -214,6 +223,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string;
           {task.done_at && task.became && <Became became={task.became} onGo={close} />}
         </div>
         <div className="taskpopbody">
+          <LeavePopup.Provider value={leave}>{props.block}</LeavePopup.Provider>
           <EstimateSlider label="Time estimate" value={estimate} onChange={setEstimate} />
           <label className="popfield">
             Belongs to

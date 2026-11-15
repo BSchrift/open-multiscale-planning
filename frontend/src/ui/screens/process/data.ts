@@ -1,9 +1,11 @@
-// What Process reads: the Inbox, every project it can add to under its goal, and what a new home needs.
+// What Process reads: the Inbox, every project it can add to under its goal, each goal's backlog, and what a new home
+// needs.
 
 import type { Clock } from '../../../core/clock';
 import { addMonths, today } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { currentStretch, gatherPlans, plannedIds } from '../../../core/plan';
+import { currentStretch, gatherBacklogs, gatherPlans, plannedIds } from '../../../core/plan';
+import { backlogId } from '../../../core/backlog';
 import type { ProjectPlan, Stretch } from '../../../core/plan';
 import { inboxTasks, projectTasks } from '../../../core/queries';
 import type { InboxRow } from '../../../core/queries';
@@ -28,6 +30,8 @@ export interface ProcessData {
   groups: PickGroup[];
   /** Goals a new project or practice can go under. */
   goals: Objective[];
+  /** Each active goal, in its order, with how many open tasks its backlog holds. */
+  backlogs: { id: string; title: string; open: number }[];
   /** Where a new project ends: with the stretch being planned, else the one under way, else in three months. */
   end: LocalDate;
   /** For a milestone's date, when it has none of its own. */
@@ -55,10 +59,19 @@ export async function loadProcess(sql: Sql, clock: Clock, stretch?: Stretch): Pr
     { label: 'No goal', dests: rest.filter((d) => !objectives.some((o) => o.id === d.plan.project.objective_id)) },
   ].filter((g) => g.dests.length > 0);
   const on = today(clock);
+  const held = gatherBacklogs(projects, milestones, tasks);
+  const live = objectives.filter((o) => o.state !== 'archived');
+  live.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.id < b.id ? -1 : 1));
+  const backlogs = live.map((o) => ({
+    id: o.id,
+    title: o.title,
+    open: held.find((b) => b.project.id === backlogId(o.id))?.tasks.filter((t) => !t.done_at && !t.cancelled_at).length ?? 0,
+  }));
   return {
     inbox,
     groups,
     goals: objectives,
+    backlogs,
     settings,
     end: stretch?.end ?? currentStretch(settings, on)?.end ?? addMonths(on, 3),
   };

@@ -27,6 +27,8 @@ export interface ElectronBridge {
   };
   openExternal(url: string): Promise<void>;
   onDeepLink(listener: (url: string) => void): () => void;
+  /** The computer woke from sleep or its screen unlocked. Apps from before it lack it. */
+  onWake?(listener: () => void): () => void;
   /** The capture window asks for a saved title. Reports back with done, passing the error if it failed. */
   onCapture(listener: (id: string, title: string) => void): () => void;
   captureDone(id: string, error?: string): void;

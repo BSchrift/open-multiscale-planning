@@ -543,7 +543,8 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   });
   const unfinish = useMutation(async (w, done: NonNullable<Awaited<ReturnType<typeof save.run>>>) => {
     await applyPlanChange(w, done.closed.reverse);
-    if (done.before) await w.set('settings', SETTINGS_ID, done.before);
+    // Settings that never had a stretch reverse to null, which would hide its default of none planned yet.
+    if (done.before) await w.set('settings', SETTINGS_ID, { ...done.before, ...(done.before.plan_stretch === null ? { plan_stretch: {} } : {}) });
     await applyPlanChange(w, done.pinned);
   });
   const share = useMutation((w, progress: PlanProgress) => updateSettings(w, { plan_progress: progress }));

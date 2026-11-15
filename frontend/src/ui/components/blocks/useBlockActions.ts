@@ -128,11 +128,10 @@ export function useBlockActions() {
         true,
       ),
     start: (block: BlockRow) => run((w) => startBlock(w, block.id, clock)),
-    startEarly: (block: BlockRow) => run((w) => startEarly(w, block.id, clock)),
+    startEarly: (block: BlockRow) => withUndo((w) => startEarly(w, block.id, clock), `Started ${block.title ?? 'the block'} early`),
     swap: (block: BlockRow, next: BlockRow) => withUndo((w) => swapBlocks(w, block.id, next.id), 'Swapped with your next block'),
-    stillGoing: async (block: BlockRow) => {
-      if (await run((w) => extendBlock(w, block.id, STILL_GOING_MIN))) toast.show(`Added ${STILL_GOING_MIN} minutes`);
-    },
+    stillGoing: (block: BlockRow) =>
+      withUndo((w) => extendBlock(w, block.id, STILL_GOING_MIN), `Added ${STILL_GOING_MIN} minutes to ${block.title ?? 'the block'}`),
     snooze: (block: BlockRow) => {
       snoozeBlock(block.id, snoozeUntil(clock));
       toast.show("I'll check again in 10 minutes");

@@ -111,7 +111,7 @@ test('Needs a new time places a row at its best time in one tap with Undo, delet
   await expect(queue.getByText('Not done today')).toBeVisible();
 
   await queue.getByRole('button', { name: 'Delete Write the report' }).click();
-  await expect(page.getByText('Deleted', { exact: true })).toBeVisible();
+  await expect(page.getByText('Deleted Write the report.')).toBeVisible();
   await expect(queue.getByText('Write the report')).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(queue.getByText('Write the report')).toBeVisible();

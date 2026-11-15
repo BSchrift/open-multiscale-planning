@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { parse } from 'yaml';
@@ -297,6 +299,19 @@ describe('the release pipeline', () => {
     const vars = nightly[1].Properties.Environment.EnvironmentVariables;
     assert.deepEqual(vars.find((v: any) => v.Name === 'STEP').Value, 'nightly');
     assert.match(nightly[1].Properties.Source.BuildSpec, /scripts\/pipeline\.sh nightly/);
+  });
+
+  it('runs the nightly build in the clone its install made, as CodeBuild runs every phase in one shell', () => {
+    const nightly = ofType('AWS::CodeBuild::Project').find(([, p]) => p.Properties.Source.Type === 'NO_SOURCE')!;
+    const { phases } = JSON.parse(nightly[1].Properties.Source.BuildSpec) as { phases: Record<string, { commands: string[] }> };
+    // A git that clones a repo whose pipeline.sh only names its step, and every phase's commands in order in one bash.
+    const dir = mkdtempSync(join(tmpdir(), 'nightly-'));
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'bin/git'), '#!/bin/bash\nmkdir -p "${@: -1}/scripts" && printf \'#!/bin/bash\\necho "step $1"\\n\' >"${@: -1}/scripts/pipeline.sh" && chmod +x "${@: -1}/scripts/pipeline.sh"\n', { mode: 0o755 });
+    const script = ['install', 'build'].flatMap((phase) => phases[phase]!.commands).join(' || exit 1\n');
+    const run = spawnSync('bash', ['-c', script], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}` } });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(run.stdout.trim().split('\n'), ['step install', 'step nightly']);
   });
 
   it('needs every environment in the control account\'s region', () => {

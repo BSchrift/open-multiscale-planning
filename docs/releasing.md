@@ -51,11 +51,23 @@ switches each surface to it (`upload` and `switch` in `scripts/pipeline.sh`, whi
 | `web/index.html` and the rest | A copy of the version web serves | Web host |
 | `release/files/` | Every version's files, named by their contents, cached for a year | Release host |
 | `release/desktop/release.json`, `release/iphone/release.json` | A copy of the Mac's and the iPhone's version's feed, cached for 60 seconds | Release host |
+| `downloads/mac/<app version>/` | Each checked Mac app: its zip, the zip's blockmap, its disk image, then `latest-mac.yml`, written once and cached for good | Downloads host |
+| `downloads/Multiscale.dmg` | A copy of the disk image of the app the desktop feed names, for first installs, cached for 5 minutes | Downloads host |
+| `mac/manifest.json` | The record of the checked Mac app that's live, with its app record | No |
 | `state/history.json` | Each surface's versions in the order it got them, with times | No |
 
 A version is what its `version.json` names: the package version and the commit, such as `0.1.0-85e85c2`. Switching web
 copies its page to `web/` with `no-cache`, `version.json` last, so the next page load gets it. Switching a feed copies
 its `release.json`, and each device takes it at its next check.
+
+**The Mac app's record.** Where the pipeline checks Mac apps, every manifest names the Mac app that runs its build, as
+`app`: the app's version, `0.1.<build>`, so it only goes up; its build and native code; its folder on the downloads
+host, `mac/<app version>/`; and the zip there, with its SHA-512 and size. The MacApp step writes the record, from the
+zip it checked or, for a build that needs no new app, from the live one in `mac/manifest.json`, and the signing step
+signs it with the rest, refusing a record for other native code than the build's. So a release that changes no native
+code still names the app that runs it. Nothing under `downloads/mac/` changes once written, so the signed feed is the
+only thing that points at an app. Switching the desktop feed to a version that names an app first copies that app's
+disk image to `downloads/Multiscale.dmg` and its record to `mac/manifest.json`.
 
 A feed takes a build only when its app can. The desktop feed compares the Mac app's native code with what it serves,
 and takes the build when it's unchanged or a Mac app from GitHub Actions is published first. The iPhone feed compares
@@ -164,6 +176,7 @@ code (`scripts/pipeline.sh`).
 | Web | Switch to the version before | Every page loaded from then on, within seconds |
 | The Mac or iPhone feed, to stop a version spreading | Switch the feed to the version before | Devices that haven't taken the bad version won't. Devices that have keep it |
 | The Mac or iPhone apps, to take a version back | Revert on main and let it release: a newer build with the old code | Every device, at its next check after that run reaches it |
+| A Mac app that's spreading | Switch the desktop feed to the version before, then revert on main | Macs that haven't got the bad app get the version before's, and `downloads/Multiscale.dmg` is that app's disk image again |
 
 A feed switch only stops a bad version spreading, because the apps never take an older bundle than the one they have:
 the page skips a release whose build isn't newer (`frontend/src/core/updates.ts`), and the Mac and iPhone install only
@@ -171,12 +184,15 @@ a newer bundle and always run the newest they have. A device that already took t
 its 20-second trial, which rolls it back on that device by itself. A revert on main is a newer build with the old code.
 
 It refuses a version that isn't kept, and, for a feed, a version built for other native code than the apps that feed
-serves, since they couldn't take it. Web has no such guard: a browser loads whatever page is live. The compatibility
+serves, since they couldn't take it, but for the desktop feed going to a version whose manifest names a Mac app the
+downloads host has: Macs then update to that app, forward or back. The iPhone feed never crosses native code. Web has
+no such guard: a browser loads whatever page is live. The compatibility
 test checks the bundle a release replaces against the new one, so going back one version is tested. Going back further
 is the owner's call, and the command says so.
 
 Every night, staging's run switches the web app and each app's feed back one version and forward again with the same
-code, and reads each back from its host.
+code, and reads each back from its host. The desktop feed goes back across native code too when the version before
+names an app.
 
 When a release alarm is already firing as a deploy starts, CodeDeploy refuses the deploy, and CloudFormation rolls it
 back. To ship the fix for it, see [Shipping while a release alarm fires](#shipping-while-a-release-alarm-fires).
@@ -269,20 +285,28 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    `gh workflow run mac-release.yml -f commit=<full commit hash>`. A first job, with no secrets, checks that the commit
    is on main. The signing job then runs in the `release` environment, after the owner's approval if the environment
    has a reviewer. It installs the lockfile's packages with no install scripts, imports the Developer ID into a keychain
-   of its own, builds the staging and prod apps with `scripts/mac-app.sh` (signed, notarized, stapled, opened by
-   `spctl` and started, as `make release` does), and writes a manifest beside each disk image: the commit, the versions,
-   the shell hash, SHA-256s and the notary submissions. It uploads both to `s3://<inbox bucket>/inbox/<commit>/<env>/`,
-   the manifest last, and deletes the keychain and the notary key.
+   of its own, builds the staging and prod apps with `scripts/mac-app.sh`, each as a disk image and a zip of the same
+   app (signed, notarized and stapled, and the zip unpacked with `ditto` and that copy checked by `codesign`, opened by
+   `spctl`, its ticket validated and started, as `make release` does), and writes a manifest beside each: the commit,
+   the versions, the app's version, the shell hash, SHA-256s and the notary submissions. It uploads the disk image, the
+   zip, its blockmap and the manifest to `s3://<inbox bucket>/inbox/<commit>/<env>/`, the manifest last, and deletes
+   the keychain and the notary key.
 2. **The pipeline waits for it.** The Staging stage's MacApp step, beside staging's deploy, compares each
    environment's feed with this build, and looks for the record of a checked Mac app beside its downloads. For each
    that needs a new Mac app, it waits for that environment's manifest in the inbox, up to `pipeline.mac.waitFor` (two
-   hours unless `control.yaml` says), then checks the upload (`frontend/scripts/mac-inbox.ts verify`). If nothing
+   hours unless `control.yaml` says), then checks the upload (`frontend/scripts/mac-inbox.ts verify`) and writes the
+   app's record, which the signing step signs into the manifest. For each that doesn't, it hands on the live app's
+   record instead. If nothing
    arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
    caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
    waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
-3. **The releases publish it.** Staging's and prod's releases upload the checked disk image to
-   `downloads.<zone>/Multiscale.dmg`, then its manifest to `mac/manifest.json` in the release bucket, which nothing
-   serves, as the record that the app is a checked one, then the feed, as `make release` does. An environment whose
+3. **The releases publish it.** Staging's and prod's releases upload the app's folder first,
+   `downloads/mac/<app version>/`: the zip, its blockmap and the disk image, then `latest-mac.yml`, which electron-updater
+   reads, written by the pipeline from the record of the checked zip rather than taken from GitHub. A folder already
+   finished is left as it is, and a different build of the same version stops the run before it publishes anything.
+   Then the disk image goes to `downloads.<zone>/Multiscale.dmg` for first installs, then its manifest to
+   `mac/manifest.json` in the release bucket, which nothing serves, as the record that the app is a checked one, then
+   the feed. An environment whose
    feed can take the build as its Mac app is, and which serves a checked one, gets no new Mac app, and nothing changes.
    A build that also needs a new iPhone app leaves the iPhone feed until testers can install one
    ([iPhone apps from TestFlight](#iphone-apps-from-testflight)).
@@ -291,7 +315,8 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
 
 For each environment's upload, on Linux, with OpenSSL and 7-Zip:
 
-- **It's this commit's.** The manifest names the run's commit, and the disk image's SHA-256 is the manifest's.
+- **It's this commit's.** The manifest names the run's commit, and the disk image's and the zip's SHA-256s are the
+  manifest's. The app's version is `0.1.<build>`, in the manifest, the app's `package.json` and its `Info.plist`.
 - **The configured team signed it, with a Developer ID.** The disk image's signature and the app's both verify: their
   code directories match every byte of the disk image, and of the app's executable, Info.plist and resource seal.
   OpenSSL checks each CMS signature. Its certificate must be a Developer ID Application certificate naming
@@ -304,15 +329,28 @@ For each environment's upload, on Linux, with OpenSSL and 7-Zip:
   resource seal covers that `app.asar`. Its `package.json` is the checkout's, as electron-builder trims it.
   better-sqlite3's JavaScript, unpacked beside it, is the installed package's. The web build and main process come
   out the same on macOS and Linux.
+- **It runs Electron's own native code.** Every file in the app is Electron's, from its darwin-arm64 zip, which the
+  check downloads and refuses unless it has the SHA-256 in the installed `electron` package's `checksums.json`, or one
+  of the app's own: `app.asar` and what's unpacked beside it, the icon, the resource seals and the stapled ticket. Each
+  Mach-O binary must equal Electron's byte for byte once signed again: only its signature, the load command that
+  points at it, and the `__LINKEDIT` sizes that follow from it are left out, and only after checking that's all
+  signing changed. better-sqlite3's binaries must equal the installed package's the same way. Electron's fuses, which
+  the comparison leaves out, must be exactly the ones `electron/identity.ts` sets, the rest as Electron ships them, so
+  turning on `RunAsNode`, say, fails. Every `Info.plist` key is Electron's or what electron-builder writes for this app,
+  `ElectronAsarIntegrity` the hash of this `app.asar`'s header. Anything else, such as a binary Electron hasn't got,
+  fails.
+- **The zip is the same app.** It's read as `ditto` would unpack it, from its central directory, each entry checked
+  against its local header, refusing a name twice, an absolute or `..` path, or entries that overlap. It must hold the
+  disk image's app exactly: the same paths, each a file, folder or link alike, links to the same places inside the app,
+  and the same contents. Its modes must be Electron's for Electron's files, and plain for the app's own.
 
 `rcodesign verify` isn't used: it reads only Mach-O binaries, not disk images or the resource seal that holds
 `app.asar`, doesn't check the certificate chain, and warns that it "is known to be buggy and gives misleading results".
 
 **What it can't catch:**
 
-- **Native code.** Electron's framework and helpers and better-sqlite3's prebuilt binary are signed and notarized, but
-  compared with nothing, since signing changes them. A signing job that was tampered with, or someone holding both the
-  Developer ID and the App Store Connect key, could change them and pass.
+- **The blockmap.** It's copied, not checked: electron-updater uses it to fetch only the zip's changed blocks, then
+  checks the whole zip's SHA-512 against the signed record.
 - **Nested signatures.** The check verifies the disk image's signature, which covers every byte of it, and the app's
   executable's. The signatures inside the app, on its frameworks and helpers, are left to Apple's notarization.
 - **A disk image made to read differently.** The app is read from the disk image with 7-Zip, not macOS. Only someone

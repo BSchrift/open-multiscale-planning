@@ -506,7 +506,7 @@ export function ProjectPage(props: { plan: ProjectPlan | undefined; goal: string
     return <p className="quiet">This project is no longer active.</p>;
   }
   return (
-    <div className="stack">
+    <div className="stack projectpage">
       <div>
         <h1>{plan.project.title}</h1>
         <div className="small quiet">{props.goal ?? 'No goal'}</div>

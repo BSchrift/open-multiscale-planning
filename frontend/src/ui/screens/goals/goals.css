@@ -4,6 +4,15 @@
   display: block;
 }
 
+/* A title with nowhere to break, such as a pasted link, breaks anywhere rather than run out of its card and over the
+   controls beside it, as a task's name does. */
+[data-layout] .goalspage .grow,
+[data-layout] .projectpage > :first-child,
+[data-layout] .projectbody .grow,
+[data-layout='phone'] .projectbody .glabel > :first-child {
+  overflow-wrap: anywhere;
+}
+
 [data-layout] .projectbody .pillrow {
   margin-top: 0;
 }

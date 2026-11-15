@@ -88,11 +88,14 @@ export async function go(page: Page, label: string, heading: string | RegExp = l
   await expect(pane(page, label).getByRole('heading', { name: heading, level: 1 })).toBeVisible();
 }
 
-/** Presses Sync now and waits for it to finish, allowing for a deployment's slower network. */
-export async function syncNow(page: Page) {
+/**
+ * Presses Sync now and waits for it to finish, allowing for a deployment's slower network. A sync already under way
+ * finishes first, so a caller that may meet one passes a timeout for it.
+ */
+export async function syncNow(page: Page, timeout = 30_000) {
   await go(page, 'Settings');
   await account(page).getByRole('button', { name: 'Sync now' }).click();
-  await expect(account(page).getByRole('button', { name: 'Sync now', disabled: true })).toHaveCount(0, { timeout: 30_000 });
+  await expect(account(page).getByRole('button', { name: 'Sync now', disabled: true })).toHaveCount(0, { timeout });
 }
 
 /**

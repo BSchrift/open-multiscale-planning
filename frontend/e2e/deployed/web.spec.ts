@@ -5,7 +5,7 @@
 // scripts/test-deployed.sh runs it.
 
 import { expect, test } from '@playwright/test';
-import type { BrowserContext, Locator, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page, Request } from '@playwright/test';
 import { syncNow } from '../seed';
 import { deployed } from './target';
 
@@ -14,12 +14,27 @@ const d = deployed();
 // publishes only once they pass. Checks of screens new in this release skip there; release-prod runs them after publishing.
 const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 const NETWORK = { timeout: 60_000 };
+// The sync a new browser runs after its first reload, which fills in expiries for what it downloaded and sends them.
+// On prod's shared test user, which held tens of thousands of deleted records, it ran past 70 seconds on 15 November.
+const CATCH_UP = 180_000;
 
 test.describe.configure({ mode: 'serial' });
 
 let context: BrowserContext;
 let page: Page;
 const problems: string[] = [];
+// Each sync request the page made, for the log of a failed test.
+const syncs: string[] = [];
+
+async function noteSync(r: Request) {
+  if (r.method() !== 'POST' || !r.url().endsWith('/sync')) return;
+  const sent = JSON.parse(r.postData() ?? '{}') as { cursor?: number; changes?: unknown[] };
+  const res = await r.response().catch(() => null);
+  const got = res?.ok() ? ((await res.json().catch(() => null)) as { cursor?: number; more?: boolean; changes?: unknown[] } | null) : null;
+  const { startTime, responseEnd } = r.timing();
+  const answer = got ? `pulled ${got.changes?.length} to ${got.cursor}${got.more ? ', more' : ''}` : (res?.status() ?? r.failure()?.errorText);
+  syncs.push(`${new Date(startTime).toISOString().slice(11, 19)} ${Math.round(responseEnd)} ms: sent ${sent.changes?.length} at ${sent.cursor}, ${answer}`);
+}
 
 // One signed-in page for the whole file, as a person would keep one tab.
 test.beforeAll(async ({ browser }, info) => {
@@ -37,16 +52,20 @@ test.beforeAll(async ({ browser }, info) => {
       if (m.type() === 'error' && !refused) problems.push(m.text().slice(0, 200));
     });
     p.on('pageerror', (e) => problems.push(`pageerror ${e.message.slice(0, 200)}`));
+    p.on('requestfinished', (r) => void noteSync(r));
+    p.on('requestfailed', (r) => void noteSync(r));
   });
   page = await context.newPage();
 });
 
 test.afterAll(() => context?.close());
 
-// CodeBuild keeps no trace, so a failed test logs what the page showed.
+// CodeBuild keeps no trace, so a failed test logs what the page showed, and what its latest syncs carried and took.
 test.afterEach(async ({}, info) => {
-  if (info.status !== info.expectedStatus && page && !page.isClosed())
-    console.log(`${info.title} failed; the page showed:\n${await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)')}`);
+  if (info.status !== info.expectedStatus && page && !page.isClosed()) {
+    const snapshot = await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)');
+    console.log(`${info.title} failed; the page showed:\n${snapshot}\nIts last syncs, of ${syncs.length}:\n${syncs.slice(-30).join('\n')}`);
+  }
 });
 
 test('serves the version released, its pages with the security policy, and assets that cache for good', async () => {
@@ -65,7 +84,8 @@ test('serves the version released, its pages with the security policy, and asset
   expect(a.headers()['cache-control']).toContain('immutable');
 });
 
-test('signs in through the hosted page as the test user, and stays signed in after a reload', async () => {
+test('signs in through the hosted page as the test user, and stays signed in after a reload', async ({}, info) => {
+  test.setTimeout(NETWORK.timeout + CATCH_UP);
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });
   const signIn = page.getByRole('button', { name: 'Sign in' }).first();
@@ -93,6 +113,13 @@ test('signs in through the hosted page as the test user, and stays signed in aft
   await page.waitForTimeout(1000);
   await page.reload();
   await expect(nav).toBeVisible(NETWORK);
+  // Sync now joins the sync the reload started, so the tests that press it wait for that one here, where it starts.
+  // Phone presses nothing that syncs.
+  if (info.project.name === 'desktop') {
+    const started = Date.now();
+    await syncNow(page, CATCH_UP);
+    console.log(`The sync after the reload took ${Math.round((Date.now() - started) / 1000)} s.`);
+  }
 });
 
 test('keeps its data on OPFS, through a worker and WebAssembly the security policy allows', async ({}, info) => {

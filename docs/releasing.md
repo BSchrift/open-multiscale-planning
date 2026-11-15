@@ -30,7 +30,9 @@ no long-lived key.
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
 because it sets off prod's throttle alarm. The iPhone's signed-in test needs a Mac, so it runs there: `make test-ios`,
-or `make test-deployed`.
+or `make test-deployed`. The integration suite's two full-batch tests, paging and the largest batch, stay off prod too:
+nothing removes a record outright, so their 694 records would stay on prod's shared test user as deleted records for
+the 30-day deleted period, and every new browser of that user, the deployed web suite's included, downloads them all.
 
 The history-scale budgets only report for now (`HISTORY_REPORT_ONLY=1`). A missed budget never stops a release.
 

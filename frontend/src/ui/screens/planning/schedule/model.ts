@@ -2,6 +2,7 @@
 // and the week's blocks. Practices come first since their days and times are set. The order and the rules come from
 // core; this only joins them up.
 
+import { isBacklog } from '../../../../core/backlog';
 import type { Clock } from '../../../../core/clock';
 import { blockMinutes, formatMinutes } from '../../../../core/dates';
 import { FIRST_BLOCK_MIN, pickToPlace, scheduleOrder, taskDue, taskWork } from '../../../../core/plan';
@@ -46,10 +47,12 @@ export function scheduleModel(d: PlanningData, m: WeekModel, sessions: readonly 
   const now = clock.now();
   const blocks = placedBlocks(m.slot.placed, d.blocks, now);
 
-  const tasks: SchedRow[] = scheduleOrder(m.plans, m.oneOffs, m.input, m.ctx).map((c) => {
+  const plans = [...m.plans, ...m.backlogs];
+  const tasks: SchedRow[] = scheduleOrder(plans, m.oneOffs, m.input, m.ctx).map((c) => {
     const oneOff = c.task.kind === 'one_off';
-    const plan = oneOff ? null : (m.plans.find((p) => p.project.id === c.task.project_id) ?? null);
-    const due = taskDue(c.task, plan, d.week, m.ctx);
+    const plan = oneOff ? null : (plans.find((p) => p.project.id === c.task.project_id) ?? null);
+    // A backlog's dates are placeholders, so its tasks are never due.
+    const due = taskDue(c.task, plan && !isBacklog(plan.project) ? plan : null, d.week, m.ctx);
     const where = plan ? plan.project.title : 'One off';
     return {
       id: c.task.id,

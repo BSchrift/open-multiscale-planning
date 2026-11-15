@@ -86,9 +86,10 @@ func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: 
  * The app with its data as a new install has it, then seeded from the test page when a seed is given. The Simulator's
  * clock can't be set, and Today shows and says "today" only for blocks that start today, so a seeded app's web view
  * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
- * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead.
+ * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead. An `offline`
+ * app starts with no network (`offlineFlag`).
  */
-func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
+func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false, offline: Bool = false) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
     if seed != nil, !realClock {
@@ -96,6 +97,7 @@ func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: B
         for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
     }
     if remindingOnLeave { app.launchEnvironment[remindersOnLeave] = "YES" }
+    if offline { app.launchEnvironment[offlineFlag] = "YES" }
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launchLoaded()
     exists(checks.webText("ready"), timeout: launchPatience)
@@ -590,7 +592,7 @@ final class NativeUITests: XCTestCase {
 }
 
 /// What scripts/test-ios.sh signs in to: the local stack it started, or a deployment as its test user.
-private struct Target: Decodable {
+struct Target: Decodable {
     struct User: Decodable { let username, password: String }
     let env: String
     let api_url: String
@@ -606,7 +608,7 @@ private struct Target: Decodable {
 }
 
 /// Another device of the same user, straight through the API, to see what reached the server.
-private struct SecondDevice {
+struct SecondDevice {
     let target: Target
     let token: String
     let start: Int
@@ -770,7 +772,7 @@ final class SignedInUITests: XCTestCase {
     }
 
     /// A deployment's hosted sign-in page, in the browser sheet over the app. The local stack's signs in with no page.
-    private func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
+    func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
         fillHostedSignIn(app, user)
         app.typeText("\n")
         dismissSavePassword(app, within: 10)

@@ -35,6 +35,7 @@
 		A1B2C3D4E5F600000000032A /* ReviewUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000030A /* ReviewUITests.swift */; };
 		A1B2C3D4E5F6000000000202 /* OpenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000201 /* OpenCapture.swift */; };
 		A1B2C3D4E5F6000000000203 /* OpenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000201 /* OpenCapture.swift */; };
+		A1B2C3D4E5F60000000003F2 /* OfflineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,6 +98,7 @@
 		A1B2C3D4E5F600000000000C /* MultiscaleCapture.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MultiscaleCapture.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000000D /* MultiscaleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MultiscaleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000201 /* OpenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCapture.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -186,6 +188,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F600000000000A /* MultiscaleUITests.swift */,
+				A1B2C3D4E5F60000000003F1 /* OfflineUITests.swift */,
 				A1B2C3D4E5F6000000000301 /* FeatureHelpers.swift */,
 				A1B2C3D4E5F6000000000302 /* InboxUITests.swift */,
 				A1B2C3D4E5F6000000000303 /* TodayUITests.swift */,
@@ -386,6 +389,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4E5F6000000000046 /* MultiscaleUITests.swift in Sources */,
+				A1B2C3D4E5F60000000003F2 /* OfflineUITests.swift in Sources */,
 				A1B2C3D4E5F6000000000321 /* FeatureHelpers.swift in Sources */,
 				A1B2C3D4E5F6000000000322 /* InboxUITests.swift in Sources */,
 				A1B2C3D4E5F6000000000323 /* TodayUITests.swift in Sources */,

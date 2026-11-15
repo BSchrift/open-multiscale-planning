@@ -9,6 +9,7 @@ import type { Layout } from '../../../app/registry';
 import { useQuery } from '../../../app/store';
 import { InboxList } from '../../../components/inbox/InboxList';
 import { useHeadingAfterProcess } from '../../../components/inbox/useHeadingAfterProcess';
+import { Button } from '../../../components/ds/Button';
 
 export function InboxStep(props: { week: LocalDate; layout: Layout; onNext(): void }) {
   const { week, layout } = props;
@@ -29,18 +30,18 @@ export function InboxStep(props: { week: LocalDate; layout: Layout; onNext(): vo
           <p className="quiet">Inbox is empty.</p>
         ) : (
           <div>
-            <button className="btn pri pxstart" type="button" onClick={() => process()}>
+            <Button variant="primary" className="pxstart" type="button" onClick={() => process()}>
               Process {rows.length} {rows.length === 1 ? 'item' : 'items'}
-            </button>
+            </Button>
           </div>
         )}
         <InboxList rows={rows} phone={phone} onOpen={process} />
       </div>
       {!phone && (
         <div className="row">
-          <button className="btn pri" type="button" onClick={props.onNext}>
+          <Button variant="primary" type="button" onClick={props.onNext}>
             Continue to picking tasks
-          </button>
+          </Button>
         </div>
       )}
     </div>

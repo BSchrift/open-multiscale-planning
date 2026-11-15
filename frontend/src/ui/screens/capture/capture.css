@@ -35,14 +35,14 @@
 
 [data-layout='desktop'] .capdetails .notesarea {
   color: var(--ink);
-  font-size: var(--text-base-desktop);
+  font-size: var(--fs-body);
 }
 
 /* On phone Save stays at the foot of the sheet, in reach with the details open. */
 [data-layout='phone'] .capform > .btn.pri {
   position: sticky;
   bottom: 0;
-  box-shadow: 0 12px 0 12px var(--white);
+  box-shadow: 0 12px 0 12px var(--card);
 }
 
 @media (prefers-reduced-motion: reduce) {

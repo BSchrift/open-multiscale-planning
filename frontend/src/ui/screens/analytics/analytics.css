@@ -1,17 +1,17 @@
 /* Analytics marks. Practices are teal and One offs purple in every chart; a part at zero draws nothing. */
 
-:where([data-layout='desktop']) .analytics .hbar.prac .fill{background:var(--teal)}
+:where([data-layout='desktop']) .analytics .hbar.prac .fill{background:var(--practice)}
 :where([data-layout='desktop']) .analytics .split{border-radius:4px;overflow:hidden}
 :where([data-layout='desktop']) .analytics .split span{border-radius:0}
 /* The lightest part needs 2:1 against the page to stay visible. */
-:where([data-layout='desktop']) .analytics .c{background:var(--analytics-3)}
-:where([data-layout='desktop']) .analytics .legend .a{background:var(--blue)}
-:where([data-layout='desktop']) .analytics .legend .b{background:var(--blue-mid-2)}
-:where([data-layout='desktop']) .analytics .mnt .a{background:var(--purple)}
-:where([data-layout='desktop']) .analytics .mnt .b{background:var(--purple-mid)}
+:where([data-layout='desktop']) .analytics .c{background:var(--line)}
+:where([data-layout='desktop']) .analytics .legend .a{background:var(--project)}
+:where([data-layout='desktop']) .analytics .legend .b{background:var(--project)}
+:where([data-layout='desktop']) .analytics .mnt .a{background:var(--oneoff)}
+:where([data-layout='desktop']) .analytics .mnt .b{background:var(--oneoff)}
 :where([data-layout='desktop']) .analytics .tb{min-height:0}
-:where([data-layout='desktop']) .analytics .trow.mnt .tb{background:var(--purple-bar)}
-:where([data-layout='desktop']) .analytics .trow.mnt .tb.on{background:var(--purple)}
+:where([data-layout='desktop']) .analytics .trow.mnt .tb{background:var(--oneoff)}
+:where([data-layout='desktop']) .analytics .trow.mnt .tb.on{background:var(--oneoff)}
 
 /* Each chart or stat group is a card holding its own heading. */
 :where([data-layout]) .analytics .card{padding:16px}

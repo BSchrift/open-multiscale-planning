@@ -7,11 +7,12 @@ import { stretchPlanningTitle } from '../../../core/planning';
 import type { Stretch } from '../../../core/plan';
 import { slotInstants } from '../../../core/slots';
 import { useApp } from '../../app/store';
-import { BinIcon } from '../icons';
 import { About } from './About';
 import { PlanningTimes } from './PlanningTimes';
 import { longTime, shortTime, usePlanningActions, usePlanningTimes } from './usePlanning';
 import './planning.css';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 const SOON_MS = 15 * 60_000;
 
@@ -52,29 +53,29 @@ export function StretchRow(props: { stretch: Stretch; first: boolean; onGone(aft
           disabled={act.pending}
           onClick={() => void act.remove(p).then(gone())}
         >
-          <BinIcon />
+          <Icon name="bin" />
         </button>
       </div>
       <div className={phone ? 'stack8' : 'row'}>
         {best &&
           (soon ? (
-            <button className={`btn pri${btn}`} type="button" aria-label="Start planning now" onClick={() => void act.start(p, minutes)}>
+            <Button variant="primary" className={btn} type="button" aria-label="Start planning now" onClick={() => void act.start(p, minutes)}>
               Start now
-            </button>
+            </Button>
           ) : (
-            <button
-              className={`btn pri${btn}`}
+            <Button
+              variant="primary" className={btn}
               type="button"
               aria-label={`Schedule planning for ${longTime(best)}`}
               disabled={act.pending}
               onClick={() => void act.schedule(p, best).then(gone())}
             >
               Schedule for {shortTime(best)}
-            </button>
+            </Button>
           ))}
-        <button className={`btn${best ? '' : ' pri'}${btn}`} type="button" aria-label={`Choose a time to plan ${name}`} onClick={() => setChoosing(true)}>
+        <Button variant={best ? 'secondary' : 'primary'} className={btn} type="button" aria-label={`Choose a time to plan ${name}`} onClick={() => setChoosing(true)}>
           Choose a time
-        </button>
+        </Button>
       </div>
       {choosing && <PlanningTimes for={p} name={name} onClose={() => setChoosing(false)} />}
     </section>

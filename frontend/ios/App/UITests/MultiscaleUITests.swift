@@ -89,9 +89,10 @@ func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: 
  * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead. An `offline`
  * app starts with no network (`offlineFlag`).
  */
-func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false, offline: Bool = false) -> XCUIApplication {
+func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false, offline: Bool = false, arguments: [String] = []) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
+    app.launchArguments = arguments
     if seed != nil, !realClock {
         let shift = String(Int(morningShift(now: Date()) * 1000))
         for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
@@ -237,6 +238,23 @@ final class ShellUITests: XCTestCase {
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
+    }
+
+    /// Text follows the phone's text-size setting, as Apple's text styles do: Today's title is taller at the largest
+    /// accessibility size than at the default.
+    func testTextFollowsThePhonesTextSize() throws {
+        // The web view's text is the same with the extensions on, and there, relaunched with a text size, the page has
+        // twice been left out of the accessibility tree for the whole wait, so the first run measures it alone.
+        try XCTSkipIf(extensionsEnabled, "text size is measured in the run without the extensions")
+        var heights: [CGFloat] = []
+        for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXL"] {
+            let app = launchApp(seed: "Seed plan", arguments: ["-UIPreferredContentSizeCategoryName", size])
+            let titles = app.page.staticTexts.matching(NSPredicate(format: "label == 'Today'"))
+            exists(titles.firstMatch, timeout: launchPatience)
+            heights.append(titles.allElementsBoundByIndex.map(\.frame.height).max() ?? 0)
+            app.terminate()
+        }
+        XCTAssertGreaterThan(heights[1], heights[0] * 1.3, "Today's title is \(heights[0])pt high at the default size and \(heights[1])pt at the largest")
     }
 
     func testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff() {

@@ -25,7 +25,7 @@
 
 [data-layout] .ooslider {
   width: 100%;
-  accent-color: var(--blue);
+  accent-color: var(--accent);
 }
 
 [data-layout='phone'] .ooslider {

@@ -79,8 +79,9 @@ describe('Process on desktop', () => {
       ['New practice from this item', 'Alt PNew practice'],
       ['New goal from this item', 'Alt GNew goal'],
     ]);
-    for (const [name, k] of [['‹ Undo and go back', 'Z'], ['Skip', 'S'], ['Done', 'F'], ['Delete', 'D'], ['Add to this week', 'W']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
-    expect(btn('‹ Undo and go back')).toBeDisabled();
+    for (const [name, k] of [['Undo and go back', 'Z'], ['Skip', 'S'], ['Done', 'F'], ['Delete', 'D']]) expect(btn(name!).querySelector('kbd')).toHaveTextContent(k!);
+    expect(screen.getByRole('switch', { name: 'Add to this week' }).querySelector('kbd')).toHaveTextContent('W');
+    expect(btn('Undo and go back')).toBeDisabled();
     // The card no longer reports what happened: the toast does.
     expect(within(card()).queryByRole('status')).toBeNull();
   });
@@ -119,7 +120,7 @@ describe('Process on desktop', () => {
     await userEvent.click(toastUndo());
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
-    expect(btn('‹ Undo and go back')).toBeDisabled();
+    expect(btn('Undo and go back')).toBeDisabled();
     await waitFor(() => expect(picker()).toHaveFocus());
   });
 
@@ -260,10 +261,10 @@ describe('Process on desktop', () => {
 
   it('adds to this week as a pick, not on the calendar, says so on the lit row and in the toast, then resets the toggle', async () => {
     const t = await open();
-    const toggle = await screen.findByRole('button', { name: 'Add to this week' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    const toggle = await screen.findByRole('switch', { name: 'Add to this week' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
     await userEvent.click(toggle);
-    expect(btn('Adding to this week')).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
     await userEvent.click(picker());
     expect(lit()).toHaveTextContent('+ this week');
     expect(lit()).toHaveAccessibleName('One offs, and to this week');
@@ -273,16 +274,16 @@ describe('Process on desktop', () => {
     expect(toast()).toHaveTextContent('Added Call the bank to One offs and to this week.');
     expect(await getRecord(t.db, 'week_pick', weekPickId('2026-11-02', 'i1'))).toMatchObject({ minutes: 30, deleted_at: null });
     expect(await listRecords(t.db, 'time_block')).toHaveLength(0);
-    expect(btn('Add to this week')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'false');
 
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect((await getRecord(t.db, 'week_pick', weekPickId('2026-11-02', 'i1')))?.deleted_at).toBeTruthy();
   });
 
   it('adds to the plan being made, as a pick rather than a block', async () => {
     const t = await open({ params: { planning: '2026-11-09' } });
-    await userEvent.click(await screen.findByRole('button', { name: 'Add to the plan for Nov 9 to 15' }));
+    await userEvent.click(await screen.findByRole('switch', { name: 'Add to the plan for Nov 9 to 15' }));
     await addTo('Learn to bake bread');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     expect(toast()).toHaveTextContent('Added Call the bank to Learn to bake bread and to the plan.');
@@ -367,9 +368,9 @@ describe('Process on desktop', () => {
     key('z');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     altKey('KeyW', picker());
-    expect(btn('Adding to this week')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'true');
     key('w');
-    expect(btn('Add to this week')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'false');
     altKey('KeyD', picker());
     expect(within(card()).getByRole('alert')).toHaveTextContent('Delete this item?');
     key('Escape', within(card()).getByRole('alert'));
@@ -437,7 +438,7 @@ describe('Process on desktop', () => {
     // With letters typed, it's the field's own undo.
     await userEvent.type(picker(), 'pai');
     fireEvent.keyDown(picker(), { key: 'z', metaKey: true });
-    expect(btn('‹ Undo and go back')).toBeDisabled();
+    expect(btn('Undo and go back')).toBeDisabled();
   });
 
   it("shows Option on each key's cap while single keys are off, and the key alone once they're on", async () => {
@@ -650,7 +651,7 @@ describe('Adding a project from the picker', () => {
     expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
     expect((await getRecord(t.db, 'project', shed!.id))?.deleted_at).toBeTruthy();
     expect((await getRecord(t.db, 'milestone', roof!.id))?.deleted_at).toBeTruthy();
-    expect(btn('‹ Undo and go back')).toBeDisabled();
+    expect(btn('Undo and go back')).toBeDisabled();
     expect(picker()).toHaveFocus();
   });
 
@@ -669,11 +670,11 @@ describe('Adding a project from the picker', () => {
     const [trip] = await t.db.all<{ id: string; deleted_at: string | null }>("SELECT id, deleted_at FROM project WHERE title = 'Japan trip'");
     expect(trip!.deleted_at).toBeNull();
 
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
     expect((await getRecord(t.db, 'project', trip!.id))?.deleted_at).toBeFalsy();
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await waitFor(() => expect(toast()).toHaveTextContent('Undone: Japan trip removed.'));
     expect((await getRecord(t.db, 'project', trip!.id))?.deleted_at).toBeTruthy();
     expect(title()).toHaveTextContent('Call the bank');
@@ -706,7 +707,7 @@ describe('Adding a project from the picker', () => {
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: project!.id, milestone_id: null });
     expect(toast()).toHaveTextContent('Added Call the bank to Sort out the bank.');
 
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
     await waitFor(() => expect(toast()).toHaveTextContent('Undone: Money in order and Sort out the bank removed. Call the bank is back.'));
     expect((await getRecord(t.db, 'project', project!.id))?.deleted_at).toBeTruthy();
@@ -730,7 +731,7 @@ describe('Adding a project from the picker', () => {
         ),
       },
     ]);
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
     await waitFor(() => expect(toast()).toHaveTextContent('Kept Japan trip, it has other tasks now. Call the bank is back.'));
     expect((await getRecord(t.db, 'project', project!.id))?.deleted_at).toBeFalsy();
@@ -858,9 +859,9 @@ describe('Making a home from the card', () => {
 
     await addTo('One offs');
     await screen.findByRole('heading', { name: 'Fix the gate' });
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await waitFor(() => expect(toast()).toHaveTextContent('Undone: Money in order removed.'));
     expect(title()).toHaveTextContent('Call the bank');
     expect(await t.db.all("SELECT id FROM objective WHERE title = 'Money in order' AND deleted_at IS NULL")).toEqual([]);
@@ -987,13 +988,13 @@ describe('Editing the item on the card', () => {
     await screen.findByRole('heading', { name: 'Fix the gate latch' });
     expect(await task(t.db, 'i2')).toMatchObject({ kind: 'inbox', title: 'Fix the gate latch', notes: 'Hinges', estimate_min: 30 });
 
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await waitFor(() => expect(title()).toHaveTextContent(/^Fix the gate$/));
     expect(await task(t.db, 'i2')).toMatchObject({ kind: 'inbox', title: 'Fix the gate', notes: null, estimate_min: 120 });
     expect((await listRecords(t.db, 'attachment')).filter((a) => a.task_id === 'i2')).toEqual([]);
     expect(toast()).toHaveTextContent('Fix the gate is back as it arrived.');
     // Then it steps back to the item before.
-    await userEvent.click(btn('‹ Undo and go back'));
+    await userEvent.click(btn('Undo and go back'));
     await screen.findByRole('heading', { name: 'Call the bank' });
   });
 
@@ -1010,7 +1011,7 @@ describe('Editing the item on the card', () => {
       'Add link',
       'Time',
       'Add to a project or One offs',
-      '+Add to this weekAlt W',
+      'Add to this weekAlt W',
       'Alt BGoal backlog',
       'New practice from this item',
       'New goal from this item',
@@ -1194,7 +1195,7 @@ describe('Process for planning a stretch', () => {
     await open({ seed: seedStretch, params: stretch, layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect(btn('Back to planning')).toBeInTheDocument();
-    expect(within(card()).queryByRole('button', { name: 'Add to this week' })).toBeNull();
+    expect(within(card()).queryByRole('switch', { name: 'Add to this week' })).toBeNull();
   });
 });
 
@@ -1213,12 +1214,12 @@ describe('Process on phone', () => {
       'Add description',
       'Add link',
       'Time',
-      '+Add to this week',
+      'Add to this week',
       'Add to a project or One offs',
       'Goal backlog',
       'New practice from this item',
       'New goal from this item',
-      '‹ Undo',
+      'Undo',
       'Skip',
       'Done',
       'Delete',
@@ -1313,7 +1314,7 @@ describe('Process on phone', () => {
     expect(within(card()).getAllByRole('button', { name: /^Add to a project or One offs/ })).toHaveLength(1);
     expect(toast()).toHaveTextContent('Call the bank is now a practice.');
     expect((await task(t.db, 'i1'))?.became).toMatchObject({ type: 'practice' });
-    await userEvent.click(btn('‹ Undo'));
+    await userEvent.click(btn('Undo'));
     await screen.findByRole('heading', { name: 'Call the bank' });
     expect((await task(t.db, 'i1'))?.done_at).toBeNull();
   });

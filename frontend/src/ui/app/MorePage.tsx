@@ -2,7 +2,6 @@
 
 import type { Clock } from '../../core/clock';
 import type { Sql } from '../../core/db';
-import { ChevronIcon } from '../components/icons';
 import { moreLine as analyticsLine } from '../screens/analytics/moreLine';
 import { moreLine as doneLine } from '../screens/done/moreLine';
 import { moreLine as oneoffsLine } from '../screens/oneoffs/moreLine';
@@ -12,6 +11,7 @@ import { useNav } from './nav';
 import { AREAS, MORE_ROWS } from './registry';
 import type { AreaId } from './registry';
 import { useQuery } from './store';
+import { Icon } from '../components/ds/Icon';
 
 const LINES: Partial<Record<AreaId, (sql: Sql, clock: Clock) => Promise<string | null>>> = {
   plan: planLine,
@@ -34,7 +34,7 @@ function MoreRow(props: { area: AreaId }) {
           </span>
         )}
       </span>
-      <span className="chev" aria-hidden="true"><ChevronIcon /></span>
+      <Icon name="chevron-right" className="chev" />
     </button>
   );
 }

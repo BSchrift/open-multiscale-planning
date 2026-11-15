@@ -1,10 +1,11 @@
 // Capture: one field. Enter saves to the Inbox and Esc cancels. Add details is optional and folded away. It opens with
 // Time first, right under the name, then Send to, where choosing a project, and then one of its milestones, or One offs
 // skips the Inbox, then a description, in which Enter makes a new line and ⌘Enter saves, then attachments, which upload
-// once the task is saved.
+// once the task is saved. A goal's backlog can take it straight away too, with no milestone.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
+import { addToBacklog, backlogTitle, isBacklog } from '../../../core/backlog';
 import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
 import { perf } from '../../../core/perf';
 import { inboxCount } from '../../../core/queries';
@@ -24,6 +25,8 @@ import { useDialogFocus } from '../../components/useDialogFocus';
 import './capture.css';
 
 const ONE_OFFS = 'oneoffs';
+/** A goal's backlog in the Send to choice: `b:<goal id>`. */
+const BACKLOG = 'b:';
 /** How long desktop shows what it saved before it fades and closes. */
 const SAVED_MS = 700;
 const FADE_MS = 120;
@@ -48,8 +51,9 @@ export default function Screen(props: ScreenProps) {
   const { layout, close } = props;
   const today = useToday();
   const toast = useToast();
-  const { platform } = useApp();
-  const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active') ?? [];
+  const { platform, clock } = useApp();
+  const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active' && !isBacklog(p)) ?? [];
+  const goals = useQuery((sql) => listRecords(sql, 'objective'), []).data?.filter((g) => g.state !== 'archived') ?? [];
   const [text, setText] = useState('');
   const type = (value: string) => {
     setText(value);
@@ -62,7 +66,7 @@ export default function Screen(props: ScreenProps) {
   const milestones =
     useQuery(
       async (sql) =>
-        where && where !== ONE_OFFS
+        where && where !== ONE_OFFS && !where.startsWith(BACKLOG)
           ? (await listRecords(sql, 'milestone'))
               .filter((m) => m.project_id === where && !m.met_at && !m.dropped_at)
               .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.title.localeCompare(b.title))
@@ -77,7 +81,8 @@ export default function Screen(props: ScreenProps) {
   const [fade, setFade] = useState(false);
   const ids = { field: useId(), where: useId(), milestone: useId() };
   const save = useMutation(async (w, fields: Fields<'task'>, drafts: readonly NewAttachment[]) => {
-    const task = await w.create('task', fields);
+    const goal = where.startsWith(BACKLOG) ? where.slice(BACKLOG.length) : null;
+    const task = goal ? await addToBacklog(w, goal, fields, clock) : await w.create('task', fields);
     // Each attachment goes in with the task; a photo's bytes are kept once both are saved.
     const kept: [string, Blob][] = [];
     for (const a of drafts) {
@@ -88,8 +93,9 @@ export default function Screen(props: ScreenProps) {
   });
 
   const project = projects.find((p) => p.id === where)?.title;
+  const goal = goals.find((g) => `${BACKLOG}${g.id}` === where)?.title;
   const ms = milestones.find((m) => m.id === milestone)?.title;
-  const place = where === ONE_OFFS ? 'One offs' : project ? (ms ? `${project}, ${ms}` : project) : 'Inbox';
+  const place = where === ONE_OFFS ? 'One offs' : goal ? `the backlog for ${goal}` : project ? (ms ? `${project}, ${ms}` : project) : 'Inbox';
   const phone = layout === 'phone';
 
   useEffect(() => {
@@ -131,6 +137,11 @@ export default function Screen(props: ScreenProps) {
     >
       <option value="">Inbox</option>
       <option value={ONE_OFFS}>One offs</option>
+      {goals.map((g) => (
+        <option key={g.id} value={`${BACKLOG}${g.id}`}>
+          {backlogTitle(g.title)}
+        </option>
+      ))}
       {projects.length > 0 && (
         <optgroup label="Projects">
           {projects.map((p) => (

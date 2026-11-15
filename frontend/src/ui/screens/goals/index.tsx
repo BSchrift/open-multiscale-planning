@@ -1,11 +1,13 @@
 // Goals: the goal hierarchy, or one project's page with params { project: id }, which other areas can link to.
-// params { show: id } opens a practice or goal on the hierarchy.
+// params { show: id } opens a practice or goal on the hierarchy, and { backlog: goal id } is a goal's backlog page.
 
 import { useMemo } from 'react';
 import type { PlanContext } from '../../../core/plan';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useQuery, useToday } from '../../app/store';
+import { backlogId } from '../../../core/backlog';
+import { BacklogPage } from './BacklogView';
 import { loadGoals } from './data';
 import { GoalsPage } from './GoalsPage';
 import { ProjectPage } from './ProjectView';
@@ -19,6 +21,11 @@ export default function Screen(props: ScreenProps) {
   const ctx = useMemo<PlanContext | null>(() => (data ? { settings: data.settings, clock, away: data.away } : null), [data, clock]);
   if (!data || !ctx) return null;
 
+  const goalId = props.params.backlog;
+  if (goalId) {
+    const plan = data.backlogs.find((b) => b.project.id === backlogId(goalId));
+    return <BacklogPage goal={data.objectives.find((g) => g.id === goalId)} plan={plan} touches={data.touches} />;
+  }
   const id = props.params.project;
   if (id) {
     const plan = data.plans.find((p) => p.project.id === id);

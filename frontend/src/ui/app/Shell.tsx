@@ -1,7 +1,6 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Component, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { inputTime, perf } from '../../core/perf';
 import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
@@ -19,28 +18,10 @@ import { useReminders } from './reminders';
 import { useShareImport } from './shareImport';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
+import { preloadScreens, ScreenBoundary } from './screenLoad';
 import { useApp, useQuery } from './store';
 import { useCaptureShortcut } from './captureShortcut';
 import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
-
-class ScreenBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  override state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  override componentDidCatch(error: unknown) {
-    console.error('Screen failed', error);
-  }
-  override render() {
-    if (!this.state.failed) return this.props.children;
-    return (
-      <div role="alert" className="stack8">
-        <h1>Something went wrong</h1>
-        <p className="quiet">Your data is safe. Restart the app to try again.</p>
-      </div>
-    );
-  }
-}
 
 function AreaScreen(props: { area: AreaId; params: RouteParams; presentation: Presentation; close(): void }) {
   const { layout } = useApp();
@@ -210,22 +191,29 @@ function UpdateNotice(props: { updates: Updater }) {
   );
 }
 
-/** "Multiscale updated." the first time the window shows after the app replaced itself: it may open hidden at login. */
+/**
+ * "Multiscale updated." the first time the window shows after the app replaced itself, since it may open hidden at
+ * login, on Settings when Restart to update was pressed there. And, after a move to Applications, that the disk image
+ * can go.
+ */
 function useUpdatedToast() {
   const { updates } = useApp();
+  const nav = useNav();
   const toast = useToast();
   useEffect(() => {
     const app = updates?.app;
     if (!app) return;
-    let shown = false;
+    let message = '';
     let stop = false;
     const show = () => {
-      if (stop || shown || document.visibilityState !== 'visible') return;
-      shown = true;
-      toast.show('Multiscale updated.');
+      if (stop || !message || document.visibilityState !== 'visible') return;
+      toast.show(message);
+      message = '';
     };
-    void app.updated().then((updated) => {
-      if (!updated) return;
+    void Promise.all([app.updated(), app.moved()]).then(([updated, moved]) => {
+      if (stop) return;
+      if (updated?.settings) nav.selectTab('settings');
+      message = updated ? 'Multiscale updated.' : moved ? 'Multiscale is in Applications now. You can eject the disk image.' : '';
       show();
       document.addEventListener('visibilitychange', show);
     });
@@ -233,6 +221,8 @@ function useUpdatedToast() {
       stop = true;
       document.removeEventListener('visibilitychange', show);
     };
+    // Once, at launch: nav changes as someone moves around, and the answers don't.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updates, toast]);
 }
 
@@ -372,6 +362,9 @@ export function Shell(props: { initial?: Route }) {
   useEffect(() => {
     if (started) platform.updates?.ready();
   }, [started, platform]);
+  // The browser fetches each screen's code from the server, so fetch it all once the app has drawn: a screen first
+  // opened offline then still opens. The apps carry their code.
+  useEffect(() => (started && platform.kind === 'web' ? preloadScreens(Object.values(AREAS).map((a) => a.Screen)) : undefined), [started, platform]);
   if (!settings.data) {
     return settings.error ? <div className="boot">Couldn't open your data. Restart the app to try again.</div> : null;
   }

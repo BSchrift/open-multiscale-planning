@@ -57,11 +57,11 @@ describe('the Done today line', () => {
       await block(w, 'b1', 't1', '13:00', '15:00');
     });
     const empty = await screen.findByRole('button', { name: 'Done: nothing finished yet today' });
-    expect(empty).toHaveTextContent('Nothing finished yet today›');
+    expect(empty).toHaveTextContent('Nothing finished yet today');
     expect(screen.getByRole('heading', { name: 'Timeline' }).compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Mark done now' }));
     const line = await screen.findByRole('button', { name: 'Done today: 1 finished, 1h worked' });
-    expect(line).toHaveTextContent('Done today · 1 · 1h›');
+    expect(line).toHaveTextContent('Done today · 1 · 1h');
     await userEvent.click(line);
     expect(t.nav().route).toMatchObject({ area: 'done', params: { day: DAY } });
   });

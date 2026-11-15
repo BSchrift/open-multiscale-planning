@@ -248,7 +248,9 @@ final class ShellUITests: XCTestCase {
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
         }
 
-        app.tapWeb(startingWith: "Inbox")
+        // Straight after Capture closes, as its sheet and the keyboard go, a tap on the tab can be lost, so one the Inbox
+        // didn't open for is tapped again.
+        app.tapWeb("Inbox, 2 to sort", until: app.webButton("Process 2 items"))
         app.tapWeb("Process 2 items")
         // The card's title is a button, which edits it.
         exists(app.webButton("Buy a proofing basket"))

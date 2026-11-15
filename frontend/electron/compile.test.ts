@@ -41,3 +41,18 @@ it('names the missing YAML in full', () => {
   expect(run.status).not.toBe(0);
   expect(run.stderr).toContain(`${dir}/prod.yaml is missing`);
 });
+
+it("leaves the e2e stand-ins out of a release build's main process, and bundles electron-updater into it", () => {
+  const script = `const { build } = await import('esbuild');
+const { mainDefines, buildSettings } = await import('./scripts/electron-compile.mjs');
+const { config, identity } = buildSettings('local');
+const out = await build({ bundle: true, platform: 'node', format: 'cjs', write: false, entryPoints: ['electron/main.ts'], external: ['electron', 'better-sqlite3'], define: mainDefines(config, identity), minifySyntax: true, logLevel: 'error' });
+console.log(out.outputFiles[0].text);`;
+  const run = (e2e: string) =>
+    spawnSync(process.execPath, ['--input-type=module', '-e', script, 'test'], { cwd: join(import.meta.dirname, '..'), env: { ...process.env, LOCAL_API_URL: '', MULTISCALE_CONFIG_DIR: '', MULTISCALE_E2E: e2e }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const release = run('');
+  expect(release.stderr).not.toMatch(/Error/);
+  expect(release.stdout).toContain('MacUpdater');
+  for (const hook of ['MULTISCALE_E2E_ANSWER', 'MULTISCALE_E2E_APP_PATH', 'multiscaleE2eUpdater']) expect(release.stdout, hook).not.toContain(hook);
+  expect(run('1').stdout).toContain('MULTISCALE_E2E_ANSWER');
+});

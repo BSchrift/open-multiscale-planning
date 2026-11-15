@@ -2,6 +2,7 @@
 // suggested picks, the order tasks are scheduled in, and replanning a project's dates. Pure: it takes records and
 // returns values. A change to records comes back as a PlanChange for the caller to write with applyPlanChange.
 
+import { arrivalOrder, isBacklog } from './backlog';
 import type { Clock } from './clock';
 import { addDays, addMonths, blockMinutes, dayNumber, diffDays, formatDate, instantMs, localDate, nowInstant, quarterEnd, quarterStart, thisWeek, today } from './dates';
 import type { Writer } from './records';
@@ -214,14 +215,22 @@ export interface ProjectPlan {
   tasks: Task[];
 }
 
+/** Every project's plan. Goal backlogs are left out, so nothing that reads a project's dates can receive one. */
 export function gatherPlans(projects: readonly Project[], milestones: readonly Milestone[], tasks: readonly Task[]): ProjectPlan[] {
   return projects
-    .filter((project) => !project.deleted_at)
+    .filter((project) => !project.deleted_at && !isBacklog(project))
     .map((project) => ({
       project,
       milestones: milestones.filter((m) => m.project_id === project.id && !m.deleted_at),
       tasks: tasks.filter((t) => t.project_id === project.id && !t.deleted_at),
     }));
+}
+
+/** Each goal backlog with its tasks in arrival order. Its milestones and dates are an older app's, so it has none here. */
+export function gatherBacklogs(projects: readonly Project[], _milestones: readonly Milestone[], tasks: readonly Task[]): ProjectPlan[] {
+  return projects
+    .filter((project) => !project.deleted_at && isBacklog(project))
+    .map((project) => ({ project, milestones: [], tasks: tasks.filter((t) => t.project_id === project.id && !t.deleted_at).sort(arrivalOrder) }));
 }
 
 const earlier = (a: LocalDate, b: LocalDate) => (a < b ? a : b);
@@ -262,7 +271,8 @@ export function msTasks({ project, tasks }: { project: Project; tasks: readonly 
       .filter((e) => e.kind === 'close' && Array.isArray(e.undo))
       .flatMap((e) => (e.undo as RecordWrite[]).filter((w) => w.type === 'task').map((w) => w.id)),
   );
-  return tasks.filter((t) => t.milestone_id === m.id && (!t.cancelled_at || t.cancelled_by === project.id || closed.has(t.id)));
+  // Its own project's only: two devices moving one task at once can leave a backlog's task with an old milestone_id.
+  return tasks.filter((t) => t.milestone_id === m.id && t.project_id === project.id && (!t.cancelled_at || t.cancelled_by === project.id || closed.has(t.id)));
 }
 
 export function msDone(plan: ProjectPlan, m: Milestone): boolean {
@@ -330,8 +340,16 @@ export function sortedMilestones(plan: ProjectPlan, ctx: PlanContext): Milestone
   return [...plan.milestones].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
-/** The projects planning can schedule now, soonest date first, so there's no order to keep up. */
+/**
+ * The projects planning can schedule now, soonest date first, so there's no order to keep up. Goal backlogs, when a
+ * caller passes them, come after every dated project, whatever their placeholder dates say.
+ */
 export function plannable(plans: readonly ProjectPlan[], ctx: PlanContext): ProjectPlan[] {
+  const backlogs = plans.filter(({ project }) => isBacklog(project) && project.state === 'active');
+  return [...plannableProjects(plans.filter(({ project }) => !isBacklog(project)), ctx), ...backlogs];
+}
+
+function plannableProjects(plans: readonly ProjectPlan[], ctx: PlanContext): ProjectPlan[] {
   const on = today(ctx.clock);
   const when = (plan: ProjectPlan) =>
     openMilestones(plan).filter((m) => m.due).map((m) => m.due!).sort()[0] ?? plan.project.end;
@@ -563,7 +581,8 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
     const placed = liveBlocks(week).filter((b) => b.task_id && ids.has(b.task_id) && !picked.has(b.task_id));
     return picks.reduce((sum, p) => sum + p.minutes, 0) + placed.reduce((sum, b) => sum + blockMinutes(b), 0);
   };
-  for (const plan of plannable(plans, ctx)) {
+  // Nothing in a backlog is due, so nothing there is suggested, whatever aim an older app gave it.
+  for (const plan of plannable(plans, ctx).filter((p) => !isBacklog(p.project))) {
     const aim = week.aims?.[plan.project.id] ?? plan.project.weekly_aim ?? 0;
     fill(projectCandidates(plan, week, ctx), plan, plannedFor(plan.tasks), aim);
   }

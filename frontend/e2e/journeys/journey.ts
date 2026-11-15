@@ -2,6 +2,7 @@
 
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { home } from '../platform';
 import { pane } from '../seed';
 
 export { pane };
@@ -23,7 +24,7 @@ export async function start(page: Page, when: Date) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: when });
-  await page.goto('/');
+  await page.goto(home);
   return errors;
 }
 

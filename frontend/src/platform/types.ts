@@ -79,6 +79,8 @@ export interface Platform {
   readonly signInRedirectUri: string;
   /** A deep link opened the app, such as the sign-in callback. Returns an unsubscribe function. */
   onDeepLink(listener: (url: string) => void): () => void;
+  /** Only on desktop: the computer woke from sleep or its screen unlocked. Returns an unsubscribe function. */
+  onWake?(listener: () => void): () => void;
   /** Only where a global shortcut exists. */
   readonly hotkey?: {
     /** Calls listener on the global capture shortcut. Returns an unsubscribe function. */

@@ -707,6 +707,27 @@ describe('To schedule on Week', () => {
   });
 });
 
+describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on Week, on %s', (layout) => {
+  it('has no kind’s colour yet: Planning’s wash, a dashed edge, the inbox icon and the word Inbox, and it opens the item', async () => {
+    await open({
+      layout,
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'inbox', title: 'Book dentist' }, 'i1');
+        await w.create('time_block', { task_id: 'i1', start: at('17:45'), end: at('18:45'), tz: ZONE }, 'bi');
+      },
+    });
+    const name = layout === 'phone' ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.';
+    const el = await screen.findByRole('button', { name });
+    expect(el).toHaveClass('blk', 'k-inbox', 's-planned');
+    expect(el.querySelector('svg[data-icon="inbox"]')).not.toBeNull();
+    if (layout === 'phone') expect(el).toHaveTextContent('Inbox, 1h');
+    expect(el).toHaveAttribute('aria-haspopup', 'dialog');
+    await userEvent.click(el);
+    expect(await screen.findByRole('dialog', { name: 'Book dentist' })).toBeVisible();
+  });
+});
+
 describe('Week on phone', () => {
   const phone = (options: Parameters<typeof open>[0] = {}) => open({ layout: 'phone', ...options });
 

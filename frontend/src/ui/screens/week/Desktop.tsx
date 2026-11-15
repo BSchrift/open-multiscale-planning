@@ -20,7 +20,7 @@ import { PlanPrompt } from '../../components/PlanPrompt';
 import { PlanningSet } from '../../components/planning/PlanningRow';
 import { PlanningTimes } from '../../components/planning/PlanningTimes';
 import { planningWeekOf } from '../../../core/planning';
-import { KIND_WORD } from '../../components/blocks/describe';
+import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
 import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
@@ -41,7 +41,7 @@ const PLANNING = 'planning';
 
 export function DesktopWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
-  const { clock } = useApp();
+  const { clock, platform } = useApp();
   const nav = useNav();
   const act = useWeekActions();
   const planning = usePlanningActions();
@@ -158,9 +158,9 @@ export function DesktopWeek(props: WeekProps) {
     choose(null);
     setOpenItem(openItem === id ? null : id);
   };
-  const dragItem = (item: LaneItem) => ({ preview: (slot: Slot | null) => setDropAt(slot && { item, slot }), drop: (slot: Slot) => placeItem(item, slot) });
+  const dragItem = (item: LaneItem) => ({ preview: (slot: Slot | null) => setDropAt(slot && { item, slot }), drop: (slot: Slot) => placeItem(item, slot), haptic: platform.haptic });
 
-  const isTask = (b: GridBlock) => b.kind === 'project' || b.kind === 'one_off';
+  const isTask = (b: GridBlock) => isTaskBlock(b.kind);
   const gridBlocks: GridBlock[] = plan ? model.blocks.map((b) => ({ ...b, fixed: true })) : model.blocks.map((b) => ({ ...b, popup: isTask(b) }));
   if (plan && planAt) gridBlocks.push({ ...planAt, id: PLANNING, title: plan.title, kind: 'planning', draft: true });
   let ghosts: GridGhost[] = [];

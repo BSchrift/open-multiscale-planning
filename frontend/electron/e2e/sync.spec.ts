@@ -49,15 +49,18 @@ async function launch(dir = mkdtempSync(join(tmpdir(), 'multiscale-sync-'))): Pr
     args: [...KEYCHAIN, ROOT, `--user-data-dir=${dir}`, '--use-mock-keychain'],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   });
-  // The system browser is the one thing stood in for: signIn plays it.
-  await app.evaluate(({ shell }) => {
-    globalThis.browserUrls = [];
-    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
-  });
   const page = await app.firstWindow();
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
+  // The system browser is the one thing stood in for: signIn plays it. Only once the window has drawn. Playwright's first
+  // evaluate in the main process reads Node's lazy `performance` global, which loads it. The window's first request,
+  // landing meanwhile, has the app scheme's handler load Node's fetch classes, which read `performance` half loaded and
+  // throw, and the window is left on Chromium's error page.
+  await app.evaluate(({ shell }) => {
+    globalThis.browserUrls = [];
+    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
+  });
   const device = { app, page, dir, errors };
   running.push(device);
   return device;

@@ -3,20 +3,15 @@
 [data-layout] .latewarn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   flex: 1 1 100%;
-  color: var(--amber-ink);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  color: var(--warn);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .latewarn svg {
   flex: none;
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: var(--amber);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }

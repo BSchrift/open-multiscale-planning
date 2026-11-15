@@ -15,6 +15,7 @@ import { NotesField } from '../notes/NotesField';
 import { Popover } from '../Popover';
 import { useToast } from '../Toast';
 import { SheetOnPhone } from './SheetOnPhone';
+import { Button } from '../ds/Button';
 import { useLeave } from './useLeave';
 
 /** A goal's backlog to add to, in place of a project. */
@@ -147,12 +148,12 @@ export function TaskEditor(props: {
         </div>
       )}
       <div className="row">
-        <button ref={saveRef} className="btn sm pri grow" type="submit">
+        <Button ref={saveRef} variant="primary" size="compact" className="grow" type="submit">
           Add
-        </button>
-        <button className="btn sm" type="button" onClick={onClose}>
+        </Button>
+        <Button size="compact" type="button" onClick={onClose}>
           {props.write ? 'Close' : last && !title.trim() ? 'Done' : 'Cancel'}
-        </button>
+        </Button>
       </div>
     </form>
   );

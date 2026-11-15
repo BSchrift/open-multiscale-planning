@@ -45,7 +45,7 @@ describe('Process into a goal backlog, desktop', () => {
     expect(await getRecord(t.db, 'task', 'i1')).toMatchObject({ kind: 'project', project_id: 'backlog:g1', milestone_id: null });
     // Back on the picker for the next item.
     expect(screen.getByRole('combobox', { name: 'Add to a project or One offs' })).toBeInTheDocument();
-    await userEvent.click(within(card()).getByRole('button', { name: /^‹ Undo/ }));
+    await userEvent.click(within(card()).getByRole('button', { name: /^Undo/ }));
     await waitFor(async () => expect((await getRecord(t.db, 'task', 'i1'))?.kind).toBe('inbox'));
   });
 

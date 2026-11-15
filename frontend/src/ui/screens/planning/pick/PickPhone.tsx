@@ -18,6 +18,7 @@ import type { PickProps } from './PickStep';
 import { SelectBar, useSelection } from './Select';
 import { SuggestPreview } from './Suggest';
 import { WeekList, WeekShape } from './WeekShape';
+import { Button } from '../../../components/ds/Button';
 
 export function PickPhone(props: PickProps) {
   const { view } = props;
@@ -66,9 +67,9 @@ export function PickPhone(props: PickProps) {
             <h2>Pick tasks</h2>
           </div>
           {view.hintMin > 0 && (
-            <button className="btn" type="button" aria-haspopup="dialog" onClick={() => setSheet('suggest')}>
+            <Button type="button" aria-haspopup="dialog" onClick={() => setSheet('suggest')}>
               Add suggested {formatMinutes(view.hintMin)}
-            </button>
+            </Button>
           )}
           <button ref={moreRef} className="pkmore" type="button" aria-haspopup="dialog" aria-label="More: change aims, select" onClick={() => setSheet('menu')}>
             ⋯
@@ -122,11 +123,11 @@ export function PickPhone(props: PickProps) {
       {sheet === 'aims' && <AimsPopover {...props} phone onClose={closeSheet} />}
       {sheet === 'menu' && (
         <Sheet key="menu" label="More" onClose={closeSheet}>
-          <button className="btn" type="button" onClick={() => setSheet('aims')}>
+          <Button type="button" onClick={() => setSheet('aims')}>
             Change aims for this week
-          </button>
-          <button
-            className="btn"
+          </Button>
+          <Button
+           
             type="button"
             onClick={() => {
               closeSheet();
@@ -135,10 +136,10 @@ export function PickPhone(props: PickProps) {
             }}
           >
             Select
-          </button>
-          <button className="btn" type="button" onClick={closeSheet}>
+          </Button>
+          <Button type="button" onClick={closeSheet}>
             Close
-          </button>
+          </Button>
         </Sheet>
       )}
     </>

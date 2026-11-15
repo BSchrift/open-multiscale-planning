@@ -90,6 +90,23 @@ class BridgeViewController: CAPBridgeViewController {
         return descriptor
     }
 
+    #if DEBUG
+    /// XCUITest launches with MULTISCALE_OFFLINE to run the app as a phone with no network: the web view refuses every
+    /// http and https load, so the page's requests fail as they do offline, while the app's own pages, which load from
+    /// capacitor://, are untouched. The page loads only once the rule is in place, so nothing it asks for gets out first.
+    /// A launch without it is the network back. Release builds never read it.
+    override func viewDidLoad() {
+        guard ProcessInfo.processInfo.environment["MULTISCALE_OFFLINE"] != nil else { return super.viewDidLoad() }
+        let rules = #"[{"trigger": {"url-filter": "^https?://"}, "action": {"type": "block"}}]"#
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "multiscale-offline", encodedContentRuleList: rules) { list, error in
+            // A test that asked for no network must never run with it.
+            guard let list else { fatalError("The offline rule didn't compile: \(String(describing: error))") }
+            self.webView?.configuration.userContentController.add(list)
+            super.viewDidLoad()
+        }
+    }
+    #endif
+
     /// Reloads into the newest bundle this app can run, when that's newer than the one loaded.
     func applyNewest() {
         let next = WebBundles.newest()

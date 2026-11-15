@@ -15,6 +15,7 @@ import { ShowCompleted } from '../../components/ShowCompleted';
 import { FinishedTasks } from './FinishedTasks';
 import { oneOffList } from './rows';
 import './oneoffs.css';
+import { Button } from '../../components/ds/Button';
 
 export default function OneOffsScreen({ layout }: ScreenProps) {
   const day = useToday();
@@ -48,9 +49,9 @@ export default function OneOffsScreen({ layout }: ScreenProps) {
         )}
         {phone ? (
           <div>
-            <button className="btn" type="button" onClick={() => setAdding(true)}>
+            <Button type="button" onClick={() => setAdding(true)}>
               Add one off
-            </button>
+            </Button>
           </div>
         ) : (
           <OneOffForm onSave={save} />

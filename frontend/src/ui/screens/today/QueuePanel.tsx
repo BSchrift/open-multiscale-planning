@@ -18,6 +18,7 @@ import { useApp, useMutation, useQuery } from '../../app/store';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
+import { Button } from '../../components/ds/Button';
 
 const INTRO = "Planned work that didn't get done. It still belongs to its project or One offs, and you choose a new time when it suits you.";
 
@@ -56,9 +57,9 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
     if (reverse) toast.show(`Kept ${item.title}.`, { undo: () => write.run((w) => applyPlanChange(w, reverse)), focusUndo: true });
   };
   const deleteButton = (
-    <button className="btn sm" type="button" aria-label={`Delete ${item.title}`} disabled={write.pending} onClick={() => void remove()}>
+    <Button size="compact" type="button" aria-label={`Delete ${item.title}`} disabled={write.pending} onClick={() => void remove()}>
       Delete
-    </button>
+    </Button>
   );
 
   return (
@@ -72,22 +73,22 @@ function QueueRow(props: { item: QueueItem; offer: Offer | undefined }) {
       {item.stale ? (
         <div className="row">
           <span className="small">Still want this?</span>
-          <button className="btn sm pri" type="button" aria-label={`Keep ${item.title}`} disabled={write.pending} onClick={() => void keep()}>
+          <Button variant="primary" size="compact" type="button" aria-label={`Keep ${item.title}`} disabled={write.pending} onClick={() => void keep()}>
             Keep
-          </button>
+          </Button>
           {deleteButton}
         </div>
       ) : (
         <div className="row">
           {offer && (
-            <button className={`btn sm pri${phone ? ' grow' : ''}`} type="button" aria-label={`Place ${item.title}, ${label}`} disabled={write.pending} onClick={() => void place()}>
+            <Button variant="primary" size="compact" className={phone ? ' grow' : ''} type="button" aria-label={`Place ${item.title}, ${label}`} disabled={write.pending} onClick={() => void place()}>
               {label}
-            </button>
+            </Button>
           )}
           {phone && (
-            <button className="btn sm grow" type="button" onClick={() => nav.go('week', { place: item.id })}>
+            <Button size="compact" className="grow" type="button" onClick={() => nav.go('week', { place: item.id })}>
               Place on calendar
-            </button>
+            </Button>
           )}
           {deleteButton}
         </div>
@@ -139,9 +140,9 @@ export function QueuePanel(props: { items: readonly QueueItem[]; onClose(): void
       <Sheet label="Needs a new time" onClose={onClose} tall>
         <div className="between">
           <h2>Needs a new time</h2>
-          <button className="btn" type="button" onClick={onClose}>
+          <Button type="button" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
         <p className="small quiet">Planned work that didn't get done. It still belongs to its project or One offs.</p>
         {body}

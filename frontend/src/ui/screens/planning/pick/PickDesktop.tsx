@@ -14,6 +14,7 @@ import { PastEnd } from './PastEnd';
 import type { PickProps } from './PickStep';
 import { SelectBar, useSelection } from './Select';
 import { WeekShape } from './WeekShape';
+import { Button } from '../../../components/ds/Button';
 
 /** Every row that can be selected: open, showing, and not asking for a new time. A folded row never is. */
 export const selectable = (props: PickProps, out: Outside) =>
@@ -76,9 +77,9 @@ export function PickDesktop(props: PickProps) {
         <div className="between pickhead">
           <h2>Pick tasks for the week</h2>
           {!empty && (
-            <button ref={selectRef} className="btn sm selbtn" type="button" aria-pressed={sel.on} onClick={() => (sel.on ? sel.exit() : sel.start())}>
+            <Button ref={selectRef} size="compact" className="selbtn" type="button" aria-pressed={sel.on} onClick={() => (sel.on ? sel.exit() : sel.start())}>
               Select
-            </button>
+            </Button>
           )}
         </div>
         <Lede view={view} out={out} phone={false} descId={descId} />

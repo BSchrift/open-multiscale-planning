@@ -10,9 +10,10 @@ import { formatDate, formatMinutes, isDay, today } from '../../../core/dates';
 import type { GoalPick, Home } from '../../../core/tasks';
 import type { LocalDate, Objective, Practice } from '../../../core/types';
 import { useApp } from '../../app/store';
-import { CloseIcon } from '../icons';
 import { Sheet } from '../Sheet';
 import { GoalSelect, TargetSlider, targetMax } from './PracticeEditor';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 export type HomeKind = Home['kind'];
 
@@ -107,7 +108,7 @@ export function HomeForm(props: {
     await props.onSave(home);
   };
 
-  const btn = phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const label = `New ${kind}`;
   // Adding the item is the next step, so a project's button only makes it.
   const submit = kind === 'project' ? 'Add project' : onCard ? `Add ${kind}` : `Make it a ${kind}`;
@@ -133,8 +134,8 @@ export function HomeForm(props: {
         <label htmlFor={nameId}>Name</label>
         <div className="row nowrap">
           <input id={nameId} ref={nameRef} className="field grow" value={title} onChange={(event) => change(setTitle)(event.target.value)} />
-          <button
-            className={`${btn} iconbtn`}
+          <Button
+            {...btn} className="iconbtn"
             type="button"
             aria-label="Clear name"
             onClick={() => {
@@ -142,8 +143,8 @@ export function HomeForm(props: {
               nameRef.current?.focus();
             }}
           >
-            <CloseIcon />
-          </button>
+            <Icon name="close" />
+          </Button>
         </div>
       </div>
       {kind !== 'goal' &&
@@ -154,9 +155,9 @@ export function HomeForm(props: {
             <label htmlFor={goalId}>New goal name</label>
             <div className="row nowrap">
               <input id={goalId} ref={goalRef} className="field grow" autoFocus value={newGoal} onChange={(event) => change(setNewGoal)(event.target.value)} />
-              <button className={`${btn} iconbtn`} type="button" aria-label="Cancel new goal" onClick={() => setNewGoal(null)}>
-                <CloseIcon />
-              </button>
+              <Button {...btn} className="iconbtn" type="button" aria-label="Cancel new goal" onClick={() => setNewGoal(null)}>
+                <Icon name="close" />
+              </Button>
             </div>
           </div>
         ))}
@@ -234,14 +235,14 @@ export function HomeForm(props: {
         </div>
       )}
       <div className="row homeacts">
-        <button className={`${btn} pri grow`} type="submit">
+        <Button {...btn} variant="primary" className="grow" type="submit">
           {submit}
           {cap('↩')}
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Cancel
           {cap('esc')}
-        </button>
+        </Button>
       </div>
     </form>
   );

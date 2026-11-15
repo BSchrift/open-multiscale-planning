@@ -128,7 +128,7 @@ test('processes the Inbox offline: a home for each item, Undo, and Delete', asyn
 
   await addTo('paint', 'Paint the fence');
   await expect(toast(page)).toContainText('Added Call the bank to Paint the fence.');
-  await card.getByRole('button', { name: 'Add to this week' }).click();
+  await card.getByRole('switch', { name: 'Add to this week' }).click();
   await addTo('one', 'One offs, and to this week');
   await expect(toast(page)).toContainText('Added Fix the gate to One offs and to this week.');
   await toast(page).getByRole('button', { name: 'Undo' }).click();
@@ -318,7 +318,8 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(now.getByText('Now, 1:58pm to 3pm')).toBeVisible();
   expect(await readRecord(page, 'time_block', 'b2')).toMatchObject({ started_at: expect.any(String) });
-  await expectSaved(page, 'time_block', 'b2', { started_at: expect.any(String) });
+  // Mark done keeps the start and ends the block, so only the end gone says the Undo was saved, not just the Mark done.
+  await expectSaved(page, 'time_block', 'b2', { started_at: expect.any(String), ended_at: null });
   await expectSaved(page, 'block_outcome', 'outcome:b1', { result: 'partly', remaining_min: 90 });
 
   await reloadOnline(page, offline);

@@ -105,6 +105,19 @@ Then wait for CI. A PR merges only with every check green.
 - Never install into a shared `node_modules`.
 - Never merge with a red check that main doesn't share.
 
+## Design system
+
+[docs/design.md](docs/design.md) is the design every screen draws from.
+
+- **Use the shared components and tokens, never raw values.** Buttons, icons and calendar blocks come from the shared
+  components; every colour, size, space, radius, shadow, layer and duration comes from
+  [tokens.css](frontend/src/ui/styles/tokens.css). No text glyph is ever an icon.
+- **A new component, or a new token, goes into docs/design.md and the reference page in the same PR.** Pick a colour
+  by its role, not its look, and change the design there rather than adding a value for one screen. After a change to
+  how something looks, `scripts/reference-shots.sh` redraws the reference page's screenshots.
+- **The checks enforce it:** `tokens.test.ts` holds the roles, the contrast pairs in both themes and the budget, and
+  `designRules.test.ts` fails on a raw value, a glyph icon or a hand-built button, and says where it is.
+
 ## The product's rules
 
 - **Nothing happens to someone's plan without them.** Time is placed, and tasks are finished, only by an explicit action.

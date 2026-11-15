@@ -10,6 +10,7 @@ import { useApp, useMutation } from '../../app/store';
 import { DATE_UNSET, useLeave } from '../editors/useLeave';
 import { useToast } from '../Toast';
 import './oneoff.css';
+import { Button } from '../ds/Button';
 
 interface Editing {
   from: string;
@@ -81,9 +82,9 @@ export function OneOffDateForm(props: {
           </label>
         ) : (
           <div>
-            <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => put({ ranged: true })}>
+            <Button variant={phone ? 'quiet' : 'secondary'} size="compact" type="button" onClick={() => put({ ranged: true })}>
               + End date
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -93,17 +94,17 @@ export function OneOffDateForm(props: {
         </div>
       )}
       <div className="row">
-        <button ref={saveRef} className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
+        <Button ref={saveRef} variant="primary" size="compact" className={phone ? 'grow' : undefined} type="submit">
           Set date
-        </button>
+        </Button>
         {s?.from && (
-          <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => void apply(null, null)}>
+          <Button size="compact" type="button" onClick={() => void apply(null, null)}>
             {phone ? 'Clear' : 'Clear date'}
-          </button>
+          </Button>
         )}
-        <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={onClose}>
+        <Button size="compact" type="button" onClick={onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -125,16 +126,16 @@ export function OneOffDates(props: { task: Task; onSave?(): void }) {
   return (
     <>
       <div>
-        <button
+        <Button
           ref={toggleRef}
-          className={layout === 'phone' ? 'btn plain' : 'link small'}
+          variant={layout === 'phone' ? 'quiet' : 'link'} className={layout === 'phone' ? undefined : 'small'}
           type="button"
           aria-expanded={open}
           aria-label={`${label} for ${task.title}`}
           onClick={() => (open ? close() : setOpen(true))}
         >
           {label}
-        </button>
+        </Button>
       </div>
       {open && <OneOffDateForm task={task} {...(props.onSave ? { onSave: props.onSave } : {})} onClose={close} />}
     </>

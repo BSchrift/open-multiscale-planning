@@ -7,6 +7,7 @@ import { formatMinutes } from '../../../../core/dates';
 import { useFit } from '../WeekFit';
 import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
+import { Button } from '../../../components/ds/Button';
 
 export interface Selection {
   on: boolean;
@@ -58,7 +59,7 @@ export function SelectBar(props: PickProps & { rows: readonly PickTask[]; sel: R
     sel.exit();
     run([...rows]);
   };
-  const btn = props.phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   return (
     <section className={`selbar${props.phone ? ' ph' : ''}`} aria-label="Selected tasks">
       <div className="selhead">
@@ -76,19 +77,19 @@ export function SelectBar(props: PickProps & { rows: readonly PickTask[]; sel: R
         )}
       </div>
       <div className="selacts">
-        <button className={`${btn} pri`} type="button" aria-disabled={!toAdd.length} onClick={act(toAdd, props.pickMany)}>
+        <Button {...btn} variant="primary" type="button" aria-disabled={!toAdd.length} onClick={act(toAdd, props.pickMany)}>
           Add to this week
-        </button>
-        <button className={btn} type="button" aria-disabled={!chosen.length} onClick={act(chosen, props.doneMany)}>
+        </Button>
+        <Button {...btn} type="button" aria-disabled={!chosen.length} onClick={act(chosen, props.doneMany)}>
           Already done
-        </button>
-        <button className={btn} type="button" aria-disabled={!toDrop.length} onClick={act(toDrop, props.dropMany)}>
+        </Button>
+        <Button {...btn} type="button" aria-disabled={!toDrop.length} onClick={act(toDrop, props.dropMany)}>
           Remove from week
-        </button>
+        </Button>
         {!props.phone && (
-          <button className={btn} type="button" onClick={props.onCancel}>
+          <Button {...btn} type="button" onClick={props.onCancel}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </section>

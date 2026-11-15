@@ -11,6 +11,7 @@ import { NotesField } from '../notes/NotesField';
 import { draftDays, draftError, draftOf, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
 import type { OneOffDraft, RepeatType, RuleDay, RuleOf, RulePos } from './draft';
 import './oneoff.css';
+import { Button } from '../ds/Button';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const UNITS: readonly [RepeatUnit, string][] = [['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly'], ['year', 'Yearly']];
@@ -147,9 +148,9 @@ export function OneOffForm(props: {
               </>
             ) : (
               <div>
-                <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => put({ ranged: true })}>
+                <Button variant={phone ? 'quiet' : 'secondary'} size="compact" type="button" onClick={() => put({ ranged: true })}>
                   + End date
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -231,18 +232,18 @@ export function OneOffForm(props: {
       )}
       {props.extra}
       <div className="row">
-        <button className={phone ? 'btn pri grow' : 'btn pri'} type="submit">
+        <Button variant="primary" className={phone ? 'grow' : undefined} type="submit">
           {props.task ? 'Save' : 'Add one off'}
-        </button>
+        </Button>
         {props.onCancel && (
-          <button className="btn" type="button" onClick={props.onCancel}>
+          <Button type="button" onClick={props.onCancel}>
             Cancel
-          </button>
+          </Button>
         )}
         {props.onDelete && (
-          <button className="btn" type="button" onClick={props.onDelete}>
+          <Button type="button" onClick={props.onDelete}>
             Delete
-          </button>
+          </Button>
         )}
       </div>
     </form>

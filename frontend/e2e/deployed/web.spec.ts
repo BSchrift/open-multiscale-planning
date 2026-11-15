@@ -332,7 +332,7 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await page.getByRole('button', { name: 'Save and exit' }).click();
   // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November prod's release step
   // found the steps still open: on prod's large history, Save and exit's writes outlasted the 5 seconds checks waited
-  // then, as they take 4 to 5 seconds locally with 60,000 deleted records on desktop.
+  // then, as they take 3.6 to 5.2 seconds locally with 60,000 deleted records on desktop.
   await expect(steps).toHaveCount(0);
   await expect(wayIn).toBeVisible();
 });

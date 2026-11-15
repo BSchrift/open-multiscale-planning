@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../app/store';
 import { Sheet } from './Sheet';
+import { Button } from './ds/Button';
 
 export function HowToUpdate(props: { download: string; onClose(): void }) {
   const { platform } = useApp();
@@ -39,12 +40,12 @@ export function HowToUpdate(props: { download: string; onClose(): void }) {
         <li>Open Multiscale from Applications, then eject the disk image.</li>
       </ol>
       <div className="row">
-        <button className="btn pri" type="button" onClick={() => void platform.openExternal(props.download)}>
+        <Button variant="primary" type="button" onClick={() => void platform.openExternal(props.download)}>
           Download the app
-        </button>
-        <button className="btn" type="button" onClick={props.onClose}>
+        </Button>
+        <Button type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </div>
     </Sheet>
   );

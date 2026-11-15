@@ -32,17 +32,17 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: var(--text-h2);
+  font-size: var(--fs-heading);
 }
 
 [data-layout] .taskpopname {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   min-height: 32px;
-  padding: 2px 0;
+  padding: var(--space-1) 0;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -67,22 +67,17 @@
 [data-layout] .taskpopname .pen {
   flex: none;
   display: inline-flex;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .taskpopname .pen svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 @media (hover: hover) {
   [data-layout] .taskpopname:hover > span:first-child {
-    text-decoration: underline dashed var(--border-strong) 2px;
+    text-decoration: underline dashed var(--line) 2px;
     text-underline-offset: 6px;
   }
 }
@@ -101,18 +96,14 @@
   height: 36px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: transparent;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .taskpopclose svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 [data-layout] .taskpopbody {
@@ -124,7 +115,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: var(--space-2) var(--space-4) var(--space-3);
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 /* The editors' slider, at the body's full width: in a column, its desktop flex basis would be a height. */
@@ -139,42 +130,42 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 [data-layout] .taskpopdelete {
   margin-right: auto;
-  color: var(--red);
+  color: var(--danger);
 }
 
 [data-layout='desktop'] .overlay:has(> .sheet.taskpop) {
   align-items: center;
-  padding: 24px;
+  padding: var(--space-6);
 }
 
 [data-layout='desktop'] .sheet.taskpop {
   width: min(480px, calc(100vw - 48px));
   max-width: none;
   max-height: 70vh;
-  animation: taskpop-in 0.16s ease-out;
+  animation: taskpop-in var(--dur-medium) ease-out;
 }
 
 /* Its toasts, with Undo, sit over the dimmed page rather than under it. */
 [data-layout='desktop']:has(.sheet.taskpop) .toast {
-  z-index: 41;
+  z-index: calc(var(--z-overlay) + 1);
 }
 
 /* On phone, above the keyboard and above any sheet it opened from, such as a block's. */
 [data-layout='phone'] .sheet.taskpop {
-  z-index: 12;
+  z-index: calc(var(--z-sticky) + 2);
   max-height: calc(70vh - var(--keyboard, 0px));
   max-height: calc(70dvh - var(--keyboard, 0px));
   padding-bottom: 0;
-  animation: taskpop-up 0.24s ease-out;
+  animation: taskpop-up var(--dur-slow) ease-out;
 }
 
 [data-layout='phone'] .scrim:has(+ .sheet.taskpop) {
-  z-index: 11;
+  z-index: calc(var(--z-sticky) + 1);
 }
 
 [data-layout='phone'] .taskpoptop {
@@ -184,9 +175,9 @@
 [data-layout='phone'] .taskpopgrab {
   width: 36px;
   height: 5px;
-  margin: 8px auto 10px;
-  border-radius: 3px;
-  background: var(--line-strong);
+  margin: var(--space-2) auto var(--space-3);
+  border-radius: var(--radius-block);
+  background: var(--line);
 }
 
 [data-layout='phone'] .taskpopname {
@@ -224,8 +215,8 @@
 [data-layout] .taskpopbody > .blocksec {
   flex: none;
   padding: var(--space-3);
-  border-radius: 10px;
-  background: var(--track);
+  border-radius: var(--radius-control);
+  background: var(--wash);
 }
 
 [data-layout] .blocksec:focus:not(:focus-visible) {

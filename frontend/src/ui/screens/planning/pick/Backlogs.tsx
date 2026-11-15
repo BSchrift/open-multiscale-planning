@@ -4,6 +4,7 @@
 
 import { Rows } from './Cards';
 import type { ListProps } from './Cards';
+import { Icon } from '../../../components/ds/Icon';
 
 export function BacklogsSection(props: ListProps) {
   const { view, out } = props;
@@ -20,7 +21,7 @@ export function BacklogsSection(props: ListProps) {
           <div key={b.goalId} className="pgroup">
             <button className="blfold" type="button" aria-expanded={open} onClick={() => out.toggleBacklog(b.goalId)}>
               <span className="caret" aria-hidden="true">
-                {open ? '▾' : '▸'}
+                <Icon name={open ? 'chevron-down' : 'chevron-right'} size={16} />
               </span>
               <span className="strong">{b.goal}</span>
               <span className="small quiet">{b.counts}</span>

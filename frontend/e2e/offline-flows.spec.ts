@@ -128,7 +128,7 @@ test('processes the Inbox offline: a home for each item, Undo, and Delete', asyn
 
   await addTo('paint', 'Paint the fence');
   await expect(toast(page)).toContainText('Added Call the bank to Paint the fence.');
-  await card.getByRole('button', { name: 'Add to this week' }).click();
+  await card.getByRole('switch', { name: 'Add to this week' }).click();
   await addTo('one', 'One offs, and to this week');
   await expect(toast(page)).toContainText('Added Fix the gate to One offs and to this week.');
   await toast(page).getByRole('button', { name: 'Undo' }).click();

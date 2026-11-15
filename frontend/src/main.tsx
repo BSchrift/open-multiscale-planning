@@ -21,6 +21,8 @@ configureRetention(__APP_CONFIG__.retention ?? null);
 createPlatform(__APP_CONFIG__.env).then(
   (platform) => {
     // An app doesn't zoom: WebKit would zoom in on a focused field, and a pinch could leave the screen zoomed in.
+    // The iPhone app's text follows the phone's text-size setting (tokens.css).
+    if (platform.kind === 'ios') document.documentElement.dataset.platform = 'ios';
     if (platform.kind === 'ios') document.querySelector('meta[name=viewport]')?.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no');
     // Lets Playwright seed and read records in dev builds; production bundles drop this branch.
     if (import.meta.env.DEV) {

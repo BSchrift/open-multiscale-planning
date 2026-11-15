@@ -4,8 +4,8 @@
 import { useId } from 'react';
 import type { Ref } from 'react';
 import type { Weekday } from '../../core/types';
-import { useApp } from '../app/store';
 import './daychips.css';
+import { Button } from './ds/Button';
 
 const NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const FILLS: readonly [string, Weekday[]][] = [
@@ -16,7 +16,6 @@ const FILLS: readonly [string, Weekday[]][] = [
 
 /** error shows under the chips, tied to Monday, which firstRef reaches so focus can go there. */
 export function DayChips(props: { legend: string; days: readonly Weekday[]; onChange(days: Weekday[]): void; error?: string; firstRef?: Ref<HTMLInputElement> }) {
-  const { layout } = useApp();
   const errorId = useId();
   const toggle = (d: Weekday) =>
     props.onChange(props.days.includes(d) ? props.days.filter((x) => x !== d) : [...props.days, d].sort((a, b) => a - b));
@@ -25,9 +24,9 @@ export function DayChips(props: { legend: string; days: readonly Weekday[]; onCh
       <legend className="small quiet">{props.legend}</legend>
       <div className="daychipfill" role="group" aria-label="Fill in days">
         {FILLS.map(([label, days]) => (
-          <button key={label} type="button" className={layout === 'phone' ? 'btn' : 'btn sm'} onClick={() => props.onChange(days)}>
+          <Button key={label} type="button" size="compact" onClick={() => props.onChange(days)}>
             {label}
-          </button>
+          </Button>
         ))}
       </div>
       <div className="daychipbox">

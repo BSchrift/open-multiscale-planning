@@ -28,14 +28,16 @@ test('a new install of the five-year account: first sync, then Today and Week', 
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   });
   try {
-    await app.evaluate(({ shell }) => {
-      globalThis.browserUrls = [];
-      shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
-    });
     const page = await app.firstWindow();
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await expect(page.getByRole('heading', { name: 'Welcome' })).toBeVisible();
+    // Only once the window has drawn, as frontend/electron/e2e/sync.spec.ts explains: Playwright's first evaluate in the
+    // main process, landing during the window's first request, can leave the window on Chromium's error page.
+    await app.evaluate(({ shell }) => {
+      globalThis.browserUrls = [];
+      shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
+    });
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect.poll(() => app.evaluate(() => globalThis.browserUrls.length)).toBe(1);
     const url = await app.evaluate(() => globalThis.browserUrls.pop()!);

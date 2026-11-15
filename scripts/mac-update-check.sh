@@ -9,8 +9,10 @@
 set -euo pipefail
 
 name="Multiscale Staging"
-release_url="${RELEASE_URL:?RELEASE_URL names staging's release host}"
-downloads_url="${DOWNLOADS_URL:?DOWNLOADS_URL names staging's downloads host}"
+# No apostrophes in these messages: inside "${VAR:?...}" bash reads one as opening a quote, which ran on to the next
+# line's and swallowed the downloads host's assignment.
+release_url="${RELEASE_URL:?RELEASE_URL names the staging release host}"
+downloads_url="${DOWNLOADS_URL:?DOWNLOADS_URL names the staging downloads host}"
 out="${OUT:?OUT names the folder for the pass}"
 previous="${PREVIOUS:-}"
 mkdir -p "$out"

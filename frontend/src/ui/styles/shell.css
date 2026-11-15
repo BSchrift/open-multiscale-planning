@@ -13,14 +13,14 @@ body,
 }
 
 body {
-  background: var(--page);
+  background: var(--ground);
 }
 
 a {
-  color: var(--blue);
+  color: var(--accent-text);
 }
 a:hover {
-  color: var(--blue-hover);
+  color: var(--accent-hover);
 }
 
 button,
@@ -40,7 +40,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -72,7 +72,7 @@ p {
   height: 100%;
   padding: var(--space-4);
   font-family: var(--font);
-  color: var(--quiet);
+  color: var(--ink-3);
   text-align: center;
 }
 
@@ -87,8 +87,8 @@ p {
 /* Desktop: side navigation beside a main area. */
 [data-layout='desktop'] {
   display: flex;
-  background: var(--page);
-  font-size: var(--text-base-desktop);
+  background: var(--ground);
+  font-size: var(--fs-body);
   line-height: 1.45;
 }
 
@@ -105,9 +105,9 @@ p {
 [data-layout='desktop'] .updnote {
   margin-top: auto;
   padding: var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--hairline);
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -140,7 +140,7 @@ p {
   flex: 1 1 auto;
   min-width: 0;
   background: var(--ground);
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--hairline);
 }
 
 [data-layout='desktop'] .pane,
@@ -166,7 +166,7 @@ p {
   display: flex;
   flex-direction: column;
   background: var(--ground);
-  font-size: var(--text-base-phone);
+  font-size: var(--fs-body);
   line-height: 1.4;
 }
 
@@ -236,13 +236,13 @@ p {
 [data-layout='phone'] .sheet > form.editor ~ div {
   margin-top: var(--space-2);
   padding-top: var(--space-4);
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 [data-layout='phone'] .field:focus-visible {
   outline: none;
-  border-color: var(--blue);
-  box-shadow: 0 0 0 1px var(--blue);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 /* Above the keyboard when it's open: it covers the page rather than shrinking it (app/keyboard.ts). */
@@ -258,7 +258,7 @@ p {
   -webkit-appearance: none;
   appearance: none;
   padding-right: 36px;
-  background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23777' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center / 12px 8px;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23777' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center / 12px 8px;
 }
 
 /* Inbox clear: a green check over a light, see-through veil, which pops up, holds, then fades. */
@@ -270,7 +270,7 @@ p {
   align-items: center;
   justify-content: center;
   padding: var(--space-6);
-  background: color-mix(in srgb, var(--page) 40%, transparent);
+  background: color-mix(in srgb, var(--ground) 40%, transparent);
   animation: ck-veil 0.2s ease-out both;
   /* It never stands between you and the page: a tap goes through, and puts it away. */
   pointer-events: none;
@@ -288,10 +288,10 @@ p {
   gap: 6px;
   min-width: 240px;
   padding: 28px 40px 26px;
-  border: 1px solid var(--card-line);
+  border: 1px solid var(--hairline);
   border-radius: 20px;
-  background: var(--white);
-  box-shadow: 0 16px 48px rgba(var(--ink-rgb), 0.16);
+  background: var(--card);
+  box-shadow: var(--shadow-3);
   text-align: center;
   animation: ck-in 0.3s ease-out both;
 }
@@ -305,7 +305,7 @@ p {
 .doneck circle,
 .doneck path {
   fill: none;
-  stroke: var(--green);
+  stroke: var(--ok);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -335,14 +335,14 @@ p {
 
 .clearcount {
   margin: 0;
-  color: var(--green);
+  color: var(--ok);
   font-size: 16px;
   font-weight: 600;
 }
 
 .clearmore {
   margin: 0;
-  color: var(--quiet);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -415,14 +415,14 @@ p {
   padding: var(--space-1) var(--space-3);
   border: 0;
   background: transparent;
-  color: var(--blue-on-dark);
+  color: var(--ink-action);
   font-weight: 600;
 }
 
 /* The ring sits on the toast, where the usual blue is too faint. */
 .toastact:focus-visible,
 .pktoast button:focus-visible {
-  outline-color: var(--blue-on-dark);
+  outline-color: var(--ink-action);
 }
 
 /* A popover anchors to whichever positioned parent holds it. */
@@ -446,7 +446,7 @@ p {
 }
 
 .estslider input[type='range'] {
-  accent-color: var(--blue);
+  accent-color: var(--accent);
 }
 
 [data-layout='phone'] .estslider {
@@ -478,7 +478,7 @@ p {
   align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-2) 0;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 .checktarget {

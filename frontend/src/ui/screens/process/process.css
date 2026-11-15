@@ -2,7 +2,7 @@
 
 /* Phone: the flow sits on the ground, where the usual track would vanish. */
 [data-layout='phone'] .pxbar {
-  background: var(--card-line);
+  background: var(--hairline);
 }
 
 [data-layout] .pxlastrow {
@@ -117,7 +117,7 @@
 [data-layout] .pxedit .pen {
   flex: none;
   display: inline-flex;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .pxedit .pen svg,
@@ -136,11 +136,11 @@
 
 @media (hover: hover) {
   [data-layout] .pxedit:hover {
-    background: var(--hover);
+    background: var(--wash);
   }
 
   [data-layout] .pxedit:hover > span:first-child {
-    text-decoration: underline dashed var(--border-strong) 2px;
+    text-decoration: underline dashed var(--line) 2px;
     text-underline-offset: 6px;
   }
 }
@@ -172,9 +172,9 @@
 /* The title being edited: a field of the title's own size. */
 [data-layout] .pxtitlefield {
   width: 100%;
-  border: 1px solid var(--blue);
-  box-shadow: 0 0 0 1px var(--blue);
-  background: var(--white);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--card);
   color: var(--ink);
   font: inherit;
   font-weight: 600;
@@ -213,19 +213,19 @@
 
 /* The date: first under the title, in blue; once set, the date itself on a blue tint, with Change. */
 [data-layout] .pxchip.date {
-  border-color: var(--blue);
-  color: var(--blue);
+  border-color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
 [data-layout] .pxchip.date.set {
-  border-color: var(--blue-line);
-  background: var(--blue-tint);
-  color: var(--blue-ink);
+  border-color: var(--hairline);
+  background: var(--accent-tint);
+  color: var(--project-ink);
 }
 
 [data-layout] .pxchip.date.set .quiet {
-  color: var(--blue-ink);
+  color: var(--project-ink);
   font-weight: 400;
   opacity: 0.75;
 }
@@ -235,15 +235,15 @@
 }
 
 [data-layout] .pxdatenote {
-  color: var(--quiet);
-  font-size: var(--text-sm);
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
 }
 
 [data-layout] .pxdateform {
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--hairline);
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--card);
 }
 
 /* A project's warning, under the picker once the picker shows that project. */
@@ -315,7 +315,7 @@
 
 [data-layout='desktop']:has(.pxwrap) .toast {
   z-index: 51;
-  box-shadow: 0 8px 24px rgba(var(--ink-rgb), 0.28);
+  box-shadow: var(--shadow-2);
 }
 
 /* Phone: Process has no tab bar, so the toast takes its place, just above the bottom row and in thumb reach. Over a
@@ -324,14 +324,14 @@
   top: auto;
   bottom: calc(max(24px, env(safe-area-inset-bottom)) + var(--tap) + 12px);
   min-height: 56px;
-  box-shadow: 0 8px 24px rgba(var(--ink-rgb), 0.28);
+  box-shadow: var(--shadow-2);
 }
 
 /* A key on a filled button, in the button's own light ink. */
 [data-layout='desktop'] .pxcard .btn.pri .keycap,
 [data-layout='desktop'] .pxweek.on .keycap {
-  color: var(--blue-on-solid);
-  border-color: var(--blue-on-solid);
+  color: var(--on-accent);
+  border-color: var(--on-accent);
 }
 
 /* Where it goes: one searchable field. Its list opens under it on desktop, and in a sheet on phone. */
@@ -353,20 +353,20 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  border: 1px solid var(--border-strong);
-  background: var(--white);
+  border: 1px solid var(--line);
+  background: var(--card);
   color: var(--ink);
   text-align: left;
 }
 
 [data-layout] .pkfield:focus-within {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 1px var(--blue);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 /* On phone the field is a button, ringed only when reached from a keyboard. */
 [data-layout='phone'] .pkphone > .pkfield:focus:not(:focus-visible) {
-  border-color: var(--border-strong);
+  border-color: var(--line);
   box-shadow: none;
 }
 
@@ -380,7 +380,7 @@
   width: 20px;
   height: 20px;
   fill: none;
-  stroke: var(--quiet);
+  stroke: var(--ink-3);
   stroke-width: 1.9;
   stroke-linecap: round;
 }
@@ -392,8 +392,8 @@
   width: 8px;
   height: 8px;
   margin: -4px 2px 0 auto;
-  border-right: 1.75px solid var(--quiet);
-  border-bottom: 1.75px solid var(--quiet);
+  border-right: 1.75px solid var(--ink-3);
+  border-bottom: 1.75px solid var(--ink-3);
   transform: rotate(45deg);
 }
 
@@ -443,7 +443,7 @@
 }
 
 [data-layout] .pkfield input::placeholder {
-  color: var(--quiet);
+  color: var(--ink-3);
   font-weight: 400;
 }
 
@@ -457,7 +457,7 @@
 
 [data-layout] .pkgoal {
   flex: none;
-  color: var(--quiet);
+  color: var(--ink-3);
   font-weight: 400;
 }
 
@@ -493,10 +493,10 @@
   top: calc(100% + 6px);
   z-index: 6;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--white);
-  box-shadow: 0 12px 32px rgba(var(--ink-rgb), 0.16);
+  background: var(--card);
+  box-shadow: var(--shadow-3);
 }
 
 [data-layout] .pkopts {
@@ -520,13 +520,13 @@
 }
 
 [data-layout] .pkopt:hover {
-  background: var(--hover);
+  background: var(--wash);
 }
 
 /* The row Enter adds to: the finder's own tint, with names in ink. */
 [data-layout] .pkopt[aria-selected='true'] {
-  background: var(--blue-pale);
-  box-shadow: inset 4px 0 0 var(--blue);
+  background: var(--accent-tint);
+  box-shadow: inset 4px 0 0 var(--accent);
 }
 
 [data-layout] .pkopt b {
@@ -542,7 +542,7 @@
   margin-left: auto;
   font-size: 13px;
   font-weight: 600;
-  color: var(--blue);
+  color: var(--accent-text);
 }
 
 [data-layout] .pkopt .pkgoal + .pktag {
@@ -550,13 +550,13 @@
 }
 
 [data-layout] .pknew {
-  color: var(--blue);
+  color: var(--accent-text);
   font-weight: 600;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--hairline);
 }
 
 [data-layout] .pkone {
-  color: var(--purple-ink);
+  color: var(--oneoff-ink);
   font-weight: 600;
 }
 
@@ -565,20 +565,20 @@
   width: 10px;
   height: 10px;
   border-radius: 3px;
-  background: var(--purple);
+  background: var(--oneoff);
 }
 
 [data-layout] .pkhead {
   padding: 10px 16px 2px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .pkempty {
   padding: 8px 16px 10px;
   font-size: 13px;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout='phone'] .pkphone {
@@ -642,9 +642,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--blue-line);
-  border-radius: var(--radius);
-  background: var(--blue-pale);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--accent-tint);
 }
 
 [data-layout] .pxbacklogrows {
@@ -674,15 +674,15 @@
   min-height: 56px;
   padding: 8px 16px;
   border: 0;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
   background: transparent;
   color: var(--ink);
   text-align: left;
 }
 
 [data-layout] .pxbacklogpick .pickrow[aria-pressed='true'] {
-  background: var(--blue-pale);
-  box-shadow: inset 4px 0 0 var(--blue);
+  background: var(--accent-tint);
+  box-shadow: inset 4px 0 0 var(--accent);
 }
 
 /* A hollow ring, as a backlog has on Goals, where a project has its filled square. */
@@ -690,7 +690,7 @@
   flex: none;
   width: 10px;
   height: 10px;
-  border: 2px solid var(--blue);
+  border: 2px solid var(--project);
   border-radius: 50%;
 }
 

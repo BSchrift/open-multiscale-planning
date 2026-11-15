@@ -35,13 +35,13 @@
 }
 
 [data-layout] .daychip.on {
-  border-color: var(--blue);
-  background: var(--blue);
-  color: var(--white);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 [data-layout] .daychip:has(.chipbox:focus-visible) {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 

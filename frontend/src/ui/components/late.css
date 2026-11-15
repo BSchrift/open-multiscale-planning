@@ -5,8 +5,8 @@
   align-items: center;
   gap: 6px;
   flex: 1 1 100%;
-  color: var(--amber-ink);
-  font-size: var(--text-sm);
+  color: var(--warn);
+  font-size: var(--fs-meta);
   font-weight: 600;
 }
 
@@ -15,7 +15,7 @@
   width: 16px;
   height: 16px;
   fill: none;
-  stroke: var(--amber);
+  stroke: var(--warn);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;

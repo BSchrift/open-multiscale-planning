@@ -1,109 +1,109 @@
 /* Rules that are the same in both layouts. Tokens live in tokens.css. */
 
 .ghead span{position:absolute;top:0;white-space:nowrap}
-.gtick{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
-.gbar span{display:block;height:100%;background:var(--blue)}
-.gbar.whole{background:var(--whole)}
+.gtick{position:absolute;top:0;bottom:0;width:1px;background:var(--hairline)}
+.gbar span{display:block;height:100%;background:var(--project)}
+.gbar.whole{background:var(--pressed)}
 .gbar.whole span{background:var(--ink-2)}
-.gbar.late{background:var(--red-soft)}
-.gbar.late span{background:var(--red)}
+.gbar.late{background:var(--danger-tint)}
+.gbar.late span{background:var(--danger)}
 .gtoday{position:absolute;top:-1px;bottom:-1px;z-index:2;width:2px;margin-left:-1px;background:var(--ink)}
-.ctband{position:absolute;top:0;bottom:0;background:var(--band);border-left:1px solid var(--band-line);border-right:1px solid var(--band-line)}
-.cttoday{position:absolute;top:0;bottom:0;width:1px;background:var(--quiet);pointer-events:none}
-.pband{position:absolute;top:0;bottom:0;background:var(--stretch);border-left:1px solid var(--tick);border-right:1px solid var(--tick)}
-.mfill.calm{background:var(--blue)}
-.paceline{padding:4px 0;border-top:2px dashed var(--amber);color:var(--amber-ink);font-size:13px}
-.pxbar{flex:1 1 auto;height:4px;border-radius:2px;background:var(--fill)}
-.pxbar span{display:block;height:100%;border-radius:2px;background:var(--blue)}
-.fielderr{color:var(--red);font-size:13px}
-h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
+.ctband{position:absolute;top:0;bottom:0;background:var(--accent-tint);border-left:1px solid var(--project);border-right:1px solid var(--project)}
+.cttoday{position:absolute;top:0;bottom:0;width:1px;background:var(--ink-3);pointer-events:none}
+.pband{position:absolute;top:0;bottom:0;background:var(--wash);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.mfill.calm{background:var(--accent)}
+.paceline{padding:4px 0;border-top:2px dashed var(--warn);color:var(--warn);font-size:13px}
+.pxbar{flex:1 1 auto;height:4px;border-radius:2px;background:var(--wash)}
+.pxbar span{display:block;height:100%;border-radius:2px;background:var(--project)}
+.fielderr{color:var(--danger);font-size:13px}
+h3{font-size:var(--fs-caption);font-weight:600;color:var(--ink-3)}
 .stack8{display:flex;flex-direction:column;gap:8px}
 /* A screen's section, raised off --ground; layouts set the radius. Rows inside bring their own padding; a .stack of content gets 16px. */
-.card{background:var(--white);border:1px solid var(--card-line);box-shadow:var(--card-shadow)}
+.card{background:var(--card);border:1px solid var(--hairline);box-shadow:var(--shadow-1)}
 .card.stack,.card.stack8{padding:16px}
 .card:empty{display:none}
 /* Show completed as a list card's last row, in line with the rows above it. */
-.card>div:has(>.showcompleted){padding:4px 16px 8px;border-top:1px solid var(--line-soft)}
+.card>div:has(>.showcompleted){padding:4px 16px 8px;border-top:1px solid var(--hairline)}
 /* A row's trailing icons, the Inbox's pencil and every row's chevron: one size and weight, so they read as a set. */
 .rowpen svg,.inboxgo svg,.chev svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.quiet{color:var(--quiet)}
+.quiet{color:var(--ink-3)}
 .strong{font-weight:600}
-.btn.pri{background:var(--blue);border-color:var(--blue);color:var(--white);font-weight:500}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:500}
 /* Destructive, such as finishing or dropping a project: red, and solid red when it's the confirming choice. */
-.btn.danger{border-color:var(--red);color:var(--red)}
-.btn.pri.danger{background:var(--red);color:var(--white)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn.pri.danger{background:var(--danger);color:var(--on-accent)}
 /* An answer's icon before its word (AnswerIcon), in the word's colour, as the missed blocks sheet's bar draws it. */
 .btn:has(>.ansicon){display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .ansicon{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .ansicon .solid{fill:currentColor;stroke:none}
 .now h2{font-size:22px;line-height:1.25}
 .clock{font-size:44px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums}
-.done{color:var(--quiet);text-decoration:line-through}
+.done{color:var(--ink-3);text-decoration:line-through}
 /* A block gone by that was partly done, or not done, on any calendar: never struck through, said in words before its
    title, and outlined dashed, in amber when nothing was done. */
-.partly{outline:1px dashed var(--quiet);outline-offset:-1px}
-.notdone{outline:2px dashed var(--amber);outline-offset:-2px}
+.partly{outline:1px dashed var(--ink-3);outline-offset:-1px}
+.notdone{outline:2px dashed var(--warn);outline-offset:-2px}
 /* A block under 24px keeps its one line of text clear of the outline, which sits over its border. */
 .compact.notdone,.short.notdone{outline-width:1px;outline-offset:-1px}
 .outw{font-weight:600;color:var(--ink-2)}
-.outw-not{color:var(--amber-ink)}
+.outw-not{color:var(--warn)}
 /* A processed Inbox card on its way out: above the Process overlay, and never in the way. */
 .pxghost{position:fixed;z-index:60;margin:0;pointer-events:none;transform-origin:center bottom}
 /* Something under way that the person waits on, such as a sign-in finishing. */
 .signing{display:flex;align-items:center;gap:12px;color:var(--ink-2)}
-.spinner{flex:none;width:20px;height:20px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+.spinner{flex:none;width:20px;height:20px;border:2px solid var(--hairline);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spinner{animation-duration:2.4s}}
 .paxis span{position:absolute;top:0;white-space:nowrap}
-.ptick{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
-.pweekband{position:absolute;top:0;bottom:0;background:var(--blue-soft)}
+.ptick{position:absolute;top:0;bottom:0;width:1px;background:var(--hairline)}
+.pweekband{position:absolute;top:0;bottom:0;background:var(--project-tint)}
 .planshow{display:flex;flex-direction:column;gap:4px}
 /* A name with nowhere to break, such as a pasted link, breaks anywhere rather than run out of the card. */
 .planshow>h3,.planshowrow .grow{overflow-wrap:anywhere}
 .planshowrow .grow{flex:1 1 auto;min-width:0}
 .oodate{padding-top:8px}
-.pdot.oo,.msdia.oo{border-color:var(--purple);background:var(--purple);border-radius:50%;transform:none}
-.offer.first{background:var(--blue);border-color:var(--blue);color:var(--white);font-weight:500}
-.dchip.on{border-color:var(--blue);background:var(--blue-tint);font-weight:600}
-.mmeter{position:relative;display:block;flex:1 1 auto;min-width:60px;height:8px;border-radius:4px;background:var(--fill)}
-.mfill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--amber)}
-.mfill.met{background:var(--green)}
-.mfill.off{background:var(--muted)}
+.pdot.oo,.msdia.oo{border-color:var(--oneoff);background:var(--oneoff);border-radius:50%;transform:none}
+.offer.first{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:500}
+.dchip.on{border-color:var(--accent);background:var(--accent-tint);font-weight:600}
+.mmeter{position:relative;display:block;flex:1 1 auto;min-width:60px;height:8px;border-radius:4px;background:var(--wash)}
+.mfill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--warn)}
+.mfill.met{background:var(--ok)}
+.mfill.off{background:var(--line)}
 .mtick{position:absolute;top:-2px;bottom:-2px;width:2px;margin-left:-1px;background:var(--ink)}
-.checkcircle:checked{border-color:var(--blue);background-color:var(--blue);background-image:var(--check)}
-.capbar{display:flex;gap:2px;height:16px;border-radius:6px;background:var(--fill);overflow:hidden}
+.checkcircle:checked{border-color:var(--accent);background-color:var(--accent);background-image:var(--check)}
+.capbar{display:flex;gap:2px;height:16px;border-radius:6px;background:var(--wash);overflow:hidden}
 .capbar span{display:block;height:100%}
-.seg-project{background:var(--blue)}
-.seg-practice{background:var(--teal)}
-.seg-maint{background:var(--purple)}
-.p-a{background:var(--amber-soft);color:var(--amber-ink)}
-.p-g{background:var(--green-soft);color:var(--green)}
-.p-n{background:var(--neutral);color:var(--neutral-ink)}
+.seg-project{background:var(--project)}
+.seg-practice{background:var(--practice)}
+.seg-maint{background:var(--oneoff)}
+.p-a{background:var(--warn-tint);color:var(--warn)}
+.p-g{background:var(--ok-tint);color:var(--ok)}
+.p-n{background:var(--wash);color:var(--ink-2)}
 .pillrow{display:flex;align-items:flex-start;gap:8px;margin-top:4px}
-.prog span{display:block;height:100%;border-radius:4px;background:var(--blue)}
+.prog span{display:block;height:100%;border-radius:4px;background:var(--accent)}
 .prog i{position:absolute;top:-3px;width:2px;height:14px;background:var(--ink)}
-.day{position:relative;border-left:1px solid var(--line)}
+.day{position:relative;border-left:1px solid var(--hairline)}
 .cev.compact{padding:0 6px;font-size:11px;line-height:13px}
 /* +N more beside blocks at the same time, for those with no room: over the day, under one being dragged. */
-.cev.cevmore{z-index:2;display:block;padding:2px;border:1px solid var(--line);background:var(--white);color:var(--blue-ink);font:inherit;font-size:12px;font-weight:600;line-height:1.2;text-align:center;white-space:normal;cursor:pointer}
+.cev.cevmore{z-index:2;display:block;padding:2px;border:1px solid var(--hairline);background:var(--card);color:var(--project-ink);font:inherit;font-size:12px;font-weight:600;line-height:1.2;text-align:center;white-space:normal;cursor:pointer}
 .zoombtn:disabled{opacity:.35;cursor:default}
-.tb.on{background:var(--blue)}
+.tb.on{background:var(--project)}
 /* Over the day and its blocks, under one being dragged; drops and drags pass through it. */
 /* The current time. Calendars draw it before their blocks and give it no z-index, so it passes behind them and never
    strikes through the block under way; only its dot comes in front. */
 .nowline{position:absolute;left:-6px;right:0;height:2px;background:var(--ink);pointer-events:none}
 .nowline i{position:absolute;left:0;top:-3px;z-index:1;width:8px;height:8px;border-radius:50%;background:var(--ink)}
-.p-r{background:var(--red-tint);color:var(--red)}
-.pillbtn:hover .p-r{background:var(--red-soft)}
-.gdia{position:absolute;top:4px;z-index:1;width:10px;height:10px;margin-left:-5px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}
-.msdia{display:inline-block;width:10px;height:10px;margin:0 8px 0 2px;transform:rotate(45deg);border:2px solid var(--blue);background:var(--white)}
+.p-r{background:var(--danger-tint);color:var(--danger)}
+.pillbtn:hover .p-r{background:var(--danger-tint)}
+.gdia{position:absolute;top:4px;z-index:1;width:10px;height:10px;margin-left:-5px;transform:rotate(45deg);border:2px solid var(--accent);background:var(--card)}
+.msdia{display:inline-block;width:10px;height:10px;margin:0 8px 0 2px;transform:rotate(45deg);border:2px solid var(--accent);background:var(--card)}
 /* A milestone's diamond, in each of its states: on a timeline track, inline in a list, and on the desktop plan's timeline. */
-.gdia.on,.msdia.on,:where([data-layout='desktop']) .pdot.on{background:var(--blue)}
-.gdia.met,.msdia.met,:where([data-layout='desktop']) .pdot.met{border-color:var(--grey);background:var(--grey)}
-.gdia.late,.msdia.late,:where([data-layout='desktop']) .pdot.late{border-color:var(--red);background:var(--white)}
-.gdia.late.on,.msdia.late.on,:where([data-layout='desktop']) .pdot.late.on{background:var(--red)}
-.gdia.done,.msdia.done,:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}
+.gdia.on,.msdia.on,:where([data-layout='desktop']) .pdot.on{background:var(--project)}
+.gdia.met,.msdia.met,:where([data-layout='desktop']) .pdot.met{border-color:var(--line);background:var(--line)}
+.gdia.late,.msdia.late,:where([data-layout='desktop']) .pdot.late{border-color:var(--danger);background:var(--card)}
+.gdia.late.on,.msdia.late.on,:where([data-layout='desktop']) .pdot.late.on{background:var(--danger)}
+.gdia.done,.msdia.done,:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--card),0 0 0 3px var(--accent)}
 
 /* Finish or Drop's box that moves open tasks to the goal's backlog: the whole label is the target. */
 [data-layout] .movecheck {
@@ -116,5 +116,5 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: var(--blue);
+  accent-color: var(--accent);
 }

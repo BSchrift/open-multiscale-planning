@@ -30,17 +30,17 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border: 1px solid var(--card-line);
-  background: var(--white);
+  border: 1px solid var(--hairline);
+  background: var(--card);
 }
 
 [data-layout='phone'] .msgroup {
   border-radius: 14px;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-1);
 }
 
 [data-layout='desktop'] .msgroup {
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
 }
 
 [data-layout='phone'] .groups {
@@ -67,13 +67,13 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-block);
   background: transparent;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .msfold:hover {
-  background: var(--hover);
+  background: var(--wash);
 }
 
 [data-layout='phone'] .msfold {
@@ -125,7 +125,7 @@
   flex-direction: column;
   gap: 2px;
   padding: var(--space-1) var(--space-2) 10px 20px;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 [data-layout='phone'] .mstasks {
@@ -196,14 +196,14 @@
 }
 
 [data-layout='desktop'] .detail .gtrack:not(.ghead) {
-  background: var(--white);
+  background: var(--card);
 }
 
 /* Phone: Project settings is a card of its own, like a row of More. */
 [data-layout='phone'] .card.morerow {
   padding: 6px var(--space-4);
-  border-top-color: var(--card-line);
-  background: var(--white);
+  border-top-color: var(--hairline);
+  background: var(--card);
 }
 
 [data-layout] .archrow {
@@ -212,7 +212,7 @@
 }
 
 [data-layout] .archrow + .archrow {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 /* Practices with no goal and Archived: small labels on the ground above their cards. */
@@ -225,7 +225,7 @@
   border: 0;
   background: transparent;
   color: var(--ink-2);
-  font-size: var(--text-md);
+  font-size: var(--fs-label);
   font-weight: 600;
   text-align: left;
 }
@@ -236,7 +236,7 @@
 
 [data-layout='desktop'] .seclabel {
   min-height: 36px;
-  font-size: var(--text-sm);
+  font-size: var(--fs-meta);
 }
 
 /* Side by side as flex items, not inline, so a screen reader still hears a space between the two. */
@@ -284,7 +284,7 @@
 }
 
 [data-layout='phone'] .goalbtn .strong {
-  font-size: var(--text-h2);
+  font-size: var(--fs-heading);
 }
 
 [data-layout='phone'] .goalname {
@@ -299,12 +299,12 @@
   align-items: center;
   min-height: 60px;
   padding: 10px var(--space-4) 10px 36px;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 [data-layout='phone'] .goalspage .nested > .row {
   padding: 0 var(--space-4) var(--space-1) 36px;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 [data-layout='phone'] .nogoal .projbtn,
@@ -387,8 +387,8 @@
 }
 
 [data-layout] .msgroup.dropon {
-  background: var(--blue-pale);
-  outline: 2px solid var(--blue);
+  background: var(--accent-tint);
+  outline: 2px solid var(--focus);
 }
 
 [data-layout] .taskghost {
@@ -398,9 +398,9 @@
   z-index: 50;
   transform: translateY(-50%);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--white);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--card);
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
   pointer-events: none;
 }
@@ -411,7 +411,7 @@
   width: 10px;
   height: 10px;
   margin-top: 6px;
-  border: 2px solid var(--blue);
+  border: 2px solid var(--project);
   border-radius: 50%;
 }
 
@@ -421,14 +421,14 @@
 }
 
 [data-layout] .backlogline.dropon {
-  background: var(--blue-pale);
-  box-shadow: inset 0 2px 0 var(--blue);
+  background: var(--accent-tint);
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 [data-layout] .draghandle {
   flex: none;
   cursor: grab;
-  color: var(--quiet);
+  color: var(--ink-3);
   touch-action: none;
   user-select: none;
 }
@@ -437,10 +437,10 @@
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   background: transparent;
 }
 
 [data-layout='desktop'] .draghandle:hover {
-  background: var(--hover);
+  background: var(--wash);
 }

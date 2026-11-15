@@ -19,25 +19,25 @@
 }
 
 [data-layout] .notes a {
-  color: var(--blue);
+  color: var(--accent-text);
   text-underline-offset: 2px;
 }
 
 [data-layout] .notesname {
-  color: var(--quiet);
-  font-size: var(--text-sm);
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
 }
 
 [data-layout] .notesbox {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--card);
 }
 
 [data-layout] .notesbox:focus-within {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -45,7 +45,7 @@
   display: flex;
   gap: var(--space-1);
   padding: 2px var(--space-1);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--hairline);
 }
 
 [data-layout] .notestool {
@@ -53,14 +53,14 @@
   min-height: 32px;
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-block);
   background: transparent;
   color: var(--ink);
 }
 
 @media (hover: hover) {
   [data-layout] .notestool:hover {
-    background: var(--hover);
+    background: var(--wash);
   }
 }
 
@@ -88,7 +88,7 @@
   max-height: 40vh;
   padding: var(--space-2) var(--space-3);
   border: 0;
-  border-radius: 0 0 var(--radius) var(--radius);
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
   background: transparent;
   line-height: 1.45;
   resize: vertical;
@@ -110,7 +110,7 @@
   display: inline-flex;
   vertical-align: -2px;
   margin-left: 6px;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .notemark svg {

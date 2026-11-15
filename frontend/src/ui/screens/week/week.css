@@ -2,8 +2,8 @@
 [data-layout] .wkhead { gap: 12px; }
 [data-layout] .wkpanel { margin-bottom: var(--space-4); }
 /* Each section is a card on the ground. Panels are grey boxes elsewhere, so here they take the card's look. */
-[data-layout] .week .panel { border-color: var(--card-line); background: var(--white); box-shadow: var(--card-shadow); }
-[data-layout='desktop'] .week .panel { border-radius: var(--radius-lg); }
+[data-layout] .week .panel { border-color: var(--hairline); background: var(--card); box-shadow: var(--shadow-1); }
+[data-layout='desktop'] .week .panel { border-radius: var(--radius-card); }
 [data-layout='phone'] .week .panel { padding: var(--space-4); border-radius: 14px; }
 [data-layout] .wkgrid { padding: var(--space-3) var(--space-4) var(--space-4); }
 /* Phone: the sticky header is ground, so the week's figures and the chosen day read as the cards under it. */
@@ -25,21 +25,21 @@
 [data-layout='phone'] .tlcols > .tlblock { position: absolute; display: flex; flex-direction: column; justify-content: flex-start; }
 [data-layout='phone'] .tlcols .tlname { white-space: normal; overflow-wrap: anywhere; }
 [data-layout='phone'] .tlcols > .tlblock > * { flex-shrink: 0; }
-[data-layout='phone'] .tlmore { grid-column: 2; min-height: 44px; margin-top: 2px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--blue-ink); font: inherit; font-size: 13px; font-weight: 600; text-align: left; }
+[data-layout='phone'] .tlmore { grid-column: 2; min-height: 44px; margin-top: 2px; padding: 4px 10px; border: 1px solid var(--hairline); border-radius: 8px; background: var(--card); color: var(--project-ink); font: inherit; font-size: 13px; font-weight: 600; text-align: left; }
 /* While dragging, the day keeps room below it for the tray. */
 [data-layout='phone'] .wkhint + .wkdaycard { margin-bottom: 120px; }
-[data-layout] .wknote { color: var(--amber-ink-2); }
+[data-layout] .wknote { color: var(--warn); }
 [data-layout] .wklegend { margin-top: 8px; }
-[data-layout] .legend i.keyinfo { background: transparent; border: 1px dashed var(--info-line); }
-[data-layout] .legend i.keyclosed { background: var(--closed); border: 1px solid var(--line-soft); }
-[data-layout] .legend i.ev-busy { background: repeating-linear-gradient(135deg, var(--line) 0, var(--line) 3px, var(--stripe-2) 3px, var(--stripe-2) 6px); }
-[data-layout] .legend i.ev-project { background: var(--blue-soft); border: 1px solid var(--blue); border-left-width: 3px; }
-[data-layout] .legend i.ev-practice { background: var(--teal-soft); border: 1px solid var(--teal); border-left: 4px double var(--teal); }
-[data-layout] .legend i.ev-maint { background: var(--purple-soft); border: 1px solid var(--purple); border-left: 4px dotted var(--purple); }
+[data-layout] .legend i.keyinfo { background: transparent; border: 1px dashed var(--line); }
+[data-layout] .legend i.keyclosed { background: var(--wash); border: 1px solid var(--hairline); }
+[data-layout] .legend i.ev-busy { background: repeating-linear-gradient(135deg, var(--hairline) 0, var(--hairline) 3px, var(--pressed) 3px, var(--pressed) 6px); }
+[data-layout] .legend i.ev-project { background: var(--project-tint); border: 1px solid var(--project); border-left-width: 3px; }
+[data-layout] .legend i.ev-practice { background: var(--practice-tint); border: 1px solid var(--practice); border-left: 4px double var(--practice); }
+[data-layout] .legend i.ev-maint { background: var(--oneoff-tint); border: 1px solid var(--oneoff); border-left: 4px dotted var(--oneoff); }
 [data-layout] .wktitle { min-width: 0; text-align: center; }
 [data-layout] .wkcenter { text-align: center; }
 [data-layout] .wkday { margin: 4px 0 8px; color: var(--ink-2); }
-[data-layout='phone'] .wkday { font-size: var(--text-md); }
+[data-layout='phone'] .wkday { font-size: var(--fs-label); }
 [data-layout] .wkhint { margin-bottom: 8px; }
 [data-layout] .wkbusy { display: flex; align-items: center; }
 [data-layout] .wkstats { width: 100%; margin-top: var(--space-3); }
@@ -48,31 +48,31 @@
 [data-layout] .wkrange { width: 100%; }
 /* On phone a length slider is a whole tap target tall, as the estimate sliders are. */
 [data-layout='phone'] .wkrange { min-height: var(--tap); }
-[data-layout] .day.dragday { background: repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) 48px); }
+[data-layout] .day.dragday { background: repeating-linear-gradient(to bottom, var(--hairline) 0, var(--hairline) 1px, var(--card) 1px, var(--card) 48px); }
 @media (prefers-reduced-motion: reduce) {
   [data-layout] .dragblock, [data-layout] .evdrag { transition: none; }
 }
 /* To schedule: cards waiting for a time, above the week. They drag, so text never selects under the pointer. */
-[data-layout] .tosched { padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3); border-radius: 10px; background: var(--fill); outline: 2px dashed transparent; outline-offset: -2px; }
-[data-layout='phone'] .tosched { background: var(--white); }
-[data-layout] .tosched.drop, [data-layout] .collane.drop { outline-color: var(--blue); background: var(--blue-soft); }
+[data-layout] .tosched { padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3); border-radius: 10px; background: var(--wash); outline: 2px dashed transparent; outline-offset: -2px; }
+[data-layout='phone'] .tosched { background: var(--card); }
+[data-layout] .tosched.drop, [data-layout] .collane.drop { outline-color: var(--focus); background: var(--project-tint); }
 [data-layout] .lanerow { display: flex; flex-wrap: wrap; gap: 6px; }
 [data-layout='phone'] .lanerow { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
-[data-layout] .lanecard { font: inherit; text-align: left; display: flex; flex-direction: column; gap: 1px; max-width: 220px; padding: 5px 9px; border: 1px solid var(--line-soft); border-left: 3px solid var(--blue); border-radius: 6px; background: var(--white); color: var(--ink); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: pan-x; }
+[data-layout] .lanecard { font: inherit; text-align: left; display: flex; flex-direction: column; gap: 1px; max-width: 220px; padding: 5px 9px; border: 1px solid var(--hairline); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--card); color: var(--ink); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: pan-x; }
 [data-layout='phone'] .lanecard { flex: none; min-height: 44px; max-width: 70vw; }
-[data-layout] .lanecard.k-practice { border-left: 4px double var(--teal); }
-[data-layout] .lanecard.k-maint { border-left: 4px dotted var(--purple); }
-[data-layout] .lanecard.on { outline: 2px solid var(--blue); outline-offset: 1px; }
+[data-layout] .lanecard.k-practice { border-left: 4px double var(--practice); }
+[data-layout] .lanecard.k-maint { border-left: 4px dotted var(--oneoff); }
+[data-layout] .lanecard.on { outline: 2px solid var(--focus); outline-offset: 1px; }
 [data-layout] .lanet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-layout] .collane .oochip { touch-action: none; user-select: none; -webkit-user-select: none; }
 /* A set day's practice session, waiting above its own day. */
-[data-layout] .collane .oochip.pracchip { border-color: var(--teal); border-left-style: double; background: var(--teal-soft); color: var(--teal-ink); }
+[data-layout] .collane .oochip.pracchip { border-color: var(--practice); border-left-style: double; background: var(--practice-tint); color: var(--practice-ink); }
 [data-layout] .lanecard { -webkit-touch-callout: none; transition: transform .15s; }
 /* Held long enough on phone: the card lifts out of the row. */
 [data-layout] .lanecard.lifted { opacity: .4; }
 /* The card following the pointer while it's dragged, with the time it would land at. */
-.cardghost { position: fixed; z-index: 60; margin: 0; pointer-events: none; opacity: .95; box-shadow: var(--card-shadow); cursor: grabbing; transform: scale(1.04); }
-.cardghost .ghostwhen { color: var(--blue); }
+.cardghost { position: fixed; z-index: 60; margin: 0; pointer-events: none; opacity: .95; box-shadow: var(--shadow-1); cursor: grabbing; transform: scale(1.04); }
+.cardghost .ghostwhen { color: var(--project); }
 .cardghost .ghostwhen:empty { display: none; }
 @media (prefers-reduced-motion: reduce) {
   [data-layout] .lanecard { transition: none; }

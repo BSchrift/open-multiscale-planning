@@ -189,7 +189,7 @@ test("Data retention says what's kept and for how long, from this build's period
 
 test('appearance follows the system live until chosen, and a choice holds from the first paint', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
-  const [LIGHT_PAGE, DARK_PAGE] = ['rgb(250, 250, 248)', 'rgb(20, 21, 23)'];
+  const [LIGHT_PAGE, DARK_PAGE] = ['rgb(239, 239, 234)', 'rgb(13, 14, 16)'];
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   await page.emulateMedia({ colorScheme: 'light' });
   await openSettings(page, phone);

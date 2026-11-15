@@ -47,13 +47,24 @@ export async function startSignIn(page: Page) {
   const opened = page.waitForEvent('popup');
   await account(page).getByRole('button', { name: 'Sign in' }).click();
   const popup = await opened;
-  if (t.user) {
+  // The local stand-in never asks.
+  if (t.user && (await asksToSignIn(popup))) {
     // The hosted sign-in page has a wide and a narrow form, and shows one.
     await popup.locator('input[name=username]:visible').fill(t.user.username);
     await popup.locator('input[name=password]:visible').fill(t.user.password);
     await popup.locator('input[name=signInSubmitButton]:visible').click();
   }
   await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+}
+
+/**
+ * Whether the hosted sign-in page shows its form. It doesn't while this browser is still signed in to it from an earlier
+ * sign-in, even one whose tokens never arrived: it returns to the app at once, and the tab closes without asking.
+ */
+function asksToSignIn(popup: Page): Promise<boolean> {
+  // The wait for the form ends as soon as the tab closes. If the tab neither shows it nor closes, the wait for the tab
+  // to close fails the test.
+  return popup.locator('input[name=username]:visible').waitFor(NETWORK).then(() => true, () => false);
 }
 
 /** Signs in, and a sync follows. */

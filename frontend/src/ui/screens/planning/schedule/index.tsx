@@ -18,6 +18,7 @@ import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
+import { isTaskBlock } from '../../../components/blocks/describe';
 import { KeepAsk } from '../../../components/editors/KeepAsk';
 import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
@@ -285,10 +286,10 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const title = cur?.title ?? editB?.title ?? '';
   // Selecting places it; its name opens the task's popup, as a task's name does anywhere it shows, filling its line so
   // it's a whole tap target on phone.
-  const taskId = cur ? cur.task?.id : editB && (editB.kind === 'project' || editB.kind === 'one_off') ? editB.task_id : null;
+  const taskId = cur ? cur.task?.id : editB && isTaskBlock(editB.kind) ? editB.task_id : null;
   const name = taskId ? <TaskName className="rowname" id={taskId} title={title} /> : title;
   const when = b ? `${dayName(b.date)}, ${slotRange(b)} (${formatMinutes(len)})` : '';
-  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
+  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : editB?.kind === 'inbox' ? 'Inbox' : 'Project';
   const amount =
     !cur || editB || !draftSlot
       ? ''

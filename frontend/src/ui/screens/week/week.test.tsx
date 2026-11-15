@@ -580,6 +580,8 @@ describe('To schedule on Week', () => {
     const panel = screen.getByRole('group', { name: 'Draft the summary' });
     const times = within(within(panel).getByRole('group', { name: 'Suggested times for Draft the summary' })).getAllByRole('button');
     expect(times[0]).toHaveAccessibleName(times[0]!.textContent!);
+    // Each says its day and time, with no number before it.
+    for (const time of times) expect(time).toHaveAccessibleName(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d/);
     expect(times).toHaveLength(3);
     expect(screen.getAllByRole('button', { name: /^Use suggested time/ })).toHaveLength(3);
     await userEvent.click(times[0]!);
@@ -666,6 +668,26 @@ describe('To schedule on Week', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Monday/ })).toBeNull());
   });
 
+  it.each(['desktop', 'phone'] as const)("on %s, Choose a time on a practice's card puts its session on the calendar to place by hand", async (layout) => {
+    const t = await open({ layout, seed: picks });
+    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Monday, to schedule' }));
+    const panel = layout === 'phone' ? screen.getByRole('dialog', { name: 'Piano practice' }) : screen.getByRole('group', { name: 'Piano practice' });
+    await userEvent.click(within(panel).getByRole('button', { name: 'Choose a time' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect((await block('session:pr:2026-11-02')(t))?.deleted_at).toBeFalsy());
+    expect(await block('session:pr:2026-11-02')(t)).toBeTruthy();
+  });
+
+  it.each(['desktop', 'phone'] as const)("on %s, Choose a time from Today places a set day's session by hand, for its own day", async (layout) => {
+    const close = vi.fn();
+    const t = await open({ layout, seed: picks, params: { place: 'pr:2026-11-05' }, close });
+    expect(await (layout === 'phone' ? screen.findByText('Placing Piano practice, 30m') : screen.findByRole('group', { name: 'Placing Piano practice' }))).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect(await block('session:pr:2026-11-05')(t)).toBeTruthy());
+    expect(await live(t, (b) => b.practice_id === 'pr')).toHaveLength(2);
+    expect(close).not.toHaveBeenCalled();
+  });
+
   it('on phone, a card held then dragged onto a row of the day is placed at that time', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -704,6 +726,27 @@ describe('To schedule on Week', () => {
     fireEvent.pointerUp(window, { clientY: 0 });
     await waitFor(async () => expect((await block('b4')(t))?.cancelled).toBe(true));
     expect(await screen.findByRole('button', { name: /^Paint the fence, One off, 1h/ })).toBeVisible();
+  });
+});
+
+describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on Week, on %s', (layout) => {
+  it('has no kind’s colour yet: Planning’s wash, a dashed edge, the inbox icon and the word Inbox, and it opens the item', async () => {
+    await open({
+      layout,
+      seed: async (w) => {
+        await planned(w);
+        await w.create('task', { kind: 'inbox', title: 'Book dentist' }, 'i1');
+        await w.create('time_block', { task_id: 'i1', start: at('17:45'), end: at('18:45'), tz: ZONE }, 'bi');
+      },
+    });
+    const name = layout === 'phone' ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Mon Nov 2, 5:45pm to 6:45pm, Inbox.';
+    const el = await screen.findByRole('button', { name });
+    expect(el).toHaveClass('blk', 'k-inbox', 's-planned');
+    expect(el.querySelector('svg[data-icon="inbox"]')).not.toBeNull();
+    if (layout === 'phone') expect(el).toHaveTextContent('Inbox, 1h');
+    expect(el).toHaveAttribute('aria-haspopup', 'dialog');
+    await userEvent.click(el);
+    expect(await screen.findByRole('dialog', { name: 'Book dentist' })).toBeVisible();
   });
 });
 

@@ -512,7 +512,7 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   expect(errors).toEqual([]);
 });
 
-test("a practice on set days waits in To schedule on its own days only, at that day's time", async ({ page }, info) => {
+test("a practice on set days waits in To schedule on its own days only, at that day's time, and Choose a time places it on Week", async ({ page }, info) => {
   const run: Seed = {
     type: 'practice',
     id: 'run',
@@ -533,8 +533,15 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   await page.reload();
   const card = page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule' });
   await card.click();
-  await expect(page.getByRole('group', { name: 'Suggested times for Morning run' }).getByRole('button').first()).toHaveText('1 · Fri 9:30am to 10am');
+  await expect(page.getByRole('group', { name: 'Suggested times for Morning run' }).getByRole('button').first()).toHaveText('Fri 9:30am to 10am');
   await page.screenshot({ path: info.outputPath(`today-practice-${info.project.name}.png`) });
   await expect(page.getByRole('button', { name: 'Skip Friday' })).toBeVisible();
+  // Choose a time opens Week with the session waiting at 9:30, to drag or place there.
+  await page.getByRole('button', { name: 'Choose a time', exact: true }).click();
+  const placeHere = page.getByRole('button', { name: 'Place here' });
+  await expect(placeHere).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`today-practice-choose-${info.project.name}.png`) });
+  await placeHere.click();
+  await expect(page.getByText('Placed Morning run, Fri Nov 6, 9:30am')).toBeVisible();
   expect(errors).toEqual([]);
 });

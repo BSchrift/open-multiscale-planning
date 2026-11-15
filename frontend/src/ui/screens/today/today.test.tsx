@@ -1266,6 +1266,24 @@ describe.each(['desktop', 'phone'] as const)('blocks gone by on the timeline, on
   });
 });
 
+describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the timeline, on %s', (layout) => {
+  it('has no kind’s colour yet: Planning’s wash, a dashed edge, the inbox icon and the word Inbox, and it opens the item', async () => {
+    await open(
+      async (w) => {
+        await w.create('task', { kind: 'inbox', title: 'Book dentist' }, 'i1');
+        await block(w, 'b1', 'i1', '17:45', '18:45');
+      },
+      { layout },
+    );
+    const el = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
+    expect(el).toHaveClass('blk', 'k-inbox', 's-planned');
+    expect(el.querySelector('svg[data-icon="inbox"]')).not.toBeNull();
+    expect(el).toHaveTextContent('Inbox, 5:45pm to 6:45pm');
+    await userEvent.click(el);
+    await taskPopup('Book dentist');
+  });
+});
+
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const day = async (w: Writer) => {
@@ -1541,32 +1559,27 @@ describe('moving a block on the timeline', () => {
     await taskPopup('Write the report');
   });
 
-  it('on phone, a short tap opens the task and moves nothing, and a hold lifts it with a buzz where the phone has one', async () => {
-    const vibrate = vi.fn();
-    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
-    try {
-      const t = await open(day, { layout: 'phone' });
-      const el = await report(undefined, 'slider');
-      fireEvent.pointerDown(el, { clientY: 300, button: 0 });
-      await wait(100);
-      fireEvent.pointerUp(window, { clientY: 300 });
-      fireEvent.click(el);
-      await taskPopup('Write the report');
-      expect(el).not.toHaveClass('lifted');
-      expect(vibrate).not.toHaveBeenCalled();
-      await userEvent.click(within(await dialog('Write the report')).getByRole('button', { name: 'Cancel' }));
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  it('on phone, a short tap opens the task and moves nothing, and a hold lifts it with one light tap from the device', async () => {
+    const t = await open(day, { layout: 'phone' });
+    const el = await report(undefined, 'slider');
+    fireEvent.pointerDown(el, { clientY: 300, button: 0 });
+    await wait(100);
+    fireEvent.pointerUp(window, { clientY: 300 });
+    fireEvent.click(el);
+    await taskPopup('Write the report');
+    expect(el).not.toHaveClass('lifted');
+    expect(t.platform.haptics).toEqual([]);
+    await userEvent.click(within(await dialog('Write the report')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-      // Held, then moved: it drags, and opens nothing.
-      await drag(el, 11, 'phone');
-      fireEvent.click(el);
-      expect(vibrate).toHaveBeenCalledOnce();
-      expect(await screen.findByText('Write the report is now 4:15pm to 5:15pm.')).toBeVisible();
-      expect(await saved(t)).toMatchObject({ start: at('16:15'), end: at('17:15') });
-      expect(screen.queryByRole('dialog')).toBeNull();
-    } finally {
-      Reflect.deleteProperty(navigator, 'vibrate');
-    }
+    // Held, then moved: it drags, and opens nothing. The tap comes from the platform, which on an iPhone is its
+    // Taptic Engine, since iPhones ignore the browser's vibrate.
+    await drag(el, 11, 'phone');
+    fireEvent.click(el);
+    expect(t.platform.haptics).toEqual(['light']);
+    expect(await screen.findByText('Write the report is now 4:15pm to 5:15pm.')).toBeVisible();
+    expect(await saved(t)).toMatchObject({ start: at('16:15'), end: at('17:15') });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   describe('a 15-minute block, drawn too short for an edge to drag', () => {
@@ -1700,6 +1713,19 @@ describe('To schedule on Today', () => {
     expect(within(await screen.findByRole('region', { name: 'To schedule' })).getByRole('button', { name: 'Climbing, Practice, 1 more this week, 1h each, to schedule' })).toBeVisible();
   });
 
+  it.each(['desktop', 'phone'] as const)("on %s, a practice's suggested times have no numbers, and Choose a time opens Week to place its session by hand", async (layout) => {
+    const run = (w: Writer) => w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', days: [1, 4], preferred_times: [7 * 60 + 30], state: 'active' }, 'run');
+    // Tuesday at 6am, before its 7:30 run.
+    const t = await open(run, { layout, now: '2026-11-03T12:00:00Z' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Morning run, Practice, 30 minutes on Tuesday around 7:30 AM, to schedule' }));
+    const panel = layout === 'phone' ? screen.getByRole('dialog', { name: 'Morning run' }) : screen.getByRole('group', { name: 'Morning run' });
+    const times = within(within(panel).getByRole('group', { name: 'Suggested times for Morning run' })).getAllByRole('button');
+    expect(times[0]).toHaveTextContent(/^Tue 7:30am to 8am$/);
+    for (const time of times) expect(time).toHaveTextContent(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d/);
+    await userEvent.click(within(panel).getByRole('button', { name: 'Choose a time' }));
+    expect(t.nav().route).toMatchObject({ area: 'week', params: { place: 'run:2026-11-03' } });
+  });
+
   it('a card dragged onto the day is placed where it is let go', async () => {
     const t = await open(picks);
     const card = await screen.findByRole('button', { name: /^Call the bank, One off/ });
@@ -1713,7 +1739,7 @@ describe('To schedule on Today', () => {
     await waitFor(async () => expect((await live(t, 'o2')).map((b) => b.start)).toEqual([at('18:00')]));
   });
 
-  it('on phone, a card is held before it drags, and a quick swipe leaves it be', async () => {
+  it('on phone, a card is held before it drags, with one light tap as it lifts, and a quick swipe leaves it be', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const t = await open(picks, { layout: 'phone' });
@@ -1730,8 +1756,10 @@ describe('To schedule on Today', () => {
       press(100);
       expect(document.querySelector('.cardghost')).toBeNull();
       expect(await live(t, 'o2')).toEqual([]);
+      expect(t.platform.haptics).toEqual([]);
       press(450);
       await waitFor(async () => expect((await live(t, 'o2')).map((b) => b.start)).toEqual([at('18:00')]));
+      expect(t.platform.haptics).toEqual(['light']);
     } finally {
       vi.useRealTimers();
     }

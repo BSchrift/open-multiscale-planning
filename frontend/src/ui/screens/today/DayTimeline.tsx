@@ -21,7 +21,7 @@ import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
 import { BlockSection } from '../../components/blocks/BlockSection';
 import { useBlockActions } from '../../components/blocks/useBlockActions';
-import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
+import { describeBlock, formatRange, isTaskBlock, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
@@ -62,7 +62,7 @@ const touchGap = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches
 
 export function DayTimeline(props: { data: TodayData; events: readonly CalendarEvent[] }) {
   const { data, events } = props;
-  const { clock, layout } = useApp();
+  const { clock, layout, platform } = useApp();
   const zone = clock.zone();
   const phone = layout === 'phone';
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
@@ -159,7 +159,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
   // A task's block opens the task's popup, as the task does anywhere else, with the block's section at its top. A
   // practice's session and a planning block open their details, as before.
-  const taskOf = (i: Item) => (i.kind === 'project' || i.kind === 'one_off' ? i.block?.task_id : null);
+  const taskOf = (i: Item) => (i.kind && isTaskBlock(i.kind) ? i.block?.task_id : null);
   const openItem = (i: Item) => {
     const id = taskOf(i);
     if (id) setPop({ block: i.id, task: id });
@@ -258,7 +258,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     for (const [k, f] of Object.entries(on)) window.addEventListener(k, f, k === 'touchmove' ? { passive: false } : undefined);
     const timer = phone
       ? setTimeout(() => {
-          navigator.vibrate?.(10);
+          void platform.haptic?.();
           lift();
         }, HOLD_MS)
       : undefined;
@@ -376,7 +376,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             );
           }
           const state = blockState({ result: i.block.result, ended: ended(i.block), now: i.cur });
-          const cls = blockClass(LOOK[i.kind!], state, { short: !!compact });
+          const look = LOOK[i.kind!];
+          const cls = blockClass(look, state, { short: !!compact });
+          // An Inbox item's block says so in words, on both layouts, since no kind's colour marks it.
+          const said = look === 'inbox' ? !compact && <span className="time">Inbox, {i.time}</span> : time;
           const move = movable(i.block);
           const resize = resizable(i.block);
           const lifted = drag?.id === i.id;
@@ -413,11 +416,11 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               onBlur={() => (steps.current = null)}
             >
               <span className="cevt">
-                <BlockMarks state={state} short={!!compact} />
+                <BlockMarks state={state} short={!!compact} look={look} />
                 <OutcomeTag result={i.block.result} />
                 <span className="blktitle">{phone && lifted ? `${i.time}, ${i.title}` : i.title}</span>
               </span>
-              {time}
+              {said}
               {resize && !phone && !compact && <span className="evh" aria-hidden="true" onPointerDown={press(i, 'resize')} />}
               {resize && phone && !compact && (
                 <span className="rz" aria-hidden="true" onPointerDown={press(i, 'resize')}>

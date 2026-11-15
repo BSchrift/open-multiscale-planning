@@ -23,7 +23,7 @@ import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
 import { BlockSection } from '../../components/blocks/BlockSection';
-import { KIND_WORD } from '../../components/blocks/describe';
+import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
@@ -55,7 +55,7 @@ type Placing =
 type Open = { kind: 'block'; id: string } | { kind: 'task'; block: string; task: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
 
 /** Work, which opens the task's popup, rather than a practice's session or planning, which open their own sheet. */
-const isTask = (b: PlacedBlock) => b.kind === 'project' || b.kind === 'one_off';
+const isTask = (b: PlacedBlock) => isTaskBlock(b.kind);
 
 export function PhoneWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
@@ -91,10 +91,12 @@ export function PhoneWeek(props: WeekProps) {
     setAt(first);
     setSelDay(first.date);
   };
+  /** Choose a time on a card: its block waits at its first suggested time, ready to drag. */
+  const chooseTime = (item: LaneItem) => startPlacing({ mode: 'place', item, length: item.length, fromDrawer: false }, item.offers[0] ? { ...item.offers[0] } : null);
 
-  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag. Choose another
-  // time for planning: its block waits at the time it was given or carried to, on today if that day has gone, and
-  // focus goes to it.
+  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag; Choose a time
+  // on a card with no task row, such as a practice's session, places that card. Choose another time for planning: its
+  // block waits at the time it was given or carried to, on today if that day has gone, and focus goes to it.
   const focusBlock = useRef(false);
   useEffect(() => {
     if (!props.place) return;
@@ -108,7 +110,9 @@ export function PhoneWeek(props: WeekProps) {
       return;
     }
     const row = model.addGroups.flatMap((g) => g.rows).find((r) => r.task.id === props.place);
+    const waiting = model.unscheduled.find((x) => x.id === props.place);
     if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, FIRST_BLOCK_MIN), fromDrawer: false }, null);
+    else if (waiting) chooseTime(waiting);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.place]);
   const root = useRef<HTMLDivElement>(null);
@@ -496,7 +500,7 @@ export function PhoneWeek(props: WeekProps) {
               setSelDay(slot.date);
               void act.place(item, slot);
             }}
-            onChoose={() => startPlacing({ mode: 'place', item, length: item.length, fromDrawer: false }, item.offers[0] ? { ...item.offers[0] } : null)}
+            onChoose={() => chooseTime(item)}
             onSkipDay={() => {
               setOpen(null);
               void act.skipDay(item, data.week);
@@ -571,7 +575,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
     const inner = (
       <>
         <span className="tlname">
-          <BlockMarks state={state} />
+          <BlockMarks state={state} look={LOOK[block.kind]} />
           <OutcomeTag result={block.result} />
           <span className="blktitle">{block.title}</span>
         </span>
@@ -893,7 +897,7 @@ export function DragDay(props: {
               const h = Math.max(13, y(b.end) - y(b.start));
               return (
                 <div key={b.id} className={`cev ${fixedLook(b, h < 24)}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h, ...column?.style }}>
-                  <BlockMarks state={blockState({ result: b.result, ended: b.ended, now: b.now })} short={h < 24} />
+                  <BlockMarks state={blockState({ result: b.result, ended: b.ended, now: b.now })} short={h < 24} look={LOOK[b.kind]} />
                   <OutcomeTag result={b.result} />
                   <span className="blktitle">{b.title}</span>
                 </div>

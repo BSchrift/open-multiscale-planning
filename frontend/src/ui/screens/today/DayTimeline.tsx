@@ -1,8 +1,10 @@
 // The day's timeline: a calendar column that zooms (buttons, or pinching on phone), or a list. Blocks are coloured
-// by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so.
+// by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so, and
+// blocks at the same time sit side by side.
 // On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
 // the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
-// click or tap opens a task's block in the task's popup, and a practice's session or a planning block in its details.
+// click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
+// session or a planning block in its details.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
@@ -17,13 +19,17 @@ import type { Slot } from '../../../core/slots';
 import type { CalendarEvent } from '../../../core/types';
 import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
+import { BlockSection } from '../../components/blocks/BlockSection';
+import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
 import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
-import { DRAG_PX, HOLD_MS, SLOP_PX, swallowClick } from '../../components/weekgrid';
+import { columnStyle, DRAG_PX, HOLD_MS, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, SLOP_PX, swallowClick, useWidth } from '../../components/weekgrid';
+import { MoreButton } from '../../components/weekgrid/MoreButton';
+import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
@@ -75,6 +81,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
   const toast = useToast();
   const openTask = useOpenTask();
+  const actions = useBlockActions();
+  /** A task's block opened in the task's popup. */
+  const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
@@ -101,34 +110,39 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const clashOf = (b: BlockRow) =>
     !b.result && instantMs(b.end) > clock.now() ? events.find((e) => instantMs(e.start) < instantMs(b.end) && instantMs(b.start) < instantMs(e.end)) : undefined;
 
+  const blockItems = data.blocks.map((b): Item => {
+    const task = records.tasks.get(b.task_id ?? '');
+    const practice = records.practices.get(b.practice_id ?? '');
+    const project = records.projects.get(task?.project_id ?? '');
+    const objective = records.objectives.get(practice?.objective_id ?? project?.objective_id ?? '');
+    const info = describeBlock(b, { task, practice, project, objective });
+    const clash = clashOf(b);
+    const isCur = b.id === cur?.id;
+    const at = drag?.id === b.id ? drag.slot : null;
+    return {
+      id: b.id,
+      start: b.start,
+      from: at ? at.start : minutesOf(b.start, 0),
+      to: at ? at.end : minutesOf(b.end, 1440),
+      title: b.title ?? 'Time block',
+      time: at ? range(at) : formatRange(b.start, b.end, zone),
+      block: b,
+      kind: info.kind,
+      word: info.word,
+      path: info.path,
+      clash: !!clash,
+      cur: isCur,
+      note: b.result ? OUTCOME_WORD[b.result] : clash ? `Conflicts with ${clash.title}` : isCur ? 'Now' : '',
+    };
+  });
+  // Blocks at the same time sit side by side, laid out where they're saved, so one being dragged keeps its column.
+  const lanes = overlapGroups(blockItems.map((i) => ({ id: i.id, title: i.title, kind: i.kind!, start: minutesOf(i.block!.start, 0), end: minutesOf(i.block!.end, 1440) })));
+  const laneOf = new Map(lanes.flatMap((group) => group.items.map((c) => [c.item.id, { col: c.col, with: c.with, group }] as const)));
+  // By start, an event before a block, and blocks at the same time by column: the order they're read in.
   const items: Item[] = [
     ...events.map((e): Item => ({ id: `event:${e.id}`, start: e.start, from: minutesOf(e.start, 0), to: minutesOf(e.end, 1440), title: e.title, time: formatRange(e.start, e.end, zone) })),
-    ...data.blocks.map((b): Item => {
-      const task = records.tasks.get(b.task_id ?? '');
-      const practice = records.practices.get(b.practice_id ?? '');
-      const project = records.projects.get(task?.project_id ?? '');
-      const objective = records.objectives.get(practice?.objective_id ?? project?.objective_id ?? '');
-      const info = describeBlock(b, { task, practice, project, objective });
-      const clash = clashOf(b);
-      const isCur = b.id === cur?.id;
-      const at = drag?.id === b.id ? drag.slot : null;
-      return {
-        id: b.id,
-        start: b.start,
-        from: at ? at.start : minutesOf(b.start, 0),
-        to: at ? at.end : minutesOf(b.end, 1440),
-        title: b.title ?? 'Time block',
-        time: at ? range(at) : formatRange(b.start, b.end, zone),
-        block: b,
-        kind: info.kind,
-        word: info.word,
-        path: info.path,
-        clash: !!clash,
-        cur: isCur,
-        note: b.result ? OUTCOME_WORD[b.result] : clash ? `Conflicts with ${clash.title}` : isCur ? 'Now' : '',
-      };
-    }),
-  ].sort((a, b) => a.from - b.from || (a.block ? 1 : -1));
+    ...blockItems,
+  ].sort((a, b) => a.from - b.from || (a.block ? 1 : 0) - (b.block ? 1 : 0) || (laneOf.get(a.id)?.col ?? 0) - (laneOf.get(b.id)?.col ?? 0));
 
   const from = Math.min(DAY_FROM, ...items.map((i) => Math.floor(i.from / 60) * 60));
   const to = Math.max(DAY_TO, ...items.map((i) => Math.ceil(i.to / 60) * 60));
@@ -136,17 +150,33 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const nowMin = localMinutes(clock.now(), zone);
   const hours: number[] = [];
   for (let h = from / 60; h < to / 60; h += ph < 48 ? 2 : 1) hours.push(h);
-  const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}`;
+  const others = (i: Item) => laneOf.get(i.id)?.with ?? [];
+  const alt = (i: Item) => `${i.title}, ${i.time}, ${KIND_WORD[i.kind!]}.${i.note ? ` ${i.note}.` : ''}${overlapNote(others(i))}`;
   const overlaps = (i: Item) => items.some((o) => o !== i && !o.block !== !i.block && o.from < i.to && i.from < o.to);
+  // Each group of blocks at the same time shares the room left of any event one of them overlaps, in as many columns
+  // as stay readable there, then +N more.
+  const [measure, width] = useWidth<HTMLDivElement>();
+  const shapes = new Map(
+    lanes
+      .filter((group) => group.cols > 1)
+      .map((group) => {
+        const clash = group.items.some((c) => overlaps(blockItems.find((i) => i.id === c.item.id)!));
+        const room = width && (clash ? width * 0.6 : width - 4) - 4;
+        return [group, { right: clash ? '40%' : '4px', shown: shownColumns(group.cols, room, MORE_PX) }] as const;
+      }),
+  );
   const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
-  // A task's block opens the task's popup, as the task does anywhere else. A practice's session and a planning block
-  // open their details, as before.
+  // A task's block opens the task's popup, as the task does anywhere else, with the block's section at its top. A
+  // practice's session and a planning block open their details, as before.
   const taskOf = (i: Item) => (i.kind === 'project' || i.kind === 'one_off' ? i.block?.task_id : null);
   const openItem = (i: Item) => {
     const id = taskOf(i);
-    if (id) openTask(id);
+    if (id) setPop({ block: i.id, task: id });
     else toggle(i.id);
   };
+  const popBlock = pop && data.blocks.find((b) => b.id === pop.block);
+  // One not yet started can come off the calendar, as Have you started's Skip takes it.
+  const removable = (b: BlockRow) => !b.started_at && !b.result && !b.ended_at && instantMs(b.end) > clock.now();
   // Both open over the page on phone, and a task's popup does on desktop too; the rest open in place there.
   const opens = (i: Item) => (phone || taskOf(i) ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': open.has(i.id) });
 
@@ -304,32 +334,47 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </span>
       ))}
       <div
+        ref={measure}
         className="day"
         style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}
         data-drop-date={data.date}
         data-drop-from={from}
         data-drop-to={to}
       >
-        <div className="zoomwrap">
-          <div className="zoomgroup" role="group" aria-label="Calendar zoom">
-            <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
-              <ZoomIcon />
-            </button>
-            <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
-              <ZoomIcon plus />
-            </button>
-          </div>
-        </div>
         {hours.map((h) => (
           <span key={h} className="dayhr" style={{ top: y(h * 60) }} aria-hidden="true">
             {formatTimeOfDay(h * 60)}
           </span>
         ))}
+        {/* Before the blocks, so it passes behind them and never strikes through the one under way. Only its dot is
+            drawn in front. */}
+        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
         {items.map((i) => {
           const height = Math.max(13, y(i.to) - y(i.from) - 1);
           const compact = height < 24 ? ' compact' : '';
           const apart = overlaps(i);
-          const style = { top: y(i.from), height, left: apart && !i.block ? '62%' : '4px', right: apart && i.block ? '40%' : '4px' };
+          const lane = laneOf.get(i.id);
+          const shape = lane && shapes.get(lane.group);
+          // Behind +N more, which follows the last of its group that's drawn.
+          if (lane && shape && lane.col >= shape.shown) return null;
+          const hiding = !!lane && !!shape && shape.shown < lane.group.cols;
+          const more = hiding && lane.group.items.filter((c) => c.col < shape.shown).at(-1)!.item.id === i.id && (
+            <MoreButton
+              key={`more${i.id}`}
+              group={lane.group}
+              shown={shape.shown}
+              className="cev cevmore"
+              style={{ top: y(lane.group.start), height: Math.max(44, y(lane.group.end) - y(lane.group.start)), left: 'auto', right: shape.right, width: MORE_PX }}
+              onOpen={(x) => openItem(items.find((o) => o.id === x.id)!)}
+            />
+          );
+          const style = {
+            top: y(i.from),
+            height,
+            ...(lane && shape
+              ? columnStyle(lane.col, shape.shown, '4px', hiding ? `(${shape.right} + ${MORE_INSET})` : shape.right)
+              : { left: apart && !i.block ? '62%' : '4px', right: apart && i.block ? '40%' : '4px' }),
+          };
           const time = !phone && height >= 24 && <span className="time">{i.time}</span>;
           if (!i.block) {
             return (
@@ -349,7 +394,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const slider = phone && move;
           const Tag = slider ? 'div' : 'button';
           const last = bounds(slotOf(i)).to;
-          return (
+          const drawn = (
             <Tag
               key={i.id}
               className={`cev ${cls}${compact}${phone ? (resize ? ' tlhold' : '') : move ? ' evdrag' : ''}${lifted ? ' lifted' : ''}`}
@@ -390,14 +435,25 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
               )}
             </Tag>
           );
+          return more ? [drawn, more] : drawn;
         })}
         {drag?.ghost && (
           <div className={`cev ${phone ? 'ghost' : 'ev-ghost'}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">
             Suggested {formatTimeOfDay(drag.ghost.start)}
           </div>
         )}
-        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
       </div>
+    </div>
+  );
+  // Beside Calendar and List, out of the calendar, so they never cover a block.
+  const zoom = (
+    <div className="zoomgroup" role="group" aria-label="Calendar zoom">
+      <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
+        <ZoomIcon />
+      </button>
+      <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
+        <ZoomIcon plus />
+      </button>
     </div>
   );
 
@@ -420,6 +476,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const titleCls = i.block.result === 'done' ? 'done' : i.cur ? 'strong' : undefined;
     // Partly and Not done are said as on the calendar; Done is struck through.
     const note = i.block.result === 'partly' || i.block.result === 'not' ? <OutcomeTag result={i.block.result} /> : i.note;
+    // A list has no room to draw blocks at the same time apart, so each says what it overlaps.
+    const overlap = overlapsText(others(i));
     if (phone) {
       return (
         <button key={i.id} className={`tl tlbtn${i.cur ? ' cur' : ''}`} type="button" aria-label={alt(i)} {...opens(i)} onClick={() => openItem(i)}>
@@ -429,6 +487,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             <span className="small quiet">
               {i.kind === 'project' ? 'Project' : i.word}
               {i.note && <>, {note}</>}
+              {overlap && `, ${overlap}`}
             </span>
           </span>
         </button>
@@ -443,7 +502,11 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             <span className={titleCls}>{i.title}</span>
             <span className="small quiet">{label}</span>
           </span>
-          <span className="small quiet">{note}</span>
+          <span className="small quiet">
+            {note}
+            {note && overlap && ', '}
+            {overlap}
+          </span>
         </button>
         {open.has(i.id) && (
           <div className="tldet stack8 small">
@@ -465,16 +528,26 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     <div className={phone ? 'card' : 'tl card'} role="region" aria-label="Today's timeline">
       <div className="between tlhead">
         <h3>Timeline</h3>
-        <div className="row" role="group" aria-label="Timeline view">
-          {(['calendar', 'list'] as const).map((v) => (
-            <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
-              {v === 'calendar' ? 'Calendar' : 'List'}
-            </button>
-          ))}
+        <div className="row">
+          {view === 'calendar' && zoom}
+          <div className="row" role="group" aria-label="Timeline view">
+            {(['calendar', 'list'] as const).map((v) => (
+              <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
+                {v === 'calendar' ? 'Calendar' : 'List'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
+      {pop && (
+        <TaskPopupFor
+          id={pop.task}
+          close={() => setPop(null)}
+          block={popBlock && <BlockSection block={popBlock} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+        />
+      )}
     </div>
   );
 }

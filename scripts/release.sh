@@ -70,7 +70,7 @@ node scripts/release-files.ts pack dist "$key" "$out"
 # bucket grows.
 version="$("$root/scripts/pipeline.sh" upload "$env_name" "$PWD/dist" "$out")"
 aws s3 cp "$dmg" "s3://$bucket/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage
-for surface in web desktop iphone shared; do "$root/scripts/pipeline.sh" switch "$env_name" "$surface" "$version"; done
+for surface in web desktop iphone; do "$root/scripts/pipeline.sh" switch "$env_name" "$surface" "$version"; done
 
 echo "Released $version to $env_name"
 
@@ -78,7 +78,7 @@ echo "Released $version to $env_name"
 # SKIP_TESTS=1 leaves them out, for a fix that can't wait for them; run make test-deployed after.
 if [ "${SKIP_TESTS:-}" = 1 ]; then
   echo "Left out the deployed tests. Run make test-deployed ENV=$env_name when you can."
-elif ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="desktop iphone shared" "$root/scripts/test-deployed.sh"; then
+elif ! ENV="$env_name" CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="desktop iphone" "$root/scripts/test-deployed.sh"; then
   echo "$version is live on $env_name, but its tests failed. To go back, revert the bad commit and release that." >&2
   exit 1
 fi

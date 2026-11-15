@@ -1,12 +1,13 @@
 // This week, beside the list on desktop and as a tab on phone: how the open time splits between projects, One offs
 // and practices, amber past it, and each project against its aim. On desktop it holds Add suggested, Change aims, what
 // still needs you, and Continue, named with it; on phone, the week's tasks follow it, each with its time and a way out
-// of the week.
+// of the week, and its name opens the task's popup.
 
 import { useId, useRef, useState } from 'react';
 import type { AimRow } from '../../../../core/capacity';
 import { formatMinutes } from '../../../../core/dates';
 import type { Minutes } from '../../../../core/types';
+import { TaskName } from '../../../components/task/TaskName';
 import { AimsPopover } from './Aims';
 import { aimWords, weekText } from './model';
 import type { PickTask } from './model';
@@ -144,7 +145,9 @@ export function WeekList(props: PickProps) {
           <ul className="picklist">
             {g.rows.map((r) => (
               <li key={r.c.task.id} className={`pi${r.oneOff ? ' oo' : ''}`}>
-                <span className="pit">{r.title}</span>
+                <span className="pit">
+                  <TaskName className="rowname" id={r.c.task.id} title={r.title} />
+                </span>
                 <button className="pim" type="button" aria-haspopup="dialog" aria-label={`Change time: ${r.title}, ${weekText(r.c)}`} onClick={() => setTimeFor(r)}>
                   {weekText(r.c)}
                 </button>

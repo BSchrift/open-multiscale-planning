@@ -160,7 +160,8 @@ describe('the release pipeline', () => {
       const spec = JSON.parse(project.Properties.Source.BuildSpec);
       // It installs nothing and runs nothing but the signing script, on the image's own Node.
       assert.deepEqual(Object.keys(spec.phases), ['build']);
-      assert.deepEqual(spec.phases.build.commands, ['node frontend/scripts/sign-release.mjs "$CODEBUILD_SRC_DIR_Built/web/$ENV_NAME" signed']);
+      // With the MacApp step's record of the app that runs the build, where the pipeline checks Mac apps (below).
+      assert.deepEqual(spec.phases.build.commands, ['node frontend/scripts/sign-release.mjs "$CODEBUILD_SRC_DIR_Built/web/$ENV_NAME" signed "$CODEBUILD_SRC_DIR_MacApps/app-record/$ENV_NAME.json"']);
     }
   });
 
@@ -404,6 +405,21 @@ describe("the Mac release's inbox", () => {
     assert.match(project.Properties.Source.BuildSpec, /"base-directory": "mac-checked"/);
   });
 
+  it("signs each feed with the MacApp step's record of the app, and the signer may still only read the release keys", () => {
+    const [[, pipe]] = m.ofType('AWS::CodePipeline::Pipeline');
+    const stage = (name: string) => (pipe.Properties.Stages as { Name: string; Actions: any[] }[]).find((s) => s.Name === name)!.Actions;
+    for (const name of ['Staging', 'Prod']) {
+      const sign = stage(name).find((a) => a.Name === 'Sign');
+      assert.deepEqual(sign.InputArtifacts.map((a: any) => a.Name), ['Source', 'Built', 'MacApps']);
+    }
+    const signer = m.ofType('AWS::IAM::Role').find(([, r]) => r.Properties.RoleName === 'multiscale-pipeline-signer')![0];
+    const acts = statementsOf(signer).flatMap((st) => [st.Action].flat() as string[]);
+    // The other test of the signer, above, keeps the key's decryption to it alone.
+    assert.deepEqual([...new Set(acts.filter((a) => a.startsWith('ssm:')))].sort(), ['ssm:GetParameter', 'ssm:GetParameters']);
+    const keys = [...new Set(statementsOf(signer).filter((st) => [st.Action].flat().some((a: string) => a.startsWith('ssm:'))).flatMap((st) => [st.Resource].flat()).map((r: any) => JSON.stringify(r)))];
+    assert.ok(keys.length === 2 && keys.every((r) => /signing\/(staging|prod)\.release-key\.pem/.test(r)), keys.join());
+  });
+
   it("names the inbox to both releases, which read the TestFlight review's record there, and to nothing without it", () => {
     const releaseProject = (resources: Record<string, any>, stages: { Name: string; Actions: any[] }[]) => {
       const refs = [['Staging', 'ReleaseAndTest'], ['Prod', 'Release']].map(([stage, name]) => stages.find((s) => s.Name === stage)!.Actions.find((a) => a.Name === name).Configuration.ProjectName.Ref);
@@ -428,7 +444,7 @@ describe("the Mac release's inbox", () => {
     assert.equal(signing[0]!.permissions!['id-token'], 'write');
   });
 
-  it("is reached only by the workflow jobs in that environment: the Mac release's signing and the TestFlight review", () => {
+  it("is reached only by the workflow jobs in that environment: the Mac release's signing, the staging update check and the TestFlight review", () => {
     const dir = join(import.meta.dirname, '../../.github/workflows');
     const oidc = readdirSync(dir).sort().flatMap((file) => {
       const workflow = parse(readFileSync(join(dir, file), 'utf8')) as { permissions?: unknown; jobs: Record<string, { environment?: string; permissions?: Record<string, string> }> };
@@ -436,6 +452,6 @@ describe("the Mac release's inbox", () => {
       assert.ok(!JSON.stringify(workflow.permissions ?? {}).includes('id-token'), file);
       return Object.entries(workflow.jobs).filter(([, job]) => job.permissions?.['id-token'] === 'write').map(([name, job]) => [file, name, job.environment]);
     });
-    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
+    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['mac-update-check.yml', 'check', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
   });
 });

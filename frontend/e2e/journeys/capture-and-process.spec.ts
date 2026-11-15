@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../platform';
 import type { Page } from '@playwright/test';
 import { addMilestones, addProject, chicago, firstRun, jumpTo, openProject, pane, processTo, start, tab, TZ } from './journey';
 
@@ -76,7 +76,7 @@ test('capture, process each item to its place, then one offs across the week', a
 
   // And the bin, after asking.
   await expect(card.getByRole('heading', { name: 'An old idea to let go' })).toBeVisible();
-  await card.getByRole('button', { name: 'Delete/done' }).click();
+  await card.getByRole('button', { name: 'Delete', exact: true }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   // Process closes itself, and a check over the Inbox says it's clear.
   await expect(card).toHaveCount(0);

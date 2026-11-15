@@ -7,6 +7,9 @@
 //
 // Before the first sync it fills in missing expiries and removes what has expired here, and after each sync it removes
 // what has expired again (expiry.ts).
+//
+// On the Mac it also syncs when the computer wakes from sleep or its screen unlocks, so a laptop opened in the morning
+// shows what changed overnight without waiting for a click on the window or the 5-minute timer.
 
 import type { AppConfig } from './appConfig';
 import { createAuth, tokenSubject } from './auth';
@@ -28,6 +31,7 @@ const EDIT_DELAY_MS = 2000;
 const PERIOD_MS = 5 * 60_000;
 const CONNECT_POLL_MS = 5000;
 const CONNECT_POLLS = 24;
+const LEAVE_MS = 10_000;
 
 async function recordFailure(db: Db, code: SyncErrorCode): Promise<void> {
   await setMeta(db, META.lastSyncError, code);
@@ -51,6 +55,8 @@ export function createSyncRunner(deps: {
   send: SyncSend;
   /** Runs after each sync that worked, such as uploading what the server now has the records for. Never stops a sync. */
   afterSync?(): Promise<void>;
+  /** Calls back when the computer wakes from sleep or its screen unlocks. Only on the Mac. */
+  onWake?(listener: () => void): () => void;
 }) {
   const { db, clock, lifecycle, send } = deps;
   let running: Promise<void> | null = null;
@@ -115,12 +121,14 @@ export function createSyncRunner(deps: {
         clearTimeout(editTimer);
         editTimer = setTimeout(() => void syncNow(), EDIT_DELAY_MS);
       });
+      const stopWake = deps.onWake?.(() => void syncNow()) ?? (() => {});
       cleanup = () => {
         clearTimeout(editTimer);
         clearInterval(period);
         stopForeground();
         stopOnline();
         stopChanges();
+        stopWake();
       };
     },
     stop(): void {
@@ -160,10 +168,11 @@ export function startAppSync(
   platform: {
     db: Db;
     tokens: Parameters<typeof createAuth>[0]['tokens'];
-    lifecycle: { onForeground(listener: () => void): () => void };
+    lifecycle: { onForeground(listener: () => void): () => void; onLeave?(listener: () => void): () => void };
     openExternal(url: string): Promise<void>;
     signInRedirectUri: string;
     onDeepLink(listener: (url: string) => void): () => void;
+    onWake?(listener: () => void): () => void;
     notifications: { replaceAll(reminders: readonly Reminder[]): Promise<void> };
     shareImport?: { peek(): Promise<{ id: string }[]>; remove(ids: string[]): Promise<void> };
     files: FileBytes & { clear(): Promise<void> };
@@ -175,8 +184,20 @@ export function startAppSync(
   /** updates is the app's updater, whose checks telemetry reports. */
   options: { fetch?: FetchFn; updates?: Updater } = {},
 ) {
+  // WebKit refuses a request started while the page unloads, before the next page shows, and logs it as an error the
+  // page can't catch ("due to access control checks"). So none starts then: each fails as offline, as one the unload
+  // cancels does. Not every start of an unload ends in one, as with a link that downloads, so it lasts LEAVE_MS.
+  let leaving: ReturnType<typeof setTimeout> | undefined;
+  const stopLeave = platform.lifecycle.onLeave?.(() => {
+    clearTimeout(leaving);
+    leaving = setTimeout(() => (leaving = undefined), LEAVE_MS);
+  });
+  const whileHere =
+    <A extends unknown[], R>(request: (...args: A) => Promise<R>) =>
+    (...args: A): Promise<R> =>
+      leaving === undefined ? request(...args) : Promise.reject(new SyncError('offline'));
   // Wrapped because the browser's fetch fails when called as a method of another object.
-  const fetchFn: FetchFn = options.fetch ?? ((url, init) => fetch(url, init));
+  const fetchFn: FetchFn = whileHere(options.fetch ?? ((url, init) => fetch(url, init)));
   const auth = createAuth({
     authUrl: config.authUrl,
     clientId: config.authClientId,
@@ -198,7 +219,7 @@ export function startAppSync(
     grantUpload: (id) => apiPost(api, '/files/upload', { id }),
     grantDownloads: (ids) => apiPost(api, '/files/download', { ids }),
     // The page's own request where there is one, for the progress a row shows; fetch, with no progress, elsewhere.
-    put: options.fetch || typeof XMLHttpRequest === 'undefined' ? fetchPut(fetchFn) : xhrPut,
+    put: options.fetch || typeof XMLHttpRequest === 'undefined' ? fetchPut(fetchFn) : whileHere(xhrPut),
     get: async (url) => {
       const res = await fetchFn(url, {});
       if (!res.ok) throw new SyncError('error');
@@ -212,7 +233,7 @@ export function startAppSync(
     window.addEventListener('online', listener);
     return () => window.removeEventListener('online', listener);
   };
-  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, onOnline, send, afterSync: () => files.run() });
+  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, onOnline, send, afterSync: () => files.run(), onWake: platform.onWake });
   const calendarPost = async (path: string) => {
     const res = await apiPost(api, path);
     if (!res.ok) throw new SyncError('error');
@@ -257,29 +278,34 @@ export function startAppSync(
   let telemetry: { stop(): void } | undefined;
   let stopped = false;
   if (typeof window !== 'undefined') {
-    void Promise.all([getMeta(platform.db, META.deviceId), import('./telemetry')]).then(async ([device, { startTelemetry }]) => {
-      if (stopped) return;
-      const started = await startTelemetry({
-        url: `${config.apiUrl}/v1/logs`,
-        headers: async () => ({ authorization: `Bearer ${await auth.accessToken()}` }),
-        now: () => clock.now(),
-        resource: {
-          'service.name': 'multiscale-app',
-          ...(config.version ? { 'service.version': config.version } : {}),
-          'os.name': platform.kind ?? 'web',
-          'app.platform': platform.kind === 'ios' ? 'mobile' : platform.kind === 'electron' ? 'desktop' : 'web',
-          'deployment.environment.name': config.env,
-          'session.id': crypto.randomUUID(),
-          ...(device ? { 'device.id': device } : {}),
-        },
-        ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
-        ...(options.updates ? { updates: options.updates } : {}),
-        screen: () => document.documentElement.dataset.screen,
-        target: window,
+    void Promise.all([getMeta(platform.db, META.deviceId), import('./telemetry')])
+      .then(async ([device, { startTelemetry }]) => {
+        if (stopped) return;
+        const started = await startTelemetry({
+          url: `${config.apiUrl}/v1/logs`,
+          headers: async () => ({ authorization: `Bearer ${await auth.accessToken()}` }),
+          now: () => clock.now(),
+          resource: {
+            'service.name': 'multiscale-app',
+            ...(config.version ? { 'service.version': config.version } : {}),
+            'os.name': platform.kind ?? 'web',
+            'app.platform': platform.kind === 'ios' ? 'mobile' : platform.kind === 'electron' ? 'desktop' : 'web',
+            'deployment.environment.name': config.env,
+            'session.id': crypto.randomUUID(),
+            ...(device ? { 'device.id': device } : {}),
+          },
+          ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
+          ...(options.updates ? { updates: options.updates } : {}),
+          screen: () => document.documentElement.dataset.screen,
+          target: window,
+        });
+        if (stopped) started.stop();
+        else telemetry = started;
+      })
+      // Its module fails to load when the page unloads first, which is no fault.
+      .catch((err: unknown) => {
+        if (leaving === undefined) console.error('Telemetry did not start', err);
       });
-      if (stopped) started.stop();
-      else telemetry = started;
-    });
   }
   return {
     signIn: () => auth.signIn(),
@@ -353,6 +379,8 @@ export function startAppSync(
       telemetry?.stop();
       clearInterval(connectPoll);
       stopLinks();
+      stopLeave?.();
+      clearTimeout(leaving);
       runner.stop();
     },
   };

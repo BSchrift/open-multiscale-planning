@@ -13,7 +13,7 @@
 #                reporting its numbers: it fails only when a device holds fewer records than were seeded
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve, and
-#   EXPECT_FEEDS the feeds that must serve it too: desktop, iphone and shared, as a release switched them.
+#   EXPECT_FEEDS the feeds that must serve it too: desktop and iphone, as a release switched them.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
 #   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
@@ -48,7 +48,8 @@ if ! MULTISCALE_TARGET="$(node scripts/test-target.mjs)"; then
   exit 1
 fi
 release_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseUrl ?? "")' "$outputs")"
-export MULTISCALE_TARGET DEPLOYED_WEB_URL="$web_url" DEPLOYED_RELEASE_URL="$release_url"
+downloads_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).DownloadsUrl ?? "")' "$outputs")"
+export MULTISCALE_TARGET DEPLOYED_WEB_URL="$web_url" DEPLOYED_RELEASE_URL="$release_url" DEPLOYED_DOWNLOADS_URL="$downloads_url"
 
 # Each suite's whole output is kept, so a failure can be looked into after a long run.
 logs="$root/frontend/test-results/deployed-$env_name"

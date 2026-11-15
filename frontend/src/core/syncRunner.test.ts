@@ -89,6 +89,21 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('on the computer waking from sleep or its screen unlocking', async () => {
+    const t = await setup();
+    const wake = memoryLifecycle();
+    const runner = createSyncRunner({ db: t.db, clock: t.clock, lifecycle: t.lifecycle, onWake: wake.onForeground, send: t.send });
+    runner.start();
+    await flush();
+    wake.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+    runner.stop();
+    wake.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+  });
+
   it('not because of changes that came from a sync', async () => {
     const t = await setup();
     t.runner.start();
@@ -306,6 +321,72 @@ describe('startAppSync', () => {
     expect(t.server.record(id)!.title!.v).toBe('Paint the fence');
     expect(await syncStatus(t.platform.db)).toEqual({ lastSyncAt: NOW, lastError: null });
     t.sync.stop();
+  });
+
+  // WebKit refuses a request started while a reload is under way, before the next page shows, and logs it as an error
+  // the page can't catch: "Fetch API cannot load ... due to access control checks."
+  it('starts no request once the page has begun to unload: the sync fails as offline, keeping the outbox, and syncs again if the page stays', async () => {
+    const t = await app();
+    await flush();
+    await t.finishSignIn();
+    const id = await transact(t.platform.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    const before = t.fetchFn.mock.calls.length;
+    t.platform.lifecycle.leave();
+    await t.sync.syncNow();
+    expect(t.fetchFn).toHaveBeenCalledTimes(before);
+    expect((await syncStatus(t.platform.db)).lastError).toBe('offline');
+    expect(t.server.record(id)).toBeUndefined();
+    expect(await outboxCount(t.platform.db)).toBe(2);
+    // A page that stays, as when the link was a download, goes on syncing.
+    await vi.advanceTimersByTimeAsync(10 * SECOND);
+    await t.sync.syncNow();
+    expect(t.server.record(id)!.title!.v).toBe('Paint the fence');
+    expect((await syncStatus(t.platform.db)).lastError).toBeNull();
+    t.sync.stop();
+  });
+
+  describe('telemetry whose module fails to load, as when a reload cancels it', () => {
+    let fail!: () => void;
+    let failed = false;
+    beforeEach(() => {
+      vi.stubGlobal('window', {});
+      const failing = new Promise<void>((resolve) => (fail = resolve));
+      failed = false;
+      vi.doMock('./telemetry', async () => {
+        await failing;
+        failed = true;
+        throw new TypeError('Importing a module script failed.');
+      });
+    });
+    afterEach(() => {
+      vi.doUnmock('./telemetry');
+      vi.unstubAllGlobals();
+    });
+    const settle = async () => {
+      await vi.waitFor(() => expect(failed).toBe(true));
+      for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+    };
+
+    it('is reported, never left unhandled', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const t = await app();
+      fail();
+      await settle();
+      expect(log).toHaveBeenCalledWith('Telemetry did not start', expect.anything());
+      log.mockRestore();
+      t.sync.stop();
+    });
+
+    it('is quiet once the page has begun to unload', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const t = await app();
+      t.platform.lifecycle.leave();
+      fail();
+      await settle();
+      expect(log).not.toHaveBeenCalled();
+      log.mockRestore();
+      t.sync.stop();
+    });
   });
 
   it('a failed sign-in shows as an error rather than vanishing', async () => {

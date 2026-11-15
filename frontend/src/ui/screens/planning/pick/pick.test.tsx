@@ -416,6 +416,13 @@ describe('Pick tasks: select mode', () => {
 });
 
 describe('Pick tasks on phone', () => {
+  it("This week's task names open the task's popup", async () => {
+    await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
+    await userEvent.click(await screen.findByRole('button', { name: 'This week, 1 task' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'In this week' })).getByRole('button', { name: 'Paint the fence' }));
+    expect(within(await screen.findByRole('dialog', { name: 'Paint the fence' })).getByRole('button', { name: 'Delete task' })).toBeVisible();
+  });
+
   it('shows the list under tabs, Tasks and This week, and Does it fit shows This week', async () => {
     const t = await openPlanning({ step: 1, layout: 'phone', seed: seedWeek });
     const projects = await screen.findByRole('button', { name: 'Tasks', pressed: true });

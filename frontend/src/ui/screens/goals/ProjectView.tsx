@@ -48,9 +48,10 @@ type Point = { clientX: number; clientY: number };
 
 /**
  * Phone: holding a task lifts it, and letting go over a group ([data-drop]) moves it there. Moving before the hold
- * scrolls instead. The Milestone selector in the task's sheet does the same without dragging.
+ * scrolls instead. The Milestone selector in the task's sheet does the same without dragging. A goal backlog's rows use
+ * it too, with no hold for a desktop drag handle.
  */
-function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
+export function useHoldToMove(onDrop: (taskId: string, key: string) => void, holdMs = HOLD_MS) {
   const [drag, setDrag] = useState<{ id: string; title: string; y: number; over: string } | null>(null);
   const press = (id: string, title: string) => (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
@@ -94,7 +95,7 @@ function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
     const timer = setTimeout(() => {
       lifted = true;
       track({ clientX: x0, clientY: y0 });
-    }, HOLD_MS);
+    }, holdMs);
   };
   return { drag, press };
 }
@@ -506,7 +507,7 @@ export function ProjectPage(props: { plan: ProjectPlan | undefined; goal: string
     return <p className="quiet">This project is no longer active.</p>;
   }
   return (
-    <div className="stack">
+    <div className="stack projectpage">
       <div>
         <h1>{plan.project.title}</h1>
         <div className="small quiet">{props.goal ?? 'No goal'}</div>

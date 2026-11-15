@@ -75,7 +75,13 @@ final class RemindersUITests: XCTestCase {
         app.open("Settings")
         let delay = app.page.sliders["After"]
         scrollTo(delay, in: app)
-        delay.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).press(forDuration: 0.2, thenDragTo: delay.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)))
+        // From points on the screen rather than on the slider: dragged by its own coordinates, XCUITest looked the slider up
+        // again for the end of the drag and spent the whole wait failing to, as the page redrew it, and the thumb never
+        // moved.
+        let track = delay.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: track.minX + track.width * 0.04, dy: track.midY))
+            .press(forDuration: 0.2, thenDragTo: origin.withOffset(CGVector(dx: track.maxX - 1, dy: track.midY)))
         reads(delay, "15 minutes")
         app.open("Today")
         let shape = app.labeled(startingWith: "Shape the dough, 9:54am to 10:24am, Project. Now.")

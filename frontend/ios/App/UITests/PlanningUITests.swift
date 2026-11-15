@@ -11,7 +11,9 @@ final class PlanningUITests: XCTestCase {
         // Inbox: the item goes to a project and, with the toggle, into the plan being made.
         let addTo = app.labeled(startingWith: "Add to a project or One offs")
         app.tapWeb("Process 1 item", until: addTo)
-        app.tapLabeled(startingWith: "Add to the plan for ", until: app.labeled(startingWith: "Adding to the plan for "))
+        // The toggle is a switch, which reads 1 once on.
+        let planOn = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Add to the plan for ' AND value == '1'")).firstMatch
+        app.tapLabeled(startingWith: "Add to the plan for ", until: planOn)
         app.tap(addTo)
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
         exists(app.labeled("Inbox is empty."))
@@ -60,10 +62,11 @@ final class PlanningUITests: XCTestCase {
         let rule = { (time: String) in app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Practice, ' AND label ENDSWITH %@", "around \(time)")).firstMatch }
         exists(rule("7am"))
         // Dragged later on its day, it asks whether that's the time for future weeks too. Held on its left, clear of the
-        // handle at its bottom right that changes its length.
+        // handle at its bottom right that changes its length, and for longer than the 400 ms a finger must hold a block
+        // before it drags (HOLD_MS in weekgrid/drop.ts); a shorter hold scrolls the day instead.
         let session = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Morning stretch.'")).firstMatch
         let from = session.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3))
-        from.press(forDuration: 0.3, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 72)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 72)), withVelocity: .slow, thenHoldForDuration: 0.5)
         // The sheet's own name asks the same question without a time.
         let question = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Use ' AND label ENDSWITH ' in future weeks too?' AND label != 'Use this in future weeks too?'")).firstMatch
         exists(question)

@@ -31,7 +31,7 @@ final class InboxUITests: XCTestCase {
         exists(app.webText("Added Call the bank to Fix up the shed, under Roof watertight."))
 
         // Fix the gate: a practice, which the toast's Undo takes back along with the item's leaving the Inbox.
-        app.tapLabeled("New practice from this item")
+        app.tapLabeled("New practice from this item", until: name)
         reads(name, "Fix the gate")
         // A practice starts under the goal last made or picked.
         reads(last("Goal", in: app), "Fix up the house")
@@ -41,7 +41,7 @@ final class InboxUITests: XCTestCase {
         app.tapLabeled("Undo", until: app.webText("Undone: Fix the gate removed. Fix the gate is back."))
 
         // Then a goal of its own, kept on the card to file next, and skipped instead.
-        app.tapLabeled("New goal from this item")
+        app.tapLabeled("New goal from this item", until: name)
         app.tapLabeled("Clear name")
         app.type("Keep the house", into: name)
         keyboardAway(app)
@@ -52,7 +52,7 @@ final class InboxUITests: XCTestCase {
         exists(app.webText("Skipped Fix the gate. It stays in your Inbox."))
 
         // Water the plants: a practice under the same goal.
-        app.tapLabeled("New practice from this item")
+        app.tapLabeled("New practice from this item", until: name)
         reads(name, "Water the plants")
         keyboardAway(app)
         app.tapLabeled("Make it a practice")
@@ -122,20 +122,25 @@ final class InboxUITests: XCTestCase {
 
         setADate(in: app)
 
-        // One Undo puts the item back as it arrived: its title, and no description, link or date.
-        app.tapLabeled("‹ Undo", until: app.webText("Fix the gate is back as it arrived."))
+        // One Undo puts the item back as it arrived: its title, and no description, link or date. The card's own Undo,
+        // not a toast's, which is drawn outside Process.
+        let card = app.labeled(startingWith: "Process Inbox")
+        app.tap(app.labeled("Undo", in: card), until: app.webText("Fix the gate is back as it arrived."))
         gone(app.labeled("Fix the gate latch"))
         exists(app.labeled("Add description"))
         exists(app.labeled("Add date"))
         gone(app.labeled("bank.example.com"))
 
-        // Added to this week as well, and the toast's Undo brings the card back as it was, the week still on.
-        app.tapLabeled("Add to this week", until: app.labeled("Adding to this week"))
+        // Added to this week as well, and the toast's Undo brings the card back as it was, the week still on. The toggle is
+        // a switch, which reads 1 once on.
+        let week = app.labeled("Add to this week")
+        let weekOn = app.page.descendants(matching: .any).matching(NSPredicate(format: "label == 'Add to this week' AND value == '1'")).firstMatch
+        app.tap(week, until: weekOn)
         app.tap(field, until: app.labeled("Add to"))
         app.tapLabeled(startingWith: "Bake a sourdough loaf")
         exists(app.webText("Added Fix the gate to Bake a sourdough loaf and to this week."))
         app.tapLabeled("Undo", until: app.webText("Fix the gate is back."))
-        exists(app.labeled("Adding to this week"))
+        exists(weekOn)
         app.tap(field, until: app.labeled("Add to"))
         app.tapLabeled(startingWith: "One offs")
         exists(app.webText("Added Fix the gate to One offs and to this week."))

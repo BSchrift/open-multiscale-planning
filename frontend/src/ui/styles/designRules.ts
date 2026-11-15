@@ -14,7 +14,10 @@ export interface Violation {
 const COLOUR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|\b(?:white|black|red|blue|green|gray|grey|orange|purple|yellow|pink|silver)\b/i;
 const PX = /(?<![\w.-])-?\d*\.?\d+px\b/g;
 const SPACING = /^(?:padding|margin|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?$/;
-const RING = /^(?:inset\s+)?0\s+0\s+0\s+(?:[\d.]+px|var\(--[\w-]+\))\s+var\(--[\w-]+\)$|^inset\s+(?:-?[\d.]+px|0)\s+(?:-?[\d.]+px|0)\s+0\s+var\(--[\w-]+\)$/;
+// A shadow with no blur is a solid shape, not elevation: a ring, an edge, a cover or a hover's overlay. Its colour is a
+// token; its lengths draw a line, not a space.
+const LEN = String.raw`(?:0|-?[\d.]+px|var\(--[\w-]+\)|calc\(-1 \* var\(--[\w-]+\)\))`;
+const RING = new RegExp(String.raw`^(?:inset\s+)?${LEN}\s+${LEN}\s+0(?:\s+${LEN})?\s+var\(--[\w-]+\)$`);
 const DURATION = /(?<![\w.-])\d*\.?\d+m?s\b/g;
 
 /** The rule a declaration breaks, if any. */
@@ -22,18 +25,22 @@ function ruleFor(prop: string, value: string): string | null {
   const v = value.replace(/!important/, '').trim();
   // A url() holds an image, such as the select's chevron, whose colours aren't the page's.
   if (!/^--/.test(prop) && COLOUR.test(v.replace(/url\([^)]*\)/g, ''))) return 'colour';
-  if (prop === 'font-size') return /^(var\(--fs-[\w-]+\)|inherit|1em|100%)$/.test(v) ? null : 'type';
+  // A size between two styles that follows the window, such as the clock's, is still made of the styles.
+  if (prop === 'font-size') return /^(var\(--fs-[\w-]+\)|inherit|1em|100%)$/.test(v) || /^clamp\(var\(--fs-[\w-]+\), [\d.]+vw, var\(--fs-[\w-]+\)\)$/.test(v) ? null : 'type';
   if (prop === 'font-weight') return /^(var\(--fw-[\w-]+\)|inherit)$/.test(v) ? null : 'type';
   // A hairline (1px) nudges a box over its neighbour's border; anything bigger is a step on the spacing scale.
   if (SPACING.test(prop)) return [...v.matchAll(PX)].some((m) => !/^-?(0|1)px$/.test(m[0])) ? 'spacing' : null;
-  if (/^border(-(top|bottom)-(left|right))?-radius$/.test(prop)) return /^(var\(--radius-[\w-]+\)\s*)+$|^0$|^inherit$/.test(v) ? null : 'radius';
+  if (/^border(-(top|bottom)-(left|right))?-radius$/.test(prop)) return /^((var\(--radius-[\w-]+\)|0)\s*)+$|^inherit$/.test(v) ? null : 'radius';
   if (prop === 'box-shadow') {
     const parts = v.split(/,(?![^(]*\))/).map((p) => p.trim());
     return v === 'none' || parts.every((p) => /^var\(--shadow-\d\)$/.test(p) || RING.test(p)) ? null : 'shadow';
   }
-  if (prop === 'z-index') return /^(var\(--z-[\w-]+\)|0|auto)$/.test(v) ? null : 'layer';
+  // calc(var(--z-raised) + 1) lifts one thing over its neighbour within a layer.
+  if (prop === 'z-index') return /^(var\(--z-[\w-]+\)|calc\(var\(--z-[\w-]+\) [+-] \d{1,2}\)|0|auto)$/.test(v) ? null : 'layer';
   if (/^(transition|animation)(-duration|-delay)?$/.test(prop)) {
-    // Reduced motion turns movement off with an all-but-zero duration.
+    // A loop, such as the spinner, has a period rather than a duration. Reduced motion turns movement off with an
+    // all-but-zero duration.
+    if (/\binfinite\b/.test(v)) return null;
     return [...v.matchAll(DURATION)].some((m) => !/^(0m?s|0?\.01ms)$/.test(m[0])) ? 'motion' : null;
   }
   return null;
@@ -96,14 +103,4 @@ export function tsxViolations(file: string, source: string): Violation[] {
   };
   visit(parseAst(source, { lang: 'tsx' } as never));
   return found.sort((a, b) => a.start - b.start).map(({ start: _, ...v }) => v);
-}
-
-/** Counts by rule, then by file: the shape of design-baseline.json. */
-export function tally(found: Violation[]): Record<string, Record<string, number>> {
-  const out: Record<string, Record<string, number>> = {};
-  for (const { rule, file } of found) {
-    out[rule] ??= {};
-    out[rule][file] = (out[rule][file] ?? 0) + 1;
-  }
-  return out;
 }

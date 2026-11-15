@@ -44,7 +44,7 @@
 [data-layout] .notesbar {
   display: flex;
   gap: var(--space-1);
-  padding: 2px var(--space-1);
+  padding: var(--space-1) var(--space-1);
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -65,7 +65,7 @@
 }
 
 [data-layout] .notestool.b {
-  font-weight: 700;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .notestool.i {
@@ -73,7 +73,7 @@
 }
 
 [data-layout] .notestool.l {
-  font-size: 1.25em;
+  font-size: var(--fs-heading);
 }
 
 [data-layout='phone'] .notestool {
@@ -109,7 +109,7 @@
 [data-layout] .notemark {
   display: inline-flex;
   vertical-align: -2px;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   color: var(--ink-3);
 }
 

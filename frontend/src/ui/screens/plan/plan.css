@@ -94,10 +94,10 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: calc(var(--space-4) + var(--space-1));
 }
 
 [data-layout='phone'] .planflow .wide100 {
@@ -147,7 +147,7 @@
 [data-layout='desktop'] .planflow .planpin {
   position: sticky;
   top: calc(-1 * var(--space-6));
-  z-index: 6;
+  z-index: calc(var(--z-raised) + 5);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -182,7 +182,7 @@
 }
 
 [data-layout='desktop'] .planflow .steptab .stepmark {
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 /* A goal's pen, as on the Goals page, whose styles may not have loaded yet. */
@@ -219,9 +219,9 @@
 /* A project's goal, under its name: amber while it has none. */
 [data-layout] .planflow .plgoal {
   min-height: 32px;
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--hairline);
-  border-radius: 6px;
+  border-radius: var(--radius-block);
   background: var(--card);
   color: var(--ink-2);
 }
@@ -272,7 +272,7 @@
 
 /* Room for the Done ring between a diamond and its name. */
 [data-layout='desktop'] .planflow .planname .pkey {
-  margin-right: 10px;
+  margin-right: var(--space-3);
 }
 
 /* A goal's projects on the Goals step: blocks in the project colour, each opening the project's preview. */
@@ -289,7 +289,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: var(--space-1);
   width: 100%;
   min-height: 44px;
   padding: var(--space-2) var(--space-3);

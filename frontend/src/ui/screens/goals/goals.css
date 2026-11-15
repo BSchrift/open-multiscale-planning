@@ -20,13 +20,13 @@
 [data-layout] .msgroup {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   border: 1px solid var(--hairline);
   background: var(--card);
 }
 
 [data-layout='phone'] .msgroup {
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-1);
 }
 
@@ -84,7 +84,7 @@
 
 [data-layout='phone'] .mshead .grow.strong > .msdia {
   flex: none;
-  margin-top: 5px;
+  margin-top: var(--space-1);
 }
 
 [data-layout='phone'] .mshead .editcue {
@@ -104,7 +104,7 @@
 
 [data-layout='phone'] .glabel > :first-child > .msdia {
   flex: none;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 [data-layout='phone'] .glabel .gstate {
@@ -114,8 +114,8 @@
 [data-layout] .mstasks {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--space-1) var(--space-2) 10px 20px;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-3) calc(var(--space-4) + var(--space-1));
   border-top: 1px solid var(--hairline);
 }
 
@@ -192,7 +192,7 @@
 
 /* Phone: Project settings is a card of its own, like a row of More. */
 [data-layout='phone'] .card.morerow {
-  padding: 6px var(--space-4);
+  padding: var(--space-2) var(--space-4);
   border-top-color: var(--hairline);
   background: var(--card);
 }
@@ -210,14 +210,14 @@
 [data-layout] .seclabel {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-height: var(--tap);
   padding: 0 var(--space-1);
   border: 0;
   background: transparent;
   color: var(--ink-2);
   font-size: var(--fs-label);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   text-align: left;
 }
 
@@ -238,7 +238,7 @@
 }
 
 [data-layout='desktop'] .seclabel .lineblock {
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 
 /* Archived's caret is drawn, so the button's name stays its text. */
@@ -254,7 +254,7 @@
 
 [data-layout='phone'] .nogoal,
 [data-layout='phone'] .archived {
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 /* Its rows sit edge to edge like a goal card's, not inside a stacked card's padding. */
@@ -289,12 +289,12 @@
 [data-layout='phone'] .goalspage .projbtn {
   align-items: center;
   min-height: 60px;
-  padding: 10px var(--space-4) 10px 36px;
+  padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-8) + var(--space-1));
   border-top: 1px solid var(--hairline);
 }
 
 [data-layout='phone'] .goalspage .nested > .row {
-  padding: 0 var(--space-4) var(--space-1) 36px;
+  padding: 0 var(--space-4) var(--space-1) calc(var(--space-8) + var(--space-1));
   border-top: 1px solid var(--hairline);
 }
 
@@ -309,7 +309,7 @@
 }
 
 [data-layout='desktop'] .goalhead .strong {
-  font-size: 16px;
+  font-size: var(--fs-body);
 }
 
 [data-layout='desktop'] .goalspage .nested > .prow:first-child {
@@ -317,7 +317,7 @@
 }
 
 [data-layout='desktop'] .goalspage .nested > .row {
-  padding: var(--space-1) 0 0 44px;
+  padding: var(--space-1) 0 0 calc(var(--space-8) + var(--space-3));
 }
 
 [data-layout='desktop'] .goalspage .nested > .row:first-child {
@@ -329,7 +329,7 @@
 }
 
 [data-layout='desktop'] .goalspage .nested > .inlineform {
-  margin-left: 44px;
+  margin-left: calc(var(--space-8) + var(--space-3));
 }
 
 [data-layout='desktop'] .nogoal .prowhead {
@@ -381,12 +381,12 @@
   position: fixed;
   left: var(--space-4);
   right: var(--space-4);
-  z-index: 50;
+  z-index: var(--z-dialog);
   transform: translateY(-50%);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-control);
   background: var(--card);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  box-shadow: var(--shadow-2);
   pointer-events: none;
 }

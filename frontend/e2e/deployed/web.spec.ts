@@ -114,7 +114,7 @@ test('signs in through the hosted page as the test user, and stays signed in aft
   await page.reload();
   await expect(nav).toBeVisible(NETWORK);
   // Sync now joins the sync the reload started, so the tests that press it wait for that one here, where it starts.
-  // Phone presses nothing that syncs.
+  // Only desktop's tests press it.
   if (info.project.name === 'desktop') {
     const started = Date.now();
     await syncNow(page, CATCH_UP);

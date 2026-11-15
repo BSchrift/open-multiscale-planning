@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, overNowLine, touchDrag } from './seed';
+import { expectTapTarget, openSeeded, overNowLine, saved, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -518,6 +518,8 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   const lane = page.getByRole('region', { name: 'To schedule' });
   await expect(lane).toBeVisible();
   await expect(lane.getByRole('button', { name: /^Morning run/ })).toHaveCount(0);
+  // Saved before the reload, which otherwise can come before phone WebKit's save and open a first-run app.
+  await saved(page, 'Morning run');
   // Friday at 8am: there, at 9:30.
   await page.clock.setFixedTime(new Date('2026-11-06T14:00:00Z'));
   await page.reload();

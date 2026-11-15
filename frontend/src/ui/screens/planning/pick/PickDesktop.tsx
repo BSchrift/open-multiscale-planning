@@ -4,6 +4,7 @@
 // on together.
 
 import { useEffect, useId, useRef } from 'react';
+import { BacklogsSection } from './Backlogs';
 import { asking, EmptyCard, OneOffsSection, Others, ProjectSection } from './Cards';
 import type { ListProps } from './Cards';
 import { ProjectAdder, useAdding, usePickAddMenu } from './Adders';
@@ -19,10 +20,11 @@ import { Button } from '../../../components/ds/Button';
 export const selectable = (props: PickProps, out: Outside) =>
   [
     ...props.view.projects.filter((s) => out.visible(s)).flatMap((s) => s.groups.filter((g) => out.isOpen(s, g)).flatMap((g) => g.rows)),
+    ...props.view.backlogs.filter((b) => out.backlogOpen(b.goalId)).flatMap((b) => b.rows),
     ...props.view.oneOffs.rows,
   ].filter((r) => !props.isDone(r) && !asking(r, false));
 
-/** The list itself, the same at both sizes: projects, One offs, what can't be planned now, then the toggle again. */
+/** The list itself, the same at both sizes: projects, goal backlogs, One offs, what can't be planned now, then the toggle again. */
 export function PickList(props: ListProps & { descId: string }) {
   const { view, model, out } = props;
   return (
@@ -36,6 +38,7 @@ export function PickList(props: ListProps & { descId: string }) {
         {view.projects.map((s) => (
           <ProjectSection key={s.plan.project.id} {...props} s={s} />
         ))}
+        <BacklogsSection {...props} />
         <OneOffsSection {...props} />
         <Others {...props} />
       </div>

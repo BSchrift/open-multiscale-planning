@@ -1,14 +1,17 @@
-// Finish, Change end date and Drop for a project. Finish and Drop ask first, since they close every open task.
+// Finish, Change end date and Drop for a project. Finish and Drop ask first, since they close every open task. For a
+// project with a goal and open tasks, the question has one unticked box that moves those tasks to the goal's backlog
+// instead, so nothing moves unless you say so.
 
 import { useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { addDays, addMonths, formatDate, formatMinutes, isDay, today } from '../../../core/dates';
-import { doneDateError, moveDone } from '../../../core/plan';
+import { doneDateError, minutesLeft, moveDone } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { status } from '../../../core/status';
+import { getRecord } from '../../../core/records';
 import { closeProject } from '../../../core/tasks';
-import { useApp, useMutation } from '../../app/store';
+import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../Toast';
 import { usePlanChange } from './usePlanChange';
 import { Button } from '../ds/Button';
@@ -65,8 +68,16 @@ function ChangeEndDate(props: { plan: ProjectPlan; ctx: PlanContext; onDone?(): 
  * just the question and gives focus to back(), the asking button once it's back: found directly, since a tap on
  * WebKit leaves focus on the dialog around it rather than on the page.
  */
-export function CloseQuestion(props: { state: 'finished' | 'dropped'; onYes(): void; onNo(): void; back(): HTMLElement | null }) {
+export function CloseQuestion(props: {
+  state: 'finished' | 'dropped';
+  onYes(): void;
+  onNo(): void;
+  back(): HTMLElement | null;
+  /** The open tasks, and the goal whose backlog can take them; with none, no box. */
+  move?: { line: string; goal: string; checked: boolean; onChange(checked: boolean): void };
+}) {
   const finish = props.state === 'finished';
+  const { move } = props;
   const no = () => {
     flushSync(props.onNo);
     props.back()?.focus();
@@ -83,6 +94,15 @@ export function CloseQuestion(props: { state: 'finished' | 'dropped'; onYes(): v
       }}
     >
       <div className="strong small">{finish ? 'Finish this project?' : 'Drop this project?'}</div>
+      {move && (
+        <>
+          <div className="small">{move.line}</div>
+          <label className="row small movecheck">
+            <input type="checkbox" checked={move.checked} onChange={(event) => move.onChange(event.target.checked)} />
+            Move them to the backlog for {move.goal}
+          </label>
+        </>
+      )}
       <div className="row">
         <Button variant="destructive" filled size="compact" className="grow" type="button" onClick={props.onYes}>
           {finish ? 'Yes, finish' : 'Yes, drop'}
@@ -108,20 +128,45 @@ export function CloseProject(props: { plan: ProjectPlan; ctx: PlanContext; onClo
   const dropRef = useRef<HTMLButtonElement>(null);
   const [asking, setAsking] = useState<'finished' | 'dropped' | null>(null);
   const [changing, setChanging] = useState(false);
-  const close = useMutation((w, state: 'finished' | 'dropped') => closeProject(w, plan.project.id, state, clock));
+  const [moving, setMoving] = useState(false);
+  const close = useMutation((w, state: 'finished' | 'dropped', moveToBacklog: boolean) => closeProject(w, plan.project.id, state, clock, { moveToBacklog }));
   const left = status(plan, ctx).leftMin;
+  const goalId = plan.project.objective_id ?? '';
+  const goal = useQuery((sql) => (goalId ? getRecord(sql, 'objective', goalId) : Promise.resolve(undefined)), [goalId]).data;
+  const open = plan.tasks.filter((t) => !t.done_at && !t.cancelled_at);
+  const openMin = open.reduce((sum, t) => sum + minutesLeft(t), 0);
+  const tasks = `${open.length} ${open.length === 1 ? 'task' : 'tasks'}`;
+  const move =
+    goal && !goal.deleted_at && open.length > 0
+      ? { line: `${tasks} ${open.length === 1 ? 'is' : 'are'} still open${openMin ? `, ${formatMinutes(openMin)}` : ''}.`, goal: goal.title, checked: moving, onChange: setMoving }
+      : undefined;
 
   const confirm = async () => {
     if (!asking) return;
-    const reverse = await close.run(asking);
+    const moved = !!move && moving;
+    const reverse = await close.run(asking, moved);
     setAsking(null);
+    setMoving(false);
     if (!reverse) return;
-    toast.show(asking === 'finished' ? 'Finished. Open tasks cancelled.' : 'Dropped.', { undo: () => apply(() => reverse) });
+    const word = asking === 'finished' ? 'Finished' : 'Dropped';
+    const said = moved ? `${word}. ${open.length} open ${open.length === 1 ? 'task' : 'tasks'} moved to the backlog for ${goal!.title}.` : asking === 'finished' ? 'Finished. Open tasks cancelled.' : 'Dropped.';
+    toast.show(said, { undo: () => apply(() => reverse) });
     props.onClosed?.();
   };
 
   if (asking) {
-    return <CloseQuestion state={asking} onYes={confirm} onNo={() => setAsking(null)} back={() => (asking === 'finished' ? finishRef : dropRef).current} />;
+    return (
+      <CloseQuestion
+        state={asking}
+        onYes={confirm}
+        onNo={() => {
+          setAsking(null);
+          setMoving(false);
+        }}
+        back={() => (asking === 'finished' ? finishRef : dropRef).current}
+        {...(move ? { move } : {})}
+      />
+    );
   }
   return (
     <div className="stack8">

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../platform';
 import { addMilestones, addProject, addTasks, chicago, firstRun, jumpTo, openProject, pane, processTo, slide, start, tab, TZ } from './journey';
 
 // From an empty first run to a planned week, then the day itself: check-in, end-of-block answers, and rescheduling.

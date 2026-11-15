@@ -518,20 +518,17 @@ final class NativeUITests: XCTestCase {
 
     func testSignInLinkReturnsThroughTheURLSchemeAndClosesTheBrowser() {
         let browser = app.webButton("Browser")
+        // The browser sheet's own button, named Done before iOS 26 and Close since. Whether our page's button is hittable
+        // can't tell instead: asked while the sheet is still sliding up or down, XCUITest fails the test ("Failed to
+        // determine hittability ... Activation point invalid") rather than answering.
+        let sheet = app.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "Close"])).firstMatch
         // Tapped once only: the sheet hides the page from the tree, so tap(_:) couldn't see that it heard.
         browser.tap()
-        // Told by our own page being covered and uncovered, since the sheet's buttons are named differently across
-        // iOS versions (Done, then Close).
-        XCTAssertTrue(wait(for: browser, hittable: false), "the browser sheet never came up. On screen:\n\(app.debugDescription)")
+        XCTAssertTrue(sheet.waitForExistence(timeout: patience), "the browser sheet never came up. On screen:\n\(app.debugDescription)")
         let linked = app.webText("link:multiscale://auth/callback?code=abc&state=def")
         openLink("multiscale://auth/callback?code=abc&state=def") { linked.exists }
         exists(linked)
-        XCTAssertTrue(wait(for: browser, hittable: true), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
-    }
-
-    private func wait(for element: XCUIElement, hittable: Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == %@", NSNumber(value: hittable)), object: element)
-        return XCTWaiter.wait(for: [expectation], timeout: patience) == .completed
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: patience), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
     }
 
     func testCaptureLinkIsNotTreatedAsSignIn() {

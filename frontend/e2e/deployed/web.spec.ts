@@ -5,7 +5,7 @@
 // scripts/test-deployed.sh runs it.
 
 import { expect, test } from '@playwright/test';
-import type { BrowserContext, Locator, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page, Request } from '@playwright/test';
 import { syncNow } from '../seed';
 import { deployed } from './target';
 
@@ -14,12 +14,27 @@ const d = deployed();
 // publishes only once they pass. Checks of screens new in this release skip there; release-prod runs them after publishing.
 const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 const NETWORK = { timeout: 60_000 };
+// The sync a new browser runs after its first reload, which fills in expiries for what it downloaded and sends them.
+// On prod's shared test user, which held tens of thousands of deleted records, it ran past 70 seconds on 15 November.
+const CATCH_UP = 180_000;
 
 test.describe.configure({ mode: 'serial' });
 
 let context: BrowserContext;
 let page: Page;
 const problems: string[] = [];
+// Each sync request the page made, for the log of a failed test.
+const syncs: string[] = [];
+
+async function noteSync(r: Request) {
+  if (r.method() !== 'POST' || !r.url().endsWith('/sync')) return;
+  const sent = JSON.parse(r.postData() ?? '{}') as { cursor?: number; changes?: unknown[] };
+  const res = await r.response().catch(() => null);
+  const got = res?.ok() ? ((await res.json().catch(() => null)) as { cursor?: number; more?: boolean; changes?: unknown[] } | null) : null;
+  const { startTime, responseEnd } = r.timing();
+  const answer = got ? `pulled ${got.changes?.length} to ${got.cursor}${got.more ? ', more' : ''}` : (res?.status() ?? r.failure()?.errorText);
+  syncs.push(`${new Date(startTime).toISOString().slice(11, 19)} ${Math.round(responseEnd)} ms: sent ${sent.changes?.length} at ${sent.cursor}, ${answer}`);
+}
 
 // One signed-in page for the whole file, as a person would keep one tab.
 test.beforeAll(async ({ browser }, info) => {
@@ -37,16 +52,20 @@ test.beforeAll(async ({ browser }, info) => {
       if (m.type() === 'error' && !refused) problems.push(m.text().slice(0, 200));
     });
     p.on('pageerror', (e) => problems.push(`pageerror ${e.message.slice(0, 200)}`));
+    p.on('requestfinished', (r) => void noteSync(r));
+    p.on('requestfailed', (r) => void noteSync(r));
   });
   page = await context.newPage();
 });
 
 test.afterAll(() => context?.close());
 
-// CodeBuild keeps no trace, so a failed test logs what the page showed.
+// CodeBuild keeps no trace, so a failed test logs what the page showed, and what its latest syncs carried and took.
 test.afterEach(async ({}, info) => {
-  if (info.status !== info.expectedStatus && page && !page.isClosed())
-    console.log(`${info.title} failed; the page showed:\n${await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)')}`);
+  if (info.status !== info.expectedStatus && page && !page.isClosed()) {
+    const snapshot = await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)');
+    console.log(`${info.title} failed; the page showed:\n${snapshot}\nIts last syncs, of ${syncs.length}:\n${syncs.slice(-30).join('\n')}`);
+  }
 });
 
 test('serves the version released, its pages with the security policy, and assets that cache for good', async () => {
@@ -65,7 +84,8 @@ test('serves the version released, its pages with the security policy, and asset
   expect(a.headers()['cache-control']).toContain('immutable');
 });
 
-test('signs in through the hosted page as the test user, and stays signed in after a reload', async () => {
+test('signs in through the hosted page as the test user, and stays signed in after a reload', async ({}, info) => {
+  test.setTimeout(NETWORK.timeout + CATCH_UP);
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });
   const signIn = page.getByRole('button', { name: 'Sign in' }).first();
@@ -93,6 +113,13 @@ test('signs in through the hosted page as the test user, and stays signed in aft
   await page.waitForTimeout(1000);
   await page.reload();
   await expect(nav).toBeVisible(NETWORK);
+  // Sync now joins the sync the reload started, so the tests that press it wait for that one here, where it starts.
+  // Only desktop's tests press it.
+  if (info.project.name === 'desktop') {
+    const started = Date.now();
+    await syncNow(page, CATCH_UP);
+    console.log(`The sync after the reload took ${Math.round((Date.now() - started) / 1000)} s.`);
+  }
 });
 
 test('keeps its data on OPFS, through a worker and WebAssembly the security policy allows', async ({}, info) => {
@@ -277,11 +304,13 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   } else {
     await nav.getByRole('button', { name: 'Plan' }).click();
   }
-  // Plan opens on a way in, or, while the shared test user's first stretch isn't planned, on the steps themselves.
+  // Plan opens on its page, and the steps only from a way in. Which way in depends on the shared test user: prod's first
+  // stretch was begun and is never planned there, so it offers Continue planning, while staging's compat suite finishes a
+  // plan on every run, so staging offers the next stretch's.
   const wayIn = page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
-  await expect(wayIn.or(steps).first()).toBeVisible(NETWORK);
-  if (!(await steps.isVisible())) await wayIn.click();
+  await expect(wayIn).toBeVisible(NETWORK);
+  await wayIn.click();
   const shown: [string, RegExp][] = [
     ['Goals', /^Step \d of \d, Goals\. (Are these still your goals|What are your goals)\?$/],
     ['Practices', /^Step \d of \d, Practices\. Your practices$/],
@@ -301,9 +330,11 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
-  // earlier runs may have done, so any of its ways in will do; a first stretch not yet planned shows its steps again.
-  await expect(wayIn.or(steps).first()).toBeVisible();
+  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November prod's release step
+  // found the steps still open: on prod's large history, Save and exit's writes outlasted the 5 seconds checks waited
+  // then, as they take 3.6 to 5.2 seconds locally with 60,000 deleted records on desktop.
+  await expect(steps).toHaveCount(0);
+  await expect(wayIn).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

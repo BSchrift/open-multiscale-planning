@@ -150,7 +150,7 @@ test('a finished block put off with Answer later waits under Review, and Not don
   const prompt = page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText('Write the report')).toBeVisible();
   if (phone) {
-    for (const name of ['Task finished', 'Partly', 'Not done']) await expectTapTarget(prompt.getByRole('button', { name, exact: true }));
+    for (const name of ['Done', 'Partly', 'Not done']) await expectTapTarget(prompt.getByRole('button', { name, exact: true }));
   }
   await prompt.getByRole('button', { name: 'Answer later' }).click();
   await expect(prompt).toHaveCount(0);

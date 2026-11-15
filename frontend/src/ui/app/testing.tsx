@@ -139,7 +139,7 @@ export async function renderScreen(
 /** Over-the-air updates in a given state, as the page sees them. Checking finds it up to date. */
 export function fakeUpdater(
   initial: UpdateStatus,
-  more: { download?: string; app?: { place?: AppPlace | null; built?: number; updated?: { from: number; to: number } | null } } = {},
+  more: { download?: string; app?: { place?: AppPlace | null; built?: number; updated?: { from: number; to: number; settings?: boolean } | null; moved?: boolean } } = {},
 ) {
   let status = initial;
   const listeners = new Set<() => void>();
@@ -155,6 +155,7 @@ export function fakeUpdater(
     install: vi.fn(async () => undefined),
     move: vi.fn(async () => undefined),
     updated: vi.fn(async () => more.app!.updated ?? null),
+    moved: vi.fn(async () => more.app!.moved ?? false),
   };
   return {
     version: '0.1.0-aaaaaaa',

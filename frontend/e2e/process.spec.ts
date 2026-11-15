@@ -63,7 +63,7 @@ test("Skip keeps an item for later, Delete's Cancel keeps it too, and leaving pa
 
   await expect(title(page, 'Fix the gate')).toBeVisible();
   await expect(card(page).getByText('2 of 3')).toBeVisible();
-  await card(page).getByRole('button', { name: 'Delete/done' }).click();
+  await card(page).getByRole('button', { name: 'Delete', exact: true }).click();
   const ask = card(page).getByRole('alert');
   await expect(ask).toContainText('Delete this item?');
   if (phone) for (const name of ['Yes, delete', 'Cancel']) await expectTapTarget(ask.getByRole('button', { name }));

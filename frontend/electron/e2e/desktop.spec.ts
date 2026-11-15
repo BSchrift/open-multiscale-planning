@@ -443,3 +443,19 @@ test('a reminder clicked, not one of its buttons, brings the window back and tel
     .toEqual([{ reminder_id: 'r1', block_id: 'b1', action_id: null }]);
   await expect.poll(() => running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.isVisible())).toBe(true);
 });
+
+// A temporary copy macOS made of the app, which can't replace itself: an e2e build stands in for the path, and answers
+// macOS's dialogs as the test says, printing what they'd have said.
+const TRANSLOCATED = '/private/var/folders/xx/AppTranslocation/0A1B/d/Multiscale.app';
+
+test('started from a temporary copy, it offers to move to Applications, and Not now opens it where it is, with no login item', async () => {
+  app = await electron.launch({
+    args: [...KEYCHAIN, ROOT, `--user-data-dir=${dataDir}`, '--use-mock-keychain'],
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '', MULTISCALE_E2E_APP_PATH: TRANSLOCATED, MULTISCALE_E2E_ANSWER: '1' },
+  });
+  const page = await app.firstWindow();
+  await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
+  const said = await app.evaluate(() => (globalThis as unknown as { multiscaleE2eDialogs?: string[] }).multiscaleE2eDialogs ?? []);
+  expect(said).toEqual(["Move Multiscale Local to Applications? macOS is running it from a temporary copy, so it can't keep itself up to date or open when you log in. Moving it takes a moment, then it opens again."]);
+  expect(await app.evaluate(({ app: a }) => a.getLoginItemSettings().openAtLogin)).toBe(false);
+});

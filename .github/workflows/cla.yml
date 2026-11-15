@@ -5,6 +5,8 @@ on:
   # Runs the base branch's workflow with a write token; it never checks out pull request code, so keep it that way.
   pull_request_target:
     types: [opened, closed, synchronize]
+  # main's merge queue waits for the cla check on each group's commit too (docs/merge-queue.md).
+  merge_group:
 
 permissions:
   actions: write
@@ -26,3 +28,6 @@ jobs:
           # Signatures live on their own unprotected branch, so main can stay protected.
           branch: cla-signatures
           allowlist: BSchrift,*[bot]
+      # A pull request joins the queue only once its own cla check has passed, so the group's has nothing left to ask.
+      - if: github.event_name == 'merge_group'
+        run: echo "Each pull request in this group passed its CLA check before it was queued."

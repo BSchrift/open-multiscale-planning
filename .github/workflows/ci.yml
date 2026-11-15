@@ -1,5 +1,8 @@
 name: CI
 on:
+  # A merge queue group: the pull requests ahead in main's queue and this one, merged onto main as they will be. Main's
+  # required checks must pass here before the group merges (docs/merge-queue.md).
+  merge_group:
   # A branch's pushes run once, through its pull request.
   push:
     branches: [main]

@@ -141,7 +141,7 @@ Then wait for CI. A PR merges only with every check green.
 
   | Step | What happens | Who |
   | --- | --- | --- |
-  | Merge to main | Only with every CI check green | Owner |
+  | Merge to main | Only with every CI check green, through main's merge queue once it's on ([docs/merge-queue.md](docs/merge-queue.md)) | Owner |
   | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
   | Window before prod | An email says the commit passed staging and when it goes to prod, with a link to send it sooner. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
   | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |

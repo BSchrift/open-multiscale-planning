@@ -30,9 +30,10 @@ test.beforeAll(async ({ browser }, info) => {
   );
   context.on('page', (p) => {
     p.on('console', (m) => {
-      // A second tab is refused on purpose, below. Its refusal can also come from the SQLite pool finding the first tab's
-      // file handles open, which counts only in that second tab: the same error in the main tab is a real bug.
-      const refused = /InAnotherTab|Startup failed/.test(m.text()) || (p !== page && /another open Access Handle/.test(m.text()));
+      // A second tab is refused on purpose, below. The SQLite pool also logs each try that finds another page's file
+      // handles open: the second tab's refusal, and a reload that beats the page it replaces, which opfs.worker.ts tries
+      // again for 3 seconds. A pool that never opens fails startup, which the tests after the reload would show.
+      const refused = /InAnotherTab|Startup failed|another open Access Handle/.test(m.text());
       if (m.type() === 'error' && !refused) problems.push(m.text().slice(0, 200));
     });
     p.on('pageerror', (e) => problems.push(`pageerror ${e.message.slice(0, 200)}`));

@@ -1,6 +1,7 @@
 // How full a week is: open time, planned time, weekly aims, congestion and wiggle room. Open time is the hours
 // outside the unavailable list, minus calendar events. Aims are soft, so nothing here ever blocks.
 
+import { isBacklog } from './backlog';
 import { weekAnalytics } from './analytics';
 import type { AnalyticsData } from './analytics';
 import type { Clock } from './clock';
@@ -112,7 +113,8 @@ export function weeklyAims(input: {
       tickPct: Math.round((aim / scale) * 100),
     };
   };
-  const rows = projects.filter((p) => p.state === 'active' && !p.deleted_at).map((p) => row(p.id, p.weekly_aim));
+  // A goal backlog has no aim here, whatever an older app set: aims drive suggestions, and nothing in it is due.
+  const rows = projects.filter((p) => p.state === 'active' && !p.deleted_at && !isBacklog(p)).map((p) => row(p.id, p.weekly_aim));
   return [...rows.filter((r) => r.aim > 0), row(ONE_OFFS_BUCKET, oneOffsAim)];
 }
 

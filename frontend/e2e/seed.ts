@@ -4,6 +4,7 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { formatDate } from '../src/core/dates';
+import { FILE, STORE } from '../src/platform/web-file';
 
 export interface Seed {
   type: string;
@@ -27,6 +28,34 @@ export async function readRecord(page: Page, type: string, id: string): Promise<
 export async function openSeeded(page: Page, records: readonly Seed[] = []): Promise<void> {
   await page.goto('/');
   await seed(page, [{ type: 'settings', id: 'settings', fields: { setup_done_at: '2026-01-01T00:00:00.000Z' } }, ...records]);
+}
+
+/**
+ * Waits until the database file the browser build keeps in IndexedDB has this text in it, so a reload keeps it. Without
+ * OPFS, as in phone's WebKit here, the browser build saves the whole file there 200ms after the last change, and a
+ * reload sooner loses it (a shortcut in platform/web.ts); with OPFS, a copy follows as soon.
+ */
+export async function saved(page: Page, text: string): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ store, file, text }) =>
+          new Promise<boolean>((resolve, reject) => {
+            // The database web-file.ts opens. Never made here: one without its store would break the app's.
+            const open = indexedDB.open('multiscale-dev');
+            open.onupgradeneeded = () => open.transaction!.abort();
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => {
+              const read = open.result.transaction(store).objectStore(store).get(file);
+              read.onerror = () => reject(read.error);
+              read.onsuccess = () => resolve(new TextDecoder().decode(read.result as Uint8Array | undefined).includes(text));
+              open.result.close();
+            };
+          }),
+        { store: STORE, file: FILE, text },
+      ),
+    )
+    .toBe(true);
 }
 
 /** Checks a control is at least 44pt each way, the smallest a finger can hit reliably. */
@@ -78,6 +107,23 @@ export async function setDate(page: Page, title: string, date: string) {
   await pane(page, 'One offs').getByRole('button', { name: 'Set date' }).click();
   // The row's line starts with the date, then its estimate if it has one.
   await expect(oneOffRow(page, title).getByText(new RegExp(`^${formatDate(date)}(,|$)`))).toBeVisible();
+}
+
+/**
+ * What's drawn on top at a point on the current-time line, and whether its dot is on top at its centre. The line and dot
+ * let pointers through, so for a moment they're made to take them, and the hit test then finds whatever paints highest.
+ */
+export async function overNowLine(line: Locator, x: number): Promise<{ at: string; dotOnTop: boolean }> {
+  return line.evaluate((el, x) => {
+    const dot = el.querySelector('i')!;
+    el.style.pointerEvents = dot.style.pointerEvents = 'auto';
+    const r = el.getBoundingClientRect();
+    const d = dot.getBoundingClientRect();
+    const hit = document.elementFromPoint(x, r.top + r.height / 2);
+    const onDot = document.elementFromPoint(d.left + d.width / 2, d.top + d.height / 2);
+    el.style.pointerEvents = dot.style.pointerEvents = '';
+    return { at: hit === el ? 'line' : (hit?.closest('[aria-label]')?.getAttribute('aria-label') ?? hit?.className ?? ''), dotOnTop: onDot === dot };
+  }, x);
 }
 
 /**

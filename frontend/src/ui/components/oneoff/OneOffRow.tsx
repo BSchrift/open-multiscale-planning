@@ -16,6 +16,7 @@ import { TaskRow } from '../TaskRow';
 import { useToast } from '../Toast';
 import { OneOffDates } from './OneOffDates';
 import { OneOffForm } from './OneOffForm';
+import { Button } from '../ds/Button';
 
 /**
  * Ticking and unticking rows. A tick keeps its exact reverse, so unticking in the same session also gives back the
@@ -88,16 +89,16 @@ function OneOffRepeat(props: { task: Task }) {
   return (
     <>
       <div>
-        <button
+        <Button
           ref={toggleRef}
-          className={layout === 'phone' ? 'btn plain' : 'link small'}
+          variant={layout === 'phone' ? 'quiet' : 'link'} className={layout === 'phone' ? undefined : 'small'}
           type="button"
           aria-expanded={open}
           aria-label={`Change repeat for ${task.title}`}
           onClick={() => (open ? close() : setOpen(true))}
         >
           Change repeat
-        </button>
+        </Button>
       </div>
       {open && <OneOffEditor task={task} onClose={close} />}
     </>

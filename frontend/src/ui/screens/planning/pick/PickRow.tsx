@@ -13,6 +13,7 @@ import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
 import type { Selection } from './Select';
 import { TimePopover } from './TimePopover';
+import { Icon } from '../../../components/ds/Icon';
 
 /** What a row's time button says, and its name: '+ 1h', '2h of 4h', '15m on calendar', 'On the calendar'. */
 export function timeWords(r: PickTask) {
@@ -90,7 +91,7 @@ export function PickRow(props: PickProps & { row: PickTask; phone: boolean; sele
       {r.c.picked && (
         <span className="tv" aria-hidden="true">
           {' '}
-          ▾
+          <Icon name="chevron-down" size={16} />
         </span>
       )}
     </button>

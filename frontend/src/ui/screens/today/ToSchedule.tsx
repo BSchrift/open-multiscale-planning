@@ -11,6 +11,7 @@ import { Sheet } from '../../components/Sheet';
 import { loadWeek, weekModel } from '../week/data';
 import { LaneActions, LaneCard, laneCount } from '../week/lane';
 import { useWeekActions } from '../week/useWeekActions';
+import { Button } from '../../components/ds/Button';
 
 export function ToSchedule(props: { date: LocalDate }) {
   const { clock, layout } = useApp();
@@ -53,9 +54,9 @@ export function ToSchedule(props: { date: LocalDate }) {
     />
   );
   const planOne = (
-    <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => nav.openFlow('planning', { week, step: 'schedule' })}>
+    <Button size="compact" type="button" onClick={() => nav.openFlow('planning', { week, step: 'schedule' })}>
       Schedule one at a time
-    </button>
+    </Button>
   );
 
   return (

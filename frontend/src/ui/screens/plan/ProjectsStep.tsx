@@ -50,6 +50,8 @@ import type { Act, Call } from './model';
 import { Diamond } from './PlanPage';
 import { StepHead } from './StepHead';
 import type { Head } from './StepHead';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 /** Within this many days of the band's end, a dropped diamond means "by the end" rather than a date. */
 const EDGE_DAYS = 3;
@@ -222,17 +224,17 @@ function DateForm(props: {
           />
         </label>
         <div className="row">
-          <button ref={saveRef} className="btn sm pri" type="submit">
+          <Button ref={saveRef} variant="primary" size="compact" type="submit">
             Set date
-          </button>
+          </Button>
           {props.clear && (
-            <button className="btn sm" type="button" onClick={props.clear.run}>
+            <Button size="compact" type="button" onClick={props.clear.run}>
               {props.clear.label}
-            </button>
+            </Button>
           )}
-          <button className="btn sm" type="button" onClick={props.onClose}>
+          <Button size="compact" type="button" onClick={props.onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </div>
       {props.hint && <div className="small quiet">{props.hint}</div>}
@@ -455,15 +457,15 @@ function ProjectRow(props: RowProps) {
       ) : (
         <>
           <div className={phone ? 'stack8' : 'row'}>
-            <button className="btn sm" type="button" onClick={pause}>
+            <Button size="compact" type="button" onClick={pause}>
               {project.state === 'paused' ? 'Resume' : 'Pause'}
-            </button>
-            <button ref={finishRef} className="btn sm danger" type="button" onClick={() => setAsking('finished')}>
+            </Button>
+            <Button ref={finishRef} variant="destructive" size="compact" type="button" onClick={() => setAsking('finished')}>
               Finish
-            </button>
-            <button ref={dropRef} className="btn sm danger" type="button" onClick={() => setAsking('dropped')}>
+            </Button>
+            <Button ref={dropRef} variant="destructive" size="compact" type="button" onClick={() => setAsking('dropped')}>
               Drop
-            </button>
+            </Button>
           </div>
           {stat.leftMin > 0 && <div className="small quiet">Finishing cancels the {formatMinutes(stat.leftMin)} left.</div>}
           <form className="stack8" aria-label={`Start date of ${project.title}`} onSubmit={saveStart}>
@@ -485,12 +487,12 @@ function ProjectRow(props: RowProps) {
               </div>
             )}
             <div className="row">
-              <button ref={saveRef} className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
+              <Button ref={saveRef} variant="primary" size="compact" className={phone ? 'grow' : undefined} type="submit">
                 Save
-              </button>
-              <button className={phone ? 'btn grow' : 'btn sm'} type="button" onClick={closeMenu}>
+              </Button>
+              <Button size="compact" className={phone ? 'grow' : undefined} type="button" onClick={closeMenu}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </>
@@ -562,18 +564,18 @@ function ProjectRow(props: RowProps) {
     >
       <input className="field grow" autoFocus aria-label="Milestone name" placeholder="Milestone name" value={adding} onChange={(event) => setAdding(event.target.value)} />
       <div className="row">
-        <button className={phone ? 'btn pri grow' : 'btn sm'} type="submit">
+        <Button variant={phone ? 'primary' : 'secondary'} size="compact" className={phone ? 'grow' : undefined} type="submit">
           Add
-        </button>
-        <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => setAdding(null)}>
+        </Button>
+        <Button size="compact" type="button" onClick={() => setAdding(null)}>
           Close
-        </button>
+        </Button>
       </div>
     </form>
   );
   const addButton = (
-    <button
-      className={phone ? 'btn' : 'btn sm'}
+    <Button
+      size="compact"
       type="button"
       aria-label={`Add a milestone to ${project.title}`}
       onClick={() => {
@@ -582,7 +584,7 @@ function ProjectRow(props: RowProps) {
       }}
     >
       + Milestone
-    </button>
+    </Button>
   );
   const menuButton = (
     <button className="qbtn" type="button" aria-haspopup="dialog" aria-expanded={menu} aria-label={`${project.title}: Pause, Finish, Drop`} onClick={() => {
@@ -591,7 +593,7 @@ function ProjectRow(props: RowProps) {
         setMenu(true);
       }}
     >
-      <span className="small strong grow">{project.title} ▾</span>
+      <span className="small strong grow">{project.title} <Icon name="chevron-down" size={16} /></span>
     </button>
   );
   const pill = <Pill tone={stat.tone}>{stat.pill}</Pill>;
@@ -606,7 +608,7 @@ function ProjectRow(props: RowProps) {
       aria-label={`Goal for ${project.title}: ${goalName}. Change`}
       onClick={() => setPicking(true)}
     >
-      {goalName} <span aria-hidden="true">▾</span>
+      {goalName} <Icon name="chevron-down" size={16} />
     </button>
   );
   const goalPicker = picking && (
@@ -689,7 +691,7 @@ function CallRow(props: { call: Call; st: Stretch; ctx: PlanContext; phone: bool
   const keepRef = useRef<HTMLButtonElement>(null);
   const { plan, milestone: m } = call;
   const on = today(ctx.clock);
-  const btn = phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: phone ? 'grow' : undefined };
   const run = (p: Planned) => void act(p.key, p.text, (w) => applyPlanChange(w, p.change));
   const close = (state: 'finished' | 'dropped') => {
     setAsking(null);
@@ -739,27 +741,27 @@ function CallRow(props: { call: Call; st: Stretch; ctx: PlanContext; phone: bool
         <CloseQuestion state={asking} onYes={() => close(asking)} onNo={() => setAsking(null)} back={() => (asking === 'finished' ? finishRef : dropRef).current} />
       ) : m ? (
         <div className="row">
-          <button className={btn} type="button" aria-label={`Already done: ${call.title}`} onClick={() => markDone(m)}>
+          <Button {...btn} type="button" aria-label={`Already done: ${call.title}`} onClick={() => markDone(m)}>
             Already done
-          </button>
-          <button ref={keepRef} className={btn} type="button" aria-label={`Keep in plan: ${call.title}`} onClick={() => setKeeping(true)}>
+          </Button>
+          <Button ref={keepRef} {...btn} type="button" aria-label={`Keep in plan: ${call.title}`} onClick={() => setKeeping(true)}>
             Keep in plan
-          </button>
-          <button ref={dropRef} className={btn} type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
+          </Button>
+          <Button ref={dropRef} {...btn} type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
             Drop
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="row">
-          <button className={btn} type="button" aria-label={`Bring in ${call.title}`} onClick={bringIn}>
+          <Button {...btn} type="button" aria-label={`Bring in ${call.title}`} onClick={bringIn}>
             Bring in
-          </button>
-          <button ref={dropRef} className={`${btn} danger`} type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
+          </Button>
+          <Button ref={dropRef} {...btn} variant="destructive" type="button" aria-label={`Drop ${call.title}`} onClick={drop}>
             Drop
-          </button>
-          <button ref={finishRef} className={`${btn} danger`} type="button" aria-label={`Finish ${call.title}`} onClick={() => setAsking('finished')}>
+          </Button>
+          <Button ref={finishRef} {...btn} variant="destructive" type="button" aria-label={`Finish ${call.title}`} onClick={() => setAsking('finished')}>
             Finish
-          </button>
+          </Button>
         </div>
       )}
       {m && keeping && (
@@ -884,9 +886,9 @@ function Undated(props: { task: Task; phone: boolean; act: Act; onSave(): void }
         <span className="grow">
           <TaskName className="rowname" id={props.task.id} title={props.task.title} />
         </span>
-        <button ref={addRef} className={props.phone ? 'btn' : 'btn sm'} type="button" aria-label={`Add date for ${props.task.title}`} onClick={() => setEditing(true)}>
+        <Button ref={addRef} size="compact" type="button" aria-label={`Add date for ${props.task.title}`} onClick={() => setEditing(true)}>
           Add date
-        </button>
+        </Button>
       </div>
       {editing && <OneOffDateEditor task={props.task} phone={props.phone} act={props.act} opener={addRef} onSave={props.onSave} onClose={() => setEditing(false)} />}
     </>
@@ -898,13 +900,13 @@ function Caret(props: { open: boolean; label: string; onToggle(): void; phone: b
     <button ref={props.btnRef} className="qbtn" type="button" aria-expanded={props.open} onClick={props.onToggle}>
       {!props.phone && (
         <span className="qcaret" aria-hidden="true">
-          {props.open ? '▾' : '▸'}
+          <Icon name={props.open ? 'chevron-down' : 'chevron-right'} size={16} />
         </span>
       )}
       <span className="small strong grow">{props.label}</span>
       {props.phone && (
         <span className="chev" aria-hidden="true">
-          {props.open ? '▾' : '▸'}
+          <Icon name={props.open ? 'chevron-down' : 'chevron-right'} size={16} />
         </span>
       )}
     </button>
@@ -999,9 +1001,9 @@ export function ProjectsStep(props: {
         )}
         {active.map(row)}
         <div className={phone ? 'planadd' : 'planadd planlater'}>
-          <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => setAdding(true)}>
+          <Button size="compact" type="button" onClick={() => setAdding(true)}>
             + Add project
-          </button>
+          </Button>
         </div>
         {adding && <ProjectAdd objectiveId={null} end={st.end} write={add.project} onClose={() => setAdding(false)} />}
         {later.length > 0 && <Caret open={laterOpen} label={`Paused or starting later (${later.length})`} onToggle={() => setLaterOpen(!laterOpen)} phone={phone} />}
@@ -1026,9 +1028,9 @@ export function ProjectsStep(props: {
       )}
       {!phone && (
         <div>
-          <button className="btn pri" type="button" onClick={props.onNext}>
+          <Button variant="primary" type="button" onClick={props.onNext}>
             {props.continueLabel}
-          </button>
+          </Button>
         </div>
       )}
     </div>

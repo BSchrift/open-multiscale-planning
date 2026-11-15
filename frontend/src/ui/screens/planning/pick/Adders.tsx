@@ -15,6 +15,7 @@ import { useNav } from '../../../app/nav';
 import type { AddItem } from '../../../components/AddMenu';
 import { useAddItems } from '../WeekFit';
 import type { PickProps } from './PickStep';
+import { Button } from '../../../components/ds/Button';
 
 /** What's being added, and where. */
 export type Adding = { kind: 'task'; project: string; milestone?: string | null } | { kind: 'milestone'; project: string } | { kind: 'project' } | { kind: 'oneoff' } | null;
@@ -125,7 +126,7 @@ function MilestoneForm(props: PickProps & { plan: ProjectPlan; phone: boolean; o
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
   const [error, setError] = useState('');
-  const btn = props.phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();
@@ -161,12 +162,12 @@ function MilestoneForm(props: PickProps & { plan: ProjectPlan; phone: boolean; o
           </div>
         )}
         <div className="row">
-          <button className={`${btn} pri`} type="submit">
+          <Button {...btn} variant="primary" type="submit">
             Add
-          </button>
-          <button className={btn} type="button" onClick={props.onClose}>
+          </Button>
+          <Button {...btn} type="button" onClick={props.onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </form>
     </SheetOnPhone>
@@ -230,9 +231,9 @@ export function ProjectAdder(props: PickProps & { adder: AddingState; onAdded(id
     );
   }
   return (
-    <button
+    <Button
       id="addproject"
-      className="btn sm"
+      size="compact"
       type="button"
       onClick={() => {
         added.current = false;
@@ -240,6 +241,6 @@ export function ProjectAdder(props: PickProps & { adder: AddingState; onAdded(id
       }}
     >
       + Add project
-    </button>
+    </Button>
   );
 }

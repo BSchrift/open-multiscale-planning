@@ -17,6 +17,7 @@ import { useOpenTask } from '../../../components/task/TaskName';
 import { useFit } from '../WeekFit';
 import type { ListProps } from './Cards';
 import type { PickGroup, PickTask } from './model';
+import { Button } from '../../../components/ds/Button';
 
 /** 'A (2h)', 'A (2h) and B (1h)', 'A (2h), B (1h) and C (30m)'. */
 const listed = (rows: readonly PickTask[]) => {
@@ -41,7 +42,7 @@ function KeepForm(props: ListProps & { plan: ProjectPlan; milestone: Milestone; 
     props.keepMilestone(props.plan, m, date, tick ? add : []);
     props.onClose();
   };
-  const btn = props.phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: props.phone ? 'grow' : undefined };
   return (
     <form className="keepform" aria-label={`Keep ${m.title} in the plan`} noValidate onSubmit={save} onKeyDown={(event) => event.key === 'Escape' && props.onClose()}>
       <label className="small strong keepdate" htmlFor={id}>
@@ -72,12 +73,12 @@ function KeepForm(props: ListProps & { plan: ProjectPlan; milestone: Milestone; 
         </div>
       )}
       <div className="row keepacts">
-        <button className={`${btn} pri`} type="submit">
+        <Button {...btn} variant="primary" type="submit">
           Save
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -106,20 +107,20 @@ export function MilestoneLine(props: ListProps & { plan: ProjectPlan; milestone:
   const add = rows.filter((r) => !r.c.picked && r.c.left > 0);
   const n = rows.length;
   const due = formatDate(effectiveDue(plan, m, model.ctx));
-  const btn = phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: phone ? 'grow' : undefined };
   const keepName = allIn ? `Move date: ${m.title}` : `Keep ${m.title} in the plan`;
   const sub = allIn ? `${n === 1 ? 'Its task is' : n === 2 ? 'Both tasks are' : `All ${n} tasks are`} in this week. Still due ${due}.` : f.sub;
   const choices = (
     <span className={phone ? 'acts' : 'row ovacts'}>
-      <button className={btn} type="button" aria-label={`Already done: ${m.title}`} onClick={() => props.milestoneDone(plan, m)}>
+      <Button {...btn} type="button" aria-label={`Already done: ${m.title}`} onClick={() => props.milestoneDone(plan, m)}>
         Already done
-      </button>
-      <button ref={keepRef} className={btn} type="button" aria-label={keepName} aria-expanded={keeping} onClick={() => setKeeping(!keeping)}>
+      </Button>
+      <Button ref={keepRef} {...btn} type="button" aria-label={keepName} aria-expanded={keeping} onClick={() => setKeeping(!keeping)}>
         {allIn ? 'Move date' : 'Keep in plan'}
-      </button>
-      <button className={btn} type="button" aria-label={`Drop ${m.title}`} onClick={() => props.dropMilestone(plan, m)}>
+      </Button>
+      <Button {...btn} type="button" aria-label={`Drop ${m.title}`} onClick={() => props.dropMilestone(plan, m)}>
         Drop
-      </button>
+      </Button>
     </span>
   );
   return (
@@ -157,18 +158,18 @@ export function AskRow(props: ListProps & { row: PickTask }) {
   const { row: r, phone } = props;
   const openTask = useOpenTask();
   const [open, setOpen] = useState(false);
-  const btn = phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: phone ? 'grow' : undefined };
   const choices = (
     <span className={phone ? 'acts' : 'row ovacts'}>
-      <button className={btn} type="button" aria-label={`Already done: ${r.title}`} onClick={() => props.markDone(r, true)}>
+      <Button {...btn} type="button" aria-label={`Already done: ${r.title}`} onClick={() => props.markDone(r, true)}>
         Already done
-      </button>
-      <button className={btn} type="button" aria-label={`Keep ${r.title} in the plan`} onClick={() => props.keepCarried(r)}>
+      </Button>
+      <Button {...btn} type="button" aria-label={`Keep ${r.title} in the plan`} onClick={() => props.keepCarried(r)}>
         Keep in plan
-      </button>
-      <button className={btn} type="button" aria-label={`Drop ${r.title}`} onClick={() => props.dropTask(r)}>
+      </Button>
+      <Button {...btn} type="button" aria-label={`Drop ${r.title}`} onClick={() => props.dropTask(r)}>
         Drop
-      </button>
+      </Button>
     </span>
   );
   return (

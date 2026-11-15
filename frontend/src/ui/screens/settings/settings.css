@@ -1,17 +1,17 @@
 [data-layout] .settings {
-  gap: 24px;
+  gap: var(--space-6);
 }
 /* Each section is a card, its heading a small label on the ground above it. Setup's unavailable list is a card too. */
 [data-layout] .settings h2 {
   padding: 0 var(--space-1);
   color: var(--ink-2);
-  font-size: var(--text-md);
+  font-size: var(--fs-label);
 }
 [data-layout='phone'] .settings h2 {
   padding: 0;
 }
 [data-layout='desktop'] .settings h2 {
-  font-size: var(--text-sm);
+  font-size: var(--fs-meta);
 }
 [data-layout] :is(.settings, .setup) .card {
   padding: var(--space-4);
@@ -25,7 +25,7 @@
   padding-top: 0;
 }
 [data-layout] .settings h3 {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* A time slider: its label above on phone, beside it on desktop. */
@@ -47,16 +47,16 @@
   position: absolute;
   top: calc(50% - 3px);
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-block);
 }
 .hourtrack::before {
   content: '';
   left: calc(var(--thumb) / 2);
   right: calc(var(--thumb) / 2);
-  background: var(--line-strong);
+  background: var(--line);
 }
 .timewindow {
-  background: var(--blue);
+  background: var(--accent);
 }
 .hourtrack input[type='range'] {
   position: absolute;
@@ -82,8 +82,8 @@
   width: var(--thumb);
   height: var(--thumb);
   border: none;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, transparent 12.5px);
+  border-radius: var(--radius-circle);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 12px, transparent 12.5px);
   pointer-events: auto;
   cursor: grab;
 }
@@ -91,8 +91,8 @@
   width: var(--thumb);
   height: var(--thumb);
   border: none;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, transparent 12.5px);
+  border-radius: var(--radius-circle);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 12px, transparent 12.5px);
   pointer-events: auto;
   cursor: grab;
 }
@@ -100,16 +100,16 @@
   outline: none;
 }
 .hourtrack input[type='range']:focus-visible::-webkit-slider-thumb {
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 16px, transparent 16.5px);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 16px, transparent 16.5px);
 }
 .hourtrack input[type='range']:focus-visible::-moz-range-thumb {
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 16px, transparent 16.5px);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 16px, transparent 16.5px);
 }
 .hourticks {
   position: relative;
   height: 1.4em;
-  font-size: 12px;
-  color: var(--quiet);
+  font-size: var(--fs-caption);
+  color: var(--ink-3);
 }
 .hourticks span {
   position: absolute;
@@ -118,7 +118,7 @@
 }
 [data-layout='phone'] .settings .delay input[type='range'] {
   display: block;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 [data-layout='phone'] .settings .delay input[type='range'] {
   display: block;
@@ -148,7 +148,7 @@
 }
 [data-layout] .settings .mhead.setrow,
 [data-layout] .settings .mhead.rowline {
-  padding-left: 12px;
+  padding-left: var(--space-3);
 }
 /* A block's Projects and One offs ticks, under the Closed to that says what a tick means: beside them on desktop, above
    them on phone. */
@@ -171,13 +171,13 @@
 .settings .updbar {
   height: 6px;
   max-width: 320px;
-  border-radius: 3px;
-  background: var(--line);
+  border-radius: var(--radius-block);
+  background: var(--hairline);
   overflow: hidden;
 }
 
 .settings .updbar > i {
   display: block;
   height: 100%;
-  background: var(--blue);
+  background: var(--accent);
 }

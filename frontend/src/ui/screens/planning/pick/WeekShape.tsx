@@ -15,6 +15,8 @@ import { needOf, NeedYou } from './NeedYou';
 import type { PickProps } from './PickStep';
 import { SuggestPreview } from './Suggest';
 import { TimePopover } from './TimePopover';
+import { Button } from '../../../components/ds/Button';
+import { Icon } from '../../../components/ds/Icon';
 
 const pct = (share: number) => `${(share * 100).toFixed(1)}%`;
 
@@ -99,9 +101,9 @@ export function WeekShape(props: PickProps & { phone: boolean; preview: { projec
         <>
           {view.hintMin > 0 && (
             <div className="editrow">
-              <button ref={suggestRef} className="btn sm" type="button" aria-haspopup="dialog" aria-expanded={open === 'suggest'} onClick={() => setOpen(open === 'suggest' ? null : 'suggest')}>
+              <Button ref={suggestRef} size="compact" type="button" aria-haspopup="dialog" aria-expanded={open === 'suggest'} onClick={() => setOpen(open === 'suggest' ? null : 'suggest')}>
                 Add suggested {formatMinutes(view.hintMin)}
-              </button>
+              </Button>
               {open === 'suggest' && <SuggestPreview {...props} onClose={close(suggestRef.current)} />}
             </div>
           )}
@@ -117,9 +119,9 @@ export function WeekShape(props: PickProps & { phone: boolean; preview: { projec
           <span id={namesId} className="sr">
             {need.names}
           </span>
-          <button className="btn pri" type="button" data-continue aria-label={need.words.next} aria-describedby={need.words.n ? namesId : undefined} onClick={props.onNext}>
+          <Button variant="primary" type="button" data-continue aria-label={need.words.next} aria-describedby={need.words.n ? namesId : undefined} onClick={props.onNext}>
             Continue to scheduling
-          </button>
+          </Button>
         </>
       )}
     </section>
@@ -152,7 +154,7 @@ export function WeekList(props: PickProps) {
                   {weekText(r.c)}
                 </button>
                 <button className="pix" type="button" aria-label={`Remove ${r.title} from this week`} onClick={() => props.dropFromWeek(r, true)}>
-                  ×
+                  <Icon name="close" />
                 </button>
               </li>
             ))}

@@ -58,11 +58,11 @@ describe('the week grid', () => {
     expect(within(grid).getByText('Sun Nov 8')).toBeVisible();
     // Weekdays are open 7 to 9 and 5 to 10, so 7h free with nothing placed.
     expect(container.querySelectorAll('.colhead .free')[3]).toHaveTextContent('7h free');
-    expect(screen.getByRole('button', { name: /Write the report/ })).toHaveClass('ev-project');
-    expect(screen.getByRole('button', { name: /Piano practice/ })).toHaveClass('ev-practice');
-    expect(screen.getByRole('button', { name: /Paint the fence/ })).toHaveClass('ev-maint');
-    expect(screen.getByText('Quiz night')).toHaveClass('ev-busy');
-    expect(screen.getByText('Street fair')).toHaveClass('ev-info');
+    expect(screen.getByRole('button', { name: /Write the report/ })).toHaveClass('k-project');
+    expect(screen.getByRole('button', { name: /Piano practice/ })).toHaveClass('k-practice');
+    expect(screen.getByRole('button', { name: /Paint the fence/ })).toHaveClass('k-oneoff');
+    expect(screen.getByText('Quiz night')).toHaveClass('k-event');
+    expect(screen.getByText('Street fair')).toHaveClass('k-info');
     expect(container.querySelectorAll('.colbody')[0]!.querySelectorAll('.ev-closed').length).toBeGreaterThan(0);
   });
 
@@ -100,7 +100,7 @@ describe('the week grid', () => {
     it('a planning block, busy time too, is drawn once, as its block, so nothing shows between the columns', () => {
       const plan: GridBlock = { ...essay, id: 'b5', title: 'Plan the week', kind: 'planning' };
       const { container } = draw({ ctx: ctx({ busy: [{ date: plan.date, start: plan.start, end: plan.end, id: 'b5', title: 'Plan the week' }] }), blocks: [report, plan] });
-      expect(container.querySelectorAll('.ev-busy')).toHaveLength(0);
+      expect(container.querySelectorAll('.k-event')).toHaveLength(0);
       expect(screen.getAllByText('Plan the week')).toHaveLength(1);
     });
 
@@ -146,16 +146,18 @@ describe('the week grid', () => {
     it.each([false, true])('is struck through only when done; Partly and Not done say so in words instead, editing %s', (editing) => {
       const { container } = draw({ blocks, editing, lockPast: editing });
       const drawn = (title: string) => [...container.querySelectorAll('.ev')].find((e) => e.textContent?.endsWith(title))!;
-      expect(drawn('Write the report')).toHaveClass('ended', 'done');
-      expect(drawn('Read the notes')).toHaveClass('ended', 'notdone');
-      expect(drawn('Read the notes')).not.toHaveClass('done');
+      expect(drawn('Write the report')).toHaveClass('s-done');
+      expect(drawn('Read the notes')).toHaveClass('s-notdone');
+      expect(drawn('Read the notes')).not.toHaveClass('s-done');
       expect(within(drawn('Read the notes') as HTMLElement).getByText('Not done')).toBeVisible();
-      expect(drawn('Email the editor')).toHaveClass('ended', 'partly');
-      expect(drawn('Email the editor')).not.toHaveClass('done');
+      expect(drawn('Email the editor')).toHaveClass('s-partly');
+      expect(drawn('Email the editor')).not.toHaveClass('s-done');
       expect(within(drawn('Email the editor') as HTMLElement).getByText('Partly')).toBeVisible();
-      // One with no answer yet is only muted.
-      expect(drawn('File the receipts')).toHaveClass('ended');
-      expect(drawn('File the receipts')).not.toHaveClass('done');
+      // One with no answer yet is dashed, with an empty ring.
+      expect(drawn('File the receipts')).toHaveClass('s-goneby');
+      // Each answer as its round badge: a filled tick, a cross in a ring, a half circle, a dashed ring.
+      expect(['Write the report', 'Read the notes', 'Email the editor', 'File the receipts'].map((t) => (drawn(t).querySelector('.ansbadge svg') as SVGElement | null)?.dataset.icon)).toEqual(['done', 'not-done', 'partly', 'no-answer']);
+      expect(drawn('File the receipts')).not.toHaveClass('s-done');
       expect(drawn('File the receipts')).toHaveTextContent(/^File the receipts$/);
     });
 

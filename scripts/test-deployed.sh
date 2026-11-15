@@ -48,7 +48,8 @@ if ! MULTISCALE_TARGET="$(node scripts/test-target.mjs)"; then
   exit 1
 fi
 release_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).ReleaseUrl ?? "")' "$outputs")"
-export MULTISCALE_TARGET DEPLOYED_WEB_URL="$web_url" DEPLOYED_RELEASE_URL="$release_url"
+downloads_url="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).DownloadsUrl ?? "")' "$outputs")"
+export MULTISCALE_TARGET DEPLOYED_WEB_URL="$web_url" DEPLOYED_RELEASE_URL="$release_url" DEPLOYED_DOWNLOADS_URL="$downloads_url"
 
 # Each suite's whole output is kept, so a failure can be looked into after a long run.
 logs="$root/frontend/test-results/deployed-$env_name"

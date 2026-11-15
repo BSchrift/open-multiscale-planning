@@ -233,6 +233,46 @@ describe('closeProject', () => {
     });
   }
 
+  for (const state of ['finished', 'dropped'] as const) {
+    it(`${state} with its open tasks moved to the goal's backlog: drops the milestones they leave unmet, and undoes exactly`, async () => {
+      const { clock, db } = await setup();
+      await transact(db, clock, async (w) => {
+        await w.create('objective', { title: 'Learn to bake bread', state: 'active' }, 'bread');
+        await w.create('project', { objective_id: 'bread', title: 'Rye bread', state: 'active', start: '2026-10-01', end: '2026-10-31' }, 'p');
+        await w.create('milestone', { project_id: 'p', title: 'First loaf', due: '2026-10-20' }, 'm1');
+        await w.create('milestone', { project_id: 'p', title: 'Starter', due: '2026-10-10' }, 'm2');
+        await w.set('task', 't', { milestone_id: 'm1' });
+        await w.create('task', { kind: 'project', title: 'Feed the starter', project_id: 'p', milestone_id: 'm2', done_at: '2026-10-09T12:00:00Z' }, 'fed');
+      });
+      const undo = await transact(db, clock, (w) => closeProject(w, 'p', state, clock, { moveToBacklog: true }));
+
+      expect((await getRecord(db, 'project', 'p'))?.state).toBe(state);
+      // Nothing is cancelled: the open tasks are in the backlog, last, and remember the milestone they came from.
+      expect(await getRecord(db, 'task', 't')).toMatchObject({ project_id: 'backlog:bread', milestone_id: null, moved_from: 'm1' });
+      expect(await getRecord(db, 'task', 'other')).toMatchObject({ project_id: 'backlog:bread', milestone_id: null, moved_from: null });
+      expect((await getRecord(db, 'task', 't'))?.cancelled_at).toBeUndefined();
+      // A milestone left with no open task would read as met, so it is dropped; one already reached stays as it was.
+      expect((await getRecord(db, 'milestone', 'm1'))?.dropped_at).toBe(NOW);
+      expect((await getRecord(db, 'milestone', 'm2'))?.dropped_at).toBeUndefined();
+      // Its blocks and picks stay: the task still exists, so they follow it.
+      expect((await getRecord(db, 'time_block', 'future'))?.cancelled).toBeUndefined();
+      // Restore in any app version only reopens the project, so the moves stay out of the close's log entry.
+      expect((await getRecord(db, 'project', 'p'))?.slip_log?.at(-1)?.undo).toEqual([{ type: 'project', id: 'p', fields: { state: 'active' } }]);
+
+      await transact(db, clock, (w) => applyPlanChange(w, undo));
+      expect((await getRecord(db, 'project', 'p'))?.state).toBe('active');
+      expect(await getRecord(db, 'task', 't')).toMatchObject({ project_id: 'p', milestone_id: 'm1', moved_from: null });
+      expect((await getRecord(db, 'milestone', 'm1'))?.dropped_at).toBeNull();
+    });
+  }
+
+  it('cancels as before when the project has no goal, even when asked to move', async () => {
+    const { clock, db } = await setup();
+    await transact(db, clock, (w) => w.create('project', { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-10-31' }, 'p'));
+    await transact(db, clock, (w) => closeProject(w, 'p', 'finished', clock, { moveToBacklog: true }));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ project_id: 'p', cancelled_at: NOW, cancelled_by: 'p' });
+  });
+
   it("logs the close with an undo that clears the marks too, so an older app's Restore leaves none behind", async () => {
     const { clock, db } = await setup();
     await transact(db, clock, (w) => w.create('project', { title: 'Write the report', state: 'paused', start: '2026-10-01', end: '2026-10-31' }, 'p'));

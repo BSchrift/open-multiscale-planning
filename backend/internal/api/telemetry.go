@@ -26,14 +26,14 @@ var maxTelemetryRecords = config.Protocol.Telemetry.MaxBatchEvents
 
 var (
 	telemetryEvents = set("app.start", "app.last_session", "app.heartbeat", "app.hidden", "device.memory_warning", "exception",
-		"app.update.check", "app.update.rollback")
+		"app.update.check", "app.update.rollback", "app.update.installed")
 	// Resource attributes describe the device and this run of the app; record attributes describe the event.
 	telemetryResource = set("service.version", "os.name", "os.version", "device.id", "device.model.identifier",
 		"session.id", "deployment.environment.name", "app.platform")
 	telemetryAttributes = set("app.screen.name", "app.page_loads", "app.uptime", "app.memory_warnings", "app.last_session.state",
 		"process.memory.usage", "process.memory.peak", "browser.dom.nodes",
 		"exception.type", "code.file.path", "code.line.number", "code.column.number",
-		"app.update.outcome", "app.update.failure", "app.update.build")
+		"app.update.outcome", "app.update.failure", "app.update.build", "app.update.from")
 	telemetryString = regexp.MustCompile(`^[A-Za-z0-9._,/:-]{1,80}$`)
 )
 

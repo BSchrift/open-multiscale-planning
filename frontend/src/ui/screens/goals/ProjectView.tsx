@@ -27,6 +27,7 @@ import { useShowCompleted } from '../../app/showCompleted';
 import { useApp, useMutation } from '../../app/store';
 import { CloseProject, diamondFor, doneDiamond, GoalSelect, MilestoneEditor, OverdueFix, TaskEditor, useLeave, usePlanChange } from '../../components/editors';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { ChevronIcon } from '../../components/icons';
 import { LateWarning, lateSaid, lateText } from '../../components/LateWarning';
 import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { Pill } from '../../components/Pill';
@@ -48,9 +49,10 @@ type Point = { clientX: number; clientY: number };
 
 /**
  * Phone: holding a task lifts it, and letting go over a group ([data-drop]) moves it there. Moving before the hold
- * scrolls instead. The Milestone selector in the task's sheet does the same without dragging.
+ * scrolls instead. The Milestone selector in the task's sheet does the same without dragging. A goal backlog's rows use
+ * it too, with no hold for a desktop drag handle.
  */
-function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
+export function useHoldToMove(onDrop: (taskId: string, key: string) => void, holdMs = HOLD_MS) {
   const [drag, setDrag] = useState<{ id: string; title: string; y: number; over: string } | null>(null);
   const press = (id: string, title: string) => (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
@@ -94,7 +96,7 @@ function useHoldToMove(onDrop: (taskId: string, key: string) => void) {
     const timer = setTimeout(() => {
       lifted = true;
       track({ clientX: x0, clientY: y0 });
-    }, HOLD_MS);
+    }, holdMs);
   };
   return { drag, press };
 }
@@ -357,9 +359,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
       <button className={layout === 'phone' ? 'card projbtn morerow' : 'link small settingsbtn'} type="button" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
         <span>Project settings</span>
         {layout === 'phone' && (
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+          <span className="chev" aria-hidden="true"><ChevronIcon /></span>
         )}
       </button>
       {settingsOpen && (
@@ -506,7 +506,7 @@ export function ProjectPage(props: { plan: ProjectPlan | undefined; goal: string
     return <p className="quiet">This project is no longer active.</p>;
   }
   return (
-    <div className="stack">
+    <div className="stack projectpage">
       <div>
         <h1>{plan.project.title}</h1>
         <div className="small quiet">{props.goal ?? 'No goal'}</div>

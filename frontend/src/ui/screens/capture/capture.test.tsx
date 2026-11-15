@@ -126,6 +126,31 @@ describe('Capture on desktop', () => {
     expect(await tasks(t.db)).toMatchObject([{ project_id: 'p1', milestone_id: null }]);
   });
 
+  it("saves straight to a goal's backlog, listed after One offs, with no milestone to choose", async () => {
+    const close = vi.fn();
+    const t = await renderScreen('capture', {
+      seed: async (w) => {
+        await seed(w);
+        await w.create('objective', { title: 'Learn to bake bread', state: 'active' }, 'g1');
+        await w.create('objective', { title: 'Old goal', state: 'archived' }, 'g2');
+        await w.create('project', { objective_id: 'g1', title: 'Learn to bake bread, Backlog', ...running }, 'backlog:g1');
+      },
+      presentation: 'overlay',
+      close,
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add details' }));
+    const to = screen.getByRole('combobox', { name: 'Send to' });
+    expect(within(to).getAllByRole('option').map((o) => o.textContent)).toEqual(['Inbox', 'One offs', 'Learn to bake bread, Backlog', 'Paint the fence']);
+    await userEvent.selectOptions(to, 'Learn to bake bread, Backlog');
+    expect(screen.queryByRole('combobox', { name: 'Milestone' })).toBeNull();
+    expect(screen.getByText('Saves to the backlog for Learn to bake bread')).toBeInTheDocument();
+    await userEvent.type(field(), 'Buy a banneton{Enter}');
+    expect(await screen.findByText('Saved to the backlog for Learn to bake bread')).toBeInTheDocument();
+    const [task] = await tasks(t.db);
+    expect(task).toMatchObject({ kind: 'project', project_id: 'backlog:g1', milestone_id: null, title: 'Buy a banneton' });
+    expect(typeof task?.order).toBe('number');
+  });
+
   it('sends straight to One offs', async () => {
     const t = await open();
     await userEvent.click(screen.getByRole('button', { name: 'Add details' }));

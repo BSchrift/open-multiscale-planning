@@ -22,20 +22,30 @@ describe('oldestLive', () => {
       [`${WEB}/version.json`]: page('0.1.0-ccccccc', 300),
       [`${RELEASE}/desktop/release.json`]: feed('0.1.0-bbbbbbb', 200),
       [`${RELEASE}/iphone/release.json`]: feed('0.1.0-aaaaaaa', 100),
-      [`${RELEASE}/release.json`]: feed('0.1.0-bbbbbbb', 200),
     });
     expect(await oldestLive({ WebUrl: WEB, ReleaseUrl: RELEASE }, fetch)).toEqual({ version: '0.1.0-aaaaaaa', build: 100, surface: 'iphone' });
-    expect(asked).toEqual([`${WEB}/version.json`, `${RELEASE}/desktop/release.json`, `${RELEASE}/iphone/release.json`, `${RELEASE}/release.json`]);
+    expect(asked).toEqual([`${WEB}/version.json`, `${RELEASE}/desktop/release.json`, `${RELEASE}/iphone/release.json`]);
+  });
+
+  it('never reads the shared feed at the root, which is gone', async () => {
+    const { fetch, asked } = host({
+      [`${WEB}/version.json`]: page('0.1.0-ccccccc', 300),
+      [`${RELEASE}/desktop/release.json`]: feed('0.1.0-ccccccc', 300),
+      [`${RELEASE}/iphone/release.json`]: feed('0.1.0-ccccccc', 300),
+      [`${RELEASE}/release.json`]: feed('0.1.0-aaaaaaa', 100),
+    });
+    expect(await oldestLive({ WebUrl: WEB, ReleaseUrl: RELEASE }, fetch)).toMatchObject({ version: '0.1.0-ccccccc' });
+    expect(asked).not.toContain(`${RELEASE}/release.json`);
   });
 
   it('leaves out a feed that is missing, and an environment with no release host', async () => {
-    const { fetch } = host({ [`${WEB}/version.json`]: page('0.1.0-ccccccc', 300), [`${RELEASE}/release.json`]: feed('0.1.0-bbbbbbb', 200) });
-    expect(await oldestLive({ WebUrl: WEB, ReleaseUrl: RELEASE }, fetch)).toMatchObject({ version: '0.1.0-bbbbbbb', surface: 'shared' });
+    const { fetch } = host({ [`${WEB}/version.json`]: page('0.1.0-ccccccc', 300), [`${RELEASE}/desktop/release.json`]: feed('0.1.0-bbbbbbb', 200) });
+    expect(await oldestLive({ WebUrl: WEB, ReleaseUrl: RELEASE }, fetch)).toMatchObject({ version: '0.1.0-bbbbbbb', surface: 'desktop' });
     expect(await oldestLive({ WebUrl: WEB }, fetch)).toMatchObject({ version: '0.1.0-ccccccc', surface: 'web' });
   });
 
   it("fails when web's version can't be read, as the one surface every release has", async () => {
-    const { fetch } = host({ [`${RELEASE}/release.json`]: feed('0.1.0-bbbbbbb', 200) });
+    const { fetch } = host({ [`${RELEASE}/desktop/release.json`]: feed('0.1.0-bbbbbbb', 200) });
     await expect(oldestLive({ WebUrl: WEB, ReleaseUrl: RELEASE }, fetch)).rejects.toThrow(/version\.json/);
     await expect(oldestLive({}, fetch)).rejects.toThrow(/WebUrl/);
   });

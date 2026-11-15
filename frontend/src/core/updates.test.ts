@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createUpdater } from './updates';
-import type { DownloadedRelease, Manifest, NativeUpdates, Updater } from './updates';
+import type { DownloadedRelease, Manifest, NativeAppUpdates, NativeUpdates, Updater } from './updates';
 
 const URL = 'https://release.example.test';
 const manifest = (over: Partial<Manifest> = {}): Manifest => ({
@@ -172,5 +172,131 @@ describe('createUpdater', () => {
     const n = native();
     await start(server(manifest()), n).apply();
     expect(n.apply).toHaveBeenCalled();
+  });
+});
+
+// The Mac app replacing itself (electron/appUpdates.ts), for a release whose signed manifest names the app that runs it.
+describe('the Mac app updating itself', () => {
+  const APP = { version: '0.1.200', build: 200, shell: 'newer', folder: 'mac/0.1.200/', file: 'Multiscale.zip', sha512: `${'A'.repeat(86)}==`, size: 9 };
+  const newApp = (over: Partial<Manifest> = {}) => manifest({ shell: { electron: 'newer', ios: 'shell-i' }, app: APP, ...over });
+  const DMG = 'https://downloads.example.test/Multiscale.dmg';
+  const VERSIONED = 'https://downloads.example.test/mac/0.1.200/Multiscale.dmg';
+  let updater: Updater | undefined;
+
+  function appUpdates(over: Partial<NativeAppUpdates> = {}) {
+    return {
+      place: vi.fn(async () => null),
+      staged: vi.fn(async () => null),
+      download: vi.fn(async (_release: { manifest: string; signature: string }, progress: (percent: number) => void) => {
+        progress(40);
+        progress(100);
+      }),
+      install: vi.fn(async () => undefined),
+      restart: vi.fn(async () => undefined),
+      move: vi.fn(async () => undefined),
+      updated: vi.fn(async () => null),
+      built: vi.fn(async () => 1762160000),
+      ...over,
+    } satisfies NativeAppUpdates;
+  }
+  const memory = () => {
+    const kept = new Map<string, string>();
+    return { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => void kept.set(key, value) };
+  };
+  const start = (m: Manifest, app: NativeAppUpdates | undefined, store = memory()) =>
+    (updater = createUpdater({ url: URL, version: '0.1.0-aaaaaaa', build: 100, shell: 'shell-e', platform: 'electron', native: { ...native(), ...(app ? { app } : {}) }, fetch: server(m), download: DMG, store }));
+
+  beforeEach(() => vi.spyOn(console, 'warn').mockImplementation(() => undefined));
+  afterEach(() => {
+    updater?.stop();
+    vi.restoreAllMocks();
+  });
+
+  it('hands the signed release to the app updater, reports the download with a percent, then the app ready', async () => {
+    const app = appUpdates();
+    const u = start(newApp(), app);
+    const seen: unknown[] = [];
+    u.subscribe(() => seen.push(u.status()));
+    expect(await u.check()).toEqual({ state: 'app-ready', version: '0.2.0-bbbbbbb', build: 200, dmg: VERSIONED });
+    expect(app.download).toHaveBeenCalledWith({ manifest: JSON.stringify(newApp()), signature: 'sig' }, expect.any(Function));
+    expect(seen.filter((s) => (s as { state: string }).state === 'app-downloading').map((s) => (s as { percent: number }).percent)).toEqual([0, 40, 100]);
+    // Ready stays ready: the next check finds it staged and downloads nothing.
+    vi.mocked(app.staged).mockResolvedValue({ build: 200, interrupted: false });
+    expect(await u.check()).toMatchObject({ state: 'app-ready' });
+    expect(app.download).toHaveBeenCalledOnce();
+  });
+
+  it("asks for the disk image as now without an app updater, as on today's apps, or for a release that names no app", async () => {
+    expect(await start(newApp(), undefined).check()).toEqual({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200, dmg: VERSIONED });
+    updater?.stop();
+    const app = appUpdates();
+    const { app: _, ...noApp } = newApp();
+    expect(await start(noApp, app).check()).toEqual({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 });
+    expect(app.download).not.toHaveBeenCalled();
+  });
+
+  it("says why the app can't update itself, and downloads nothing by itself then", async () => {
+    for (const [kind, status] of [
+      ['disk-image', { failure: 'read-only', place: 'disk-image' }],
+      ['translocated', { failure: 'read-only', place: 'translocated' }],
+      ['needs-admin', { failure: 'needs-admin' }],
+      ['older', { failure: 'older-app' }],
+    ] as const) {
+      const app = appUpdates({ place: vi.fn(async () => ({ kind })) });
+      expect(await start(newApp(), app).check()).toEqual({ state: 'failed', version: '0.2.0-bbbbbbb', build: 200, dmg: VERSIONED, ...status });
+      expect(app.download).not.toHaveBeenCalled();
+      updater?.stop();
+    }
+  });
+
+  it('knows where the app runs from before there is an update, and when it was built', async () => {
+    const u = start(manifest({ build: 100 }), appUpdates({ place: vi.fn(async () => ({ kind: 'disk-image' as const })) }));
+    await vi.waitFor(() => expect(u.app?.place()).toEqual({ kind: 'disk-image' }));
+    expect(u.app?.built()).toBe(1762160000);
+  });
+
+  it('maps each failure to its state, and offers the disk image after three failed downloads in a row', async () => {
+    const failing = (message: string) => appUpdates({ download: vi.fn(async () => Promise.reject(new Error(message))) });
+    expect(await start(newApp(), failing('[app-space] The disk is full')).check()).toMatchObject({ state: 'failed', failure: 'app-space' });
+    updater?.stop();
+    const u = start(newApp(), failing('net::ERR_INTERNET_DISCONNECTED'));
+    expect(await u.check()).toMatchObject({ state: 'failed', failure: 'app-download', failures: 1 });
+    await u.check();
+    expect(await u.check()).toMatchObject({ state: 'failed', failure: 'app-download', failures: 3 });
+  });
+
+  it("doesn't download a build Squirrel refused again, across launches, until a newer build or Update the app", async () => {
+    const store = memory();
+    const app = appUpdates({ download: vi.fn(async () => Promise.reject(new Error('[app-signature] Code signature did not match'))) });
+    expect(await start(newApp(), app, store).check()).toMatchObject({ state: 'failed', failure: 'app-signature' });
+    updater?.stop();
+    const again = appUpdates();
+    expect(await start(newApp(), again, store).check()).toMatchObject({ state: 'failed', failure: 'app-signature', build: 200 });
+    expect(again.download).not.toHaveBeenCalled();
+    // Update the app is the person's say-so: it installs the build and forgets the refusal.
+    await updater!.app!.install();
+    expect(again.install).toHaveBeenCalledWith({ manifest: JSON.stringify(newApp()), signature: 'sig' });
+    updater?.stop();
+    const newer = appUpdates();
+    expect(await start(newApp({ build: 201 }), newer, store).check()).toMatchObject({ state: 'app-ready', build: 201 });
+  });
+
+  it("says an update didn't install when a shutdown cut it short, and Restart to update tries again", async () => {
+    const app = appUpdates({ staged: vi.fn(async () => ({ build: 200, interrupted: true })) });
+    const u = start(newApp(), app);
+    expect(await u.check()).toMatchObject({ state: 'failed', failure: 'app-install', build: 200 });
+    expect(app.download).not.toHaveBeenCalled();
+    await u.app!.restart();
+    expect(app.restart).toHaveBeenCalled();
+  });
+
+  it('moves the app to Applications, and answers once that it was updated, to everyone who asks', async () => {
+    const app = appUpdates({ updated: vi.fn(async () => ({ from: 100, to: 200 })) });
+    const u = start(newApp(), app);
+    await u.app!.move();
+    expect(app.move).toHaveBeenCalled();
+    expect(await u.app!.updated()).toEqual({ from: 100, to: 200 });
+    expect(await u.app!.updated()).toEqual({ from: 100, to: 200 });
+    expect(app.updated).toHaveBeenCalledOnce();
   });
 });

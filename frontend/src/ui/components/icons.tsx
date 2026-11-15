@@ -16,10 +16,10 @@ export function PenIcon() {
   );
 }
 
-/** An answer to a missed block: Finished (a tick), Partly (half a circle, filled) or Not done (a cross). */
+/** An answer to a block gone by: Done (a tick), Partly (half a circle, filled) or Not done (a cross). */
 export function AnswerIcon(props: { answer: 'done' | 'partly' | 'not' }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="ansicon" viewBox="0 0 24 24" aria-hidden="true">
       {props.answer === 'done' && <path d="M5.5 12.5l4.25 4.25L18.5 8" />}
       {props.answer === 'partly' && (
         <>

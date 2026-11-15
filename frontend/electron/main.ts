@@ -1,15 +1,17 @@
 // The main process: owns the SQLite connection, reminder timers and keychain, and everything that outlives a window.
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { accessSync, existsSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, Notification, powerMonitor, protocol, safeStorage, shell, Tray } from 'electron';
+import { app, autoUpdater as squirrel, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, Notification, powerMonitor, protocol, safeStorage, shell, Tray } from 'electron';
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import Database from 'better-sqlite3';
 import type { Reminder } from '../src/core/types';
-import type { DownloadedRelease } from '../src/core/updates';
+import type { DownloadedRelease, SignedRelease } from '../src/core/updates';
 import type { ReminderResponse } from '../src/platform/types';
+import { afterMove, appUpdates, MOVED_FILE, readOnlyPlace, setsLoginItem } from './appUpdates';
+import type { Updater } from './appUpdates';
 import { captureHotkey } from './hotkey';
 import { createReminderTimers } from './reminder-timers';
 import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl } from './security';
@@ -17,7 +19,9 @@ import { betterSqliteDriver } from './sqlite-driver';
 import { fileTokens } from './tokens';
 import { webBundles } from './updates';
 
-declare const __BUILD__: { name: string; scheme: string; backendOrigins: string[]; devUrl: string | null };
+declare const __BUILD__: { name: string; scheme: string; backendOrigins: string[]; downloadsOrigin: string | null; devUrl: string | null };
+/** Only an e2e build, which runs unpackaged, stands in for where the app is and for electron-updater (e2e/desktop.spec.ts). */
+declare const __E2E__: boolean;
 
 /** A custom event, so that the tray and tests take the same path as the key press. */
 const CAPTURE_EVENT = 'capture-shortcut';
@@ -34,6 +38,7 @@ let mainWindow: BrowserWindow;
 let captureWindow: BrowserWindow | undefined;
 let captureDrawn: Promise<void>;
 let tray: Tray; // Module scope: a collected tray disappears from the menu bar.
+let hotkey: ReturnType<typeof captureHotkey>;
 let quitting = false;
 
 // The web bundle the scheme serves: the one inside the app, or a newer one downloaded over the air.
@@ -42,6 +47,24 @@ let web = { root: WEB_ROOT, build: 0 };
 let trial: NodeJS.Timeout | undefined;
 // Kept until the page loaded after the rollback asks, so telemetry can report it.
 let rolledBack: number | null = null;
+// The app replacing itself: appUpdates.ts. Only a packaged app that knows its downloads host has it.
+let appUpdater: ReturnType<typeof appUpdates> | undefined;
+let movedHere = false;
+
+/** The app bundle this runs from, such as /Applications/Multiscale.app. */
+const appPath = () => (__E2E__ && process.env.MULTISCALE_E2E_APP_PATH) || resolve(app.getPath('exe'), '../../..');
+/** Whether this can be a packaged app that moves and updates itself. */
+const selfUpdating = () => app.isPackaged || __E2E__;
+/** macOS's own dialog, or in an e2e build the answer the test gives, with what it would have said printed for the test. */
+async function ask(options: Electron.MessageBoxOptions): Promise<number> {
+  if (__E2E__ && process.env.MULTISCALE_E2E_ANSWER) {
+    const said = `${options.message} ${options.detail ?? ''}`;
+    console.log(`dialog: ${said}`);
+    ((globalThis as unknown as { multiscaleE2eDialogs?: string[] }).multiscaleE2eDialogs ??= []).push(said);
+    return Number(process.env.MULTISCALE_E2E_ANSWER);
+  }
+  return (await dialog.showMessageBox(options)).response;
+}
 
 // The page must be up before it can take a capture or a deep link: it loads hidden at login, and reloads after a crash.
 let pageReady = false;
@@ -247,17 +270,54 @@ function trayMenu(hotkey: string) {
       { label: `Open ${__BUILD__.name}`, click: showMain },
       { label: 'Capture', accelerator: hotkey, click: () => app.emit(CAPTURE_EVENT) },
       { type: 'separator' },
+      // A ready app update, in its own group above Quit. Quit always quits: an update installs then, and doesn't reopen.
+      ...(appUpdater?.ready() ? [{ label: 'Restart to update', click: () => appUpdater?.restart() }, { type: 'separator' as const }] : []),
       { label: 'Quit', role: 'quit' },
     ]),
   );
 }
 
-/** Once, so that someone who later turns it off in System Settings stays off. */
+/**
+ * Once, so that someone who later turns it off in System Settings stays off. Never from a disk image or a temporary
+ * copy, so a login item never points there; a move to Applications sets it again from there if it was set.
+ */
 function startAtLoginOnFirstRun() {
   const marker = join(app.getPath('userData'), 'login-item-set');
-  if (!app.isPackaged || existsSync(marker)) return;
+  const moved = afterMove(app.getPath('userData'));
+  if (moved?.openAtLogin) app.setLoginItemSettings({ openAtLogin: true });
+  if (!setsLoginItem({ packaged: app.isPackaged, firstRunDone: existsSync(marker), place: readOnlyPlace(appPath(), accessSync) })) return;
   app.setLoginItemSettings({ openAtLogin: true });
   writeFileSync(marker, '');
+}
+
+/** Moves the app to Applications, which replaces an older copy there and opens the moved one. Says so if it can't. */
+async function moveToApplications(): Promise<boolean> {
+  writeFileSync(join(app.getPath('userData'), MOVED_FILE), JSON.stringify({ openAtLogin: app.getLoginItemSettings().openAtLogin }));
+  try {
+    // An e2e build runs the bare Electron binary, which must never move.
+    if (__E2E__) return false;
+    if (app.moveToApplicationsFolder()) return true;
+  } catch (error) {
+    console.error('Move to Applications failed', error);
+  }
+  await ask({ type: 'warning', message: `Couldn't move ${__BUILD__.name}`, detail: `Drag ${__BUILD__.name} to Applications in Finder, then open it from there.`, buttons: ['OK'] });
+  return false;
+}
+
+/** On first run from a disk image or a temporary copy, macOS's own dialog offers to move the app, before the window. */
+async function offerMove(): Promise<boolean> {
+  const where = selfUpdating() ? readOnlyPlace(appPath(), accessSync) : null;
+  if (!where) return false;
+  const from = where.kind === 'translocated' ? 'macOS is running it from a temporary copy' : "It's running from the disk image";
+  const response = await ask({
+    type: 'question',
+    message: `Move ${__BUILD__.name} to Applications?`,
+    detail: `${from}, so it can't keep itself up to date or open when you log in. Moving it takes a moment, then it opens again.`,
+    buttons: ['Move to Applications', 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  return response === 0 && (await moveToApplications());
 }
 
 function showReminder(reminder: Reminder) {
@@ -353,6 +413,46 @@ function start() {
   handleFrom(main, 'updates:apply', () => {
     if (bundles && bundles.newest().build > web.build) loadPage();
   });
+
+  // The app replacing itself, checked against the release key and the app record before anything downloads.
+  if (bundles && selfUpdating() && __BUILD__.downloadsOrigin) {
+    appUpdater = appUpdates({
+      // Loaded only here: electron-updater makes its Squirrel.Mac updater as it loads.
+      updater: (__E2E__ ? (globalThis as unknown as { multiscaleE2eUpdater: Updater }).multiscaleE2eUpdater : (require('electron-updater') as { autoUpdater: Updater }).autoUpdater),
+      squirrel,
+      info: bundles.embedded,
+      downloadsOrigin: __BUILD__.downloadsOrigin,
+      appPath: appPath(),
+      dataDir: app.getPath('userData'),
+      access: accessSync,
+      beforeQuit: () => {
+        quitting = true;
+      },
+    });
+  }
+  ipcMain.on('app-updates:available', (event) => {
+    event.returnValue = !!appUpdater;
+  });
+  const appUpdates_ = () => {
+    if (!appUpdater) throw new Error('This app does not update itself');
+    return appUpdater;
+  };
+  handleFrom(main, 'app-updates:place', () => appUpdates_().place());
+  handleFrom(main, 'app-updates:staged', () => appUpdates_().staged());
+  handleFrom(main, 'app-updates:download', async (release: unknown) => {
+    await appUpdates_().download(release as SignedRelease, (percent) => mainWindow.webContents.send('app-updates:progress', percent));
+    trayMenu(hotkey.get().accelerator);
+  });
+  handleFrom(main, 'app-updates:install', (release: unknown) => appUpdates_().install(release as SignedRelease));
+  handleFrom(main, 'app-updates:restart', () => appUpdates_().restart());
+  handleFrom(main, 'app-updates:move', async () => void (await moveToApplications()));
+  handleFrom(main, 'app-updates:updated', () => appUpdates_().updated());
+  handleFrom(main, 'app-updates:moved', () => {
+    const answer = movedHere;
+    movedHere = false;
+    return answer;
+  });
+  handleFrom(main, 'app-updates:built', () => appUpdates_().built());
   ipcMain.on('updates:ready', (event) => {
     if (event.sender !== mainWindow.webContents) return;
     clearTimeout(trial);
@@ -389,7 +489,7 @@ function start() {
     if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
   }, wasOpenedAtLogin);
   (app as NodeJS.EventEmitter).on(CAPTURE_EVENT, openCapture);
-  const hotkey = captureHotkey(join(app.getPath('userData'), 'capture-shortcut.json'), globalShortcut, () => app.emit(CAPTURE_EVENT));
+  hotkey = captureHotkey(join(app.getPath('userData'), 'capture-shortcut.json'), globalShortcut, () => app.emit(CAPTURE_EVENT));
   handleFrom(main, 'shortcut:get', () => hotkey.get());
   handleFrom(main, 'shortcut:set', (accelerator: unknown) => {
     const ok = hotkey.set(accelerator);
@@ -397,6 +497,7 @@ function start() {
     return ok;
   });
   createTray(hotkey.get().accelerator);
+  movedHere = existsSync(join(app.getPath('userData'), MOVED_FILE));
   startAtLoginOnFirstRun();
 
   app.on('activate', showMain);
@@ -420,12 +521,20 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => undefined);
 
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  // A copy opened from a disk image while another runs only brings that one forward, so it says how to move it.
+  if (selfUpdating() && readOnlyPlace(appPath(), accessSync)) {
+    void app.whenReady().then(async () => {
+      await ask({ type: 'info', message: `${__BUILD__.name} is already open`, detail: 'Quit it from its icon in the menu bar, then open this copy again to move it to Applications.', buttons: ['OK'] });
+      app.quit();
+    });
+  } else app.quit();
 } else {
   // An unpackaged run would register the bare Electron binary, which can't open this app.
   if (app.isPackaged) app.setAsDefaultProtocolClient(__BUILD__.scheme);
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     try {
+      // Holding the lock, no older copy runs, so a move can replace it.
+      if (await offerMove()) return;
       start();
     } catch (err) {
       dialog.showErrorBox(`${__BUILD__.name} couldn't start`, String(err));

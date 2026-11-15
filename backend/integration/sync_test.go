@@ -160,6 +160,13 @@ func TestIdsMayHoldTheKeySeparator(t *testing.T) {
 
 func TestPagingReturnsEverythingOnceInOrder(t *testing.T) {
 	needs(t)
+	// Its 594 records stay in the test user's partition as deleted records for prod's 30-day deleted period, and every new
+	// device of that user downloads them all. Run twice on every prod release, they left the shared test user with tens
+	// of thousands, and the deployed web app suite's first sync with them. Staging, whose deleted period is minutes, and
+	// the local stack still run it, against the same code and, on staging, the same DynamoDB.
+	if target.Env == "prod" {
+		t.Skip("leaves 594 deleted records on prod's shared test user for 30 days; local and staging run it")
+	}
 	a := signIn(t)
 	start := a.startCursor()
 	want := map[string]bool{}
@@ -429,6 +436,10 @@ func TestOneRecordTwiceInARequestFolds(t *testing.T) {
 
 func TestLargestAllowedBatchAndRecord(t *testing.T) {
 	needs(t)
+	// Its 100 records stay on prod's shared test user for 30 days too, as TestPagingReturnsEverythingOnceInOrder's do.
+	if target.Env == "prod" {
+		t.Skip("leaves 100 deleted records on prod's shared test user for 30 days; local and staging run it")
+	}
 	a := signIn(t)
 	start := a.startCursor()
 	var changes []record

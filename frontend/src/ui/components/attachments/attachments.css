@@ -43,13 +43,8 @@
 
 [data-layout] .attachicon svg,
 [data-layout] .attachremove svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.75;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 [data-layout] .attachwhat {
@@ -128,13 +123,8 @@
 
 [data-layout] .attachadd svg {
   flex: none;
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 [data-layout='phone'] .attachadds .btn {

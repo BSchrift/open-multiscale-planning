@@ -195,13 +195,8 @@
 }
 
 [data-layout] .planflow .penbtn svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 /* The goal sits on a line of its own under the project's name. */

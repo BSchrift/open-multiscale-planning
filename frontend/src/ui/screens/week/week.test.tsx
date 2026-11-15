@@ -193,9 +193,9 @@ describe('Week on desktop', () => {
     // A day gone by and today say what was finished instead, and open Done.
     const heads = document.querySelectorAll('.colhead');
     expect(heads[0]).not.toHaveClass('tight');
-    expect(heads[0]!.querySelector('.free')).toHaveTextContent('Nothing finished ›');
+    expect(heads[0]!.querySelector('.free')).toHaveTextContent('Nothing finished');
     expect(heads[2]).toHaveClass('tight');
-    expect(heads[2]!.querySelector('.free')).toHaveTextContent('Nothing finished ›');
+    expect(heads[2]!.querySelector('.free')).toHaveTextContent('Nothing finished');
     expect(heads[3]!.querySelector('.free')).toHaveTextContent('7h free');
     expect(screen.getByRole('button', { name: /^Paint the fence, Mon Nov 2, 5pm to 10pm, One off\./ })).toBeVisible();
   });
@@ -208,7 +208,7 @@ describe('Week on desktop', () => {
       await w.create('task_completion', { task_id: 't4', done_at: at('11:00', TUE) }, 'c4');
     });
     const tuesday = await screen.findByRole('button', { name: 'Done on Tue Nov 3: 2 finished' });
-    expect(tuesday).toHaveTextContent('Tue Nov 32 finished ›');
+    expect(tuesday).toHaveTextContent('Tue Nov 32 finished');
     expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /^Done on Thu Nov 5/ })).toBeNull();
     await userEvent.click(tuesday);
@@ -230,7 +230,7 @@ describe('Week on desktop', () => {
     expect(await screen.findByText('Oct 26 to Nov 1')).toBeVisible();
     expect(screen.getByText('0m free', { selector: '.capnum' })).toBeVisible();
     expect(screen.getByText('of 0m available')).toBeVisible();
-    expect([...document.querySelectorAll('.colhead .free')].map((el) => el.textContent)).toEqual(Array(7).fill('Nothing finished ›'));
+    expect([...document.querySelectorAll('.colhead .free')].map((el) => el.textContent!.trim())).toEqual(Array(7).fill('Nothing finished'));
 
     await userEvent.click(screen.getByRole('button', { name: 'This week' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Next week' }));
@@ -380,7 +380,7 @@ describe('Week on desktop', () => {
     expect(await screen.findByRole('heading', { name: 'Editing this week' })).toBeVisible();
     // The button pressed has gone, so focus moves to the one that ends editing, and back again after.
     await waitFor(() => expect(screen.getByRole('button', { name: 'Done editing' })).toHaveFocus());
-    expect(screen.getByText('Drag or resize anything from now on, or click × to remove it. Changes save as you go.')).toBeVisible();
+    expect(screen.getByText(/^Drag or resize anything from now on, or click/)).toBeVisible();
     // Monday morning has passed.
     expect(screen.queryByRole('group', { name: /^Paint the fence/ })).toBeNull();
 
@@ -506,7 +506,7 @@ describe('Week on desktop', () => {
     const group = heading.closest('div')!;
     // Its Monday block is over, so it reads as still to place, with what is left.
     expect(within(group).getByRole('button', { name: /^Rake the leaves\s*30m$/ })).toBeVisible();
-    expect(group.querySelector('.schedmark')).toHaveTextContent('+');
+    expect(group.querySelector('.schedmark svg.ico')).not.toBeNull();
   });
 
   it('Find a time from Today opens this week with that task ready to place', async () => {
@@ -737,7 +737,7 @@ describe('Week on phone', () => {
     const t = await midweek({ layout: 'phone' });
     const strip = await screen.findByRole('group', { name: 'Choose a day' });
     expect(screen.getByRole('heading', { name: 'Wed Nov 4' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toHaveTextContent('Nothing finished ›');
+    expect(screen.getByRole('button', { name: 'Done on Wed Nov 4: nothing finished' })).toHaveTextContent('Nothing finished');
     await userEvent.click(within(strip).getAllByRole('button')[3]!);
     expect(await screen.findByRole('heading', { name: 'Thu Nov 5' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /^Done on/ })).toBeNull();

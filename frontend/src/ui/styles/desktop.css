@@ -8,10 +8,9 @@
 :where([data-layout='desktop']) .nav button{display:flex;justify-content:space-between;width:100%;min-height:40px;padding:8px;border:0;border-radius:6px;background:transparent;text-align:left;color:var(--ink-2)}
 :where([data-layout='desktop']) .nav button:hover{background:var(--wash)}
 :where([data-layout='desktop']) .nav button.on{background:var(--wash);color:var(--ink);font-weight:600}
-:where([data-layout='desktop']) .capture{min-height:44px;width:100%;padding:8px 12px;border:0;border-radius:8px;background:var(--project);color:var(--on-accent);font-weight:600;box-shadow:var(--shadow-1);text-align:left;display:flex;align-items:center;gap:8px}
-:where([data-layout='desktop']) .capture:hover{background:var(--accent-hover)}
-:where([data-layout='desktop']) .capture svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round}
-:where([data-layout='desktop']) .capture span.key{margin-left:auto;color:var(--on-accent);font-size:12px;font-weight:400;white-space:nowrap}
+:where([data-layout='desktop']) .capture{width:100%;justify-content:flex-start;padding-inline:var(--space-3);text-align:left}
+:where([data-layout='desktop']) .capture svg{flex:none;width:var(--icon-sm);height:var(--icon-sm)}
+:where([data-layout='desktop']) .capture span.key{margin-left:auto;color:var(--ink-3);font-size:var(--fs-caption);font-weight:var(--fw-regular);white-space:nowrap}
 :where([data-layout='desktop']) .capdetails{display:flex;flex-wrap:wrap;gap:8px 16px;padding:8px 16px 12px;border-top:1px solid var(--hairline);font-size:13px;color:var(--ink-3)}
 :where([data-layout='desktop']) .capdetails label{display:flex;flex-direction:column;gap:4px}
 :where([data-layout='desktop']) .capdetails select{min-height:36px;max-width:300px}
@@ -119,12 +118,6 @@
 :where([data-layout='desktop']) .stack32{display:flex;flex-direction:column;gap:32px}
 :where([data-layout='desktop']) .between{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
 :where([data-layout='desktop']) .small{font-size:13px}
-:where([data-layout='desktop']) .btn{min-height:44px;padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
-:where([data-layout='desktop']) .btn:hover{background:var(--wash)}
-:where([data-layout='desktop']) .btn.pri:hover{background:var(--accent-hover)}
-:where([data-layout='desktop']) .btn.danger:hover{background:var(--danger-tint)}
-:where([data-layout='desktop']) .btn.pri.danger:hover{background:var(--danger);border-color:var(--danger)}
-:where([data-layout='desktop']) .btn.sm{min-height:36px;padding:4px 10px;font-size:14px}
 :where([data-layout='desktop']) .link{min-height:36px;padding:4px 6px;border:0;background:transparent;color:var(--accent-text);text-decoration:underline;text-underline-offset:2px}
 :where([data-layout='desktop']) .card{border-radius:12px}
 :where([data-layout='desktop']) .now{border:1px solid var(--hairline);border-radius:12px;padding:20px;background:var(--accent-tint)}
@@ -231,7 +224,6 @@
 :where([data-layout='desktop']) .pill{display:inline-block;justify-self:start;flex:none;padding:2px 8px;border-radius:999px;font-size:12px;line-height:16px;font-weight:600;white-space:nowrap}
 :where([data-layout='desktop']) .short{font-weight:600}
 :where([data-layout='desktop']) .warn{display:flex;gap:8px;align-items:center;padding:8px 12px;border-radius:8px;background:var(--warn-tint);color:var(--warn);font-size:14px}
-:where([data-layout='desktop']) .btn:disabled{opacity:.5;cursor:default}
 :where([data-layout='desktop']) .goalhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 16px}
 :where([data-layout='desktop']) .nested{gap:0;padding:0 16px 16px}
 :where([data-layout='desktop']) .goal>.nested{border-top:1px solid var(--hairline)}
@@ -266,7 +258,7 @@
 :where([data-layout='desktop']) .zoomgroup{display:flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 :where([data-layout='desktop']) .zoombtn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:0;border-radius:6px;background:transparent}
 :where([data-layout='desktop']) .zoombtn:hover{background:var(--wash)}
-:where([data-layout='desktop']) .zoombtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+:where([data-layout='desktop']) .zoombtn svg{width:var(--icon-md);height:var(--icon-md)}
 :where([data-layout='desktop']) .weeknav{display:flex;align-items:center;justify-content:space-between;gap:8px}
 :where([data-layout='desktop']) .trend{min-width:560px}
 :where([data-layout='desktop']) .trow{display:grid;grid-template-columns:130px repeat(8,minmax(0,1fr)) 136px;gap:0 4px;align-items:end;padding:6px 0;border-top:1px solid var(--hairline);font-size:14px}

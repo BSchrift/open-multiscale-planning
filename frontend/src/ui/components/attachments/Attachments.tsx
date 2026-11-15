@@ -15,11 +15,12 @@ import { taskAttachments } from '../../../core/queries';
 import { isSignedIn, syncStatus } from '../../../core/sync';
 import type { Attachment } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
-import { CloseIcon, LinkIcon, PhotoIcon } from '../icons';
 import { Sheet } from '../Sheet';
 import { useToast } from '../Toast';
 import { photoName, sha256Base64, shrinkPhoto } from './photo';
 import './attachments.css';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 const MAX_FILE = protocol.attachments.maxFileBytes;
 const MAX_PER_TASK = protocol.attachments.maxPerTask;
@@ -62,7 +63,6 @@ export const recordOf = (a: NewAttachment): Omit<Attachment, 'id' | 'task_id'> =
  * it isn't.
  */
 function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<unknown> }) {
-  const { layout } = useApp();
   const photos = usePhotos();
   const [linking, setLinking] = useState(false);
   const [problem, setProblem] = useState('');
@@ -74,7 +74,7 @@ function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<
     if (!linking && opened.current) linkButton.current?.focus();
     opened.current = linking;
   }, [linking]);
-  const btn = layout === 'phone' ? 'btn attachadd' : 'btn sm attachadd';
+  const btn = { size: 'compact' as const, className: 'attachadd' };
   const full = !!photos.usage && photos.usage.used >= photos.usage.quota;
   const addLink = async (a: NewAttachment) => {
     if ((await props.onAdd(a)) !== false) setLinking(false);
@@ -110,16 +110,16 @@ function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<
       ) : (
         <>
           <div className="attachadds">
-            <button ref={linkButton} className={btn} type="button" onClick={() => setLinking(true)}>
-              <LinkIcon />
+            <Button ref={linkButton} {...btn} type="button" onClick={() => setLinking(true)}>
+              <Icon name="link" />
               Add link
-            </button>
+            </Button>
             {photos.offered && (
               <>
-                <button className={btn} type="button" disabled={full} onClick={() => library.current?.click()}>
-                  <PhotoIcon />
+                <Button {...btn} type="button" disabled={full} onClick={() => library.current?.click()}>
+                  <Icon name="photo" />
                   Add photo
-                </button>
+                </Button>
                 {/* The system's photo picker. On iPhone its own menu offers the camera and the library. */}
                 <input ref={library} hidden type="file" accept="image/*" aria-label="Add photo" onChange={choosePhoto} />
               </>
@@ -213,7 +213,7 @@ export function DraftAttachments(props: { drafts: readonly NewAttachment[]; onCh
           {drafts.map((a, i) => (
             <li key={i} className="attachrow">
               <span className="attachicon" aria-hidden="true">
-                {a.kind === 'link' ? <LinkIcon /> : <PhotoIcon />}
+                {a.kind === 'link' ? <Icon name="link" /> : <Icon name="photo" />}
               </span>
               <span className="attachwhat">
                 <span className="attachtitle">{a.name}</span>
@@ -225,7 +225,7 @@ export function DraftAttachments(props: { drafts: readonly NewAttachment[]; onCh
                 aria-label={`Remove ${a.name}`}
                 onClick={() => onChange(drafts.filter((d) => d !== a))}
               >
-                {layout === 'phone' ? <CloseIcon /> : 'Remove'}
+                {layout === 'phone' ? <Icon name="close" /> : 'Remove'}
               </button>
             </li>
           ))}
@@ -237,12 +237,11 @@ export function DraftAttachments(props: { drafts: readonly NewAttachment[]; onCh
 }
 
 function LinkForm(props: { onAdd(link: NewAttachment): unknown; onCancel(): void }) {
-  const { layout } = useApp();
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const ids = { url: useId(), name: useId() };
-  const btn = layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -274,12 +273,12 @@ function LinkForm(props: { onAdd(link: NewAttachment): unknown; onCancel(): void
         </p>
       )}
       <div className="row">
-        <button className={`${btn} pri`} type="button" onClick={submit}>
+        <Button {...btn} variant="primary" type="button" onClick={submit}>
           Add link
-        </button>
-        <button className={btn} type="button" onClick={props.onCancel}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -351,7 +350,7 @@ function AttachmentRow(props: { attachment: Attachment; onRemove(): void }) {
   return (
     <li className="attachrow">
       <span className="attachicon" aria-hidden="true">
-        {thumb ? <img src={thumb} alt="" /> : a.kind === 'link' ? <LinkIcon /> : <PhotoIcon />}
+        {thumb ? <img src={thumb} alt="" /> : a.kind === 'link' ? <Icon name="link" /> : <Icon name="photo" />}
       </span>
       <span className="attachwhat">
         {a.kind === 'link' ? (
@@ -381,14 +380,14 @@ function AttachmentRow(props: { attachment: Attachment; onRemove(): void }) {
         </button>
       )}
       <button className={phone ? 'attachremove' : 'link small'} type="button" aria-label={`Remove ${a.name}`} onClick={props.onRemove}>
-        {phone ? <CloseIcon /> : 'Remove'}
+        {phone ? <Icon name="close" /> : 'Remove'}
       </button>
       {viewing && (
         <Sheet label={a.name} className="attachview" onClose={() => (URL.revokeObjectURL(viewing), setViewing(null))}>
           <img src={viewing} alt={a.name} />
-          <button className="btn" type="button" onClick={() => (URL.revokeObjectURL(viewing), setViewing(null))}>
+          <Button type="button" onClick={() => (URL.revokeObjectURL(viewing), setViewing(null))}>
             Close
-          </button>
+          </Button>
         </Sheet>
       )}
     </li>

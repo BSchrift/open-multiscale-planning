@@ -267,7 +267,7 @@ test('a block gone by is struck through only when done; Not done and Partly are 
   expect(await look('Paint the fence, 10am to 11am, One off. Not done.')).toEqual({ strike: 'none', outline: 'dashed' });
   expect(await look('Read the notes, 11am to 12pm, Project. Partly.')).toEqual({ strike: 'none', outline: 'dashed' });
   // Said in words on the block, so colour is never the only sign.
-  await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^✕ Not done Paint the fence/);
+  await expect(timeline.getByRole('button', { name: /Not done\.$/ })).toContainText(/^\s*Not done Paint the fence/);
   await expect(timeline.getByRole('button', { name: /Partly\.$/ })).toContainText(/^Partly Read the notes/);
   expect(errors).toEqual([]);
 });

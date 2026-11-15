@@ -216,6 +216,11 @@
   color: var(--ink-3);
 }
 
+[data-layout] .rowpen svg {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
 /* Its 36px hover box overhangs the name's line rather than pushing an estimate down. */
 [data-layout='desktop'] .rowpen {
   width: 36px;

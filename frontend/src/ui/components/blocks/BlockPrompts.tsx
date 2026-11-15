@@ -13,10 +13,11 @@ import { useOverlay } from '../../app/nav';
 import { STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useQuery } from '../../app/store';
 import { EstimateSlider } from '../EstimateSlider';
-import { AnswerIcon } from '../icons';
 import { Sheet } from '../Sheet';
 import { useDialogFocus } from '../useDialogFocus';
 import { useBlockActions } from './useBlockActions';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 function DesktopPrompt(props: { label: string; onClose(): void; children: ReactNode }) {
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);
@@ -81,14 +82,14 @@ function PartlyStep(props: { block: BlockRow; onClose(): void }) {
       <Heading over={block.title ?? ''} title="How much is left?" />
       <EstimateSlider label="Time left" value={value} noneLabel="Choose a time" onChange={setLeft} />
       <div className="row">
-        <button
-          className="btn pri"
+        <Button
+          variant="primary"
           type="button"
           disabled={!value || actions.pending}
           onClick={() => void actions.answer(block, { result: 'partly', remaining_min: value }).then(props.onClose)}
         >
           Save
-        </button>
+        </Button>
       </div>
     </PromptFrame>
   );
@@ -125,12 +126,12 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
         />
       </div>
       <div className="row">
-        <button className="btn pri" type="button" disabled={actions.pending} onClick={() => answer(minutes)}>
+        <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(minutes)}>
           {minutes === length ? `All ${formatMinutes(length)}` : `Log ${formatMinutes(minutes)}`}
-        </button>
-        <button className="btn" type="button" disabled={actions.pending} onClick={() => answer(0)}>
+        </Button>
+        <Button type="button" disabled={actions.pending} onClick={() => answer(0)}>
           Skipped
-        </button>
+        </Button>
       </div>
     </PromptFrame>
   );
@@ -159,18 +160,18 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
       {spent && <div className="small">{spent}</div>}
       <div className="stack8">
         <div className="row">
-          <button className="btn pri" type="button" disabled={actions.pending} onClick={() => answer('done')}>
-            <AnswerIcon answer="done" />
+          <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer('done')}>
+            <Icon name="done" size={16} />
             Done
-          </button>
-          <button className="btn" type="button" onClick={() => setPartly(true)}>
-            <AnswerIcon answer="partly" />
+          </Button>
+          <Button type="button" onClick={() => setPartly(true)}>
+            <Icon name="partly" size={16} />
             Partly
-          </button>
-          <button className="btn" type="button" disabled={actions.pending} onClick={() => answer('not')}>
-            <AnswerIcon answer="not" />
+          </Button>
+          <Button type="button" disabled={actions.pending} onClick={() => answer('not')}>
+            <Icon name="not-done" size={16} />
             Not done
-          </button>
+          </Button>
         </div>
         <div className="row">
           {resumable ? (
@@ -204,11 +205,11 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
       <Heading over={`Started ${ago} ${ago === 1 ? 'minute' : 'minutes'} ago`} title={`Have you started ${block.title ?? 'this block'}?`} />
       <div className="stack8">
         <div className="row">
-          <button className="btn pri" type="button" disabled={actions.pending} onClick={() => void actions.start(block).then(props.onClose)}>
+          <Button variant="primary" type="button" disabled={actions.pending} onClick={() => void actions.start(block).then(props.onClose)}>
             Yes, started
-          </button>
-          <button
-            className="btn"
+          </Button>
+          <Button
+           
             type="button"
             onClick={() => {
               actions.snooze(block);
@@ -216,7 +217,7 @@ export function StartCheck(props: { block: BlockRow; next: BlockRow | undefined;
             }}
           >
             Ask again in 10 minutes
-          </button>
+          </Button>
         </div>
         <div className="row">
           {next && (

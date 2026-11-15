@@ -137,6 +137,22 @@ One SVG set on a 24px grid, stroked in `currentColor` at `--icon-stroke` with ro
 tab, the live dot, the Done badge. No text glyph is ever an icon: not ›, ‹, ▾, ▸, ✓, × or ✕. An icon-only button is
 named in full for screen readers.
 
+## Components
+
+The shared components live in `frontend/src/ui/components/ds`. Use them rather than building the same thing again.
+
+- **`Icon`**: `<Icon name="chevron-right" size={16} />`, at 16, 20 (the default) or 24. The set: the answers (`done`,
+  `partly`, `not-done`, `no-answer`), `chevron-left`, `chevron-right`, `chevron-down`, `pen`, `plus`, `minus`, `close`,
+  `bin`, `link`, `photo`, `calendar`, `warning`, `search`, `info`, `notes`, `zoom-in`, `zoom-out`, `star`, `clock`,
+  `undo`, `drag`, `return`, `bold`, `italic`, `list`, the tabs (`today`, `week`, `inbox`, `goals`, `more`) and `live`.
+  Hidden from screen readers; the control around it carries the name.
+- **`Button`**: `<Button variant="primary">Save</Button>`. Variants: `primary` (the one filled button in a view),
+  `secondary` (the default, outlined at 3:1), `quiet` (text), `destructive` (outlined, or `filled` when it's the
+  confirming choice), `icon` (only an icon, named in full by `label`) and `link` (an underlined action inside a line
+  of text). `size="compact"` is 36px on desktop and changes nothing on phone, where every button is 44pt. `icon` and
+  `iconEnd` put an icon before or after the label. Without a `type` it behaves as a plain `<button>`, so one in a form
+  submits it.
+
 ## Do and don't
 
 - **Do** take every colour, size, space, radius, shadow, layer and duration from a token. **Don't** type a raw value

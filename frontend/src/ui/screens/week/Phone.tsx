@@ -36,6 +36,8 @@ import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
 import { useWeekActions } from './useWeekActions';
 import { TaskPopupFor } from '../task';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
@@ -234,7 +236,7 @@ export function PhoneWeek(props: WeekProps) {
         <div className="between">
           {/* While placing, only planning goes to another week: from this one to the week of its last day. */}
           <button className="icbtn" type="button" aria-label="Previous week" disabled={!!placing && !(plan && offset > 0)} onClick={() => carryTo(-7)}>
-            ‹
+            <Icon name="chevron-left" />
           </button>
           <div className="wktitle">
             <div className="small quiet">{props.label}</div>
@@ -242,7 +244,7 @@ export function PhoneWeek(props: WeekProps) {
             <h2>{props.title}</h2>
           </div>
           <button className="icbtn" type="button" aria-label="Next week" disabled={!!placing && !(plan && addDays(data.week, 7) <= plan.last)} onClick={() => carryTo(7)}>
-            ›
+            <Icon name="chevron-right" />
           </button>
         </div>
         {props.gated && <PlanPrompt week={data.week} />}
@@ -250,9 +252,9 @@ export function PhoneWeek(props: WeekProps) {
         {planningFor && <PlanningTimes for={planningFor} name={planningFor === model.current ? 'this week' : 'next week'} onClose={() => setPlanningFor(null)} />}
         {!isThis && !placing && (
           <div className="wkcenter">
-            <button className="btn" type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>
+            <Button type="button" onClick={() => props.goWeek(addDays(data.week, -7 * offset))}>
               This week
-            </button>
+            </Button>
           </div>
         )}
         <div className="card stack8 wksum">
@@ -288,9 +290,9 @@ export function PhoneWeek(props: WeekProps) {
       {offset < 0 && (
         <>
           <p className="small quiet">Past weeks can be viewed but not changed.</p>
-          <button className="btn" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
+          <Button type="button" onClick={() => nav.go('analytics', { week: data.week })}>
             See that week's analytics
-          </button>
+          </Button>
         </>
       )}
       <PackedDay date={selDay} ctx={ctx} />
@@ -309,9 +311,9 @@ export function PhoneWeek(props: WeekProps) {
             </p>
           )}
           {model.unscheduled.length > 0 && (
-            <button className="btn" type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
+            <Button type="button" onClick={() => nav.openFlow('planning', { week: data.week, step: 'schedule' })}>
               Schedule one at a time
-            </button>
+            </Button>
           )}
         </section>
       )}
@@ -366,7 +368,7 @@ export function PhoneWeek(props: WeekProps) {
             <div className="between dnday">
               <h3 className="wkday">{dayTitle}</h3>
               <button className="link dnlink" type="button" aria-label={`Done on ${dayTitle}: ${finishedCount(props.finished[selDay]).toLowerCase()}`} onClick={() => props.openDone(selDay)}>
-                {finishedCount(props.finished[selDay])} <span aria-hidden="true">›</span>
+                {finishedCount(props.finished[selDay])} <Icon name="chevron-right" size={16} />
               </button>
             </div>
           ) : (
@@ -376,9 +378,9 @@ export function PhoneWeek(props: WeekProps) {
             <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={openBlock} />
           </div>
           {isThis && (
-            <button className="btn wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
+            <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
               See this week's analytics
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -393,12 +395,12 @@ export function PhoneWeek(props: WeekProps) {
             {placingNote && <div className="small">{placingNote}</div>}
           </div>
           <div className="row">
-            <button className="btn pri sm grow" type="button" disabled={locked} onClick={() => void finishPlacing()}>
+            <Button variant="primary" size="compact" className="grow" type="button" disabled={locked} onClick={() => void finishPlacing()}>
               {placing.mode === 'move' ? 'Move here' : 'Place here'}
-            </button>
-            <button className="btn sm" type="button" onClick={cancelPlacing}>
+            </Button>
+            <Button size="compact" type="button" onClick={cancelPlacing}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : editing ? (
@@ -412,8 +414,8 @@ export function PhoneWeek(props: WeekProps) {
             {edBlock && <div className="small">{slotNotes(edBlock, { kind: edBlock.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ')}</div>}
           </div>
           <div className="row">
-            <button
-              className="btn pri sm grow"
+            <Button
+              variant="primary" size="compact" className="grow"
               type="button"
               onClick={() => {
                 setEdSel(null);
@@ -422,10 +424,10 @@ export function PhoneWeek(props: WeekProps) {
               }}
             >
               Done editing
-            </button>
-            <button className="btn sm" type="button" onClick={() => setOpen({ kind: 'add' })}>
+            </Button>
+            <Button size="compact" type="button" onClick={() => setOpen({ kind: 'add' })}>
               Add a task
-            </button>
+            </Button>
           </div>
         </div>
       ) : isThis && !props.gated ? (
@@ -987,17 +989,17 @@ function BlockSheet(props: {
       <LengthAndNote block={block} model={props.model} canEdit={props.canEdit} onLength={props.onLength} />
       {props.canEdit && (
         <>
-          <button className="btn pri" type="button" onClick={props.onMove}>
+          <Button variant="primary" type="button" onClick={props.onMove}>
             Move
-          </button>
-          <button className="btn" type="button" onClick={props.onRemove}>
+          </Button>
+          <Button type="button" onClick={props.onRemove}>
             Remove
-          </button>
+          </Button>
         </>
       )}
-      <button className="btn" type="button" onClick={props.onClose}>
+      <Button type="button" onClick={props.onClose}>
         Close
-      </button>
+      </Button>
     </Sheet>
   );
 }
@@ -1011,9 +1013,9 @@ function AddDrawer(props: { model: WeekModel; onClose(): void; onPlace(row: AddR
     <Sheet label="Add to this week" tall onClose={props.onClose}>
       <div className="between">
         <h2>Add to this week</h2>
-        <button className="btn" type="button" onClick={props.onClose}>
+        <Button type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </div>
       {model.addGroups.length === 0 && <p className="quiet">Nothing is waiting to be added.</p>}
       {model.addGroups.map((g) => (
@@ -1067,9 +1069,9 @@ function AddChoice(props: { row: AddRow; len: Minutes; model: WeekModel; onLengt
         </button>
       ))}
       {found.length === 0 && <p className="small">No open slot fits this length.</p>}
-      <button className="btn" type="button" onClick={props.onChoose}>
+      <Button type="button" onClick={props.onChoose}>
         Choose another time
-      </button>
+      </Button>
       {row.left > len && (
         <p className="small quiet">
           {formatMinutes(row.left - len)} of {formatMinutes(row.left)} stays unslotted after this block.

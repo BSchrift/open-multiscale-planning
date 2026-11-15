@@ -3,6 +3,7 @@
 
 import type { BlockResult } from '../../../core/types';
 import { OUTCOME_WORD } from './describe';
+import { Icon } from '../ds/Icon';
 
 /** ' done', ' partly' or ' notdone', for a block's classes. */
 export const outcomeClass = (result: BlockResult | null | undefined) =>
@@ -14,7 +15,11 @@ export function OutcomeTag(props: { result: BlockResult | null | undefined }) {
   if (result !== 'partly' && result !== 'not') return null;
   return (
     <span className={result === 'not' ? 'outw outw-not' : 'outw'}>
-      {result === 'not' && <span aria-hidden="true">✕ </span>}
+      {result === 'not' && (
+        <>
+          <Icon name="not-done" size={16} />{' '}
+        </>
+      )}
       {OUTCOME_WORD[result]}{' '}
     </span>
   );

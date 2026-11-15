@@ -41,6 +41,8 @@ import type { Destination, ProcessData } from './data';
 import { ONE_OFFS, Picker, placeKey, placeName } from './Picker';
 import type { Place } from './Picker';
 import './process.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 export default function Screen(props: ScreenProps) {
   const { stretchStart, stretchEnd } = props.params;
@@ -488,15 +490,15 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   // Planning a stretch, weekly planning comes next, so the week isn't offered.
   const weekToggle = !stretch && (
     <button className={`pxweek${s.planOn ? ' on' : ''}`} type="button" aria-pressed={s.planOn} onClick={togglePlan}>
-      <span aria-hidden="true">{s.planOn ? '✓' : '+'}</span>
+      <span aria-hidden="true"><Icon name={s.planOn ? 'done' : 'plus'} size={16} /></span>
       {planLabel}
       {cap('W')}
     </button>
   );
   const exit = (
-    <button className={phone ? 'btn' : 'link small'} type="button" onClick={close}>
+    <Button variant={phone ? 'secondary' : 'link'} className={phone ? undefined : 'small'} type="button" onClick={close}>
       {stretch ? 'Back to planning' : 'Exit'}
-    </button>
+    </Button>
   );
   const makeOne = (
     <div className="pxmake" role="group" aria-label="No home yet? Make one">
@@ -510,27 +512,27 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
             ['g', 'goal'],
           ] as const
         ).map(([k, kind]) => (
-          <button
+          <Button
             key={k}
             ref={(el) => void (openers.current[k] = el)}
-            className={phone ? 'btn' : 'btn sm'}
+            size="compact"
             type="button"
             aria-label={`New ${kind} from this item`}
             onClick={() => openForm(kind, k)}
           >
             {cap(k.toUpperCase())}
             New {kind}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
   );
   // With no goals there's no backlog to offer.
   const backlogButton = data.backlogs.length > 0 && (
-    <button ref={backlogRef} className={phone ? 'btn' : 'btn sm'} type="button" aria-haspopup={phone ? 'dialog' : undefined} onClick={() => setChoosing(true)}>
+    <Button ref={backlogRef} size="compact" type="button" aria-haspopup={phone ? 'dialog' : undefined} onClick={() => setChoosing(true)}>
       {cap('B')}
       Goal backlog
-    </button>
+    </Button>
   );
   const chooser = !phone && choosing && item && (
     <BacklogChooser key={item.id} goals={data.backlogs} keysOn={keysOn} cap={cap} onAdd={(id) => void file(id)} onBack={closeChooser} />
@@ -594,12 +596,12 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const deleteAsk = (
     <span className={phone ? 'pxacts' : 'row small'} role="alert">
       <span className="strong small grow">Delete this item?</span>
-      <button className={phone ? 'btn pri' : 'btn sm pri'} type="button" onClick={remove}>
+      <Button variant="primary" size="compact" type="button" onClick={remove}>
         Yes, delete
-      </button>
-      <button className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => setDelAsk(false)}>
+      </Button>
+      <Button size="compact" type="button" onClick={() => setDelAsk(false)}>
         Cancel
-      </button>
+      </Button>
     </span>
   );
   if (phone) {
@@ -625,18 +627,18 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               deleteAsk
             ) : (
               <div className="pxacts">
-                <button className="btn" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()}>
-                  ‹ Undo
-                </button>
-                <button className="btn" type="button" onClick={skip}>
+                <Button type="button" disabled={!back && !s.edits.length} onClick={() => void undo()} icon="undo">
+                  Undo
+                </Button>
+                <Button type="button" onClick={skip}>
                   Skip
-                </button>
-                <button className="btn" type="button" onClick={markDone}>
+                </Button>
+                <Button type="button" onClick={markDone}>
                   Done
-                </button>
-                <button className="btn" type="button" onClick={() => setDelAsk(true)}>
+                </Button>
+                <Button type="button" onClick={() => setDelAsk(true)}>
                   Delete
-                </button>
+                </Button>
               </div>
             )}
           </>
@@ -649,10 +651,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     <div className="pxwrap">
       <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="pxtop">
-          <button className="btn sm" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()}>
-            ‹ Undo and go back
+          <Button size="compact" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()} icon="undo">
+            Undo and go back
             {cap('Z')}
-          </button>
+          </Button>
           <span className="small quiet">{pos}</span>
           <span className="pxbar" aria-hidden="true">
             <span style={{ width: `${pct}%` }} />
@@ -670,22 +672,22 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
                   {backlogButton}
                   {makeOne}
                   <div className="row">
-                    <button className="btn sm" type="button" onClick={skip}>
+                    <Button size="compact" type="button" onClick={skip}>
                       Skip
                       {cap('S')}
-                    </button>
+                    </Button>
                     {delAsk ? (
                       deleteAsk
                     ) : (
                       <>
-                        <button className="btn sm" type="button" onClick={markDone}>
+                        <Button size="compact" type="button" onClick={markDone}>
                           Done
                           {cap('F')}
-                        </button>
-                        <button className="btn sm" type="button" onClick={() => setDelAsk(true)}>
+                        </Button>
+                        <Button size="compact" type="button" onClick={() => setDelAsk(true)}>
                           Delete
                           {cap('D')}
-                        </button>
+                        </Button>
                       </>
                     )}
                   </div>

@@ -9,6 +9,7 @@ import { useQuery } from '../../app/store';
 import { InboxList } from '../../components/inbox/InboxList';
 import { useHeadingAfterProcess } from '../../components/inbox/useHeadingAfterProcess';
 import './inbox.css';
+import { Button } from '../../components/ds/Button';
 
 export default function Screen(props: ScreenProps) {
   const nav = useNav();
@@ -46,9 +47,9 @@ export default function Screen(props: ScreenProps) {
       {rows.length === 0 ? (
         <p className="quiet">Inbox is empty.</p>
       ) : (
-        <button className="btn pri pxstart" type="button" onClick={() => process()}>
+        <Button variant="primary" className="pxstart" type="button" onClick={() => process()}>
           {startLabel}
-        </button>
+        </Button>
       )}
       <InboxList rows={rows} phone={false} onOpen={process} />
     </div>

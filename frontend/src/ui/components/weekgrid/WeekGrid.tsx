@@ -22,6 +22,7 @@ import { outcomeClass, OutcomeTag } from '../blocks/Outcome';
 import { columnStyle, overlapGroups, overlapNote } from './columns';
 import { clearLane, overLane } from './drop';
 import './weekgrid.css';
+import { Icon } from '../ds/Icon';
 
 export interface GridBlock extends Slot {
   id: string;
@@ -292,7 +293,7 @@ export function WeekGrid(props: WeekGridProps) {
                 >
                   <span className="strong">{dayName(date)}</span>
                   <span className="free dnlink">
-                    {finishedCount(count)} <span aria-hidden="true">›</span>
+                    {finishedCount(count)} <Icon name="chevron-right" size={16} />
                   </span>
                 </button>
               ) : (
@@ -383,7 +384,7 @@ export function WeekGrid(props: WeekGridProps) {
                             onPointerDown={(e) => e.stopPropagation()}
                             onClick={() => props.onRemove?.(b.id)}
                           >
-                            ×
+                            <Icon name="close" />
                           </button>
                         )}
                       </div>

@@ -12,11 +12,6 @@
 
 [data-layout] .latewarn svg {
   flex: none;
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: var(--warn);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }

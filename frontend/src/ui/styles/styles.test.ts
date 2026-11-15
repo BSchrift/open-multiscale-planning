@@ -32,7 +32,7 @@ describe('the stylesheets', () => {
         .split('}')
         .filter((rule) => rule.includes('line-through'))
         .flatMap((rule) => rule.split('{')[0]!.split(','))
-        .filter((selector) => !/\.done\b/.test(selector))
+        .filter((selector) => !/\.(s-)?done\b/.test(selector))
         .map((selector) => `${file}: ${selector.trim()}`),
     );
     expect(struck).toEqual([]);

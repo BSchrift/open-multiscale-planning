@@ -6,6 +6,7 @@ import { formatMinutes } from '../../../../core/dates';
 import { Popover } from '../../../components/Popover';
 import type { PickTask } from './model';
 import type { PickProps } from './PickStep';
+import { Button } from '../../../components/ds/Button';
 
 export function SuggestPreview(props: PickProps & { phone: boolean; onClose(): void }) {
   const { view, model } = props;
@@ -20,7 +21,7 @@ export function SuggestPreview(props: PickProps & { phone: boolean; onClose(): v
   const chosen: PickTask[] = rows.filter(({ r }) => !off.includes(r.c.task.id)).map(({ r }) => r);
   const total = rows.reduce((sum, { r }) => sum + r.adds, 0);
   const sum = chosen.reduce((s, r) => s + r.adds, 0);
-  const btn = props.phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: props.phone ? 'grow' : undefined };
   return (
     <Popover label="Add suggested" onClose={props.onClose}>
       <h2>Add suggested</h2>
@@ -46,8 +47,8 @@ export function SuggestPreview(props: PickProps & { phone: boolean; onClose(): v
         ))}
       </ul>
       <div className="row">
-        <button
-          className={`${btn} pri`}
+        <Button
+          {...btn} variant="primary"
           type="button"
           aria-disabled={!chosen.length}
           onClick={() => {
@@ -57,10 +58,10 @@ export function SuggestPreview(props: PickProps & { phone: boolean; onClose(): v
           }}
         >
           Add {formatMinutes(sum)}
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Popover>
   );

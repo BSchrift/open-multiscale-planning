@@ -9,6 +9,7 @@ import { useNav } from '../../app/nav';
 import { useApp, useMutation } from '../../app/store';
 import { formatRange } from '../../components/blocks/describe';
 import { useToast } from '../../components/Toast';
+import { Button } from '../../components/ds/Button';
 
 export function ShiftPanel(props: { plan: ShiftPlan; connected: boolean; onClose(): void }) {
   const { plan, onClose } = props;
@@ -54,15 +55,15 @@ export function ShiftPanel(props: { plan: ShiftPlan; connected: boolean; onClose
       </ul>
       {plan.runs_past !== null && <p className="small">That runs past {formatTimeOfDay(plan.runs_past)}.</p>}
       <div className="row">
-        <button className={`btn pri${phone ? ' grow' : ''}`} type="button" disabled={write.pending} onClick={() => void apply()}>
+        <Button variant="primary" className={phone ? ' grow' : ''} type="button" disabled={write.pending} onClick={() => void apply()}>
           Apply
-        </button>
-        <button className="btn" type="button" onClick={() => nav.go('week', { edit: 'this' })}>
+        </Button>
+        <Button type="button" onClick={() => nav.go('week', { edit: 'this' })}>
           Edit
-        </button>
-        <button className="btn" type="button" onClick={onClose}>
+        </Button>
+        <Button type="button" onClick={onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

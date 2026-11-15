@@ -13,9 +13,10 @@ import { taskAttachments } from '../../../core/queries';
 import type { Fields, Task } from '../../../core/types';
 import { useQuery } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
-import { CalendarIcon, NotesIcon, PenIcon } from '../../components/icons';
 import { NotesField } from '../../components/notes/NotesField';
 import { OneOffDateForm } from '../../components/oneoff';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 /** What on the card is open to change. */
 export type Editing = 'title' | 'date' | 'notes' | null;
@@ -47,7 +48,7 @@ export function Item(props: {
   const count = useQuery((sql) => taskAttachments(sql, task.id), [task.id]).data?.length ?? 0;
   const [notes, setNotes] = useState('');
   const hint = useId();
-  const btn = phone ? 'btn pxchip' : 'btn sm pxchip';
+  const btn = { size: 'compact' as const, className: 'pxchip' };
   const plainCap = (k: string) =>
     !phone && (
       <kbd className="keycap" aria-hidden="true">
@@ -67,15 +68,16 @@ export function Item(props: {
   const when = once ? onceWhen(once) : '';
   // First under the title on every item, then the date itself once it has one.
   const dateChip = (
-    <button
+    <Button
       ref={props.dateRef}
-      className={`${btn} date${once ? ' set' : ''}`}
+      size="compact"
+      className={`pxchip date${once ? ' set' : ''}`}
       type="button"
       aria-expanded={editing === 'date'}
       aria-label={once ? `Change date, ${when}` : undefined}
       onClick={() => setEditing(editing === 'date' ? null : 'date')}
     >
-      <CalendarIcon />
+      <Icon name="calendar" />
       {once ? (
         <>
           {when}
@@ -84,7 +86,7 @@ export function Item(props: {
       ) : (
         'Add date'
       )}
-    </button>
+    </Button>
   );
   const dateForm = editing === 'date' && (
     <div className="pxdateform">
@@ -99,7 +101,7 @@ export function Item(props: {
         <button ref={props.titleRef as RefObject<HTMLButtonElement>} className="pxedit" type="button" aria-describedby={hint} onClick={() => setEditing('title')}>
           <span>{task.title}</span>
           <span className="pen" aria-hidden="true">
-            <PenIcon />
+            <Icon name="pen" />
           </span>
         </button>
       </h1>
@@ -113,10 +115,10 @@ export function Item(props: {
   const adds = (
     <>
       {!task.notes && editing !== 'notes' && (
-        <button className={btn} type="button" onClick={openNotes}>
-          <NotesIcon />
+        <Button {...btn} type="button" onClick={openNotes}>
+          <Icon name="notes" />
           Add description
-        </button>
+        </Button>
       )}
       {count === 0 && <Attachments taskId={task.id} inline onWrite={props.onAttachment} />}
     </>
@@ -126,14 +128,14 @@ export function Item(props: {
       <NotesField value={editing === 'notes' ? notes : (task.notes ?? '')} editing={editing === 'notes'} onEdit={openNotes} onChange={setNotes} onSubmit={() => void saveNotes()} />
       {editing === 'notes' && (
         <div className="row">
-          <button className={phone ? 'btn pri grow' : 'btn sm pri'} type="button" onClick={() => void saveNotes()}>
+          <Button variant="primary" size="compact" className={phone ? 'grow' : undefined} type="button" onClick={() => void saveNotes()}>
             Save
             {plainCap(saveNotesKey())}
-          </button>
-          <button className={phone ? 'btn grow' : 'btn sm'} type="button" onClick={() => setEditing(null)}>
+          </Button>
+          <Button size="compact" className={phone ? 'grow' : undefined} type="button" onClick={() => setEditing(null)}>
             Cancel
             {plainCap('esc')}
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -210,14 +212,14 @@ function TitleForm(props: { title: string; phone: boolean; cap(key: string): Rea
         </div>
       )}
       <div className="row">
-        <button className={phone ? 'btn pri grow' : 'btn sm pri'} type="submit">
+        <Button variant="primary" size="compact" className={phone ? 'grow' : undefined} type="submit">
           Save
           {props.cap('↩')}
-        </button>
-        <button className={phone ? 'btn grow' : 'btn sm'} type="button" onClick={props.onClose}>
+        </Button>
+        <Button size="compact" className={phone ? 'grow' : undefined} type="button" onClick={props.onClose}>
           Cancel
           {props.cap('esc')}
-        </button>
+        </Button>
         {!phone && <span className="small quiet">{`Up to ${number.format(MAX_TITLE)} characters.`}</span>}
       </div>
     </form>

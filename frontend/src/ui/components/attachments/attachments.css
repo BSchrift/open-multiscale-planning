@@ -2,9 +2,9 @@
 
 [data-layout] .attachments .attachname {
   margin: 0;
-  color: var(--quiet);
-  font-size: var(--text-sm);
-  font-weight: 400;
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
 }
 
 [data-layout] .attachrows {
@@ -18,8 +18,8 @@
   align-items: center;
   gap: var(--space-3);
   min-height: 52px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line-soft);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--hairline);
 }
 
 [data-layout] .attachicon {
@@ -30,8 +30,8 @@
   width: 36px;
   height: 36px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-block);
   color: var(--ink-2);
 }
 
@@ -43,13 +43,8 @@
 
 [data-layout] .attachicon svg,
 [data-layout] .attachremove svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.75;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 [data-layout] .attachwhat {
@@ -78,22 +73,22 @@
 }
 
 [data-layout] .attachalert {
-  color: var(--red);
+  color: var(--danger);
 }
 
 [data-layout] .attachprogress {
   display: block;
   height: 4px;
-  margin: 3px 0;
-  border-radius: 2px;
-  background: var(--fill);
+  margin: var(--space-1) 0;
+  border-radius: var(--radius-block);
+  background: var(--wash);
   overflow: hidden;
 }
 
 [data-layout] .attachprogress span {
   display: block;
   height: 100%;
-  background: var(--blue);
+  background: var(--accent);
 }
 
 [data-layout] .attachremove {
@@ -106,7 +101,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout='phone'] .attachtitle {
@@ -123,18 +118,13 @@
 [data-layout] .attachadd {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout] .attachadd svg {
   flex: none;
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 [data-layout='phone'] .attachadds .btn {
@@ -142,8 +132,8 @@
   /* Its 15px text left the button a fraction of a pixel under 44pt. */
   min-height: 44px;
   justify-content: flex-start;
-  padding-inline: 12px;
-  font-size: 15px;
+  padding-inline: var(--space-3);
+  font-size: var(--fs-meta);
 }
 
 [data-layout] .sheet.attachview img {

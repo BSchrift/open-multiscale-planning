@@ -23,7 +23,7 @@ import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } fro
 import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
-import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { FilterPattern, LogGroup, MetricFilter, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { ApiGatewayv2DomainProperties, CloudFrontTarget, UserPoolDomainTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption, HttpMethods } from 'aws-cdk-lib/aws-s3';
@@ -438,6 +438,23 @@ export class MultiscaleStack extends Stack {
       evaluationPeriods: 1,
       comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: TreatMissingData.IGNORE,
+    }).addAlarmAction(alarmAction);
+    // A Mac app reports app-signature when Squirrel refused an app whose zip matched its signed SHA-512: the published app
+    // is bad, so someone looks at once. Not a release alarm: it says nothing about the backend a deploy would roll back.
+    new MetricFilter(this, 'AppSignatureFilter', {
+      logGroup: apiLogs,
+      filterPattern: FilterPattern.allTerms('client_event', 'app-signature'),
+      metricNamespace: namespace,
+      metricName: 'AppSignatureFailures',
+      metricValue: '1',
+    });
+    new Alarm(this, 'AppSignature', {
+      alarmDescription: "A Mac app refused an app update for its signature: the published app is bad. Stop it spreading with make release-surface, then revert. See docs/releasing.md.",
+      metric: custom('AppSignatureFailures'),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(alarmAction);
 
     // Deployments: CodeDeploy moves each alias to a new version by config/env's canary, a share of invocations first and

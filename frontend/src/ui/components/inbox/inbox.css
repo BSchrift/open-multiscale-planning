@@ -32,18 +32,18 @@
 }
 
 [data-layout='phone'] .inboxgo {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-column: 3;
+  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
+  width: var(--tap);
   min-height: var(--tap);
   align-self: stretch;
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 22px;
+  color: var(--quiet);
 }
 
 [data-layout='desktop'] .inboxlist {
@@ -182,12 +182,25 @@
   border-radius: 4px;
 }
 
+/* Desktop: the name with the pencil after it on its line, and an estimate under the name. */
 [data-layout] .rowmain {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto;
+  justify-content: start;
   align-items: center;
-  gap: 4px;
+  gap: 0 4px;
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 36px;
+}
+
+[data-layout] .rowmain > .inboxest {
+  grid-row: 2;
+}
+
+[data-layout] .rowmain > .rowpen {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 /* Rename: a pencil beside the title. On desktop it shows with the row hovered or focused, and is the stop after it. */
@@ -203,19 +216,11 @@
   color: var(--quiet);
 }
 
-[data-layout] .rowpen svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
+/* Its 36px hover box overhangs the name's line rather than pushing an estimate down. */
 [data-layout='desktop'] .rowpen {
   width: 36px;
   height: 36px;
+  margin-block: -8px;
   visibility: hidden;
 }
 
@@ -229,29 +234,18 @@
   color: var(--ink);
 }
 
-/* On phone, three targets of at least 44pt: the row, the pencil, and ›. */
+/* On phone, three targets of at least 44pt: the row, the pencil, and ›, the two icons on the name's line. The chevron
+   sits the card's padding in from its edge, as on More's rows, its target reaching past it. */
 [data-layout='phone'] .inboxlist > .inboxrow.whole {
-  grid-template-columns: minmax(0, 1fr) var(--tap) 52px;
-}
-
-[data-layout='phone'] .inboxrow.whole .inboxlines {
-  grid-column: 1;
-  grid-row: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: var(--tap);
+  grid-template-columns: minmax(0, 1fr) var(--tap) var(--tap);
+  padding-right: calc(var(--space-4) - (var(--tap) - 18px) / 2);
 }
 
 [data-layout='phone'] .rowpen {
   grid-column: 2;
+  grid-row: 1;
   width: var(--tap);
   height: var(--tap);
-}
-
-[data-layout='phone'] .inboxrow.whole .inboxgo {
-  grid-column: 3;
-  grid-row: 1;
 }
 
 /* Renaming: the title as a field with Save and Cancel, beside it on desktop and under it on phone. */

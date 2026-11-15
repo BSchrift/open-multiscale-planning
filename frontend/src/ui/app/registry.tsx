@@ -3,10 +3,10 @@
 // files are another area's own, reused as they are: Today's To schedule is Week's lane, Setup asks for hours and
 // Google Calendar as Settings does, and the Schedule step drags blocks on Week's phone day.
 
-import { lazy } from 'react';
 import type { ComponentType } from 'react';
 import CaptureScreen from '../screens/capture';
 import TaskScreen from '../screens/task';
+import { lazyScreen } from './screenLoad';
 
 export type Layout = 'desktop' | 'phone';
 
@@ -43,24 +43,24 @@ export interface ScreenProps {
   close(): void;
 }
 
-export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<ScreenProps> }> = {
-  today: { label: 'Today', Screen: lazy(() => import('../screens/today')) },
-  week: { label: 'Week', Screen: lazy(() => import('../screens/week')) },
-  inbox: { label: 'Inbox', Screen: lazy(() => import('../screens/inbox')) },
-  process: { label: 'Process', Screen: lazy(() => import('../screens/process')) },
+export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<ScreenProps> & { preload?(): Promise<boolean> } }> = {
+  today: { label: 'Today', Screen: lazyScreen(() => import('../screens/today')) },
+  week: { label: 'Week', Screen: lazyScreen(() => import('../screens/week')) },
+  inbox: { label: 'Inbox', Screen: lazyScreen(() => import('../screens/inbox')) },
+  process: { label: 'Process', Screen: lazyScreen(() => import('../screens/process')) },
   // Loaded with the app, unlike the rest: a screen that suspends shows its fallback, and React then holds the screen
   // back for 300ms, so the first capture after launch would open that much late.
   capture: { label: 'Capture', Screen: CaptureScreen },
   // A task's popup, opened over whatever showed the task. Loaded with the app too, so a tap opens it at once.
   task: { label: 'Task', Screen: TaskScreen },
-  planning: { label: 'Plan your week', Screen: lazy(() => import('../screens/planning')) },
-  plan: { label: 'Plan', Screen: lazy(() => import('../screens/plan')) },
-  goals: { label: 'Goals', Screen: lazy(() => import('../screens/goals')) },
-  oneoffs: { label: 'One offs', Screen: lazy(() => import('../screens/oneoffs')) },
-  analytics: { label: 'Analytics', Screen: lazy(() => import('../screens/analytics')) },
-  done: { label: 'Done', Screen: lazy(() => import('../screens/done')) },
-  settings: { label: 'Settings', Screen: lazy(() => import('../screens/settings')) },
-  setup: { label: 'Welcome', Screen: lazy(() => import('../screens/setup')) },
+  planning: { label: 'Plan your week', Screen: lazyScreen(() => import('../screens/planning')) },
+  plan: { label: 'Plan', Screen: lazyScreen(() => import('../screens/plan')) },
+  goals: { label: 'Goals', Screen: lazyScreen(() => import('../screens/goals')) },
+  oneoffs: { label: 'One offs', Screen: lazyScreen(() => import('../screens/oneoffs')) },
+  analytics: { label: 'Analytics', Screen: lazyScreen(() => import('../screens/analytics')) },
+  done: { label: 'Done', Screen: lazyScreen(() => import('../screens/done')) },
+  settings: { label: 'Settings', Screen: lazyScreen(() => import('../screens/settings')) },
+  setup: { label: 'Welcome', Screen: lazyScreen(() => import('../screens/setup')) },
 };
 
 export type TabId = AreaId | 'more';

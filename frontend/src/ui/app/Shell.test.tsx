@@ -447,6 +447,14 @@ describe('a ready Mac app update', () => {
     act(() => void document.dispatchEvent(new Event('visibilitychange')));
     expect(screen.getAllByText('Multiscale updated.')).toHaveLength(1);
   });
+
+  it('reopens on Settings after Restart to update, and says a moved app can leave the disk image', async () => {
+    await renderApp({ updates: fakeUpdater({ state: 'current' }, { app: { updated: { from: 100, to: 200, settings: true } } }) });
+    await showsPane('Settings');
+    cleanup();
+    await renderApp({ updates: fakeUpdater({ state: 'current' }, { app: { moved: true } }) });
+    expect(await screen.findByText('Multiscale is in Applications now. You can eject the disk image.')).toBeVisible();
+  });
 });
 
 describe('first run', () => {

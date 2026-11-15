@@ -57,6 +57,21 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('on coming back online', async () => {
+    const t = await setup();
+    const online = memoryLifecycle();
+    const runner = createSyncRunner({ db: t.db, clock: t.clock, lifecycle: t.lifecycle, onOnline: online.onForeground, send: t.send });
+    runner.start();
+    await flush();
+    online.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+    runner.stop();
+    online.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+  });
+
   it('2 seconds after the last edit', async () => {
     const t = await setup();
     t.runner.start();
@@ -73,6 +88,21 @@ describe('when it syncs', () => {
     expect(t.send).toHaveBeenCalledTimes(1);
     expect(t.send.mock.calls[0]![0].changes).toHaveLength(2);
     t.runner.stop();
+  });
+
+  it('on the computer waking from sleep or its screen unlocking', async () => {
+    const t = await setup();
+    const wake = memoryLifecycle();
+    const runner = createSyncRunner({ db: t.db, clock: t.clock, lifecycle: t.lifecycle, onWake: wake.onForeground, send: t.send });
+    runner.start();
+    await flush();
+    wake.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
+    runner.stop();
+    wake.foreground();
+    await flush();
+    expect(t.send).toHaveBeenCalledTimes(2);
   });
 
   it('not because of changes that came from a sync', async () => {
@@ -370,7 +400,8 @@ describe('startAppSync', () => {
     let fail!: () => void;
     let failed = false;
     beforeEach(() => {
-      vi.stubGlobal('window', {});
+      // A page's window, for telemetry to start in, with the events the runner listens to, such as online.
+      vi.stubGlobal('window', new EventTarget());
       const failing = new Promise<void>((resolve) => (fail = resolve));
       failed = false;
       vi.doMock('./telemetry', async () => {

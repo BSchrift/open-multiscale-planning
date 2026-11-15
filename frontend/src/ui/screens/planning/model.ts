@@ -7,7 +7,7 @@ import { openTime, pushbackLately, weeklyAims, weekUse } from '../../../core/cap
 import type { Clock } from '../../../core/clock';
 import { blockMinutes, nowInstant, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherPlans, plannable, suggestions } from '../../../core/plan';
+import { gatherBacklogs, gatherPlans, plannable, suggestions } from '../../../core/plan';
 import type { PlanContext, WeekInput } from '../../../core/plan';
 import { blocksInRange, needsNewTime, placedMinutes } from '../../../core/queries';
 import type { BlockRow, QueueRow } from '../../../core/queries';
@@ -116,6 +116,8 @@ export function weekModel(d: PlanningData, clock: Clock) {
   const ctx: PlanContext = { settings, clock, away: records.away };
   const plans = gatherPlans(records.projects, records.milestones, records.tasks);
   const ranked = plannable(plans, ctx);
+  // Goal backlogs: picked from their own band, never suggested, and scheduled like any picked task.
+  const backlogs = gatherBacklogs(records.projects, records.milestones, records.tasks).filter((b) => b.project.state === 'active');
   const weekPlan = d.weekPlans.find((p) => p.week_start === week) ?? null;
   const queue = queueItems(d.queue, d.weekPlans, d.picks, clock);
   const picks = d.picks.filter((p) => p.week_start === week);
@@ -153,7 +155,7 @@ export function weekModel(d: PlanningData, clock: Clock) {
 
   const pushback = pushbackLately(d.weekPlans, records, clock);
 
-  return { ctx, plans, ranked, weekPlan, queue, picks, slot, open, repeating, use, input, oneOffs, hints, pushback, planned, placedBy, aimRows };
+  return { ctx, plans, ranked, backlogs, weekPlan, queue, picks, slot, open, repeating, use, input, oneOffs, hints, pushback, planned, placedBy, aimRows };
 }
 
 export type WeekModel = ReturnType<typeof weekModel>;

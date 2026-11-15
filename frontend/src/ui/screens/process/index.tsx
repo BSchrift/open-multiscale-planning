@@ -3,6 +3,9 @@
 // far as you like, and a toast says what each did, with Undo. The desktop card and the phone card differ: on phone the
 // field sits low, in thumb reach, and its list opens in a sheet, as does the form for a new home.
 //
+// A goal's backlog takes an item too: B, or Goal backlog, swaps the picker for the goals on desktop, and opens a sheet of
+// them on phone.
+//
 // params.planning is the week being planned, so Add to this week adds to that plan; params.item opens on one item.
 // params.stretchStart and stretchEnd are the stretch being planned: its projects come first, new projects end with it,
 // and the week isn't offered, since weekly planning follows.
@@ -10,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { formatDate, formatWeekRange, isDay, nowInstant, thisWeek } from '../../../core/dates';
+import { fileToBacklog } from '../../../core/backlog';
 import { applyPlanChange, dueAfter } from '../../../core/plan';
 import type { PlanChange, RecordWrite, Stretch } from '../../../core/plan';
 import type { InboxRow } from '../../../core/queries';
@@ -29,6 +33,7 @@ import { lateText } from '../../components/LateWarning';
 import { emptyDraft, oneOffFields } from '../../components/oneoff';
 import { useDialogFocus } from '../../components/useDialogFocus';
 import { useToast } from '../../components/Toast';
+import { BacklogChooser, BacklogSheet } from './BacklogChooser';
 import { loadProcess } from './data';
 import { Item } from './Item';
 import type { Editing } from './Item';
@@ -138,6 +143,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const [form, setForm] = useState<{ kind: HomeKind; name?: string; opener: string } | null>(null);
   // The goal picked last, where the next form starts.
   const [lastGoal, setLastGoal] = useState('');
+  // Choosing a goal's backlog: the goals in place of the picker on desktop, a sheet on phone.
+  const [choosing, setChoosing] = useState(false);
+  const [lastBacklog, setLastBacklog] = useState('');
+  const backlogRef = useRef<HTMLButtonElement | null>(null);
   const openers = useRef<Record<string, HTMLButtonElement | null>>({});
   // Where focus goes once the next render has drawn it: the picker, its Add to button, the title, or a form's opener.
   const refocus = useRef<string | null>('pick');
@@ -391,6 +400,29 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     return true;
   };
 
+  /** Adds the item to a goal's backlog, made if it's new: no milestone and no date, last in arrival order. */
+  const file = (goalId: string) => {
+    const goal = data.backlogs.find((g) => g.id === goalId);
+    if (!item || !goal) return Promise.resolve(false);
+    const minutes = est || 60;
+    const once = current?.schedule?.type === 'once' && current.schedule.from;
+    const run = async (w: Writer): Promise<PlanChange> => {
+      const filed = await fileToBacklog(w, goalId, [item.id], clock, { estimate_min: est || null });
+      return s.planOn ? addToWeek(w, minutes, filed) : filed;
+    };
+    const says = () => `Added ${name} to the backlog for ${goal.title}${s.planOn ? ` ${weekWords}` : ''}.${once ? ' Backlog tasks have no date, so its date was cleared.' : ''}`;
+    setChoosing(false);
+    return commit(run, () => ({ sorted: s.sorted + 1 }), says).then((done) => {
+      if (done) setLastBacklog(goalId);
+      return done;
+    });
+  };
+  const closeChooser = () => {
+    setChoosing(false);
+    refocus.current = null;
+    requestAnimationFrame(() => backlogRef.current?.focus());
+  };
+
   const openForm = (kind: HomeKind, opener: string, name?: string) => setForm({ kind, opener, ...(name !== undefined ? { name } : {}) });
 
   const skip = () => item && void commit(null, () => ({}), () => `Skipped ${name}. It stays in your Inbox.`);
@@ -428,6 +460,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       d: () => setDelAsk(true),
       p: () => openForm('practice', 'p'),
       g: () => openForm('goal', 'g'),
+      ...(data.backlogs.length ? { b: () => setChoosing(true) } : {}),
       ...(stretch ? {} : { w: togglePlan }),
     };
     const fn = keys[k];
@@ -493,6 +526,16 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         ))}
       </div>
     </div>
+  );
+  // With no goals there's no backlog to offer.
+  const backlogButton = data.backlogs.length > 0 && (
+    <Button ref={backlogRef} size="compact" type="button" aria-haspopup={phone ? 'dialog' : undefined} onClick={() => setChoosing(true)}>
+      {cap('B')}
+      Goal backlog
+    </Button>
+  );
+  const chooser = !phone && choosing && item && (
+    <BacklogChooser key={item.id} goals={data.backlogs} keysOn={keysOn} cap={cap} onAdd={(id) => void file(id)} onBack={closeChooser} />
   );
   const homeForm = form && item && (
     <HomeForm key={item.id} item={name} kind={form.kind} name={form.name} goals={data.goals} goal={lastGoal} end={data.end} onSave={addHome} onClose={closeForm} />
@@ -576,6 +619,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
             {itemCard(weekToggle)}
             <div className="pxspace" />
             {picker}
+            {backlogButton}
+            {choosing && <BacklogSheet goals={data.backlogs} last={lastBacklog} onAdd={(id) => void file(id)} onClose={closeChooser} />}
             {makeOne}
             {homeForm}
             {delAsk ? (
@@ -620,10 +665,11 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         {item ? (
           <>
             {itemCard()}
-            {homeForm || (
+            {homeForm || chooser || (
               <>
                 {picker}
                 <div className="pxopts">
+                  {backlogButton}
                   {makeOne}
                   <div className="row">
                     <Button size="compact" type="button" onClick={skip}>

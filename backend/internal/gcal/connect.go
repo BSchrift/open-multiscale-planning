@@ -177,7 +177,7 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if err != nil {
 		return err
 	}
-	token, err := cfg.Exchange(ctx, code)
+	token, err := cfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, googleClient()), code)
 	if err != nil {
 		return err
 	}
@@ -282,7 +282,7 @@ func (g *Google) revoke(ctx context.Context, token string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := http.DefaultClient.Do(req)
+	res, err := googleClient().Do(req)
 	if err != nil {
 		return err
 	}

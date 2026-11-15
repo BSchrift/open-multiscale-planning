@@ -524,6 +524,15 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const stop = useMutation((w) => stopPlanning(w, planning, clock));
   const exit = () => void time.flush().then(() => stop.run()).then(close);
   // A project's page is outside planning, so going there saves planning as Save and exit does, to continue later.
+  const openGoal = (id: string) =>
+    void time
+      .flush()
+      .then(() => stop.run())
+      .then(() => {
+        close();
+        nav.go('goals', { show: id });
+        toast.show('Planning is saved, so you can continue it later.');
+      });
   const openProject = (id: string) =>
     void time
       .flush()
@@ -544,7 +553,8 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   });
   const unfinish = useMutation(async (w, done: NonNullable<Awaited<ReturnType<typeof save.run>>>) => {
     await applyPlanChange(w, done.closed.reverse);
-    if (done.before) await w.set('settings', SETTINGS_ID, done.before);
+    // Settings that never had a stretch reverse to null, which would hide its default of none planned yet.
+    if (done.before) await w.set('settings', SETTINGS_ID, { ...done.before, ...(done.before.plan_stretch === null ? { plan_stretch: {} } : {}) });
     await applyPlanChange(w, done.pinned);
   });
   const share = useMutation((w, progress: PlanProgress) => updateSettings(w, { plan_progress: progress }));
@@ -726,6 +736,7 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
         continueLabel={goalsLabel}
         onNext={next}
         onOpenProject={openProject}
+        onOpenGoal={openGoal}
       />
     ),
     practices: <PracticesStep key="practices" data={data} phone={phone} head={stepHead} act={act} onNext={next} />,

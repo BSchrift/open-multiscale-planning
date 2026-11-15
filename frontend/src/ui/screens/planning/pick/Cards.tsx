@@ -34,7 +34,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 /** Needs a new time and not yet in the week: its row asks, rather than offering its time. */
 export const asking = (r: PickTask, done: boolean) => r.c.carried && !r.c.picked && !done;
 
-function Rows(props: ListProps & { rows: PickTask[]; describedBy?: string; source?: string; revealed?: boolean }) {
+export function Rows(props: ListProps & { rows: PickTask[]; describedBy?: string; source?: string; revealed?: boolean }) {
   return (
     <ul className="picklist">
       {props.rows.map((r) =>
@@ -174,7 +174,7 @@ export function OneOffsSection(props: ListProps) {
     <section className="pproj oo" aria-label="One offs">
       <h3 className="pph">
         <span className="pn">One offs</span>
-        <span className="ppr small">Not part of a project</span>
+        <span className="ppr small">Not part of a project or goal</span>
       </h3>
       {view.oneOffs.groups.map((g) => (
         <div key={g.key} className="pgroup">

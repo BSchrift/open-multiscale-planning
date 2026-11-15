@@ -76,7 +76,7 @@ export async function deleteFromInbox(page: Page, title: string) {
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
   await expect(card.getByRole('heading', { name: title, level: 1 })).toBeVisible();
   // The last release, which the compat suite runs beside this one, calls Delete "Delete/done".
-  await card.getByRole('button', { name: /^Delete(\/done)?$/ }).click();
+  await card.getByRole('button', { name: /^Delete(\/done)?( |$)/ }).click();
   await card.getByRole('button', { name: 'Yes, delete' }).click();
   await expect(card.getByRole('heading', { name: title })).toHaveCount(0);
   // Process closes by itself after the last item; otherwise Exit.

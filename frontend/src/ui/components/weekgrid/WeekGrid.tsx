@@ -39,6 +39,8 @@ export interface GridBlock extends Slot {
   ended?: boolean;
   /** How it went, once answered: said in words, and Done struck through. */
   result?: BlockResult | null;
+  /** Opens a dialog, a task's popup, rather than details in place. */
+  popup?: boolean;
 }
 
 /** A block already on the week, as Week and the Schedule step show it. */
@@ -325,6 +327,8 @@ export function WeekGrid(props: WeekGridProps) {
                 {closed.map((z, i) => (
                   <div key={`c${i}`} className="ev ev-closed" style={{ top: z.top, height: z.h }} aria-hidden="true" />
                 ))}
+                {/* Over closed time but before what's drawn on the day, so it passes behind events and blocks. */}
+                {props.now?.date === date && props.now.minutes >= FROM && props.now.minutes <= TO && <NowLine top={y(props.now.minutes)} />}
                 {/* Planning is busy too, but its own block is drawn instead, so the gaps between columns stay clear. */}
                 {ctx.busy
                   .filter((e) => e.date === date && !blocks.some((b) => b.id === e.id))
@@ -353,7 +357,9 @@ export function WeekGrid(props: WeekGridProps) {
                   // Under two lines tall, the title stays on one line rather than being cut through.
                   const cls = `${b.draft ? `ev evdrag evdraft${beside ? ' beside' : ''}` : `ev ${KIND_CLASS[b.kind]}${b.clash ? ' clash' : ''}${b.ended ? ' ended' : ''}${outcomeClass(b.result)}`}${h < 30 ? ' short' : ''}`;
                   if (movable(b)) {
-                    const help = b.draft ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.' : ' Arrow keys move it, Shift and arrows change its length.';
+                    const help = b.draft
+                      ? ' Being placed. Arrow keys move it, Shift and arrows change its length, Enter places it.'
+                      : ` Arrow keys move it, Shift and arrows change its length${b.popup ? ', Enter opens it' : ''}.`;
                     return (
                       <div
                         key={b.id}
@@ -392,7 +398,7 @@ export function WeekGrid(props: WeekGridProps) {
                         className={cls}
                         style={style}
                         aria-label={said}
-                        aria-expanded={props.openId === b.id}
+                        {...(b.popup ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': props.openId === b.id })}
                         title={b.note}
                         onClick={() => props.onOpen?.(b.id)}
                       >
@@ -408,7 +414,6 @@ export function WeekGrid(props: WeekGridProps) {
                     </div>
                   );
                 })}
-                {props.now?.date === date && props.now.minutes >= FROM && props.now.minutes <= TO && <NowLine top={y(props.now.minutes)} />}
                 {ghosts
                   .filter((g) => g.date === date)
                   .map((g) => (

@@ -5,9 +5,9 @@ import { META, setMeta } from '../../../core/db';
 import { CALENDAR_ID, getSettings, listRecords, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
-import type { UpdateStatus, Updater } from '../../../core/updates';
 import { configureRetention } from '../../../core/retention';
-import { renderApp, renderScreen } from '../../app/testing';
+import { fakeUpdater, renderApp, renderScreen } from '../../app/testing';
+import type { UpdateStatus } from '../../../core/updates';
 import type { Harness } from '../../app/testing';
 import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
@@ -48,7 +48,7 @@ describe('Settings', () => {
     it('shows each section', async () => {
       await renderScreen('settings', { layout });
       expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-      for (const name of ['Account', 'Available hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention']) {
+      for (const name of ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention']) {
         expect(screen.getByRole('heading', { level: 2, name })).toBeVisible();
       }
     });
@@ -146,7 +146,7 @@ describe('Settings', () => {
     });
   });
 
-  describe('available hours', () => {
+  describe('unavailable hours', () => {
     const rows = () => screen.getAllByRole('group', { name: /^Unavailable, / });
 
     it('starts with 10pm to 7am every day, and sums the week', async () => {
@@ -209,6 +209,22 @@ describe('Settings', () => {
       expect((await stored(t)).availability[0]).toMatchObject({ projects: true, one_offs: false });
     });
 
+    it.each(['desktop', 'phone'] as const)('on %s, the ticks sit under Closed to, since a tick closes that time to its kind', async (layout) => {
+      const t = await renderScreen('settings', { layout });
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      const closed = within(rows()[0]!).getByRole('group', { name: 'Closed to' });
+      const boxes = within(closed).getAllByRole('checkbox') as HTMLInputElement[];
+      expect(boxes.map((c) => [c.labels?.[0]?.textContent, c.checked])).toEqual([
+        ['Projects', true],
+        ['One offs', true],
+      ]);
+      // Ticked, 10pm to 7am is closed to projects: 168h less 63h. Unticked, projects may use it.
+      expect(screen.getByText('105h a week for projects and 105h for one offs.')).toBeVisible();
+      await userEvent.click(within(closed).getByRole('checkbox', { name: 'Projects' }));
+      expect(await screen.findByText('168h a week for projects and 105h for one offs.')).toBeVisible();
+      expect((await stored(t)).availability[0]).toMatchObject({ projects: false, one_offs: true });
+    });
+
     it('adds a block, with its own days, and removes it', async () => {
       const t = await renderScreen('settings');
       await userEvent.click(await screen.findByRole('button', { name: 'Add unavailable time' }));
@@ -219,6 +235,32 @@ describe('Settings', () => {
       await userEvent.click(within(rows()[1]!).getByRole('button', { name: 'Remove 12pm to 1pm' }));
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect((await stored(t)).availability).toHaveLength(1);
+    });
+
+    it('says what a remove took away, and Undo puts that time back as it was, in its place', async () => {
+      const t = await renderScreen('settings', {
+        seed: (w) =>
+          updateSettings(w, {
+            availability: [
+              { days: 'all', from: 1320, to: 420, projects: true, one_offs: true },
+              { days: 'weekends', from: 720, to: 780, projects: true, one_offs: false },
+              { days: 'weekdays', from: 1020, to: 1080, projects: false, one_offs: true },
+            ],
+          }),
+      });
+      await waitFor(() => expect(rows()).toHaveLength(3));
+      const before = (await stored(t)).availability;
+      await userEvent.click(within(rows()[1]!).getByRole('button', { name: 'Remove 12pm to 1pm' }));
+      await waitFor(() => expect(rows()).toHaveLength(2));
+      expect((await stored(t)).availability).toEqual([before[0], before[2]]);
+      expect(screen.getByText('Removed unavailable time 12pm to 1pm.')).toBeVisible();
+      // The Remove button went with its row, so focus goes to Undo.
+      const undo = screen.getByRole('button', { name: 'Undo' });
+      expect(undo).toHaveFocus();
+      await userEvent.click(undo);
+      await waitFor(() => expect(rows()).toHaveLength(3));
+      expect(rows()[1]).toHaveAccessibleName('Unavailable, 12pm to 1pm');
+      expect((await stored(t)).availability).toEqual(before);
     });
 
     it('the one offs aim is a slider, all the way left is no aim', async () => {
@@ -413,28 +455,7 @@ describe('Settings', () => {
 });
 
 describe('Settings updates', () => {
-  function fakeUpdater(initial: UpdateStatus, more: { download?: string } = {}) {
-    let status = initial;
-    const listeners = new Set<() => void>();
-    const updater = {
-      version: '0.1.0-aaaaaaa',
-      ...more,
-      status: () => status,
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => void listeners.delete(listener);
-      },
-      check: vi.fn(async () => {
-        status = { state: 'current' };
-        listeners.forEach((l) => l());
-        return status;
-      }),
-      apply: vi.fn(async () => undefined),
-      rolledBack: vi.fn(async () => null),
-      stop: vi.fn(),
-    } satisfies Updater;
-    return updater;
-  }
+  const DMG = 'https://downloads.example.test/Multiscale.dmg';
 
   it("isn't there where nothing publishes updates", async () => {
     await renderScreen('settings');
@@ -451,20 +472,37 @@ describe('Settings updates', () => {
     expect(await within(section('Updates')).findByText('Up to date.')).toBeVisible();
   });
 
+  // One gesture, one name: Restart to update, as a Mac app update will say too.
   it('offers to restart into a downloaded update', async () => {
     const updates = fakeUpdater({ state: 'ready', version: '0.2.0-bbbbbbb', build: 200 });
     await renderScreen('settings', { updates });
-    expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb is ready. It starts the next time the app opens.')).toBeVisible();
-    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Restart now' }));
+    expect(await within(section('Updates')).findByText('An update is ready. It starts the next time Multiscale opens.')).toBeVisible();
+    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Restart to update' }));
     expect(updates.apply).toHaveBeenCalled();
   });
 
-  it('links to the new app when an update needs it', async () => {
-    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }, { download: 'https://downloads.example.test/Multiscale.dmg' });
+  it('on the Mac, says an update needs the new Mac app, and How to update gives the steps and the download', async () => {
+    const updates = fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }, { download: DMG });
     const t = await renderScreen('settings', { updates });
-    expect(await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.')).toBeVisible();
-    await userEvent.click(within(section('Updates')).getByRole('button', { name: 'Download the app' }));
-    expect(t.platform.opened).toEqual(['https://downloads.example.test/Multiscale.dmg']);
+    expect(await within(section('Updates')).findByText("This update needs the new Mac app. It's the last one you install by hand.")).toBeVisible();
+    // No version outside the Version row, and the download is in the steps.
+    expect(within(section('Updates')).queryByText(/0\.2\.0-bbbbbbb/)).toBeNull();
+    expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
+    const how = within(section('Updates')).getByRole('button', { name: 'How to update' });
+    await userEvent.click(how);
+    const dialog = screen.getByRole('dialog', { name: 'Install the new Mac app' });
+    expect(within(dialog).getByText("This is the last time you install Multiscale by hand. Your plans stay as they are: they're saved on this Mac and synced.")).toBeVisible();
+    expect(within(dialog).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Download the app, below.',
+      'Quit Multiscale: click its icon in the menu bar, then Quit.',
+      'Open Multiscale.dmg from Downloads and drag Multiscale to Applications. Choose Replace.',
+      'Open Multiscale from Applications, then eject the disk image.',
+    ]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Download the app' }));
+    expect(t.platform.opened).toEqual([DMG]);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(how).toHaveFocus();
   });
 
   it('says when checking failed, with no download offered on iPhone', async () => {
@@ -474,6 +512,86 @@ describe('Settings updates', () => {
     await renderScreen('settings', { updates: fakeUpdater({ state: 'needs-app', version: '0.2.0-bbbbbbb', build: 200 }) });
     await within(section('Updates')).findByText('Version 0.2.0-bbbbbbb needs a new version of the app.');
     expect(within(section('Updates')).queryByRole('button', { name: 'Download the app' })).toBeNull();
+    expect(within(section('Updates')).queryByRole('button', { name: 'How to update' })).toBeNull();
+  });
+});
+
+// The Mac app that replaces itself: each state's copy and buttons, exactly, and where Check for updates shows.
+describe('Settings updates on a Mac app that updates itself', () => {
+  const DMG = 'https://downloads.example.test/Multiscale.dmg';
+  const VERSIONED = 'https://downloads.example.test/mac/0.1.200/Multiscale.dmg';
+  const named = { version: '0.2.0-bbbbbbb', build: 200, dmg: VERSIONED };
+  const HOW = 'App built Nov 3, 2025. Updates download by themselves and install when Multiscale quits or your Mac restarts.';
+  const render = (status: UpdateStatus, app: NonNullable<Parameters<typeof fakeUpdater>[1]>['app'] = {}) => {
+    const updates = fakeUpdater(status, { download: DMG, app: { built: 1762160000, ...app } });
+    return { updates, t: renderScreen('settings', { updates }) };
+  };
+  const card = () => section('Updates');
+  const buttons = () => within(card()).queryAllByRole('button').map((b) => b.textContent);
+
+  it.each([
+    ['up to date', { state: 'current' }, {}, ['Up to date.', HOW], ['Check for updates']],
+    ['downloading', { state: 'app-downloading', ...named, percent: 42 }, {}, ['Downloading an update… 42%', HOW], []],
+    ['ready', { state: 'app-ready', ...named }, {}, ['An update is ready. It installs the next time Multiscale quits or your Mac restarts.', 'Multiscale closes and opens again in a few seconds.'], ['Restart to update']],
+    ['from the disk image', { state: 'current' }, { place: { kind: 'disk-image' } }, ["Multiscale is running from the disk image, so it can't update itself or open when you log in."], ['Move to Applications', 'Check for updates']],
+    ['from the disk image, with an update waiting', { state: 'failed', failure: 'read-only', place: 'disk-image', ...named }, { place: { kind: 'disk-image' } }, ["Multiscale can't update itself while it runs from the disk image."], ['Move to Applications', 'Check for updates']],
+    ['from a temporary copy', { state: 'failed', failure: 'read-only', place: 'translocated', ...named }, { place: { kind: 'translocated' } }, ["Multiscale can't update itself from where it's running."], ['Move to Applications', 'Check for updates']],
+    ['with an administrator', { state: 'failed', failure: 'needs-admin', ...named }, { place: { kind: 'needs-admin' } }, ["Updating Multiscale needs an administrator's password. Update the app asks macOS for it, then restarts Multiscale."], ['Update the app', 'Download the app']],
+    ['after a failed download', { state: 'failed', failure: 'app-download', failures: 1, ...named }, {}, ["Couldn't download the update. It tries again later.", HOW], ['Check for updates']],
+    ['after three failed downloads', { state: 'failed', failure: 'app-download', failures: 3, ...named }, {}, ["Couldn't download the update. It tries again later.", HOW], ['Download the app', 'Check for updates']],
+    ['out of space', { state: 'failed', failure: 'app-space', ...named }, {}, ["Couldn't download the update: this Mac is out of space. It tries again later.", HOW], ['Check for updates']],
+    ["when it didn't check out", { state: 'failed', failure: 'app-signature', ...named }, {}, ["The update didn't pass its safety check, so it wasn't installed. It tries again with the next update.", HOW], ['Download the app', 'Check for updates']],
+    ["when it didn't install", { state: 'failed', failure: 'app-install', ...named }, {}, ["The update didn't install. It tries again the next time Multiscale quits.", HOW], ['Restart to update', 'Download the app']],
+    ['on an older app', { state: 'failed', failure: 'older-app', ...named }, { place: { kind: 'older' } }, ["You're using an older version of the app. It stays on this version until you choose Update the app."], ['Update the app', 'Check for updates']],
+  ] as [string, UpdateStatus, object, string[], string[]][])('says what is happening %s, with only the buttons that can do something', async (_, status, app, lines, expected) => {
+    await render(status, app).t;
+    // The first is the line shown; a failure or a ready update is also said once in the status region.
+    for (const line of lines) expect((await within(card()).findAllByText(line))[0]).toBeVisible();
+    if (!lines.includes(HOW)) expect(within(card()).queryByText(HOW)).toBeNull();
+    // No version but in the Version row.
+    expect(within(card()).queryByText(/0\.2\.0-bbbbbbb|0\.1\.200/)).toBeNull();
+    expect(buttons()).toEqual(expected);
+  });
+
+  it('names the download bar, with its value, and never reads the percentage out', async () => {
+    await render({ state: 'app-downloading', ...named, percent: 42 }).t;
+    const bar = within(card()).getByRole('progressbar', { name: 'Downloading an update' });
+    expect(bar).toHaveAttribute('aria-valuenow', '42');
+    expect(within(card()).getByText('Downloading an update… 42%').closest('[aria-live],[role=status]')).toBeNull();
+  });
+
+  it('restarts to update, saying so on the button, and offers the versioned disk image', async () => {
+    const { updates, t } = render({ state: 'app-ready', ...named });
+    await t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Restart to update' }));
+    expect(updates.app!.restart).toHaveBeenCalled();
+    expect(within(card()).getByRole('button', { name: 'Restarting…' })).toBeDisabled();
+    cleanup();
+    const failed = render({ state: 'failed', failure: 'app-mismatch', ...named });
+    const harness = await failed.t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Download the app' }));
+    expect(harness.platform.opened).toEqual([VERSIONED]);
+  });
+
+  it('moves the app to Applications, and updates the app on request', async () => {
+    const moving = render({ state: 'current' }, { place: { kind: 'disk-image' } });
+    await moving.t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Move to Applications' }));
+    expect(moving.updates.app!.move).toHaveBeenCalled();
+    cleanup();
+    const older = render({ state: 'failed', failure: 'older-app', ...named }, { place: { kind: 'older' } });
+    await older.t;
+    await userEvent.click(within(card()).getByRole('button', { name: 'Update the app' }));
+    expect(older.updates.app!.install).toHaveBeenCalled();
+  });
+
+  it('says once when an update is ready or fails, in a region that stays', async () => {
+    const { updates, t } = render({ state: 'app-downloading', ...named, percent: 10 });
+    await t;
+    const region = within(card()).getByRole('status');
+    expect(region).toHaveTextContent('');
+    act(() => void updates.set({ state: 'app-ready', ...named }));
+    expect(region).toHaveTextContent('An update is ready. It installs the next time Multiscale quits or your Mac restarts.');
   });
 });
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, openSeeded, overNowLine, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -68,6 +68,30 @@ test('the current time is a line on today only, which moves with the time and le
   expect(errors).toEqual([]);
 });
 
+test('the current time passes behind the block under way, with only its dot in front', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const under: Seed = { type: 'time_block', id: 'b9', fields: { task_id: 't1', start: at(2, '13:00'), end: at(2, '15:00'), tz: 'America/Chicago', started_at: at(2, '13:00') } };
+  // With another block at the same time, so the two are drawn side by side.
+  const beside: Seed = { type: 'time_block', id: 'b10', fields: { task_id: 't2', start: at(2, '13:30'), end: at(2, '14:30'), tz: 'America/Chicago', started_at: at(2, '13:30') } };
+  const errors = await openWeek(page, [...records, under, beside]);
+  const line = page.getByRole('img', { name: 'Current time' });
+  await line.scrollIntoViewIfNeeded();
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  if (phone) {
+    // A row's block sits in the flow, so in the row that holds it the line isn't drawn, only its dot.
+    await expect(line).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    expect((await overNowLine(line, (await line.boundingBox())!.x + 40)).dotOnTop).toBe(true);
+  } else {
+    const b = page.getByRole('button', { name: /^Draft the summary, Mon Nov 2, 1pm to 3pm/ });
+    const box = (await b.boundingBox())!;
+    expect(await overNowLine(line, box.x + box.width / 2)).toEqual({ at: expect.stringMatching(/^Draft the summary, Mon Nov 2, 1pm to 3pm/), dotOnTop: true });
+    const other = (await page.getByRole('button', { name: /^Paint the fence, Mon Nov 2, 1:30pm to 2:30pm/ }).boundingBox())!;
+    expect(other.x).toBeGreaterThanOrEqual(box.x + box.width - 1);
+    expect((await overNowLine(line, other.x + other.width / 2)).at).toMatch(/^Paint the fence, Mon Nov 2, 1:30pm to 2:30pm/);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('desktop: drag a block to another day and time, then remove it with Undo', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openWeek(page);
@@ -107,6 +131,49 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   await expect(page.getByRole('group', { name: /^Draft the summary/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('group', { name: /^Draft the summary, Wed Nov 4/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("a task's block opens the task's popup, with the block's own section at its top, and Remove from calendar offers Undo", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openWeek(page);
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  const block = page.getByRole('button', { name: /^Draft the summary, (Tue Nov 3, )?6pm to 7pm/ });
+  await expect(block).toHaveAttribute('aria-haspopup', 'dialog');
+  await block.click();
+  const popup = page.getByRole('dialog', { name: 'Draft the summary' });
+  await expect(popup.getByRole('heading', { name: 'Draft the summary' })).toBeFocused();
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
+  await expect(section.getByText('Write the report')).toBeVisible();
+  // A centred dialog on desktop, a sheet along the bottom on phone, once it has finished sliding in.
+  await popup.evaluate((e) => Promise.all(e.getAnimations().map((a) => a.finished)));
+  const box = (await popup.boundingBox())!;
+  const view = page.viewportSize()!;
+  if (phone) expect(Math.round(box.y + box.height)).toBe(view.height);
+  else expect(Math.abs(box.x + box.width / 2 - view.width / 2)).toBeLessThan(2);
+  if (phone) {
+    for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+    await expectTapTarget(section.getByRole('slider', { name: 'Length' }));
+  }
+  await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}.png`) });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}-dark.png`) });
+  await page.emulateMedia({ colorScheme: 'light' });
+  // Esc closes it, and focus goes back to the block.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(block).toBeFocused();
+
+  await block.click();
+  await section.getByRole('button', { name: 'Remove from calendar' }).click();
+  await expect(page.getByText('Removed Draft the summary')).toBeVisible();
+  // The block's section goes with it; the task stays open.
+  await expect(section).toHaveCount(0);
+  await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(section).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -195,6 +262,70 @@ test('phone: a day with no slot stays readable', async ({ page }, info) => {
     return (hi! + 0.05) / (lo! + 0.05);
   });
   expect(contrast).toBeGreaterThanOrEqual(4.5);
+  expect(errors).toEqual([]);
+});
+
+// As the owner had it: an hour's practice at 5:30pm on Friday, and planning from 5:30pm to 6:45pm.
+const together: Seed[] = [
+  ...records,
+  { type: 'practice', id: 'meals', fields: { title: 'Plan meals for the week', target_min: 60, per: 'week', state: 'active' } },
+  { type: 'time_block', id: 'bm', fields: { practice_id: 'meals', start: at(6, '17:30'), end: at(6, '18:30'), tz: 'America/Chicago' } },
+  { type: 'task', id: 'planning:week:2026-11-09', fields: { kind: 'planning', title: 'Plan the week of Nov 9', plans: ['week:2026-11-09'], estimate_min: 75 } },
+  { type: 'time_block', id: 'bp', fields: { task_id: 'planning:week:2026-11-09', start: at(6, '17:30'), end: at(6, '18:45'), tz: 'America/Chicago' } },
+];
+
+test('phone: blocks at the same time sit side by side with their time once, and each opens its sheet', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', "The day's rows are the phone layout");
+  const errors = await openWeek(page, together);
+  await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(4).click();
+  await expect(page.getByRole('heading', { name: 'Fri Nov 6' })).toBeVisible();
+  const plan = page.getByRole('button', { name: 'Plan the week of Nov 9, 5:30pm to 6:45pm, Planning. Overlaps Plan meals for the week.' });
+  const meals = page.getByRole('button', { name: 'Plan meals for the week, 5:30pm to 6:30pm, Practice. Overlaps Plan the week of Nov 9.' });
+  const sideBySide = async () => {
+    const [left, right] = [(await plan.boundingBox())!, (await meals.boundingBox())!];
+    expect(left.y).toBeCloseTo(right.y, 0);
+    expect(left.x + left.width).toBeLessThanOrEqual(right.x);
+    expect(left.width).toBeCloseTo(right.width, 0);
+    await expectTapTarget(plan);
+    await expectTapTarget(meals);
+  };
+  await sideBySide();
+  await expect(page.locator('.wkdaycard .tltime').filter({ hasText: /^5:30pm$/ })).toHaveCount(1);
+  await expect(page.getByText('Free, 7pm to 10pm')).toBeVisible();
+  await plan.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('week-phone-together.png') });
+  // The narrowest phones still fit both.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await sideBySide();
+  await page.screenshot({ path: info.outputPath('week-phone-together-320.png') });
+
+  await meals.click();
+  const sheet = page.getByRole('dialog', { name: 'Plan meals for the week' });
+  await expect(sheet.getByText('Fri Nov 6, 5:30pm to 6:30pm')).toBeVisible();
+  await sheet.getByRole('button', { name: 'Close' }).click();
+  await plan.click();
+  await expect(page.getByRole('dialog', { name: 'Plan the week of Nov 9' }).getByText('Fri Nov 6, 5:30pm to 6:45pm')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('phone: a third block at the same time goes behind +1 more, which lists all three', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', "The day's rows are the phone layout");
+  const errors = await openWeek(page, [...together, { type: 'time_block', id: 'bc', fields: { task_id: 't2', start: at(6, '18:00'), end: at(6, '18:30'), tz: 'America/Chicago' } }]);
+  await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(4).click();
+  // A 390pt phone's row has room for two readable columns.
+  await expect(page.getByRole('button', { name: /^Plan the week of Nov 9, 5:30pm/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Plan meals for the week, 5:30pm/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 6pm/ })).toHaveCount(0);
+  const more = page.getByRole('button', { name: '+1 more: Paint the fence' });
+  await expectTapTarget(more);
+  await more.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('week-phone-more.png') });
+  await more.click();
+  const list = page.getByRole('dialog', { name: 'Blocks from 5:30pm to 6:45pm' });
+  const fence = list.getByRole('button', { name: /^Paint the fence, 6pm to 6:30pm, One off\./ });
+  await expectTapTarget(fence);
+  await fence.click();
+  await expect(page.getByRole('dialog', { name: 'Paint the fence' }).getByText('Fri Nov 6, 6pm to 6:30pm')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

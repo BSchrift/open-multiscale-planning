@@ -80,6 +80,50 @@ describe('the week grid', () => {
     expect(screen.getByRole('button', { name: 'Write the report, Tue Nov 3, 5pm to 6pm, Project. Conflicts with Quiz night.' })).toHaveClass('clash');
   });
 
+  describe('blocks at the same time', () => {
+    const essay: GridBlock = { ...report, id: 'b4', title: 'Edit the essay', start: 17 * 60 + 30, end: 18 * 60 + 30 };
+    const sideBySide = (els: HTMLElement[]) => {
+      expect(new Set(els.map((e) => e.style.width)).size).toBe(1);
+      expect(new Set(els.map((e) => e.style.left)).size).toBe(els.length);
+    };
+
+    it('sit side by side, each named with what it overlaps, while a block alone keeps the whole day', () => {
+      const t = draw({ blocks: [report, essay, piano, fence] });
+      const first = screen.getByRole('button', { name: 'Write the report, Thu Nov 5, 5pm to 6pm, Project. Overlaps Edit the essay.' });
+      const second = screen.getByRole('button', { name: 'Edit the essay, Thu Nov 5, 5:30pm to 6:30pm, Project. Overlaps Write the report.' });
+      sideBySide([first, second]);
+      expect(screen.getByRole('button', { name: /^Piano practice/ }).style.width).toBe('');
+      fireEvent.click(second);
+      expect(t.onOpen).toHaveBeenCalledWith('b4');
+    });
+
+    it('a planning block, busy time too, is drawn once, as its block, so nothing shows between the columns', () => {
+      const plan: GridBlock = { ...essay, id: 'b5', title: 'Plan the week', kind: 'planning' };
+      const { container } = draw({ ctx: ctx({ busy: [{ date: plan.date, start: plan.start, end: plan.end, id: 'b5', title: 'Plan the week' }] }), blocks: [report, plan] });
+      expect(container.querySelectorAll('.ev-busy')).toHaveLength(0);
+      expect(screen.getAllByText('Plan the week')).toHaveLength(1);
+    });
+
+    it('beside an event one of them conflicts with, share the half of the day it leaves', () => {
+      draw({ blocks: [{ ...report, date: '2026-11-03', start: 18 * 60, end: 19 * 60, clash: true, note: 'Conflicts with Quiz night' }, { ...essay, date: '2026-11-03', start: 18 * 60 + 30, end: 19 * 60 + 30 }] });
+      const first = screen.getByRole('button', { name: /^Write the report, .*Conflicts with Quiz night\. Overlaps Edit the essay\.$/ });
+      const second = screen.getByRole('button', { name: /^Edit the essay, .*Overlaps Write the report\.$/ });
+      sideBySide([first, second]);
+      for (const el of [first, second]) expect(el.style.width).toContain('50%');
+    });
+
+    it('while editing, sit side by side and still drag', () => {
+      const t = draw({ blocks: [report, essay], editing: true });
+      const first = block(/^Write the report, Thu Nov 5, 5pm to 6pm, Project\. Overlaps Edit the essay\./);
+      const second = block(/^Edit the essay, Thu Nov 5, 5:30pm to 6:30pm, Project\. Overlaps Write the report\./);
+      sideBySide([first, second]);
+      fireEvent.pointerDown(second, { button: 0, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(window, { clientX: 0, clientY: 22 });
+      fireEvent.pointerUp(window, { clientX: 0, clientY: 22 });
+      expect(t.onChange).toHaveBeenCalledWith('b4', { date: '2026-11-05', start: 18 * 60, end: 19 * 60 });
+    });
+  });
+
   it('says what kind each block is, not only by its colour', () => {
     draw();
     expect(screen.getByRole('button', { name: 'Piano practice, Fri Nov 6, 7am to 7:30am, Practice.' })).toBeVisible();
@@ -135,6 +179,22 @@ describe('the week grid', () => {
       expect(container.querySelectorAll('.colbody')[2]).toContainElement(line);
       // 8 hours after 6am, at 26px an hour, or 40 while editing.
       expect(line).toHaveStyle({ top: `${8 * (editing ? 40 : 26)}px` });
+    });
+
+    it.each([false, true])('is drawn over closed time but before events, blocks and suggestions, so it passes behind them, editing %s', (editing) => {
+      const draft: GridBlock = { id: 'b9', date: '2026-11-04', start: 13 * 60, end: 15 * 60, title: 'Draft the summary', kind: 'project' };
+      const busy = [{ date: '2026-11-04', start: 14 * 60, end: 15 * 60, id: 'e2', title: 'Team call' }];
+      const ghosts = [{ date: '2026-11-04', start: 15 * 60, end: 16 * 60, label: 'Wed Nov 4, 3pm', onAccept: vi.fn() }];
+      draw({ now, editing, ctx: ctx({ busy }), blocks: [draft], ghosts });
+      const line = screen.getByRole('img', { name: 'Current time' });
+      const column = line.parentElement!;
+      const before = (e: Element) => !!(e.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const closed = [...column.children].filter((e) => e.matches('.ev-closed'));
+      const drawn = [...column.children].filter((e) => e !== line && !e.matches('.ev-closed'));
+      expect(closed.length).toBeGreaterThan(0);
+      expect(drawn.length).toBe(3);
+      expect(closed.every(before)).toBe(true);
+      expect(drawn.some(before)).toBe(false);
     });
 
     it.each([

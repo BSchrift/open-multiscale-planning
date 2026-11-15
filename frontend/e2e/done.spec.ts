@@ -96,7 +96,7 @@ test('from Today’s line to Done, where a block not marked yet is marked finish
   }
   await mark.click();
   const sheet = page.getByRole('dialog', { name: '1 missed block' });
-  await sheet.getByRole('button', { name: 'Finished: Fix the login redirect' }).click();
+  await sheet.getByRole('button', { name: 'Done: Fix the login redirect', exact: true }).click();
   await expect(page.getByText('Fix the login redirect: finished.')).toBeVisible();
   await expect(sheet).toHaveCount(0);
   await expect(group(page, 'Not marked yet')).toHaveCount(0);

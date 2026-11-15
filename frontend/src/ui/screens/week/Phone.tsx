@@ -1,11 +1,12 @@
 // Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
-// shared time axis above one day's timeline. Tapping a block opens its sheet; Move, or Choose another time for a
+// shared time axis above one day's timeline. Tapping a task's block opens the task's popup, with the block's section
+// at its top, and a practice's session or planning opens its sheet; Move, or Choose another time for a
 // task or for planning, makes the block draggable on the day, the strip carries it to another day, and planning's
 // week arrows to another week. To schedule sits above the
 // day: a card opens its suggested times, and while editing, cards drag onto the day and blocks drag back up to it.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent } from 'react';
 import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
@@ -21,17 +22,20 @@ import { usePlanningActions } from '../../components/planning/usePlanning';
 import { DayStrip, PackedDay, weekFree } from '../../components/week/DayStrip';
 import { Sheet } from '../../components/Sheet';
 import { TaskName } from '../../components/task/TaskName';
+import { BlockSection } from '../../components/blocks/BlockSection';
 import { KIND_WORD } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
 import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
-import { clearLane, dayName, finishedCount, overLane, slotRange } from '../../components/weekgrid';
-import type { GridGhost, PlacedBlock } from '../../components/weekgrid';
+import { clearLane, columnStyle, dayName, finishedCount, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
+import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
+import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
 import { useWeekActions } from './useWeekActions';
+import { TaskPopupFor } from '../task';
 
 const { from: DAY_FROM, to: DAY_TO } = DRAWN_DAY;
 const HOUR_PX = 48;
@@ -46,7 +50,10 @@ type Placing =
   | { mode: 'place'; item: Placeable; length: Minutes; fromDrawer: boolean }
   | { mode: 'planning'; plan: PlacingPlanning; length: Minutes };
 
-type Open = { kind: 'block'; id: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
+type Open = { kind: 'block'; id: string } | { kind: 'task'; block: string; task: string } | { kind: 'add' } | { kind: 'item'; id: string } | null;
+
+/** Work, which opens the task's popup, rather than a practice's session or planning, which open their own sheet. */
+const isTask = (b: PlacedBlock) => b.kind === 'project' || b.kind === 'one_off';
 
 export function PhoneWeek(props: WeekProps) {
   const { data, model, offset, editing } = props;
@@ -161,6 +168,15 @@ export function PhoneWeek(props: WeekProps) {
 
   const blocksOn = (date: LocalDate) => model.blocks.filter((b) => b.date === date);
   const opened = open?.kind === 'block' ? model.blocks.find((b) => b.id === open.id) : undefined;
+  const openBlock = (id: string) => {
+    const b = model.blocks.find((x) => x.id === id);
+    setOpen(b?.task_id && isTask(b) ? { kind: 'task', block: id, task: b.task_id } : { kind: 'block', id });
+  };
+  // The popup stays open when its block comes off the calendar; only the block's section goes.
+  const popped = open?.kind === 'task' ? open : null;
+  const popRow = popped && data.blocks.find((b) => b.id === popped.block);
+  const popPlaced = popped && model.blocks.find((b) => b.id === popped.block);
+  const popEdit = !!popPlaced && offset >= 0 && !popPlaced.past;
   const item = open?.kind === 'item' ? model.unscheduled.find((x) => x.id === open.id) : undefined;
   const [dropAt, setDropAt] = useState<{ item: LaneItem; slot: Slot } | null>(null);
   const [planningFor, setPlanningFor] = useState<string | null>(null);
@@ -338,7 +354,7 @@ export function PhoneWeek(props: WeekProps) {
               }}
               onOpen={(id) => {
                 setEdSel(id);
-                setOpen({ kind: 'block', id });
+                openBlock(id);
               }}
             />
           </div>
@@ -357,7 +373,7 @@ export function PhoneWeek(props: WeekProps) {
             <h3 className="wkday">{dayTitle}</h3>
           )}
           <div className="card wkdaycard">
-            <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={(id) => setOpen({ kind: 'block', id })} />
+            <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={openBlock} />
           </div>
           {isThis && (
             <button className="btn wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
@@ -444,6 +460,30 @@ export function PhoneWeek(props: WeekProps) {
           }}
         />
       )}
+      {popped && (
+        <TaskPopupFor
+          id={popped.task}
+          close={() => setOpen(null)}
+          block={
+            popRow && (
+              <BlockSection
+                block={popRow}
+                {...(popEdit && popPlaced
+                  ? {
+                      onMove: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced),
+                      onRemove: () => {
+                        setEdSel(null);
+                        void act.remove(popPlaced.id, popPlaced.title);
+                      },
+                    }
+                  : {})}
+              >
+                {popPlaced && <LengthAndNote block={popPlaced} model={model} canEdit={popEdit} onLength={(end) => changeBlock(popPlaced, { date: popPlaced.date, start: popPlaced.start, end })} />}
+              </BlockSection>
+            )
+          }
+        />
+      )}
       {item && (
         <Sheet label={item.title} onClose={() => setOpen(null)}>
           <LaneActions
@@ -488,7 +528,10 @@ export function PhoneWeek(props: WeekProps) {
   );
 }
 
-/** One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. */
+/**
+ * One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. Blocks at the
+ * same time share a row, side by side.
+ */
 function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; onOpen(id: string): void }) {
   const { date, model } = props;
   const { clock } = useApp();
@@ -496,6 +539,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
   const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
   const { availability, busy } = model.ctx;
   const blocks = model.blocks.filter((b) => b.date === date);
+  const groups = overlapGroups(blocks);
   const info = model.info.filter((x) => x.date === date);
   const shown = new Set<unknown>();
   const startsIn = (m: number) => blocks.filter((b) => b.start < m + 30 && !shown.has(b)).sort((a, b) => a.start - b.start)[0];
@@ -514,44 +558,58 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
       </div>,
     );
 
+  // A task's block always opens, to its popup; a practice's or planning's only while it can still change.
+  const shut = (block: PlacedBlock) => (props.readOnly || block.ended) && !isTask(block);
+  /** A block filling its row, or in its column of its group's row, whose time is `from`: one starting later says when. */
+  const draw = (block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties) => {
+    const word = KIND_WORD[block.kind];
+    const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.start > from ? `, from ${formatTimeOfDay(block.start)}` : ''}${block.note ? `. ${block.note}` : ''}`;
+    const cls = `tlblock ${KIND_CLASS[block.kind]}${block.ended ? ' c-ended' : ''}${outcomeClass(block.result)}`;
+    const inner = (
+      <>
+        <span className="tlname">
+          <OutcomeTag result={block.result} />
+          {block.title}
+        </span>
+        <span className="tlkind">{kindLine}</span>
+      </>
+    );
+    return shut(block) ? (
+      <div key={block.id} className={cls} style={style}>
+        {inner}
+      </div>
+    ) : (
+      <button
+        key={block.id}
+        className={cls}
+        type="button"
+        aria-haspopup="dialog"
+        style={style}
+        aria-label={`${block.title}, ${slotRange(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}${overlapNote(others)}`}
+        onClick={() => props.onOpen(block.id)}
+      >
+        {inner}
+      </button>
+    );
+  };
+
   let m = DAY_FROM;
   while (m < DAY_TO) {
     const block = startsIn(m);
     const event = busyAt(m);
     const inf = infoIn(m);
     if (block) {
-      shown.add(block);
-      const cells = Math.max(1, Math.ceil((block.end - m) / 30));
-      const word = KIND_WORD[block.kind];
-      const shut = props.readOnly || block.ended;
-      const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.note ? `. ${block.note}` : ''}`;
-      const cls = `tlblock ${KIND_CLASS[block.kind]}${block.ended ? ' c-ended' : ''}${outcomeClass(block.result)}`;
-      const inner = (
-        <>
-          <span className="tlname">
-            <OutcomeTag result={block.result} />
-            {block.title}
-          </span>
-          <span className="tlkind">{kindLine}</span>
-        </>
-      );
+      // The row runs to the end of the last block overlapping it, so no free time shows inside them.
+      const group = groups.find((g) => g.items.some((c) => c.item === block))!;
+      for (const c of group.items) shown.add(c.item);
+      const cells = Math.max(1, Math.ceil((group.end - m) / 30));
       row(
         block.id,
-        block.start,
-        shut ? (
-          <div className={cls} style={{ height: cells * CELL_PX - 2 }}>
-            {inner}
-          </div>
+        group.start,
+        group.items.length === 1 ? (
+          draw(block, [], block.start, { height: cells * CELL_PX - 2 })
         ) : (
-          <button
-            className={cls}
-            type="button"
-            style={{ height: cells * CELL_PX - 2 }}
-            aria-label={`${block.title}, ${slotRange(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}`}
-            onClick={() => props.onOpen(block.id)}
-          >
-            {inner}
-          </button>
+          <DayGroup group={group} from={m} cells={cells} draw={draw} canOpen={(b) => !shut(b)} onOpen={props.onOpen} />
         ),
         m,
         m + cells * 30,
@@ -605,6 +663,39 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
 }
 
 /**
+ * Blocks at the same time, side by side in their row from the half hour `from`, each from its own half hour to the end
+ * of its own. As many columns as stay readable are drawn; +N more under them lists the whole group.
+ */
+function DayGroup(props: {
+  group: OverlapGroup<PlacedBlock>;
+  from: number;
+  cells: number;
+  draw(block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties): ReactElement;
+  canOpen(block: PlacedBlock): boolean;
+  onOpen(id: string): void;
+}) {
+  const { group, from } = props;
+  const [measure, width] = useWidth<HTMLDivElement>();
+  const shown = shownColumns(group.cols, width);
+  // shortcut: the current time's line is placed down the whole row, +N more included, so in such a row it sits up to
+  // a button's height low; place it by the columns alone if three or more at once turn out common.
+  return (
+    <>
+      <div ref={measure} className="tlcols" style={{ height: props.cells * CELL_PX - 2 }}>
+        {group.items
+          .filter((c) => c.col < shown)
+          .map(({ item, col, with: others }) => {
+            const top = Math.max(0, Math.floor((item.start - from) / 30));
+            const cells = Math.max(1, Math.ceil((item.end - from) / 30) - top);
+            return props.draw(item, others, group.start, { top: top * CELL_PX, height: cells * CELL_PX - 2, ...columnStyle(col, shown) });
+          })}
+      </div>
+      {shown < group.cols && <MoreButton group={group} shown={shown} className="tlmore" canOpen={props.canOpen} onOpen={(b) => props.onOpen(b.id)} />}
+    </>
+  );
+}
+
+/**
  * The drawn day behind a drag: hours, closed time, calendar events, and the blocks that move. The planning Schedule
  * step also passes suggested times, which the moving and selected blocks snap to.
  */
@@ -634,6 +725,10 @@ export function DragDay(props: {
   // A dropped block stays where it landed until the saved position comes back.
   const placed = props.blocks.map((b) => `${b.id}${b.start}${b.end}`).join();
   useEffect(() => setPreview(null), [placed]);
+  // Blocks at the same time sit side by side, laid out where they're saved, so a block being dragged keeps its column.
+  const [measure, width] = useWidth<HTMLDivElement>();
+  const groups = overlapGroups(props.blocks).map((group) => ({ group, shown: shownColumns(group.cols, width && width - 4, MORE_PX) }));
+  const live = (b: PlacedBlock) => props.editing && b.start >= floor && !b.past;
   const bounds = { from: floor, to: DAY_TO };
   const zones: { top: number; h: number; lock?: boolean }[] = [];
   for (let m = DAY_FROM; m < DAY_TO; m += 30) {
@@ -685,6 +780,8 @@ export function DragDay(props: {
     slot: Slot,
     calm: boolean,
     on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
+    /** Its column among blocks at the same time, and those it overlaps. */
+    column?: { style: CSSProperties; others: readonly PlacedBlock[] },
   ) => {
     const len = slot.end - slot.start;
     const step = (e: KeyboardEvent) => {
@@ -718,8 +815,8 @@ export function DragDay(props: {
         mode === 'move' ? on.unschedule : undefined,
       );
     const shown = preview?.id === key ? preview.slot : slot;
-    // It floats beside what it overlaps, so nothing under it moves or hides.
-    const beside = chosen && overlaps([...props.blocks.filter((b) => b.id !== key), ...ctx.busy], date, shown.start, shown.end);
+    // It floats beside what it overlaps, so nothing under it moves or hides; one in a column is beside them already.
+    const beside = chosen && !column && overlaps([...props.blocks.filter((b) => b.id !== key), ...ctx.busy], date, shown.start, shown.end);
     const help = on.commit ? ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter opens its options.' : ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter saves.';
     return (
       <div
@@ -727,7 +824,7 @@ export function DragDay(props: {
         className={`cev dragblock ${KIND_CLASS[kind]}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}`}
         role="slider"
         tabIndex={0}
-        aria-label={(on.commit ? title : `Time for ${title}, being placed`) + '.' + help}
+        aria-label={(on.commit ? title : `Time for ${title}, being placed`) + '.' + overlapNote(column?.others ?? []) + help}
         // The day runs down the screen, so the value is the time left in the day after its start: Up, and VoiceOver's
         // swipe up, raise it and move the block up. aria-valuetext says the actual time.
         aria-orientation="vertical"
@@ -735,7 +832,7 @@ export function DragDay(props: {
         aria-valuemax={DAY_TO - floor}
         aria-valuenow={DAY_TO - shown.start}
         aria-valuetext={`${dayName(date)}, ${slotRange(shown)}`}
-        style={{ top: y(shown.start), height: Math.max(24, y(shown.end) - y(shown.start)) }}
+        style={{ top: y(shown.start), height: Math.max(24, y(shown.end) - y(shown.start)), ...column?.style }}
         onPointerDown={drag('move')}
         onKeyDown={step}
       >
@@ -749,7 +846,7 @@ export function DragDay(props: {
 
   return (
     <div className="daywrap">
-      <div className="day dragday" style={{ height: y(DAY_TO) }} data-drop-date={date}>
+      <div ref={measure} className="day dragday" style={{ height: y(DAY_TO) }} data-drop-date={date}>
         {zones.map((z, i) => (
           <div key={i} className={`dzone${z.lock ? ' lockz' : ''}`} style={{ top: z.top, height: z.h }} aria-hidden="true">
             {z.lock ? 'Time has passed' : ''}
@@ -760,8 +857,11 @@ export function DragDay(props: {
             {formatTimeOfDay(m)}
           </span>
         ))}
+        {/* Over closed time but before what's drawn on the day, so it passes behind events and blocks. */}
+        {date === today(clock) && nowMin >= DAY_FROM && nowMin <= DAY_TO && <NowLine top={y(nowMin)} />}
+        {/* Planning is busy too, but its own block is drawn instead, so the gaps between columns stay clear. */}
         {ctx.busy
-          .filter((e) => e.date === date)
+          .filter((e) => e.date === date && !props.blocks.some((b) => b.id === e.id))
           .map((e, i) => (
             <div key={`b${i}`} className="cev c-busy" style={{ top: y(e.start), height: Math.max(13, y(e.end) - y(e.start)) }}>
               {e.title || 'Busy'}
@@ -774,19 +874,37 @@ export function DragDay(props: {
               {e.title}
             </div>
           ))}
-        {props.blocks.map((b) => {
-          const live = props.editing && b.start >= floor && !b.past;
-          if (live) {
-            const unschedule = props.onUnschedule && (() => props.onUnschedule!(b));
-            return handle(b.id, b.title, b.kind, b, b.id !== props.selected, { change: (s) => props.onChange(b, s), commit: true, open: () => props.onOpen(b.id), enter: () => props.onOpen(b.id), ...(unschedule ? { unschedule } : {}) });
-          }
-          const h = Math.max(13, y(b.end) - y(b.start));
-          return (
-            <div key={b.id} className={`cev ${KIND_CLASS[b.kind]}${b.ended ? ' c-ended' : ''}${outcomeClass(b.result)}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h }}>
-              <OutcomeTag result={b.result} />
-              {b.title}
-            </div>
-          );
+        {groups.map(({ group, shown }) => {
+          const more = shown < group.cols;
+          const drawn = group.items
+            .filter((c) => c.col < shown)
+            .map(({ item: b, col, with: others }) => {
+              const column = group.cols > 1 ? { style: columnStyle(col, shown, '4px', more ? MORE_INSET : '0px'), others } : undefined;
+              if (live(b)) {
+                const unschedule = props.onUnschedule && (() => props.onUnschedule!(b));
+                return handle(b.id, b.title, b.kind, b, b.id !== props.selected, { change: (s) => props.onChange(b, s), commit: true, open: () => props.onOpen(b.id), enter: () => props.onOpen(b.id), ...(unschedule ? { unschedule } : {}) }, column);
+              }
+              const h = Math.max(13, y(b.end) - y(b.start));
+              return (
+                <div key={b.id} className={`cev ${KIND_CLASS[b.kind]}${b.ended ? ' c-ended' : ''}${outcomeClass(b.result)}${h < 24 ? ' compact' : ''}`} style={{ top: y(b.start), height: h, ...column?.style }}>
+                  <OutcomeTag result={b.result} />
+                  {b.title}
+                </div>
+              );
+            });
+          if (!more) return drawn;
+          return [
+            ...drawn,
+            <MoreButton
+              key={`more${group.start}`}
+              group={group}
+              shown={shown}
+              className="cev cevmore"
+              style={{ top: y(group.start), height: Math.max(44, y(group.end) - y(group.start)), left: 'auto', right: 0, width: MORE_PX }}
+              canOpen={live}
+              onOpen={(b) => props.onOpen(b.id)}
+            />,
+          ];
         })}
         {ghosts
           .filter((g) => g.date === date)
@@ -802,36 +920,21 @@ export function DragDay(props: {
               <span className="cevt">Suggested {formatTimeOfDay(g.start)}</span>
             </button>
           ))}
-        {date === today(clock) && nowMin >= DAY_FROM && nowMin <= DAY_TO && <NowLine top={y(nowMin)} />}
         {moving && handle('moving', moving.title, moving.kind, moving.slot, false, { change: props.onMoving, enter: props.onDone })}
       </div>
     </div>
   );
 }
 
-/** A tapped block: its length on a slider, Move and Remove. */
-function BlockSheet(props: {
-  block: PlacedBlock;
-  model: WeekModel;
-  canEdit: boolean;
-  onClose(): void;
-  onLength(end: number): void;
-  onMove(): void;
-  onRemove(): void;
-}) {
+/** A block's length on a slider, while it can change, and what's off about its time: in its sheet, or in a task's popup. */
+function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: boolean; onLength(end: number): void }) {
   const { block, model } = props;
   const id = useId();
   const len = block.end - block.start;
   const max = Math.max(len, Math.min(480, DAY_TO - block.start));
   const note = slotNotes(block, { kind: block.kind === 'one_off' ? 'one_off' : 'project' }, model.ctx).join(' ');
   return (
-    <Sheet label={block.title} onClose={props.onClose}>
-      <div>
-        <div className="small quiet">
-          {dayName(block.date)}, {slotRange(block)}
-        </div>
-        <h2>{block.task_id ? <TaskName id={block.task_id} title={block.title} /> : block.title}</h2>
-      </div>
+    <>
       {props.canEdit && (
         <div className="stack8">
           <div className="between">
@@ -858,6 +961,30 @@ function BlockSheet(props: {
           {note}
         </p>
       )}
+    </>
+  );
+}
+
+/** A tapped practice's session or planning block: its length on a slider, Move and Remove. */
+function BlockSheet(props: {
+  block: PlacedBlock;
+  model: WeekModel;
+  canEdit: boolean;
+  onClose(): void;
+  onLength(end: number): void;
+  onMove(): void;
+  onRemove(): void;
+}) {
+  const { block } = props;
+  return (
+    <Sheet label={block.title} onClose={props.onClose}>
+      <div>
+        <div className="small quiet">
+          {dayName(block.date)}, {slotRange(block)}
+        </div>
+        <h2>{block.task_id ? <TaskName id={block.task_id} title={block.title} /> : block.title}</h2>
+      </div>
+      <LengthAndNote block={block} model={props.model} canEdit={props.canEdit} onLength={props.onLength} />
       {props.canEdit && (
         <>
           <button className="btn pri" type="button" onClick={props.onMove}>

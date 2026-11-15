@@ -230,6 +230,9 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
   // Start planning puts planning on the clock from now; its Undo keeps this week's times free for the work below.
   await startPlanningThenUndo(page);
   await steps(page).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
+  // Does it fit reads the week on its own, so it can draw after the step has, as a line above it that moves the step down.
+  // Once it's in, a box measured on the step stays put.
+  await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
   const placed = (n: number) => (phone ? page.getByRole('button', { name: `All picked tasks, ${n} of 4 placed` }) : page.getByText(`${n} of 4 placed`));
   await expect(placed(1)).toBeVisible();
 
@@ -240,6 +243,8 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
     await page.getByRole('group', { name: 'Compare days' }).getByRole('button', { name: /^Tue Nov 3, .*suggested 7:30am$/ }).click();
     await page.getByRole('button', { name: 'Move to Tue Nov 3' }).click();
     const handle = page.getByRole('slider', { name: /^Time for Collect the sources/ });
+    // Moved to Tuesday's suggested time first: a key pressed before that moves the block from Monday.
+    await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7:30am to 9:30am');
     await handle.focus();
     await page.keyboard.press('ArrowDown');
     await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7:45am to 9:45am');

@@ -5,6 +5,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { formatDate, formatMinutes, localDate, nowInstant, today } from '../../../core/dates';
+import { backlogId } from '../../../core/backlog';
 import { cadenceBefore, nextStretch, restoreProject } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { shortWord, status } from '../../../core/status';
@@ -13,11 +14,12 @@ import type { Fields, Objective, Practice } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { PracticeAdd, PracticeFields, practiceRule, PracticeSheet, ProjectAdd, usePlanChange } from '../../components/editors';
-import { PenIcon } from '../../components/icons';
+import { ChevronIcon, PenIcon } from '../../components/icons';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { useFocusLanding } from '../../components/useFocusLanding';
+import { BacklogAdd, BacklogBody, backlogFor, backlogSummary } from './BacklogView';
 import type { GoalsData } from './data';
 import { ProjectBody } from './ProjectView';
 import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
@@ -148,6 +150,8 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Objective | null>(null);
+  // Phone: + Task on a goal card adds straight to its backlog.
+  const [addingTo, setAddingTo] = useState<Objective | null>(null);
   // Where focus goes when the control that had it goes away: row buttons by goal id or `project:<id>`.
   const land = useFocusLanding();
   const heads = useRef(new Map<string, HTMLElement>());
@@ -233,9 +237,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               </span>
               <span className="small quiet lineblock">{time}</span>
             </span>
-            <span className="chev" aria-hidden="true">
-              ›
-            </span>
+            <span className="chev" aria-hidden="true"><ChevronIcon /></span>
           </button>
         </div>
       );
@@ -284,9 +286,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               <span className="small quiet">{shortWord(st)}</span>
             </span>
           </span>
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+          <span className="chev" aria-hidden="true"><ChevronIcon /></span>
         </button>
       );
     }
@@ -324,8 +324,14 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
     );
   };
 
-  const addButtons = (goal: string | null, withProject: boolean) => (
+  const addButtons = (goal: string | null, withProject: boolean, backlogGoal?: Objective) => (
     <div className="row">
+      {/* On desktop Add task lives inside the backlog; on phone the backlog is a page away, so the card keeps + Task. */}
+      {phone && backlogGoal && (
+        <button className="btn plain" type="button" aria-label={`Add task to ${backlogFor(backlogGoal)}`} onClick={() => setAddingTo(backlogGoal)}>
+          + Task
+        </button>
+      )}
       {withProject && (
         <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => setAdding({ kind: 'project', goal })}>
           {phone ? '+ Project' : 'Add project'}
@@ -345,9 +351,53 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
       <PracticeAdd goals={data.objectives} objectiveId={goal} onClose={() => setAdding(null)} />
     ));
 
+  // The goal's last row: its backlog, opening in place on desktop and pushing its page on phone.
+  const backlogRow = (goal: Objective) => {
+    const plan = data.backlogs.find((b) => b.project.id === backlogId(goal.id));
+    const summary = backlogSummary(plan);
+    const key = `backlog:${goal.id}`;
+    if (phone) {
+      return (
+        <button ref={headRef(key)} className="projbtn backlogbtn" type="button" aria-label={`Backlog, ${summary}`} onClick={() => nav.go('goals', { backlog: goal.id })}>
+          <span className="kring" aria-hidden="true" />
+          <span className="grow">
+            <span className="lineblock">Backlog</span>
+            <span className="small quiet lineblock">{summary}</span>
+          </span>
+          <span className="chev" aria-hidden="true">
+            ›
+          </span>
+        </button>
+      );
+    }
+    return (
+      <div className="prow backlogrow">
+        <div className="prowhead">
+          <button ref={headRef(key)} className="pmain" type="button" aria-expanded={!!open[key]} aria-label={`Backlog, ${summary}`} onClick={() => toggle(key)}>
+            <span className="qcaret" aria-hidden="true">
+              {open[key] ? '▾' : '▸'}
+            </span>
+            <span className="kring" aria-hidden="true" />
+            <span className="row grow">
+              <span className="strong">Backlog</span>
+              <span className="small quiet">{summary}</span>
+            </span>
+          </button>
+        </div>
+        {open[key] && (
+          <div className="detail">
+            <BacklogBody goal={goal} plan={plan} touches={data.touches} />
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const goalRow = (goal: Objective) => {
     const projects = plans.filter((p) => p.project.objective_id === goal.id);
     const own = practices.filter((p) => p.objective_id === goal.id);
+    // A backlog never makes a goal active: only practices and projects do.
+    const backlogTasks = data.backlogs.find((b) => b.project.id === backlogId(goal.id))?.tasks.filter((t) => !t.done_at && !t.cancelled_at).length ?? 0;
     const has = projects.length + own.length > 0;
     const notNow = !has && goal.state === 'not_now' && !!goal.not_now_until && goal.not_now_until > on;
     // Asked once a Not now runs out, or when nothing under the goal has changed for a cadence.
@@ -360,8 +410,10 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
       .sort((a, b) => b.st.rank - a.st.rank);
     const worst = flagged[0];
     const isOpen = !!open[goal.id];
-    const counts = [own.length ? plural(own.length, 'practice') : '', projects.length ? plural(projects.length, 'project') : ''].filter(Boolean).join(', ');
-    const line = notNow ? `Not now. Asking again ${formatDate(goal.not_now_until!)}.` : has ? counts : asks ? 'Nothing active. Still a goal?' : 'Nothing active.';
+    const inBacklog = backlogTasks ? `${plural(backlogTasks, 'task')} in backlog` : '';
+    const counts = [own.length ? plural(own.length, 'practice') : '', projects.length ? plural(projects.length, 'project') : '', inBacklog].filter(Boolean).join(', ');
+    const idle = inBacklog ? `Nothing active. ${inBacklog.charAt(0).toUpperCase()}${inBacklog.slice(1)}.` : 'Nothing active.';
+    const line = notNow ? `Not now. Asking again ${formatDate(goal.not_now_until!)}.` : has ? counts : asks ? `${idle} Still a goal?` : idle;
     // Open, a goal with nothing active asks inside instead.
     const showLine = isOpen ? notNow || (!phone && has) : !worst && (!phone || !has || notNow);
     const pen = `rename:${goal.id}`;
@@ -414,6 +466,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
           <div className="nested stack8">
             {own.map(practiceRow)}
             {projects.map(projectRow)}
+            {backlogRow(goal)}
             {asks && (
               <div className="row">
                 <span className="small quiet">Still a goal?</span>
@@ -430,7 +483,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               </div>
             )}
             {addForms(goal.id, goal.title)}
-            {addButtons(goal.id, true)}
+            {addButtons(goal.id, true, goal)}
           </div>
         )}
       </div>
@@ -525,6 +578,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
       )}
       {sheetPractice && <PracticeSheet practice={sheetPractice} goals={data.objectives} onClose={(saved) => closePractice(sheetPractice.id, saved)} />}
       {deleting && <DeleteGoal goal={deleting} onClose={() => setDeleting(null)} onDeleted={() => setRenaming(null)} />}
+      {addingTo && <BacklogAdd goal={addingTo} onClose={() => setAddingTo(null)} />}
       {archivedCount > 0 && (
         <div className="stack8 archived">
           <div>

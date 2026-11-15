@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { parse } from 'yaml';
@@ -299,6 +301,19 @@ describe('the release pipeline', () => {
     assert.match(nightly[1].Properties.Source.BuildSpec, /scripts\/pipeline\.sh nightly/);
   });
 
+  it('runs the nightly build in the clone its install made, as CodeBuild runs every phase in one shell', () => {
+    const nightly = ofType('AWS::CodeBuild::Project').find(([, p]) => p.Properties.Source.Type === 'NO_SOURCE')!;
+    const { phases } = JSON.parse(nightly[1].Properties.Source.BuildSpec) as { phases: Record<string, { commands: string[] }> };
+    // A git that clones a repo whose pipeline.sh only names its step, and every phase's commands in order in one bash.
+    const dir = mkdtempSync(join(tmpdir(), 'nightly-'));
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'bin/git'), '#!/bin/bash\nmkdir -p "${@: -1}/scripts" && printf \'#!/bin/bash\\necho "step $1"\\n\' >"${@: -1}/scripts/pipeline.sh" && chmod +x "${@: -1}/scripts/pipeline.sh"\n', { mode: 0o755 });
+    const script = ['install', 'build'].flatMap((phase) => phases[phase]!.commands).join(' || exit 1\n');
+    const run = spawnSync('bash', ['-c', script], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}` } });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(run.stdout.trim().split('\n'), ['step install', 'step nightly']);
+  });
+
   it('needs every environment in the control account\'s region', () => {
     const elsewhere = { ...environments, prod: { ...environments.prod, aws: { ...environments.prod.aws, region: 'eu-west-1' } } };
     assert.throws(() => new PipelineStack(new App(), 'P', { control, environments: elsewhere }), /prod in us-east-2/);
@@ -444,7 +459,7 @@ describe("the Mac release's inbox", () => {
     assert.equal(signing[0]!.permissions!['id-token'], 'write');
   });
 
-  it("is reached only by the workflow jobs in that environment: the Mac release's signing and the TestFlight review", () => {
+  it("is reached only by the workflow jobs in that environment: the Mac release's signing, the staging update check and the TestFlight review", () => {
     const dir = join(import.meta.dirname, '../../.github/workflows');
     const oidc = readdirSync(dir).sort().flatMap((file) => {
       const workflow = parse(readFileSync(join(dir, file), 'utf8')) as { permissions?: unknown; jobs: Record<string, { environment?: string; permissions?: Record<string, string> }> };
@@ -452,6 +467,6 @@ describe("the Mac release's inbox", () => {
       assert.ok(!JSON.stringify(workflow.permissions ?? {}).includes('id-token'), file);
       return Object.entries(workflow.jobs).filter(([, job]) => job.permissions?.['id-token'] === 'write').map(([name, job]) => [file, name, job.environment]);
     });
-    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
+    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['mac-update-check.yml', 'check', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
   });
 });

@@ -321,6 +321,13 @@ ZIP_NAME=Multiscale.zip
 # Files under downloads/mac/ never change, so they're cached for good.
 IMMUTABLE='public, max-age=31536000, immutable'
 
+# Whether the staging update check has passed the app a record names: staging's app of the same version updated itself
+# to it. Read as the pipeline's own role, which may read the inbox.
+update_checked() {
+  [ -n "${MAC_INBOX_BUCKET:-}" ] || return 1
+  aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "inbox/update-check/$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$1").json" >/dev/null 2>&1
+}
+
 # Whether an app's folder on the downloads host is free for this app: not published yet, or published with this very
 # zip, as when a run is retried. A finished folder has latest-mac.yml, which goes in last. Signed in: AWS_PROFILE.
 app_folder_free() {
@@ -361,7 +368,7 @@ app_folder() {
 # as when the downloads host served none it checked, with the record that it's a checked one. Last, it deletes the
 # shared feed, if the bucket still has it.
 publish() {
-  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" record="" waiting="" feed testflight=""
+  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" record="" waiting="" feed testflight="" update_waiting=""
   web="$(built)/web/$env_name"
   read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
   [ -n "$(release_bucket "$env_name")" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
@@ -373,8 +380,19 @@ publish() {
     record="$mac/app-record/$env_name.json"
     AWS_PROFILE="$profile" app_folder_free "$(release_bucket "$env_name")" "$record" || exit 1
   fi
+  # Prod takes a new Mac app only once staging's app of the same version updated itself to it, on a Mac, as the staging
+  # update check records (.github/workflows/mac-update-check.yml). Until then its desktop feed stays as it is, as the
+  # iPhone feed does for TestFlight. A web-only run doesn't wait.
+  if [ "$env_name" = prod ] && [ -n "$record" ] && ! update_checked "$record"; then
+    echo "The staging update check hasn't passed Mac app $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$record") yet, so prod's desktop feed stays as it is. The first run after it does switches it."
+    dmg=""
+    record=""
+    update_waiting=1
+  fi
   if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
+  elif [ -n "$update_waiting" ]; then
+    waiting="Mac update check"
   elif [ -z "$mac" ]; then
     waiting="Mac"
   elif [ -n "$dmg" ]; then
@@ -412,7 +430,7 @@ publish() {
   fi
   if [ -n "$waiting" ]; then
     echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds stay as they are."
-    case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
+    case "$waiting" in *"Mac update check"*) ;; *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
     case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
 }
@@ -565,8 +583,9 @@ case "$command" in
     done
     ;;
   deploy-staging)
-    # Waits out staging's short canary.
-    (cd "$root/infrastructure" && npx cdk deploy --app "$(built)/infrastructure/cdk.out/staging" Multiscale-staging --require-approval never)
+    # Waits out staging's short canary. Assigned first: a failed $(built) inside an argument wouldn't stop the script.
+    assembly="$(built)/infrastructure/cdk.out/staging"
+    (cd "$root/infrastructure" && npx cdk deploy --app "$assembly" Multiscale-staging --require-approval never)
     ;;
   mac)
     # For each environment whose feed needs a newer Mac app than this build's, or whose downloads host serves none the
@@ -635,7 +654,8 @@ case "$command" in
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.
-    (cd "$root/infrastructure" && npx cdk publish-assets --unstable=publish-assets --app "$(built)/infrastructure/cdk.out/prod" Multiscale-prod)
+    assembly="$(built)/infrastructure/cdk.out/prod"
+    (cd "$root/infrastructure" && npx cdk publish-assets --unstable=publish-assets --app "$assembly" Multiscale-prod)
     ;;
   test-prod)
     fetch_config

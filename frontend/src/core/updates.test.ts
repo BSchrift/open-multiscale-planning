@@ -195,6 +195,7 @@ describe('the Mac app updating itself', () => {
       restart: vi.fn(async () => undefined),
       move: vi.fn(async () => undefined),
       updated: vi.fn(async () => null),
+      moved: vi.fn(async () => false),
       built: vi.fn(async () => 1762160000),
       ...over,
     } satisfies NativeAppUpdates;

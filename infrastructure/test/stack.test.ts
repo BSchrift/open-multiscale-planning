@@ -564,9 +564,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly nine alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly ten alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 9);
+    assert.equal(alarms.length, 10);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -630,6 +630,23 @@ describe('observability', () => {
     assert.equal(a.TreatMissingData, 'ignore');
     assert.equal(a.Dimensions, undefined);
     assert.match(a.AlarmDescription, /docs\/sync\.md/);
+  });
+
+  // Squirrel refused a Mac app whose zip passed its SHA-512: the published app is bad, so someone must look at once.
+  it('alarms when a Mac app reports an app it refused for its signature, from the app events in the API log', () => {
+    const a = alarm('AppSignature');
+    assert.equal(a.MetricName, 'AppSignatureFailures');
+    assert.equal(a.Namespace, 'Multiscale/staging');
+    assert.equal(a.Statistic, 'Sum');
+    assert.equal(a.Threshold, 1);
+    assert.equal(a.ComparisonOperator, 'GreaterThanOrEqualToThreshold');
+    assert.equal(a.TreatMissingData, 'notBreaching');
+    assert.match(a.AlarmDescription, /docs\/releasing\.md/);
+    assert.ok(a.AlarmActions?.length);
+    const [[, filter]] = ofType('AWS::Logs::MetricFilter').filter(([, f]) => f.Properties.MetricTransformations[0].MetricName === 'AppSignatureFailures');
+    assert.match(filter.Properties.FilterPattern, /client_event/);
+    assert.match(filter.Properties.FilterPattern, /app-signature/);
+    assert.equal(filter.Properties.MetricTransformations[0].MetricNamespace, 'Multiscale/staging');
   });
 
   it('has one dashboard with requests, errors, latency, sync volume, worker health and the largest user', () => {

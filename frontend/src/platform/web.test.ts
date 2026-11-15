@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { relaySignIn } from './web';
+import { relaySignIn, vibrateOnce } from './web';
 
 const REDIRECT = 'http://localhost:5173/auth/callback';
 
@@ -15,5 +15,19 @@ describe('relaySignIn', () => {
     await vi.waitFor(() => expect(received).toEqual([`${REDIRECT}?code=c&state=s`]));
     expect(callback.closeTab).toHaveBeenCalled();
     expect(app.closeTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('vibrateOnce', () => {
+  it('is the browser’s own short vibration, where it has one, as on an Android phone, and nothing where it has none', async () => {
+    const vibrate = vi.fn(() => true);
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+    try {
+      await vibrateOnce();
+      expect(vibrate).toHaveBeenCalledWith(10);
+    } finally {
+      Reflect.deleteProperty(navigator, 'vibrate');
+    }
+    await expect(vibrateOnce()).resolves.toBeUndefined();
   });
 });

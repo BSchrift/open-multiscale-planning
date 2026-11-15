@@ -1,7 +1,7 @@
 // A test page for XCUITest: buttons that drive the real adapter and real plugins, and print what happened. The test
 // script builds it into the app's test copy only, so it never ships.
 
-import { registerPlugin } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
 import { systemClock } from '../core/clock';
@@ -177,6 +177,13 @@ button('Keychain', async () => {
   return stored === 'secret' && (await platform.tokens.get(key)) === null ? 'keychain:ok' : `keychain:wrong ${stored}`;
 });
 button('Database', () => checkDatabase(platform.db));
+// The light tap a hold gives. The adapter never fails, so the app is asked first whether it has the plugin at all. The
+// Simulator has no Taptic Engine, so only that the call reached it shows here.
+button('Haptic', async () => {
+  if (!Capacitor.isPluginAvailable('Haptics')) return 'haptic:missing';
+  await platform.haptic!();
+  return 'haptic:ok';
+});
 button('Plans', checkQueryPlans);
 button('Browser', async () => {
   await platform.openExternal('https://localhost/');

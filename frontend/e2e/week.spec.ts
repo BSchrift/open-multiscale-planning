@@ -363,7 +363,7 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
   await card.click();
   const panel = phone ? page.getByRole('dialog', { name: 'Draft the summary' }) : page.getByRole('group', { name: 'Draft the summary' });
   const first = panel.getByRole('group', { name: 'Suggested times' }).getByRole('button').first();
-  await expect(first).toHaveAccessibleName(/^1 · \w{3} \d/);
+  await expect(first).toHaveAccessibleName(/^\w{3} \d/);
   await first.click();
   await expect(card).toHaveCount(0);
   await expect(lane.getByText('6 · 3h')).toBeVisible();
@@ -441,7 +441,7 @@ test("a set-day practice waits above its own days: Friday's 9:30 places it, Undo
   await page.getByRole('button', { name: friday }).click();
   const panel = phone ? page.getByRole('dialog', { name: 'Morning run' }) : page.getByRole('group', { name: 'Morning run' });
   await expect(panel.getByText('Practice, 30m on Friday, usually 9:30am')).toBeVisible();
-  await panel.getByRole('button', { name: '1 · Fri 9:30am to 10am' }).click();
+  await panel.getByRole('button', { name: 'Fri 9:30am to 10am' }).click();
   await expect(page.getByText('Placed Morning run, Fri Nov 6, 9:30am')).toBeVisible();
   await expect(page.getByRole('button', { name: friday })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
@@ -450,7 +450,7 @@ test("a set-day practice waits above its own days: Friday's 9:30 places it, Undo
 
   // Tuesday's at 7am, then moved to 8:30, kept for Tuesdays only.
   await page.getByRole('button', { name: 'Morning run, Practice, 30 minutes on Tuesday around 7 AM, to schedule' }).click();
-  await page.getByRole('group', { name: 'Morning run' }).getByRole('button', { name: '1 · Tue 7am to 7:30am' }).click();
+  await page.getByRole('group', { name: 'Morning run' }).getByRole('button', { name: 'Tue 7am to 7:30am' }).click();
   await page.getByRole('button', { name: "Edit this week's plan" }).click();
   await page.getByRole('group', { name: /^Morning run, Tue Nov 3, 7am/ }).focus();
   // Each press is saved before the next, and the ask is announced without taking focus from the session.

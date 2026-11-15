@@ -5,10 +5,11 @@
 import type { BlockResult } from '../../../core/types';
 import type { BlockKind } from '../blocks/describe';
 import { AnswerBadge } from './AnswerBadge';
+import { Icon } from './Icon';
 
-export type BlockLook = 'project' | 'practice' | 'oneoff' | 'planning' | 'event' | 'info';
+export type BlockLook = 'project' | 'practice' | 'oneoff' | 'planning' | 'inbox' | 'event' | 'info';
 /** A block record's kind, as the block draws it. */
-export const LOOK: Record<BlockKind, BlockLook> = { project: 'project', one_off: 'oneoff', practice: 'practice', planning: 'planning' };
+export const LOOK: Record<BlockKind, BlockLook> = { project: 'project', one_off: 'oneoff', practice: 'practice', planning: 'planning', inbox: 'inbox' };
 export type BlockState = 'planned' | 'now' | 'done' | 'partly' | 'notdone' | 'goneby' | 'placing' | 'drop' | 'suggested';
 
 /** A block's state from its answer, whether it has ended, and whether it's the one under way. */
@@ -27,17 +28,31 @@ export function blockClass(kind: BlockLook, state: BlockState, opts: { short?: b
 
 const ANSWER = { done: 'done', partly: 'partly', notdone: 'notdone', goneby: 'none' } as const;
 
-/** What a state draws beside the title: the answer badge on a block gone by; the live dot and Now on the one under way. */
-export function BlockMarks(props: { state: BlockState; short?: boolean }) {
+/**
+ * What a block draws beside the title: the inbox icon on an Inbox item's, which no kind's colour marks yet; then the
+ * answer badge on a block gone by, or the live dot and Now on the one under way.
+ */
+export function BlockMarks(props: { state: BlockState; short?: boolean; look?: BlockLook }) {
   const { state, short } = props;
+  const inbox = props.look === 'inbox' && <Icon name="inbox" size={16} className="blkinbox" />;
   if (state === 'now') {
     return (
-      <span className="blknow">
-        <span className="live" aria-hidden="true" />
-        {!short && 'Now'}
-      </span>
+      <>
+        {inbox}
+        <span className="blknow">
+          <span className="live" aria-hidden="true" />
+          {!short && 'Now'}
+        </span>
+      </>
     );
   }
-  if (state in ANSWER) return <AnswerBadge answer={ANSWER[state as keyof typeof ANSWER]} small={short} />;
-  return null;
+  if (state in ANSWER) {
+    return (
+      <>
+        {inbox}
+        <AnswerBadge answer={ANSWER[state as keyof typeof ANSWER]} small={short} />
+      </>
+    );
+  }
+  return inbox || null;
 }

@@ -1,6 +1,6 @@
 // Week: one week's plan, any week, with arrows that have no limit. Desktop draws a grid of days and hours with
 // blocks that drag and resize; phone shows a strip of seven days over one day's timeline. Edit this week's plan
-// works from now on and saves as you go; until this week is planned or skipped, it asks to plan instead. Params: place, a task to put on the calendar this week; edit: 'this', to open
+// works from now on and saves as you go; until this week is planned or skipped, it asks to plan instead. Params: place, a task or a practice's session to put on the calendar this week; edit: 'this', to open
 // this week ready to edit; planning, with place, planning from Choose another time, which the arrows can carry to
 // any week from this one to the last day it can go on.
 
@@ -47,7 +47,10 @@ export interface WeekProps {
   planningAt: string | null;
   /** carry: planning being placed, at its time in the week going to. */
   goWeek(week: LocalDate, carry?: Slot): void;
-  /** A task to place, from Find a time or Place on calendar, or planning's task, from Choose another time. */
+  /**
+   * A task to place, from Find a time or Place on calendar; a card from Today's Choose a time, a practice's session
+   * included; or planning's task, from Choose another time.
+   */
   place: string | null;
   /** Planning to place, while it's being placed. */
   planning: PlacingPlanning | null;

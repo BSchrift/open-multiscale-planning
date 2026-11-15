@@ -30,8 +30,11 @@ test.beforeAll(async ({ browser }, info) => {
   );
   context.on('page', (p) => {
     p.on('console', (m) => {
-      // A second tab is refused on purpose, below.
-      if (m.type() === 'error' && !/InAnotherTab|Startup failed/.test(m.text())) problems.push(m.text().slice(0, 200));
+      // A second tab is refused on purpose, below. The SQLite pool also logs each try that finds another page's file
+      // handles open: the second tab's refusal, and a reload that beats the page it replaces, which opfs.worker.ts tries
+      // again for 3 seconds. A pool that never opens fails startup, which the tests after the reload would show.
+      const refused = /InAnotherTab|Startup failed|another open Access Handle/.test(m.text());
+      if (m.type() === 'error' && !refused) problems.push(m.text().slice(0, 200));
     });
     p.on('pageerror', (e) => problems.push(`pageerror ${e.message.slice(0, 200)}`));
   });
@@ -39,6 +42,12 @@ test.beforeAll(async ({ browser }, info) => {
 });
 
 test.afterAll(() => context?.close());
+
+// CodeBuild keeps no trace, so a failed test logs what the page showed.
+test.afterEach(async ({}, info) => {
+  if (info.status !== info.expectedStatus && page && !page.isClosed())
+    console.log(`${info.title} failed; the page showed:\n${await page.locator('body').ariaSnapshot().catch(() => '(no snapshot)')}`);
+});
 
 test('serves the version released, its pages with the security policy, and assets that cache for good', async () => {
   for (const path of ['/', '/auth/callback', '/version.json']) {
@@ -229,9 +238,18 @@ async function clearChecks(page: Page) {
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
-    // Delete was "Delete/done" before, which a deployment may still be serving; on desktop its keycap follows in the name.
-    await page.getByRole('button', { name: /^Delete(\/done)?( |$)/ }).click();
-    await page.getByRole('button', { name: 'Yes, delete' }).click();
+    // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
+    // already showing, so answer it if it's there.
+    const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
+    const yes = page.getByRole('button', { name: 'Yes, delete' });
+    // The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no Process open),
+    // so an item that's gone needs nothing more.
+    const asking = () => del.or(yes).first().isVisible();
+    const gone = async () => !(await page.getByRole('button', { name: `Assign ${name}`, exact: true }).count());
+    await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
+    if (!(await asking())) continue;
+    if (await del.isVisible()) await del.click();
+    await yes.click();
     // The last one closes this release's Process by itself.
     const process = page.getByRole('dialog', { name: 'Process Inbox' });
     await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);
@@ -259,8 +277,11 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   } else {
     await nav.getByRole('button', { name: 'Plan' }).click();
   }
-  await page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first().click();
+  // Plan opens on a way in, or, while the shared test user's first stretch isn't planned, on the steps themselves.
+  const wayIn = page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
+  await expect(wayIn.or(steps).first()).toBeVisible(NETWORK);
+  if (!(await steps.isVisible())) await wayIn.click();
   const shown: [string, RegExp][] = [
     ['Goals', /^Step \d of \d, Goals\. (Are these still your goals|What are your goals)\?$/],
     ['Practices', /^Step \d of \d, Practices\. Your practices$/],
@@ -281,8 +302,8 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
   // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
-  // earlier runs may have done, so any of its ways in will do.
-  await expect(page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first()).toBeVisible();
+  // earlier runs may have done, so any of its ways in will do; a first stretch not yet planned shows its steps again.
+  await expect(wayIn.or(steps).first()).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

@@ -32,6 +32,7 @@ const bridge: ElectronBridge = {
   },
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   onDeepLink: (listener) => subscribe('deep-link', listener),
+  onWake: (listener) => subscribe('power:wake', listener),
   onCapture: (listener) => subscribe('capture:save', listener),
   captureDone: (id, error) => ipcRenderer.send('capture:done', id, error),
   ready: () => ipcRenderer.send('app:ready'),

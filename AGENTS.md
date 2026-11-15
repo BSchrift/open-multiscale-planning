@@ -40,9 +40,12 @@ nothing from the package.
 | --- | --- | --- |
 | Local, no deployment | Unit tests; browser e2e at desktop and phone sizes; the Mac app; a Docker stand-in backend for sync; the last release's web bundle beside this one; the iPhone Simulator | `make test`, `make test-e2e`, `make test-compat`, `make test-ios` |
 | Against a deployment | The deployed web app, sync, on staging the last release's web bundle beside this one, the integration suite, smoke, the iPhone signed-in test | `make test-deployed` (staging), `ENV=prod CONFIRM_PROD=yes` |
-| CI | Everything in the local layer, on every PR and every push to main | `.github/workflows/ci.yml` |
+| CI | Everything in the local layer, on every PR and every push to main. A PR runs the iPhone Simulator only when it changes something the iPhone app is built from or runs, as [scripts/ci-changes.sh](scripts/ci-changes.sh) lists, and the run's summary says why it ran or didn't. Main always runs it, and so does a run started by hand from the Actions tab | `.github/workflows/ci.yml` |
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |
 | Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
+
+[docs/testing.md](docs/testing.md) maps each feature to the end-to-end tests that cover it on each platform. A change
+that adds a feature or an end-to-end test updates its row.
 
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it
 to the right layer in the same change, or say why it can't be automated.

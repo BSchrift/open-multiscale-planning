@@ -370,6 +370,13 @@ function start() {
 
   const timers = createReminderTimers(showReminder);
   powerMonitor.on('resume', timers.rearm);
+  // So the page syncs then rather than at the next focus or its 5-minute timer. Unlocking too: the network can still be
+  // coming back at the moment of waking, and a sync then fails as offline.
+  const wake = () => {
+    if (pageReady) mainWindow.webContents.send('power:wake');
+  };
+  powerMonitor.on('resume', wake);
+  powerMonitor.on('unlock-screen', wake);
   handleFrom(main, 'notifications:permission', () => Notification.isSupported());
   handleFrom(main, 'notifications:replace', (reminders: Reminder[]) => timers.replaceAll(reminders));
   handleFrom(main, 'notifications:cancel', (ids: string[]) => timers.cancel(ids));

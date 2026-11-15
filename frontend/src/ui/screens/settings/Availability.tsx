@@ -8,6 +8,7 @@ import type { Layout } from '../../app/registry';
 import { useMutation, useQuery } from '../../app/store';
 import { useToast } from '../../components/Toast';
 import './settings.css';
+import { Button } from '../../components/ds/Button';
 
 const NEW_BLOCK: AvailabilityBlock = { days: 'all', from: 12 * 60, to: 13 * 60, projects: true, one_offs: true };
 
@@ -73,9 +74,9 @@ function BlockRow(props: { block: AvailabilityBlock; layout: Layout; onChange(pa
     </select>
   );
   const remove = (
-    <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" aria-label={`Remove ${name}`} onClick={props.onRemove}>
+    <Button size="compact" type="button" aria-label={`Remove ${name}`} onClick={props.onRemove}>
       Remove
-    </button>
+    </Button>
   );
   // A tick closes this time to that kind of work, so the ticks sit under what they mean.
   const kinds = (
@@ -145,9 +146,9 @@ export function UnavailableList(props: { layout: Layout }) {
         />
       ))}
       <div className={props.layout === 'phone' ? undefined : 'setrow'}>
-        <button className={props.layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => void edit.run((list) => [...list, NEW_BLOCK])}>
+        <Button size="compact" type="button" onClick={() => void edit.run((list) => [...list, NEW_BLOCK])}>
           Add unavailable time
-        </button>
+        </Button>
       </div>
     </>
   );

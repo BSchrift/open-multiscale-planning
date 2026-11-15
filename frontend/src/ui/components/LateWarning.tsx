@@ -2,8 +2,8 @@
 
 import { formatDate } from '../../core/dates';
 import type { LocalDate, Milestone } from '../../core/types';
-import { WarnIcon } from './icons';
 import './late.css';
+import { Icon } from './ds/Icon';
 
 /** "Due after Roof watertight (Dec 13)", or "Due after the project ends (Feb 28)". */
 export const lateText = (late: { milestone: Milestone | null; due: LocalDate }) =>
@@ -15,7 +15,7 @@ export const lateSaid = (text: string | null) => (text ? `, ${text.charAt(0).toL
 export function LateWarning(props: { text: string }) {
   return (
     <span className="latewarn">
-      <WarnIcon />
+      <Icon name="warning" />
       {props.text}
     </span>
   );

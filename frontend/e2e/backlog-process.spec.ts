@@ -59,7 +59,7 @@ test("files Inbox items to a goal's backlog in two keys or two taps, with Undo",
   expect(await readRecord(page, 'task', 'i1')).toMatchObject({ kind: 'project', project_id: 'backlog:g1' });
   expect(await readRecord(page, 'task', 'i2')).toMatchObject({ kind: 'project', project_id: 'backlog:g1' });
   expect(await readRecord(page, 'project', 'backlog:g1')).toMatchObject({ objective_id: 'g1', state: 'active' });
-  await card(page).getByRole('button', { name: /^‹ Undo/ }).click();
+  await card(page).getByRole('button', { name: /^Undo/ }).click();
   await expect(card(page).getByRole('heading', { name: 'Order rye flour', level: 1 })).toBeVisible();
   await expect.poll(async () => (await readRecord(page, 'task', 'i2'))?.kind).toBe('inbox');
 });

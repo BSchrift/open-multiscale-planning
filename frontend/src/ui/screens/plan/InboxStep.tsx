@@ -6,6 +6,7 @@ import type { InboxRow } from '../../../core/queries';
 import { InboxList } from '../../components/inbox/InboxList';
 import { StepHead } from './StepHead';
 import type { Head } from './StepHead';
+import { Button } from '../../components/ds/Button';
 
 export const itemCount = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
@@ -39,24 +40,24 @@ export function InboxStep(props: {
       </div>
       {n > 0 && !props.mainProcesses && (
         <div>
-          <button className="btn pri pxstart" type="button" onClick={() => props.onProcess()}>
+          <Button variant="primary" className="pxstart" type="button" onClick={() => props.onProcess()}>
             Process {itemCount(n)}
-          </button>
+          </Button>
         </div>
       )}
       <InboxList rows={rows} phone={phone} onOpen={props.onProcess} />
       {n > 0 && !summary && (
         <div>
-          <button className={phone ? 'btn' : 'link small'} type="button" onClick={props.onSkip}>
+          <Button variant={phone ? 'secondary' : 'link'} className={phone ? undefined : 'small'} type="button" onClick={props.onSkip}>
             Skip the Inbox this time
-          </button>
+          </Button>
         </div>
       )}
       {!phone && (
         <div>
-          <button className={`btn${summary || !n ? ' pri' : ''}`} type="button" onClick={props.onNext}>
+          <Button variant={summary || !n ? 'primary' : 'secondary'} type="button" onClick={props.onNext}>
             Continue to Finish
-          </button>
+          </Button>
         </div>
       )}
     </div>

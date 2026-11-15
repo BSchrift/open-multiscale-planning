@@ -314,15 +314,15 @@ test('Appearance in Settings sets the native theme and the window background, an
   expect((await native(running)).source).toBe('system');
 
   await appearance.getByRole('button', { name: 'Dark' }).click();
-  await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#141517' });
+  await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#0d0e10' });
   await appearance.getByRole('button', { name: 'Light' }).click();
-  await expect.poll(() => native(running)).toEqual({ source: 'light', background: '#fafaf8' });
+  await expect.poll(() => native(running)).toEqual({ source: 'light', background: '#efefea' });
   await appearance.getByRole('button', { name: 'Dark' }).click();
-  await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#141517' });
+  await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#0d0e10' });
   await running.close();
 
   ({ app: running, page } = await launch());
-  await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#141517' });
+  await expect.poll(() => native(running)).toEqual({ source: 'dark', background: '#0d0e10' });
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
 });
 

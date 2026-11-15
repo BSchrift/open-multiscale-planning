@@ -8,6 +8,7 @@ import type { LocalDate, Minutes } from '../../../core/types';
 import { useApp, useQuery } from '../../app/store';
 import type { AddItem } from '../../components/AddMenu';
 import { loadFit, weekFit } from './model';
+import { Icon } from '../../components/ds/Icon';
 
 const DELTA_MS = 3000;
 
@@ -135,9 +136,7 @@ export function WeekFit(props: { week: LocalDate; phone: boolean; preview: FitPr
     return (
       <button className="fitline" type="button" aria-label={`Does it fit? ${words}, ${left}. Show This week`} onClick={props.onShow}>
         {body}
-        <span className="fend" aria-hidden="true">
-          ›
-        </span>
+        <Icon name="chevron-right" size={16} className="fend" />
       </button>
     );
   }

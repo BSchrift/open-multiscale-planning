@@ -4,18 +4,18 @@ import XCTest
 /// CI's Simulator now and then holds every process it starts for up to 40 s: its logs show each one waiting between
 /// xpcproxy_sim and exec, then all starting together. Anything that needs a process started meanwhile, such as the
 /// keychain or a web view's network process, waits that out, so a wait allows longer than the longest hold seen.
-private let patience: TimeInterval = 60
+let patience: TimeInterval = 60
 /// For the first page after a launch, when the web view starts WebKit's processes, which that hold can delay on top of
 /// the page's own second or two.
-private let launchPatience: TimeInterval = 120
+let launchPatience: TimeInterval = 120
 /// Posted by the debug build each time its web view finishes loading a page (BridgeViewController.swift).
 private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
-private let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
+let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
 private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
-private extension XCUIApplication {
+extension XCUIApplication {
     var page: XCUIElement { webViews.firstMatch }
     func webButton(_ label: String) -> XCUIElement { page.buttons[label] }
     func webText(_ text: String) -> XCUIElement { page.staticTexts[text] }
@@ -76,7 +76,7 @@ private func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #file
     XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: launchPatience), .completed, "the web view never loaded its page", file: file, line: line)
 }
 
-private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
+func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in owner: XCUIApplication = XCUIApplication(), file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: timeout) { return }
     // The tree shows what was on screen instead, since labels change between iOS versions.
     XCTFail("\(element) did not appear. On screen:\n\(owner.debugDescription)", file: file, line: line)
@@ -86,16 +86,19 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
  * The app with its data as a new install has it, then seeded from the test page when a seed is given. The Simulator's
  * clock can't be set, and Today shows and says "today" only for blocks that start today, so a seeded app's web view
  * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
- * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead.
+ * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead. An `offline`
+ * app starts with no network (`offlineFlag`).
  */
-private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
+func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false, offline: Bool = false, arguments: [String] = []) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
+    app.launchArguments = arguments
     if seed != nil, !realClock {
         let shift = String(Int(morningShift(now: Date()) * 1000))
         for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
     }
     if remindingOnLeave { app.launchEnvironment[remindersOnLeave] = "YES" }
+    if offline { app.launchEnvironment[offlineFlag] = "YES" }
     checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
     checks.launchLoaded()
     exists(checks.webText("ready"), timeout: launchPatience)
@@ -170,7 +173,7 @@ private func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplicatio
     exists(element, file: file, line: line)
 }
 
-private func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     onTab("Today", element, in: app, file: file, line: line)
 }
 
@@ -198,7 +201,7 @@ private func answerNotification(with action: String, alsoOffering others: [Strin
 }
 
 /// The app asks once there's a block to remind about. Whichever test gets there first answers.
-private func allowNotificationsIfAsked() {
+func allowNotificationsIfAsked() {
     let allow = springboard.alerts.buttons["Allow"]
     if allow.waitForExistence(timeout: 5) { allow.tap() }
 }
@@ -235,6 +238,25 @@ final class ShellUITests: XCTestCase {
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
         onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
+    }
+
+    /// Text follows the phone's text-size setting, as Apple's text styles do: the tab bar's labels, and so its buttons,
+    /// are taller at the largest accessibility size than at the default.
+    ///
+    /// It reads the tab bar rather than Today's title. Today's screen arrives a moment after the shell, behind its lazily
+    /// loaded code, and when the test's first look at the page lands in that moment, WebKit exposes the Today region
+    /// but never its contents for the rest of that launch, though they're drawn. The tab bar is drawn with the shell, so
+    /// it's in the tree from the first look.
+    func testTextFollowsThePhonesTextSize() {
+        var heights: [CGFloat] = []
+        for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXL"] {
+            let app = launchApp(seed: "Seed plan", arguments: ["-UIPreferredContentSizeCategoryName", size])
+            let tab = app.page.otherElements["Main, navigation"].buttons["Today"]
+            exists(tab, timeout: launchPatience)
+            heights.append(tab.frame.height)
+            app.terminate()
+        }
+        XCTAssertGreaterThan(heights[1], heights[0] * 1.2, "The Today tab is \(heights[0])pt high at the default size and \(heights[1])pt at the largest")
     }
 
     func testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff() {
@@ -608,7 +630,7 @@ final class NativeUITests: XCTestCase {
 }
 
 /// What scripts/test-ios.sh signs in to: the local stack it started, or a deployment as its test user.
-private struct Target: Decodable {
+struct Target: Decodable {
     struct User: Decodable { let username, password: String }
     let env: String
     let api_url: String
@@ -624,7 +646,7 @@ private struct Target: Decodable {
 }
 
 /// Another device of the same user, straight through the API, to see what reached the server.
-private struct SecondDevice {
+struct SecondDevice {
     let target: Target
     let token: String
     let start: Int
@@ -788,7 +810,7 @@ final class SignedInUITests: XCTestCase {
     }
 
     /// A deployment's hosted sign-in page, in the browser sheet over the app. The local stack's signs in with no page.
-    private func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
+    func signInOnHostedPage(_ app: XCUIApplication, _ user: Target.User) {
         fillHostedSignIn(app, user)
         app.typeText("\n")
         dismissSavePassword(app, within: 10)

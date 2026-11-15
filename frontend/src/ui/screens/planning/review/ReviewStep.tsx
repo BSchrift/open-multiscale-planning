@@ -12,6 +12,7 @@ import { useApp, useQuery } from '../../../app/store';
 import { TimeUse } from '../../../components/week/TimeUse';
 import { placedBlocks } from '../../../components/weekgrid';
 import { loadPlanning, weekModel } from '../model';
+import { Button } from '../../../components/ds/Button';
 
 export function ReviewStep(props: { week: LocalDate; began: Instant; layout: Layout; onFinish(): void }) {
   const { week, layout } = props;
@@ -51,9 +52,9 @@ export function ReviewStep(props: { week: LocalDate; began: Instant; layout: Lay
       <NextPlanning week={week} began={props.began} />
       {layout === 'desktop' && (
         <div className="row">
-          <button className="btn pri" type="button" onClick={props.onFinish}>
+          <Button variant="primary" type="button" onClick={props.onFinish}>
             Finish plan
-          </button>
+          </Button>
         </div>
       )}
     </div>

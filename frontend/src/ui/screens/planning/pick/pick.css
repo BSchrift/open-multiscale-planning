@@ -1,229 +1,229 @@
 /* Pick tasks additions to the shared desktop and phone styles. */
-:where([data-layout]) .planning .captop{border-top:1px solid var(--line);padding-top:8px}
+:where([data-layout]) .planning .captop{border-top:1px solid var(--hairline);padding-top:var(--space-2)}
 /* Milestone heads are headings and rows a list, for VoiceOver; neither looks any different. */
 :where([data-layout]) .planning .picklist{margin:0;padding:0;list-style:none}
 /* The done circle's grey edge is under 3:1 on a tint, so it takes the quiet ink there, and on every row here. */
-:where([data-layout]) :is(.mband,.added,.oo,.is-maint,.tk) .checkcircle:not(:checked){border-color:var(--quiet)}
+:where([data-layout]) :is(.mband,.added,.oo,.is-maint,.tk) .checkcircle:not(:checked){border-color:var(--ink-3)}
 
 :where([data-layout='phone']) .sheet .pastacts .btn{flex:1 1 auto}
 
 /* One list of every project's tasks, the week's shape beside it. */
-:where([data-layout='desktop']) .planning .colC{display:flex;gap:24px;align-items:flex-start}
-:where([data-layout='desktop']) .planning .cleft{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:12px}
-:where([data-layout='desktop']) .planning .cright{flex:0 0 340px;position:sticky;top:48px;display:flex;flex-direction:column;gap:12px}
-:where([data-layout='desktop']) .planning .pickhead{flex-wrap:nowrap;align-items:flex-end;gap:8px 16px}
+:where([data-layout='desktop']) .planning .colC{display:flex;gap:var(--space-6);align-items:flex-start}
+:where([data-layout='desktop']) .planning .cleft{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--space-3)}
+:where([data-layout='desktop']) .planning .cright{flex:0 0 340px;position:sticky;top:48px;display:flex;flex-direction:column;gap:var(--space-3)}
+:where([data-layout='desktop']) .planning .pickhead{flex-wrap:nowrap;align-items:flex-end;gap:var(--space-2) var(--space-4)}
 /* Kept in view, under Does it fit, however far the cards scroll. */
-:where([data-layout='desktop']) .planning .cleft>.selbar{position:sticky;top:32px;z-index:5}
+:where([data-layout='desktop']) .planning .cleft>.selbar{position:sticky;top:32px;z-index:calc(var(--z-raised) + 4)}
 :where([data-layout='desktop']) .planning .pickhead>.row{flex:none}
-:where([data-layout]) .planning .selbtn[aria-pressed='true']{border-color:var(--blue);background:var(--blue-tint);color:var(--blue-ink)}
+:where([data-layout]) .planning .selbtn[aria-pressed='true']{border-color:var(--accent);background:var(--accent-tint);color:var(--project-ink)}
 :where([data-layout]) .planning .plist{padding:0;overflow:visible}
 /* A project's name is a band over its tasks, with the reason it shows when it's outside this stretch. */
-:where([data-layout]) .planning .pproj{display:flex;flex-direction:column;padding:0 12px 6px}
-:where([data-layout]) .planning .pproj+.pproj,:where([data-layout]) .planning .pproj+.pother,:where([data-layout]) .planning .pother+.pother{border-top:1px solid var(--line)}
-:where([data-layout]) .planning .pph{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:44px;margin:0 -12px;padding:6px 16px;background:var(--fill);font-size:15px;font-weight:600;color:var(--ink)}
-:where([data-layout]) .planning .pproj:first-child .pph{border-radius:var(--radius) var(--radius) 0 0}
-:where([data-layout]) .planning .pn{min-width:0;font-weight:600}
-:where([data-layout]) .planning .ppr{margin-left:auto;font-weight:400;color:var(--ink-2)}
-:where([data-layout]) .planning .rtag{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border:1px solid var(--line-strong);border-radius:999px;background:var(--white);color:var(--ink-2);font-size:12px;font-weight:600;line-height:1.5}
+:where([data-layout]) .planning .pproj{display:flex;flex-direction:column;padding:0 var(--space-3) var(--space-2)}
+:where([data-layout]) .planning .pproj+.pproj,:where([data-layout]) .planning .pproj+.pother,:where([data-layout]) .planning .pother+.pother{border-top:1px solid var(--hairline)}
+:where([data-layout]) .planning .pph{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);min-height:44px;margin:0 calc(-1 * var(--space-3));padding:var(--space-2) var(--space-4);background:var(--wash);font-size:var(--fs-body);font-weight:var(--fw-strong);color:var(--ink)}
+:where([data-layout]) .planning .pproj:first-child .pph{border-radius:var(--radius-control) var(--radius-control) 0 0}
+:where([data-layout]) .planning .pn{min-width:0;font-weight:var(--fw-strong)}
+:where([data-layout]) .planning .ppr{margin-left:auto;font-weight:var(--fw-regular);color:var(--ink-2)}
+:where([data-layout]) .planning .rtag{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border:1px solid var(--line);border-radius:var(--radius-pill);background:var(--card);color:var(--ink-2);font-size:var(--fs-caption);font-weight:var(--fw-strong);line-height:1.5}
 :where([data-layout]) .planning .rtag::before{content:'';flex:none;width:6px;height:6px;border:1.5px solid currentColor;transform:rotate(45deg)}
-:where([data-layout]) .planning .rtag.red{border-color:var(--red);background:var(--red-tint);color:var(--red)}
-:where([data-layout]) .planning .rtag.blue{border-color:var(--blue-line);background:var(--blue-tint);color:var(--blue-ink)}
-:where([data-layout]) .planning .rtag.new::before{border-radius:50%;transform:none;background:currentColor}
-:where([data-layout]) .planning .pproj.oo{box-shadow:inset 4px 0 0 var(--purple)}
-:where([data-layout]) .planning .pproj.oo .pn{color:var(--purple-ink)}
-:where([data-layout]) .planning .pinbox{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:6px 0 2px 14px;color:var(--ink-2)}
+:where([data-layout]) .planning .rtag.red{border-color:var(--danger);background:var(--danger-tint);color:var(--danger)}
+:where([data-layout]) .planning .rtag.blue{border-color:var(--hairline);background:var(--accent-tint);color:var(--project-ink)}
+:where([data-layout]) .planning .rtag.new::before{border-radius:var(--radius-circle);transform:none;background:currentColor}
+:where([data-layout]) .planning .pproj.oo{box-shadow:inset 4px 0 0 var(--oneoff)}
+:where([data-layout]) .planning .pproj.oo .pn{color:var(--oneoff-ink)}
+:where([data-layout]) .planning .pinbox{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin:var(--space-2) 0 var(--space-1) var(--space-4);color:var(--ink-2)}
 :where([data-layout]) .planning .pinbox .link{min-height:var(--tap)}
-:where([data-layout]) .planning .pother{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:44px;padding:6px 16px;color:var(--quiet)}
-:where([data-layout]) .planning .pother .pn{font-weight:500}
-:where([data-layout]) .planning .pmr{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
-:where([data-layout]) .planning .wsr .mmeter{flex:none;width:100px;background:var(--white);box-shadow:inset 0 0 0 1px var(--grey)}
+:where([data-layout]) .planning .pother{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);min-height:44px;padding:var(--space-2) var(--space-4);color:var(--ink-3)}
+:where([data-layout]) .planning .pother .pn{font-weight:var(--fw-strong)}
+:where([data-layout]) .planning .pmr{margin-left:auto;display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-meta);color:var(--ink-2)}
+:where([data-layout]) .planning .wsr .mmeter{flex:none;width:100px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
 :where([data-layout]) .planning .addline{display:flex}
 /* This stretch first: the lede, which is the toggle, why nothing's filtered, folds in place, and the toggle again. */
-:where([data-layout]) .planning .plede{display:flex;align-items:center;gap:8px 12px;padding:8px 10px 8px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--white)}
+:where([data-layout]) .planning .plede{display:flex;align-items:center;gap:var(--space-2) var(--space-3);padding:var(--space-2) var(--space-3) var(--space-2) var(--space-4);border:1px solid var(--hairline);border-radius:var(--radius-control);background:var(--card)}
 :where([data-layout]) .planning .plede p{flex:1 1 auto;min-width:0;margin:0;color:var(--ink-2)}
 :where([data-layout]) .planning .plede strong{color:var(--ink)}
 :where([data-layout]) .planning .plede .btn{flex:none}
-:where([data-layout]) .planning .pstretch{margin:0;padding:8px 14px;border-radius:var(--radius);background:var(--blue-pale);color:var(--ink)}
+:where([data-layout]) .planning .pstretch{margin:0;padding:var(--space-2) var(--space-4);border-radius:var(--radius-control);background:var(--accent-tint);color:var(--ink)}
 :where([data-layout]) .planning .pstretch .link{min-height:var(--tap)}
-:where([data-layout]) .planning .fold{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:44px;margin:4px 0;padding:10px 12px;border:1px dashed var(--line-strong);border-radius:8px;background:transparent;color:var(--blue-ink);font-size:14px;text-align:left}
-:where([data-layout]) .planning .fold:hover{background:var(--blue-pale)}
-:where([data-layout]) .planning .fold .foldh{font-weight:500}
+:where([data-layout]) .planning .fold{display:flex;align-items:flex-start;gap:var(--space-2);width:100%;min-height:44px;margin:var(--space-1) 0;padding:var(--space-3) var(--space-3);border:1px dashed var(--line);border-radius:var(--radius-control);background:transparent;color:var(--project-ink);font-size:var(--fs-label);text-align:left}
+:where([data-layout]) .planning .fold:hover{background:var(--accent-tint)}
+:where([data-layout]) .planning .fold .foldh{font-weight:var(--fw-strong)}
 :where([data-layout]) .planning .foldc{flex:none;width:12px;color:var(--ink-2)}
-:where([data-layout]) .planning .msl .foldhide{flex:none;min-height:var(--tap);margin-left:auto;padding:0 6px}
-:where([data-layout]) .planning .tk[data-revealed]:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
-:where([data-layout]) .planning .pend{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--white)}
-:where([data-layout]) .planning .pend p{margin:0 0 0 20px;color:var(--ink-2)}
+:where([data-layout]) .planning .msl .foldhide{flex:none;min-height:var(--tap);margin-left:auto;padding:0 var(--space-2)}
+:where([data-layout]) .planning .tk[data-revealed]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+:where([data-layout]) .planning .pend{display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2) var(--space-4);border:1px solid var(--hairline);border-radius:var(--radius-control);background:var(--card)}
+:where([data-layout]) .planning .pend p{margin:0 0 0 calc(var(--space-4) + var(--space-1));color:var(--ink-2)}
 :where([data-layout]) .planning .pend .link{min-height:var(--tap)}
-:where([data-layout]) .planning .endtog{display:flex;align-items:center;gap:8px;min-height:44px;padding:0;border:0;background:transparent;color:var(--blue-ink);font-size:15px;font-weight:600;text-align:left}
+:where([data-layout]) .planning .endtog{display:flex;align-items:center;gap:var(--space-2);min-height:44px;padding:0;border:0;background:transparent;color:var(--project-ink);font-size:var(--fs-body);font-weight:var(--fw-strong);text-align:left}
 /* What needs you, by Continue on desktop and over the bottom bar on phone, and the list Show opens. */
-:where([data-layout]) .planning .needyou{padding:8px 10px;border-radius:8px;background:var(--fill);color:var(--ink-2)}
+:where([data-layout]) .planning .needyou{padding:var(--space-2) var(--space-3);border-radius:var(--radius-control);background:var(--wash);color:var(--ink-2)}
 :where([data-layout]) .planning .needyou strong{color:var(--ink)}
 :where([data-layout]) .needgrp{display:flex;flex-direction:column}
-:where([data-layout]) .needh{margin:8px 0 2px;font-size:13px;font-weight:600;color:var(--ink-2)}
-:where([data-layout]) .needrow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 8px;min-height:44px;border-top:1px solid var(--line-soft)}
-:where([data-layout]) .needrow .tkw{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:4px 0}
-:where([data-layout]) .needrow .tt{padding:0;border:0;background:transparent;color:inherit;font-size:14px;text-align:left}
+:where([data-layout]) .needh{margin:var(--space-2) 0 var(--space-1);font-size:var(--fs-meta);font-weight:var(--fw-strong);color:var(--ink-2)}
+:where([data-layout]) .needrow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-1) var(--space-2);min-height:44px;border-top:1px solid var(--hairline)}
+:where([data-layout]) .needrow .tkw{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:var(--space-1) 0}
+:where([data-layout]) .needrow .tt{padding:0;border:0;background:transparent;color:inherit;font-size:var(--fs-label);text-align:left}
 :where([data-layout]) .needrow .tt:hover{text-decoration:underline}
-:where([data-layout]) .needrow .tm{font-size:13px;color:var(--ink-2)}
-:where([data-layout]) .needrow .tp{display:inline-flex;align-items:center;justify-content:center;min-width:72px;min-height:32px;padding:0 10px;border:1px solid var(--blue-line);border-radius:999px;background:var(--white);color:var(--blue);font-size:14px;font-weight:500;white-space:nowrap}
+:where([data-layout]) .needrow .tm{font-size:var(--fs-meta);color:var(--ink-2)}
+:where([data-layout]) .needrow .tp{display:inline-flex;align-items:center;justify-content:center;min-width:72px;min-height:32px;padding:0 var(--space-3);border:1px solid var(--hairline);border-radius:var(--radius-pill);background:var(--card);color:var(--accent-text);font-size:var(--fs-label);font-weight:var(--fw-strong);white-space:nowrap}
 :where([data-layout]) .needrow .answer{min-height:var(--tap)}
-:where([data-layout]) .planning .emptycard{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px dashed var(--line-strong);box-shadow:none;background:transparent}
-:where([data-layout]) .planning .emptyline{padding:4px 4px 10px 14px}
+:where([data-layout]) .planning .emptycard{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-2);padding:var(--space-4);border:1px dashed var(--line);box-shadow:none;background:transparent}
+:where([data-layout]) .planning .emptyline{padding:var(--space-1) var(--space-1) var(--space-3) var(--space-4)}
 /* A milestone's line: its diamond, name and date. An overdue one asks its question on the same line. */
-:where([data-layout]) .planning .gh{display:flex;align-items:center;gap:8px;margin:0;padding:12px 6px 4px 14px;font-size:13px;font-weight:600;color:var(--ink-2)}
-:where([data-layout]) .planning .gh.late{color:var(--red)}
-:where([data-layout]) .planning .gh .msdia{flex:none;margin:0 2px 0 0}
-:where([data-layout]) .planning .msl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:6px 0 2px}
+:where([data-layout]) .planning .gh{display:flex;align-items:center;gap:var(--space-2);margin:0;padding:var(--space-3) var(--space-2) var(--space-1) var(--space-4);font-size:var(--fs-meta);font-weight:var(--fw-strong);color:var(--ink-2)}
+:where([data-layout]) .planning .gh.late{color:var(--danger)}
+:where([data-layout]) .planning .gh .msdia{flex:none;margin:0 var(--space-1) 0 0}
+:where([data-layout]) .planning .msl{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);padding:var(--space-2) 0 var(--space-1)}
 :where([data-layout]) .planning .msl .mslw{flex:1 1 240px;min-width:0;display:flex;flex-direction:column}
-:where([data-layout]) .planning .msl .gh{padding-top:6px}
-:where([data-layout]) .planning .msl .msub{padding-left:34px;color:var(--ink-2)}
-:where([data-layout]) .planning .ovacts{flex:none;gap:6px}
-:where([data-layout]) .planning .tk .tm.late{color:var(--red)}
+:where([data-layout]) .planning .msl .gh{padding-top:var(--space-2)}
+:where([data-layout]) .planning .msl .msub{padding-left:calc(var(--space-8) + var(--space-1));color:var(--ink-2)}
+:where([data-layout]) .planning .ovacts{flex:none;gap:var(--space-2)}
+:where([data-layout]) .planning .tk .tm.late{color:var(--danger)}
 :where([data-layout]) .planning .tk.ask{grid-template-columns:44px minmax(0,1fr) auto}
-:where([data-layout]) .planning .link.answer{min-width:var(--tap);min-height:var(--tap);padding:0 6px;font-size:15px}
+:where([data-layout]) .planning .link.answer{min-width:var(--tap);min-height:var(--tap);padding:0 var(--space-2);font-size:var(--fs-body)}
 :where([data-layout]) .planning .keepnote{flex:1 1 100%;margin:0;color:var(--ink-2)}
-:where([data-layout]) .planning .keepform{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;background:var(--white)}
+:where([data-layout]) .planning .keepform{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding:var(--space-3) var(--space-3);border-radius:var(--radius-control);background:var(--card)}
 :where([data-layout]) .planning .keepform .keepdate{flex:1 1 100%}
-:where([data-layout]) .planning .keepform .keeptick{flex:1 1 100%;display:flex;align-items:center;gap:8px;min-height:44px;font-size:14px}
-:where([data-layout]) .planning .keepform .keeptick input,:where([data-layout]) .planning .sugrow input,:where([data-layout]) .planning .selbox{flex:none;width:20px;height:20px;margin:0;accent-color:var(--blue)}
+:where([data-layout]) .planning .keepform .keeptick{flex:1 1 100%;display:flex;align-items:center;gap:var(--space-2);min-height:44px;font-size:var(--fs-label)}
+:where([data-layout]) .planning .keepform .keeptick input,:where([data-layout]) .planning .sugrow input,:where([data-layout]) .planning .selbox{flex:none;width:20px;height:20px;margin:0;accent-color:var(--accent)}
 /* The week's shape. */
-:where([data-layout]) .planning .wkshape{display:flex;flex-direction:column;gap:12px;padding:16px}
-:where([data-layout]) .planning .ct{margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+:where([data-layout]) .planning .wkshape{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4)}
+:where([data-layout]) .planning .ct{margin:0;font-size:var(--fs-body);font-weight:var(--fw-strong);color:var(--ink)}
 :where([data-layout]) .planning .shapebar{position:relative}
-:where([data-layout]) .planning .shapebar.over .capbar{box-shadow:inset 0 0 0 1.5px var(--amber)}
+:where([data-layout]) .planning .shapebar.over .capbar{box-shadow:inset 0 0 0 1.5px var(--warn)}
 :where([data-layout]) .planning .shapebar .mtick{top:-3px;bottom:-3px}
 :where([data-layout]) .planning .capbar .pale{opacity:.45}
-:where([data-layout]) .planning .wkshape .legend{font-size:12px}
-:where([data-layout]) .planning .wkshape .legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px}
-:where([data-layout]) .planning .wsrows{display:flex;flex-direction:column;padding-top:4px;border-top:1px solid var(--line-soft)}
-:where([data-layout]) .planning .wsr{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;align-items:center;gap:4px 10px;min-height:30px;font-size:13px}
+:where([data-layout]) .planning .wkshape .legend{font-size:var(--fs-caption)}
+:where([data-layout]) .planning .wkshape .legend .swatch{display:inline-block;width:10px;height:10px;border-radius:var(--radius-block)}
+:where([data-layout]) .planning .wsrows{display:flex;flex-direction:column;padding-top:var(--space-1);border-top:1px solid var(--hairline)}
+:where([data-layout]) .planning .wsr{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;align-items:center;gap:var(--space-1) var(--space-3);min-height:30px;font-size:var(--fs-meta)}
 :where([data-layout]) .planning .wsr .mmeter{width:84px}
 :where([data-layout]) .planning .wsr .wn{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--ink)}
 :where([data-layout]) .planning .wsr>:last-child{color:var(--ink-2);white-space:nowrap;text-align:right}
-:where([data-layout]) .planning .wsr.oo .wn{color:var(--purple-ink)}
+:where([data-layout]) .planning .wsr.oo .wn{color:var(--oneoff-ink)}
 :where([data-layout]) .planning .wkshape>.btn{align-self:flex-start}
 :where([data-layout]) .planning .wkshape>.editrow{display:flex;align-items:flex-start}
 :where([data-layout]) .planning .wkshape>.btn.pri{align-self:stretch}
 /* Select mode: the bar, a selection's checkbox and its one tint. */
-:where([data-layout]) .planning .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px 8px 14px;border:1px solid var(--blue-line);border-radius:10px;background:var(--blue-pale)}
-:where([data-layout]) .planning .selhead,:where([data-layout]) .planning .selacts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+:where([data-layout]) .planning .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3) var(--space-2) var(--space-4);border:1px solid var(--hairline);border-radius:var(--radius-control);background:var(--accent-tint)}
+:where([data-layout]) .planning .selhead,:where([data-layout]) .planning .selacts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
 :where([data-layout]) .planning .selhead{flex:1 1 auto}
-:where([data-layout]) .planning .selc{margin-right:auto;font-weight:600}
-:where([data-layout]) .planning .btn[aria-disabled='true']{border-color:var(--line);background:var(--closed);color:var(--quiet);cursor:default}
-:where([data-layout]) .planning .tk.chk{background:var(--blue-tint)}
-:where([data-layout]) .planning .tk.oo.chk{background:var(--purple-soft)}
+:where([data-layout]) .planning .selc{margin-right:auto;font-weight:var(--fw-strong)}
+:where([data-layout]) .planning .btn[aria-disabled='true']{border-color:var(--hairline);background:var(--wash);color:var(--ink-3);cursor:default}
+:where([data-layout]) .planning .tk.chk{background:var(--accent-tint)}
+:where([data-layout]) .planning .tk.oo.chk{background:var(--oneoff-tint)}
 /* Add suggested's preview: a ticked row per task. */
-:where([data-layout]) .planning .sugrow{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:6px;min-height:44px}
+:where([data-layout]) .planning .sugrow{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:var(--space-2);min-height:44px}
 :where([data-layout]) .planning .sugrow .tkw{display:flex;flex-direction:column;min-width:0}
-:where([data-layout]) .planning .sugrow .tm{font-size:13px;color:var(--quiet)}
-:where([data-layout]) .planning .sugrow.oo .tm{color:var(--purple-ink)}
-:where([data-layout]) .planning .sugrow .tq{font-size:13px;color:var(--quiet);white-space:nowrap}
+:where([data-layout]) .planning .sugrow .tm{font-size:var(--fs-meta);color:var(--ink-3)}
+:where([data-layout]) .planning .sugrow.oo .tm{color:var(--oneoff-ink)}
+:where([data-layout]) .planning .sugrow .tq{font-size:var(--fs-meta);color:var(--ink-3);white-space:nowrap}
 :where([data-layout='desktop']) .planning .wkshape .qpop{left:-8px;right:-8px;width:auto}
 :where([data-layout='desktop']) .planning .wkshape .qpop.popover{max-height:70vh;overflow-y:auto}
 /* On phone: tabs under the heading, the cards one under another, and the week's tasks on their tab. */
-:where([data-layout='phone']) .planning .seg{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--fill)}
-:where([data-layout='phone']) .planning .seg>button{flex:1 1 0;min-height:var(--tap);padding:4px 12px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font-size:14px}
-:where([data-layout='phone']) .planning .seg>button[aria-pressed='true']{background:var(--white);color:var(--ink);font-weight:600;box-shadow:var(--card-shadow)}
-:where([data-layout='phone']) .planning .pproj{padding:0 8px 4px}
+:where([data-layout='phone']) .planning .seg{display:flex;gap:var(--space-1);padding:var(--space-1);border-radius:var(--radius-control);background:var(--wash)}
+:where([data-layout='phone']) .planning .seg>button{flex:1 1 0;min-height:var(--tap);padding:var(--space-1) var(--space-3);border:0;border-radius:var(--radius-control);background:transparent;color:var(--ink-2);font-size:var(--fs-meta)}
+:where([data-layout='phone']) .planning .seg>button[aria-pressed='true']{background:var(--card);color:var(--ink);font-weight:var(--fw-strong);box-shadow:var(--shadow-1)}
+:where([data-layout='phone']) .planning .pproj{padding:0 var(--space-2) var(--space-1)}
 /* The real heading sticks as its tasks scroll under it: one line, 44px at most, and a focused row is never under it.
    Where there's little height, or the text is large, it stays put. */
 :where([data-layout='phone']) .planning .pkscroll{scroll-padding-top:44px}
-:where([data-layout='phone']) .planning .pph{position:sticky;top:-16px;z-index:3;flex-wrap:nowrap;max-height:44px;margin:0 -8px;padding:4px 12px;font-size:16px;white-space:nowrap}
+:where([data-layout='phone']) .planning .pph{position:sticky;top:-16px;z-index:calc(var(--z-raised) + 2);flex-wrap:nowrap;max-height:44px;margin:0 calc(-1 * var(--space-2));padding:var(--space-1) var(--space-3);font-size:var(--fs-label);white-space:nowrap}
 :where([data-layout='phone']) .planning .pph .pn{overflow:hidden;text-overflow:ellipsis}
 :where([data-layout='phone']) .planning .pph .rtag{flex:none}
 @media (max-height:37.5em){:where([data-layout='phone']) .planning .pph{position:static;flex-wrap:wrap;max-height:none;white-space:normal}}
 :where([data-layout='phone']) .planning .pkt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 :where([data-layout='phone']) .planning .pkt .small{color:var(--ink-2)}
-:where([data-layout='phone']) .planning .plede{padding:4px 6px 4px 12px}
+:where([data-layout='phone']) .planning .plede{padding:var(--space-1) var(--space-2) var(--space-1) var(--space-3)}
 :where([data-layout='phone']) .planning .plede p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:where([data-layout='phone']) .planning .needstrip{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-top:1px solid var(--line);background:var(--white);color:var(--ink-2);white-space:nowrap}
+:where([data-layout='phone']) .planning .needstrip{display:flex;align-items:center;gap:var(--space-2);min-height:44px;padding:0 var(--space-4);border-top:1px solid var(--hairline);background:var(--card);color:var(--ink-2);white-space:nowrap}
 :where([data-layout='phone']) .planning .needstrip .needw{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 :where([data-layout='phone']) .planning .needstrip strong{color:var(--ink)}
-:where([data-layout='phone']) .planning .needstrip .link{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 4px}
-:where([data-layout='phone']) .planning .msl{padding:2px 0 0}
-:where([data-layout='phone']) .planning .msl .gh{flex:1 1 auto;min-width:0;padding:4px 0 0 14px}
-:where([data-layout='phone']) .planning :is(.msl,.tk) .acts{grid-column:1/-1;display:flex;gap:6px;width:100%;padding:2px 0 6px}
-:where([data-layout='phone']) .planning :is(.msl,.tk) .acts .btn{flex:1 1 0;padding-inline:6px;font-size:14px}
-:where([data-layout='phone']) .planning .msl .msub{flex:1 1 100%;padding-left:34px}
+:where([data-layout='phone']) .planning .needstrip .link{flex:none;min-width:var(--tap);min-height:var(--tap);padding:0 var(--space-1)}
+:where([data-layout='phone']) .planning .msl{padding:var(--space-1) 0 0}
+:where([data-layout='phone']) .planning .msl .gh{flex:1 1 auto;min-width:0;padding:var(--space-1) 0 0 var(--space-4)}
+:where([data-layout='phone']) .planning :is(.msl,.tk) .acts{grid-column:1/-1;display:flex;gap:var(--space-2);width:100%;padding:var(--space-1) 0 var(--space-2)}
+:where([data-layout='phone']) .planning :is(.msl,.tk) .acts .btn{flex:1 1 0;padding-inline:var(--space-2);font-size:var(--fs-meta)}
+:where([data-layout='phone']) .planning .msl .msub{flex:1 1 100%;padding-left:calc(var(--space-8) + var(--space-1))}
 :where([data-layout='phone']) .planning .keepform .btn{flex:1 1 0}
-:where([data-layout='phone']) .planning .wkshape{padding:14px}
-:where([data-layout='phone']) .planning .wsr{grid-template-columns:minmax(0,1fr) 64px auto;font-size:14px}
+:where([data-layout='phone']) .planning .wkshape{padding:var(--space-4)}
+:where([data-layout='phone']) .planning .wsr{grid-template-columns:minmax(0,1fr) 64px auto;font-size:var(--fs-meta)}
 :where([data-layout='phone']) .planning .wsr .mmeter{width:64px;height:6px}
-:where([data-layout='phone']) .planning .wklist{padding:4px 14px 10px}
-:where([data-layout='phone']) .planning .pig{margin:0;padding:8px 0 2px;font-size:12px;font-weight:600;color:var(--quiet)}
-:where([data-layout='phone']) .planning .pi{display:grid;grid-template-columns:minmax(0,1fr) auto 44px;align-items:center;gap:4px;min-height:44px;font-size:15px}
-:where([data-layout='phone']) .planning .pi.oo{padding-left:8px;box-shadow:inset 3px 0 0 var(--purple)}
+:where([data-layout='phone']) .planning .wklist{padding:var(--space-1) var(--space-4) var(--space-3)}
+:where([data-layout='phone']) .planning .pig{margin:0;padding:var(--space-2) 0 var(--space-1);font-size:var(--fs-caption);font-weight:var(--fw-strong);color:var(--ink-3)}
+:where([data-layout='phone']) .planning .pi{display:grid;grid-template-columns:minmax(0,1fr) auto 44px;align-items:center;gap:var(--space-1);min-height:44px;font-size:var(--fs-meta)}
+:where([data-layout='phone']) .planning .pi.oo{padding-left:var(--space-2);box-shadow:inset 3px 0 0 var(--oneoff)}
 :where([data-layout='phone']) .planning .pi .pit{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-:where([data-layout='phone']) .planning .pi .pim{min-width:var(--tap);min-height:var(--tap);padding:0 4px;border:0;background:transparent;color:var(--ink-2);text-decoration:underline dotted;text-underline-offset:3px;white-space:nowrap}
-:where([data-layout='phone']) .planning .pi .pix{width:var(--tap);height:var(--tap);padding:0;border:0;background:transparent;color:var(--quiet);font-size:18px}
+:where([data-layout='phone']) .planning .pi .pim{min-width:var(--tap);min-height:var(--tap);padding:0 var(--space-1);border:0;background:transparent;color:var(--ink-2);text-decoration:underline dotted;text-underline-offset:3px;white-space:nowrap}
+:where([data-layout='phone']) .planning .pi .pix{width:var(--tap);height:var(--tap);padding:0;border:0;background:transparent;color:var(--ink-3);font-size:var(--fs-body)}
 /* Select's bar takes the bottom bar's place. */
 :where([data-layout='phone']) .planning.pflow{position:relative}
-:where([data-layout='phone']) .planning .selbar.ph{position:absolute;left:0;right:0;bottom:0;z-index:5;flex-direction:column;align-items:stretch;gap:6px;padding:8px 16px max(20px,env(safe-area-inset-bottom));border:0;border-top:1px solid var(--blue-line);border-radius:0}
-:where([data-layout='phone']) .planning .selbar.ph .link{min-height:var(--tap);padding:0 6px}
+:where([data-layout='phone']) .planning .selbar.ph{position:absolute;left:0;right:0;bottom:0;z-index:calc(var(--z-raised) + 4);flex-direction:column;align-items:stretch;gap:var(--space-2);padding:var(--space-2) var(--space-4) max(calc(var(--space-4) + var(--space-1)),env(safe-area-inset-bottom));border:0;border-top:1px solid var(--hairline);border-radius:0}
+:where([data-layout='phone']) .planning .selbar.ph .link{min-height:var(--tap);padding:0 var(--space-2)}
 /* The bar is taller than the bottom bar it covers, so the list's foot scrolls clear of it. */
-:where([data-layout='phone']) .planning.pflow:has(.selbar.ph) .pkscroll{padding-bottom:112px}
-:where([data-layout='phone']) .planning .selbar.ph .selacts .btn{flex:1 1 auto;padding-inline:8px}
+:where([data-layout='phone']) .planning.pflow:has(.selbar.ph) .pkscroll{padding-bottom:calc(var(--space-16) + var(--space-12))}
+:where([data-layout='phone']) .planning .selbar.ph .selacts .btn{flex:1 1 auto;padding-inline:var(--space-2)}
 
 /* A task row: done circle, title and why, and one time button. Picked is a tint, blue or purple for a one off. */
-:where([data-layout]) .planning .tk{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:6px;min-height:48px;padding:2px 6px 2px 0;border-radius:8px}
-:where([data-layout]) .planning .tk.on{background:var(--blue-added)}
-:where([data-layout]) .planning .tk.oo.on{background:var(--purple-soft)}
+:where([data-layout]) .planning .tk{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:var(--space-2);min-height:48px;padding:var(--space-1) var(--space-2) var(--space-1) 0;border-radius:var(--radius-control)}
+:where([data-layout]) .planning .tk.on{background:var(--accent-tint)}
+:where([data-layout]) .planning .tk.oo.on{background:var(--oneoff-tint)}
 :where([data-layout]) .planning .tk .ckt{position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px}
-:where([data-layout]) .planning .tk .tkw{min-width:0;display:flex;flex-direction:column;align-items:flex-start;padding:4px 0}
-:where([data-layout]) .planning .tk .tt{padding:0;border:0;background:transparent;color:inherit;font-size:14px;line-height:1.35;text-align:left}
+:where([data-layout]) .planning .tk .tkw{min-width:0;display:flex;flex-direction:column;align-items:flex-start;padding:var(--space-1) 0}
+:where([data-layout]) .planning .tk .tt{padding:0;border:0;background:transparent;color:inherit;font-size:var(--fs-label);line-height:1.35;text-align:left}
 :where([data-layout]) .planning .tk .tt:hover{text-decoration:underline;text-underline-offset:2px}
-:where([data-layout]) .planning .tk .tm{font-size:13px;line-height:1.35;color:var(--quiet)}
-:where([data-layout]) .planning .tk .tm .why{color:var(--blue-ink)}
-:where([data-layout]) .planning .tk.oo .tm .why{color:var(--purple-ink)}
-:where([data-layout]) .planning .tk.done .tt{color:var(--quiet);text-decoration:line-through}
-:where([data-layout]) .planning .tk .tq{padding-right:6px;font-size:13px;color:var(--quiet);white-space:nowrap}
-:where([data-layout]) .planning .tp{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:84px;height:32px;padding:0 12px;border:1px solid var(--blue-line);border-radius:999px;background:var(--white);color:var(--blue);font-size:14px;font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums}
+:where([data-layout]) .planning .tk .tm{font-size:var(--fs-meta);line-height:1.35;color:var(--ink-3)}
+:where([data-layout]) .planning .tk .tm .why{color:var(--project-ink)}
+:where([data-layout]) .planning .tk.oo .tm .why{color:var(--oneoff-ink)}
+:where([data-layout]) .planning .tk.done .tt{color:var(--ink-3);text-decoration:line-through}
+:where([data-layout]) .planning .tk .tq{padding-right:var(--space-2);font-size:var(--fs-meta);color:var(--ink-3);white-space:nowrap}
+:where([data-layout]) .planning .tp{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);min-width:84px;height:32px;padding:0 var(--space-3);border:1px solid var(--hairline);border-radius:var(--radius-pill);background:var(--card);color:var(--accent-text);font-size:var(--fs-label);font-weight:var(--fw-strong);white-space:nowrap;font-variant-numeric:tabular-nums}
 /* Picked, a soft fill, so solid blue is left for Continue. */
-:where([data-layout]) .planning .tp.on{background:var(--blue-soft);color:var(--blue-ink)}
-:where([data-layout]) .planning .tp.oo{border-color:var(--purple-line);color:var(--purple)}
-:where([data-layout]) .planning .tp.oo.on{background:var(--purple-line);color:var(--purple-ink)}
-:where([data-layout]) .planning .tp .tv{font-size:10px;opacity:.85}
-:where([data-layout]) .planning .tp:hover{box-shadow:0 0 0 3px var(--blue-soft)}
+:where([data-layout]) .planning .tp.on{background:var(--project-tint);color:var(--project-ink)}
+:where([data-layout]) .planning .tp.oo{border-color:var(--hairline);color:var(--oneoff)}
+:where([data-layout]) .planning .tp.oo.on{background:var(--oneoff-tint);color:var(--oneoff-ink)}
+:where([data-layout]) .planning .tp .tv{font-size:var(--fs-caption);opacity:.85}
+:where([data-layout]) .planning .tp:hover{box-shadow:0 0 0 3px var(--project-tint)}
 /* Its tooltip, on hover and on keyboard focus, beside the circle so the row above stays in view. Esc puts it away. */
-:where([data-layout]) .planning .tk .tip{position:absolute;left:40px;top:50%;z-index:5;transform:translateY(-50%);padding:4px 8px;border-radius:6px;background:var(--ink);color:var(--white);font-size:12px;white-space:nowrap;pointer-events:none;visibility:hidden}
+:where([data-layout]) .planning .tk .tip{position:absolute;left:40px;top:50%;z-index:calc(var(--z-raised) + 4);transform:translateY(-50%);padding:var(--space-1) var(--space-2);border-radius:var(--radius-block);background:var(--ink);color:var(--on-accent);font-size:var(--fs-caption);white-space:nowrap;pointer-events:none;visibility:hidden}
 :where([data-layout]) .planning .tk .ckt:is(:hover,:has(:focus-visible)):not(.tipoff) .tip{visibility:visible}
 /* The time popover hangs below the button, right-aligned to it, so every title stays in view. */
-:where([data-layout]) .planning .tk .selbox{margin:12px}
+:where([data-layout]) .planning .tk .selbox{margin:var(--space-3)}
 :where([data-layout='desktop']) .planning .tk>.qpop{left:auto;right:0;width:300px}
-:where([data-layout]) .planning .timeacts{gap:4px 16px}
+:where([data-layout]) .planning .timeacts{gap:var(--space-1) var(--space-4)}
 /* Its sliders stack: the label and value on a line, the slider under them. */
-:where([data-layout='desktop']) .planning .tk>.qpop .estslider{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;max-width:none}
+:where([data-layout='desktop']) .planning .tk>.qpop .estslider{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-1) var(--space-2);max-width:none}
 :where([data-layout='desktop']) .planning .tk>.qpop .estslider>label{grid-column:1;grid-row:1}
 :where([data-layout='desktop']) .planning .tk>.qpop .estslider>.estval{grid-column:2;grid-row:1;min-width:0;text-align:right}
 :where([data-layout='desktop']) .planning .tk>.qpop .estslider>input{grid-column:1/3;grid-row:2;min-width:0}
 :where([data-layout='phone']) .planning .tk{min-height:52px}
-:where([data-layout='phone']) .planning .tk .tt{display:flex;align-items:center;min-height:var(--tap);font-size:15px}
+:where([data-layout='phone']) .planning .tk .tt{display:flex;align-items:center;min-height:var(--tap);font-size:var(--fs-meta)}
 :where([data-layout='phone']) .planning .tk .tkw{padding:0}
 :where([data-layout='phone']) .planning .tk .tpw{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px}
-:where([data-layout='phone']) .planning .tp{min-width:64px;padding:0 10px}
+:where([data-layout='phone']) .planning .tp{min-width:64px;padding:0 var(--space-3)}
 :where([data-layout='phone']) .planning .tk .tip{display:none}
 
 /* Toasts never cover a row. On phone the toast takes a strip of its own above the bottom bar, and the list above shrinks
    while it shows. On desktop it sits at the foot of the column the change was made in, and a focused row scrolls clear. */
 [data-layout='phone']:has(.planning.pflow):not(:has(.sheet)) .toast{bottom:calc(61px + max(20px,env(safe-area-inset-bottom)))}
-[data-layout='phone']:has(.toast):not(:has(.sheet)) .planning.pflow .flowbot{margin-top:72px}
+[data-layout='phone']:has(.toast):not(:has(.sheet)) .planning.pflow .flowbot{margin-top:calc(var(--space-16) + var(--space-2))}
 [data-layout='desktop'] .flowpane:has(.planning){scroll-padding-bottom:72px}
 @supports (anchor-name:--pickcol){
   [data-layout='desktop'] .planning .cleft{anchor-name:--pickcol}
   [data-layout='desktop']:has(.planning .cleft) .toast{position-anchor:--pickcol;left:anchor(center)}
 }
 /* Adding while you pick: one adder at the foot of an open card, + One off, and a dashed + Add project card last. */
-:where([data-layout]) .planning .pkadd{display:flex;align-items:center;gap:4px;min-height:34px;padding-left:8px}
-:where([data-layout]) .planning .pkadd .addlink{display:inline-flex;align-items:center;min-height:32px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--blue);font-size:14px;font-weight:500}
-:where([data-layout]) .planning .pkadd .addlink:hover{background:var(--blue-tint)}
-:where([data-layout]) .planning .pkadd .addlink.oo{color:var(--purple)}
-:where([data-layout]) .planning .pkadd .dot{color:var(--quiet)}
-:where([data-layout]) .planning .pproj>.inlineform,:where([data-layout]) .planning .pproj>.addform{margin:4px 0;padding:10px 12px;border-radius:8px;background:var(--blue-pale);box-shadow:inset 0 0 0 1px var(--blue-line)}
-:where([data-layout]) .planning .weektick{gap:8px;min-height:var(--tap)}
-:where([data-layout]) .planning .weektick input{width:20px;height:20px;margin:0;accent-color:var(--blue)}
+:where([data-layout]) .planning .pkadd{display:flex;align-items:center;gap:var(--space-1);min-height:34px;padding-left:var(--space-2)}
+:where([data-layout]) .planning .pkadd .addlink{display:inline-flex;align-items:center;min-height:32px;padding:0 var(--space-2);border:0;border-radius:var(--radius-block);background:transparent;color:var(--accent-text);font-size:var(--fs-label);font-weight:var(--fw-strong)}
+:where([data-layout]) .planning .pkadd .addlink:hover{background:var(--accent-tint)}
+:where([data-layout]) .planning .pkadd .addlink.oo{color:var(--oneoff)}
+:where([data-layout]) .planning .pkadd .dot{color:var(--ink-3)}
+:where([data-layout]) .planning .pproj>.inlineform,:where([data-layout]) .planning .pproj>.addform{margin:var(--space-1) 0;padding:var(--space-3) var(--space-3);border-radius:var(--radius-control);background:var(--accent-tint);box-shadow:inset 0 0 0 1px var(--hairline)}
+:where([data-layout]) .planning .weektick{gap:var(--space-2);min-height:var(--tap)}
+:where([data-layout]) .planning .weektick input{width:20px;height:20px;margin:0;accent-color:var(--accent)}
 :where([data-layout='phone']) .planning .pkadd{min-height:var(--tap)}
 :where([data-layout='phone']) .planning .pkadd .addlink{min-height:var(--tap)}
 /* A goal's backlog group: a disclosure, closed at first, with a hollow ring's blue edge rather than a project's stripe. */
-:where([data-layout]) .planning .blfold{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--tap);padding:6px 14px;border:0;border-left:2px solid var(--blue-line);background:transparent;color:var(--ink);text-align:left;font:inherit}
-:where([data-layout]) .planning .blfold:hover{background:var(--hover)}
-:where([data-layout]) .planning .blfold .caret{width:14px;color:var(--quiet)}
+:where([data-layout]) .planning .blfold{display:flex;align-items:center;gap:var(--space-2);width:100%;min-height:var(--tap);padding:var(--space-2) var(--space-4);border:0;border-left:2px solid var(--hairline);background:transparent;color:var(--ink);text-align:left;font:inherit}
+:where([data-layout]) .planning .blfold:hover{background:var(--wash)}
+:where([data-layout]) .planning .blfold .caret{width:14px;color:var(--ink-3)}

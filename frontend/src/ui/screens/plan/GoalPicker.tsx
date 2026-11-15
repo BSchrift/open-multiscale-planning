@@ -13,6 +13,7 @@ import type { Fields, Objective } from '../../../core/types';
 import { useApp } from '../../app/store';
 import { Popover } from '../../components/Popover';
 import type { Act } from './model';
+import { Button } from '../../components/ds/Button';
 
 /** What can be linked: the goal of a project or of a practice. */
 export interface Linked {
@@ -71,7 +72,7 @@ export function NewGoalForm(props: { label: string; submit: string; onAdd(title:
   const { layout } = useApp();
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');
-  const btn = layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();
@@ -101,13 +102,13 @@ export function NewGoalForm(props: { label: string; submit: string; onAdd(title:
             setError('');
           }}
         />
-        <button className={`${btn} pri`} type="submit">
+        <Button {...btn} variant="primary" type="submit">
           {props.submit}
-        </button>
+        </Button>
         {props.onCancel && (
-          <button className={btn} type="button" onClick={props.onCancel}>
+          <Button {...btn} type="button" onClick={props.onCancel}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
       {error && (
@@ -125,7 +126,7 @@ export function GoalPicker(props: { item: Linked; goals: readonly Objective[]; a
   const { layout } = useApp();
   const link = useLink(props.act, props.goals);
   const [adding, setAdding] = useState(false);
-  const btn = layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const rows = [...linkable(props.goals).map((g) => ({ id: g.id as string | null, title: g.title })), { id: null, title: 'No goal' }];
   const pick = async (goal: string | null) => {
     props.onClose();
@@ -136,9 +137,9 @@ export function GoalPicker(props: { item: Linked; goals: readonly Objective[]; a
       {layout === 'phone' && <h2>Goal for {item.title}</h2>}
       <div className="stack8 goalpick">
         {rows.map((r) => (
-          <button key={r.id ?? 'none'} className={`${btn} pickrow`} type="button" aria-pressed={r.id === item.goal} onClick={() => void pick(r.id)}>
+          <Button key={r.id ?? 'none'} {...btn} className="pickrow" type="button" aria-pressed={r.id === item.goal} onClick={() => void pick(r.id)}>
             {r.title}
-          </button>
+          </Button>
         ))}
       </div>
       {adding ? (

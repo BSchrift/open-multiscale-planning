@@ -6,6 +6,7 @@ import { dropMilestone, minutesLeft } from '../../../core/plan';
 import type { PlanContext, ProjectPlan } from '../../../core/plan';
 import { fixSummary, withStatusLine } from '../../../core/status';
 import { usePlanChange } from './usePlanChange';
+import { Button } from '../ds/Button';
 
 export function DropMilestone(props: { plan: ProjectPlan; ctx: PlanContext; milestoneId: string; onBack(): void; onDone?(): void }) {
   const { plan, ctx, milestoneId } = props;
@@ -47,12 +48,12 @@ export function DropMilestone(props: { plan: ProjectPlan; ctx: PlanContext; mile
         </fieldset>
       )}
       <div className="row fixacts">
-        <button className="btn sm pri" type="button" onClick={drop}>
+        <Button variant="primary" size="compact" type="button" onClick={drop}>
           Drop milestone
-        </button>
-        <button className="btn sm" type="button" onClick={props.onBack}>
+        </Button>
+        <Button size="compact" type="button" onClick={props.onBack}>
           Back
-        </button>
+        </Button>
       </div>
     </div>
   );

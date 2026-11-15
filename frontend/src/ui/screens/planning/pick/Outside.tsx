@@ -22,6 +22,8 @@ export function useOutside(view: PickView, week: LocalDate) {
   // Folds opened or closed one at a time, until the toggle sets them all.
   const [folds, setFolds] = useState<Record<string, boolean>>({});
   const [said, setSaid] = useState('');
+  // Each goal's backlog group, closed until opened.
+  const [backlogs, setBacklogs] = useState<Record<string, boolean>>({});
   // What showed by itself this visit stays, so nothing leaves under the pointer once it stops needing you.
   const seen = useRef(new Set<string>());
   for (const p of view.projects) {
@@ -43,6 +45,8 @@ export function useOutside(view: PickView, week: LocalDate) {
     /** A row the toggle or a fold showed, which focus can be moved to. */
     revealed: (s: PickProject, g: PickGroup) => filter && (!own(s) || foldable(s, g)),
     setFold: (s: PickProject, g: PickGroup, to: boolean) => setFolds((f) => ({ ...f, [foldKey(s, g)]: to })),
+    backlogOpen: (goalId: string) => !!backlogs[goalId],
+    toggleBacklog: (goalId: string) => setBacklogs((b) => ({ ...b, [goalId]: !b[goalId] })),
     /** Paused projects and those not started wait behind the toggle while there's one. */
     others: !filter || open || n === 0,
     toggle: () => {

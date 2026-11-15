@@ -154,17 +154,26 @@ final class SeedTimeTests: XCTestCase {
 }
 
 /**
- * Waits for something on Today. On iOS 26.2, under Xcode 16.4 and 26.3 alike, when XCUITest first reads Today before
- * its content has arrived, the tree keeps that part of Today as it was, while the screen shows the rest: CI's screen
- * recordings show Today drawn, its countdown ticking, as the tree reports Today's region empty for a minute. Waiting
- * longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or screen changes didn't bring
- * the content in reliably. Hiding Today and showing it again did, every time: so the test goes to Week and back.
+ * Waits for something on a tab's page. On iOS 26.2, under Xcode 16.4 and 26.3 alike, when XCUITest first reads a page
+ * before its content has arrived, the tree keeps that part of the page as it was, while the screen shows the rest: CI's
+ * screen recordings show Today drawn, its countdown ticking, as the tree reports Today's region empty for a minute, and
+ * Goals did the same. Waiting longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or
+ * screen changes didn't bring the content in reliably. Hiding the page and showing it again did, every time: so the
+ * test goes to another tab and back.
  */
-func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+private func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
-    app.tapWeb("Week", until: app.webButton("Previous week"), file: file, line: line)
-    app.tapWeb("Today", file: file, line: line)
+    if tab == "Week" {
+        app.tapWeb("Today", file: file, line: line)
+    } else {
+        app.tapWeb("Week", until: app.webButton("Previous week"), file: file, line: line)
+    }
+    app.tapWeb(tab, file: file, line: line)
     exists(element, file: file, line: line)
+}
+
+func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+    onTab("Today", element, in: app, file: file, line: line)
 }
 
 /// Set on a launch so the debug build brings the app's soonest reminder forward to two seconds after the app leaves the
@@ -227,7 +236,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webButton("Goals"), timeout: launchPatience)
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
-        exists(app.webButton(startingWith: "Learn to bake bread"))
+        onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
     }
 
     func testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff() {
@@ -256,6 +265,7 @@ final class ShellUITests: XCTestCase {
 
         // Each landed where it was sent: the project's task under its Done, which opens folded behind its milestone.
         app.tapWeb("Goals")
+        onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
         app.tapWeb(anyStartingWith: "Done tasks")
@@ -267,7 +277,8 @@ final class ShellUITests: XCTestCase {
 
     func testAPracticeOnMondayTuesdayAndFridaySavesWithUndo() {
         let app = launchApp(seed: "Seed plan")
-        app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
+        app.tapWeb("Goals")
+        onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
         app.tapWeb(startingWith: "Learn to bake bread")
         // The goal's own, which comes before the one for practices with no goal.
         let add = app.page.buttons.matching(NSPredicate(format: "label == '+ Practice'")).firstMatch
@@ -297,7 +308,8 @@ final class ShellUITests: XCTestCase {
 
     func testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBarWithTheKeyboardUp() {
         let app = launchApp(seed: "Seed to schedule")
-        app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
+        app.tapWeb("Goals")
+        onTab("Goals", app.webButton(startingWith: "Learn to bake bread"), in: app)
         app.tapWeb(startingWith: "Learn to bake bread")
         app.tapWeb(startingWith: "Bake a sourdough loaf")
         app.tapWeb(startingWith: "Edit task Mix the dough")

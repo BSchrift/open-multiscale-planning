@@ -356,14 +356,15 @@ export function weekPractices(sql: Sql, range: UtcRange): Promise<TimeBlock[]> {
 
 /**
  * When each goal last changed, in epoch ms: its newest field write, from any device, to it or anything under it.
- * Answering Still a goal? (or undoing that) only writes the goal's own state, so those fields don't count.
+ * Answering Still a goal? (or undoing that) only writes the goal's own state and expiry, so those fields don't count.
  */
 export async function goalChanges(sql: Sql): Promise<Record<string, number>> {
   const changed: Record<string, number> = {};
   for (const { goal, own, clocks } of await sql.all<{ goal: string | null; own: number; clocks: string }>(SQL.goalClocks)) {
     if (!goal) continue;
     for (const [field, clock] of Object.entries(JSON.parse(clocks) as Record<string, string>)) {
-      if (own && (field === 'state' || field === 'not_now_until')) continue;
+      // A goal's expiry follows its state, so archiving it, or undoing that, writes both.
+      if (own && (field === 'state' || field === 'not_now_until' || field === 'expires_at')) continue;
       changed[goal] = Math.max(changed[goal] ?? 0, parseClock(clock).wall);
     }
   }

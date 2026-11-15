@@ -142,6 +142,8 @@ export interface Task extends BaseRecord {
    * links to it. Apps from before it see a finished task.
    */
   became?: { type: 'project' | 'practice' | 'objective'; id: string } | null;
+  /** When Keep was pressed on a goal backlog's untouched task, so it reads as touched again. */
+  kept_at?: Instant | null;
 }
 
 /** One per finish of a one off. */

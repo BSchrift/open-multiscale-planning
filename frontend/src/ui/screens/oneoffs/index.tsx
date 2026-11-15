@@ -41,7 +41,7 @@ export default function OneOffsScreen({ layout }: ScreenProps) {
       <section className="stack8">
         <h1 className="mhead">One offs</h1>
         {phone ? (
-          <p className="small quiet">Not part of a project.</p>
+          <p className="small quiet">Not part of a project or goal.</p>
         ) : (
           <p className="quiet">
             Things to do that don't belong to a project. Give one a date or a date range and it shows up in that plan and week, or on that day.

@@ -54,7 +54,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   // Saved before the clock moves on, or the block would start at the later time.
   await expect(page.getByRole('region', { name: 'Current block' }).getByRole('heading', { name: 'Mix the starter' })).toBeVisible();
   await jumpTo(page, chicago('2026-12-07', '10:31'));
-  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Task finished', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Block finished' })).toHaveCount(0);
 
   // The Saturday after Christmas: the stretch ends Dec 31, so it's time to plan Jan 1 to Mar 31.

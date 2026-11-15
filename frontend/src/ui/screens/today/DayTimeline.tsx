@@ -3,7 +3,8 @@
 // blocks at the same time sit side by side.
 // On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
 // the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
-// click or tap opens a task's block in the task's popup, and a practice's session or a planning block in its details.
+// click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
+// session or a planning block in its details.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
@@ -18,6 +19,8 @@ import type { Slot } from '../../../core/slots';
 import type { CalendarEvent } from '../../../core/types';
 import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
+import { BlockSection } from '../../components/blocks/BlockSection';
+import { useBlockActions } from '../../components/blocks/useBlockActions';
 import { describeBlock, formatRange, KIND_WORD, OUTCOME_WORD } from '../../components/blocks/describe';
 import type { BlockKind } from '../../components/blocks/describe';
 import { outcomeClass, OutcomeTag } from '../../components/blocks/Outcome';
@@ -26,6 +29,7 @@ import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
 import { columnStyle, DRAG_PX, HOLD_MS, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, SLOP_PX, swallowClick, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
+import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 
 const ZOOM = [30, 48, 72, 96];
@@ -77,6 +81,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
   const toast = useToast();
   const openTask = useOpenTask();
+  const actions = useBlockActions();
+  /** A task's block opened in the task's popup. */
+  const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
@@ -159,14 +166,17 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       }),
   );
   const detailOf = items.find((i) => i.block && open.has(i.id) && (phone || view === 'calendar'));
-  // A task's block opens the task's popup, as the task does anywhere else. A practice's session and a planning block
-  // open their details, as before.
+  // A task's block opens the task's popup, as the task does anywhere else, with the block's section at its top. A
+  // practice's session and a planning block open their details, as before.
   const taskOf = (i: Item) => (i.kind === 'project' || i.kind === 'one_off' ? i.block?.task_id : null);
   const openItem = (i: Item) => {
     const id = taskOf(i);
-    if (id) openTask(id);
+    if (id) setPop({ block: i.id, task: id });
     else toggle(i.id);
   };
+  const popBlock = pop && data.blocks.find((b) => b.id === pop.block);
+  // One not yet started can come off the calendar, as Have you started's Skip takes it.
+  const removable = (b: BlockRow) => !b.started_at && !b.result && !b.ended_at && instantMs(b.end) > clock.now();
   // Both open over the page on phone, and a task's popup does on desktop too; the rest open in place there.
   const opens = (i: Item) => (phone || taskOf(i) ? { 'aria-haspopup': 'dialog' as const } : { 'aria-expanded': open.has(i.id) });
 
@@ -331,21 +341,14 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         data-drop-from={from}
         data-drop-to={to}
       >
-        <div className="zoomwrap">
-          <div className="zoomgroup" role="group" aria-label="Calendar zoom">
-            <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
-              <ZoomIcon />
-            </button>
-            <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
-              <ZoomIcon plus />
-            </button>
-          </div>
-        </div>
         {hours.map((h) => (
           <span key={h} className="dayhr" style={{ top: y(h * 60) }} aria-hidden="true">
             {formatTimeOfDay(h * 60)}
           </span>
         ))}
+        {/* Before the blocks, so it passes behind them and never strikes through the one under way. Only its dot is
+            drawn in front. */}
+        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
         {items.map((i) => {
           const height = Math.max(13, y(i.to) - y(i.from) - 1);
           const compact = height < 24 ? ' compact' : '';
@@ -439,8 +442,18 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
             Suggested {formatTimeOfDay(drag.ghost.start)}
           </div>
         )}
-        {nowMin >= from && nowMin <= to && <NowLine top={y(nowMin)} />}
       </div>
+    </div>
+  );
+  // Beside Calendar and List, out of the calendar, so they never cover a block.
+  const zoom = (
+    <div className="zoomgroup" role="group" aria-label="Calendar zoom">
+      <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
+        <ZoomIcon />
+      </button>
+      <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
+        <ZoomIcon plus />
+      </button>
     </div>
   );
 
@@ -515,16 +528,26 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     <div className={phone ? 'card' : 'tl card'} role="region" aria-label="Today's timeline">
       <div className="between tlhead">
         <h3>Timeline</h3>
-        <div className="row" role="group" aria-label="Timeline view">
-          {(['calendar', 'list'] as const).map((v) => (
-            <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
-              {v === 'calendar' ? 'Calendar' : 'List'}
-            </button>
-          ))}
+        <div className="row">
+          {view === 'calendar' && zoom}
+          <div className="row" role="group" aria-label="Timeline view">
+            {(['calendar', 'list'] as const).map((v) => (
+              <button key={v} className={`dchip${view === v ? ' on' : ''}`} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
+                {v === 'calendar' ? 'Calendar' : 'List'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
+      {pop && (
+        <TaskPopupFor
+          id={pop.task}
+          close={() => setPop(null)}
+          block={popBlock && <BlockSection block={popBlock} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+        />
+      )}
     </div>
   );
 }

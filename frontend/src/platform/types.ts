@@ -42,6 +42,8 @@ export interface Lifecycle {
   /** The app came back to the front. Returns an unsubscribe function. */
   onForeground(listener: () => void): () => void;
   onBackground(listener: () => void): () => void;
+  /** The page has begun to unload, as when it reloads. Only the browser build tells. */
+  onLeave?(listener: () => void): () => void;
 }
 
 export interface CaptureShortcut {

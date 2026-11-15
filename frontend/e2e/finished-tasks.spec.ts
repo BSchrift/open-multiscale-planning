@@ -130,8 +130,10 @@ test('unticking a finish reopens a one off, gives a repeating one back its date 
   await list.getByRole('checkbox', { name: 'Feed the fish done' }).first().click();
   await expect(fish).toContainText('Weekly, next Mon Nov 2');
 
-  // Closed, the list keeps only what is finished.
-  await list.getByRole('checkbox', { name: 'Return the drill done' }).click();
+  // Closed, the list keeps only what is finished. Closed only once the untick has saved: the list keeps an untick that
+  // lands after it closes, and shows it again on opening.
+  await drill.click();
+  await expect(drill).not.toBeChecked();
   await toggle.click();
   await toggle.click();
   await expect(list.getByRole('status')).toHaveText('11 finished');

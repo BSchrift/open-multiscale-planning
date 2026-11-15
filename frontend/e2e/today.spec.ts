@@ -278,6 +278,12 @@ test('the current-time line passes behind the block under way, its dot in front,
   const phone = info.project.name === 'phone';
   // Two blocks at once, so they're drawn side by side, each in its own column.
   const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:00', '15:00', { started_at: at('13:00') }), block('b2', 't2', '13:30', '14:30', { started_at: at('13:30') })]);
+  // Measured once what sits above the timeline has settled, as in the click test below: To schedule's line, and the
+  // prompt for the planning task Today makes once it has drawn. Either landing late pushes the timeline down, and with
+  // the page still at its top nothing scrolls to keep the line in view, so it can leave the screen between being
+  // scrolled to and being hit tested.
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
   const timeline = page.getByRole('region', { name: "Today's timeline" });
   const zoom = timeline.getByRole('group', { name: 'Calendar zoom' });
   // In the heading row, beside the view buttons, rather than over the calendar. Measured in one go, as the page may

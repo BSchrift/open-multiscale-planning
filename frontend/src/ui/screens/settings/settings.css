@@ -1,5 +1,5 @@
 [data-layout] .settings {
-  gap: 24px;
+  gap: var(--space-6);
 }
 /* Each section is a card, its heading a small label on the ground above it. Setup's unavailable list is a card too. */
 [data-layout] .settings h2 {
@@ -25,7 +25,7 @@
   padding-top: 0;
 }
 [data-layout] .settings h3 {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* A time slider: its label above on phone, beside it on desktop. */
@@ -47,7 +47,7 @@
   position: absolute;
   top: calc(50% - 3px);
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-block);
 }
 .hourtrack::before {
   content: '';
@@ -82,7 +82,7 @@
   width: var(--thumb);
   height: var(--thumb);
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 12px, transparent 12.5px);
   pointer-events: auto;
   cursor: grab;
@@ -91,7 +91,7 @@
   width: var(--thumb);
   height: var(--thumb);
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
   background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 12px, transparent 12.5px);
   pointer-events: auto;
   cursor: grab;
@@ -108,7 +108,7 @@
 .hourticks {
   position: relative;
   height: 1.4em;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--ink-3);
 }
 .hourticks span {
@@ -148,7 +148,7 @@
 }
 [data-layout] .settings .mhead.setrow,
 [data-layout] .settings .mhead.rowline {
-  padding-left: 12px;
+  padding-left: var(--space-3);
 }
 /* A block's Projects and One offs ticks, under the Closed to that says what a tick means: beside them on desktop, above
    them on phone. */
@@ -171,7 +171,7 @@
 .settings .updbar {
   height: 6px;
   max-width: 320px;
-  border-radius: 3px;
+  border-radius: var(--radius-block);
   background: var(--hairline);
   overflow: hidden;
 }

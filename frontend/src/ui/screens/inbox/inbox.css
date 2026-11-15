@@ -1,12 +1,12 @@
 /* Inbox: what the shared styles and its list don't cover. */
 
 [data-layout='desktop'] .inboxintro {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 /* Room for the docked Process button, so it never covers the last row. */
 [data-layout='phone'] .inboxdocked {
-  padding-bottom: 72px;
+  padding-bottom: calc(var(--space-16) + var(--space-2));
 }
 
 /* While selecting, the list's own actions are the ones to use, so Process steps aside. */

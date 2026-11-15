@@ -4,16 +4,16 @@
 [data-layout] .missed .misstop { position: relative; flex: none; }
 [data-layout] .missed .misshead { display: flex; align-items: center; gap: var(--space-1); min-height: 44px; }
 [data-layout] .missed .misshead h2 { margin: 0; }
-[data-layout] .missed .misscount { flex: 1; text-align: center; font-weight: 600; }
-[data-layout] .missed .missinfo { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--accent-text); }
+[data-layout] .missed .misscount { flex: 1; text-align: center; font-weight: var(--fw-strong); }
+[data-layout] .missed .missinfo { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--radius-circle); background: transparent; color: var(--accent-text); }
 [data-layout] .missed svg .solid { fill: currentColor; stroke: none; }
 [data-layout] .missed .missinfo svg {width: var(--icon-md);height: var(--icon-md)}
 
 [data-layout] .missed .misslist { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-[data-layout] .missed .missrow { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; padding: 6px 2px; border-bottom: 1px solid var(--hairline); }
-[data-layout] .missed .missrow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 6px; }
+[data-layout] .missed .missrow { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; padding: var(--space-2) var(--space-1); border-bottom: 1px solid var(--hairline); }
+[data-layout] .missed .missrow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--radius-block); }
 [data-layout] .missed .missname { overflow-wrap: anywhere; }
-[data-layout] .missed .missans { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--card); color: var(--ink); }
+[data-layout] .missed .missans { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-circle); background: var(--card); color: var(--ink); }
 [data-layout] .missed .missans:hover:not(:disabled) { background: var(--wash); }
 /* The top row's Done, filled as a primary button is. */
 [data-layout] .missed .missans.pri { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
@@ -24,42 +24,42 @@
 [data-layout] .missed .misstick .quiet { flex: none; }
 
 /* The key behind the ⓘ: under the title on desktop, above the sheet on phone, where the rows stay in sight. */
-[data-layout] .missed .misskey { position: absolute; z-index: 2; left: 0; top: calc(100% + 4px); display: grid; gap: 6px; padding: 10px 14px; border: 1.5px solid var(--accent); border-radius: 10px; background: var(--card); box-shadow: var(--shadow-2); }
-[data-layout] .missed .misskeyrow { display: flex; align-items: center; gap: 8px; }
+[data-layout] .missed .misskey { position: absolute; z-index: calc(var(--z-raised) + 1); left: 0; top: calc(100% + 4px); display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1.5px solid var(--accent); border-radius: var(--radius-control); background: var(--card); box-shadow: var(--shadow-2); }
+[data-layout] .missed .misskeyrow { display: flex; align-items: center; gap: var(--space-2); }
 [data-layout] .missed .misskey svg {flex: none;width: var(--icon-sm);height: var(--icon-sm)}
 
 /* The Partly step: a stepper for each row, and for a block's Partly in a task's popup. */
-[data-layout] .missed .missstep { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--hairline); }
-[data-layout] .missed .missstep + p { margin: 10px 0 0; }
-[data-layout] .missstepper { justify-self: start; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; }
-[data-layout] .missstepper button { width: 44px; height: 40px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font-size: 20px; line-height: 1; }
+[data-layout] .missed .missstep { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-bottom: 1px solid var(--hairline); }
+[data-layout] .missed .missstep + p { margin: var(--space-3) 0 0; }
+[data-layout] .missstepper { justify-self: start; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-pill); }
+[data-layout] .missstepper button { width: 44px; height: 40px; padding: 0; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--ink); font-size: var(--fs-heading); line-height: 1; }
 [data-layout] .missstepper button:disabled { color: var(--line); }
-[data-layout] .missstepper span { min-width: 104px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+[data-layout] .missstepper span { min-width: 104px; text-align: center; font-weight: var(--fw-strong); font-variant-numeric: tabular-nums; }
 
 [data-layout] .missed .missbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-3); }
-[data-layout] .missed .missbar .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+[data-layout] .missed .missbar .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
 [data-layout] .missed .missbar .btn svg {flex: none;width: var(--icon-sm);height: var(--icon-sm)}
 [data-layout] .missed .missnote { flex: 1 1 100%; margin: 0; }
 
-[data-layout='desktop'] .overlay:has(> .sheet.missed) { align-items: center; padding: 24px; }
-[data-layout='desktop'] .sheet.missed { width: min(440px, calc(100vw - 48px)); max-width: none; max-height: 70vh; animation: missed-in 0.16s ease-out; }
+[data-layout='desktop'] .overlay:has(> .sheet.missed) { align-items: center; padding: var(--space-6); }
+[data-layout='desktop'] .sheet.missed { width: min(440px, calc(100vw - 48px)); max-width: none; max-height: 70vh; animation: missed-in var(--dur-medium) ease-out; }
 /* Its answers' toasts, with Undo, sit over the dimmed page rather than under it. */
-[data-layout='desktop']:has(.sheet.missed) .toast { z-index: 41; }
+[data-layout='desktop']:has(.sheet.missed) .toast { z-index: calc(var(--z-overlay) + 1); }
 
 /* On phone, as tall as its rows up to about 60% of the screen, above the keyboard; the top strip takes the swipe. */
 [data-layout='phone'] .sheet.missed {
   max-height: calc(60vh - var(--keyboard, 0px));
   max-height: calc(60dvh - var(--keyboard, 0px));
   padding-top: 0;
-  animation: missed-up 0.24s ease-out;
+  animation: missed-up var(--dur-slow) ease-out;
 }
 [data-layout='phone'] .missed .misstop { touch-action: none; }
-[data-layout='phone'] .missed .missgrab { width: 36px; height: 5px; margin: 8px auto 2px; border-radius: 3px; background: var(--line); }
+[data-layout='phone'] .missed .missgrab { width: 36px; height: 5px; margin: var(--space-2) auto var(--space-1); border-radius: var(--radius-block); background: var(--line); }
 [data-layout='phone'] .missed .missans,
 [data-layout='phone'] .missed .missinfo { width: 44px; height: 44px; }
 [data-layout='phone'] .missstepper button { height: 44px; }
 /* Three answers with their words across a phone's width, each on one line. */
-[data-layout='phone'] .missed .missbar .btn { flex: 1 1 0; padding-left: 6px; padding-right: 6px; white-space: nowrap; }
+[data-layout='phone'] .missed .missbar .btn { flex: 1 1 0; padding-left: var(--space-2); padding-right: var(--space-2); white-space: nowrap; }
 [data-layout='phone'] .missed .missbar .btn.pri { flex-grow: 3; }
 [data-layout='phone'] .missed .misskey { top: auto; bottom: calc(100% + 8px); }
 

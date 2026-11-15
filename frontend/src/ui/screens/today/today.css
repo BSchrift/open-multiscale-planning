@@ -37,6 +37,8 @@
 [data-layout='phone'] div.cev.tlhold::before { content: ''; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--tap)) / 2)); bottom: min(0px, calc((100% - var(--tap)) / 2)); }
 /* The block under way keeps its start, so it isn't .evdrag, and still shows its bottom edge on hover. */
 [data-layout='desktop'] .cev:hover > .evh { background: var(--project); }
+/* An Inbox item's block says Inbox under its title on phone, where no other block has a time line. */
+[data-layout='phone'] .cev .time { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The block being dragged rides above the suggested time. */
 [data-layout] .cev.lifted { z-index: calc(var(--z-raised) + 2); box-shadow: var(--shadow-2); }
 /* The stretch banner's × matches its card, and Start reads as an action, as Process does. */

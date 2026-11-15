@@ -125,6 +125,7 @@ word. Answer badges are round, in ink rather than the kind's colour: 16px on Tod
 | Drop target | A 2px dashed accent outline over a faint accent wash. |
 | Suggested | No fill, a dashed outline in the kind's colour. |
 | Planning | A wash with an ink-3 edge. |
+| Inbox, not yet sorted | Planning's wash with a dashed ink-3 edge, the inbox icon and the word Inbox. Once Process files it, it takes its kind's look. |
 | Another calendar's event | Grey stripes with a line-coloured edge. |
 | Information only | No fill, a dashed line-coloured outline. |
 
@@ -152,8 +153,8 @@ The shared components live in `frontend/src/ui/components/ds`. Use them rather t
   of text). `size="compact"` is 36px on desktop and changes nothing on phone, where every button is 44pt. `icon` and
   `iconEnd` put an icon before or after the label. Without a `type` it behaves as a plain `<button>`, so one in a form
   submits it.
-- **The calendar block**: `blockClass(kind, state, { short })` gives a block its look and `<BlockMarks state short />`
-  draws its answer badge, or the live dot and Now; `blockState()` reads the state from a block's answer and time. Each
+- **The calendar block**: `blockClass(kind, state, { short })` gives a block its look and `<BlockMarks state short look />`
+  draws its answer badge, or the live dot and Now, after the inbox icon on an Inbox item's block; `blockState()` reads the state from a block's answer and time. Each
   calendar keeps its own element and geometry. Wrap the title in `.blktitle`, which is what Done strikes through.
 - **`AnswerBadge`**: `<AnswerBadge answer="done" small />`, the round badge on its own, for anywhere else an answer
   shows.

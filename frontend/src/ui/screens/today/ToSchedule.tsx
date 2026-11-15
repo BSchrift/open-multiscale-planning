@@ -1,6 +1,6 @@
 // To schedule on Today, just above the day: this week's work waiting for a time, either dated today or with no day
 // of its own. A card dragged onto the day (held first on phone) is placed where it's let go; tapped, it opens its
-// suggested times, as on Week.
+// suggested times, as on Week, and Choose a time opens Week to place it by hand.
 
 import { useMemo, useState } from 'react';
 import { weekStart } from '../../../core/dates';
@@ -37,7 +37,7 @@ export function ToSchedule(props: { date: LocalDate }) {
         close();
         void act.place(item, slot);
       }}
-      onChoose={item.task ? () => nav.go('week', { place: item.id }) : undefined}
+      onChoose={() => nav.go('week', { place: item.id })}
       onSkipDay={() => {
         close();
         void act.skipDay(item, week);

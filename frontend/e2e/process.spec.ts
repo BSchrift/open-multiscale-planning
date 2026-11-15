@@ -117,17 +117,17 @@ test('Add to this week is off again on each new card, and the item it adds waits
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
   await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
-  const week = card(page).getByRole('button', { name: 'Add to this week' });
+  const week = card(page).getByRole('switch', { name: 'Add to this week' });
   if (phone) await expectTapTarget(week);
-  await expect(week).toHaveAttribute('aria-pressed', 'false');
+  await expect(week).toHaveAttribute('aria-checked', 'false');
   await week.click();
-  await expect(card(page).getByRole('button', { name: 'Adding to this week' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(week).toHaveAttribute('aria-checked', 'true');
   await processTo(page, phone, 'Paint the fence');
   await expect(toast(page)).toContainText('Added Call the bank to Paint the fence and to this week.');
 
   // The next card starts with it off, so this one goes to the project alone.
   await expect(title(page, 'Fix the gate')).toBeVisible();
-  await expect(week).toHaveAttribute('aria-pressed', 'false');
+  await expect(week).toHaveAttribute('aria-checked', 'false');
   await processTo(page, phone, 'Paint the fence');
   await expect(toast(page)).toContainText('Added Fix the gate to Paint the fence.');
   await exit(page, phone);
@@ -190,9 +190,9 @@ test('desktop: W, E and G do what their buttons do, D asks and Enter or a second
   await expect(title(page, 'Call the bank')).toBeVisible();
 
   await page.keyboard.press('Alt+KeyW');
-  await expect(card(page).getByRole('button', { name: 'Adding to this week' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(card(page).getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Alt+KeyW');
-  await expect(card(page).getByRole('button', { name: 'Add to this week' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(card(page).getByRole('switch', { name: 'Add to this week' })).toHaveAttribute('aria-checked', 'false');
 
   await page.keyboard.press('Alt+KeyE');
   await expect(card(page).getByRole('textbox', { name: 'Title' })).toBeFocused();

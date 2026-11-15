@@ -157,6 +157,22 @@ The shared components live in `frontend/src/ui/components/ds`. Use them rather t
   calendar keeps its own element and geometry. Wrap the title in `.blktitle`, which is what Done strikes through.
 - **`AnswerBadge`**: `<AnswerBadge answer="done" small />`, the round badge on its own, for anywhere else an answer
   shows.
+- **`Chip`**: a toggle, such as a day or a filter: `<Chip pressed={on} onClick={...}>Mon</Chip>`.
+- **`Switch`**: an on-off setting, such as Add to this week: `<Switch checked={on} onChange={setOn} label="Add to this
+  week" />`. Its name stays the same; on or off says the rest.
+- **`Segmented`**: two or three views of one thing, such as Calendar and List.
+- **`TextField`**: a field with its label above, and help and error text tied to it.
+- **`Card`**: a section card named by its heading, with the section's actions beside it.
+- **`ListRow`**: a row's title and meta line, then its trailing icons in one fixed column, so a pencil and a chevron
+  line up from row to row.
+- **`Pill`**, **`Sheet`** (a dialog on desktop, a bottom sheet on phone) and **`useToast`** were built before the folder
+  and are exported from it.
+
+Everything is imported from `components/ds`. **The reference page** draws every component and every block state:
+`npm run dev`, then `/reference.html?theme=dark&layout=phone` (or `light`, `desktop`). It's never shipped; the build's
+only page is `index.html`. `e2e/reference.spec.ts` screenshots it in both themes at both sizes and CI compares the
+screenshots, so a change to how anything looks shows in review. After a deliberate change, `scripts/reference-shots.sh`
+redraws them on Linux, as CI runs; other systems skip the comparison.
 
 ## Do and don't
 
@@ -167,7 +183,7 @@ The shared components live in `frontend/src/ui/components/ds`. Use them rather t
 - **Do** give each view one filled button. **Don't** fill a second one to make it stand out; make it secondary.
 - **Do** say a state with a shape, an icon and a word. **Don't** say it with colour alone, and don't strike anything
   but Done.
-- **Do** add a new component to this page in the same change. **Don't** add a token for one
+- **Do** add a new component to this page and the reference page in the same change. **Don't** add a token for one
   screen: change the design, here, or use what's there.
 
 ## The checks

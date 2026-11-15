@@ -172,12 +172,12 @@
   height: 6px;
   max-width: 320px;
   border-radius: 3px;
-  background: var(--line);
+  background: var(--hairline);
   overflow: hidden;
 }
 
 .settings .updbar > i {
   display: block;
   height: 100%;
-  background: var(--blue);
+  background: var(--accent);
 }

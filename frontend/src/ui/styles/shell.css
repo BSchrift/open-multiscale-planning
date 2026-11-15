@@ -105,9 +105,9 @@ p {
 [data-layout='desktop'] .updnote {
   margin-top: auto;
   padding: var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--hairline);
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);

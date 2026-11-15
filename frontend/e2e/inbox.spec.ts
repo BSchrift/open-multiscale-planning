@@ -282,6 +282,35 @@ test('an Inbox row opens its popup from anywhere on it, and its pencil renames i
   await expect(row.getByRole('button', { name: 'Fix the gate', exact: true })).toBeVisible();
 });
 
+// The owner's report: the pencil and › were different sizes and sat at different heights. Desktop has Assign in place of ›.
+test("an Inbox row's pencil and › are one pair, the same size and centred on the title's line", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page, phone);
+  const middle = (box: { y: number; height: number }) => box.y + box.height / 2;
+  // Every row, the estimate's two-line one included.
+  for (const row of await inboxPane(page).locator('.inboxrow').all()) {
+    if (!phone) await row.hover();
+    const title = await row.locator('.rowname').evaluate((name) => {
+      const text = document.createRange();
+      text.selectNodeContents(name);
+      const box = text.getBoundingClientRect();
+      return { y: box.y, height: box.height };
+    });
+    const icons = [row.getByRole('button', { name: /^Rename / }).locator('svg')];
+    if (phone) icons.push(row.getByRole('button', { name: /^Process / }).locator('svg'));
+    const boxes = [];
+    for (const icon of icons) {
+      await expect(icon, 'an icon drawn as an SVG').toBeVisible();
+      boxes.push((await icon.boundingBox())!);
+    }
+    for (const box of boxes) {
+      expect(Math.abs(middle(box) - middle(title)), "centred on the title's line").toBeLessThanOrEqual(1);
+      expect(Math.abs(middle(box) - middle(boxes[0]!)), 'centred on each other').toBeLessThanOrEqual(1);
+      expect([box.width, box.height]).toEqual([boxes[0]!.width, boxes[0]!.height]);
+    }
+  }
+});
+
 test('select mode adds, deletes and makes one offs of many items at once', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   await open(page, phone);
@@ -383,6 +412,8 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   await page.keyboard.press('Escape');
   await page.keyboard.press('z');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
+  // Back in Add to first: Esc pressed before focus gets there closes the card instead of leaving the field.
+  await expect(picker).toBeFocused();
   // P opens the form on the name, selected; Esc goes back to the button that opened it.
   await page.keyboard.press('Escape');
   await page.keyboard.press('p');

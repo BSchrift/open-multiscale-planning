@@ -44,6 +44,9 @@ nothing from the package.
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |
 | Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
 
+[docs/testing.md](docs/testing.md) maps each feature to the end-to-end tests that cover it on each platform. A change
+that adds a feature or an end-to-end test updates its row.
+
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it
 to the right layer in the same change, or say why it can't be automated.
 

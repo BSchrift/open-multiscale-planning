@@ -363,3 +363,36 @@ describe('the Mac release workflow', () => {
     }
   });
 });
+
+describe('the staging update check workflow', () => {
+  const text = readFileSync(join(import.meta.dirname, '../../.github/workflows/mac-update-check.yml'), 'utf8');
+  type Job = { environment?: string; 'runs-on': string; needs?: string; if?: string; outputs?: Record<string, string>; steps: { uses?: string; run?: string }[] };
+  const workflow = parse(text) as { on: Record<string, unknown>; permissions: object; jobs: Record<string, Job> };
+  const { needed, check } = workflow.jobs as { needed: Job; check: Job };
+
+  it('runs every half hour and by hand, never for pull requests', () => {
+    expect(Object.keys(workflow.on).sort()).toEqual(['schedule', 'workflow_dispatch']);
+    expect(workflow.permissions).toEqual({});
+  });
+
+  // Macs are what CI and the Mac release queue for, so most runs, with nothing new, end on Linux.
+  it('looks on Linux first, and takes a Mac only for an app the check has not passed', () => {
+    expect(Object.keys(workflow.jobs)).toEqual(['needed', 'check']);
+    expect(needed['runs-on']).toMatch(/^ubuntu-/);
+    expect(check['runs-on']).toMatch(/^macos-/);
+    expect(check.needs).toBe('needed');
+    expect(check.if).toBe("${{ needs.needed.outputs.check == 'true' }}");
+    expect(needed.outputs?.check).toBe('${{ steps.feed.outputs.check }}');
+    const feed = needed.steps.find((step) => step.run?.includes('desktop/release.json'))!.run!;
+    expect(feed).toContain('check=true');
+    expect(feed).toMatch(/"\$version" = "\$PREVIOUS"[\s\S]*check=false/);
+  });
+
+  it('writes to the inbox from the release environment, reads no signing secret, and pins every action by commit', () => {
+    for (const job of [needed, check]) expect(job.environment).toBe('release');
+    expect(text).not.toMatch(/MAC_CERT|ASC_API_KEY|APPLE_API_KEY|release-key/);
+    for (const step of [...needed.steps, ...check.steps]) if (step.uses) expect(step.uses).toMatch(/^(actions|aws-actions)\/[\w-]+@[0-9a-f]{40}$/);
+    expect(check.steps.some((step) => step.run?.includes('scripts/mac-update-check.sh'))).toBe(true);
+    expect(text).toContain('inbox/update-check/$version.json');
+  });
+});

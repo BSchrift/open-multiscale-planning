@@ -30,8 +30,10 @@ test.beforeAll(async ({ browser }, info) => {
   );
   context.on('page', (p) => {
     p.on('console', (m) => {
-      // A second tab is refused on purpose, below.
-      if (m.type() === 'error' && !/InAnotherTab|Startup failed/.test(m.text())) problems.push(m.text().slice(0, 200));
+      // A second tab is refused on purpose, below. Its refusal can also come from the SQLite pool finding the first tab's
+      // file handles open, which counts only in that second tab: the same error in the main tab is a real bug.
+      const refused = /InAnotherTab|Startup failed/.test(m.text()) || (p !== page && /another open Access Handle/.test(m.text()));
+      if (m.type() === 'error' && !refused) problems.push(m.text().slice(0, 200));
     });
     p.on('pageerror', (e) => problems.push(`pageerror ${e.message.slice(0, 200)}`));
   });

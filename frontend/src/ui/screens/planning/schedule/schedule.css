@@ -1,7 +1,7 @@
 /* The Schedule step, on top of the shared week and planning classes. */
-[data-layout] .schnote { color: var(--amber-ink-2); }
+[data-layout] .schnote { color: var(--warn); }
 [data-layout] .schlinkbtn { text-align: left; }
-[data-layout] .schlink { color: var(--blue); }
+[data-layout] .schlink { color: var(--accent-text); }
 [data-layout] .schday { margin-top: 4px; }
 [data-layout='phone'] .schlen { flex-wrap: nowrap; }
 [data-layout='phone'] .schlen > label, [data-layout='phone'] .schlen > span { flex: none; }
@@ -17,20 +17,20 @@
 [data-layout='phone'] .planning .card .dragday { margin-bottom: 0; }
 /* The task being placed, pinned under Now above the list, below the pinned Does it fit bar, so its controls stay in reach
    however long the list is. A popover from a row below still opens over it. */
-[data-layout='desktop'] .planning .schednow { position: sticky; top: 16px; z-index: 1; padding: var(--space-2) var(--space-3) var(--space-3); background: var(--blue-pale); }
+[data-layout='desktop'] .planning .schednow { position: sticky; top: 16px; z-index: 1; padding: var(--space-2) var(--space-3) var(--space-3); background: var(--accent-tint); }
 [data-layout='desktop'] .planning .schedcard button { scroll-margin-top: calc(var(--now-h, 0px) + 48px); }
-[data-layout] .planning .schedgh { margin: 0; padding: 6px 8px 2px; font-size: 12px; font-weight: 600; color: var(--quiet); }
+[data-layout] .planning .schedgh { margin: 0; padding: 6px 8px 2px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
 [data-layout='desktop'] .planning .schednow .schedgh { padding: 0 0 2px; }
 [data-layout] .schedtitle { margin: 0; font-size: inherit; font-weight: 600; }
-[data-layout='desktop'] .schedx { flex: none; width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--quiet); font-size: 18px; }
-[data-layout='desktop'] .schedx:hover { background: var(--closed); color: var(--ink); }
+[data-layout='desktop'] .schedx { flex: none; width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); font-size: 18px; }
+[data-layout='desktop'] .schedx:hover { background: var(--wash); color: var(--ink); }
 /* Practices, drawn as Week draws them: teal with a double edge, and a mark of their own rather than a number. */
-[data-layout='desktop'] .schedrow.is-practice { border-left: 4px double var(--teal); border-radius: 0 8px 8px 0; background: var(--teal-soft); color: var(--teal-ink); }
-[data-layout='desktop'] .schednow.is-practice { border-left: 4px double var(--teal); }
-[data-layout='desktop'] .schednow.is-maint { border-left: 4px solid var(--purple); }
-[data-layout] .is-practice :is(.schedmark, .schmark) { color: var(--teal); }
+[data-layout='desktop'] .schedrow.is-practice { border-left: 4px double var(--practice); border-radius: 0 8px 8px 0; background: var(--practice-tint); color: var(--practice-ink); }
+[data-layout='desktop'] .schednow.is-practice { border-left: 4px double var(--practice); }
+[data-layout='desktop'] .schednow.is-maint { border-left: 4px solid var(--oneoff); }
+[data-layout] .is-practice :is(.schedmark, .schmark) { color: var(--practice); }
 [data-layout='phone'] .schsheet { margin: 0; padding: 0; list-style: none; }
-[data-layout='phone'] .schsheet > li { display: flex; align-items: center; border-top: 1px solid var(--line-soft); }
+[data-layout='phone'] .schsheet > li { display: flex; align-items: center; border-top: 1px solid var(--hairline); }
 [data-layout='phone'] .schsheet .morerow { flex: 1; min-width: 0; border-top: 0; }
-[data-layout='phone'] .schsheet > .is-practice .schname { padding-left: 10px; border-left: 4px double var(--teal); }
-[data-layout='phone'] .schedx { flex: none; width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; color: var(--quiet); font-size: 18px; }
+[data-layout='phone'] .schsheet > .is-practice .schname { padding-left: 10px; border-left: 4px double var(--practice); }
+[data-layout='phone'] .schedx { flex: none; width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; color: var(--ink-3); font-size: 18px; }

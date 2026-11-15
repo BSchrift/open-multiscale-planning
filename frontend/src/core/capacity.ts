@@ -64,7 +64,7 @@ export function weekUse({ open, placed, picked }: { open: Minutes; placed: Minut
 /** The theme's blue to its red, squared so that a half-full ring still looks calm. */
 export function ringColor(share: number): string {
   const t = Math.max(0, Math.min(1, share)) ** 2;
-  return `color-mix(in srgb, var(--red) ${Math.round(t * 100)}%, var(--blue))`;
+  return `color-mix(in srgb, var(--danger) ${Math.round(t * 100)}%, var(--accent))`;
 }
 
 /** The line under Pick tasks, when what's left is less than what usually gets pushed back. */

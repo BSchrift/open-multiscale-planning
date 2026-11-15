@@ -5,13 +5,13 @@
 [data-layout] .settings h2 {
   padding: 0 var(--space-1);
   color: var(--ink-2);
-  font-size: var(--text-md);
+  font-size: var(--fs-label);
 }
 [data-layout='phone'] .settings h2 {
   padding: 0;
 }
 [data-layout='desktop'] .settings h2 {
-  font-size: var(--text-sm);
+  font-size: var(--fs-meta);
 }
 [data-layout] :is(.settings, .setup) .card {
   padding: var(--space-4);
@@ -53,10 +53,10 @@
   content: '';
   left: calc(var(--thumb) / 2);
   right: calc(var(--thumb) / 2);
-  background: var(--line-strong);
+  background: var(--line);
 }
 .timewindow {
-  background: var(--blue);
+  background: var(--accent);
 }
 .hourtrack input[type='range'] {
   position: absolute;
@@ -83,7 +83,7 @@
   height: var(--thumb);
   border: none;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, transparent 12.5px);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 12px, transparent 12.5px);
   pointer-events: auto;
   cursor: grab;
 }
@@ -92,7 +92,7 @@
   height: var(--thumb);
   border: none;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 12px, transparent 12.5px);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 12px, transparent 12.5px);
   pointer-events: auto;
   cursor: grab;
 }
@@ -100,16 +100,16 @@
   outline: none;
 }
 .hourtrack input[type='range']:focus-visible::-webkit-slider-thumb {
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 16px, transparent 16.5px);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 16px, transparent 16.5px);
 }
 .hourtrack input[type='range']:focus-visible::-moz-range-thumb {
-  background: radial-gradient(circle, var(--white) 0 9px, var(--blue) 9.5px 16px, transparent 16.5px);
+  background: radial-gradient(circle, var(--card) 0 9px, var(--accent) 9.5px 16px, transparent 16.5px);
 }
 .hourticks {
   position: relative;
   height: 1.4em;
   font-size: 12px;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 .hourticks span {
   position: absolute;
@@ -118,7 +118,7 @@
 }
 [data-layout='phone'] .settings .delay input[type='range'] {
   display: block;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 [data-layout='phone'] .settings .delay input[type='range'] {
   display: block;

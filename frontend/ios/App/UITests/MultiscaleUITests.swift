@@ -88,9 +88,10 @@ private func exists(_ element: XCUIElement, timeout: TimeInterval = patience, in
  * runs its clock from the next 10am (BridgeViewController.swift), where the seed's blocks and the test fit in the day
  * at any hour. A test that needs the `realClock` has it, and waits out the last minutes of a day instead.
  */
-private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false) -> XCUIApplication {
+private func launchApp(seed: String? = nil, realClock: Bool = false, remindingOnLeave: Bool = false, arguments: [String] = []) -> XCUIApplication {
     let checks = XCUIApplication()
     let app = XCUIApplication()
+    app.launchArguments = arguments
     if seed != nil, !realClock {
         let shift = String(Int(morningShift(now: Date()) * 1000))
         for launched in [checks, app] { launched.launchEnvironment["MULTISCALE_CLOCK_SHIFT_MS"] = shift }
@@ -226,6 +227,20 @@ final class ShellUITests: XCTestCase {
         XCTAssertFalse(app.webText("Welcome").exists)
         app.tapWeb("Goals")
         exists(app.webButton(startingWith: "Learn to bake bread"))
+    }
+
+    /// Text follows the phone's text-size setting, as Apple's text styles do: Today's title is taller at the largest
+    /// accessibility size than at the default.
+    func testTextFollowsThePhonesTextSize() {
+        var heights: [CGFloat] = []
+        for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXL"] {
+            let app = launchApp(seed: "Seed plan", arguments: ["-UIPreferredContentSizeCategoryName", size])
+            let titles = app.page.staticTexts.matching(NSPredicate(format: "label == 'Today'"))
+            exists(titles.firstMatch, timeout: launchPatience)
+            heights.append(titles.allElementsBoundByIndex.map(\.frame.height).max() ?? 0)
+            app.terminate()
+        }
+        XCTAssertGreaterThan(heights[1], heights[0] * 1.3, "Today's title is \(heights[0])pt high at the default size and \(heights[1])pt at the largest")
     }
 
     func testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff() {

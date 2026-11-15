@@ -336,7 +336,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       <div
         ref={measure}
         className="day"
-        style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, var(--white) 1px, var(--white) ${ph}px)` }}
+        style={{ height: y(to), background: `repeating-linear-gradient(to bottom, var(--hairline) 0, var(--hairline) 1px, var(--card) 1px, var(--card) ${ph}px)` }}
         data-drop-date={data.date}
         data-drop-from={from}
         data-drop-to={to}

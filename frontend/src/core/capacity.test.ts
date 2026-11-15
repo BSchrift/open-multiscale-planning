@@ -152,11 +152,11 @@ describe('weekUse', () => {
 });
 
 describe('ringColor', () => {
-  const red = (share: number) => Number(/var\(--red\) (\d+)%/.exec(ringColor(share))![1]);
+  const red = (share: number) => Number(/var\(--danger\) (\d+)%/.exec(ringColor(share))![1]);
 
   it("is the theme's blue when empty and its red when full or past it", () => {
-    expect(ringColor(0)).toBe('color-mix(in srgb, var(--red) 0%, var(--blue))');
-    expect(ringColor(1)).toBe('color-mix(in srgb, var(--red) 100%, var(--blue))');
+    expect(ringColor(0)).toBe('color-mix(in srgb, var(--danger) 0%, var(--accent))');
+    expect(ringColor(1)).toBe('color-mix(in srgb, var(--danger) 100%, var(--accent))');
     expect(ringColor(2)).toBe(ringColor(1));
     expect(ringColor(-1)).toBe(ringColor(0));
   });

@@ -115,8 +115,8 @@ function lockDown(window: BrowserWindow) {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
 }
 
-/** --page in each theme, so a resize or a reload never shows white around a dark page. */
-const pageBackground = () => (nativeTheme.shouldUseDarkColors ? '#141517' : '#fafaf8');
+/** --ground in each theme, so a resize or a reload never shows white around a dark page. */
+const pageBackground = () => (nativeTheme.shouldUseDarkColors ? '#0d0e10' : '#efefea');
 
 function createMainWindow(rollbackOpenTransaction: () => void, startHidden: boolean) {
   mainWindow = new BrowserWindow({

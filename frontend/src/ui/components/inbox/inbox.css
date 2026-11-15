@@ -15,7 +15,7 @@
   align-items: center;
   min-height: 56px;
   padding: 6px 0 6px var(--space-4);
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 [data-layout='phone'] .inboxname {
@@ -128,7 +128,7 @@
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: var(--blue);
+  accent-color: var(--accent);
 }
 
 /* On phone each control is a full tap target, the project picker takes its own row, and the other two share the next. */
@@ -172,12 +172,12 @@
 
 @media (hover: hover) {
   [data-layout] .inboxrow.whole:hover {
-    background: var(--hover);
+    background: var(--wash);
   }
 }
 
 [data-layout] .inboxrow.whole:has(.rowname:focus-visible) {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
   border-radius: 4px;
 }
@@ -200,7 +200,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--quiet);
+  color: var(--ink-3);
 }
 
 [data-layout] .rowpen svg {
@@ -225,7 +225,7 @@
 }
 
 [data-layout='desktop'] .rowpen:hover {
-  background: var(--fill);
+  background: var(--wash);
   color: var(--ink);
 }
 

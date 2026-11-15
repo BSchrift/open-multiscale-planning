@@ -86,7 +86,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Inbox step | covered (plan: "Goals asks for some… with Process over an inert flow", "an empty Inbox says so…") | covered (same) | covered (journeys/next-stretch) | missing |
 | Finish: fit, aims, steps not looked at, Undo | covered (plan: "plans the next stretch…"; stretch: "the step arrows move between steps, and Finish names the steps not looked at…", "planned without a cadence… its toast's Undo takes the plan back", "Finish and plan the week…") | covered (same) | covered (journeys/next-stretch) | missing |
 | Cadence changed in place, now or when this plan ends, or turned off | covered (plan: "…changes cadence in place…"; stretch: "a new cadence can end this plan now…", "turning the schedule off…") | covered (same) | missing | missing |
-| Save and exit, then resume | covered (plan: "…resumes planning where it was, with Undo still there"; stack/stretch: across devices) | covered (plan) | covered (journeys/planning-task) | missing |
+| Save and exit, then resume | covered (plan: "…resumes planning where it was, with Undo still there"; stretch: "a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later"; stack/stretch: across devices) | covered (plan, stretch) | covered (journeys/planning-task) | missing |
 | Edit goals (the UI has Open project in Goals, which saves planning) | covered (plan: "a goal's projects are blocks… the project itself after saving planning") | covered (same) | missing | missing |
 | Never planned: this stretch from today | covered (plan: "never planned, plans this stretch from today…") | covered (same) | covered (journeys/next-stretch) | missing |
 

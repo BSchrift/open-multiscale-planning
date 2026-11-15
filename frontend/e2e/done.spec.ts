@@ -78,7 +78,7 @@ test('from Today’s line to Done, where a block not marked yet is marked finish
   const errors = await open(page);
 
   const line = page.getByRole('button', { name: 'Done today: 4 finished, 4h 30m worked' });
-  await expect(line).toHaveText('Done today · 4 · 4h 30m›');
+  await expect(line).toHaveText('Done today · 4 · 4h 30m');
   if (phone) await expectTapTarget(line);
   await line.click();
 

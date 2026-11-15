@@ -60,6 +60,9 @@ export async function saved(page: Page, text: string): Promise<void> {
 
 /** Checks a control is at least 44pt each way, the smallest a finger can hit reliably. */
 export async function expectTapTarget(target: Locator): Promise<void> {
+  // A control that isn't there fails here, by name, rather than as a timeout in the wait below, which reads like an
+  // animation that never ends.
+  await expect(target).toBeVisible();
   // Measured once it and what it sits in have finished moving in, such as a sheet sliding up: partway, the browser
   // reads a moved box's corners to the nearest float, so a 44px box can read 43.99997px. An endless animation, such as
   // a spinner's, never finishes, so it isn't waited for.
@@ -88,11 +91,14 @@ export async function go(page: Page, label: string, heading: string | RegExp = l
   await expect(pane(page, label).getByRole('heading', { name: heading, level: 1 })).toBeVisible();
 }
 
-/** Presses Sync now and waits for it to finish, allowing for a deployment's slower network. */
-export async function syncNow(page: Page) {
+/**
+ * Presses Sync now and waits for it to finish, allowing for a deployment's slower network. A sync already under way
+ * finishes first, so a caller that may meet one passes a timeout for it.
+ */
+export async function syncNow(page: Page, timeout = 30_000) {
   await go(page, 'Settings');
   await account(page).getByRole('button', { name: 'Sync now' }).click();
-  await expect(account(page).getByRole('button', { name: 'Sync now', disabled: true })).toHaveCount(0, { timeout: 30_000 });
+  await expect(account(page).getByRole('button', { name: 'Sync now', disabled: true })).toHaveCount(0, { timeout });
 }
 
 /**

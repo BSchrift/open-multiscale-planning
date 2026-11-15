@@ -107,6 +107,15 @@ describe('shell on desktop', () => {
     await waitFor(() => expect(document.querySelector('.flowpane')).not.toBeNull());
   });
 
+  // One filled button per view: Capture is always there, so it's outlined and the page's own primary stands out.
+  it('draws Capture in the sidebar as an outlined button', async () => {
+    await renderApp();
+    await showsPane('Today');
+    const button = screen.getByRole('button', { name: /Capture/ });
+    expect(button).toHaveClass('btn');
+    expect(button).not.toHaveClass('pri');
+  });
+
   it('opens Capture over the page from the button and the keyboard, and returns focus on Esc', async () => {
     await renderApp();
     await showsPane('Today');
@@ -225,7 +234,7 @@ describe('shell on phone', () => {
     expect(tab('More')).toHaveAttribute('aria-current', 'page');
     // The arrow is drawn, not read out.
     const back = screen.getByRole('button', { name: 'Back to More' });
-    expect(back).toHaveTextContent('‹ More');
+    expect(back).toHaveTextContent(/^More$/);
     await userEvent.click(back);
     await screen.findByRole('heading', { name: 'More' });
     expect(screen.queryByRole('button', { name: 'Back to More' })).toBeNull();

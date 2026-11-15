@@ -38,7 +38,7 @@ test('captures to the Inbox from the button and the keyboard', async ({ page }, 
   await field.fill('Return the books');
   if (phone) await capture.getByRole('button', { name: 'Save' }).click();
   else await field.press('Enter');
-  if (!phone) await expect(capture.getByRole('status')).toHaveText('✓ Saved to Inbox, 4 waiting');
+  if (!phone) await expect(capture.getByRole('status')).toHaveText(/^\s*Saved to Inbox, 4 waiting$/);
   await expect(capture).toHaveCount(0);
   await expect(inboxPane(page).locator('.inboxrow, .morerow').last()).toContainText('Return the books');
 
@@ -95,7 +95,7 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   const field = phone ? card(page).getByRole('button', { name: /^Add to a project or One offs/ }) : page.getByRole('combobox', { name: 'Add to a project or One offs' });
   await expect(field).toBeFocused();
   await page.screenshot({ path: info.outputPath('process.png') });
-  if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', '‹ Undo', 'Skip', 'Done', 'Delete']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
+  if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', 'Undo', 'Skip', 'Done', 'Delete']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
 
   /** Picks a place: typed and Enter on desktop, a tap in the sheet on phone. */
   const addTo = async (typed: string, option: string) => {
@@ -212,7 +212,7 @@ test('edits the item on the card: its title, a description and a link, and Undo 
   await expect(card(page).getByRole('link', { name: 'bank.example.com' })).toBeVisible();
   await page.screenshot({ path: info.outputPath('process-edited.png') });
 
-  await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
+  await card(page).getByRole('button', { name: phone ? 'Undo' : 'Undo and go back' }).click();
   await expect(page.locator('.toast')).toContainText('Call the bank is back as it arrived.');
   await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
   await expect(card(page).getByRole('link', { name: 'bank.example.com' })).toHaveCount(0);
@@ -433,7 +433,7 @@ test('makes a project under a new goal, a practice and a goal from cards, each o
   await expect(form('New practice').getByRole('combobox', { name: 'Goal' })).toHaveValue(/.+/);
   await form('New practice').getByRole('button', { name: 'Make it a practice' }).click();
   await expect(toast).toContainText('Fix the gate is now a practice.');
-  await card(page).getByRole('button', { name: phone ? '‹ Undo' : '‹ Undo and go back' }).click();
+  await card(page).getByRole('button', { name: phone ? 'Undo' : 'Undo and go back' }).click();
   await expect(toast).toContainText('Undone: Fix the gate removed. Fix the gate is back.');
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
 

@@ -78,7 +78,7 @@ test('from Today’s line to Done, where a block not marked yet is marked finish
   const errors = await open(page);
 
   const line = page.getByRole('button', { name: 'Done today: 4 finished, 4h 30m worked' });
-  await expect(line).toHaveText('Done today · 4 · 4h 30m›');
+  await expect(line).toHaveText('Done today · 4 · 4h 30m');
   if (phone) await expectTapTarget(line);
   await line.click();
 
@@ -129,7 +129,7 @@ test('Week’s day headings open Done on that day, and Done has its place in the
   if (phone) {
     // The chosen day's heading, today, opens it; a later day's doesn't.
     const heading = page.getByRole('button', { name: 'Done on Thu Nov 12: 4 finished' });
-    await expect(heading).toHaveText('4 finished ›');
+    await expect(heading).toHaveText(/^4 finished\s*$/);
     await expectTapTarget(heading);
     await heading.click();
   } else {

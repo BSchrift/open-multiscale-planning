@@ -21,7 +21,6 @@ import { PracticeAdd, PracticeFields, practiceRule, ProjectAdd, useLeave } from 
 import { SheetOnPhone } from '../../components/editors/SheetOnPhone';
 import { EstimateSlider } from '../../components/EstimateSlider';
 import { AddMenu } from '../../components/AddMenu';
-import { PlusIcon } from '../../components/icons';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -54,6 +53,8 @@ import type { Act, Fit } from './model';
 import { ProjectsStep } from './ProjectsStep';
 import { StepHead } from './StepHead';
 import type { Head } from './StepHead';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const STEPS: StepKey[] = ['goals', 'practices', 'projects', 'inbox', 'finish'];
 const NAMES: Record<StepKey, string> = { start: 'Start', goals: 'Goals', practices: 'Practices', projects: 'Projects', inbox: 'Inbox', finish: 'Finish' };
@@ -72,9 +73,9 @@ function Continue(props: { phone: boolean; label?: string; onClick(): void }) {
   if (props.phone) return null;
   return (
     <div>
-      <button className="btn pri" type="button" onClick={props.onClick}>
+      <Button variant="primary" type="button" onClick={props.onClick}>
         {props.label ?? 'Continue'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -147,12 +148,12 @@ function NextDates(props: {
         <input className="field datefield" type="date" min={start} value={end} onChange={(event) => (setEnd(event.target.value), setError(''))} />
       </label>
       <div className="row">
-        <button ref={saveRef} className="btn sm pri" type="submit">
+        <Button ref={saveRef} variant="primary" size="compact" type="submit">
           Set dates
-        </button>
-        <button className="btn sm" type="button" onClick={props.onClose}>
+        </Button>
+        <Button size="compact" type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
       {error && (
         <div className="fielderr" role="alert">
@@ -199,7 +200,7 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
     const goal = data.objectives.find((g) => g.id === p.objective_id);
     return goal ? `Goal: ${goal.title}` : 'No goal';
   };
-  const btn = phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   return (
     <div className={phone ? 'stack' : 'wrap stack'}>
       <StepHead head={props.head}>Your practices</StepHead>
@@ -239,9 +240,9 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
               <div className="small quiet">{practiceRule(p)}</div>
               <div className="small quiet">{goalLine(p)}</div>
             </div>
-            <button ref={editRef(p.id)} className={btn} type="button" aria-label={`Edit ${p.title}`} onClick={() => edit(p.id)}>
+            <Button ref={editRef(p.id)} {...btn} type="button" aria-label={`Edit ${p.title}`} onClick={() => edit(p.id)}>
               Edit
-            </button>
+            </Button>
           </div>
         ),
       )}
@@ -251,9 +252,9 @@ function PracticesStep(props: { data: PlanData; phone: boolean; head: Head; act:
       )}
       {/* Stays while the form is open, so closing it has somewhere to give focus back to. */}
       <div>
-        <button ref={addRef} className={btn} type="button" onClick={() => setAdding(true)}>
+        <Button ref={addRef} {...btn} type="button" onClick={() => setAdding(true)}>
           Add practice
-        </button>
+        </Button>
       </div>
       <Continue phone={phone} label="Practices look right" onClick={props.onNext} />
     </div>
@@ -472,12 +473,12 @@ function FinishStep(props: {
       <p className="small quiet">{data.settings.plan_cadence ? `Next planning: ${formatDate(planningOpens(st))}.` : 'Plan again whenever you like.'}</p>
       {!phone && (
         <div className="row">
-          <button className="btn pri" type="button" onClick={() => props.onFinish(true)}>
+          <Button variant="primary" type="button" onClick={() => props.onFinish(true)}>
             Finish and plan the week
-          </button>
-          <button className="btn" type="button" onClick={() => props.onFinish(false)}>
+          </Button>
+          <Button type="button" onClick={() => props.onFinish(false)}>
             Finish
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -796,13 +797,13 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
               <>
                 <span className="stepname">{NAMES[key]}</span>
                 <span className="stepmark" aria-hidden="true">
-                  {done ? '✓' : (n?.short.split(' ')[0] ?? '')}
+                  {done ? <Icon name="done" size={16} /> : (n?.short.split(' ')[0] ?? '')}
                 </span>
               </>
             ) : (
               <>
                 {i + 1}. {NAMES[key]}
-                {done && <span className="stepmark">✓</span>}
+                {done && <span className="stepmark"><Icon name="done" size={16} /></span>}
                 {n && <span className="stepmark">· {n.short}</span>}
               </>
             )}
@@ -832,9 +833,9 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
   const welcomeLine = welcome && (
     <div className="planundo welcome">
       <span className="grow">{welcome}</span>
-      <button className={phone ? 'btn' : 'link small'} type="button" aria-label="Dismiss: Welcome back" onClick={() => setWelcome(null)}>
+      <Button variant={phone ? 'secondary' : 'link'} className={phone ? undefined : 'small'} type="button" aria-label="Dismiss: Welcome back" onClick={() => setWelcome(null)}>
         OK
-      </button>
+      </Button>
     </div>
   );
   const status = (
@@ -874,9 +875,9 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
       <div ref={root} className="planflow" inert={inert}>
         <h1 className="sr">{title}</h1>
         <div className="flowtop two">
-          <button className="btn" type="button" onClick={exit}>
+          <Button type="button" onClick={exit}>
             Save and exit
-          </button>
+          </Button>
           {dates}
           {tabs}
           {fitBar}
@@ -894,27 +895,27 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
         {showPinned && (
           <div className="flowdock plundo">
             <span className="small grow">{pinned.text}</span>
-            <button className="btn" type="button" aria-label={`Undo: ${pinned.text}`} onClick={() => void undo(pinned.key)}>
+            <Button type="button" aria-label={`Undo: ${pinned.text}`} onClick={() => void undo(pinned.key)}>
               Undo
-            </button>
+            </Button>
           </div>
         )}
         {step === 'finish' && (
           <div className="flowdock">
-            <button className="btn wide100" type="button" onClick={() => finish(false)}>
+            <Button className="wide100" type="button" onClick={() => finish(false)}>
               Finish
-            </button>
+            </Button>
           </div>
         )}
         <div className="flowbot">
           <button className="icbtn" type="button" aria-label="Previous step" disabled={at === 0} onClick={() => go(steps[at - 1]!)}>
-            ‹
+            <Icon name="chevron-left" />
           </button>
-          <button className="btn pri grow" type="button" onClick={main}>
+          <Button variant="primary" className="grow" type="button" onClick={main}>
             {mainLabel}
-          </button>
+          </Button>
           <button ref={addRef} className="flowcap" type="button" aria-haspopup="dialog" aria-label="Add a goal, practice, project or Inbox task" onClick={() => setMenu(true)}>
-            <PlusIcon />
+            <Icon name="plus" />
           </button>
         </div>
         {menuEl}
@@ -932,25 +933,25 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
         </div>
         <div className="row">
           <div className="editrow addwrap">
-            <button ref={addRef} className="btn" type="button" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(!menu)}>
-              + Add <span aria-hidden="true">▾</span>
-            </button>
+            <Button ref={addRef} type="button" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+              + Add <Icon name="chevron-down" size={16} />
+            </Button>
             {menuEl}
           </div>
-          <button className="btn" type="button" onClick={exit}>
+          <Button type="button" onClick={exit}>
             Save and exit
-          </button>
+          </Button>
         </div>
       </div>
       {nextDates}
       <div className="stepsnav">
-        <button className="btn sm steparrow" type="button" aria-label="Previous step" disabled={at === 0} onClick={() => go(steps[at - 1]!)}>
-          ‹
-        </button>
+        <Button size="compact" className="steparrow" type="button" aria-label="Previous step" disabled={at === 0} onClick={() => go(steps[at - 1]!)}>
+          <Icon name="chevron-left" />
+        </Button>
         {tabs}
-        <button className="btn sm steparrow" type="button" aria-label="Next step" disabled={at === steps.length - 1} onClick={() => go(steps[at + 1]!)}>
-          ›
-        </button>
+        <Button size="compact" className="steparrow" type="button" aria-label="Next step" disabled={at === steps.length - 1} onClick={() => go(steps[at + 1]!)}>
+          <Icon name="chevron-right" />
+        </Button>
       </div>
       {(fitBar || showPinned) && (
         <div className="planpin">
@@ -958,9 +959,9 @@ export function PlanFlow(props: { data: PlanData; layout: Layout; close(): void 
           {showPinned && (
             <div className="planundo">
               <span className="grow">{pinned.text}</span>
-              <button className="btn sm" type="button" aria-label={`Undo: ${pinned.text}`} onClick={() => void undo(pinned.key)}>
+              <Button size="compact" type="button" aria-label={`Undo: ${pinned.text}`} onClick={() => void undo(pinned.key)}>
                 Undo
-              </button>
+              </Button>
             </div>
           )}
         </div>

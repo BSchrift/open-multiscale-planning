@@ -11,6 +11,7 @@ import { useNav } from './nav';
 import { AREAS, MORE_ROWS } from './registry';
 import type { AreaId } from './registry';
 import { useQuery } from './store';
+import { Icon } from '../components/ds/Icon';
 
 const LINES: Partial<Record<AreaId, (sql: Sql, clock: Clock) => Promise<string | null>>> = {
   plan: planLine,
@@ -33,9 +34,7 @@ function MoreRow(props: { area: AreaId }) {
           </span>
         )}
       </span>
-      <span className="chev" aria-hidden="true">
-        ›
-      </span>
+      <Icon name="chevron-right" className="chev" />
     </button>
   );
 }

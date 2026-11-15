@@ -345,13 +345,8 @@
 }
 
 [data-layout] .penbtn svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 [data-layout='desktop'] .goalname .field {

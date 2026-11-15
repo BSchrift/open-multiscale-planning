@@ -36,6 +36,8 @@ import { ShowCompleted, useTickAway } from '../../components/ShowCompleted';
 import { useOpenTask } from '../../components/task/TaskName';
 import { HOLD_MS, SLOP_PX, swallowClick } from '../../components/weekgrid';
 import { ProjectProgress } from './ProjectTimeline';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 type Editing =
   | { kind: 'addTask'; at: string; milestone: string | null }
@@ -214,14 +216,14 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
 
   const addTaskButton = (at: string, milestone: Milestone | null) => (
     <div className="editrow addrow">
-      <button
-        className={layout === 'phone' ? 'btn plain' : 'btn sm'}
+      <Button
+        variant={layout === 'phone' ? 'quiet' : 'secondary'} size="compact"
         type="button"
         aria-label={milestone ? `Add task to ${milestone.title}` : undefined}
         onClick={() => setEditing({ kind: 'addTask', at, milestone: milestone?.id ?? null })}
       >
         {plus('Task')}
-      </button>
+      </Button>
       {editing?.kind === 'addTask' && editing.at === at && <TaskEditor plan={plan} ctx={ctx} milestoneId={editing.milestone} onAdded={onAdded} onClose={close} />}
     </div>
   );
@@ -244,7 +246,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
       aria-label={`${label} tasks`}
       onClick={() => setFold({ ...fold, [key]: !isOpen(key) })}
     >
-      <span aria-hidden="true">{isOpen(key) ? '▾' : '▸'}</span>
+      <span aria-hidden="true"><Icon name={isOpen(key) ? 'chevron-down' : 'chevron-right'} size={16} /></span>
     </button>
   );
 
@@ -347,9 +349,9 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
       <div className="row">
         {addTaskButton('project', null)}
         <div className="editrow addrow">
-          <button className={layout === 'phone' ? 'btn plain' : 'btn sm'} type="button" onClick={() => setEditing({ kind: 'addMilestone' })}>
+          <Button variant={layout === 'phone' ? 'quiet' : 'secondary'} size="compact" type="button" onClick={() => setEditing({ kind: 'addMilestone' })}>
             {plus('Milestone')}
-          </button>
+          </Button>
           {editing?.kind === 'addMilestone' && <MilestoneEditor plan={plan} ctx={ctx} onClose={close} />}
         </div>
       </div>
@@ -357,9 +359,7 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
       <button className={layout === 'phone' ? 'card projbtn morerow' : 'link small settingsbtn'} type="button" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
         <span>Project settings</span>
         {layout === 'phone' && (
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+          <Icon name="chevron-right" className="chev" />
         )}
       </button>
       {settingsOpen && (
@@ -407,7 +407,7 @@ function ProjectSettings(props: {
   const [error, setError] = useState('');
   const st = status(plan, ctx);
   const older = (project.slip_log ?? []).slice(0, -1).reverse();
-  const btn = layout === 'phone' ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: layout === 'phone' ? 'grow' : undefined };
   const edit = (fields: Partial<typeof live>) => {
     setEdits({ ...edits, ...fields });
     setError('');
@@ -462,24 +462,24 @@ function ProjectSettings(props: {
           </div>
         )}
         <div className="row">
-          <button ref={saveRef} className={`${btn} pri`} type="submit">
+          <Button ref={saveRef} {...btn} variant="primary" type="submit">
             Save
-          </button>
-          <button className={btn} type="button" onClick={props.onClose}>
+          </Button>
+          <Button {...btn} type="button" onClick={props.onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
       {(project.state === 'active' || project.state === 'paused') && (
         <div className="stack8">
           <div>
-            <button
-              className="btn sm"
+            <Button
+              size="compact"
               type="button"
               onClick={() => apply(() => (project.state === 'paused' ? resumeProject(plan, ctx) : pauseProject(plan, ctx)))}
             >
               {project.state === 'paused' ? 'Resume' : 'Pause'}
-            </button>
+            </Button>
           </div>
           <p className="small quiet">Pausing takes the project out of planning. Resuming moves its end date and open milestones later by the time it was paused.</p>
         </div>

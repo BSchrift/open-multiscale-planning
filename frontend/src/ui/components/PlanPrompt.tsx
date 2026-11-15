@@ -4,10 +4,11 @@
 
 import { useState } from 'react';
 import { useApp } from '../app/store';
-import { CloseIcon } from './icons';
 import { About } from './planning/About';
 import { PlanningTimes } from './planning/PlanningTimes';
 import { usePlanningActions, usePlanningTimes } from './planning/usePlanning';
+import { Button } from './ds/Button';
+import { Icon } from './ds/Icon';
 
 export function PlanPrompt(props: { week: string; line?: string | null }) {
   const { week } = props;
@@ -19,14 +20,14 @@ export function PlanPrompt(props: { week: string; line?: string | null }) {
   if (!planning) return null;
   const minutes = planning.estimate.minutes;
   const start = (
-    <button className={`btn pri${phone ? ' planbtn' : ''}`} type="button" onClick={() => void act.start(week, minutes)}>
+    <Button variant="primary" className={phone ? ' planbtn' : ''} type="button" onClick={() => void act.start(week, minutes)}>
       Start planning
-    </button>
+    </Button>
   );
   const choose = (
-    <button className={`btn${phone ? ' planbtn' : ''}`} type="button" aria-label="Choose a time to plan this week" onClick={() => setChoosing(true)}>
+    <Button className={phone ? ' planbtn' : ''} type="button" aria-label="Choose a time to plan this week" onClick={() => setChoosing(true)}>
       Choose a time
-    </button>
+    </Button>
   );
   const text = (
     <>
@@ -45,9 +46,9 @@ export function PlanPrompt(props: { week: string; line?: string | null }) {
         <div className="stack8">
           {start}
           {choose}
-          <button className="btn planbtn" type="button" onClick={() => void act.skip(week)}>
+          <Button className="planbtn" type="button" onClick={() => void act.skip(week)}>
             Skip for now
-          </button>
+          </Button>
         </div>
         {times}
       </div>
@@ -58,7 +59,7 @@ export function PlanPrompt(props: { week: string; line?: string | null }) {
       <div className="between">
         <div>{text}</div>
         <button className="icbtn planx" type="button" aria-label="Skip planning this week" disabled={act.pending} onClick={() => void act.skip(week)}>
-          <CloseIcon />
+          <Icon name="close" />
         </button>
       </div>
       <div className="row">

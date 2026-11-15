@@ -12,7 +12,6 @@ import type { PlanContext, ProjectPlan, Stretch } from '../../../core/plan';
 import { shortWord, status } from '../../../core/status';
 import type { Fields, Objective } from '../../../core/types';
 import { PracticeAdd, ProjectAdd } from '../../components/editors';
-import { PenIcon } from '../../components/icons';
 import { Pill } from '../../components/Pill';
 import { Popover } from '../../components/Popover';
 import { Sheet } from '../../components/Sheet';
@@ -26,6 +25,8 @@ import type { Linked } from './GoalPicker';
 import type { Act } from './model';
 import { StepHead } from './StepHead';
 import type { Head } from './StepHead';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 const resting = (g: Objective, on: string) => g.state === 'not_now' && !!g.not_now_until && g.not_now_until > on;
@@ -48,7 +49,7 @@ export function metLine({ met, total, early }: LookBack['met']): string {
 function Rename(props: { goal: Objective; phone: boolean; onSave(title: string): Promise<boolean>; onDone(): void }) {
   const [name, setName] = useState(props.goal.title);
   const [error, setError] = useState('');
-  const btn = props.phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const title = name.trim();
@@ -59,12 +60,12 @@ function Rename(props: { goal: Objective; phone: boolean; onSave(title: string):
     <form className="stack8 grow" aria-label={`Rename ${props.goal.title}`} onSubmit={submit} onKeyDown={(event) => event.key === 'Escape' && props.onDone()}>
       <div className="row">
         <input className="field grow" aria-label="Goal name" autoFocus value={name} onChange={(event) => (setName(event.target.value), setError(''))} />
-        <button className={`${btn} pri`} type="submit">
+        <Button {...btn} variant="primary" type="submit">
           Save
-        </button>
-        <button className={btn} type="button" onClick={props.onDone}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
       {error && (
         <div className="fielderr" role="alert">
@@ -81,7 +82,7 @@ function ProjectPreview(props: { plan: ProjectPlan; goal: string; ctx: PlanConte
   const { project } = plan;
   const st = status(plan, ctx);
   const noteId = useId();
-  const btn = props.phone ? 'btn grow' : 'btn';
+  const btn = { className: props.phone ? 'grow' : undefined };
   return (
     <Sheet label={project.title} onClose={props.onClose}>
       <div>
@@ -95,12 +96,12 @@ function ProjectPreview(props: { plan: ProjectPlan; goal: string; ctx: PlanConte
       </div>
       <ProjectProgress plan={plan} ctx={ctx} st={st} />
       <div className="row">
-        <button className={btn} type="button" aria-describedby={noteId} onClick={props.onOpen}>
+        <Button {...btn} type="button" aria-describedby={noteId} onClick={props.onOpen}>
           Open project in Goals
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </div>
       <p id={noteId} className="small quiet">
         Opening the project saves planning first, as Save and exit does.
@@ -137,7 +138,7 @@ export function GoalsStep(props: {
   const [picking, setPicking] = useState<{ item: Linked; at: number } | null>(null);
   const [notNowOpen, setNotNowOpen] = useState(false);
   const [preview, setPreview] = useState<{ id: string; goal: string } | null>(null);
-  const btn = phone ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
 
   const goals = shownGoals(data.objectives, on);
   const notNow = kept(data.objectives).filter((g) => resting(g, on));
@@ -217,14 +218,14 @@ export function GoalsStep(props: {
               <div className="row grow">
                 <h3 id={titleId}>{g.title}</h3>
                 <button className={phone ? 'icbtn penbtn' : 'icon penbtn'} type="button" data-rename={g.id} aria-label={`Rename ${g.title}`} onClick={() => setRenaming(g.id)}>
-                  <PenIcon />
+                  <Icon name="pen" />
                 </button>
               </div>
               {time > 0 && <span className="small quiet">{formatMinutes(time)} this stretch</span>}
               {!has && !asks && (
                 <div className="editrow">
-                  <button
-                    className={btn}
+                  <Button
+                    {...btn}
                     type="button"
                     aria-haspopup="dialog"
                     aria-expanded={menu === g.id}
@@ -232,17 +233,17 @@ export function GoalsStep(props: {
                     onClick={() => setMenu(menu === g.id ? null : g.id)}
                   >
                     ⋯
-                  </button>
+                  </Button>
                   {menu === g.id && (
                     <Popover label={g.title} onClose={() => setMenu(null)}>
                       {phone && <h2>{g.title}</h2>}
                       <div className={phone ? 'stack8' : 'row'}>
-                        <button className={btn} type="button" onClick={() => goAway(g, notNowFields, notNowText(g))}>
+                        <Button {...btn} type="button" onClick={() => goAway(g, notNowFields, notNowText(g))}>
                           Not now, ask again {formatDate(askAgain)}
-                        </button>
-                        <button className={btn} type="button" onClick={() => goAway(g, { state: 'archived' }, `Archived ${g.title}.`)}>
+                        </Button>
+                        <Button {...btn} type="button" onClick={() => goAway(g, { state: 'archived' }, `Archived ${g.title}.`)}>
                           Archive
-                        </button>
+                        </Button>
                       </div>
                     </Popover>
                   )}
@@ -264,21 +265,21 @@ export function GoalsStep(props: {
         {asks && (
           <div className="row" role="group" aria-label={`Still a goal: ${g.title}?`}>
             <span className="small quiet grow">Nothing active. Still a goal?</span>
-            <button className={btn} type="button" onClick={() => goAway(g, notNowFields, notNowText(g))}>
+            <Button {...btn} type="button" onClick={() => goAway(g, notNowFields, notNowText(g))}>
               Yes, not now
-            </button>
-            <button className={btn} type="button" onClick={() => goAway(g, { state: 'archived' }, `Archived ${g.title}.`)}>
+            </Button>
+            <Button {...btn} type="button" onClick={() => goAway(g, { state: 'archived' }, `Archived ${g.title}.`)}>
               No, archive it
-            </button>
+            </Button>
           </div>
         )}
         <div className="row">
-          <button className={btn} type="button" aria-label={`Add project to ${g.title}`} onClick={() => setAdding({ kind: 'project', goal: g.id })}>
+          <Button {...btn} type="button" aria-label={`Add project to ${g.title}`} onClick={() => setAdding({ kind: 'project', goal: g.id })}>
             + Project
-          </button>
-          <button className={btn} type="button" aria-label={`Add practice to ${g.title}`} onClick={() => setAdding({ kind: 'practice', goal: g.id })}>
+          </Button>
+          <Button {...btn} type="button" aria-label={`Add practice to ${g.title}`} onClick={() => setAdding({ kind: 'practice', goal: g.id })}>
             + Practice
-          </button>
+          </Button>
         </div>
         {adding?.goal === g.id &&
           (adding.kind === 'project' ? (
@@ -319,9 +320,9 @@ export function GoalsStep(props: {
         />
       ) : (
         <div>
-          <button ref={newRef} className={btn} type="button" onClick={() => setNewOpen(true)}>
+          <Button ref={newRef} {...btn} type="button" onClick={() => setNewOpen(true)}>
             + New goal
-          </button>
+          </Button>
         </div>
       )}
       {loose.length > 0 && (
@@ -332,9 +333,9 @@ export function GoalsStep(props: {
               <span>
                 {x.title} <span className="small quiet">{x.kind}</span>
               </span>
-              <button className={btn} type="button" data-give={x.id} aria-label={`Give ${x.title} a goal`} onClick={() => setPicking({ item: x, at })}>
+              <Button {...btn} type="button" data-give={x.id} aria-label={`Give ${x.title} a goal`} onClick={() => setPicking({ item: x, at })}>
                 Give it a goal
-              </button>
+              </Button>
             </div>
           ))}
         </section>
@@ -366,7 +367,7 @@ export function GoalsStep(props: {
         <div className="stack8">
           <div>
             <button className="link small" type="button" aria-expanded={notNowOpen} onClick={() => setNotNowOpen(!notNowOpen)}>
-              <span aria-hidden="true">{notNowOpen ? '▾ ' : '▸ '}</span>
+              <Icon name={notNowOpen ? 'chevron-down' : 'chevron-right'} size={16} />{' '}
               Not now ({notNow.length})
             </button>
           </div>
@@ -376,18 +377,18 @@ export function GoalsStep(props: {
                 <span>
                   {g.title} <span className="small quiet">Asking again {formatDate(g.not_now_until!)}</span>
                 </span>
-                <button className={btn} type="button" aria-label={`Restore ${g.title}`} onClick={() => void setGoal(g, { state: 'active', not_now_until: null }, `Restored ${g.title}.`)}>
+                <Button {...btn} type="button" aria-label={`Restore ${g.title}`} onClick={() => void setGoal(g, { state: 'active', not_now_until: null }, `Restored ${g.title}.`)}>
                   Restore
-                </button>
+                </Button>
               </div>
             ))}
         </div>
       )}
       {!phone && (
         <div>
-          <button className="btn pri" type="button" onClick={props.onNext}>
+          <Button variant="primary" type="button" onClick={props.onNext}>
             {props.continueLabel}
-          </button>
+          </Button>
         </div>
       )}
     </div>

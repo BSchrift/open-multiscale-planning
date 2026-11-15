@@ -120,18 +120,9 @@
   color: var(--ink-3);
 }
 
-[data-layout] .pxedit .pen svg,
-[data-layout] .pxchip svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 [data-layout='desktop'] .pxedit .pen svg {
-  width: 24px;
-  height: 24px;
-  stroke-width: 1.75;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
 }
 
 @media (hover: hover) {
@@ -164,9 +155,8 @@
 }
 
 [data-layout='phone'] .pxedit .pen svg {
-  width: 20px;
-  height: 20px;
-  stroke-width: 1.9;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 /* The title being edited: a field of the title's own size. */
@@ -206,9 +196,8 @@
 
 [data-layout] .pxchip svg {
   flex: none;
-  width: 16px;
-  height: 16px;
-  stroke-width: 1.9;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 /* The date: first under the title, in blue; once set, the date itself on a blue tint, with Change. */
@@ -377,12 +366,8 @@
 
 [data-layout] .pkfield > svg {
   flex: none;
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: var(--ink-3);
-  stroke-width: 1.9;
-  stroke-linecap: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 /* A chevron that says the field opens a list. */

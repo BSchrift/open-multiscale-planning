@@ -12,6 +12,7 @@ import { EstimateSlider } from '../EstimateSlider';
 import { NotesField } from '../notes/NotesField';
 import { Popover } from '../Popover';
 import { SheetOnPhone } from './SheetOnPhone';
+import { Button } from '../ds/Button';
 
 export function TaskEditor(props: {
   plan: ProjectPlan;
@@ -119,12 +120,12 @@ export function TaskEditor(props: {
         </div>
       )}
       <div className="row">
-        <button className="btn sm pri grow" type="submit">
+        <Button variant="primary" size="compact" className="grow" type="submit">
           Add
-        </button>
-        <button className="btn sm" type="button" onClick={onClose}>
+        </Button>
+        <Button size="compact" type="button" onClick={onClose}>
           {props.write ? 'Close' : last && !title.trim() ? 'Done' : 'Cancel'}
-        </button>
+        </Button>
       </div>
     </form>
   );

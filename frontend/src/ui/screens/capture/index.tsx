@@ -21,6 +21,8 @@ import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { useDialogFocus } from '../../components/useDialogFocus';
 import './capture.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const ONE_OFFS = 'oneoffs';
 /** How long desktop shows what it saved before it fades and closes. */
@@ -184,9 +186,9 @@ export default function Screen(props: ScreenProps) {
               {attachments}
             </>
           )}
-          <button className="btn pri" type="submit">
+          <Button variant="primary" type="submit">
             Save
-          </button>
+          </Button>
         </form>
       </Sheet>
     );
@@ -230,7 +232,7 @@ export default function Screen(props: ScreenProps) {
             <span className="capstatus" role="status">
               {saved && (
                 <>
-                  <span aria-hidden="true">✓ </span>
+                  <Icon name="done" size={16} />{' '}
                   {saved}
                 </>
               )}

@@ -20,6 +20,7 @@ import type { Outside } from './Outside';
 import { PickRow } from './PickRow';
 import type { PickProps } from './PickStep';
 import type { Selection } from './Select';
+import { Icon } from '../../../components/ds/Icon';
 
 export interface ListProps extends PickProps {
   phone: boolean;
@@ -77,9 +78,7 @@ function Group(props: ListProps & { s: PickProject; group: PickGroup; head: stri
             out.setFold(s, g, true);
           }}
         >
-          <span className="foldc" aria-hidden="true">
-            ›
-          </span>
+          <Icon name="chevron-right" size={16} className="foldc" />
           <span>
             <span className="foldh">Show {g.head}</span> · {g.counts}
           </span>

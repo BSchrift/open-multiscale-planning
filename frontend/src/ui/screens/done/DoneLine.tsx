@@ -5,6 +5,7 @@ import { useNav } from '../../app/nav';
 import { useQuery, useToday } from '../../app/store';
 import { loadDoneDay, todayLine } from './data';
 import './done.css';
+import { Icon } from '../../components/ds/Icon';
 
 export function DoneLine() {
   const nav = useNav();
@@ -23,9 +24,7 @@ export function DoneLine() {
       ) : (
         <span className="quiet">Nothing finished yet today</span>
       )}
-      <span className="chev" aria-hidden="true">
-        ›
-      </span>
+      <Icon name="chevron-right" className="chev" />
     </button>
   );
 }

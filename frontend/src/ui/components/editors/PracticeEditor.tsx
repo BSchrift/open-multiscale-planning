@@ -19,6 +19,7 @@ import type { ScheduleDraft } from './PracticeSchedule';
 import { SheetOnPhone } from './SheetOnPhone';
 import { useLeave } from './useLeave';
 import { usePlanChange } from './usePlanChange';
+import { Button } from '../ds/Button';
 
 export { practiceRule };
 
@@ -30,7 +31,6 @@ const linkable = (goals: readonly Objective[]) => goals.filter((g) => g.state !=
 
 /** With onNew, a + New goal button follows the select, rather than being one of its options. */
 export function GoalSelect(props: { goals: readonly Objective[]; value: string; onChange(id: string): void; onNew?(): void }) {
-  const { layout } = useApp();
   const select = (
     <label className={props.onNew ? 'popfield grow' : 'popfield'}>
       Goal
@@ -48,9 +48,9 @@ export function GoalSelect(props: { goals: readonly Objective[]; value: string; 
   return (
     <div className="row nowrap fieldandbtn">
       {select}
-      <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={props.onNew}>
+      <Button size="compact" type="button" onClick={props.onNew}>
         + New goal
-      </button>
+      </Button>
     </div>
   );
 }
@@ -206,7 +206,7 @@ export function PracticeFields(props: {
     props.onEnded?.();
     if (reverse) toast.show(`${p.title} ended. Its history stays.`, { undo: () => undo.run(reverse) });
   };
-  const btn = layout === 'phone' ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: layout === 'phone' ? 'grow' : undefined };
 
   // Not a form, since planning's goal control holds a form of its own, so Enter in the name saves instead.
   return (
@@ -240,20 +240,20 @@ export function PracticeFields(props: {
         </div>
       )}
       <div className="row">
-        <button ref={saveRef} className={`${btn} pri`} type="button" onClick={() => void save()}>
+        <Button ref={saveRef} {...btn} variant="primary" type="button" onClick={() => void save()}>
           Save
-        </button>
-        <button className={btn} type="button" onClick={() => props.onClose()}>
+        </Button>
+        <Button {...btn} type="button" onClick={() => props.onClose()}>
           Cancel
-        </button>
+        </Button>
       </div>
       <div className="row">
-        <button className="btn sm" type="button" onClick={() => void pause.run(p.state === 'paused' ? 'active' : 'paused')}>
+        <Button size="compact" type="button" onClick={() => void pause.run(p.state === 'paused' ? 'active' : 'paused')}>
           {p.state === 'paused' ? 'Resume' : 'Pause'}
-        </button>
-        <button className="btn sm" type="button" onClick={end}>
+        </Button>
+        <Button size="compact" type="button" onClick={end}>
           End practice
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -345,12 +345,12 @@ export function PracticeAdd(props: {
           </div>
         )}
         <div className="row">
-          <button className="btn sm pri grow" type="submit">
+          <Button variant="primary" size="compact" className="grow" type="submit">
             Add practice
-          </button>
-          <button className="btn sm" type="button" onClick={props.onClose}>
+          </Button>
+          <Button size="compact" type="button" onClick={props.onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </SheetOnPhone>

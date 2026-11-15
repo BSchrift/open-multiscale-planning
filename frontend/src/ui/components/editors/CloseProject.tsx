@@ -11,6 +11,7 @@ import { closeProject } from '../../../core/tasks';
 import { useApp, useMutation } from '../../app/store';
 import { useToast } from '../Toast';
 import { usePlanChange } from './usePlanChange';
+import { Button } from '../ds/Button';
 
 
 /** A new end date, with 2 weeks, 1 month and 3 months as shortcuts from the end, or from today once it has passed. */
@@ -51,9 +52,9 @@ function ChangeEndDate(props: { plan: ProjectPlan; ctx: PlanContext; onDone?(): 
         </div>
       )}
       <div>
-        <button className="btn sm pri" type="button" disabled={!!error} onClick={save}>
+        <Button variant="primary" size="compact" type="button" disabled={!!error} onClick={save}>
           {isDay(date) ? `Change end date to ${formatDate(date)}` : 'Change end date'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -83,12 +84,12 @@ export function CloseQuestion(props: { state: 'finished' | 'dropped'; onYes(): v
     >
       <div className="strong small">{finish ? 'Finish this project?' : 'Drop this project?'}</div>
       <div className="row">
-        <button className="btn sm pri danger grow" type="button" onClick={props.onYes}>
+        <Button variant="destructive" filled size="compact" className="grow" type="button" onClick={props.onYes}>
           {finish ? 'Yes, finish' : 'Yes, drop'}
-        </button>
-        <button className="btn sm" type="button" autoFocus aria-label={finish ? 'Cancel finishing' : 'Cancel dropping'} onClick={no}>
+        </Button>
+        <Button size="compact" type="button" autoFocus aria-label={finish ? 'Cancel finishing' : 'Cancel dropping'} onClick={no}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -125,17 +126,17 @@ export function CloseProject(props: { plan: ProjectPlan; ctx: PlanContext; onClo
   return (
     <div className="stack8">
       <div className="row pastacts">
-        <button ref={finishRef} className="btn sm danger" type="button" onClick={() => setAsking('finished')}>
+        <Button ref={finishRef} variant="destructive" size="compact" type="button" onClick={() => setAsking('finished')}>
           Finish
-        </button>
+        </Button>
         {changeEnd && (
-          <button className="btn sm" type="button" aria-expanded={changing} onClick={() => setChanging(!changing)}>
+          <Button size="compact" type="button" aria-expanded={changing} onClick={() => setChanging(!changing)}>
             Change end date
-          </button>
+          </Button>
         )}
-        <button ref={dropRef} className="btn sm danger" type="button" onClick={() => setAsking('dropped')}>
+        <Button ref={dropRef} variant="destructive" size="compact" type="button" onClick={() => setAsking('dropped')}>
           Drop
-        </button>
+        </Button>
         {props.extra}
       </div>
       {left > 0 && <div className="small quiet">Finishing cancels the {formatMinutes(left)} left.</div>}

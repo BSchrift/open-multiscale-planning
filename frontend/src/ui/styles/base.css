@@ -27,14 +27,6 @@ h3{font-size:var(--fs-caption);font-weight:600;color:var(--ink-3)}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .quiet{color:var(--ink-3)}
 .strong{font-weight:600}
-.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:500}
-/* Destructive, such as finishing or dropping a project: red, and solid red when it's the confirming choice. */
-.btn.danger{border-color:var(--danger);color:var(--danger)}
-.btn.pri.danger{background:var(--danger);color:var(--on-accent)}
-/* An answer's icon before its word (AnswerIcon), in the word's colour, as the missed blocks sheet's bar draws it. */
-.btn:has(>.ansicon){display:inline-flex;align-items:center;justify-content:center;gap:6px}
-.ansicon{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.ansicon .solid{fill:currentColor;stroke:none}
 .now h2{font-size:22px;line-height:1.25}
 .clock{font-size:44px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums}
 .done{color:var(--ink-3);text-decoration:line-through}

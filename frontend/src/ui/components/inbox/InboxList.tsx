@@ -10,12 +10,13 @@ import { formatMinutes } from '../../../core/dates';
 import type { InboxRow } from '../../../core/queries';
 import type { Fields } from '../../../core/types';
 import { useMutation } from '../../app/store';
-import { PenIcon } from '../icons';
 import { TaskName, useOpenTask } from '../task/TaskName';
 import { useToast } from '../Toast';
 import { useFocusLanding } from '../useFocusLanding';
 import { SelectBar } from './SelectBar';
 import './inbox.css';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; onOpen(id: string): void }) {
   const { rows, phone, onOpen } = props;
@@ -127,7 +128,7 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
           );
           const pencil = (
             <button className="rowpen" type="button" aria-label={`Rename ${i.title}`} title="Rename" onClick={() => setRenaming(i.id)}>
-              <PenIcon />
+              <Icon name="pen" />
             </button>
           );
           return phone ? (
@@ -135,9 +136,7 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
               {lines}
               {pencil}
               <button className="inboxgo" type="button" aria-label={`Process ${i.title}`} onClick={() => onOpen(i.id)}>
-                <span className="chev" aria-hidden="true">
-                  ›
-                </span>
+                <Icon name="chevron-right" className="chev" />
               </button>
             </div>
           ) : (
@@ -146,9 +145,9 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
                 {lines}
                 {pencil}
               </div>
-              <button className="btn sm" type="button" aria-label={`Assign ${i.title}`} onClick={() => onOpen(i.id)}>
+              <Button size="compact" type="button" aria-label={`Assign ${i.title}`} onClick={() => onOpen(i.id)}>
                 Assign
-              </button>
+              </Button>
             </div>
           );
         })}
@@ -160,7 +159,7 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
 /** An item's title as a field in its row: Enter or Save keeps it, Esc or Cancel puts the old one back. */
 function RenameField(props: { title: string; phone: boolean; onSave(title: string): void; onCancel(): void }) {
   const [title, setTitle] = useState(props.title);
-  const btn = props.phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: props.phone ? 'grow' : undefined };
   const save = (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();
@@ -189,12 +188,12 @@ function RenameField(props: { title: string; phone: boolean; onSave(title: strin
         onChange={(event) => setTitle(event.target.value)}
       />
       <div className="row">
-        <button className={`${btn} pri`} type="submit">
+        <Button {...btn} variant="primary" type="submit">
           Save
-        </button>
-        <button className={btn} type="button" onClick={props.onCancel}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

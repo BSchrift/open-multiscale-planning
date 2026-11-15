@@ -9,6 +9,7 @@ import { APPEARANCE_KEY } from './appearance';
 import { PROCESS_KEYS_KEY } from './processKeys';
 import { SHOW_COMPLETED_KEY } from './showCompleted';
 import { useApp, useQuery } from './store';
+import { Button } from '../components/ds/Button';
 
 /** Choices about this device rather than the account, so an account switch keeps them. */
 const DEVICE_KEYS = [APPEARANCE_KEY, SHOW_COMPLETED_KEY, PROCESS_KEYS_KEY];
@@ -49,7 +50,7 @@ export function SwitchAccount() {
   };
   const cancel = () => void run(sync.signOut);
   const { email, unsynced } = data;
-  const btn = layout === 'phone' ? 'btn grow' : 'btn';
+  const btn = { className: layout === 'phone' ? 'grow' : undefined };
   return (
     // The dialog itself takes focus, so the warning is its description, read out with its name.
     <Sheet label="Switch accounts" describedBy={unsynced > 0 ? `${id}q ${id}n` : `${id}q`} onClose={cancel}>
@@ -59,12 +60,12 @@ export function SwitchAccount() {
       </p>
       {unsynced > 0 && <p id={`${id}n`}>{unsynced === 1 ? "1 change hasn't" : `${unsynced} changes haven't`} synced and will be lost.</p>}
       <div className="row">
-        <button className={`${btn} pri`} type="button" disabled={busy} onClick={() => void run(erase)}>
+        <Button {...btn} variant="primary" type="button" disabled={busy} onClick={() => void run(erase)}>
           Erase and sign in
-        </button>
-        <button className={btn} type="button" disabled={busy} onClick={cancel}>
+        </Button>
+        <Button {...btn} type="button" disabled={busy} onClick={cancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Sheet>
   );

@@ -204,13 +204,8 @@
 }
 
 [data-layout] .rowpen svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 [data-layout='desktop'] .rowpen {

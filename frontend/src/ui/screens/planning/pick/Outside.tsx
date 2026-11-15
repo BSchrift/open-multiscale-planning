@@ -12,6 +12,8 @@ import { useNav } from '../../../app/nav';
 import { useStickyState } from '../../../app/store';
 import { useToast } from '../../../components/Toast';
 import type { PickGroup, PickProject, PickView } from './model';
+import { Button } from '../../../components/ds/Button';
+import { Icon } from '../../../components/ds/Icon';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** A fold's key: a group's own key repeats across projects, as Done and Needs a new time do. */
@@ -83,9 +85,9 @@ export function Lede(props: { view: PickView; out: Outside; phone: boolean; desc
           <span id={props.descId} className="sr">
             {words.where}.{words.earliest}
           </span>
-          <button className="btn sm" type="button" aria-expanded={out.open} aria-label={toggleName(view, out.open)} aria-describedby={props.descId} onClick={out.toggle}>
+          <Button size="compact" type="button" aria-expanded={out.open} aria-label={toggleName(view, out.open)} aria-describedby={props.descId} onClick={out.toggle}>
             {out.open ? 'Hide' : 'Show'}
-          </button>
+          </Button>
         </>
       )}
     </div>
@@ -119,7 +121,7 @@ export function EndToggle(props: { view: PickView; out: Outside; descId: string 
     <div className="pend">
       <button className="endtog" type="button" aria-expanded={out.open} aria-describedby={props.descId} onClick={out.toggle}>
         <span className="foldc" aria-hidden="true">
-          {out.open ? '⌄' : '›'}
+          <Icon name={out.open ? 'chevron-down' : 'chevron-right'} size={16} />
         </span>
         {toggleName(view, out.open)}
       </button>

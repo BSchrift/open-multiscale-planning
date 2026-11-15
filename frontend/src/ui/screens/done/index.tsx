@@ -21,6 +21,8 @@ import { DayArrows } from '../../components/WeekArrows';
 import { loadDoneDay } from './data';
 import '../week/week.css';
 import './done.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 /** Week's colours for each kind. */
 const SWATCH: Record<DoneKind, string> = { project: 'ev-project', practice: 'ev-practice', one_off: 'ev-maint', planning: 'ev-planning' };
@@ -132,21 +134,21 @@ export default function DoneScreen(props: ScreenProps) {
     <div className="stack8 donehead">
       <div className="between">
         <button className="icbtn" type="button" aria-label="Previous day" onClick={() => setDay(addDays(day, -1))}>
-          ‹
+          <Icon name="chevron-left" />
         </button>
         <div className="wktitle">
           <div className="small quiet">Done</div>
           <h2 tabIndex={-1}>{title}</h2>
         </div>
         <button className="icbtn" type="button" aria-label="Next day" disabled={day >= today} onClick={() => setDay(addDays(day, 1))}>
-          ›
+          <Icon name="chevron-right" />
         </button>
       </div>
       {day !== today && (
         <div className="wkcenter">
-          <button className="btn" type="button" onClick={() => setDay(today)}>
+          <Button type="button" onClick={() => setDay(today)}>
             Today
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -225,9 +227,9 @@ export default function DoneScreen(props: ScreenProps) {
                   {where(u)}, {phone ? `until ${formatTime(u.block.end, u.zone)}` : range(u)}
                 </span>
               </span>
-              <button className={phone ? 'btn' : 'btn sm'} type="button" aria-label={`Mark how ${u.block.title ?? 'this block'} went`} onClick={() => setMarking(u.block.id)}>
+              <Button size="compact" type="button" aria-label={`Mark how ${u.block.title ?? 'this block'} went`} onClick={() => setMarking(u.block.id)}>
                 Mark how it went
-              </button>
+              </Button>
             </li>
           ))}
         </Group>

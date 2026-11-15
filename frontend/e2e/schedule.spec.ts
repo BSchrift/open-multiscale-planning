@@ -111,7 +111,7 @@ test('desktop: the draft floats over a placed block, which stays put, and Place 
   await page.getByRole('button', { name: 'Place here' }).click();
   await expect(session).toHaveCount(0);
   await expect(page.getByText('Took Morning stretch off the calendar to place again')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Morning stretch/ }).locator('.schedmark')).not.toHaveText('✓');
+  await expect(page.getByRole('button', { name: /^Morning stretch/ }).locator('.schedmark [data-icon="done"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(session).toBeVisible();
   await expect(page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ })).toBeVisible();

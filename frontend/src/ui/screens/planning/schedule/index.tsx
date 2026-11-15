@@ -35,6 +35,8 @@ import { pickChange } from '../pick/PickStep';
 import { scheduleModel } from './model';
 import type { SchedRow } from './model';
 import './schedule.css';
+import { Button } from '../../../components/ds/Button';
+import { Icon } from '../../../components/ds/Icon';
 
 interface ScheduleStepProps {
   /** The Monday being planned. */
@@ -335,7 +337,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
       aria-label={`Remove ${r.title} from this week`}
       onClick={() => setRemoving(r.id)}
     >
-      ×
+      <Icon name="close" />
     </button>
   );
   const removingRow = s.rows.find((r) => r.id === removing && r.task);
@@ -346,12 +348,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
         Remove {removingRow.title} from this week's plan? It stays in {removingRow.oneOff ? 'One offs' : 'its project'}.
       </p>
       <div className="row">
-        <button className={`btn pri danger ${phone ? 'grow' : 'sm'}`} type="button" onClick={() => void removeFromWeek(removingRow)}>
+        <Button variant="destructive" filled className={phone ? 'grow' : 'sm'} type="button" onClick={() => void removeFromWeek(removingRow)}>
           Remove
-        </button>
-        <button className={`btn ${phone ? 'grow' : 'sm'}`} type="button" autoFocus onClick={() => setRemoving(null)}>
+        </Button>
+        <Button className={phone ? 'grow' : 'sm'} type="button" autoFocus onClick={() => setRemoving(null)}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Popover>
   );
@@ -359,23 +361,23 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const buttons = (cls: string) =>
     editB ? (
       <div className="row">
-        <button className={`btn pri ${cls}`} type="button" onClick={done}>
+        <Button variant="primary" className={cls} type="button" onClick={done}>
           Done
-        </button>
-        <button className={`btn ${cls}`} type="button" onClick={() => void remove(editB)}>
+        </Button>
+        <Button className={cls} type="button" onClick={() => void remove(editB)}>
           Remove from calendar
-        </button>
+        </Button>
       </div>
     ) : (
       <div className="row">
         {draftSlot && (
-          <button className={`btn pri ${cls}`} type="button" onClick={() => void place()}>
+          <Button variant="primary" className={cls} type="button" onClick={() => void place()}>
             Place here
-          </button>
+          </Button>
         )}
-        <button className={`btn ${cls}`} type="button" onClick={skip}>
+        <Button className={cls} type="button" onClick={skip}>
           {skipLabel}
-        </button>
+        </Button>
       </div>
     );
   const said = (
@@ -407,9 +409,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
               </h2>
               <p className="small quiet">{noneText}</p>
               <div>
-                <button className="btn pri" type="button" onClick={props.onContinue}>
+                <Button variant="primary" type="button" onClick={props.onContinue}>
                   Continue to review
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -470,9 +472,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
             )}
             {rest.length > 0 && (
               <div>
-                <button className="btn sm" type="button" onClick={() => void placeTheRest()}>
+                <Button size="compact" type="button" onClick={() => void placeTheRest()}>
                   Place the rest at suggested times
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -636,7 +638,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
         <div className="flowdock stack8">
           <button className="flowsum" type="button" aria-label={`All picked tasks, ${progress}`} onClick={() => setListOpen(true)}>
             <span className="small quiet">{progress}</span>
-            <span className="small strong schlink">All tasks ›</span>
+            <span className="small strong schlink">All tasks <Icon name="chevron-right" size={16} /></span>
           </button>
           {none ? (
             <div>
@@ -677,12 +679,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
               )}
               {away && b ? (
                 <div className="row">
-                  <button className="btn pri grow" type="button" onClick={() => moveTo({ date: day, start: here?.start ?? closestFit(day, b.start, len, kind, ctxOut) ?? b.start })}>
+                  <Button variant="primary" className="grow" type="button" onClick={() => moveTo({ date: day, start: here?.start ?? closestFit(day, b.start, len, kind, ctxOut) ?? b.start })}>
                     Move to {dayName(day)}
-                  </button>
-                  <button className="btn grow" type="button" onClick={() => setLook({ key: curKey, date: b.date })}>
+                  </Button>
+                  <Button className="grow" type="button" onClick={() => setLook({ key: curKey, date: b.date })}>
                     Back to {dayName(b.date)}
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 buttons('grow')
@@ -698,9 +700,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
               <h2>All tasks</h2>
               <div className="small quiet">{progress}</div>
             </div>
-            <button className="btn" type="button" onClick={() => setListOpen(false)}>
+            <Button type="button" onClick={() => setListOpen(false)}>
               Close
-            </button>
+            </Button>
           </div>
           {s.rows.length === 0 && <p className="small quiet">Nothing is picked yet.</p>}
           {groups.map((g) => {
@@ -731,9 +733,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
             );
           })}
           {rest.length > 0 && (
-            <button className="btn" type="button" onClick={() => void placeTheRest().then(() => setListOpen(false))}>
+            <Button type="button" onClick={() => void placeTheRest().then(() => setListOpen(false))}>
               Place the rest at suggested times
-            </button>
+            </Button>
           )}
           {s.practices.length > 0 && (
             <div className="stack8">
@@ -745,9 +747,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
                     <span className="small quiet">{p.meta}</span>
                   </div>
                   <div>
-                    <button className="btn" type="button" aria-label={`${p.skipped ? 'Include this week' : 'Skip this week'}, ${p.title}`} onClick={() => togglePractice(p.id, !p.skipped)}>
+                    <Button type="button" aria-label={`${p.skipped ? 'Include this week' : 'Skip this week'}, ${p.title}`} onClick={() => togglePractice(p.id, !p.skipped)}>
                       {p.skipped ? 'Include this week' : 'Skip this week'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}

@@ -67,7 +67,7 @@
 /* The ⓘ keeps the label's line height: its target overhangs it rather than pushing the countdown down. */
 [data-layout] .nowinfo { flex: none; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: -8px -4px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--accent-text); }
 [data-layout='phone'] .nowinfo { width: 44px; height: 44px; margin: -14px -10px; }
-[data-layout] .nowinfo svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+[data-layout] .nowinfo svg {width: var(--icon-md);height: var(--icon-md)}
 [data-layout] .nowkey { display: grid; gap: 6px; margin: 8px 0; padding: 10px 14px; border: 1.5px solid var(--hairline); border-radius: 10px; background: var(--card); font-size: 14px; }
 [data-layout] .nowkeyrow { display: flex; align-items: center; gap: 8px; }
 [data-layout] .nowkey svg, [data-layout] .nowkey .sign { flex: none; width: 16px; height: 16px; }

@@ -31,6 +31,7 @@ import { columnStyle, DRAG_PX, HOLD_MS, MORE_INSET, MORE_PX, overlapGroups, over
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
+import { Icon } from '../../components/ds/Icon';
 
 const ZOOM = [30, 48, 72, 96];
 const DAY_FROM = 7 * 60;
@@ -57,17 +58,6 @@ interface Item {
 }
 
 const touchGap = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches[1]!.clientX, e.touches[0]!.clientY - e.touches[1]!.clientY);
-
-function ZoomIcon(props: { plus?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <path d="M15.5 15.5L21 21" />
-      <path d="M8 10.5h5" />
-      {props.plus && <path d="M10.5 8v5" />}
-    </svg>
-  );
-}
 
 export function DayTimeline(props: { data: TodayData; events: readonly CalendarEvent[] }) {
   const { data, events } = props;
@@ -449,10 +439,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const zoom = (
     <div className="zoomgroup" role="group" aria-label="Calendar zoom">
       <button className="zoombtn" type="button" aria-label="Zoom out" title="Zoom out" disabled={ph <= ZOOM[0]!} onClick={() => setPh([...ZOOM].reverse().find((z) => z < ph) ?? ph)}>
-        <ZoomIcon />
+        <Icon name="zoom-out" />
       </button>
       <button className="zoombtn" type="button" aria-label="Zoom in" title="Zoom in" disabled={ph >= ZOOM[ZOOM.length - 1]!} onClick={() => setPh(ZOOM.find((z) => z > ph) ?? ph)}>
-        <ZoomIcon plus />
+        <Icon name="zoom-in" />
       </button>
     </div>
   );

@@ -4,7 +4,6 @@ import { Component, Suspense, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
-import { PlusIcon, TabIcon } from '../components/icons';
 import { ToastProvider } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
@@ -19,6 +18,11 @@ import type { AreaId, Presentation, RouteParams, TabId } from './registry';
 import { useApp, useQuery } from './store';
 import { useCaptureShortcut } from './captureShortcut';
 import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
+import { Icon } from '../components/ds/Icon';
+import type { IconName } from '../components/ds/Icon';
+import { Button } from '../components/ds/Button';
+
+const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', inbox: 'inbox', goals: 'goals', more: 'more' };
 
 class ScreenBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -83,7 +87,7 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
     >
       {nav.backLabel && visible && isTop && (
         <button className="backbtn" type="button" aria-label={`Back to ${nav.backLabel}`} onClick={nav.back}>
-          <span aria-hidden="true">‹</span> {nav.backLabel}
+          <Icon name="chevron-left" size={16} /> {nav.backLabel}
         </button>
       )}
       <PaneShown.Provider value={visible}>
@@ -138,11 +142,10 @@ function DesktopNav() {
         Multiscale
       </button>
       <div>
-        <button className="capture" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={() => nav.openOverlay('capture')}>
-          <PlusIcon />
+        <Button className="capture" icon="plus" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={() => nav.openOverlay('capture')}>
           <span>Capture</span>
           <span className="key">{shortcutLabel(shortcut?.accelerator ?? DEFAULT_SHORTCUT)}</span>
-        </button>
+        </Button>
       </div>
       <div className="nav">
         {nav.tabs.map((tab) => {
@@ -178,7 +181,7 @@ function PhoneNav() {
               onClick={() => nav.selectTab(tab)}
             >
               <span className="ticon" aria-hidden="true">
-                <TabIcon tab={tab} />
+                {TAB_ICON[tab] && <Icon name={TAB_ICON[tab]} size={24} />}
                 {tab === 'inbox' && count > 0 && <span className="tbadge">{count}</span>}
               </span>
               <span>{tabLabel(tab)}</span>
@@ -187,7 +190,7 @@ function PhoneNav() {
         })}
       </nav>
       <button className="fab" type="button" aria-label="Capture a task" onClick={() => nav.openOverlay('capture')}>
-        <PlusIcon />
+        <Icon name="plus" />
       </button>
     </>
   );

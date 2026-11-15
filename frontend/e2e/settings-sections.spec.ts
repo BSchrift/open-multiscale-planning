@@ -47,7 +47,7 @@ test("the browser's Settings has each section in order, Keyboard on desktop alon
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
   // Capture shortcut and Updates are the apps'.
-  const sections = ['Account', 'Available hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', ...(phone ? [] : ['Keyboard']), 'Data retention'];
+  const sections = ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', ...(phone ? [] : ['Keyboard']), 'Data retention'];
   await expect(settings(page).getByRole('heading', { level: 2 })).toHaveText(sections);
   const source = settings(page).getByRole('link', { name: 'Source code' });
   await expect(source).toHaveAttribute('href', 'https://github.com/BSchrift/open-multiscale-planning');
@@ -101,7 +101,7 @@ test('Reminders: Notify at block start, Ask at block end and the planning remind
 test('the weekly one offs aim moves up from No aim and is kept, and on phone the More line says it', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
-  const aim = section(page, 'Available hours').getByRole('slider', { name: 'Weekly one offs aim' });
+  const aim = section(page, 'Unavailable hours').getByRole('slider', { name: 'Weekly one offs aim' });
   await expect(aim).toHaveAttribute('aria-valuetext', 'No aim');
   if (phone) await expectTapTarget(aim);
   // In one move: arrow keys pressed faster than each save reads back can lose a step.

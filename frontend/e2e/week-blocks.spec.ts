@@ -38,42 +38,45 @@ async function openWeek(page: Page, list = records) {
   return errors;
 }
 
-test("desktop: a block clicked on the grid shows its details beside the week, whose name opens the task, and Close gives focus back", async ({ page }, info) => {
+test("desktop: a practice's block shows its details beside the week and Close gives focus back, and a task's block opens the task with how it went", async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openWeek(page);
-  const summary = page.getByRole('button', { name: 'Draft the summary, Tue Nov 3, 6pm to 7pm, Project.' });
-  await expect(summary).toHaveAttribute('aria-expanded', 'false');
-  await summary.click();
-  await expect(summary).toHaveAttribute('aria-expanded', 'true');
-  const detail = page.getByRole('region', { name: 'Draft the summary' });
-  await expect(detail.getByText('6pm to 7pm')).toBeVisible();
-  await expect(detail).toContainText('Project: Annual report');
+  // A practice's session keeps its own details beside the week.
+  const piano = page.getByRole('button', { name: 'Piano practice, Wed Nov 4, 7am to 7:30am, Practice.' });
+  await expect(piano).toHaveAttribute('aria-expanded', 'false');
+  await piano.click();
+  await expect(piano).toHaveAttribute('aria-expanded', 'true');
+  const detail = page.getByRole('region', { name: 'Piano practice' });
+  await expect(detail.getByText('7am to 7:30am')).toBeVisible();
+  await expect(detail).toContainText('Practice:');
   await page.screenshot({ path: info.outputPath('week-block-detail.png') });
   await detail.getByRole('button', { name: 'Close' }).click();
   await expect(detail).toHaveCount(0);
-  await expect(summary).toBeFocused();
-  await expect(summary).toHaveAttribute('aria-expanded', 'false');
-
-  // A second click on the block closes it too; one block's details at a time.
-  await summary.click();
+  await expect(piano).toBeFocused();
+  await expect(piano).toHaveAttribute('aria-expanded', 'false');
+  // A second click on the block closes it too.
+  await piano.click();
   await expect(detail).toBeVisible();
-  const piano = page.getByRole('button', { name: 'Piano practice, Wed Nov 4, 7am to 7:30am, Practice.' });
   await piano.click();
   await expect(detail).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Piano practice' })).toContainText('Practice:');
-  await piano.click();
-  await expect(page.getByRole('region', { name: 'Piano practice' })).toHaveCount(0);
+
+  // A task's block opens the task, whose block section says when and what it belongs to.
+  const summary = page.getByRole('button', { name: 'Draft the summary, Tue Nov 3, 6pm to 7pm, Project.' });
+  await expect(summary).toHaveAttribute('aria-haspopup', 'dialog');
+  await summary.click();
+  const popup = page.getByRole('dialog', { name: 'Draft the summary' });
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
+  await expect(section).toContainText('Project: Annual report');
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+  await expect(summary).toBeFocused();
 
   // A block that's been answered says how it went.
   await page.getByRole('button', { name: 'Paint the fence, Mon Nov 2, 9am to 10am, One off. Done.' }).click();
-  const fence = page.getByRole('region', { name: 'Paint the fence' });
+  const fence = page.getByRole('dialog', { name: 'Paint the fence' }).getByRole('region', { name: 'Time block' });
   await expect(fence.getByText('Done', { exact: true })).toBeVisible();
   await expect(fence).toContainText('One off: No date');
-
-  // A task's name opens the task.
-  await page.getByRole('button', { name: 'Draft the summary, Tue Nov 3, 6pm to 7pm, Project.' }).click();
-  await detail.getByRole('button', { name: 'Draft the summary' }).click();
-  await expect(page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Delete task' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -108,37 +111,41 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   expect(errors).toEqual([]);
 });
 
-test("phone: a block's sheet changes its length on a slider, and Remove takes it off with Undo", async ({ page }, info) => {
+test("phone: a task's block changes its length on a slider in the task's popup, and Remove from calendar takes it off with Undo", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip is the phone layout');
   const errors = await openWeek(page);
   await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
   await expect(page.getByRole('heading', { name: 'Tue Nov 3' })).toBeVisible();
   await page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm, Project\./ }).click();
-  const sheet = page.getByRole('dialog', { name: 'Draft the summary' });
-  const length = sheet.getByRole('slider', { name: 'Length' });
+  const popup = page.getByRole('dialog', { name: 'Draft the summary' });
+  const section = popup.getByRole('region', { name: 'Time block' });
+  const length = section.getByRole('slider', { name: 'Length' });
   await expect(length).toHaveAttribute('aria-valuetext', '1h');
-  for (const name of ['Move', 'Remove', 'Close']) await expectTapTarget(sheet.getByRole('button', { name, exact: true }));
+  for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
   await expectTapTarget(length);
   await length.focus();
   await page.keyboard.press('ArrowRight');
   await expect(length).toHaveAttribute('aria-valuetext', '1h 15m');
-  await expect(sheet.getByText('Tue Nov 3, 6pm to 7:15pm')).toBeVisible();
+  await expect(section.getByText('Tue Nov 3, 6pm to 7:15pm')).toBeVisible();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
-  await expect(sheet.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
+  await expect(section.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
   await page.screenshot({ path: info.outputPath('week-phone-length.png') });
 
-  await sheet.getByRole('button', { name: 'Remove', exact: true }).click();
-  await expect(sheet).toHaveCount(0);
+  // The block comes off the day and its section goes, while the task stays open.
+  await section.getByRole('button', { name: 'Remove from calendar', exact: true }).click();
   await expect(page.getByText('Removed Draft the summary')).toBeVisible();
+  await expect(section).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Draft the summary, / })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Undo' })).toBeFocused();
   await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(section.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 6:45pm, Project\./ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("a past week can be read but not changed: its blocks don't move or edit, opening only on desktop, and it links to that week's analytics", async ({ page }, info) => {
+test("a past week can be read but not changed: its blocks don't move, open their task with nothing to move, remove or resize, and it links to that week's analytics", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const last: Seed[] = [
     { type: 'time_block', id: 'b9', fields: { task_id: 't1', start: chicago(10, 27, '10:00'), end: chicago(10, 27, '11:00'), tz: 'America/Chicago' } },
@@ -154,10 +161,9 @@ test("a past week can be read but not changed: its blocks don't move or edit, op
   if (phone) {
     await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
     await expect(page.getByRole('heading', { name: 'Tue Oct 27' })).toBeVisible();
-    // Shown in its row, but not a button: on phone a past block has nothing to open, move or change.
     const row = page.locator('.tlrow', { hasText: 'Draft the summary' });
     await expect(row).toContainText('10amDraft the summaryProject, 1h');
-    await expect(row.getByRole('button')).toHaveCount(0);
+    await row.getByRole('button', { name: /^Draft the summary, 10am to 11am, Project\./ }).click();
   } else {
     // A button to open, not a block to drag: the arrow keys leave it where it was.
     const b = page.getByRole('button', { name: 'Draft the summary, Tue Oct 27, 10am to 11am, Project. Done.' });
@@ -167,9 +173,17 @@ test("a past week can be read but not changed: its blocks don't move or edit, op
     await page.keyboard.press('Shift+ArrowDown');
     await expect(b).toBeVisible();
     await b.click();
-    await expect(page.getByRole('region', { name: 'Draft the summary' }).getByText('Done', { exact: true })).toBeVisible();
   }
+  // Its task opens, with how the block went, and nothing in the block's section to press or slide.
+  const popup = page.getByRole('dialog', { name: 'Draft the summary' });
+  const section = popup.getByRole('region', { name: 'Time block' });
+  await expect(section.getByText('Tue Oct 27, 10am to 11am')).toBeVisible();
+  await expect(section.getByText('Done', { exact: true })).toBeVisible();
+  await expect(section.getByRole('button')).toHaveCount(0);
+  await expect(section.getByRole('slider')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`week-past-${info.project.name}.png`) });
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
 
   const analytics = page.getByRole('button', { name: phone ? "See that week's analytics" : "See this week's analytics" });
   if (phone) await expectTapTarget(analytics);

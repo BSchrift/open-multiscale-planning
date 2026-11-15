@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Every job, the iPhone's included, on the branch it's started on.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -246,10 +248,40 @@ jobs:
             frontend/playwright-report
             frontend/test-results
 
-  # The real app on an iPhone Simulator, with the extensions off and then on.
+  # Whether the iPhone job runs, since it holds one of the few macOS runners for about 40 minutes: always on main and on a
+  # run started by hand, and for a pull request only when it changes something the iPhone app is built from or runs
+  # (scripts/ci-changes.sh). The run's summary says which, and why.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.ios.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A pull request's checkout is the merge of the branch into its base, whose first parent is the base.
+          fetch-depth: 2
+      - id: ios
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) base=HEAD^1 ;;
+            # Once main takes pull requests through GitHub's merge queue: a merge group's commit sits on the main it was
+            # made from, as many merges back as PRs ahead of it in the group, so that main is fetched, not counted back to.
+            merge_group)
+              base="$MERGE_GROUP_BASE"
+              git fetch --no-tags --depth=1 origin "$base"
+              ;;
+            *) base=HEAD ;;
+          esac
+          git diff --name-only --no-renames "$base" HEAD | scripts/ci-changes.sh "$GITHUB_EVENT_NAME"
+        env:
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+
+  # The real app on an iPhone Simulator, with the extensions off and then on. Skipped, which counts as passing, when the
+  # changes job finds nothing it would test.
   ios:
     runs-on: macos-15
-    needs: [frontend]
+    needs: [frontend, changes]
+    if: needs.changes.outputs.ios == 'true'
     # About 40 minutes, plus up to 11 when a test on the real clock reaches its seed in the last ten minutes of a day (UTC),
     # which it waits out.
     timeout-minutes: 60

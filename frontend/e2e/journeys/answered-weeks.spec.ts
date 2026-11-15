@@ -33,7 +33,7 @@ async function planWeek(page: Page, phone: boolean, picks: readonly string[]) {
 }
 
 /** Answers the block that just ended, which asks on whatever page is showing. */
-async function answer(page: Page, title: string, result: 'Task finished' | 'Not done') {
+async function answer(page: Page, title: string, result: 'Done' | 'Not done') {
   const prompt = page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText(title)).toBeVisible();
   await prompt.getByRole('button', { name: result, exact: true }).click();
@@ -79,7 +79,7 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
     await jumpTo(page, chicago(monday, '18:01'));
     await answer(page, draft, 'Not done');
     await jumpTo(page, chicago(nextDay(monday), '18:01'));
-    await answer(page, notes, 'Task finished');
+    await answer(page, notes, 'Done');
   }
 
   // Analytics for the fifth week, then the stretch so far.

@@ -32,6 +32,9 @@ async function openSchedule(page: Page, phone: boolean, seeded: readonly Seed[] 
   await openSeeded(page, seeded);
   await startPlanningThenUndo(page);
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
+  // Does it fit reads the week on its own, so it can draw after the step has, as a line above it that moves the step down.
+  // Once it's in, a box measured on the step stays put.
+  await expect(page.getByRole('region', { name: 'Does it fit?' })).toBeVisible();
   return errors;
 }
 

@@ -444,7 +444,7 @@ describe("the Mac release's inbox", () => {
     assert.equal(signing[0]!.permissions!['id-token'], 'write');
   });
 
-  it("is reached only by the workflow jobs in that environment: the Mac release's signing and the TestFlight review", () => {
+  it("is reached only by the workflow jobs in that environment: the Mac release's signing, the staging update check and the TestFlight review", () => {
     const dir = join(import.meta.dirname, '../../.github/workflows');
     const oidc = readdirSync(dir).sort().flatMap((file) => {
       const workflow = parse(readFileSync(join(dir, file), 'utf8')) as { permissions?: unknown; jobs: Record<string, { environment?: string; permissions?: Record<string, string> }> };
@@ -452,6 +452,6 @@ describe("the Mac release's inbox", () => {
       assert.ok(!JSON.stringify(workflow.permissions ?? {}).includes('id-token'), file);
       return Object.entries(workflow.jobs).filter(([, job]) => job.permissions?.['id-token'] === 'write').map(([name, job]) => [file, name, job.environment]);
     });
-    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
+    assert.deepEqual(oidc, [['mac-release.yml', 'mac', MAC_RELEASE_ENVIRONMENT], ['mac-update-check.yml', 'check', MAC_RELEASE_ENVIRONMENT], ['testflight-review.yml', 'review', MAC_RELEASE_ENVIRONMENT]]);
   });
 });

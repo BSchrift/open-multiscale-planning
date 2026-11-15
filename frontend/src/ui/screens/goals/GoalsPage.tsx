@@ -14,7 +14,6 @@ import type { Fields, Objective, Practice } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { PracticeAdd, PracticeFields, practiceRule, PracticeSheet, ProjectAdd, usePlanChange } from '../../components/editors';
-import { ChevronIcon, PenIcon } from '../../components/icons';
 import { Pill } from '../../components/Pill';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
@@ -23,6 +22,8 @@ import { BacklogAdd, BacklogBody, backlogFor, backlogSummary } from './BacklogVi
 import type { GoalsData } from './data';
 import { ProjectBody } from './ProjectView';
 import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const NO_GOAL = 'nogoal';
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -32,10 +33,9 @@ type Adding = { kind: 'project' | 'practice'; goal: string | null };
 
 /** A goal's title as a name field, with Save, Cancel (or Esc) and Delete goal. A blank name is never saved. */
 function RenameGoal(props: { goal: Objective; save(title: string): Promise<unknown>; onDone(): void; onDelete(): void }) {
-  const { layout } = useApp();
   const [name, setName] = useState(props.goal.title);
   const [error, setError] = useState('');
-  const btn = layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const title = name.trim();
@@ -55,15 +55,15 @@ function RenameGoal(props: { goal: Objective; save(title: string): Promise<unkno
             setError('');
           }}
         />
-        <button className={`${btn} pri`} type="submit">
+        <Button {...btn} variant="primary" type="submit">
           Save
-        </button>
-        <button className={btn} type="button" onClick={props.onDone}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onDone}>
           Cancel
-        </button>
-        <button className={btn} type="button" onClick={props.onDelete}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onDelete}>
           Delete goal
-        </button>
+        </Button>
       </div>
       {error && (
         <div className="fielderr" role="alert">
@@ -86,7 +86,7 @@ function DeleteGoal(props: { goal: Objective; onClose(): void; onDeleted(): void
   const projects = data?.projects ?? [];
   const practices = data?.practices ?? [];
   const total = (key: 'milestones' | 'tasks') => projects.reduce((sum, p) => sum + p[key].length, 0);
-  const btn = layout === 'phone' ? 'btn grow' : 'btn';
+  const btn = { className: layout === 'phone' ? 'grow' : undefined };
 
   const confirm = async () => {
     const reverse = await remove.run();
@@ -123,12 +123,12 @@ function DeleteGoal(props: { goal: Objective; onClose(): void; onDeleted(): void
           ))}
       </div>
       <div className="row">
-        <button className={`${btn} pri`} type="button" disabled={!data || remove.pending} onClick={confirm}>
+        <Button {...btn} variant="primary" type="button" disabled={!data || remove.pending} onClick={confirm}>
           Yes, delete
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Sheet>
   );
@@ -237,7 +237,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               </span>
               <span className="small quiet lineblock">{time}</span>
             </span>
-            <span className="chev" aria-hidden="true"><ChevronIcon /></span>
+            <Icon name="chevron-right" className="chev" />
           </button>
         </div>
       );
@@ -255,7 +255,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
             onClick={() => (open[key] && leave.current ? leave.current() : toggle(key))}
           >
             <span className="qcaret" aria-hidden="true">
-              {open[key] ? '▾' : '▸'}
+              <Icon name={open[key] ? 'chevron-down' : 'chevron-right'} size={16} />
             </span>
             <span className="grow">
               <span className="strong">{p.title}</span> {paused}
@@ -286,7 +286,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               <span className="small quiet">{shortWord(st)}</span>
             </span>
           </span>
-          <span className="chev" aria-hidden="true"><ChevronIcon /></span>
+          <Icon name="chevron-right" className="chev" />
         </button>
       );
     }
@@ -297,7 +297,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
         <div className="prowhead">
           <button ref={headRef(key)} className="pmain" type="button" aria-expanded={!!open[key]} onClick={() => toggle(key)}>
             <span className="qcaret" aria-hidden="true">
-              {open[key] ? '▾' : '▸'}
+              <Icon name={open[key] ? 'chevron-down' : 'chevron-right'} size={16} />
             </span>
             <span className="row grow">
               <span className="strong">{project.title}</span>
@@ -328,18 +328,18 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
     <div className="row">
       {/* On desktop Add task lives inside the backlog; on phone the backlog is a page away, so the card keeps + Task. */}
       {phone && backlogGoal && (
-        <button className="btn plain" type="button" aria-label={`Add task to ${backlogFor(backlogGoal)}`} onClick={() => setAddingTo(backlogGoal)}>
+        <Button variant="quiet" type="button" aria-label={`Add task to ${backlogFor(backlogGoal)}`} onClick={() => setAddingTo(backlogGoal)}>
           + Task
-        </button>
+        </Button>
       )}
       {withProject && (
-        <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => setAdding({ kind: 'project', goal })}>
+        <Button variant={phone ? 'quiet' : 'secondary'} size="compact" type="button" onClick={() => setAdding({ kind: 'project', goal })}>
           {phone ? '+ Project' : 'Add project'}
-        </button>
+        </Button>
       )}
-      <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={() => setAdding({ kind: 'practice', goal })}>
+      <Button variant={phone ? 'quiet' : 'secondary'} size="compact" type="button" onClick={() => setAdding({ kind: 'practice', goal })}>
         {phone ? '+ Practice' : 'Add practice'}
-      </button>
+      </Button>
     </div>
   );
 
@@ -364,9 +364,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
             <span className="lineblock">Backlog</span>
             <span className="small quiet lineblock">{summary}</span>
           </span>
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+          <Icon name="chevron-right" className="chev" />
         </button>
       );
     }
@@ -375,7 +373,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
         <div className="prowhead">
           <button ref={headRef(key)} className="pmain" type="button" aria-expanded={!!open[key]} aria-label={`Backlog, ${summary}`} onClick={() => toggle(key)}>
             <span className="qcaret" aria-hidden="true">
-              {open[key] ? '▾' : '▸'}
+              <Icon name={open[key] ? 'chevron-down' : 'chevron-right'} size={16} />
             </span>
             <span className="kring" aria-hidden="true" />
             <span className="row grow">
@@ -438,7 +436,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
             <>
               <button ref={headRef(goal.id)} className={phone ? 'goalbtn' : 'pmain'} type="button" aria-expanded={isOpen} onClick={() => toggle(goal.id)}>
                 <span className={phone ? 'quiet' : 'qcaret'} aria-hidden="true">
-                  {isOpen ? '▾' : '▸'}
+                  <Icon name={isOpen ? 'chevron-down' : 'chevron-right'} size={16} />
                 </span>
                 <span className="grow">
                   <span className="strong">{goal.title}</span>
@@ -456,7 +454,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
               </button>
               {isOpen && (
                 <button ref={headRef(pen)} className={phone ? 'icbtn penbtn' : 'icon penbtn'} type="button" aria-label={`Rename ${goal.title}`} onClick={() => setRenaming(goal.id)}>
-                  <PenIcon />
+                  <Icon name="pen" />
                 </button>
               )}
             </>
@@ -470,16 +468,16 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
             {asks && (
               <div className="row">
                 <span className="small quiet">Still a goal?</span>
-                <button
-                  className={phone ? 'btn plain' : 'btn sm'}
+                <Button
+                  variant={phone ? 'quiet' : 'secondary'} size="compact"
                   type="button"
                   onClick={change(goal, { state: 'not_now', not_now_until: nextStretch(ctx.settings, on).start }, `${goal.title}: not now.`, () => heads.current.get(goal.id))}
                 >
                   Yes, not now
-                </button>
-                <button className={phone ? 'btn plain' : 'btn sm'} type="button" onClick={change(goal, { state: 'archived' }, `Archived ${goal.title}.`, () => archivedRef.current)}>
+                </Button>
+                <Button variant={phone ? 'quiet' : 'secondary'} size="compact" type="button" onClick={change(goal, { state: 'archived' }, `Archived ${goal.title}.`, () => archivedRef.current)}>
                   No, archive it
-                </button>
+                </Button>
               </div>
             )}
             {addForms(goal.id, goal.title)}
@@ -504,7 +502,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
         <div>
           <button className="seclabel" type="button" aria-expanded={isOpen} onClick={() => toggle(NO_GOAL)}>
             <span aria-hidden="true">
-              {isOpen ? '▾' : '▸'}
+              <Icon name={isOpen ? 'chevron-down' : 'chevron-right'} size={16} />
             </span>
             <span className="grow">
               <span className="strong">{title}</span>
@@ -535,7 +533,7 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
       {phone && stretchPlanning.at && (
         <button className="attn due" type="button" onClick={() => nav.openFlow('plan')}>
           <span>{stretchPlanning.at}</span>
-          <span aria-hidden="true">›</span>
+          <Icon name="chevron-right" size={16} />
         </button>
       )}
       {!phone && (
@@ -544,9 +542,9 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
             New goal
           </label>
           <input id="newgoal" className="field grow" value={newGoal} onChange={(event) => setNewGoal(event.target.value)} />
-          <button className="btn" type="submit">
+          <Button type="submit">
             Add
-          </button>
+          </Button>
         </form>
       )}
       <div className="stack">
@@ -556,21 +554,21 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
       {phone && (
         <>
           <div className="row">
-            <button className="btn plain" type="button" aria-expanded={newGoalOpen} onClick={() => setNewGoalOpen(!newGoalOpen)}>
+            <Button variant="quiet" type="button" aria-expanded={newGoalOpen} onClick={() => setNewGoalOpen(!newGoalOpen)}>
               + New goal
-            </button>
+            </Button>
             {!loosePractices.length && !looseProjects.length && (
-              <button className="btn plain" type="button" onClick={() => setAdding({ kind: 'practice', goal: null })}>
+              <Button variant="quiet" type="button" onClick={() => setAdding({ kind: 'practice', goal: null })}>
                 + Practice
-              </button>
+              </Button>
             )}
           </div>
           {newGoalOpen && (
             <form className="row nowrap" onSubmit={submitGoal}>
               <input className="field grow" aria-label="New goal" autoFocus value={newGoal} onChange={(event) => setNewGoal(event.target.value)} />
-              <button className="btn" type="submit">
+              <Button type="submit">
                 Add
-              </button>
+              </Button>
             </form>
           )}
           {!loosePractices.length && !looseProjects.length && addForms(null)}
@@ -592,8 +590,8 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
                 <div key={g.id} className="between archrow">
                   <span>{g.title}</span>
                   <span className="row">
-                    <button
-                      className="btn sm"
+                    <Button
+                      size="compact"
                       type="button"
                       aria-label={`Restore ${g.title}`}
                       onClick={async () => {
@@ -602,10 +600,10 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
                       }}
                     >
                       Restore
-                    </button>
-                    <button className="btn sm" type="button" aria-label={`Delete ${g.title}`} onClick={() => setDeleting(g)}>
+                    </Button>
+                    <Button size="compact" type="button" aria-label={`Delete ${g.title}`} onClick={() => setDeleting(g)}>
                       Delete
-                    </button>
+                    </Button>
                   </span>
                 </div>
               ))}
@@ -615,14 +613,14 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
                     <span>{plan.project.title}</span>
                     <Pill tone="grey">{plan.project.state === 'finished' ? 'Finished' : 'Dropped'}</Pill>
                   </span>
-                  <button
-                    className="btn sm"
+                  <Button
+                    size="compact"
                     type="button"
                     aria-label={`Restore ${plan.project.title}`}
                     onClick={() => apply(() => restoreProject(plan), { message: `${plan.project.title} restored.` })}
                   >
                     Restore
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>

@@ -13,6 +13,7 @@ import { useApp, useMutation, useQuery } from '../../../app/store';
 import { PlanningTimes } from '../../../components/planning/PlanningTimes';
 import { longTime, usePlanningTimes } from '../../../components/planning/usePlanning';
 import { dayName } from '../../../components/weekgrid';
+import { Button } from '../../../components/ds/Button';
 
 export function NextPlanning(props: { week: LocalDate; began: Instant }) {
   const { clock, layout } = useApp();
@@ -49,9 +50,9 @@ export function NextPlanning(props: { week: LocalDate; began: Instant }) {
       {done ? (
         <div className="between">
           <span role="status">Scheduled for {when}.</span>
-          <button ref={undoRef} className={phone ? 'btn' : 'btn sm'} type="button" onClick={() => void back()}>
+          <Button ref={undoRef} size="compact" type="button" onClick={() => void back()}>
             Undo
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -61,12 +62,12 @@ export function NextPlanning(props: { week: LocalDate; began: Instant }) {
             <div className="small quiet">{found?.same ? 'Same time as today' : 'Before the week starts'}</div>
           </div>
           <div className={phone ? 'stack8' : 'row'}>
-            <button className="btn pri" type="button" aria-label={`Schedule planning for ${longTime(slot)}`} disabled={schedule.pending} onClick={() => void place()}>
+            <Button variant="primary" type="button" aria-label={`Schedule planning for ${longTime(slot)}`} disabled={schedule.pending} onClick={() => void place()}>
               Schedule
-            </button>
-            <button className="btn" type="button" aria-label={`Choose a time to plan ${name}`} onClick={() => setChoosing(true)}>
+            </Button>
+            <Button type="button" aria-label={`Choose a time to plan ${name}`} onClick={() => setChoosing(true)}>
               Choose a time
-            </button>
+            </Button>
           </div>
         </>
       )}

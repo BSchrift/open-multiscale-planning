@@ -27,6 +27,8 @@ import { ShiftPanel } from './ShiftPanel';
 import { usePrompts } from './usePrompts';
 import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
 import './today.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 interface Alert {
   key: string;
@@ -52,13 +54,13 @@ function Alerts(props: { alerts: readonly Alert[] }) {
         {a.text && <div className="small">{a.text}</div>}
       </div>
       <div className="row">
-        <button className="btn sm" type="button" onClick={a.act}>
+        <Button size="compact" type="button" onClick={a.act}>
           {a.label}
-        </button>
+        </Button>
         {a.skip && (
-          <button className="btn sm" type="button" onClick={a.skip}>
+          <Button size="compact" type="button" onClick={a.skip}>
             Skip for now
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -91,8 +93,8 @@ function AttnRow(props: { alert: Alert }) {
     <div className="row nowrap stretchdue">
       {row}
       <button className="icbtn" type="button" aria-label={`Skip for now: ${alert.title}`} onClick={alert.skip}>
-        ×
-      </button>
+<Icon name="close" />
+</button>
     </div>
   );
 }
@@ -177,9 +179,9 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
             <div className="strong">Scheduling conflict</div>
             <div>{clash}</div>
           </div>
-          <button className="btn" type="button" aria-expanded={panel === 'shift'} onClick={() => setPanel(panel === 'shift' ? null : 'shift')}>
+          <Button type="button" aria-expanded={panel === 'shift'} onClick={() => setPanel(panel === 'shift' ? null : 'shift')}>
             Shift rest of today
-          </button>
+          </Button>
         </div>
       )}
       {phone ? alerts.map((a) => <AttnRow key={a.key} alert={a} />) : <Alerts alerts={alerts} />}

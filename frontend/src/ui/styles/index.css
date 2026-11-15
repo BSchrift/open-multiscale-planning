@@ -2,5 +2,7 @@
 @import './tokens.css';
 @import './shell.css';
 @import './base.css';
+@import '../components/ds/ds.css';
 @import './desktop.css';
 @import './phone.css';
+@import '../components/ds/block.css';

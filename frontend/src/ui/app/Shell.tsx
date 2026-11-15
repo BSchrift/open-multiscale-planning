@@ -6,7 +6,6 @@ import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
 import { HowToUpdate } from '../components/HowToUpdate';
-import { PlusIcon, TabIcon } from '../components/icons';
 import { ToastProvider, useToast } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
@@ -22,6 +21,11 @@ import { preloadScreens, ScreenBoundary } from './screenLoad';
 import { useApp, useQuery } from './store';
 import { useCaptureShortcut } from './captureShortcut';
 import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
+import { Icon } from '../components/ds/Icon';
+import type { IconName } from '../components/ds/Icon';
+import { Button } from '../components/ds/Button';
+
+const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', inbox: 'inbox', goals: 'goals', more: 'more' };
 
 function AreaScreen(props: { area: AreaId; params: RouteParams; presentation: Presentation; close(): void }) {
   const { layout } = useApp();
@@ -67,7 +71,7 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
     >
       {nav.backLabel && visible && isTop && (
         <button className="backbtn" type="button" aria-label={`Back to ${nav.backLabel}`} onClick={nav.back}>
-          <span aria-hidden="true">‹</span> {nav.backLabel}
+          <Icon name="chevron-left" size={16} /> {nav.backLabel}
         </button>
       )}
       <PaneShown.Provider value={visible}>
@@ -111,7 +115,7 @@ function useInboxCount(): number {
   return useQuery((sql) => inboxCount(sql), []).data ?? 0;
 }
 
-type Input ={ type: string; timeStamp: number; detail?: number };
+type Input = { type: string; timeStamp: number; detail?: number };
 
 /** Starts the screen's nav KPI from the tap or click, as docs/performance.md defines it, then goes there. */
 function selectTab(nav: ReturnType<typeof useNav>, tab: TabId, event: Input) {
@@ -159,19 +163,19 @@ function UpdateNotice(props: { updates: Updater }) {
           <span className="small">{line}</span>
           <div className="row">
             {kind === 'ready' ? (
-              <button className="btn sm pri" type="button" disabled={restarting} onClick={() => {
+              <Button variant="primary" size="compact" type="button" disabled={restarting} onClick={() => {
                 setRestarting(true);
                 void updates.app?.restart();
               }}>
                 {restarting ? 'Restarting…' : 'Restart to update'}
-              </button>
+              </Button>
             ) : (
-              <button className="btn sm pri" type="button" onClick={() => setHowTo(true)}>
+              <Button variant="primary" size="compact" type="button" onClick={() => setHowTo(true)}>
                 How to update
-              </button>
+              </Button>
             )}
-            <button
-              className="btn sm"
+            <Button
+              size="compact"
               type="button"
               aria-label="Later, hide the update notice until Multiscale next opens"
               onClick={(event) => {
@@ -182,7 +186,7 @@ function UpdateNotice(props: { updates: Updater }) {
               }}
             >
               Later
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -238,11 +242,10 @@ function DesktopNav() {
         Multiscale
       </button>
       <div>
-        <button className="capture" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={(e) => openCapture(nav, e)}>
-          <PlusIcon />
+        <Button className="capture" icon="plus" type="button" aria-keyshortcuts="Shift+Meta+Space" onClick={(e) => openCapture(nav, e)}>
           <span>Capture</span>
           <span className="key">{shortcutLabel(shortcut?.accelerator ?? DEFAULT_SHORTCUT)}</span>
-        </button>
+        </Button>
       </div>
       <div className="nav">
         {nav.tabs.map((tab) => {
@@ -280,7 +283,7 @@ function PhoneNav() {
               onClick={(e) => selectTab(nav, tab, e)}
             >
               <span className="ticon" aria-hidden="true">
-                <TabIcon tab={tab} />
+                {TAB_ICON[tab] && <Icon name={TAB_ICON[tab]} size={24} />}
                 {tab === 'inbox' && count > 0 && <span className="tbadge">{count}</span>}
               </span>
               <span>{tabLabel(tab)}</span>
@@ -289,7 +292,7 @@ function PhoneNav() {
         })}
       </nav>
       <button className="fab" type="button" aria-label="Capture a task" onClick={(e) => openCapture(nav, e)}>
-        <PlusIcon />
+        <Icon name="plus" />
       </button>
     </>
   );

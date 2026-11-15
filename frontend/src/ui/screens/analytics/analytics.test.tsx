@@ -194,7 +194,7 @@ describe('analytics on phone', () => {
     expect(within(row).getByText('0 not done')).toBeVisible();
     expect(screen.getByRole('img', { name: 'One offs: 2h delivered of 2h planned' })).toHaveClass('amaint');
     expect(container.querySelector('.hbar, .trow, table')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Previous week' })).toHaveTextContent('‹');
+    expect(screen.getByRole('button', { name: 'Previous week' }).querySelector('svg.ico')).not.toBeNull();
     expect(screen.getByText('Each bar is one week, on the same scale. The selected week is darker, with its date in bold.')).toBeVisible();
   });
 

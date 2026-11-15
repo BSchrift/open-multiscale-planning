@@ -1700,6 +1700,19 @@ describe('To schedule on Today', () => {
     expect(within(await screen.findByRole('region', { name: 'To schedule' })).getByRole('button', { name: 'Climbing, Practice, 1 more this week, 1h each, to schedule' })).toBeVisible();
   });
 
+  it.each(['desktop', 'phone'] as const)("on %s, a practice's suggested times have no numbers, and Choose a time opens Week to place its session by hand", async (layout) => {
+    const run = (w: Writer) => w.create('practice', { title: 'Morning run', target_min: 30, per: 'day', days: [1, 4], preferred_times: [7 * 60 + 30], state: 'active' }, 'run');
+    // Tuesday at 6am, before its 7:30 run.
+    const t = await open(run, { layout, now: '2026-11-03T12:00:00Z' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Morning run, Practice, 30 minutes on Tuesday around 7:30 AM, to schedule' }));
+    const panel = layout === 'phone' ? screen.getByRole('dialog', { name: 'Morning run' }) : screen.getByRole('group', { name: 'Morning run' });
+    const times = within(within(panel).getByRole('group', { name: 'Suggested times for Morning run' })).getAllByRole('button');
+    expect(times[0]).toHaveTextContent(/^Tue 7:30am to 8am$/);
+    for (const time of times) expect(time).toHaveTextContent(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d/);
+    await userEvent.click(within(panel).getByRole('button', { name: 'Choose a time' }));
+    expect(t.nav().route).toMatchObject({ area: 'week', params: { place: 'run:2026-11-03' } });
+  });
+
   it('a card dragged onto the day is placed where it is let go', async () => {
     const t = await open(picks);
     const card = await screen.findByRole('button', { name: /^Call the bank, One off/ });

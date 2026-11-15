@@ -91,10 +91,12 @@ export function PhoneWeek(props: WeekProps) {
     setAt(first);
     setSelDay(first.date);
   };
+  /** Choose a time on a card: its block waits at its first suggested time, ready to drag. */
+  const chooseTime = (item: LaneItem) => startPlacing({ mode: 'place', item, length: item.length, fromDrawer: false }, item.offers[0] ? { ...item.offers[0] } : null);
 
-  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag. Choose another
-  // time for planning: its block waits at the time it was given or carried to, on today if that day has gone, and
-  // focus goes to it.
+  // Find a time or Place on calendar from Today: the task's block waits at its best time, ready to drag; Choose a time
+  // on a card with no task row, such as a practice's session, places that card. Choose another time for planning: its
+  // block waits at the time it was given or carried to, on today if that day has gone, and focus goes to it.
   const focusBlock = useRef(false);
   useEffect(() => {
     if (!props.place) return;
@@ -108,7 +110,9 @@ export function PhoneWeek(props: WeekProps) {
       return;
     }
     const row = model.addGroups.flatMap((g) => g.rows).find((r) => r.task.id === props.place);
+    const waiting = model.unscheduled.find((x) => x.id === props.place);
     if (row) startPlacing({ mode: 'place', item: rowItem(row), length: Math.min(row.left, FIRST_BLOCK_MIN), fromDrawer: false }, null);
+    else if (waiting) chooseTime(waiting);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.place]);
   const root = useRef<HTMLDivElement>(null);
@@ -496,7 +500,7 @@ export function PhoneWeek(props: WeekProps) {
               setSelDay(slot.date);
               void act.place(item, slot);
             }}
-            onChoose={() => startPlacing({ mode: 'place', item, length: item.length, fromDrawer: false }, item.offers[0] ? { ...item.offers[0] } : null)}
+            onChoose={() => chooseTime(item)}
             onSkipDay={() => {
               setOpen(null);
               void act.skipDay(item, data.week);

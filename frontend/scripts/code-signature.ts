@@ -120,6 +120,74 @@ export function machOSignatures(file: Buffer): { slice: Buffer; signature: Signa
   throw new Error('The Mach-O binary is not signed');
 }
 
+/** Electron's fuse wire follows this, as @electron/fuses finds it: the wire's version, its length, then a byte per fuse. */
+export const FUSE_SENTINEL = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX');
+
+/** Each fuse wire in a binary: where its fuse bytes start, the wire's version, and the fuses, '0', '1' or 'r' each. */
+export function fuseWires(file: Buffer): { at: number; version: number; fuses: Buffer }[] {
+  const wires = [];
+  for (let at = file.indexOf(FUSE_SENTINEL); at >= 0; at = file.indexOf(FUSE_SENTINEL, at + 1)) {
+    const version = file[at + FUSE_SENTINEL.length]!;
+    const start = at + FUSE_SENTINEL.length + 2;
+    wires.push({ at: start, version, fuses: file.subarray(start, start + file[at + FUSE_SENTINEL.length + 1]!) });
+  }
+  return wires;
+}
+
+const LC_SEGMENT_64 = 0x19;
+const LC_CODE_SIGNATURE = 0x1d;
+const roundUp = (n: bigint, page: bigint) => ((n + page - 1n) / page) * page;
+
+/**
+ * A thin 64-bit Mach-O binary as it was before codesign signed it, so one signed again compares byte for byte with the
+ * one it came from. Signing appends the signature, points LC_CODE_SIGNATURE at it, and grows __LINKEDIT to hold it,
+ * adding the load command first if the binary had none. So this cuts the file at the signature, removes that load
+ * command, and sets __LINKEDIT's sizes back to what the file then holds, after checking that they're only what signing
+ * makes them: nothing after the signature, and no more mapped than the signature needs. The fuse bytes are zeroed too,
+ * for checking on their own (fuseWires). Throws for anything else.
+ */
+export function unsignedCode(file: Buffer): Buffer {
+  if (file.length < 32 || file.readUInt32LE(0) !== 0xfeedfacf) throw new Error(file.length >= 4 && file.readUInt32BE(0) === 0xcafebabe ? 'is a universal binary, which this check does not compare' : 'is not a 64-bit Mach-O binary');
+  const code = Buffer.from(file);
+  const commands = code.readUInt32LE(16);
+  let linkedit: number | undefined;
+  let signature: { offset: number; size: number; dataOffset: number; dataSize: number } | undefined;
+  let offset = 32;
+  for (let i = 0; i < commands; i++) {
+    if (offset + 8 > 32 + code.readUInt32LE(20) || offset + 8 > code.length) throw new Error('has load commands that run past their end');
+    const command = code.readUInt32LE(offset);
+    const size = code.readUInt32LE(offset + 4);
+    if (command === LC_SEGMENT_64 && code.toString('latin1', offset + 8, offset + 24).replace(/\0+$/, '') === '__LINKEDIT') linkedit = offset;
+    if (command === LC_CODE_SIGNATURE) {
+      if (signature) throw new Error('has two code signatures');
+      signature = { offset, size, dataOffset: code.readUInt32LE(offset + 8), dataSize: code.readUInt32LE(offset + 12) };
+    }
+    if (size < 8) throw new Error('has a load command too small to hold itself');
+    offset += size;
+  }
+  let end = code.length;
+  if (signature) {
+    if (signature.dataOffset + signature.dataSize !== code.length) throw new Error('holds more than its code signature after its code');
+    end = signature.dataOffset;
+    code.fill(0, signature.offset, signature.offset + signature.size);
+    code.writeUInt32LE(commands - 1, 16);
+    code.writeUInt32LE(code.readUInt32LE(20) - signature.size, 20);
+  }
+  if (linkedit !== undefined) {
+    const fileOffset = code.readBigUInt64LE(linkedit + 40);
+    const fileSize = BigInt(code.length) - fileOffset;
+    if (code.readBigUInt64LE(linkedit + 48) !== fileSize) throw new Error("maps more of the file into __LINKEDIT than it holds");
+    const vmSize = code.readBigUInt64LE(linkedit + 32);
+    if (vmSize !== roundUp(fileSize, 0x1000n) && vmSize !== roundUp(fileSize, 0x4000n)) throw new Error('maps more memory for __LINKEDIT than its file size needs');
+    // As if never signed: the file size of what's left before the signature. The memory size is left out, since it was
+    // rounded to whichever page size the linker or codesign used, and was just checked to be no more than that.
+    code.writeBigUInt64LE(0n, linkedit + 32);
+    code.writeBigUInt64LE(BigInt(end) - fileOffset, linkedit + 48);
+  }
+  for (const wire of fuseWires(code)) code.fill(0, wire.at, wire.at + wire.fuses.length);
+  return code.subarray(0, end);
+}
+
 /** A disk image's signature, which its UDIF trailer points to, and the trailer as the code directory hashes it. */
 export function dmgSignature(file: Buffer): { signature: Signature; trailer: Buffer } {
   const trailer = Buffer.from(file.subarray(file.length - 512));

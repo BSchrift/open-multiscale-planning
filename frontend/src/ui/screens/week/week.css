@@ -16,6 +16,9 @@
 /* The current time crosses the day's row that holds it, from beside its time. */
 [data-layout='phone'] .wkdaycard .tlrow { position: relative; }
 [data-layout='phone'] .wkdaycard .tlrow > .nowline { grid-column: 2; }
+/* A block in a row fills it and sits in the flow, under anything positioned, so the line would cross it: there only
+   the dot shows, as if the line ran behind the block. */
+[data-layout='phone'] .wkdaycard .tlrow:has(.tlblock) > .nowline { background: none; }
 /* Blocks at the same time share their row, side by side, with +N more under them when they don't all fit. */
 [data-layout='phone'] .tlcols { position: relative; }
 /* In a column, a name wraps from the top of its block, rather than being cut to a few letters. */

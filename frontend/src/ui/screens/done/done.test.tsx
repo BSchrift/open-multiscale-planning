@@ -128,11 +128,11 @@ describe('Done', () => {
     expect(rows('Time worked')).toEqual(['11amOutline chapter 3Project, 11am to 12pm1h30m left']);
   });
 
-  it('Mark how it went asks the end-of-block question, and Finished moves the block into the list, with Undo', async () => {
+  it('Mark how it went asks the end-of-block question, and Done moves the block into the list, with Undo', async () => {
     const t = await open();
     await userEvent.click(await screen.findByRole('button', { name: 'Mark how Fix the login redirect went' }));
     const dialog = await screen.findByRole('dialog', { name: '1 missed block' });
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Finished: Fix the login redirect' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Done: Fix the login redirect' }));
     expect(await screen.findByText('Fix the login redirect: finished.')).toBeVisible();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(rows('Finished')).toContain('4:30pmFix the login redirectWebsite refresh3:30pm to 4:30pm · 1h');

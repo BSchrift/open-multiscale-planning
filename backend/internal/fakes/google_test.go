@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -266,6 +268,157 @@ func TestGoogleFailureModes(t *testing.T) {
 	if _, err := serviceFor(t, srv, token.RefreshToken).CalendarList.List().Do(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// dropped says whether a call failed the way a lost connection fails: with no answer from Google at all.
+func dropped(err error) bool {
+	var urlErr *url.Error
+	var retrieve *oauth2.RetrieveError
+	return errors.As(err, &urlErr) && googleCode(err) == 0 && !errors.As(err, &retrieve)
+}
+
+func TestGoogleOutage(t *testing.T) {
+	g, srv, svc := newGoogle(t)
+	ctx := context.Background()
+	cal, err := svc.Calendars.Insert(&calendar.Calendar{Summary: "Time blocks"}).Do()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 2, 15, 0, 0, 0, time.UTC)
+	ids := 0
+	// Inserts, since Go's transport sends a read again by itself when a reused connection drops, which would count twice.
+	insert := func() (string, error) {
+		ids++
+		id := fmt.Sprintf("event%05d", ids)
+		_, err := svc.Events.Insert(cal.Id, event(id, "Paint the fence", at, at.Add(time.Hour))).Do()
+		return id, err
+	}
+	inGoogle := func() []string {
+		var got []string
+		for _, e := range g.Events(cal.Id) {
+			got = append(got, e.Id)
+		}
+		return got
+	}
+
+	t.Run("after some calls, for some calls", func(t *testing.T) {
+		g.Outage(GoogleOutage{After: 1, Calls: 2})
+		first, err := insert()
+		if err != nil {
+			t.Fatalf("the call before the outage: %v", err)
+		}
+		for range 2 {
+			if _, err := insert(); !dropped(err) {
+				t.Fatalf("not dropped: %v", err)
+			}
+		}
+		last, err := insert()
+		if err != nil {
+			t.Fatalf("the call after the outage: %v", err)
+		}
+		if got := inGoogle(); !slices.Equal(got, []string{first, last}) {
+			t.Fatalf("dropped calls reached Google: %v", got)
+		}
+	})
+
+	t.Run("applied", func(t *testing.T) {
+		g.Outage(GoogleOutage{Calls: 1, Applied: true})
+		id, err := insert()
+		if !dropped(err) {
+			t.Fatalf("not dropped: %v", err)
+		}
+		if !slices.Contains(inGoogle(), id) {
+			t.Fatal("an applied drop didn't make the event")
+		}
+		_, err = svc.Events.Insert(cal.Id, event(id, "Paint the fence", at, at.Add(time.Hour))).Do()
+		if googleCode(err) != http.StatusConflict {
+			t.Fatalf("inserting again: %v", err)
+		}
+	})
+
+	t.Run("answered with a status", func(t *testing.T) {
+		g.Outage(GoogleOutage{Calls: 1, Status: http.StatusServiceUnavailable})
+		if _, err := svc.CalendarList.List().Do(); googleCode(err) != http.StatusServiceUnavailable {
+			t.Fatalf("%v", err)
+		}
+		if _, err := svc.CalendarList.List().Do(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("until lifted", func(t *testing.T) {
+		g.Outage(GoogleOutage{Calls: -1})
+		for range 3 {
+			if _, err := insert(); !dropped(err) {
+				t.Fatalf("not dropped: %v", err)
+			}
+		}
+		// A read is sent again on a fresh connection, which drops too.
+		if _, err := svc.CalendarList.List().Do(); !dropped(err) {
+			t.Fatalf("not dropped: %v", err)
+		}
+		g.Outage(GoogleOutage{})
+		if _, err := insert(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("token endpoints", func(t *testing.T) {
+		code, _ := consent(t, srv, "s")
+		token, err := googleConfig(srv).Exchange(ctx, code)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.Outage(GoogleOutage{Token: true, Calls: -1})
+		// A client that already has an access token doesn't need the token endpoint.
+		if _, err := svc.CalendarList.List().Do(); err != nil {
+			t.Fatalf("the Calendar API dropped too: %v", err)
+		}
+		// One that has to refresh can't reach Google, which isn't Google refusing the token.
+		if _, err := serviceFor(t, srv, token.RefreshToken).CalendarList.List().Do(); !dropped(err) {
+			t.Fatalf("refresh not dropped: %v", err)
+		}
+		if _, err := http.PostForm(srv.URL+"/revoke", url.Values{"token": {token.RefreshToken}}); err == nil {
+			t.Fatal("revoke not dropped")
+		}
+
+		// Until lifted, since a new oauth2.Config sends a refresh that fails a second time, with the client in the body.
+		g.Outage(GoogleOutage{Token: true, Calls: -1, Status: http.StatusBadGateway})
+		_, err = serviceFor(t, srv, token.RefreshToken).CalendarList.List().Do()
+		var retrieve *oauth2.RetrieveError
+		if !errors.As(err, &retrieve) || retrieve.Response.StatusCode != http.StatusBadGateway || retrieve.ErrorCode != "" {
+			t.Fatalf("refresh not answered 502: %v", err)
+		}
+		g.Outage(GoogleOutage{Token: true})
+		if _, err := serviceFor(t, srv, token.RefreshToken).CalendarList.List().Do(); err != nil {
+			t.Fatalf("after the outage: %v", err)
+		}
+	})
+
+	t.Run("over HTTP", func(t *testing.T) {
+		res, err := http.Post(srv.URL+"/_test/outage", "application/json", strings.NewReader(`{"calls":-1,"status":502}`))
+		if err != nil || res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%v %v", res, err)
+		}
+		res.Body.Close()
+		if _, err := svc.CalendarList.List().Do(); googleCode(err) != http.StatusBadGateway {
+			t.Fatalf("%v", err)
+		}
+		// The test controls are never part of an outage.
+		res, err = http.Get(srv.URL + "/_test/calendars")
+		if err != nil || res.StatusCode != http.StatusOK {
+			t.Fatalf("%v %v", res, err)
+		}
+		res.Body.Close()
+		res, err = http.Post(srv.URL+"/_test/outage", "application/json", strings.NewReader(`{}`))
+		if err != nil || res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%v %v", res, err)
+		}
+		res.Body.Close()
+		if _, err := svc.CalendarList.List().Do(); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestGoogleEditsAndHTTPControls(t *testing.T) {

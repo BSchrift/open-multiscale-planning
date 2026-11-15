@@ -282,7 +282,7 @@ describe('Finished tasks', () => {
 describe('One offs on phone', () => {
   it('adds through a sheet and ticks like the desktop', async () => {
     await renderScreen('oneoffs', { layout: 'phone', seed: seedList });
-    expect(await screen.findByText('Not part of a project.')).toBeVisible();
+    expect(await screen.findByText('Not part of a project or goal.')).toBeVisible();
     expect(screen.queryByRole('form', { name: 'Add a one off' })).toBeNull();
     const add = screen.getByRole('button', { name: 'Add one off' });
     await userEvent.click(add);

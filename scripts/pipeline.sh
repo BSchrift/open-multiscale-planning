@@ -11,7 +11,7 @@
 #                                    ALARMS=off
 #   stop     make pipeline-stop      stops the run waiting in its window before prod, so it never reaches prod
 #   release-surface  make release-surface  ENV=staging|prod, signed in with that environment's profile: lists what each
-#                                    surface serves and the versions kept, or with SURFACE=web|desktop|iphone|shared and
+#                                    surface serves and the versions kept, or with SURFACE=web|desktop|iphone and
 #                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
@@ -101,19 +101,18 @@ differs() {
   node -e 'const [a, b, app] = process.argv.slice(1); const of = (s) => { try { return JSON.parse(s)[app]; } catch { return undefined; } }; process.exit(of(a) !== undefined && of(a) === of(b) ? 1 : 0);' "$1" "$2" "$3"
 }
 
-# Where each feed is in the release bucket, on the release host: the desktop and iphone feeds the apps read, and the
-# shared one that bundles from before them read (frontend/src/core/updates.ts).
-feed_key() { case "$1" in shared) echo release/release.json ;; *) echo "release/$1/release.json" ;; esac; }
+# Where each app's feed is in the release bucket, on the release host: desktop or iphone (frontend/src/core/updates.ts).
+feed_key() { echo "release/$1/release.json"; }
+# The feed bundles from before the apps' own feeds read, at the release host's root. Releases delete it: no bundle that
+# reads it is left to take an update from it.
+shared_feed=release/release.json
 
-# The shell of what a feed serves now, signed in as the environment's release role: desktop, iphone or shared. Until a
-# surface's own feed exists, the shared one's, which is what installed apps took.
+# The shell of what an app's feed serves now, signed in as the environment's release role: desktop or iphone.
 live_shell() {
-  local env_name="$1" feed="${2:-shared}" account region profile bucket shell
+  local env_name="$1" feed="$2" account region profile bucket
   read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
   bucket="$(release_bucket "$env_name")"
-  shell="$(AWS_PROFILE="$profile" aws s3 cp "s3://$bucket/$(feed_key "$feed")" - 2>/dev/null | shell_of || true)"
-  if [ "$shell" = none ] && [ "$feed" != shared ]; then shell="$(live_shell "$env_name")"; fi
-  echo "$shell"
+  AWS_PROFILE="$profile" aws s3 cp "s3://$bucket/$(feed_key "$feed")" - 2>/dev/null | shell_of || true
 }
 
 # Whether an environment's downloads host serves a Mac app the MacApp step checked, as publish records it. A Mac app
@@ -168,11 +167,25 @@ upload() {
   aws s3 cp "$signed/release.json" "s3://$bucket/versions/$version/release.json" --cache-control 'public, max-age=60' --content-type application/json >&2
 }
 
-# Points one surface at a version already uploaded: web, or the desktop, iphone or shared feed. A few small copies inside
+# The Mac app a kept version's signed manifest names, as one line of JSON, when the downloads host has its folder:
+# published, with latest-mac.yml, which goes in last. Otherwise nothing. Signed in: AWS_PROFILE.
+app_of() {
+  local bucket="$1" version="$2" app folder
+  app="$(aws s3 cp "s3://$bucket/versions/$version/release.json" - 2>/dev/null |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { const a = JSON.parse(JSON.parse(s).manifest).app; if (a && /^mac\/[\d.]+\/$/.test(a.folder)) console.log(JSON.stringify(a)); } catch {} });' || true)"
+  [ -n "$app" ] || return 0
+  folder="$(node -e 'console.log(JSON.parse(process.argv[1]).folder)' "$app")"
+  aws s3api head-object --bucket "$bucket" --key "downloads/${folder}latest-mac.yml" >/dev/null 2>&1 && echo "$app"
+  return 0
+}
+
+# Points one surface at a version already uploaded: web, or the desktop or iphone feed. A few small copies inside
 # the bucket, which keep the headers the upload set. Web's version.json goes last, so it names the version web serves
-# only once the page is there. Each switch adds a line to state/history.json. Signed in to the environment: AWS_PROFILE.
+# only once the page is there. A desktop version that names a Mac app first points the disk image for first installs at
+# that app, and the live app's record, mac/manifest.json, at its record. Each switch adds a line to state/history.json.
+# Signed in to the environment: AWS_PROFILE.
 switch() {
-  local env_name="$1" surface="$2" version="$3" bucket info history
+  local env_name="$1" surface="$2" version="$3" bucket info history app
   bucket="$(release_bucket "$env_name")"
   info="$(aws s3 cp "s3://$bucket/versions/$version/web/version.json" - 2>/dev/null)" || { echo "$env_name has no version $version uploaded." >&2; return 1; }
   case "$surface" in
@@ -180,8 +193,17 @@ switch() {
       aws s3 cp "s3://$bucket/versions/$version/web/" "s3://$bucket/web/" --recursive --exclude version.json >&2
       aws s3 cp "s3://$bucket/versions/$version/web/version.json" "s3://$bucket/web/version.json" >&2
       ;;
-    desktop | iphone | shared) aws s3 cp "s3://$bucket/versions/$version/release.json" "s3://$bucket/$(feed_key "$surface")" >&2 ;;
-    *) echo "There's no surface $surface: web, desktop, iphone or shared." >&2; return 1 ;;
+    desktop | iphone)
+      app=""
+      [ "$surface" != desktop ] || app="$(app_of "$bucket" "$version")"
+      if [ -n "$app" ]; then
+        aws s3 cp "s3://$bucket/downloads/$(node -e 'console.log(JSON.parse(process.argv[1]).folder)' "$app")$DMG_NAME" "s3://$bucket/downloads/$DMG_NAME" \
+          --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage --metadata-directive REPLACE >&2
+        node -e 'console.log(JSON.stringify({ record: JSON.parse(process.argv[1]) }))' "$app" | aws s3 cp - "s3://$bucket/mac/manifest.json" --content-type application/json >&2
+      fi
+      aws s3 cp "s3://$bucket/versions/$version/release.json" "s3://$bucket/$(feed_key "$surface")" >&2
+      ;;
+    *) echo "There's no surface $surface: web, desktop or iphone." >&2; return 1 ;;
   esac
   # Each surface's versions in the order it got them, for going back one.
   history="$(aws s3 cp "s3://$bucket/state/history.json" - 2>/dev/null || echo '{}')"
@@ -207,13 +229,15 @@ served_before() {
 }
 
 # Whether a feed's apps couldn't take a version, given its version.json: one built for other native code than the feed
-# serves now. Says why.
+# serves now. Says why. The desktop feed may cross native code to a version whose manifest names a Mac app the
+# downloads host has: Macs then update to that app, forward or back.
 refuses() {
   local env_name="$1" surface="$2" info="$3" version app apps
-  case "$surface" in desktop) apps=electron ;; iphone) apps=ios ;; shared) apps="electron ios" ;; *) return 1 ;; esac
+  case "$surface" in desktop) apps=electron ;; iphone) apps=ios ;; *) return 1 ;; esac
   version="$(field_of version <<<"$info")"
   for app in $apps; do
     if differs "$(live_shell "$env_name" "$surface")" "$(shell_of <<<"$info")" "$app"; then
+      if [ "$surface" = desktop ] && [ -n "$(app_of "$(release_bucket "$env_name")" "$version")" ]; then continue; fi
       echo "$version was built for other native code than the apps $env_name's $surface feed serves, so they couldn't take it." >&2
       return 0
     fi
@@ -245,14 +269,15 @@ list_surfaces() {
   local env_name="$1" bucket surface
   bucket="$(release_bucket "$env_name")"
   echo "$env_name serves:"
-  for surface in web desktop iphone shared; do printf '  %-8s %s\n' "$surface" "$(serves "$bucket" "$surface")"; done
+  for surface in web desktop iphone; do printf '  %-8s %s\n' "$surface" "$(serves "$bucket" "$surface")"; done
   echo "Each surface's last versions, newest first:"
+  # The history may still have lines for the shared feed, which is gone.
   aws s3 cp "s3://$bucket/state/history.json" - 2>/dev/null |
-    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { let h = {}; try { h = JSON.parse(s); } catch {} for (const [surface, lines] of Object.entries(h)) console.log(`  ${surface.padEnd(8)} ${lines.slice(-3).reverse().map((l) => `${l.version} ${l.at}`).join(", ")}`); });' || true
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { let h = {}; try { h = JSON.parse(s); } catch {} for (const surface of ["web", "desktop", "iphone"]) if (h[surface]) console.log(`  ${surface.padEnd(8)} ${h[surface].slice(-3).reverse().map((l) => `${l.version} ${l.at}`).join(", ")}`); });' || true
   echo "Versions kept, newest first:"
   aws s3 ls "s3://$bucket/versions/" --recursive 2>/dev/null |
     node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const kept = s.split("\n").map((l) => /^(\S+ \S+) +\d+ versions\/([^/]+)\/web\/version\.json$/.exec(l)).filter(Boolean); for (const [, at, version] of kept.sort((a, b) => b[1].localeCompare(a[1]))) console.log(`  ${version.padEnd(16)} uploaded ${at}`); });' || true
-  echo "To switch one: make release-surface ENV=$env_name SURFACE=web|desktop|iphone|shared VERSION=<version>"
+  echo "To switch one: make release-surface ENV=$env_name SURFACE=web|desktop|iphone VERSION=<version>"
 }
 
 # Waits up to two minutes for a surface's host to serve a version: a feed caches for a minute at the edge.
@@ -290,26 +315,84 @@ round_trip() {
   [ -z "$failed" ] || { echo "Going back one version and forward again failed for:$failed." >&2; return 1; }
 }
 
+# The disk image and the zip of the same app, as the MacApp step hands them on, and as the downloads host has them.
+DMG_NAME=Multiscale.dmg
+ZIP_NAME=Multiscale.zip
+# Files under downloads/mac/ never change, so they're cached for good.
+IMMUTABLE='public, max-age=31536000, immutable'
+
+# Whether the staging update check has passed the app a record names: staging's app of the same version updated itself
+# to it. Read as the pipeline's own role, which may read the inbox.
+update_checked() {
+  [ -n "${MAC_INBOX_BUCKET:-}" ] || return 1
+  aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "inbox/update-check/$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$1").json" >/dev/null 2>&1
+}
+
+# Whether an app's folder on the downloads host is free for this app: not published yet, or published with this very
+# zip, as when a run is retried. A finished folder has latest-mac.yml, which goes in last. Signed in: AWS_PROFILE.
+app_folder_free() {
+  local bucket="$1" record="$2" folder sha512 live
+  read -r folder sha512 <<<"$(node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(r.folder, r.sha512)' "$record")"
+  live="$(aws s3 cp "s3://$bucket/downloads/${folder}latest-mac.yml" - 2>/dev/null || true)"
+  [ -z "$live" ] && return 0
+  if grep -qx "sha512: $sha512" <<<"$live"; then return 0; fi
+  echo "downloads/$folder already holds another build of app $(basename "$folder"), so nothing is published. Releasing it again needs a new commit." >&2
+  return 1
+}
+
+# Uploads an app's folder on the downloads host, named by its version: the zip, its blockmap and the disk image, then
+# latest-mac.yml, which electron-updater reads first, written from the record of the checked zip rather than taken
+# from GitHub. A finished folder is left as it is (app_folder_free said it's this app). Signed in: AWS_PROFILE.
+app_folder() {
+  local bucket="$1" dir="$2" record="$3" folder name
+  folder="downloads/$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).folder)' "$record")"
+  if aws s3api head-object --bucket "$bucket" --key "${folder}latest-mac.yml" >/dev/null 2>&1; then
+    echo "$folder is published already."
+    return 0
+  fi
+  for name in "$ZIP_NAME" "$ZIP_NAME.blockmap" "$DMG_NAME"; do
+    aws s3 cp "$dir/$name" "s3://$bucket/$folder$name" --cache-control "$IMMUTABLE" >&2 || return 1
+  done
+  node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(`version: ${r.version}\nfiles:\n  - url: ${r.file}\n    sha512: ${r.sha512}\n    size: ${r.size}\npath: ${r.file}\nsha512: ${r.sha512}\nreleaseDate: \x27${new Date().toISOString()}\x27\n`)' "$record" |
+    aws s3 cp - "s3://$bucket/${folder}latest-mac.yml" --cache-control "$IMMUTABLE" --content-type text/yaml >&2 || return 1
+  echo "Published the app's folder, $folder."
+}
+
 # Publishes one environment's build in today's single step, as release.sh does from a Mac: uploads it, then switches
 # every surface that can take it, and sets version and feeds to the version and the feeds it switched. The web app
 # always switches. Each feed compares only its own app's native code with what it serves now: the desktop feed switches
-# when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, the iPhone feed when the
-# iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, and the shared feed only
-# when both do, so no installed app is told it needs an app that isn't out. A run doesn't wait for Beta App Review,
-# which can take a day: the first run after it passes the build switches the iPhone feed. A Mac app the MacApp step
-# checked is published whenever it hands one on, as when the downloads host served none it checked, with the record
-# that it's a checked one.
+# when the Mac app's is unchanged or a Mac app the MacApp step checked is published first, and the iPhone feed when the
+# iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, so no installed app is
+# told it needs an app that isn't out. A run doesn't wait for Beta App Review, which can take a day: the first run after
+# it passes the build switches the iPhone feed. A Mac app the MacApp step checked is published whenever it hands one on,
+# as when the downloads host served none it checked, with the record that it's a checked one. Last, it deletes the
+# shared feed, if the bucket still has it.
 publish() {
-  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" waiting="" feed testflight=""
+  local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" record="" waiting="" feed testflight="" update_waiting=""
   web="$(built)/web/$env_name"
   read -r account region profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
   [ -n "$(release_bucket "$env_name")" ] || { echo "$env_name has no ReleaseBucket to publish to." >&2; exit 1; }
   build="$(shell_of <"$web/version.json")"
   version="$(version_of "$web")"
   feeds=""
-  if [ -n "$mac" ] && [ -f "$mac/$env_name/Multiscale.dmg" ]; then dmg="$mac/$env_name/Multiscale.dmg"; fi
+  if [ -n "$mac" ] && [ -f "$mac/$env_name/$DMG_NAME" ]; then dmg="$mac/$env_name/$DMG_NAME"; fi
+  if [ -n "$dmg" ] && [ -f "$mac/$env_name/$ZIP_NAME" ] && [ -f "$mac/app-record/$env_name.json" ]; then
+    record="$mac/app-record/$env_name.json"
+    AWS_PROFILE="$profile" app_folder_free "$(release_bucket "$env_name")" "$record" || exit 1
+  fi
+  # Prod takes a new Mac app only once staging's app of the same version updated itself to it, on a Mac, as the staging
+  # update check records (.github/workflows/mac-update-check.yml). Until then its desktop feed stays as it is, as the
+  # iPhone feed does for TestFlight. A web-only run doesn't wait.
+  if [ "$env_name" = prod ] && [ -n "$record" ] && ! update_checked "$record"; then
+    echo "The staging update check hasn't passed Mac app $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$record") yet, so prod's desktop feed stays as it is. The first run after it does switches it."
+    dmg=""
+    record=""
+    update_waiting=1
+  fi
   if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
+  elif [ -n "$update_waiting" ]; then
+    waiting="Mac update check"
   elif [ -z "$mac" ]; then
     waiting="Mac"
   elif [ -n "$dmg" ]; then
@@ -325,26 +408,29 @@ publish() {
     testflight="$(testflight_build "$build")"
     if [ -n "$testflight" ]; then feeds="$feeds iphone"; else waiting="${waiting:+$waiting and }iPhone"; fi
   fi
-  [ -n "$waiting" ] || feeds="$feeds shared"
   (
     export AWS_PROFILE="$profile"
     upload "$env_name" "$web" "$signed"
     switch "$env_name" web "$version"
+    # The app's own folder first, which nothing names until a feed's signed manifest does.
+    if [ -n "$record" ]; then app_folder "$(release_bucket "$env_name")" "$(dirname "$dmg")" "$record" || exit 1; fi
     if [ -n "$dmg" ]; then
       # Before the feed, which then links apps that can't take it to this app.
-      aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/Multiscale.dmg" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage || exit 1
+      aws s3 cp "$dmg" "s3://$(release_bucket "$env_name")/downloads/$DMG_NAME" --cache-control 'public, max-age=300' --content-type application/x-apple-diskimage || exit 1
       # Then the record that it's a checked app, which the downloads host doesn't serve.
       aws s3 cp "$(dirname "$dmg")/manifest.json" "s3://$(release_bucket "$env_name")/mac/manifest.json" --content-type application/json || exit 1
       echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
     fi
     for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
+    # Gone once, then a no-op: S3 answers a delete of a missing key as done.
+    aws s3 rm "s3://$(release_bucket "$env_name")/$shared_feed" >&2
   )
   if [ -n "$testflight" ]; then
     echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
   fi
   if [ -n "$waiting" ]; then
-    echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds and the shared one stay as they are."
-    case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
+    echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds stay as they are."
+    case "$waiting" in *"Mac update check"*) ;; *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
     case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
 }
@@ -413,8 +499,12 @@ case "$command" in
   release-surface)
     env_name="${ENV:-staging}"
     case "$env_name" in staging | prod) ;; *) echo "ENV must be staging or prod, not $env_name" >&2; exit 1 ;; esac
-    case "${SURFACE:-}" in "" | web | desktop | iphone | shared) ;; *) echo "SURFACE must be web, desktop, iphone or shared, not $SURFACE" >&2; exit 1 ;; esac
-    [ -z "${VERSION:-}" ] || [ -n "${SURFACE:-}" ] || { echo "Name the SURFACE to switch to $VERSION: web, desktop, iphone or shared." >&2; exit 1; }
+    case "${SURFACE:-}" in
+      "" | web | desktop | iphone) ;;
+      shared) echo "There's no shared feed any more: each app reads its own. SURFACE must be web, desktop or iphone." >&2; exit 1 ;;
+      *) echo "SURFACE must be web, desktop or iphone, not $SURFACE" >&2; exit 1 ;;
+    esac
+    [ -z "${VERSION:-}" ] || [ -n "${SURFACE:-}" ] || { echo "Name the SURFACE to switch to $VERSION: web, desktop or iphone." >&2; exit 1; }
     sign_in "$env_name"
     signed_in="$(aws sts get-caller-identity --query Account --output text)"
     if [ "$signed_in" != "$account" ]; then
@@ -445,7 +535,7 @@ case "$command" in
     version_of "$3"
     ;;
   switch)
-    # scripts/pipeline.sh switch <env> web|desktop|iphone|shared <version>.
+    # scripts/pipeline.sh switch <env> web|desktop|iphone <version>.
     switch "$2" "$3" "$4"
     ;;
 
@@ -493,8 +583,9 @@ case "$command" in
     done
     ;;
   deploy-staging)
-    # Waits out staging's short canary.
-    (cd "$root/infrastructure" && npx cdk deploy --app "$(built)/infrastructure/cdk.out/staging" Multiscale-staging --require-approval never)
+    # Waits out staging's short canary. Assigned first: a failed $(built) inside an argument wouldn't stop the script.
+    assembly="$(built)/infrastructure/cdk.out/staging"
+    (cd "$root/infrastructure" && npx cdk deploy --app "$assembly" Multiscale-staging --require-approval never)
     ;;
   mac)
     # For each environment whose feed needs a newer Mac app than this build's, or whose downloads host serves none the
@@ -515,6 +606,11 @@ case "$command" in
       else
         echo "$env_name's desktop feed can take this build as its Mac app is, so it needs no new one."
         echo "$env_name: no new Mac app needed" >>"$checked/checked.txt"
+        # The live app's record, so the release still names the app that runs it.
+        live="$(mktemp)"
+        read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts "$env_name")"
+        AWS_PROFILE="$profile" aws s3 cp "s3://$(release_bucket "$env_name")/mac/manifest.json" "$live" >/dev/null 2>&1 || true
+        node "$root/frontend/scripts/mac-inbox.ts" live-record "$env_name" "$live" "$checked"
         continue
       fi
       key="inbox/${COMMIT:?}/$env_name"
@@ -538,7 +634,9 @@ case "$command" in
       sevenzip="${sevenzip:-$(seven_zip)}"
       SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$COMMIT" "$inbox" "$(built)/web/$env_name" "$(built)/mac/$env_name/dist-electron"
       mkdir -p "$checked/$env_name"
-      cp "$inbox/Multiscale.dmg" "$inbox/manifest.json" "$checked/$env_name/"
+      cp "$inbox/$DMG_NAME" "$inbox/$ZIP_NAME" "$inbox/$ZIP_NAME.blockmap" "$inbox/manifest.json" "$checked/$env_name/"
+      # The record of the checked app, which signing names in the manifest: its version, folder and zip.
+      node "$root/frontend/scripts/mac-inbox.ts" record "$env_name" "$inbox" "$checked"
       echo "$env_name: checked $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).files["Multiscale.dmg"].sha256)' "$inbox/manifest.json")" >>"$checked/checked.txt"
     done
     ;;
@@ -556,7 +654,8 @@ case "$command" in
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.
-    (cd "$root/infrastructure" && npx cdk publish-assets --unstable=publish-assets --app "$(built)/infrastructure/cdk.out/prod" Multiscale-prod)
+    assembly="$(built)/infrastructure/cdk.out/prod"
+    (cd "$root/infrastructure" && npx cdk publish-assets --unstable=publish-assets --app "$assembly" Multiscale-prod)
     ;;
   test-prod)
     fetch_config
@@ -586,10 +685,9 @@ case "$command" in
   bake-check)
     # After a surface's bake on prod, web or desktop: whether a release alarm is in ALARM. If one is, the surface switches
     # back by itself to what it served before this run switched it, and the step fails, which stops the run before the
-    # next surface and emails. Desktop is its feed and the shared one, each back to its own version before. A surface no
-    # longer on this run's version, switched since by hand, stays. A run with ALARMS=off only reports, since its release
-    # went out with the alarms off.
-    case "${2:-}" in web) surfaces=web ;; desktop) surfaces="desktop shared" ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop" >&2; exit 1 ;; esac
+    # next surface and emails. A surface no longer on this run's version, switched since by hand, stays. A run with
+    # ALARMS=off only reports, since its release went out with the alarms off.
+    case "${2:-}" in web) surfaces=web ;; desktop) surfaces=desktop ;; *) echo "Use: scripts/pipeline.sh bake-check web|desktop" >&2; exit 1 ;; esac
     fetch_config
     profiles
     outputs prod

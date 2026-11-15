@@ -13,8 +13,8 @@ export interface Live {
   surface: string;
 }
 
-// What each surface serves: web's page, each app's feed, and the shared feed bundles from before those read.
-const FEEDS = { desktop: 'desktop/release.json', iphone: 'iphone/release.json', shared: 'release.json' };
+// What each surface serves: web's page and each app's feed.
+const FEEDS = { desktop: 'desktop/release.json', iphone: 'iphone/release.json' };
 
 export async function oldestLive(outputs: { WebUrl?: string; ReleaseUrl?: string }, fetch = globalThis.fetch): Promise<Live> {
   if (!outputs.WebUrl) throw new Error('The outputs have no WebUrl to read the version web serves from.');

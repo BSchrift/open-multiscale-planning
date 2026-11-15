@@ -10,7 +10,7 @@ const MB = 1024 * 1024;
 beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'], now: T0 }));
 afterEach(() => vi.useRealTimers());
 
-async function setup(snapshot?: Partial<DiagnosticsSnapshot>, updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack'>) {
+async function setup(snapshot?: Partial<DiagnosticsSnapshot>, updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>) {
   const exporter = new InMemoryLogRecordExporter();
   let warn: (() => void) | undefined;
   const diagnostics: Diagnostics | undefined = snapshot && {
@@ -109,5 +109,33 @@ describe('startTelemetry', () => {
     ]);
     t.telemetry.stop();
     expect(listeners.size).toBe(0);
+  });
+
+  it("reports a Mac app's download once, not each percent, why it can't update itself, and an app just installed", async () => {
+    let status: UpdateStatus = { state: 'idle' };
+    const listeners = new Set<() => void>();
+    const t = await setup(undefined, {
+      status: () => status,
+      subscribe: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+      rolledBack: async () => null,
+      app: { place: () => null, built: () => 1, restart: async () => {}, install: async () => {}, move: async () => {}, updated: async () => ({ from: 100, to: 200 }) },
+    });
+    const set = (next: UpdateStatus) => {
+      status = next;
+      for (const listener of listeners) listener();
+    };
+    const named = { version: '0.2.0-bbbbbbb', build: 400 };
+    for (const percent of [0, 10, 60, 100]) set({ state: 'app-downloading', ...named, percent });
+    set({ state: 'app-ready', ...named });
+    set({ state: 'checking' });
+    set({ state: 'failed', failure: 'needs-admin', ...named });
+    const updates = (await t.events()).filter((e) => e.eventName?.startsWith('app.update'));
+    expect(updates.map((e) => [e.eventName, e.attributes])).toEqual([
+      ['app.update.installed', { 'app.screen.name': 'week', 'app.update.from': 100, 'app.update.build': 200 }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'app-downloading', 'app.update.build': 400 }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'app-ready', 'app.update.build': 400 }],
+      ['app.update.check', { 'app.screen.name': 'week', 'app.update.outcome': 'failed', 'app.update.failure': 'needs-admin', 'app.update.build': 400 }],
+    ]);
+    t.telemetry.stop();
   });
 });

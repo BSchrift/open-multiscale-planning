@@ -250,7 +250,7 @@ describe('reminders', () => {
     t.clock.set(at(16, 5));
     await respond(t, REMINDER_ACTION.done);
     const prompt = await screen.findByRole('dialog', { name: 'Block finished' });
-    expect(within(prompt).getByRole('button', { name: 'Task finished' })).toBeVisible();
+    expect(within(prompt).getByRole('button', { name: 'Done' })).toBeVisible();
     await act(() => t.write(async () => {}));
     expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeFalsy();
     expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();

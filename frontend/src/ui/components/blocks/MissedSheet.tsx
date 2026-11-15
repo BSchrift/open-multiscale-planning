@@ -1,8 +1,9 @@
 // The missed blocks sheet: every block that ended unanswered, today's practices among them, oldest first. Each row
-// answers itself, Finished, Partly or Not done (Did it, Some or Skipped for a practice), or Select mode answers several
-// at once. Partly asks for the time left inside the sheet. Every answer saves at once with one Undo, and nothing is
-// answered that you didn't press. On phone it's a sheet over the lower part of the screen; on desktop, a small dialog in
-// the middle of the window. Later (Esc, a swipe down, or the button) puts it away until Today's Review row.
+// answers itself, Done, Partly or Not done (Did it, Some or Skipped for a practice), or Select mode answers several
+// at once. The top row's Done is filled, as the end-of-block prompt's is, for the block answered first. Partly asks for
+// the time left inside the sheet. Every answer saves at once with one Undo, and nothing is answered that you didn't
+// press. On phone it's a sheet over the lower part of the screen; on desktop, a small dialog in the middle of the
+// window. Later (Esc, a swipe down, or the button) puts it away until Today's Review row.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -22,11 +23,11 @@ import { useBlockActions } from './useBlockActions';
 import './missed.css';
 
 type Choice = BlockAnswer['result'];
-const CHOICES: readonly Choice[] = ['done', 'partly', 'not'];
+export const CHOICES: readonly Choice[] = ['done', 'partly', 'not'];
 
 /** What the three answers are called, for work and for a practice. */
-const WORDS: Record<'task' | 'practice', Record<Choice, string>> = {
-  task: { done: 'Finished', partly: 'Partly', not: 'Not done' },
+export const WORDS: Record<'task' | 'practice', Record<Choice, string>> = {
+  task: { done: 'Done', partly: 'Partly', not: 'Not done' },
   practice: { done: 'Did it', partly: 'Some', not: 'Skipped' },
 };
 
@@ -43,7 +44,7 @@ function stepsFor(b: BlockRow): readonly Minutes[] {
   return Array.from({ length: Math.max(1, Math.floor(workMinutes(b) / 5)) }, (_, i) => (i + 1) * 5);
 }
 
-function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
+export function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
   if (b.practice_id) {
     if (choice === 'not') return { result: 'not', logged_min: 0 };
     return { result: 'done', logged_min: choice === 'done' ? workMinutes(b) : minutes };
@@ -52,14 +53,14 @@ function answerFor(b: BlockRow, choice: Choice, minutes: Minutes): BlockAnswer {
 }
 
 /** The toast for one row: 'Draft chapter five: finished.' */
-function saidOf(b: BlockRow, choice: Choice, minutes: Minutes, freed: number): string {
+export function saidOf(b: BlockRow, choice: Choice, minutes: Minutes, freed: number): string {
   const name = nameOf(b);
   if (b.practice_id) return { done: `${name}: did it.`, partly: `${name}: logged ${formatMinutes(minutes)}.`, not: `${name}: skipped.` }[choice];
   if (choice === 'done') return `${name}: finished${andLater(freed)}.`;
   return choice === 'partly' ? `${name}: partly, ${formatMinutes(minutes)} left.` : `${name}: not done. It's in Needs a new time.`;
 }
 
-function Stepper(props: { block: BlockRow; value: Minutes; onChange(minutes: Minutes): void }) {
+export function Stepper(props: { block: BlockRow; value: Minutes; onChange(minutes: Minutes): void }) {
   const { block, value } = props;
   const steps = stepsFor(block);
   const less = steps.filter((m) => m < value).at(-1);
@@ -358,7 +359,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
             {stepRows.length > 1 && stepRows.some((b) => !b.practice_id) && <p className="small quiet">Each starts at what was left before.</p>}
           </>
         ) : (
-          rows.map((b) => (
+          rows.map((b, i) => (
             <div key={b.id} className="missrow" role="group" aria-label={nameOf(b)} data-id={b.id} tabIndex={-1}>
               {selecting ? (
                 <label className="misstick">
@@ -383,7 +384,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
                     <button
                       key={c}
                       type="button"
-                      className="missans"
+                      className={i === 0 && c === 'done' ? 'missans pri' : 'missans'}
                       data-answer={c}
                       aria-label={`${WORDS[b.practice_id ? 'practice' : 'task'][c]}: ${nameOf(b)}`}
                       title={WORDS[b.practice_id ? 'practice' : 'task'][c]}
@@ -412,7 +413,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
           </>
         ) : selecting ? (
           <>
-            {selected.some((b) => b.practice_id) && <p key="note" className="small quiet missnote">For a practice, Finished counts as Did it.</p>}
+            {selected.some((b) => b.practice_id) && <p key="note" className="small quiet missnote">For a practice, Done counts as Did it.</p>}
             {CHOICES.map((c) => (
               <button
                 key={c}

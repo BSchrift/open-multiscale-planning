@@ -12,6 +12,7 @@ import { render } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { Suspense } from 'react';
+import { vi } from 'vitest';
 import { fixedClock } from '../../core/clock';
 import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
@@ -26,7 +27,7 @@ import type { AreaId, Layout, Presentation, RouteParams } from './registry';
 import { Shell } from './Shell';
 import { AppProvider } from './store';
 import type { AppSync } from '../../core/syncRunner';
-import type { NativeUpdates, Updater } from '../../core/updates';
+import type { AppPlace, NativeUpdates, UpdateStatus, Updater } from '../../core/updates';
 
 export interface HarnessOptions {
   layout?: Layout;
@@ -133,6 +134,44 @@ export async function renderScreen(
     prepared,
     () => nav!,
   );
+}
+
+/** Over-the-air updates in a given state, as the page sees them. Checking finds it up to date. */
+export function fakeUpdater(
+  initial: UpdateStatus,
+  more: { download?: string; app?: { place?: AppPlace | null; built?: number; updated?: { from: number; to: number } | null } } = {},
+) {
+  let status = initial;
+  const listeners = new Set<() => void>();
+  const set = (next: UpdateStatus) => {
+    status = next;
+    listeners.forEach((l) => l());
+    return status;
+  };
+  const app = more.app && {
+    place: () => more.app!.place ?? null,
+    built: () => more.app!.built ?? 1762160000,
+    restart: vi.fn(async () => undefined),
+    install: vi.fn(async () => undefined),
+    move: vi.fn(async () => undefined),
+    updated: vi.fn(async () => more.app!.updated ?? null),
+  };
+  return {
+    version: '0.1.0-aaaaaaa',
+    ...(more.download ? { download: more.download } : {}),
+    ...(app ? { app } : {}),
+    status: () => status,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    check: vi.fn(async () => set({ state: 'current' })),
+    apply: vi.fn(async () => undefined),
+    rolledBack: vi.fn(async () => null),
+    stop: vi.fn(),
+    /** Moves it to another state, as a check would. */
+    set,
+  } satisfies Updater & { set(next: UpdateStatus): UpdateStatus };
 }
 
 /** Renders the whole app, with navigation. */

@@ -12,6 +12,7 @@ import { EstimateSlider } from '../../../components/EstimateSlider';
 import { Popover } from '../../../components/Popover';
 import { stopIndex, weekStops } from './model';
 import type { PickTask } from './model';
+import { Button } from '../../../components/ds/Button';
 
 export function TimePopover(props: { row: PickTask; phone: boolean; onSave(week: Minutes, estimate: Minutes): void; onDone(): void; onRemove(): void; onClose(): void }) {
   const { row } = props;
@@ -29,7 +30,7 @@ export function TimePopover(props: { row: PickTask; phone: boolean; onSave(week:
   const [said, setSaid] = useState('');
   const { saveRef, leave } = useLeave(changed, props.onClose, setSaid);
   const id = useId();
-  const btn = props.phone ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: props.phone ? 'grow' : undefined };
   const save = () => {
     // Not yet in the week, Save is what adds it.
     if (changed || !row.c.picked) props.onSave(shown, estimate);
@@ -96,12 +97,12 @@ export function TimePopover(props: { row: PickTask; phone: boolean; onSave(week:
         </div>
       )}
       <div className="row">
-        <button ref={saveRef} className={`${btn} pri`} type="button" onClick={save}>
+        <Button ref={saveRef} {...btn} variant="primary" type="button" onClick={save}>
           Save
-        </button>
-        <button className={btn} type="button" onClick={props.onClose}>
+        </Button>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       </div>
     </Popover>
   );

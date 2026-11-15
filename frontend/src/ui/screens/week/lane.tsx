@@ -13,6 +13,7 @@ import { dayName } from '../../components/weekgrid';
 import type { LaneItem } from './data';
 // The card styles, for Today too.
 import './week.css';
+import { Button } from '../../components/ds/Button';
 
 const KIND_CLASS = { project: 'k-project', practice: 'k-practice', one_off: 'k-maint', planning: 'k-planning' } as const;
 
@@ -79,7 +80,7 @@ export function LaneActions(props: {
 }) {
   const { item, canPlace } = props;
   const { layout } = useApp();
-  const btn = layout === 'phone' ? 'btn' : 'btn sm';
+  const btn = { size: 'compact' as const };
   const when = datesText(item.dates);
   const s = sessionDay(item);
   const sub = s
@@ -97,9 +98,9 @@ export function LaneActions(props: {
       {canPlace && (
         <div className={layout === 'phone' ? 'stack8' : 'row'} role="group" aria-label={`Suggested times for ${item.title}`}>
           {item.offers.map((o, i) => (
-            <button key={`${o.date}${o.start}`} className={`${btn}${i === 0 ? ' pri' : ''}`} type="button" onClick={() => props.onPlace(o)}>
+            <Button key={`${o.date}${o.start}`} {...btn} variant={i === 0 ? 'primary' : 'secondary'} type="button" onClick={() => props.onPlace(o)}>
               {i + 1} · {dayName(o.date).slice(0, 3)} {formatTimeOfDay(o.start)} to {formatTimeOfDay(o.end)}
-            </button>
+            </Button>
           ))}
           {item.offers.length === 0 && (
             <p className="small">{s ? `No open time on ${DAY_NAMES[s.day]}. Drag it to any time.` : 'No open time fits it this week. Drag it to any time.'}</p>
@@ -109,28 +110,28 @@ export function LaneActions(props: {
       {canPlace && item.note && <p className="small quiet">{item.note}</p>}
       <div className="row">
         {canPlace && props.onChoose && (
-          <button className={btn} type="button" onClick={props.onChoose}>
+          <Button {...btn} type="button" onClick={props.onChoose}>
             Choose a time
-          </button>
+          </Button>
         )}
         {s && props.onSkipDay && (
-          <button className={btn} type="button" onClick={props.onSkipDay}>
+          <Button {...btn} type="button" onClick={props.onSkipDay}>
             Skip {DAY_NAMES[s.day]}
-          </button>
+          </Button>
         )}
         {(item.practice || (item.picked && !item.dates)) && (
-          <button className={btn} type="button" onClick={props.onTakeOut}>
+          <Button {...btn} type="button" onClick={props.onTakeOut}>
             Take out of this week
-          </button>
+          </Button>
         )}
         {item.task && (
-          <button className={btn} type="button" onClick={props.onDone}>
+          <Button {...btn} type="button" onClick={props.onDone}>
             Mark done
-          </button>
+          </Button>
         )}
-        <button className={btn} type="button" onClick={props.onClose}>
+        <Button {...btn} type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </div>
     </>
   );

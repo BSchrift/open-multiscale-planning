@@ -182,6 +182,19 @@ button('Browser', async () => {
   await platform.openExternal('https://localhost/');
   return 'browser:opened';
 });
+// Whether the web view lets a request out, for the UI test of the debug build's offline launch: it types the address
+// scripts/test-ios.sh serves on the Mac. Opaque, since that server sends no CORS headers, so only reaching it counts.
+const address = document.createElement('input');
+// iOS's URL keyboard, which doesn't capitalize or correct what's typed.
+address.type = 'url';
+address.setAttribute('aria-label', 'Address');
+document.getElementById('buttons')!.append(address);
+button('Fetch', () =>
+  fetch(address.value, { mode: 'no-cors' }).then(
+    () => 'fetch:reached',
+    () => 'fetch:blocked',
+  ),
+);
 button('Shared', async () => {
   const share = platform.shareImport;
   if (!share) return 'shared:off';

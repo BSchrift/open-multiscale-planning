@@ -10,6 +10,7 @@ import { Sheet } from '../../../components/Sheet';
 import { needWords } from './model';
 import type { NeedItem, PickView } from './model';
 import type { PickProps } from './PickStep';
+import { Button } from '../../../components/ds/Button';
 
 export function needOf(view: PickView) {
   const { questions, newTime, due } = view.needYou;
@@ -96,9 +97,9 @@ function NeedDialog(props: PickProps & { phone: boolean; onClose(): void; onGo(i
     <Sheet label={`Need you (${words.n})`} onClose={props.onClose}>
       <div className="between">
         <h2>Need you ({words.n})</h2>
-        <button className="btn" type="button" onClick={props.onClose}>
+        <Button type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </div>
       {words.n === 0 && <p className="small">{words.line}</p>}
       {groups.map(([head, items, kind], i) =>

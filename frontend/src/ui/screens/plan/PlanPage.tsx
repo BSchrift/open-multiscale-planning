@@ -18,6 +18,7 @@ import { planContext, planGroups, range, whereNow } from './model';
 import type { PlanGroup } from './model';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
+import { Button } from '../../components/ds/Button';
 
 export function Diamond(props: { cls: string; phone: boolean }) {
   return props.phone ? (
@@ -106,12 +107,12 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
         <section className="card stack8" aria-label="Planning cadence">
           <h2>Set your planning cadence</h2>
           <div className={phone ? 'stack8' : 'row'}>
-            <button className="btn pri" type="button" onClick={startCadence}>
+            <Button variant="primary" type="button" onClick={startCadence}>
               Start planning
-            </button>
-            <button className="btn" type="button" onClick={() => open()}>
+            </Button>
+            <Button type="button" onClick={() => open()}>
               {flow.begun ? 'Continue planning' : 'Plan without a cadence'}
-            </button>
+            </Button>
           </div>
         </section>
       ) : (
@@ -132,12 +133,12 @@ export function PlanPage(props: { data: PlanData; layout: Layout; params: RouteP
             />
           ) : (
             <div className={phone ? 'stack8' : 'row'}>
-              <button className={`btn${where.due || flow.begun ? ' pri' : ''}`} type="button" onClick={() => open()}>
+              <Button variant={where.due || flow.begun ? 'primary' : 'secondary'} type="button" onClick={() => open()}>
                 {where.lineCta}
-              </button>
-              <button className="btn" type="button" onClick={() => setEditing(true)}>
+              </Button>
+              <Button type="button" onClick={() => setEditing(true)}>
                 Change planning cadence
-              </button>
+              </Button>
             </div>
           )}
         </section>

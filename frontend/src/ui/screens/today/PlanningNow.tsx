@@ -13,6 +13,7 @@ import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery } from '../../app/store';
 import { formatRange } from '../../components/blocks/describe';
 import { useToast } from '../../components/Toast';
+import { Button } from '../../components/ds/Button';
 
 export function PlanningNow(props: { block: BlockRow; layout: Layout }) {
   const { block } = props;
@@ -46,13 +47,13 @@ export function PlanningNow(props: { block: BlockRow; layout: Layout }) {
       {data?.planned && <p>This week is already planned.</p>}
       <div className="row">
         {data?.planned ? (
-          <button className={`btn${grow}`} type="button" disabled={free.pending} onClick={() => void freeIt()}>
+          <Button className={grow} type="button" disabled={free.pending} onClick={() => void freeIt()}>
             Free this time
-          </button>
+          </Button>
         ) : (
-          <button className={`btn pri${grow}`} type="button" disabled={start.pending} onClick={() => void (started ? Promise.resolve() : start.run()).then(open)}>
+          <Button variant="primary" className={grow} type="button" disabled={start.pending} onClick={() => void (started ? Promise.resolve() : start.run()).then(open)}>
             {started ? 'Keep going' : 'Start planning'}
-          </button>
+          </Button>
         )}
       </div>
     </section>

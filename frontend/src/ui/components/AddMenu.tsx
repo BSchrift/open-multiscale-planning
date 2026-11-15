@@ -3,6 +3,7 @@
 
 import { Popover } from './Popover';
 import './addmenu.css';
+import { Button } from './ds/Button';
 
 export interface AddItem {
   label: string;
@@ -15,15 +16,15 @@ export function AddMenu(props: { items: readonly AddItem[]; phone: boolean; onCl
       {props.phone && <h2>Add</h2>}
       <div className="stack8 addmenu">
         {props.items.map((item) => (
-          <button key={item.label} className={props.phone ? 'btn' : 'btn sm'} type="button" onClick={item.onPick}>
+          <Button key={item.label} size="compact" type="button" onClick={item.onPick}>
             {item.label}
-          </button>
+          </Button>
         ))}
       </div>
       {props.phone && (
-        <button className="btn" type="button" onClick={props.onClose}>
+        <Button type="button" onClick={props.onClose}>
           Cancel
-        </button>
+        </Button>
       )}
     </Popover>
   );

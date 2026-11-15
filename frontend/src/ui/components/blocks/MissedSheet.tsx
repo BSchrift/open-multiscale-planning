@@ -15,12 +15,13 @@ import { getRecord } from '../../../core/records';
 import type { Minutes } from '../../../core/types';
 import { useApp, useQuery } from '../../app/store';
 import { EST_STEPS } from '../EstimateSlider';
-import { AnswerIcon, InfoIcon } from '../icons';
 import { useFocusLanding } from '../useFocusLanding';
 import { PromptFrame } from './BlockPrompts';
 import { formatRange } from './describe';
 import { useBlockActions } from './useBlockActions';
 import './missed.css';
+import { Button } from '../ds/Button';
+import { Icon } from '../ds/Icon';
 
 type Choice = BlockAnswer['result'];
 export const CHOICES: readonly Choice[] = ['done', 'partly', 'not'];
@@ -323,7 +324,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
                     aria-controls={keyId}
                     onClick={() => setShowKey((open) => !open)}
                   >
-                    <InfoIcon />
+                    <Icon name="info" />
                   </button>
                   <span className="grow" />
                   <button type="button" className="link" aria-pressed="false" data-toggle onClick={toggleSelect}>
@@ -338,7 +339,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
           <div id={keyId} className="misskey" role="group" aria-label="Key">
             {CHOICES.map((c) => (
               <div key={c} className="misskeyrow">
-                <AnswerIcon answer={c} />
+                <Icon name={c === 'not' ? 'not-done' : c} size={16} />
                 {c === 'partly' ? 'Partly, some is left' : WORDS.task[c]}
               </div>
             ))}
@@ -391,7 +392,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
                       disabled={actions.pending}
                       onClick={() => answerRow(b, c, `[data-answer="${c}"]`)}
                     >
-                      <AnswerIcon answer={c} />
+                      <Icon name={c === 'not' ? 'not-done' : c} size={16} />
                     </button>
                   ))}
                 </>
@@ -404,28 +405,28 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
       <div className="missbar">
         {stepping ? (
           <>
-            <button key="back" type="button" className="btn" onClick={back}>
+            <Button key="back" type="button" onClick={back}>
               Back
-            </button>
-            <button key="save" type="button" className="btn pri grow" disabled={actions.pending} onClick={save}>
+            </Button>
+            <Button key="save" type="button" variant="primary" className="grow" disabled={actions.pending} onClick={save}>
               {stepRows.length > 1 ? `Save ${stepRows.length} answers` : 'Save'}
-            </button>
+            </Button>
           </>
         ) : selecting ? (
           <>
             {selected.some((b) => b.practice_id) && <p key="note" className="small quiet missnote">For a practice, Done counts as Did it.</p>}
             {CHOICES.map((c) => (
-              <button
+              <Button
                 key={c}
                 type="button"
-                className="btn grow"
+                className="grow"
                 data-answer={c}
                 disabled={selected.length === 0 || actions.pending}
                 onClick={() => answerSelected(c)}
               >
-                <AnswerIcon answer={c} />
+                <Icon name={c === 'not' ? 'not-done' : c} size={16} />
                 {WORDS.task[c]}
-              </button>
+              </Button>
             ))}
           </>
         ) : (

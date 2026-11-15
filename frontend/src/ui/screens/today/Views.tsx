@@ -13,6 +13,7 @@ import { PlanPrompt } from '../../components/PlanPrompt';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TaskName } from '../../components/task/TaskName';
 import type { TodayData } from './data';
+import { Button } from '../../components/ds/Button';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -35,9 +36,9 @@ export function Welcome(props: { blocks: readonly BlockRow[]; onReturned(): void
       <p>Your plan from before the break has passed. You don't need to go through it.</p>
       <p className={layout === 'phone' ? 'small quiet' : 'quiet'}>Missed blocks go back to their projects and aren't counted in your analytics.</p>
       <div className="row">
-        <button className="btn pri" type="button" disabled={send.pending} onClick={() => void send.run().then((ok) => ok && props.onReturned())}>
+        <Button variant="primary" type="button" disabled={send.pending} onClick={() => void send.run().then((ok) => ok && props.onReturned())}>
           Return them and continue
-        </button>
+        </Button>
       </div>
     </Card>
   );
@@ -61,9 +62,9 @@ export function PickOne(props: { data: TodayData; onPick(taskId: string): void }
         ))}
       </div>
       <div>
-        <button className={layout === 'phone' ? 'btn' : 'link'} type="button" onClick={() => void planning.start(thisWeek(clock))}>
+        <Button variant={layout === 'phone' ? 'secondary' : 'link'} type="button" onClick={() => void planning.start(thisWeek(clock))}>
           Plan the rest of the week instead
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -90,14 +91,14 @@ export function Gate(props: { data: TodayData }) {
 }
 
 export function Banner() {
-  const { clock, layout } = useApp();
+  const { clock } = useApp();
   const planning = usePlanningActions();
   return (
     <div className="attn">
       <span>This week isn't planned</span>
-      <button className={layout === 'phone' ? 'btn' : 'btn sm'} type="button" onClick={() => void planning.start(thisWeek(clock))}>
+      <Button size="compact" type="button" onClick={() => void planning.start(thisWeek(clock))}>
         Start planning
-      </button>
+      </Button>
     </div>
   );
 }
@@ -136,15 +137,15 @@ export function NextUp(props: { data: TodayData; pick: string | null }) {
                 <div className="small quiet">{sub(t)}</div>
               </div>
               {phone && (
-                <button className="btn" type="button" aria-label={`Start ${t.title}`} disabled={start.pending} onClick={() => void start.run(t.id)}>
+                <Button type="button" aria-label={`Start ${t.title}`} disabled={start.pending} onClick={() => void start.run(t.id)}>
                   Start
-                </button>
+                </Button>
               )}
             </div>
             {!phone && (
-              <button className="btn sm" type="button" aria-label={`Start ${t.title}`} disabled={start.pending} onClick={() => void start.run(t.id)}>
+              <Button size="compact" type="button" aria-label={`Start ${t.title}`} disabled={start.pending} onClick={() => void start.run(t.id)}>
                 Start
-              </button>
+              </Button>
             )}
           </div>
         ))}

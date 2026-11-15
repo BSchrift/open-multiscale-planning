@@ -6,6 +6,7 @@ import type { PlanContext, ProjectPlan } from '../../../../core/plan';
 import type { ProjectStatus } from '../../../../core/status';
 import { CloseProject } from '../../../components/editors';
 import { Pill } from '../../../components/Pill';
+import { Button } from '../../../components/ds/Button';
 
 export function pastEndLine(plan: ProjectPlan, status: ProjectStatus): string {
   return `Ended ${formatDate(plan.project.end)}, ${formatMinutes(status.doneMin)} done and ${formatMinutes(status.leftMin)} left`;
@@ -14,9 +15,9 @@ export function pastEndLine(plan: ProjectPlan, status: ProjectStatus): string {
 export function PastEnd(props: { plan: ProjectPlan; status: ProjectStatus; ctx: PlanContext; onSkip(): void; heading?: boolean }) {
   const { plan, status, ctx } = props;
   const skip = (
-    <button className={props.heading ? 'btn sm' : 'link small'} type="button" onClick={props.onSkip}>
+    <Button variant={props.heading ? 'secondary' : 'link'} size="compact" className={props.heading ? undefined : 'small'} type="button" onClick={props.onSkip}>
       Skip for now
-    </button>
+    </Button>
   );
   return (
     <>

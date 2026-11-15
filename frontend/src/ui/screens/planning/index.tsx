@@ -11,7 +11,6 @@ import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../core/r
 import type { LocalDate } from '../../../core/types';
 import { AddMenu } from '../../components/AddMenu';
 import type { AddItem } from '../../components/AddMenu';
-import { PlusIcon } from '../../components/icons';
 import { useToast } from '../../components/Toast';
 import { WeekArrows } from '../../components/WeekArrows';
 import { useNav } from '../../app/nav';
@@ -25,6 +24,8 @@ import { usePlanningTime } from './usePlanningTime';
 import { FitContext, WeekFit } from './WeekFit';
 import type { FitPreview, NextName } from './WeekFit';
 import './planning.css';
+import { Button } from '../../components/ds/Button';
+import { Icon } from '../../components/ds/Icon';
 
 const STEPS = ['1. Inbox', '2. Pick tasks', '3. Schedule', '4. Review'] as const;
 const PHONE_STEPS = ['Inbox', 'Pick', 'Schedule', 'Review'] as const;
@@ -157,9 +158,9 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
       <div ref={root} className="planning pflow">
         <h1 className="sr">Plan the week</h1>
         <div className="flowtop">
-          <button className="btn" type="button" onClick={exit}>
+          <Button type="button" onClick={exit}>
             Save and exit
-          </button>
+          </Button>
           {tabs(PHONE_STEPS, 'flowsteps')}
           {fit}
         </div>
@@ -173,10 +174,10 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
         {body}
         <div className="flowbot">
           <button className="icbtn" type="button" aria-label="Previous step" disabled={step === 0} onClick={() => go(step - 1)}>
-            ‹
+            <Icon name="chevron-left" />
           </button>
-          <button
-            className="btn pri grow"
+          <Button
+            variant="primary" className="grow"
             type="button"
             data-continue
             aria-label={nextName?.label}
@@ -184,7 +185,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
             onClick={step === STEPS.length - 1 ? onFinish : () => go(step + 1)}
           >
             {NEXT[step]}
-          </button>
+          </Button>
           {/* On a step with things to add, + is Add; elsewhere it captures to the Inbox. */}
           <button
             ref={addRef}
@@ -194,7 +195,7 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
             aria-label={addItems ? 'Add a task, one off, milestone or project' : 'Capture a task'}
             onClick={() => (addItems ? setMenu(true) : nav.openOverlay('capture'))}
           >
-            <PlusIcon />
+            <Icon name="plus" />
           </button>
         </div>
         {menuEl}
@@ -215,25 +216,25 @@ function Flow(props: { week: LocalDate; current: LocalDate; start?: number; onWe
         <div className="row">
           {addItems && (
             <div className="editrow addwrap">
-              <button ref={addRef} className="btn" type="button" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(!menu)}>
-                + Add <span aria-hidden="true">▾</span>
-              </button>
+              <Button ref={addRef} type="button" aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+                + Add <Icon name="chevron-down" size={16} />
+              </Button>
               {menuEl}
             </div>
           )}
-          <button className="btn" type="button" onClick={exit}>
+          <Button type="button" onClick={exit}>
             Save and exit
-          </button>
+          </Button>
         </div>
       </div>
       <div className="stepsnav">
-        <button className="btn sm steparrow" type="button" aria-label="Previous step" disabled={step === 0} onClick={() => go(step - 1)}>
-          ‹
-        </button>
+        <Button size="compact" className="steparrow" type="button" aria-label="Previous step" disabled={step === 0} onClick={() => go(step - 1)}>
+          <Icon name="chevron-left" />
+        </Button>
         {tabs(STEPS, 'steps')}
-        <button className="btn sm steparrow" type="button" aria-label="Next step" disabled={step === STEPS.length - 1} onClick={() => go(step + 1)}>
-          ›
-        </button>
+        <Button size="compact" className="steparrow" type="button" aria-label="Next step" disabled={step === STEPS.length - 1} onClick={() => go(step + 1)}>
+          <Icon name="chevron-right" />
+        </Button>
       </div>
       <div className="planpin">{fit}</div>
       {body}

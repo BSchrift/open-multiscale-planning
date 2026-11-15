@@ -7,6 +7,7 @@ import type { LocalDate, Minutes, Practice, TimeOfDay, Weekday } from '../../../
 import { useApp } from '../../app/store';
 import { keepQuestion } from './PracticeSchedule';
 import type { KeepChoice } from './PracticeSchedule';
+import { Button } from '../ds/Button';
 
 export function KeepAsk(props: {
   practice: Practice;
@@ -23,7 +24,7 @@ export function KeepAsk(props: {
   // Set after it appears, so a screen reader hears it.
   const [said, setSaid] = useState('');
   useEffect(() => setSaid(`${q.what} ${q.question}`), [q.what, q.question]);
-  const btn = layout === 'phone' ? 'btn grow' : 'btn sm';
+  const btn = { size: 'compact' as const, className: layout === 'phone' ? 'grow' : undefined };
   return (
     <div
       className="panel stack8 wkask"
@@ -41,13 +42,13 @@ export function KeepAsk(props: {
         {q.question}
       </div>
       <div className={layout === 'phone' ? 'stack8' : 'row'}>
-        <button className={`${btn} pri`} type="button" onClick={props.onNo}>
+        <Button {...btn} variant="primary" type="button" onClick={props.onNo}>
           No, just this week
-        </button>
+        </Button>
         {q.choices.map((c) => (
-          <button key={c.label} className={btn} type="button" onClick={() => props.onKeep(c)}>
+          <Button key={c.label} {...btn} type="button" onClick={() => props.onKeep(c)}>
             {c.label}
-          </button>
+          </Button>
         ))}
       </div>
       {q.replaces && <div className="small quiet">{q.replaces}</div>}

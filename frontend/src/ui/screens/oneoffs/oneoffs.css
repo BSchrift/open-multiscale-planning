@@ -33,10 +33,10 @@
 }
 
 [data-layout='desktop'] .oneoffs > section > .oneoffform {
-  border-color: var(--card-line);
-  border-radius: var(--radius-lg);
-  background: var(--white);
-  box-shadow: var(--card-shadow);
+  border-color: var(--hairline);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
 }
 
 [data-layout] .oneoffs .oogroup,
@@ -49,7 +49,7 @@
 
 [data-layout='phone'] .oneoffs .oogroup,
 [data-layout='phone'] .oneoffs .oofinished {
-  gap: 2px;
+  gap: var(--space-1);
   margin-top: var(--space-1);
 }
 
@@ -58,12 +58,12 @@
 [data-layout] .oofinished > div > .link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-height: var(--tap);
   padding: 0 var(--space-1);
   color: var(--ink-2);
-  font-size: var(--text-md);
-  font-weight: 600;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-strong);
   text-decoration: none;
 }
 
@@ -76,7 +76,7 @@
 [data-layout='desktop'] .oogroup > h2,
 [data-layout='desktop'] .oofinished > div > .link {
   min-height: 36px;
-  font-size: var(--text-sm);
+  font-size: var(--fs-meta);
 }
 
 /* Finished tasks' caret is drawn, so the button's name stays its text. */
@@ -91,5 +91,5 @@
 }
 
 [data-layout] .oneoffs .oofinished h3 {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }

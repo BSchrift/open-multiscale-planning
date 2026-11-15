@@ -62,12 +62,14 @@ export function memoryTokens(): SecureTokens {
 export interface MemoryLifecycle extends Lifecycle {
   foreground(): void;
   background(): void;
+  leave(): void;
 }
 
 export function memoryLifecycle(): MemoryLifecycle {
   const fg = listeners<[]>();
   const bg = listeners<[]>();
-  return { onForeground: fg.add, onBackground: bg.add, foreground: fg.emit, background: bg.emit };
+  const lv = listeners<[]>();
+  return { onForeground: fg.add, onBackground: bg.add, onLeave: lv.add, foreground: fg.emit, background: bg.emit, leave: lv.emit };
 }
 
 export function deepLinks() {

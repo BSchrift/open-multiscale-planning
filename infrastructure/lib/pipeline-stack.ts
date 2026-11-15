@@ -150,7 +150,8 @@ export class PipelineStack extends Stack {
     // but its artifacts. It installs nothing and runs nothing from the repo but the signing script, on the image's own
     // Node, over the web build in the tested Build output. The script comes from this commit's checkout, not from the
     // Build output, which the build's npm dependencies could rewrite. CodeBuild hands it the key from SSM in RELEASE_KEY.
-    // CloudTrail records each read.
+    // CloudTrail records each read. Where the pipeline checks Mac apps, it signs the MacApp step's record of the app that
+    // runs the build into the manifest too, so the Mac can trust the app it names.
     const signingKey = new Key(this, 'SigningKey', {
       alias: SIGNING_KEY_ALIAS,
       description: "Encrypts the release keys' SecureStrings, which only the pipeline's signing step may read",
@@ -170,7 +171,7 @@ export class PipelineStack extends Stack {
       logging: { cloudWatch: { logGroup } },
       buildSpec: BuildSpec.fromObject({
         version: '0.2',
-        phases: { build: { commands: ['node frontend/scripts/sign-release.mjs "$CODEBUILD_SRC_DIR_Built/web/$ENV_NAME" signed'] } },
+        phases: { build: { commands: ['node frontend/scripts/sign-release.mjs "$CODEBUILD_SRC_DIR_Built/web/$ENV_NAME" signed "$CODEBUILD_SRC_DIR_MacApps/app-record/$ENV_NAME.json"'] } },
         artifacts: { 'base-directory': 'signed', files: ['**/*'] },
       }),
     });
@@ -178,7 +179,7 @@ export class PipelineStack extends Stack {
       actionName: 'Sign',
       project: signer,
       input: source,
-      extraInputs: [built],
+      extraInputs: [built, ...macApps],
       outputs: [signed],
       runOrder,
       environmentVariables: {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the Mac app for one environment and checks it as a release needs, leaving the disk image and the app in
-# frontend/release/<env>. scripts/release.sh runs it on the Mac, and .github/workflows/mac-release.yml in GitHub Actions.
+# Builds the Mac app for one environment and checks it as a release needs, leaving the disk image, the zip of the same
+# app and the app in frontend/release/<env>. scripts/release.sh runs it on the Mac, and .github/workflows/mac-release.yml in GitHub Actions.
 #   ENV=staging|prod MULTISCALE_CONFIG_DIR=<config folder> scripts/mac-app.sh
 # The app is signed with the keychain's Developer ID, and notarized with the App Store Connect key in the config folder,
 # AuthKey_<key id>.p8 and asc-issuer-id, when it has them (docs/setup.md, step 15).
@@ -17,7 +17,15 @@ notarize="$(node scripts/mac-signing.ts env "$config_dir")"
 [ -n "$notarize" ] || echo "Not notarizing the Mac app: $config_dir has no App Store Connect key. See docs/setup.md, step 15."
 (eval "$notarize" && ENV="$env_name" npm run electron:build)
 dmg="$(ls -t "release/$env_name"/*.dmg | head -n 1)"
-app="$(ls -td "release/$env_name"/mac*/*.app | head -n 1)"
+zip="$(ls -t "release/$env_name"/*.zip | head -n 1)"
+built="$(ls -td "release/$env_name"/mac*/*.app | head -n 1)"
+# The app as it updates itself: unpacked from the zip with ditto, as Squirrel unpacks it, and that copy checked rather
+# than the build's own folder, so a zip that lost a link, a mode or the stapled ticket fails here.
+unzipped="$(mktemp -d)"
+trap 'rm -rf "$unzipped"' EXIT
+ditto -x -k "$zip" "$unzipped"
+app="$unzipped/$(basename "$built")"
+codesign --verify --deep --strict "$app"
 if [ -n "$notarize" ]; then
   # The build fails if notarizing does. This checks that macOS will open both without asking, offline too.
   spctl -a -vv -t exec "$app"
@@ -37,4 +45,4 @@ for _ in $(seq 60); do
 done
 kill $! 2>/dev/null && wait $! 2>/dev/null || true
 rm -rf "$data"
-[ "$started" = 1 ] || { echo "The Mac app in $app didn't start, so it wasn't released." >&2; exit 1; }
+[ "$started" = 1 ] || { echo "The Mac app in $zip didn't start, so it wasn't released." >&2; exit 1; }

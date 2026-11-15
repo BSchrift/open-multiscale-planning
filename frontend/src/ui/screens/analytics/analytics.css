@@ -1,7 +1,7 @@
 /* Analytics marks. Practices are teal and One offs purple in every chart; a part at zero draws nothing. */
 
 :where([data-layout='desktop']) .analytics .hbar.prac .fill{background:var(--practice)}
-:where([data-layout='desktop']) .analytics .split{border-radius:4px;overflow:hidden}
+:where([data-layout='desktop']) .analytics .split{border-radius:var(--radius-block);overflow:hidden}
 :where([data-layout='desktop']) .analytics .split span{border-radius:0}
 /* The lightest part needs 2:1 against the page to stay visible. */
 :where([data-layout='desktop']) .analytics .c{background:var(--line)}
@@ -14,7 +14,7 @@
 :where([data-layout='desktop']) .analytics .trow.mnt .tb.on{background:var(--oneoff)}
 
 /* Each chart or stat group is a card holding its own heading. */
-:where([data-layout]) .analytics .card{padding:16px}
+:where([data-layout]) .analytics .card{padding:var(--space-4)}
 :where([data-layout]) .analytics .card>:last-child{margin-bottom:0;padding-bottom:0}
-:where([data-layout='desktop']) .analytics.stack32{gap:24px}
-:where([data-layout='phone']) .analytics .trendrow{gap:4px;margin-bottom:8px}
+:where([data-layout='desktop']) .analytics.stack32{gap:var(--space-6)}
+:where([data-layout='phone']) .analytics .trendrow{gap:var(--space-1);margin-bottom:var(--space-2)}

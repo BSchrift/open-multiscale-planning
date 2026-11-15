@@ -16,7 +16,7 @@
 [data-layout] .pxms {
   width: auto;
   min-height: 36px;
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-2);
 }
 
 [data-layout='phone'] .pxms {
@@ -28,36 +28,36 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
 }
 
 [data-layout] .pxmakes {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 [data-layout] .pxmakes .btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout='phone'] .pxmake {
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 [data-layout='phone'] .pxmakes .btn {
   flex: 1 1 0;
   justify-content: center;
-  padding-inline: 6px;
+  padding-inline: var(--space-2);
 }
 
 /* A key beside a button's words. */
 [data-layout='desktop'] .pxcard .btn .keycap,
 [data-layout='desktop'] .pxweek .keycap {
-  margin-left: 6px;
+  margin-left: var(--space-2);
 }
 
 [data-layout='desktop'] .pxmakes .keycap {
@@ -68,7 +68,7 @@
 [data-layout] .pxitem {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -76,7 +76,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 [data-layout='desktop'] .pxfacts .estslider {
@@ -88,7 +88,7 @@
 [data-layout] .pxhead {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -101,12 +101,12 @@
 [data-layout] .pxedit {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: calc(100% + 16px);
-  margin: 0 -8px;
-  padding: 2px 8px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-1) var(--space-2);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -139,11 +139,11 @@
 [data-layout='phone'] .pxedit {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--space-2);
   width: calc(100% + 12px);
   min-height: var(--tap);
-  margin: 0 -6px;
-  padding: 2px 6px;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-1) var(--space-2);
 }
 
 [data-layout='phone'] .pxedit .pen {
@@ -151,7 +151,7 @@
   justify-content: center;
   width: var(--tap);
   height: var(--tap);
-  margin: -4px -6px -4px 0;
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2)) calc(-1 * var(--space-1)) 0;
 }
 
 [data-layout='phone'] .pxedit .pen svg {
@@ -167,23 +167,23 @@
   background: var(--card);
   color: var(--ink);
   font: inherit;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   outline: none;
 }
 
 [data-layout='desktop'] .pxtitlefield {
   min-height: 64px;
-  padding: 2px 12px;
-  border-radius: 10px;
-  font-size: clamp(28px, 4vw, 44px);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: clamp(var(--fs-title), 4vw, var(--fs-display));
   line-height: 1.2;
 }
 
 [data-layout='phone'] .pxtitlefield {
   min-height: 48px;
-  padding: 6px 12px;
-  border-radius: 10px;
-  font-size: 22px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-body);
   line-height: 1.25;
 }
 
@@ -191,7 +191,7 @@
 [data-layout] .pxchip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout] .pxchip svg {
@@ -204,7 +204,7 @@
 [data-layout] .pxchip.date {
   border-color: var(--accent);
   color: var(--accent-text);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .pxchip.date.set {
@@ -215,7 +215,7 @@
 
 [data-layout] .pxchip.date.set .quiet {
   color: var(--project-ink);
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   opacity: 0.75;
 }
 
@@ -229,9 +229,9 @@
 }
 
 [data-layout] .pxdateform {
-  padding: 12px;
+  padding: var(--space-3);
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--card);
 }
 
@@ -265,7 +265,7 @@
 [data-layout='desktop'] .pxdetails {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 28px;
+  gap: calc(var(--space-6) + var(--space-1));
 }
 
 /* A long description shows its first lines; a click opens it all to edit. */
@@ -279,7 +279,7 @@
 [data-layout='phone'] .pxfour {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 [data-layout='phone'] .pxfour:empty {
@@ -288,14 +288,14 @@
 
 [data-layout='phone'] .pxfour .btn {
   justify-content: flex-start;
-  padding-inline: 12px;
-  font-size: 15px;
+  padding-inline: var(--space-3);
+  font-size: var(--fs-meta);
 }
 
 /* Desktop: the card sits at the top, as tall as it needs, leaving a band at the foot of the window for the toast. */
 [data-layout='desktop'] .pxwrap {
   align-items: flex-start;
-  padding-bottom: 96px;
+  padding-bottom: calc(var(--space-16) + var(--space-8));
 }
 
 [data-layout='desktop'] .pxcard {
@@ -303,7 +303,7 @@
 }
 
 [data-layout='desktop']:has(.pxwrap) .toast {
-  z-index: 51;
+  z-index: calc(var(--z-dialog) + 1);
   box-shadow: var(--shadow-2);
 }
 
@@ -328,7 +328,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 8px 12px;
+  gap: var(--space-2) var(--space-3);
 }
 
 [data-layout] .pkwrap {
@@ -340,7 +340,7 @@
 [data-layout] .pkfield {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
   border: 1px solid var(--line);
   background: var(--card);
@@ -376,14 +376,14 @@
   flex: none;
   width: 8px;
   height: 8px;
-  margin: -4px 2px 0 auto;
+  margin: calc(-1 * var(--space-1)) var(--space-1) 0 auto;
   border-right: 1.75px solid var(--ink-3);
   border-bottom: 1.75px solid var(--ink-3);
   transform: rotate(45deg);
 }
 
 [data-layout] .pkfield.open::after {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   transform: rotate(-135deg);
 }
 
@@ -414,7 +414,7 @@
   overflow: hidden;
   visibility: hidden;
   white-space: pre;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .pksize > input {
@@ -424,12 +424,12 @@
 
 /* The place shown, before anything is typed over it. */
 [data-layout] .pkfield input:not([data-typed]) {
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .pkfield input::placeholder {
   color: var(--ink-3);
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 
 [data-layout] .pkval {
@@ -443,32 +443,32 @@
 [data-layout] .pkgoal {
   flex: none;
   color: var(--ink-3);
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 
 [data-layout] .pkval .pkgoal {
-  margin-left: 6px;
+  margin-left: var(--space-2);
 }
 
 [data-layout='desktop'] .pkfield {
   min-height: 56px;
-  padding: 8px 16px;
-  border-radius: 10px;
-  font-size: 17px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-heading);
 }
 
 [data-layout='desktop'] .pkrow .pxweek {
   flex: none;
   width: auto;
-  padding-inline: 20px;
+  padding-inline: calc(var(--space-4) + var(--space-1));
 }
 
 [data-layout='desktop'] .pkadd {
   flex: none;
   min-height: 56px;
-  padding: 8px 20px;
-  border-radius: 10px;
-  font-size: 17px;
+  padding: var(--space-2) calc(var(--space-4) + var(--space-1));
+  border-radius: var(--radius-control);
+  font-size: var(--fs-heading);
 }
 
 [data-layout] .pklist {
@@ -476,16 +476,16 @@
   left: 0;
   right: 0;
   top: calc(100% + 6px);
-  z-index: 6;
+  z-index: calc(var(--z-raised) + 5);
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background: var(--card);
   box-shadow: var(--shadow-3);
 }
 
 [data-layout] .pkopts {
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 /* Past a dozen or so rows it scrolls. */
@@ -498,9 +498,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 10px;
+  gap: var(--space-1) var(--space-3);
   min-height: 40px;
-  padding: 6px 16px;
+  padding: var(--space-2) var(--space-4);
   cursor: pointer;
 }
 
@@ -515,80 +515,80 @@
 }
 
 [data-layout] .pkopt b {
-  font-weight: 700;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .pkopt .pkgoal {
   margin-left: auto;
-  font-size: 13px;
+  font-size: var(--fs-meta);
 }
 
 [data-layout] .pkopt .pktag {
   margin-left: auto;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-strong);
   color: var(--accent-text);
 }
 
 [data-layout] .pkopt .pkgoal + .pktag {
-  margin-left: 12px;
+  margin-left: var(--space-3);
 }
 
 [data-layout] .pknew {
   color: var(--accent-text);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   border-bottom: 1px solid var(--hairline);
 }
 
 [data-layout] .pkone {
   color: var(--oneoff-ink);
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .pkdot {
   flex: none;
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-block);
   background: var(--oneoff);
 }
 
 [data-layout] .pkhead {
-  padding: 10px 16px 2px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-strong);
   color: var(--ink-3);
 }
 
 [data-layout] .pkempty {
-  padding: 8px 16px 10px;
-  font-size: 13px;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  font-size: var(--fs-meta);
   color: var(--ink-3);
 }
 
 [data-layout='phone'] .pkphone {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 [data-layout='phone'] .pkfield {
   min-height: 52px;
-  padding: 8px 14px;
-  border-radius: 12px;
-  font-size: 16px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-card);
+  font-size: var(--fs-label);
 }
 
 [data-layout='phone'] .pkadd {
   min-height: 48px;
-  font-size: 16px;
+  font-size: var(--fs-label);
 }
 
 /* The sheet: its field stays put while the list under it scrolls. */
 [data-layout='phone'] .sheet.pksheet {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
   height: calc(86vh - var(--keyboard, 0px));
   height: calc(86dvh - var(--keyboard, 0px));
   padding-bottom: 0;
@@ -602,31 +602,31 @@
 [data-layout='phone'] .pksheet .pkopts {
   flex: 1 1 auto;
   min-height: 0;
-  margin: 0 -16px;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  margin: 0 calc(-1 * var(--space-4));
+  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   overflow-y: auto;
 }
 
 [data-layout='phone'] .pkopt {
   min-height: 48px;
-  padding: 8px 16px;
-  font-size: 16px;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
 }
 
 [data-layout='phone'] .pkopt .pkgoal {
-  font-size: 14px;
+  font-size: var(--fs-meta);
 }
 
 [data-layout='phone'] .pkhead {
-  padding: 12px 16px 4px;
+  padding: var(--space-3) var(--space-4) var(--space-1);
 }
 
 /* A goal's backlog: the goals in place of the picker on desktop, numbered for their keys, and a sheet of them on phone. */
 [data-layout] .pxbacklogs {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-2);
+  padding: var(--space-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-control);
   background: var(--accent-tint);
@@ -635,29 +635,29 @@
 [data-layout] .pxbacklogrows {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 [data-layout] .pxbacklogrow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   text-align: left;
 }
 
 [data-layout] .pxbacklogpick {
   display: flex;
   flex-direction: column;
-  margin: 0 -16px;
+  margin: 0 calc(-1 * var(--space-4));
 }
 
 [data-layout] .pxbacklogpick .pickrow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
   min-height: 56px;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border: 0;
   border-top: 1px solid var(--hairline);
   background: transparent;
@@ -676,7 +676,7 @@
   width: 10px;
   height: 10px;
   border: 2px solid var(--project);
-  border-radius: 50%;
+  border-radius: var(--radius-circle);
 }
 
 [data-layout] .pxbacklogs .lineblock,

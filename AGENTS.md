@@ -115,8 +115,7 @@ Then wait for CI. A PR merges only with every check green.
   by its role, not its look, and change the design there rather than adding a value for one screen. After a change to
   how something looks, `scripts/reference-shots.sh` redraws the reference page's screenshots.
 - **The checks enforce it:** `tokens.test.ts` holds the roles, the contrast pairs in both themes and the budget, and
-  `designRules.test.ts` finds raw values, glyph icons and hand-built buttons. They report against
-  `design-baseline.json` until it reaches zero; never add to it.
+  `designRules.test.ts` fails on a raw value, a glyph icon or a hand-built button, and says where it is.
 
 ## The product's rules
 

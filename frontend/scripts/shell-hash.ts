@@ -9,13 +9,26 @@ import { join } from 'node:path';
 const NOT_SHIPPED =
   /(\.test\.ts|\/e2e\/.*|\/UITests\/.*|playwright\.config\.ts|vitest\.electron\.config\.ts|node-sqlite-swap\.ts|Config\.example\.xcconfig|\/harness\/.*|README\.md|\.gitignore)$/;
 
+/**
+ * The packages the Mac app is made with, by where the lockfile puts them: its native ones, electron-builder, which
+ * builds it, and every package esbuild bundles into its main process. electron-compile.mjs checks its metafile against
+ * this list, so a new bundled package fails the Mac build until it's added here, and bumping any of them releases a
+ * new Mac app.
+ */
+export const ELECTRON_PACKAGES = new Set([
+  'electron', 'better-sqlite3', 'electron-builder',
+  'electron-updater', 'electron-updater/node_modules/fs-extra', 'electron-updater/node_modules/semver', 'builder-util-runtime', 'debug', 'graceful-fs',
+  'has-flag', 'js-yaml', 'jsonfile', 'lazy-val', 'lodash.escaperegexp', 'lodash.isequal', 'ms', 'sax', 'supports-color', 'universalify',
+]);
+
 /** What each app's native code is made of: tracked files, and the installed versions of native packages. */
 export const SHELL_SOURCES: Record<'electron' | 'ios', { paths: string[]; packages(name: string): boolean }> = {
   electron: {
     // With the web app's own code that esbuild bundles into the main process. electron-compile.mjs checks this list
-    // against what it bundled, so a new import from src fails the Mac build until it's added here.
-    paths: ['electron', 'scripts/electron-compile.mjs', 'src/platform/shortcut.ts', 'src/core/captureTitle.ts'],
-    packages: (name) => name === 'electron' || name === 'better-sqlite3',
+    // against what it bundled, so a new import from src fails the Mac build until it's added here. And how the app is
+    // built, signed and entitled, which changes the app that ships.
+    paths: ['electron', 'scripts/electron-compile.mjs', 'scripts/electron-build.mjs', 'scripts/entitlements.mac.plist', 'scripts/mac-signing.ts', 'src/platform/shortcut.ts', 'src/core/captureTitle.ts'],
+    packages: (name) => ELECTRON_PACKAGES.has(name),
   },
   ios: { paths: ['ios', 'capacitor.config.json'], packages: (name) => name.includes('capacitor') },
 };
@@ -30,6 +43,8 @@ export interface MacBuild {
   name: string;
   scheme: string;
   backendOrigins: string[];
+  /** Where the app downloads the app that replaces it: only the main process reaches it. */
+  downloadsOrigin: string | null;
 }
 
 /**
@@ -37,7 +52,7 @@ export interface MacBuild {
  * content security policy, so a bundle built for other origins can only run on an app built for them too.
  */
 export function macBuild(
-  config: { apiUrl: string; authUrl: string; releaseUrl?: string; filesUrl?: string; filesUploadUrl?: string },
+  config: { apiUrl: string; authUrl: string; releaseUrl?: string; filesUrl?: string; filesUploadUrl?: string; downloadsUrl?: string },
   identity: { name: string; scheme: string },
 ): MacBuild {
   const reached = [config.apiUrl, config.authUrl, config.releaseUrl, config.filesUrl, config.filesUploadUrl];
@@ -46,6 +61,7 @@ export function macBuild(
     scheme: identity.scheme,
     // The page reaches these: the API, sign-in, where updates come from, and attachments' storage.
     backendOrigins: [...new Set(reached.filter((url): url is string => Boolean(url)).map((url) => new URL(url).origin))],
+    downloadsOrigin: config.downloadsUrl ? new URL(config.downloadsUrl).origin : null,
   };
 }
 

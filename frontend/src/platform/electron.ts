@@ -47,6 +47,8 @@ export async function createElectronPlatform(): Promise<Platform> {
     setAppearance: bridge.setAppearance,
     updates: bridge.updates,
     captureShortcut: bridge.captureShortcut,
+    // Missing in a Mac app from before it, which a downloaded web bundle can run in: that one syncs on focus as before.
+    onWake: bridge.onWake,
     onDeepLink: (listener) => {
       const stop = links.onDeepLink(listener);
       // A link can start the app, and arrive before the first listener does.

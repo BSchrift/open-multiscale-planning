@@ -303,6 +303,49 @@ describe('scripts/pipeline.sh, from a Mac', () => {
     assert.match(r.stderr, /prod\.release-key\.pem/);
     assert.doesNotMatch(s.log(), /put-parameter/);
   });
+
+  // make release-tag. git as a clone sees it: $TAGS are tags in this clone and $REMOTE_TAGS tags only on GitHub. The
+  // day is fixed, since the tag is named after it.
+  const tagging = () => {
+    const s = sandbox();
+    s.stub('git', `echo "git $*" >> "$LOG"
+for last; do :; done
+case "$*" in
+  *"rev-parse -q --verify refs/tags/"*) case " $TAGS " in *" \${last#refs/tags/} "*) exit 0;; *) exit 1;; esac;;
+  *"ls-remote --exit-code --tags origin"*) case " $REMOTE_TAGS " in *" $last "*) exit 0;; *) exit 2;; esac;;
+esac`);
+    s.stub('date', 'echo 2026-11-13');
+    s.param('/multiscale/pipeline/released', 'abc1234def');
+    return s;
+  };
+
+  it("tags the commit prod last released with the day's date and that release's notes, and pushes the tag", () => {
+    const s = tagging();
+    s.param('/multiscale/pipeline/released', 'abc1234def Canary skipped. Release alarms off.');
+    const r = s.run(['tag']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE=ms-control ssm get-parameter --name \/multiscale\/pipeline\/released /);
+    assert.match(s.log(), /git -C \S+ fetch --quiet origin abc1234def\n/);
+    assert.match(s.log(), /git -C \S+ tag -a release-2026-11-13 -m Released to prod by the pipeline\. Canary skipped\. Release alarms off\. abc1234def\n/);
+    assert.match(s.log(), /git -C \S+ push --quiet origin release-2026-11-13\n/);
+    assert.match(r.stdout, /Tagged abc1234def as release-2026-11-13\. Build the signed apps from it: git checkout release-2026-11-13 && make release ENV=prod/);
+  });
+
+  it("numbers a second release on the same day, whether the day's tag is in this clone or only on GitHub", () => {
+    for (const [here, remote, want] of [
+      ['release-2026-11-13', '', 'release-2026-11-13-2'],
+      ['', 'release-2026-11-13', 'release-2026-11-13-2'],
+      ['release-2026-11-13', 'release-2026-11-13-2', 'release-2026-11-13-3'],
+    ]) {
+      const s = tagging();
+      const r = s.run(['tag'], { TAGS: here!, REMOTE_TAGS: remote! });
+      assert.equal(r.status, 0, r.stderr);
+      // A release with no notes says only that, with nothing after the full stop.
+      assert.match(s.log(), new RegExp(`tag -a ${want} -m Released to prod by the pipeline\\. abc1234def\\n`));
+      assert.match(s.log(), new RegExp(`push --quiet origin ${want}\\n`));
+      assert.equal(s.log().match(/ tag -a /g)?.length, 1);
+    }
+  });
 });
 
 describe('scripts/pipeline.sh, in CodeBuild', () => {
@@ -339,6 +382,31 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.ok(!existsSync(join(s.root, 'web/sign-release.mjs')));
     assert.doesNotMatch(s.log(), /signing\//);
     assert.equal(readFileSync(join(s.root, 'multiscale-config/prod.release-key.pub'), 'utf8'), 'cHVibGlj\n');
+  });
+
+  // Built once: what staging tests is what prod gets.
+  it("deploys staging, and publishes prod's Lambda code, from the Build stage's cloud assembly, never a new synth", () => {
+    const s = configured();
+    const built = join(s.root, 'built');
+    for (const [command, line] of [
+      ['deploy-staging', `npx cdk deploy --app ${built}/infrastructure/cdk.out/staging Multiscale-staging --require-approval never`],
+      ['prod-assets', `npx cdk publish-assets --unstable=publish-assets --app ${built}/infrastructure/cdk.out/prod Multiscale-prod`],
+    ]) {
+      const r = s.run([command!], { CODEBUILD_SRC_DIR_Built: built });
+      assert.equal(r.status, 0, r.stderr);
+      assert.ok(s.log().includes(`${line}\n`), s.log());
+    }
+    assert.doesNotMatch(s.log(), /cdk synth/);
+  });
+
+  it('deploys and publishes nothing without the Build artifact', () => {
+    const s = configured();
+    for (const command of ['deploy-staging', 'prod-assets']) {
+      const r = s.run([command]);
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /the Built artifact is missing/);
+    }
+    assert.doesNotMatch(s.log(), /npx cdk/);
   });
 
   it("installs the infrastructure's packages without running their install scripts, as the deploy steps do", () => {
@@ -690,6 +758,46 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.deepEqual(order, [...order].sort((x, y) => x - y));
     assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), 'disk image');
     assert.deepEqual(JSON.parse(s.get('s3://bucket/mac/manifest.json')!), { record: APP_RECORD });
+  });
+
+  // Prod's app, for the update check: the MacApp step's output for prod, with its record.
+  const withProdApp = (s: ReturnType<typeof sandbox>, built: object) => {
+    const mac = join(s.root, 'mac-apps');
+    mkdirSync(join(mac, 'prod'), { recursive: true });
+    mkdirSync(join(mac, 'app-record'), { recursive: true });
+    for (const [name, data] of [['Multiscale.dmg', 'disk image'], ['Multiscale.zip', 'zip of app'], ['Multiscale.zip.blockmap', 'blockmap'], ['manifest.json', JSON.stringify({ record: APP_RECORD })]]) writeFileSync(join(mac, `prod/${name}`), data!);
+    writeFileSync(join(mac, 'app-record/prod.json'), JSON.stringify(APP_RECORD));
+    return { ...artifacts(s, built, 'prod'), CODEBUILD_SRC_DIR_MacApps: mac, MAC_INBOX_BUCKET: 'inbox-bucket', COMMIT };
+  };
+
+  it("holds prod's new Mac app until the staging update check passed it, still switching the web app and the iPhone feed", () => {
+    const s = configured();
+    live(s);
+    const r = s.run(['release-prod'], withProdApp(s, { electron: 'e2', ios: 'i1' }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /aws AWS_PROFILE= s3api head-object --bucket inbox-bucket --key inbox\/update-check\/0\.1\.5\.json/);
+    assert.match(r.stdout, /The staging update check hasn't passed Mac app 0\.1\.5 yet, so prod's desktop feed stays as it is/);
+    assert.equal(s.get(`${FOLDER}latest-mac.yml`), null);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), null);
+    assert.equal(s.get(FEEDS.desktop), feedWith(shell));
+    assert.equal(s.get(FEEDS.iphone), release);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>new</html>');
+    assert.match(s.log(), /EXPECT_FEEDS= iphone SKIP_IOS/);
+  });
+
+  it("publishes prod's new Mac app once the staging update check passed it, and staging's never waits", () => {
+    const s = configured();
+    live(s);
+    s.put('s3://inbox-bucket/inbox/update-check/0.1.5.json', JSON.stringify({ version: '0.1.5' }));
+    const r = s.run(['release-prod'], withProdApp(s, { electron: 'e2', ios: 'i1' }));
+    assert.equal(r.status, 0, r.stderr);
+    assert.notEqual(s.get(`${FOLDER}latest-mac.yml`), null);
+    assert.equal(s.get(FEEDS.desktop), release);
+    const staging = configured();
+    live(staging);
+    assert.equal(staging.run(['release-staging'], withApp(staging, { electron: 'e2', ios: 'i1' })).status, 0);
+    assert.doesNotMatch(staging.log(), /update-check/);
+    assert.notEqual(staging.get(`${FOLDER}latest-mac.yml`), null);
   });
 
   it("leaves an app's folder that's already published, and stops before publishing anything for another build of that version", () => {

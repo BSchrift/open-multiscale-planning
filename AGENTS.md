@@ -45,6 +45,9 @@ nothing from the package.
 | On demand | The performance KPIs on the browser at desktop and phone sizes and on the Mac app, against [config/perf.ts](config/perf.ts), report-only; with a base commit, what this checkout made slower | `make test-perf`, `BASE=<commit>`; the iPhone's, `scripts/test-perf-ios.sh` |
 | Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones, after publishing CI's performance results to staging's performance dashboard, the per-route latency targets' request mix, and sync timed against staging. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
 
+[docs/testing.md](docs/testing.md) maps each feature to the end-to-end tests that cover it on each platform. A change
+that adds a feature or an end-to-end test updates its row.
+
 **Anything you check by hand belongs in a layer.** That includes a scratch script, a device check, or a curl. Add it
 to the right layer in the same change, or say why it can't be automated.
 

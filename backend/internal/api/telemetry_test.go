@@ -108,6 +108,35 @@ func TestTelemetryKeepsUpdateChecksAndRollbacks(t *testing.T) {
 	}
 }
 
+// A Mac app that replaced itself reports it on its first launch, with the app builds before and after, and an app it
+// refused for its signature as a check's failure, which an alarm watches.
+func TestTelemetryKeepsAppUpdatesInstalledAndTheirFailures(t *testing.T) {
+	s, logs := newServer(&fakeSyncer{}, nil)
+	body := `{"resourceLogs":[{"resource":{"attributes":[{"key":"service.version","value":{"stringValue":"0.1.0-c2091ac"}}]},
+  "scopeLogs":[{"logRecords":[
+    {"eventName":"app.update.installed","attributes":[
+      {"key":"app.update.from","value":{"intValue":"1793979385"}},
+      {"key":"app.update.build","value":{"intValue":"1794000000"}}]},
+    {"eventName":"app.update.check","attributes":[
+      {"key":"app.update.outcome","value":{"stringValue":"failed"}},
+      {"key":"app.update.failure","value":{"stringValue":"app-signature"}},
+      {"key":"app.update.build","value":{"intValue":"1794000000"}}]}]}]}]}`
+	if rec := do(s, "POST", "/v1/logs", body, testSub); rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	events := clientEvents(t, logs)
+	if len(events) != 2 {
+		t.Fatalf("%d events: %s", len(events), logs)
+	}
+	installed, check := events[0], events[1]
+	if installed["event"] != "app.update.installed" || installed["app.update.from"] != float64(1793979385) || installed["app.update.build"] != float64(1794000000) {
+		t.Errorf("%+v", installed)
+	}
+	if check["app.update.failure"] != "app-signature" {
+		t.Errorf("%+v", check)
+	}
+}
+
 func TestTelemetryRefusesWhatIsNotAnExport(t *testing.T) {
 	s, _ := newServer(&fakeSyncer{}, nil)
 	if rec := do(s, "POST", "/v1/logs", `not json`, testSub); rec.Code != 400 {

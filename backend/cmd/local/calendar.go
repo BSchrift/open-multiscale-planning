@@ -72,6 +72,7 @@ func buildCalendar(ctx context.Context, cfg config, client *dynamodb.Client, sto
 		AuthURL: base + "/google/o/oauth2/auth", TokenURL: base + "/google/token", RevokeURL: base + "/google/revoke", APIURL: base + "/google/calendar/v3/",
 		RedirectURL: base + "/calendar/callback",
 		Trigger:     func(ctx context.Context) error { return loop.run(ctx, "refresh") },
+		Retry:       loop.retryAfter,
 	}
 	loop.worker = google
 	return google, loop, fakes.NewGoogle(clientID, clientSecret, clock.Now), nil
@@ -86,6 +87,7 @@ type calendarLoop struct {
 	mu           stdsync.Mutex
 	pendingSince time.Time
 	lastRun      time.Time
+	retryAt      time.Time
 }
 
 func (l *calendarLoop) run(ctx context.Context, trigger string) error {
@@ -94,10 +96,15 @@ func (l *calendarLoop) run(ctx context.Context, trigger string) error {
 	return l.runLocked(ctx, trigger)
 }
 
+// runLocked runs the worker. Any run does what a waiting retry would, so it takes the retry's place.
 func (l *calendarLoop) runLocked(ctx context.Context, trigger string) error {
-	l.lastRun, l.pendingSince = l.now(), time.Time{}
+	l.lastRun, l.pendingSince, l.retryAt = l.now(), time.Time{}, time.Time{}
 	return l.worker.Run(ctx, trigger, "")
 }
+
+// retryAfter has a tick run the worker again once after has passed. The worker asks from inside a run, which already
+// holds l.mu.
+func (l *calendarLoop) retryAfter(after time.Duration) { l.retryAt = l.now().Add(after) }
 
 // tick runs the worker if a trigger is due, and returns which one ran.
 func (l *calendarLoop) tick(ctx context.Context) (string, error) {
@@ -115,6 +122,8 @@ func (l *calendarLoop) tick(ctx context.Context) (string, error) {
 	switch {
 	case !l.pendingSince.IsZero() && now.Sub(l.pendingSince) >= streamWindow:
 		trigger = "stream"
+	case !l.retryAt.IsZero() && !now.Before(l.retryAt):
+		trigger = gcal.TriggerRetry
 	case now.Sub(l.lastRun) >= scheduleInterval:
 		trigger = "schedule"
 	}

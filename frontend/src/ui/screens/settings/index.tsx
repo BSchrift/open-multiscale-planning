@@ -1,4 +1,4 @@
-import { useId, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { availableHours } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
@@ -10,7 +10,7 @@ import { PAUSE_REMINDER_MIN } from '../../../core/reminders';
 import { slotContext } from '../../../core/slots';
 import { syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
-import type { UpdateStatus, Updater } from '../../../core/updates';
+import type { AppPlace, UpdateStatus, Updater } from '../../../core/updates';
 import type { CalendarMode, Fields, Instant, ReminderSettings } from '../../../core/types';
 import { DEFAULT_SHORTCUT, shortcutFromKeys, shortcutLabel } from '../../../platform/shortcut';
 import { setAppearance, useAppearance } from '../../app/appearance';
@@ -20,6 +20,7 @@ import type { Layout, ScreenProps } from '../../app/registry';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { HowToUpdate } from '../../components/HowToUpdate';
 import { Pill } from '../../components/Pill';
 import type { PillTone } from '../../components/Pill';
 import { useToast } from '../../components/Toast';
@@ -452,9 +453,65 @@ const UPDATE_LINE: Record<UpdateStatus['state'], string | null> = {
   checking: 'Checking…',
   current: 'Up to date.',
   failed: "Couldn't check for updates. It tries again later.",
-  ready: 'Version {v} is ready. It starts the next time the app opens.',
+  ready: 'An update is ready. It starts the next time Multiscale opens.',
   'needs-app': 'Version {v} needs a new version of the app.',
+  'app-downloading': 'Downloading an update… {p}%',
+  'app-ready': 'An update is ready. It installs the next time Multiscale quits or your Mac restarts.',
 };
+/** A Mac app from before it could replace itself. The iPhone gets its app from TestFlight. */
+const NEEDS_MAC_APP = "This update needs the new Mac app. It's the last one you install by hand.";
+const RESTART_NOTE = 'Multiscale closes and opens again in a few seconds.';
+
+type UpdateAction = 'restart' | 'move' | 'install' | 'dmg' | 'how-to';
+interface UpdateCard {
+  line: string;
+  /** Says how app updates work, wherever it's true. */
+  how?: boolean;
+  note?: string;
+  actions: UpdateAction[];
+  /** Check for updates, only where it can do something. */
+  check: boolean;
+}
+
+/** What Settings says and offers for each state of a Mac app that replaces itself. */
+function appCard(status: UpdateStatus, place: AppPlace | null): UpdateCard | null {
+  const failure = status.state === 'failed' ? status.failure : null;
+  if (failure === 'read-only' || (place && (place.kind === 'disk-image' || place.kind === 'translocated') && ['idle', 'checking', 'current'].includes(status.state))) {
+    const where = status.state === 'failed' ? status.place : place?.kind;
+    const line =
+      where === 'translocated'
+        ? "Multiscale can't update itself from where it's running."
+        : failure
+          ? "Multiscale can't update itself while it runs from the disk image."
+          : "Multiscale is running from the disk image, so it can't update itself or open when you log in.";
+    return { line, actions: ['move'], check: true };
+  }
+  switch (failure ?? status.state) {
+    case 'idle':
+    case 'checking':
+    case 'current':
+      return { line: UPDATE_LINE[status.state]!, how: true, actions: [], check: true };
+    case 'app-downloading':
+      return { line: UPDATE_LINE['app-downloading']!.replace('{p}', String(status.state === 'app-downloading' ? status.percent : 0)), how: true, actions: [], check: false };
+    case 'app-ready':
+      return { line: UPDATE_LINE['app-ready']!, note: RESTART_NOTE, actions: ['restart'], check: false };
+    case 'needs-admin':
+      return { line: "Updating Multiscale needs an administrator's password. Update the app asks macOS for it, then restarts Multiscale.", actions: ['install', 'dmg'], check: false };
+    case 'older-app':
+      return { line: "You're using an older version of the app. It stays on this version until you choose Update the app.", actions: ['install'], check: true };
+    case 'app-download':
+      return { line: "Couldn't download the update. It tries again later.", how: true, actions: status.state === 'failed' && (status.failures ?? 0) >= 3 ? ['dmg'] : [], check: true };
+    case 'app-space':
+      return { line: "Couldn't download the update: this Mac is out of space. It tries again later.", how: true, actions: [], check: true };
+    case 'app-signature':
+    case 'app-mismatch':
+      return { line: "The update didn't pass its safety check, so it wasn't installed. It tries again with the next update.", how: true, actions: ['dmg'], check: true };
+    case 'app-install':
+      return { line: "The update didn't install. It tries again the next time Multiscale quits.", how: true, actions: ['restart', 'dmg'], check: false };
+    default:
+      return null;
+  }
+}
 
 /** Desktop: the keys that open capture from anywhere. Change listens for the next keys pressed. */
 function CaptureKeys() {
@@ -518,33 +575,90 @@ function CaptureKeys() {
 /** Updates download by themselves; this shows where they're at and lets someone check or switch now. */
 function Updates(props: { layout: Layout; updates: Updater }) {
   const { updates } = props;
-  const { platform } = useApp();
+  const { platform, clock } = useApp();
   const status = useSyncExternalStore(updates.subscribe, updates.status);
-  const line = UPDATE_LINE[status.state]?.replace('{v}', 'version' in status ? status.version : '');
+  const [howTo, setHowTo] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [said, setSaid] = useState('');
+  const app = updates.app;
+  const card = app ? appCard(status, app.place()) : null;
+  const download = status.state === 'needs-app' && updates.download ? ('dmg' in status && status.dmg) || updates.download : undefined;
+  const line = card?.line ?? (download ? NEEDS_MAC_APP : UPDATE_LINE[status.state]?.replace('{v}', 'version' in status ? (status.version ?? '') : ''));
+  const built = app?.built();
+  const how = card?.how && built ? `App built ${formatDate(localDate(built * 1000, clock.zone()))}, ${localDate(built * 1000, clock.zone()).slice(0, 4)}. Updates download by themselves and install when Multiscale quits or your Mac restarts.` : null;
+  const dmg = ('dmg' in status && status.dmg) || updates.download;
   const btn = { size: 'compact' as const };
+  // Ready and failures are said once as they happen; the line itself isn't live, so a download's percentages aren't read out.
+  const announce = status.state === 'app-ready' || (status.state === 'failed' && !!card) ? line : '';
+  useEffect(() => {
+    if (announce) setSaid(announce);
+  }, [announce]);
+  const actions = card?.actions ?? (status.state === 'ready' ? ['restart'] : download ? ['how-to'] : []);
+  const action = (kind: UpdateAction) => {
+    switch (kind) {
+      case 'restart':
+        return (
+          <Button key={kind} {...btn} variant="primary" type="button" disabled={restarting} onClick={() => {
+            setRestarting(true);
+            void (app && status.state !== 'ready' ? app.restart() : updates.apply());
+          }}>
+            {restarting ? 'Restarting…' : 'Restart to update'}
+          </Button>
+        );
+      case 'move':
+        return (
+          <Button key={kind} {...btn} variant="primary" type="button" onClick={() => void app?.move()}>
+            Move to Applications
+          </Button>
+        );
+      case 'install':
+        return (
+          <Button key={kind} {...btn} variant="primary" type="button" onClick={() => void app?.install()}>
+            Update the app
+          </Button>
+        );
+      case 'dmg':
+        return dmg ? (
+          <Button key={kind} {...btn} type="button" onClick={() => void platform.openExternal(dmg)}>
+            Download the app
+          </Button>
+        ) : null;
+      case 'how-to':
+        return (
+          <Button key={kind} {...btn} variant="primary" type="button" onClick={() => setHowTo(true)}>
+            How to update
+          </Button>
+        );
+    }
+  };
+  const check = card ? card.check : true;
   return (
     <Section title="Updates">
       <div className={props.layout === 'phone' ? 'stack8' : 'setrow'}>
         <div className="stack8">
           <span>Version {updates.version}</span>
           {line && <span className="small quiet">{line}</span>}
+          {status.state === 'app-downloading' && (
+            <div className="updbar" role="progressbar" aria-label="Downloading an update" aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.percent}>
+              <i style={{ width: `${status.percent}%` }} />
+            </div>
+          )}
+          {card?.note && <span className="small quiet">{card.note}</span>}
+          {how && <span className="small quiet">{how}</span>}
+          <span className="sr" role="status">
+            {said}
+          </span>
         </div>
         <div className="row">
-          {status.state === 'ready' && (
-            <Button {...btn} variant="primary" type="button" onClick={() => void updates.apply()}>
-              Restart now
+          {actions.map(action)}
+          {check && (
+            <Button {...btn} type="button" disabled={status.state === 'checking'} onClick={() => void updates.check()}>
+              Check for updates
             </Button>
           )}
-          {status.state === 'needs-app' && updates.download && (
-            <Button {...btn} variant="primary" type="button" onClick={() => void platform.openExternal(updates.download!)}>
-              Download the app
-            </Button>
-          )}
-          <Button {...btn} type="button" disabled={status.state === 'checking'} onClick={() => void updates.check()}>
-            Check for updates
-          </Button>
         </div>
       </div>
+      {howTo && download && <HowToUpdate download={download} onClose={() => setHowTo(false)} />}
     </Section>
   );
 }

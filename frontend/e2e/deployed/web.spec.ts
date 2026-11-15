@@ -304,11 +304,13 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   } else {
     await nav.getByRole('button', { name: 'Plan' }).click();
   }
-  // Plan opens on a way in, or, while the shared test user's first stretch isn't planned, on the steps themselves.
+  // Plan opens on its page, and the steps only from a way in. Which way in depends on the shared test user: prod's first
+  // stretch was begun and is never planned there, so it offers Continue planning, while staging's compat suite finishes a
+  // plan on every run, so staging offers the next stretch's.
   const wayIn = page.getByRole('button', { name: /^(Continue planning|Plan now|Plan (the next|your first) stretch|Plan without a cadence)$/ }).first();
   const steps = page.getByRole('navigation', { name: 'Planning steps' });
-  await expect(wayIn.or(steps).first()).toBeVisible(NETWORK);
-  if (!(await steps.isVisible())) await wayIn.click();
+  await expect(wayIn).toBeVisible(NETWORK);
+  await wayIn.click();
   const shown: [string, RegExp][] = [
     ['Goals', /^Step \d of \d, Goals\. (Are these still your goals|What are your goals)\?$/],
     ['Practices', /^Step \d of \d, Practices\. Your practices$/],
@@ -328,9 +330,11 @@ test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, w
   await expect(page.getByRole('heading', { name: /^Step \d of \d, Finish\. Ready for / })).toBeVisible();
   await expect(page.getByRole('region', { name: 'What changed' })).toBeVisible();
   await page.getByRole('button', { name: 'Save and exit' }).click();
-  // Back on Plan. It offers Continue planning only while the stretch isn't planned yet, which the shared test user's
-  // earlier runs may have done, so any of its ways in will do; a first stretch not yet planned shows its steps again.
-  await expect(wayIn.or(steps).first()).toBeVisible();
+  // Save and exit leaves the steps for the Plan page and its way back in. On 14 and 15 November prod's release step
+  // found the steps still open: on prod's large history, Save and exit's writes outlasted the 5 seconds checks waited
+  // then, as they take 4 to 5 seconds locally with 60,000 deleted records on desktop.
+  await expect(steps).toHaveCount(0);
+  await expect(wayIn).toBeVisible();
 });
 
 test('reports no console errors or content blocked by the security policy', () => {

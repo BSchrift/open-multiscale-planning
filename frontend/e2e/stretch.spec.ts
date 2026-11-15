@@ -207,3 +207,23 @@ test("Finish and plan the week sets the plan and opens weekly planning at its In
   expect((await readRecord(page, 'settings', 'settings'))?.plan_stretch).toEqual({ last_planned: '2026-10-01' });
   expect(errors).toEqual([]);
 });
+
+// Prod's shared test user has a first plan in this state, begun and never finished. Staging's never does, since its
+// compat suite finishes a plan on every run, so the deployed spec's walk is checked from this state here.
+test('a first plan begun on another device continues at its step, and from Finish, Save and exit leaves it for later', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const progress = { for: '2026-11-01', step: 'inbox', done: [], seen: ['goals', 'practices', 'projects', 'inbox'], begun_on: '2026-11-01', at: '2026-11-01T20:00:00.000Z' };
+  const errors = await open(page, phone, [...records, { type: 'settings', id: 'settings', fields: { plan_progress: progress } }]);
+  await cadence(page).getByRole('button', { name: 'Continue planning' }).click();
+  await expect(page.locator('.welcome').getByText('Welcome back. You were on Inbox.')).toBeVisible();
+  await expect(heading(page, /^Step 4 of 5, Inbox/)).toBeFocused();
+  await steps(page).getByRole('button', { name: /Finish/ }).click();
+  await expect(heading(page, 'Step 5 of 5, Finish. Ready for Nov 1 to Dec 31')).toBeFocused();
+
+  await page.getByRole('button', { name: 'Save and exit' }).click();
+  await expect(steps(page)).toHaveCount(0);
+  await expect(cadence(page).getByRole('button', { name: 'Continue planning' })).toBeVisible();
+  // Still a first plan: Save and exit planned nothing.
+  await expect(page.getByText('Plan your first stretch. Projects keep their own dates.')).toBeVisible();
+  expect(errors).toEqual([]);
+});

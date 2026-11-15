@@ -1,6 +1,7 @@
 // Package gcal keeps the Time blocks calendar in Google matching the plan, and mirrors the person's other calendars into
 // the calendar record. One worker run compares what should be there with what is and fixes the difference, so a failed
-// run or an edit made in Google is put right by the next run with no retry or overwrite logic of its own.
+// run or an edit made in Google is put right by the next run with no overwrite logic of its own. The one retry is a run
+// a minute after one that couldn't reach Google, so a passing outage doesn't wait for the half-hourly schedule.
 package gcal
 
 import (
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -42,6 +44,9 @@ const (
 	ErrorFailed        = "calendar_failed"
 	ErrorTooManyEvents = "too_many_events"
 
+	// TriggerRetry names the one run that follows a run that couldn't reach Google.
+	TriggerRetry = "retry"
+
 	window = 8 * 7 * 24 * time.Hour
 	// The server has no zone for the person, so this covers the start of today in every zone.
 	lookBack  = 24 * time.Hour
@@ -56,6 +61,20 @@ const (
 
 // Leaves room for the other fields under the store's limit on a record.
 var maxEventBytes = sync.MaxRecordBytes * 4 / 5
+
+// Variables only so tests can shorten them.
+var (
+	// callTimeout is how long one call to Google may take, the token refresh included. Without it a call that never
+	// answers holds the run until Lambda stops it at its own limit, with nothing recorded for the app to show.
+	callTimeout = 20 * time.Second
+	// retryDelay is how long after a run that couldn't reach Google its follow-up comes: long enough for a dropped
+	// connection or a passing 5xx to clear.
+	retryDelay = time.Minute
+)
+
+// retryRoom is what the follow-up needs left of Lambda's time once it has waited, so Lambda's limit never stops it
+// partway.
+const retryRoom = 2 * time.Minute
 
 // Records is the part of the sync store the worker uses.
 type Records interface {
@@ -76,6 +95,9 @@ type Google struct {
 	RedirectURL                          string
 	// Trigger starts a worker run, from the API's side.
 	Trigger func(context.Context) error
+	// Retry asks whatever runs the worker for one more run after a delay. Nil waits within the run and runs again there,
+	// which is what the Lambda does, having no scheduler to ask; the local stack's loop takes it, so a test's clock decides.
+	Retry func(after time.Duration)
 }
 
 type runCounts struct {
@@ -85,7 +107,8 @@ type runCounts struct {
 func (c runCounts) changed() int { return c.inserted + c.updated + c.deleted }
 
 // Run makes one pass for the connected user. A failure is recorded for the app and in the metrics, and returns nil since
-// the next run fixes it. Only a failure that couldn't be recorded is returned, so Lambda tries again.
+// the next run fixes it, which comes a minute later when Google couldn't be reached. Only a failure that couldn't be
+// recorded is returned, so Lambda tries again.
 func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 	start := g.Now()
 	attrs := []any{"request_id", requestID, "trigger", trigger}
@@ -130,7 +153,50 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 	}
 	code := errorCode(err)
 	finish(failed(code)...)
-	return g.recordFailure(ctx, conn, code)
+	// On a context of its own, with a call's limit, so a run whose context ended still says why it failed.
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
+	defer cancel()
+	if err := g.recordFailure(recordCtx, conn, code); err != nil {
+		return err
+	}
+	if trigger == TriggerRetry || !unreachable(err) {
+		return nil
+	}
+	return g.retry(ctx, requestID)
+}
+
+// unreachable reports a run that failed on the way to Google: no answer, or a 5xx. Not Google refusing, which a run a
+// minute later wouldn't change.
+func unreachable(err error) bool {
+	var retrieve *oauth2.RetrieveError
+	if errors.As(err, &retrieve) {
+		return retrieve.Response != nil && retrieve.Response.StatusCode >= 500
+	}
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code >= 500
+	}
+	var netErr *url.Error
+	return errors.As(err, &netErr)
+}
+
+// retry has one more run follow, retryDelay later, and only one, so an outage costs a run a minute at most.
+func (g *Google) retry(ctx context.Context, requestID string) error {
+	if g.Retry != nil {
+		g.Retry(retryDelay)
+		return nil
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < retryDelay+retryRoom {
+		return nil
+	}
+	wait := time.NewTimer(retryDelay)
+	defer wait.Stop()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-wait.C:
+	}
+	return g.Run(ctx, TriggerRetry, requestID)
 }
 
 // errConnectionGone stops a run whose connection ended while it ran.
@@ -224,7 +290,12 @@ func (g *Google) service(ctx context.Context, refreshToken string) (*calendar.Se
 	return g.serviceFor(ctx, cfg, &oauth2.Token{RefreshToken: refreshToken})
 }
 
+// googleClient makes calls to Google with callTimeout as their limit.
+func googleClient() *http.Client { return &http.Client{Timeout: callTimeout} }
+
 func (g *Google) serviceFor(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token) (*calendar.Service, error) {
+	// oauth2 refreshes the token with the context's client, and the client it returns keeps that one's limit.
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, googleClient())
 	opts := []option.ClientOption{option.WithHTTPClient(cfg.Client(ctx, token))}
 	if g.APIURL != "" {
 		opts = append(opts, option.WithEndpoint(g.APIURL))

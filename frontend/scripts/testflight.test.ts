@@ -381,7 +381,7 @@ function repoOf(commits: { at: number; files?: Record<string, string | null> }[]
   }
   return { dir, hashes, checkouts: () => run(['worktree', 'list']).split('\n').length };
 }
-const macBuild = { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [] };
+const macBuild = { name: 'Multiscale', scheme: 'multiscale', backendOrigins: [], downloadsOrigin: null };
 
 describe('iosShellAt', () => {
   it("hashes a commit's iPhone native code as that commit's build named it, and leaves no checkout behind", () => {

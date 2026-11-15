@@ -104,6 +104,35 @@ device's database, as a sync would apply it, so no sync is timed but `sync.first
 The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
 perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
 
+### The runner
+
+`make test-perf` runs [scripts/test-perf.sh](../scripts/test-perf.sh): it builds this checkout as it's timed, runs
+`frontend/e2e/perf` on the browser and the Mac app, and prints each KPI's p50, p95 and p99 against its target in
+[config/perf.ts](../config/perf.ts), the one list of KPIs and targets that the PR check and the CloudWatch dashboard
+read too. It's report-only: it fails when a spec can't run, never on a timing.
+
+- **Platforms:** desktop Chromium at 1360 × 1000; Chromium at 390 × 844 with its CPU slowed 4× and, for cold starts,
+  Lighthouse's slow 4G; and the Mac app, under xvfb on Linux. `PERF_PLATFORMS` picks some.
+- **Builds:** the browser's is `vite build --mode perf`, served gzipped with the hashed assets cached, as CloudFront
+  serves them; the Mac app's is the build it ships, with its data folder filled before it starts. `BASE=<commit>`
+  builds that commit too, takes samples from the two in turns of 10, alternating which goes first, and compares them.
+- **Samples:** `PERF_SAMPLES` per KPI per build (100), after `PERF_WARMUP` actions thrown away (20), and
+  `PERF_LAUNCHES` cold and warm starts (5). A cold web start is a copy of a profile that holds the data, without its
+  HTTP cache; a cold Mac start is the first launch of a pair.
+- **Results:** the raw samples, a summary per build and, with a base, the comparison as the PR comment shows it, in
+  `frontend/test-results/perf`.
+- **Slower** means all of: the samples differ (Mann-Whitney, p < 0.01), the p95 is more than 10% over the base's, and
+  by more than the KPI's floor (2 ms for frames and typing, 5 ms for quick actions, 25 ms for screens and sync, 100 ms
+  for starts). `sync.push` is never compared: the 2-second wait before a push hides a slower one, which `sync.send`
+  catches.
+
+It replaces the two capture benchmarks, `BENCH=1` in `e2e/capture-bench.spec.ts` and the Mac app's: their open, typing
+and Enter-to-saved timings are `capture.open`, `capture.key` and `capture.save`, and the shortcut panel's is
+`capture.global`. A first run on the shared Mac on 14 November 2026, 10 samples each, on a year of data:
+`capture.save` 24 ms at p50 on the desktop browser, 64 ms on the phone browser and 12 ms in the Mac app; the screens
+13 to 16 ms on desktop and 48 to 205 ms on the phone; cold starts 5.2 s on desktop, 29 s on the phone over slow 4G,
+and 1.9 s in the Mac app; 291 KB fetched on a cold first load.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

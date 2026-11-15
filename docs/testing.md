@@ -16,7 +16,7 @@ feature gets a row, and a test that covers a cell gets named in it.
 | iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
-| Capture benchmarks | `frontend/e2e/capture-bench.spec.ts`, `frontend/electron/e2e/capture-bench.spec.ts` | Web, Mac app | `BENCH=1`, on demand |
+| Performance KPIs | `frontend/e2e/perf/` | Web desktop, web phone and the Mac app | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts) |
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app

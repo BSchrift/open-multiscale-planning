@@ -11,6 +11,8 @@ export default defineConfig({
   // own configs.
   testIgnore: ['**/e2e/stack/**', '**/e2e/deployed/**', '**/e2e/compat/**', '**/e2e/history/**'],
   fullyParallel: true,
+  // The reference page's screenshots are drawn on Linux, as CI runs, so other systems skip comparing them.
+  ignoreSnapshots: !process.env.CI && process.platform !== 'linux',
   // CI also writes an HTML report, which it keeps when a run fails.
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
   use: { baseURL: `http://localhost:${port}`, trace: 'retain-on-failure' },

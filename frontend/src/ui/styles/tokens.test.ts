@@ -133,7 +133,9 @@ describe('the colour tokens', () => {
     const files = readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((file) => /\.(css|tsx?)$/.test(file) && !/\.test\.tsx?$/.test(file));
     const text = files.map((file) => readFileSync(join(src, file), 'utf8')).join('\n');
     const defined = new Set([...text.matchAll(/(--[\w-]+)\s*:|['"`](--[\w-]+)['"`]/g)].map((m) => m[1] ?? m[2]));
-    const unknown = [...new Set([...text.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]!))].filter((name) => !defined.has(name));
+    // A name built in a template, such as var(--fs-${style}), is checked where its whole names are listed.
+    const used = [...text.matchAll(/var\((--[\w-]+)(\$\{)?/g)].filter((m) => !m[2]).map((m) => m[1]!);
+    const unknown = [...new Set(used)].filter((name) => !defined.has(name));
     expect(unknown).toEqual([]);
   });
 

@@ -153,7 +153,7 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await expect(page.getByText(`Undone: ${title} removed. ${title} is back.`)).toBeVisible();
 
   // Add to this week picks it for the week, and puts nothing on the calendar.
-  await page.getByRole('button', { name: 'Add to this week' }).click();
+  await page.getByRole('switch', { name: 'Add to this week' }).click();
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
   await page.keyboard.press('Enter');
   await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();

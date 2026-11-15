@@ -129,7 +129,7 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   }
   await page.screenshot({ path: info.outputPath('process-toast.png') });
 
-  await card(page).getByRole('button', { name: 'Add to this week' }).click();
+  await card(page).getByRole('switch', { name: 'Add to this week' }).click();
   await addTo('one', 'One offs, and to this week');
   await expect(card(page).getByRole('heading', { name: 'Buy stamps' })).toBeVisible();
   await expect(toast).toContainText('Added Fix the gate to One offs and to this week.');
@@ -137,7 +137,8 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   await toast.getByRole('button', { name: 'Undo' }).click();
   await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
   // Undo returns the card as it was when the choice was made, toggle included.
-  await card(page).getByRole('button', { name: 'Adding to this week' }).click();
+  await expect(card(page).getByRole('switch', { name: 'Add to this week' })).toBeChecked();
+  await card(page).getByRole('switch', { name: 'Add to this week' }).click();
   await addTo('report', 'Write the report');
   await expect(toast).toContainText('Added Fix the gate to Write the report.');
 

@@ -37,7 +37,7 @@ import { ONE_OFFS, Picker, placeKey, placeName } from './Picker';
 import type { Place } from './Picker';
 import './process.css';
 import { Button } from '../../components/ds/Button';
-import { Icon } from '../../components/ds/Icon';
+import { Switch } from '../../components/ds/Controls';
 
 export default function Screen(props: ScreenProps) {
   const { stretchStart, stretchEnd } = props.params;
@@ -439,11 +439,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const at = item ? s.idx + 1 : total;
   const pos = `${at} of ${total}`;
   const pct = Math.round((at / Math.max(1, total)) * 100);
-  const planLabel = planning
-    ? `${s.planOn ? 'Adding' : 'Add'} to the plan for ${formatWeekRange(planning)}`
-    : s.planOn
-      ? 'Adding to this week'
-      : 'Add to this week';
+  // A switch: its name stays put, and on or off says the rest.
+  const planLabel = planning ? `Add to the plan for ${formatWeekRange(planning)}` : 'Add to this week';
 
   // Every key on the desktop card shows on its button, with the Option or Alt it needs until Settings makes keys work alone.
   const held = useHeld();
@@ -456,11 +453,9 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     );
   // Planning a stretch, weekly planning comes next, so the week isn't offered.
   const weekToggle = !stretch && (
-    <button className={`pxweek${s.planOn ? ' on' : ''}`} type="button" aria-pressed={s.planOn} onClick={togglePlan}>
-      <span aria-hidden="true"><Icon name={s.planOn ? 'done' : 'plus'} size={16} /></span>
-      {planLabel}
+    <Switch className={`pxweek${s.planOn ? ' on' : ''}`} checked={s.planOn} onChange={togglePlan} label={planLabel}>
       {cap('W')}
-    </button>
+    </Switch>
   );
   const exit = (
     <Button variant={phone ? 'secondary' : 'link'} className={phone ? undefined : 'small'} type="button" onClick={close}>

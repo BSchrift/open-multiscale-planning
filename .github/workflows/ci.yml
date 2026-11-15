@@ -35,6 +35,9 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      # web.initial, the gzipped scripts and styles the page links (docs/performance.md): exact, so it blocks over budget.
+      - run: node scripts/bundle-budget.ts dist
+        working-directory: frontend
 
   backend:
     runs-on: ubuntu-latest

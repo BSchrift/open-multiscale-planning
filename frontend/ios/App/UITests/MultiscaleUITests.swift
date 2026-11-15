@@ -328,6 +328,13 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(keyboard.exists, "Bold put the keyboard away")
         app.typeText("rye")
         XCTAssertEqual(field.value as? String, "Use **rye**")
+        // The keyboard goes by its bar's Done before Save is tapped. With it up, WebKit has the page panned to keep the
+        // field in view, and a tap on Save there can land as the page moves: on CI the keyboard went, the page slid back,
+        // and the editor stayed open. Put away first, Save is tapped where it rests.
+        let done = app.toolbars.buttons["Done"]
+        exists(done)
+        done.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: patience), "the keyboard is still up. On screen:\n\(app.debugDescription)")
         app.tapWeb("Save")
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "the editor is still open")
 

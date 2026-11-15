@@ -399,12 +399,16 @@ describe('the end-of-block prompt', () => {
     await block(w, 'b1', 't1', '12:00', '13:00');
   };
 
-  it('asks Task finished, Partly or Not done, and only Task finished finishes the task, as of when its block ended', async () => {
+  it('asks Done, Partly or Not done, each after its icon, and only Done finishes the task, as of when its block ended', async () => {
     const t = await open(ended);
     const prompt = await dialog('Block finished');
     expect(within(prompt).getByText('Write the report')).toBeVisible();
-    expect(within(prompt).queryByRole('button', { name: 'Done' })).toBeNull();
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Task finished' }));
+    const answers = ['Done', 'Partly', 'Not done'].map((name) => within(prompt).getByRole('button', { name }));
+    // The icons the missed blocks sheet answers with, hidden, so each button's name is its word alone. Done is filled.
+    for (const b of answers) expect(b.firstElementChild).toMatchObject({ tagName: 'svg' });
+    for (const b of answers) expect(b.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(answers.map((b) => b.classList.contains('pri'))).toEqual([true, false, false]);
+    await userEvent.click(answers[0]!);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(at('13:00'));
   });
@@ -1001,6 +1005,10 @@ describe('the timeline', () => {
     const popup = await taskPopup('Write the report');
     const asks = within(popup).getByRole('group', { name: 'How did it go?' });
     expect(within(popup).queryByRole('button', { name: /^Start/ })).toBeNull();
+    // The end-of-block prompt's answers: each word after its icon, Done filled.
+    const answers = ['Done', 'Partly', 'Not done'].map((name) => within(asks).getByRole('button', { name }));
+    for (const b of answers) expect(b.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(answers.map((b) => b.classList.contains('pri'))).toEqual([true, false, false]);
     await userEvent.click(within(asks).getByRole('button', { name: 'Partly' }));
     // 3 hours estimated, an hour of it done.
     expect(within(asks).getByText('2h left')).toBeVisible();
@@ -1068,6 +1076,39 @@ describe('the timeline', () => {
     expect(out).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(out).toBeEnabled();
+  });
+
+  it.each(['desktop', 'phone'] as const)('on %s, the zoom buttons sit beside Calendar and List, out of the calendar, and only with it', async (layout) => {
+    await open(day, { layout });
+    const zoom = await screen.findByRole('group', { name: 'Calendar zoom' });
+    expect(within(zoom).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Zoom out', 'Zoom in']);
+    // In the timeline's heading row with the view buttons, so they never cover a block.
+    const view = screen.getByRole('group', { name: 'Timeline view' });
+    expect(zoom.closest('.tlhead')).not.toBeNull();
+    expect(zoom.closest('.tlhead')).toBe(view.closest('.tlhead'));
+    expect(document.querySelector('.day')).not.toContainElement(zoom);
+    await userEvent.click(within(view).getByRole('button', { name: 'List' }));
+    expect(screen.queryByRole('group', { name: 'Calendar zoom' })).toBeNull();
+    await userEvent.click(within(view).getByRole('button', { name: 'Calendar' }));
+    expect(await screen.findByRole('group', { name: 'Calendar zoom' })).toBeInTheDocument();
+  });
+
+  it.each(['desktop', 'phone'] as const)('on %s, the current-time line is drawn before the blocks, so it passes behind the one under way', async (layout) => {
+    await open(
+      async (w) => {
+        await day(w);
+        await block(w, 'b0', 't1', '13:00', '15:00');
+        await w.create('calendar', { connected: true, events: [{ id: 'e1', calendar: 'work', title: 'Team call', start: at('14:30'), end: at('15:30') }] }, CALENDAR_ID);
+      },
+      { layout },
+    );
+    const line = await screen.findByRole('img', { name: 'Current time' });
+    await screen.findByText('Team call');
+    const drawn = [...document.querySelectorAll('.day .cev')];
+    expect(drawn.length).toBeGreaterThanOrEqual(3);
+    for (const item of drawn) expect(line.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Its dot is the one part drawn in front of them (styles.test.ts).
+    expect(line.querySelector('i')).not.toBeNull();
   });
 
   it("on phone, a tap on a task's block opens the task, and a practice's session opens its details in a sheet", async () => {

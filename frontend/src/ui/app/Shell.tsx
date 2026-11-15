@@ -1,9 +1,11 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Component, Suspense, useEffect, useRef } from 'react';
+import { Component, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
+import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
+import { HowToUpdate } from '../components/HowToUpdate';
 import { PlusIcon, TabIcon } from '../components/icons';
 import { ToastProvider } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
@@ -127,8 +129,60 @@ function useInboxCount(): number {
   return useQuery((sql) => inboxCount(sql), []).data ?? 0;
 }
 
+const NEW_APP_TITLE = 'Install the new Mac app';
+const NEW_APP_LINE = 'One last install by hand. After this, Multiscale updates itself.';
+
+/**
+ * Today's Mac app can't replace itself, and Settings alone would hide an update that needs the new one for weeks: a
+ * notice at the foot of the sidebar says so until Later, which holds until the app next opens. Its text goes into a
+ * status region that's always there, once, as it appears.
+ */
+function NewAppNotice(props: { updates: Updater; download: string }) {
+  const status = useSyncExternalStore(props.updates.subscribe, props.updates.status);
+  const [later, setLater] = useState(false);
+  const [howTo, setHowTo] = useState(false);
+  const [said, setSaid] = useState('');
+  const shown = status.state === 'needs-app' && !later;
+  useEffect(() => {
+    if (shown) setSaid((was) => was || `${NEW_APP_TITLE}. ${NEW_APP_LINE}`);
+  }, [shown]);
+  return (
+    <>
+      <div className="sr" role="status">
+        {said}
+      </div>
+      {shown && (
+        <div className="updnote">
+          <span className="strong">{NEW_APP_TITLE}</span>
+          <span className="small">{NEW_APP_LINE}</span>
+          <div className="row">
+            <button className="btn sm pri" type="button" onClick={() => setHowTo(true)}>
+              How to update
+            </button>
+            <button
+              className="btn sm"
+              type="button"
+              aria-label="Later, hide the update notice until Multiscale next opens"
+              onClick={(event) => {
+                // The button goes with the notice, so focus goes to the page someone was on.
+                event.currentTarget.closest('nav')?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+                setLater(true);
+                setSaid('Hidden until Multiscale next opens.');
+              }}
+            >
+              Later
+            </button>
+          </div>
+        </div>
+      )}
+      {howTo && <HowToUpdate download={props.download} onClose={() => setHowTo(false)} />}
+    </>
+  );
+}
+
 function DesktopNav() {
   const nav = useNav();
+  const { updates } = useApp();
   const count = useInboxCount();
   const { shortcut } = useCaptureShortcut();
   const lit = nav.flow ? FLOW_TABS[nav.flow.area] : nav.tab;
@@ -155,6 +209,8 @@ function DesktopNav() {
           );
         })}
       </div>
+      {/* Only the Mac app offers a download. */}
+      {updates?.download && <NewAppNotice updates={updates} download={updates.download} />}
     </nav>
   );
 }

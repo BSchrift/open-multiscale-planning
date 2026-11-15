@@ -15,6 +15,7 @@ import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import type { Minutes } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
+import { AnswerIcon } from '../icons';
 import { useToast } from '../Toast';
 import { useFocusLanding } from '../useFocusLanding';
 import { dayName } from '../weekgrid';
@@ -98,6 +99,7 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
                   disabled={actions.pending}
                   onClick={() => (c === 'partly' ? setLeft(task ? partlyLeft(task, block) : workMinutes(block)) : answer(c))}
                 >
+                  <AnswerIcon answer={c} />
                   {WORDS.task[c]}
                 </button>
               ))}

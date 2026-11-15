@@ -20,6 +20,7 @@ import type { Layout, ScreenProps } from '../../app/registry';
 import { useNav } from '../../app/nav';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { EstimateSlider } from '../../components/EstimateSlider';
+import { HowToUpdate } from '../../components/HowToUpdate';
 import { Pill } from '../../components/Pill';
 import type { PillTone } from '../../components/Pill';
 import { useToast } from '../../components/Toast';
@@ -451,9 +452,11 @@ const UPDATE_LINE: Record<UpdateStatus['state'], string | null> = {
   checking: 'Checking…',
   current: 'Up to date.',
   failed: "Couldn't check for updates. It tries again later.",
-  ready: 'Version {v} is ready. It starts the next time the app opens.',
+  ready: 'An update is ready. It starts the next time Multiscale opens.',
   'needs-app': 'Version {v} needs a new version of the app.',
 };
+/** A Mac app from before it could replace itself. The iPhone gets its app from TestFlight. */
+const NEEDS_MAC_APP = "This update needs the new Mac app. It's the last one you install by hand.";
 
 /** Desktop: the keys that open capture from anywhere. Change listens for the next keys pressed. */
 function CaptureKeys() {
@@ -517,9 +520,10 @@ function CaptureKeys() {
 /** Updates download by themselves; this shows where they're at and lets someone check or switch now. */
 function Updates(props: { layout: Layout; updates: Updater }) {
   const { updates } = props;
-  const { platform } = useApp();
   const status = useSyncExternalStore(updates.subscribe, updates.status);
-  const line = UPDATE_LINE[status.state]?.replace('{v}', 'version' in status ? status.version : '');
+  const [howTo, setHowTo] = useState(false);
+  const download = status.state === 'needs-app' ? updates.download : undefined;
+  const line = download ? NEEDS_MAC_APP : UPDATE_LINE[status.state]?.replace('{v}', 'version' in status ? status.version : '');
   const btn = props.layout === 'phone' ? 'btn' : 'btn sm';
   return (
     <Section title="Updates">
@@ -531,12 +535,12 @@ function Updates(props: { layout: Layout; updates: Updater }) {
         <div className="row">
           {status.state === 'ready' && (
             <button className={`${btn} pri`} type="button" onClick={() => void updates.apply()}>
-              Restart now
+              Restart to update
             </button>
           )}
-          {status.state === 'needs-app' && updates.download && (
-            <button className={`${btn} pri`} type="button" onClick={() => void platform.openExternal(updates.download!)}>
-              Download the app
+          {download && (
+            <button className={`${btn} pri`} type="button" onClick={() => setHowTo(true)}>
+              How to update
             </button>
           )}
           <button className={btn} type="button" disabled={status.state === 'checking'} onClick={() => void updates.check()}>
@@ -544,6 +548,7 @@ function Updates(props: { layout: Layout; updates: Updater }) {
           </button>
         </div>
       </div>
+      {howTo && updates.download && <HowToUpdate download={updates.download} onClose={() => setHowTo(false)} />}
     </Section>
   );
 }

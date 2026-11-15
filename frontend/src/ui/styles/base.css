@@ -102,3 +102,17 @@ h3{font-size:var(--text-h3);font-weight:600;color:var(--quiet)}
 .gdia.late,.msdia.late,:where([data-layout='desktop']) .pdot.late{border-color:var(--red);background:var(--white)}
 .gdia.late.on,.msdia.late.on,:where([data-layout='desktop']) .pdot.late.on{background:var(--red)}
 .gdia.done,.msdia.done,:where([data-layout='desktop']) .pdot.done{box-shadow:0 0 0 2px var(--white),0 0 0 3px var(--blue)}
+
+/* Finish or Drop's box that moves open tasks to the goal's backlog: the whole label is the target. */
+[data-layout] .movecheck {
+  gap: 8px;
+  min-height: var(--tap);
+  cursor: pointer;
+}
+
+[data-layout] .movecheck input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--blue);
+}

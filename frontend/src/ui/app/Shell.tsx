@@ -1,10 +1,12 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Component, Suspense, useEffect, useRef } from 'react';
+import { Component, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
+import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
 import { getSettings } from '../../core/records';
-import { ToastProvider } from '../components/Toast';
+import { HowToUpdate } from '../components/HowToUpdate';
+import { ToastProvider, useToast } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
 import { NavProvider, PaneShown, useNav, useOverlay } from './nav';
@@ -131,8 +133,102 @@ function useInboxCount(): number {
   return useQuery((sql) => inboxCount(sql), []).data ?? 0;
 }
 
+const NEW_APP_TITLE = 'Install the new Mac app';
+const NEW_APP_LINE = 'One last install by hand. After this, Multiscale updates itself.';
+const READY_TITLE = 'Update ready';
+const READY_LINE = 'Installs when Multiscale quits or your Mac restarts.';
+
+/**
+ * An update that needs the Mac app replaced, at the foot of the sidebar, since a login-item app is rarely quit and
+ * Settings alone would hide it for weeks: on today's apps, the new app to install by hand; on an app that replaces
+ * itself, a ready update to restart into. Later hides it until the app next opens. Its text goes into a status region
+ * that's always there, once, as it appears.
+ */
+function UpdateNotice(props: { updates: Updater }) {
+  const { updates } = props;
+  const status = useSyncExternalStore(updates.subscribe, updates.status);
+  const [later, setLater] = useState(false);
+  const [howTo, setHowTo] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [said, setSaid] = useState('');
+  const kind = later ? null : status.state === 'app-ready' && updates.app ? 'ready' : status.state === 'needs-app' && updates.download ? 'new-app' : null;
+  const [title, line] = kind === 'ready' ? [READY_TITLE, READY_LINE] : [NEW_APP_TITLE, NEW_APP_LINE];
+  useEffect(() => {
+    if (kind) setSaid(`${title}. ${line}`);
+  }, [kind, title, line]);
+  const download = status.state === 'needs-app' ? status.dmg ?? updates.download : undefined;
+  return (
+    <>
+      <div className="sr" role="status">
+        {said}
+      </div>
+      {kind && (
+        <div className="updnote">
+          <span className="strong">{title}</span>
+          <span className="small">{line}</span>
+          <div className="row">
+            {kind === 'ready' ? (
+              <Button variant="primary" size="compact" type="button" disabled={restarting} onClick={() => {
+                setRestarting(true);
+                void updates.app?.restart();
+              }}>
+                {restarting ? 'Restarting…' : 'Restart to update'}
+              </Button>
+            ) : (
+              <Button variant="primary" size="compact" type="button" onClick={() => setHowTo(true)}>
+                How to update
+              </Button>
+            )}
+            <Button
+              size="compact"
+              type="button"
+              aria-label="Later, hide the update notice until Multiscale next opens"
+              onClick={(event) => {
+                // The button goes with the notice, so focus goes to the page someone was on.
+                event.currentTarget.closest('nav')?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+                setLater(true);
+                setSaid('Hidden until Multiscale next opens.');
+              }}
+            >
+              Later
+            </Button>
+          </div>
+        </div>
+      )}
+      {howTo && download && <HowToUpdate download={download} onClose={() => setHowTo(false)} />}
+    </>
+  );
+}
+
+/** "Multiscale updated." the first time the window shows after the app replaced itself: it may open hidden at login. */
+function useUpdatedToast() {
+  const { updates } = useApp();
+  const toast = useToast();
+  useEffect(() => {
+    const app = updates?.app;
+    if (!app) return;
+    let shown = false;
+    let stop = false;
+    const show = () => {
+      if (stop || shown || document.visibilityState !== 'visible') return;
+      shown = true;
+      toast.show('Multiscale updated.');
+    };
+    void app.updated().then((updated) => {
+      if (!updated) return;
+      show();
+      document.addEventListener('visibilitychange', show);
+    });
+    return () => {
+      stop = true;
+      document.removeEventListener('visibilitychange', show);
+    };
+  }, [updates, toast]);
+}
+
 function DesktopNav() {
   const nav = useNav();
+  const { updates } = useApp();
   const count = useInboxCount();
   const { shortcut } = useCaptureShortcut();
   const lit = nav.flow ? FLOW_TABS[nav.flow.area] : nav.tab;
@@ -158,6 +254,8 @@ function DesktopNav() {
           );
         })}
       </div>
+      {/* Only the Mac app offers a download or replaces itself. */}
+      {(updates?.download || updates?.app) && <UpdateNotice updates={updates} />}
     </nav>
   );
 }
@@ -202,6 +300,7 @@ function Frame() {
   useReminders();
   useShareImport();
   useKeyboardInset();
+  useUpdatedToast();
 
   useEffect(() => platform.hotkey?.onCapture(() => nav.openOverlay('capture')), [platform, nav.openOverlay]);
 

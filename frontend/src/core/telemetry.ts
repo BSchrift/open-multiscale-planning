@@ -52,7 +52,7 @@ function errorPlace(event: ErrorEvent): Attributes {
 
 /**
  * Reports app.start and the last run's end at once, an app.heartbeat each minute, memory warnings and uncaught errors,
- * each update check's result and an update rolled back. The SDK sends a batch each minute and when the page is hidden; a
+ * each update check's result, an update rolled back, and a Mac app that just replaced itself. The SDK sends a batch each minute and when the page is hidden; a
  * batch that fails to send is dropped.
  */
 export async function startTelemetry(deps: {
@@ -65,7 +65,7 @@ export async function startTelemetry(deps: {
   resource: Attributes;
   diagnostics?: Diagnostics;
   /** Over-the-air updates, in apps that take them. */
-  updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack'>;
+  updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>;
   /** The screen on show, such as week. */
   screen(): string | undefined;
   /** Where errors and visibility changes arrive: the window. */
@@ -121,9 +121,16 @@ export async function startTelemetry(deps: {
   const { updates } = deps;
   const rolledBack = await updates?.rolledBack().catch(() => null);
   if (rolledBack) record('app.update.rollback', { 'app.update.build': rolledBack });
+  // On the first launch of a Mac app that replaced itself, with the app builds before and after.
+  const installed = await updates?.app?.updated().catch(() => null);
+  if (installed) record('app.update.installed', { 'app.update.from': installed.from, 'app.update.build': installed.to });
+  let downloading: number | undefined;
   const updateChecked = () => {
     const status = updates!.status();
     if (status.state === 'idle' || status.state === 'checking') return;
+    // A download reports its percent as it goes: one event when it starts is enough.
+    if (status.state === 'app-downloading' && downloading === status.build) return;
+    downloading = status.state === 'app-downloading' ? status.build : undefined;
     record('app.update.check', {
       'app.update.outcome': status.state,
       ...(status.state === 'failed' ? { 'app.update.failure': status.failure } : {}),

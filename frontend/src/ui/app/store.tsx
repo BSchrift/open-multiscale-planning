@@ -12,7 +12,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { DependencyList, ReactNode } from 'react';
 import type { Clock } from '../../core/clock';
 import { today as todayOf } from '../../core/dates';
-import type { Db, Sql } from '../../core/db';
+import type { Db, DbChange, Sql } from '../../core/db';
+import { perf } from '../../core/perf';
 import { transact } from '../../core/records';
 import type { Writer } from '../../core/records';
 import type { AppSync } from '../../core/syncRunner';
@@ -79,6 +80,8 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
   let stale = true;
   let reading = false;
   let again = false;
+  // Set by a sync's changes until a read shows them, which ends sync.pull (core/syncRunner.ts) if one is timing.
+  let remote = false;
   const notifiers = new Set<() => void>();
   const publish = (next: QueryResult<T>) => {
     snapshot = next;
@@ -88,7 +91,8 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
   // app's database, in a worker (platform/web.ts), each wait their turn, so a read for every change in a burst would
   // queue behind the others and leave the screen seconds behind. A read a change landed in may mix before and after,
   // so only the next one is shown.
-  const refresh = () => {
+  const refresh = (change?: DbChange) => {
+    if (change?.source === 'remote') remote = true;
     stale = false;
     if (reading) {
       again = true;
@@ -102,7 +106,10 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
     new Promise<T>((resolve) => resolve(run()))
       .then(
         (data) => {
-          if (current()) publish({ data, error: undefined });
+          if (!current()) return;
+          publish({ data, error: undefined });
+          if (remote) perf.stopAfterPaint('sync.pull');
+          remote = false;
         },
         (error: unknown) => {
           console.error('Query failed', error);

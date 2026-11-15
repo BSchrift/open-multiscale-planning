@@ -580,6 +580,8 @@ describe('To schedule on Week', () => {
     const panel = screen.getByRole('group', { name: 'Draft the summary' });
     const times = within(within(panel).getByRole('group', { name: 'Suggested times for Draft the summary' })).getAllByRole('button');
     expect(times[0]).toHaveAccessibleName(times[0]!.textContent!);
+    // Each says its day and time, with no number before it.
+    for (const time of times) expect(time).toHaveAccessibleName(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d/);
     expect(times).toHaveLength(3);
     expect(screen.getAllByRole('button', { name: /^Use suggested time/ })).toHaveLength(3);
     await userEvent.click(times[0]!);
@@ -664,6 +666,26 @@ describe('To schedule on Week', () => {
     await userEvent.click(within(within(sheet).getByRole('group', { name: 'Suggested times for Piano practice' })).getAllByRole('button')[0]!);
     await waitFor(async () => expect(await live(t, (b) => b.practice_id === 'pr')).toHaveLength(2));
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on Monday/ })).toBeNull());
+  });
+
+  it.each(['desktop', 'phone'] as const)("on %s, Choose a time on a practice's card puts its session on the calendar to place by hand", async (layout) => {
+    const t = await open({ layout, seed: picks });
+    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Monday, to schedule' }));
+    const panel = layout === 'phone' ? screen.getByRole('dialog', { name: 'Piano practice' }) : screen.getByRole('group', { name: 'Piano practice' });
+    await userEvent.click(within(panel).getByRole('button', { name: 'Choose a time' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect((await block('session:pr:2026-11-02')(t))?.deleted_at).toBeFalsy());
+    expect(await block('session:pr:2026-11-02')(t)).toBeTruthy();
+  });
+
+  it.each(['desktop', 'phone'] as const)("on %s, Choose a time from Today places a set day's session by hand, for its own day", async (layout) => {
+    const close = vi.fn();
+    const t = await open({ layout, seed: picks, params: { place: 'pr:2026-11-05' }, close });
+    expect(await (layout === 'phone' ? screen.findByText('Placing Piano practice, 30m') : screen.findByRole('group', { name: 'Placing Piano practice' }))).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    await waitFor(async () => expect(await block('session:pr:2026-11-05')(t)).toBeTruthy());
+    expect(await live(t, (b) => b.practice_id === 'pr')).toHaveLength(2);
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('on phone, a card held then dragged onto a row of the day is placed at that time', async () => {

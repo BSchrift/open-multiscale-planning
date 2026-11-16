@@ -7,6 +7,7 @@ import {
   dragResult,
   dropSlot,
   fits,
+  holdSlot,
   infoSpans,
   isOpen,
   offers,
@@ -310,6 +311,35 @@ describe('dragResult', () => {
   it("doesn't end a block under way before the range starts, now", () => {
     expect(dragResult(span(MON, 780, 900), 'resize', 0, -120, [], { from: 840, to: 1380 }).end).toBe(840);
     expect(dragResult(span(MON, 780, 900), 'resize', 0, -45, [], { from: 840, to: 1380 }).end).toBe(855);
+  });
+});
+
+describe('holdSlot', () => {
+  // Monday at 10:40am.
+  const now = { date: MON, minutes: 640 };
+
+  it('drafts an hour from the quarter hour under the finger', () => {
+    expect(holdSlot(MON, 1070, now)).toEqual({ date: MON, start: 1065, end: 1125, moved: null });
+    expect(holdSlot(TUE, 545, now)).toEqual({ date: TUE, start: 540, end: 600, moved: null });
+  });
+
+  it('takes no time that has gone by, and in the quarter hour now falls in starts at the next', () => {
+    expect(holdSlot(MON, 530, now)).toBeNull();
+    expect(holdSlot(MON, 629, now)).toBeNull();
+    expect(holdSlot(SUN, 1200, { date: '2026-11-09', minutes: 600 })).toBeNull();
+    expect(holdSlot(MON, 632, now)).toEqual({ date: MON, start: 645, end: 705, moved: 'next' });
+    // On the quarter hour itself, nothing of it has gone by.
+    expect(holdSlot(MON, 600, { date: MON, minutes: 600 })).toEqual({ date: MON, start: 600, end: 660, moved: null });
+  });
+
+  it('starts earlier near the end of the day, to keep its hour', () => {
+    expect(holdSlot(TUE, 1355, now)).toEqual({ date: TUE, start: 1320, end: 1380, moved: 'end' });
+    expect(holdSlot(TUE, 1290, now, 1320)).toEqual({ date: TUE, start: 1260, end: 1320, moved: 'end' });
+  });
+
+  it('runs to the end of the day in its last hour, rather than start in time gone by, and takes none once it ends', () => {
+    expect(holdSlot(MON, 1360, { date: MON, minutes: 1350 })).toEqual({ date: MON, start: 1350, end: 1380, moved: 'short' });
+    expect(holdSlot(MON, 1378, { date: MON, minutes: 1372 })).toBeNull();
   });
 });
 

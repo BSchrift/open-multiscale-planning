@@ -1278,6 +1278,11 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the tim
     const el = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
     expect(el).toHaveClass('blk', 'k-inbox', 's-planned');
     expect(el.querySelector('svg[data-icon="inbox"]')).not.toBeNull();
+    // The word goes on a second line, beside the title on desktop and under it on phone once zoomed in to fit it.
+    if (layout === 'phone') {
+      expect(el).not.toHaveTextContent('Inbox');
+      await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    }
     expect(el).toHaveTextContent('Inbox, 5:45pm to 6:45pm');
     await userEvent.click(el);
     await taskPopup('Book dentist');
@@ -1653,6 +1658,149 @@ describe('moving a block on the timeline', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
       expect(await saved(t)).toMatchObject({ start: at('16:00'), end: at('17:00') });
     });
+  });
+});
+
+describe('hold to create on the timeline', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const day = async (w: Writer) => {
+    await task(w, 't1', 'Write the report');
+    await block(w, 'b1', 't1', '16:00', '17:00');
+  };
+  const timeline = () => document.querySelector<HTMLElement>('.day')!;
+  const draft = () => document.querySelector<HTMLElement>('.cev.holddraft');
+  // jsdom has no layout: the day starts at 7am at the top, and the first zoom draws 30px an hour, two minutes a pixel.
+  const y = (time: string) => {
+    const [h, m] = time.split(':').map(Number);
+    return (h! * 60 + (m ?? 0) - 420) / 2;
+  };
+  const kind = (layout: Layout) => (layout === 'phone' ? 'touch' : 'mouse');
+  const ready = (layout: Layout) => screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  const press = (time: string, layout: Layout, pointerId = 1) =>
+    fireEvent.pointerDown(timeline(), { clientX: 100, clientY: y(time), button: 0, pointerType: kind(layout), pointerId });
+  const hold = async (time: string, layout: Layout) => {
+    await ready(layout);
+    press(time, layout);
+    await wait(450);
+  };
+  const letGo = (time: string, layout: Layout) => fireEvent.pointerUp(window, { clientX: 100, clientY: y(time), pointerType: kind(layout), pointerId: 1 });
+
+  for (const layout of ['desktop', 'phone'] as const) {
+    describe(`on ${layout}`, () => {
+      it('a hold on empty space drafts an hour from the quarter hour under it, with one light tap, and letting go opens Capture there; Save puts an Inbox item and its block there', async () => {
+        const t = await open(day, { layout });
+        await hold('17:46', layout);
+        expect(draft()).toHaveClass('blk', 's-placing', 'pop');
+        expect(draft()).toHaveTextContent('New task');
+        expect(draft()).toHaveAttribute('title', '5:45pm to 6:45pm');
+        expect(document.querySelector('.holdring')).not.toBeNull();
+        expect(t.platform.haptics).toEqual(['light']);
+        letGo('17:46', layout);
+        const capture = await screen.findByRole('dialog', { name: 'Capture' });
+        expect(within(capture).getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+        const field = within(capture).getByRole('textbox', { name: 'Capture to Inbox' });
+        await waitFor(() => expect(field).toHaveFocus());
+        await userEvent.type(field, 'Book dentist');
+        expect(draft()).toHaveTextContent('Book dentist');
+        await userEvent.keyboard('{Enter}');
+        expect(await screen.findByText('Saved to Inbox, 5:45pm to 6:45pm')).toBeVisible();
+        expect(draft()).toBeNull();
+        const saved = await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
+        expect(saved).toHaveClass('k-inbox');
+        expect(await listRecords(t.db, 'task')).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'inbox', title: 'Book dentist', estimate_min: 60 })]));
+      });
+
+      it('a hold on time gone by drafts nothing, with no tap, and a toast says why', async () => {
+        const t = await open(day, { layout });
+        await hold('13:00', layout);
+        expect(draft()).toBeNull();
+        expect(await screen.findByText('That time has gone by. Hold on a later time.')).toBeVisible();
+        expect(t.platform.haptics).toEqual([]);
+      });
+
+      it('a draft that overlaps a block keeps its hour, sits beside it, and Capture says by how much; Cancel takes it away, saving nothing', async () => {
+        const t = await open(day, { layout });
+        await hold('15:30', layout);
+        expect(draft()).toHaveAttribute('title', '3:30pm to 4:30pm');
+        expect(draft()!.style.left).toBe('50%');
+        letGo('15:30', layout);
+        const capture = await screen.findByRole('dialog', { name: 'Capture' });
+        expect(within(capture).getByText('Overlaps Write the report by 30m.')).toBeVisible();
+        await userEvent.click(within(capture).getByRole('button', { name: 'Cancel' }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull());
+        expect(draft()).toBeNull();
+        expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([]);
+      });
+
+      it('a tap or a click on empty space drafts nothing', async () => {
+        const t = await open(day, { layout });
+        await ready(layout);
+        press('18:00', layout);
+        await wait(100);
+        letGo('18:00', layout);
+        await wait(400);
+        expect(draft()).toBeNull();
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(t.platform.haptics).toEqual([]);
+      });
+    });
+  }
+
+  it('on phone, the draft follows the finger in quarter hours after the tap, and keeps its hour', async () => {
+    await open(day, { layout: 'phone' });
+    await hold('17:46', 'phone');
+    fireEvent.pointerMove(window, { clientX: 100, clientY: y('17:46') + 3, pointerType: 'touch', pointerId: 1 });
+    expect(draft()).toHaveAttribute('title', '5:45pm to 6:45pm');
+    fireEvent.pointerMove(window, { clientX: 100, clientY: y('17:46') + 15, pointerType: 'touch', pointerId: 1 });
+    expect(draft()).toHaveAttribute('title', '6:15pm to 7:15pm');
+    letGo('18:16', 'phone');
+    expect(within(await screen.findByRole('dialog', { name: 'Capture' })).getByText('Today, 6:15pm to 7:15pm')).toBeVisible();
+  });
+
+  it('on phone, a finger that moves 8pt before the hold scrolls, and a second finger pinches: neither drafts anything', async () => {
+    const t = await open(day, { layout: 'phone' });
+    await ready('phone');
+    press('18:00', 'phone');
+    fireEvent.pointerMove(window, { clientX: 100, clientY: y('18:00') + 9, pointerType: 'touch', pointerId: 1 });
+    await wait(450);
+    expect(draft()).toBeNull();
+    letGo('18:00', 'phone');
+
+    press('18:00', 'phone');
+    press('19:00', 'phone', 2);
+    await wait(450);
+    expect(draft()).toBeNull();
+    expect(t.platform.haptics).toEqual([]);
+  });
+
+  it('on desktop, a mouse that moves 6px before the hold drafts nothing', async () => {
+    await open(day);
+    await ready('desktop');
+    press('18:00', 'desktop');
+    fireEvent.pointerMove(window, { clientX: 106, clientY: y('18:00'), pointerType: 'mouse', pointerId: 1 });
+    await wait(450);
+    expect(draft()).toBeNull();
+  });
+
+  it('on desktop, Esc in Capture takes the draft away', async () => {
+    await open(day);
+    await hold('18:00', 'desktop');
+    letGo('18:00', 'desktop');
+    await screen.findByRole('dialog', { name: 'Capture' });
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(draft()).toBeNull());
+  });
+
+  it('on phone, a hold on a block still lifts the block to move it, and drafts nothing; nor does a hold while it moves', async () => {
+    const t = await open(day, { layout: 'phone' });
+    const el = await ready('phone');
+    fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch', pointerId: 1 });
+    await wait(450);
+    expect(el).toHaveClass('lifted');
+    press('19:00', 'phone', 2);
+    await wait(450);
+    expect(draft()).toBeNull();
+    expect(t.platform.haptics).toEqual(['light']);
   });
 });
 

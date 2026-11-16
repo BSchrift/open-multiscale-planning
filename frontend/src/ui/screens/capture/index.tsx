@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { addToBacklog, backlogTitle, isBacklog } from '../../../core/backlog';
 import { placeBlock } from '../../../core/blocks';
 import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
-import { nowInstant } from '../../../core/dates';
+import { formatTimeOfDay, nowInstant } from '../../../core/dates';
 import { perf } from '../../../core/perf';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../core/plan';
@@ -32,7 +32,6 @@ import { emptyDraft, oneOffFields } from '../../components/oneoff/draft';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { useDialogFocus } from '../../components/useDialogFocus';
-import { dayName, slotRange } from '../../components/weekgrid';
 import './capture.css';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
@@ -51,6 +50,7 @@ function startKey(e: KeyboardEvent<HTMLInputElement>) {
   else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) perf.start('capture.key', e.timeStamp);
 }
 const opened = () => perf.stopAfterPaint('capture.open');
+const slotRange = (s: Slot) => `${formatTimeOfDay(s.start)} to ${formatTimeOfDay(s.end)}`;
 const saveTapped = (e: { timeStamp: number }) => perf.start('capture.save', e.timeStamp);
 /** On desktop, how far from the draft Capture opens beside it, and how far up it starts, so its first line meets it. */
 const BESIDE_PX = 8;
@@ -170,7 +170,7 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
     for (const [id, file] of kept) await platform.files.put(id, file);
     if (slot) {
       const at = slot.slot;
-      toast.show(`Saved to ${place}, ${at.date === today ? '' : `${dayName(at.date)}, `}${slotRange(at)}`, { undo: () => revert.run(undo) });
+      toast.show(`Saved to ${place}, ${at.date === today ? '' : `${dayWord(at.date, today)}, `}${slotRange(at)}`, { undo: () => revert.run(undo) });
       perf.stopAfterPaint('capture.save');
       close();
       return;
@@ -408,16 +408,24 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
 
 function DesktopSheet(props: { fade: boolean; onClose(): void; anchor?(): DOMRect | undefined; children: ReactNode }) {
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);
-  // Beside the draft, on the side with room, its top level with the draft's and kept on screen. Again after each
+  // Beside the draft, on the side with room, its top level with the draft's. A draft too wide for either side, as on
+  // Today's timeline, has it below, or above where there's no room below. Kept on screen, and placed again after each
   // render, since Add details makes it taller.
   useLayoutEffect(() => {
     const at = props.anchor?.();
     const el = ref.current;
     if (!at || !el) return;
-    const after = at.right + BESIDE_PX;
-    const left = after + el.offsetWidth > innerWidth - BESIDE_PX ? at.left - BESIDE_PX - el.offsetWidth : after;
-    el.style.left = `${Math.max(BESIDE_PX, left)}px`;
-    el.style.top = `${Math.max(BESIDE_PX, Math.min(at.top - RISE_PX, innerHeight - el.offsetHeight - BESIDE_PX))}px`;
+    const [w, h] = [el.offsetWidth, el.offsetHeight];
+    let [x, y] = [at.right + BESIDE_PX, at.top - RISE_PX];
+    if (x + w > innerWidth - BESIDE_PX) {
+      if (at.left - BESIDE_PX - w >= BESIDE_PX) x = at.left - BESIDE_PX - w;
+      else {
+        x = at.left;
+        y = at.bottom + BESIDE_PX + h <= innerHeight - BESIDE_PX ? at.bottom + BESIDE_PX : at.top - BESIDE_PX - h;
+      }
+    }
+    el.style.left = `${Math.max(BESIDE_PX, Math.min(x, innerWidth - w - BESIDE_PX))}px`;
+    el.style.top = `${Math.max(BESIDE_PX, Math.min(y, innerHeight - h - BESIDE_PX))}px`;
   });
   return (
     <div ref={ref} className={`capsheet${props.fade ? ' fade' : ''}`} role="dialog" aria-modal="true" aria-label="Capture" tabIndex={-1}>

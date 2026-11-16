@@ -270,3 +270,107 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
   expect(await page.evaluate(() => (window as unknown as { taps: unknown[] }).taps)).toEqual(phone ? [10] : []);
   expect(errors).toEqual([]);
 });
+
+/** Where a time is on the drawn day, which starts at 7am and draws 30px an hour at the first zoom, in its middle third. */
+async function onDay(page: Page, time: string) {
+  const day = page.locator('.day');
+  await day.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // Measured once it holds still, since what loads above the day can still push it down the page.
+  let box = (await day.boundingBox())!;
+  await expect
+    .poll(async () => {
+      const was = box.y;
+      await page.waitForTimeout(150);
+      box = (await day.boundingBox())!;
+      return box.y === was;
+    })
+    .toBe(true);
+  const [h, m] = time.split(':').map(Number);
+  return { x: box.x + box.width * 0.6, y: box.y + ((h! * 60 + (m ?? 0) - 420) / 60) * 30 };
+}
+
+/** A finger pressed there and held, as WebKit sends it: pointer events marked touch. */
+async function fingerDown(page: Page, at: { x: number; y: number }) {
+  await page.evaluate(({ x, y }) => {
+    const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: y };
+    document.elementFromPoint(x, y)!.dispatchEvent(new PointerEvent('pointerdown', init));
+  }, at);
+}
+async function fingerUp(page: Page, at: { x: number; y: number }) {
+  await page.evaluate(({ x, y }) => {
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, clientX: x, clientY: y }));
+  }, at);
+}
+
+test('a press held on empty time drafts an hour there with a ring, and Capture opens on it; Save puts it on the calendar as an Inbox item, with Undo', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  const at = await onDay(page, '17:50');
+  if (phone) await fingerDown(page, at);
+  else {
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+  }
+  const draft = page.locator('.cev.holddraft');
+  await expect(draft).toBeVisible();
+  await expect(draft).toContainText('New task');
+  await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+  await expect(draft).toHaveClass(/\bs-placing\b/);
+  await expect(page.locator('.holdring')).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath('hold-draft.png') });
+  if (phone) await fingerUp(page, at);
+  else await page.mouse.up();
+
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+  const field = capture.getByRole('textbox', { name: 'Capture to Inbox' });
+  await expect(field).toBeFocused();
+  await page.keyboard.type('Book dentist');
+  await expect(draft).toContainText('Book dentist');
+  // The draft stays in view beside Capture on desktop, and above its sheet on phone.
+  const sheet = (await capture.boundingBox())!;
+  const drawn = (await draft.boundingBox())!;
+  const apart = drawn.x + drawn.width <= sheet.x || sheet.x + sheet.width <= drawn.x || drawn.y + drawn.height <= sheet.y || sheet.y + sheet.height <= drawn.y;
+  expect(apart, 'Capture covers the draft').toBe(true);
+  if (phone) expect(drawn.y + drawn.height).toBeLessThanOrEqual(sheet.y);
+  await page.screenshot({ path: info.outputPath('hold-capture.png') });
+  await page.keyboard.press('Enter');
+
+  await expect(page.locator('.toast')).toContainText('Saved to Inbox, 5:45pm to 6:45pm');
+  await expect(draft).toHaveCount(0);
+  const saved = page.getByRole(phone ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
+  await expect(saved).toHaveClass(/\bk-inbox\b/);
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(saved).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a press held on time gone by drafts nothing, and a toast says why; a quick press drafts nothing either', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  const past = await onDay(page, '13:00');
+  if (phone) {
+    await fingerDown(page, past);
+    await page.waitForTimeout(600);
+    await fingerUp(page, past);
+  } else {
+    await page.mouse.move(past.x, past.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+  }
+  await expect(page.locator('.toast')).toContainText('That time has gone by. Hold on a later time.');
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+
+  const later = await onDay(page, '18:00');
+  if (phone) {
+    await fingerDown(page, later);
+    await fingerUp(page, later);
+  } else await page.mouse.click(later.x, later.y);
+  await page.waitForTimeout(600);
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -417,6 +417,29 @@ final class ShellUITests: XCTestCase {
         allowNotificationsIfAsked()
     }
 
+    func testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+        // The seeded app's clock reads 10am, so the afternoon and evening are still to come.
+        let app = launchApp(seed: "Seed plan")
+        let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
+        onToday(day, in: app)
+        // The day runs from 7am to 10pm down the card. Brought up the screen, then held low on it, in the afternoon or
+        // evening, above the tab bar, and let go after the hold.
+        app.swipeUp()
+        let screen = app.windows.firstMatch.frame
+        let y = min(day.frame.maxY - 40, screen.maxY - 160)
+        XCTAssertGreaterThan(y, day.frame.midY, "the lower half of the day isn't on screen. On screen:\n\(app.debugDescription)")
+        let at = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: day.frame.midX, dy: y))
+        at.press(forDuration: 0.8)
+
+        // Capture opens on the draft, saying its day and time.
+        let when = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch
+        exists(when)
+        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.tapWeb("Save")
+        // Saved there as an Inbox item, its block drawn as one: a slider, since it's still to come.
+        exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
+    }
+
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()

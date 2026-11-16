@@ -6,6 +6,7 @@ import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { ActionPerformed, ActionType } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
@@ -181,6 +182,8 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
     signInRedirectUri: 'multiscale://auth/callback',
     onDeepLink: links.on,
     setAppearance: (appearance) => NativeAppearance.set({ appearance }),
+    // iPhones ignore the browser's vibrate, so this is the only way the phone taps back.
+    haptic: () => Haptics.impact({ style: ImpactStyle.Light }).catch(() => undefined),
     diagnostics: {
       snapshot: () => NativeDiagnostics.snapshot(),
       onMemoryWarning: (listener) => {

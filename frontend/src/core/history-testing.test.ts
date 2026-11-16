@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isClock, parseClock } from './clock';
 import { RECORD_FIELDS } from './db';
-import { historyBatches, historyChanges, historyFacts, HISTORY, keptHistory, seedHistory } from './history-testing';
+import { emptyAccount, historyBatches, historyChanges, historyFacts, HISTORY, keptHistory, seedHistory } from './history-testing';
 import { parsePeriod } from '../../../config/retention';
 import { ID_PATTERN, outcomeId } from './records';
 import { fakeSyncServer } from './sync-testing';
@@ -13,6 +13,30 @@ const value = (change: RecordChange, field: string) => change.fields[field]?.v;
 const ofType = (type: RecordType) => changes.filter((c) => c.type === type);
 const nowMs = Date.parse(HISTORY.now);
 const WEEK_MS = 7 * 86_400_000;
+
+// The performance KPIs' data (docs/performance.md): one year, five, or a new account, ending when the run is.
+describe('other sizes', () => {
+  const now = Date.parse('2026-11-18T15:30:00Z');
+  const year = historyChanges({ weeks: 52, now });
+
+  it('makes a year of the same mix, ending at the time given', () => {
+    expect(year.length).toBeGreaterThan(changes.length / 5 - 800);
+    expect(year.length).toBeLessThan(changes.length / 5 + 800);
+    const starts = year.filter((c) => c.type === 'time_block').map((c) => Date.parse(value(c, 'start') as string));
+    expect(Math.min(...starts)).toBeGreaterThan(now - 53 * WEEK_MS);
+    expect(Math.max(...starts)).toBeLessThan(now);
+    expect(Math.max(...starts)).toBeGreaterThan(now - WEEK_MS);
+    expect(year.filter((c) => c.type === 'settings')).toHaveLength(1);
+    expect(historyFacts(year).openInbox).toBeGreaterThan(5);
+    expect(historyChanges({ weeks: 52, now })).toEqual(year);
+  });
+
+  it('a new account is only its settings, past first-run setup', () => {
+    const empty = emptyAccount(now);
+    expect(empty.map((c) => c.type)).toEqual(['settings']);
+    expect(value(empty[0]!, 'setup_done_at')).toBe('2026-11-18T15:30:00Z');
+  });
+});
 
 describe('the history', () => {
   it('is the same on every run', () => {

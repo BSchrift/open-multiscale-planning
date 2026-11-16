@@ -14,4 +14,9 @@ describe('describeBlock', () => {
     expect(describeBlock({ practice_id: null, task_kind: 'project' }, { project, objective })).toEqual({ kind: 'project', word: 'Backlog', path: 'Learn to bake bread > Backlog' });
     expect(KIND_WORD.project).toBe('Project');
   });
+
+  it("reads an Inbox item's block as Inbox, not as a project, since nothing has sorted it yet", () => {
+    expect(describeBlock({ practice_id: null, task_kind: 'inbox' }, {})).toEqual({ kind: 'inbox', word: 'Inbox', path: '' });
+    expect(KIND_WORD.inbox).toBe('Inbox');
+  });
 });

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { answerBlock, extendBlock, nextBlock, resumeBlock, startBlock, swapBlocks, unscheduleBlock, workMinutes } from '../../core/blocks';
 import type { Clock } from '../../core/clock';
 import { addWeeks, dayRange, instantMs, localDate, thisWeek, today, weekStart } from '../../core/dates';
+import { perf } from '../../core/perf';
 import { loadWeekPlanning, planningReminder, planningWeekOf } from '../../core/planning';
 import { blocksInRange, inboxCount } from '../../core/queries';
 import type { BlockRow } from '../../core/queries';
@@ -202,6 +203,8 @@ export function useReminders(): void {
   });
 
   const respond = async (response: ReminderResponse) => {
+    // notify.action (docs/performance.md): from the answer reaching the app to its commit, the sync wait included.
+    const heard = performance.now();
     if (response.action_id === REMINDER_ACTION.snooze) return snoozeBlock(response.block_id, snoozeUntil(clock));
     // The weekly reminder is about a week's planning task rather than a block: it opens Today on its times.
     const week = planningWeekOf(response.block_id);
@@ -222,6 +225,7 @@ export function useReminders(): void {
     await Promise.race([sync?.syncNow(), new Promise((resolve) => setTimeout(resolve, SYNC_WAIT_MS))]);
     // Rather than act on a block that's no longer what the notification said, show the day as it is.
     const result = await answer.run(response, tap);
+    if (result !== STALE) perf.measure('notify.action', heard);
     if (result === STALE) nav.go('today');
     else if (result && 'planning' in result) {
       if (result.planning === 'stretch') nav.openFlow('plan');

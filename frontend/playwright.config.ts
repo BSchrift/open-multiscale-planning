@@ -7,9 +7,9 @@ import { defineConfig, devices } from '@playwright/test';
 const port = Number(process.env.E2E_PORT) || 5183;
 export default defineConfig({
   testDir: 'e2e',
-  // Those sign in to a backend, check a deployment, need two builds or a seeded five-year account, and run from their
-  // own configs. Proposed specs fail by design until the owner decides on the behaviour they describe.
-  testIgnore: ['**/e2e/stack/**', '**/e2e/deployed/**', '**/e2e/compat/**', '**/e2e/history/**', '**/e2e/proposed/**'],
+  // Those sign in to a backend, check a deployment, need two builds or a seeded five-year account, or time the app, and
+  // run from their own configs. Proposed specs fail by design until the owner decides on the behaviour they describe.
+  testIgnore: ['**/e2e/stack/**', '**/e2e/deployed/**', '**/e2e/compat/**', '**/e2e/history/**', '**/e2e/perf/**', '**/e2e/proposed/**'],
   fullyParallel: true,
   // The reference page's screenshots are drawn on Linux, as CI runs, so other systems skip comparing them.
   ignoreSnapshots: !process.env.CI && process.platform !== 'linux',

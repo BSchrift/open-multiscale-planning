@@ -58,14 +58,17 @@ async function launch(dir = mkdtempSync(join(tmpdir(), 'multiscale-offline-')), 
     args: [...KEYCHAIN, ROOT, `--user-data-dir=${dir}`, '--use-mock-keychain', ...args],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   });
-  await app.evaluate(({ shell }) => {
-    globalThis.browserUrls = [];
-    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
-  });
   const page = await app.firstWindow();
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
+  // Only once the window has drawn. Playwright's first evaluate in the main process reads Node's lazy `performance`
+  // global, which loads it. The window's first request, landing meanwhile, has the app scheme's handler load Node's
+  // fetch classes, which read `performance` half loaded and throw, and the window is left on Chromium's error page.
+  await app.evaluate(({ shell }) => {
+    globalThis.browserUrls = [];
+    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
+  });
   const device = { app, page, dir, errors };
   running.push(device);
   return device;
@@ -281,6 +284,9 @@ test('started with no network, the Mac app keeps and takes work, and sends it on
   await joinRun(b, user);
   const fenceId = await idOf(a, fence);
   // The access token runs out while the app is closed, as it does overnight, so starting up has to refresh it first.
+  // A sync can still start before the app has closed, such as the one the fence set off two seconds after it was added,
+  // and it would refresh the token again. So this device can't reach the token endpoint from here on.
+  await a.app.context().route(`${API}/cognito/oauth2/token`, (route) => route.abort('internetdisconnected'));
   await a.page.evaluate(async () => {
     const tokens = (window.multiscaleElectron as ElectronBridge).tokens;
     await tokens.set('auth.session', JSON.stringify({ ...JSON.parse((await tokens.get('auth.session'))!), expires_at: 0 }));

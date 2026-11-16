@@ -60,6 +60,88 @@ three minutes; later runs write nothing but still send all 393 batches.
 
 Staging's numbers come once its history user is set up, as [docs/setup.md](setup.md) describes. Add them here then.
 
+## KPI marks
+
+The performance KPIs, approved on 14 November 2026, time the flows people use most, the same way on the web, the Mac
+app and the iPhone. Each one is a User Timing measure of its own name, from its start event to its stop event, made by
+`frontend/src/core/perf.ts`. The marks are always on, behind no flag: a start is a map write, a stop one
+`performance.measure`, and past 500 measures the page clears them, so memory stays flat. A start takes the input
+event's own timestamp, a pointer's click from its pointerdown, so time the page spent busy before it could run counts.
+"Drawn" means after the next frame is painted: a frame callback, then a message once it has run.
+
+| Measure | Starts at | Stops at | Where |
+| --- | --- | --- | --- |
+| `capture.open` | The shortcut's keydown, or the Capture button's pointerdown | The capture field focused, drawn | `ui/app/Shell.tsx`, `ui/screens/capture` |
+| `capture.global` | Shift-Command-Space, as the Mac app's main process gets it | The panel shown with its field focused, drawn | `electron/main.ts`, `electron/capture-preload.ts` |
+| `capture.key` | A key's keydown in the capture field | Its character drawn | `ui/screens/capture` |
+| `capture.save` | Enter's keydown, or Save's pointerdown | The task committed and "Saved" drawn | `ui/screens/capture` |
+| `nav.today`, `nav.week`, `nav.done`, `nav.analytics` | The tab's or More row's pointerdown | The screen shown with its data, drawn | `ui/app/Shell.tsx`, `ui/app/MorePage.tsx`, `ui/app/drawn.ts` |
+| `today:interactive` (a mark) | | Today first drawn with its data | `ui/screens/today` |
+| `start.resume` | The app back in front while running | The next frame after | `ui/app/Shell.tsx` |
+| `sync.send` | A push's request sent | Its reply | `core/sync.ts` |
+| `sync.push` | The first change a push carries, committed | That push's reply, after a failed try too | `core/syncRunner.ts`, `core/sync.ts` |
+| `sync.pull` | A sync starting | A screen drawn with what it brought; dropped when it brought nothing | `core/syncRunner.ts`, `ui/app/store.tsx` |
+| `notify.action` | A notification's answer reaching the app | The answer committed | `ui/app/reminders.ts` |
+
+The start KPIs, `start.cold` and `start.warm`, run from the launch to `today:interactive`: navigation start on the web,
+and the launch time the test records for the Mac app. `sync.first` stays the history-scale test's first sync.
+
+Still to mark: `popup.open` and `popup.save` in the task popup, `process.step` in Process, `drag.frame` and `drag.drop`
+on Today's timeline and Week, and `plan.step` in Plan the week, whose screens were being changed when the marks went
+in; `capture.control` and `capture.share`, which start in the iPhone's extensions. `e2e/perf-marks.spec.ts` and
+`electron/e2e/perf-marks.spec.ts` check that each action makes exactly one measure.
+
+### The KPIs' data
+
+Each KPI runs on one of three accounts, made by `frontend/src/core/history-testing.ts` and loaded straight into the
+device's database, as a sync would apply it, so no sync is timed but `sync.first`:
+
+- **Empty:** `emptyAccount(now)`, a new account past first-run setup.
+- **One year:** `historyChanges({ weeks: 52, now })`, the history-scale account's weekly mix over 52 weeks, about 7,800
+  records, ending when the run starts, so Today and Week have this week's blocks.
+- **Five years:** `historyChanges({ weeks: 260, now })`, the same 38,836 records as the history-scale test, ending now.
+
+The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
+perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
+
+### The runner
+
+`make test-perf` runs [scripts/test-perf.sh](../scripts/test-perf.sh): it builds this checkout as it's timed, runs
+`frontend/e2e/perf` on the browser and the Mac app, and prints each KPI's p50, p95 and p99 against its target in
+[config/perf.ts](../config/perf.ts), the one list of KPIs and targets that the PR check and the CloudWatch dashboard
+read too. It's report-only: it fails when a spec can't run, never on a timing.
+
+- **Platforms:** desktop Chromium at 1360 × 1000; Chromium at 390 × 844 with its CPU slowed 4× and, for cold starts,
+  Lighthouse's slow 4G; and the Mac app, under xvfb on Linux. `PERF_PLATFORMS` picks some.
+- **Builds:** the browser's is `vite build --mode perf`, served gzipped with the hashed assets cached, as CloudFront
+  serves them; the Mac app's is the build it ships, with its data folder filled before it starts. `BASE=<commit>`
+  builds that commit too, takes samples from the two in turns of 10, alternating which goes first, and compares them.
+- **Samples:** `PERF_SAMPLES` per KPI per build (100), after `PERF_WARMUP` actions thrown away (20), and
+  `PERF_LAUNCHES` cold and warm starts (5). A cold web start is a copy of a profile that holds the data, without its
+  HTTP cache; a cold Mac start is the first launch of a pair.
+- **Results:** the raw samples, a summary per build and, with a base, the comparison as the PR comment shows it, in
+  `frontend/test-results/perf`.
+- **Slower** means all of: the samples differ (Mann-Whitney, p < 0.01), the p95 is more than 10% over the base's, and
+  by more than the KPI's floor (2 ms for frames and typing, 5 ms for quick actions, 25 ms for screens and sync, 100 ms
+  for starts). `sync.push` is never compared: the 2-second wait before a push hides a slower one, which `sync.send`
+  catches.
+
+It replaces the two capture benchmarks, `BENCH=1` in `e2e/capture-bench.spec.ts` and the Mac app's: their open, typing
+and Enter-to-saved timings are `capture.open`, `capture.key` and `capture.save`, and the shortcut panel's is
+`capture.global`. A first run on the shared Mac on 14 November 2026, 10 samples each, on a year of data:
+`capture.save` 24 ms at p50 on the desktop browser, 64 ms on the phone browser and 12 ms in the Mac app; the screens
+13 to 16 ms on desktop and 48 to 205 ms on the phone; cold starts 5.2 s on desktop, 29 s on the phone over slow 4G,
+and 1.9 s in the Mac app; 291 KB fetched on a cold first load.
+
+### Bundle bytes
+
+`web.initial`, the gzipped bytes of the scripts and styles the web app's page links, is exact, so it blocks a merge
+from the first day: the frontend CI job runs `node scripts/bundle-budget.ts dist` on its build and fails over the
+200 KB in `config/perf.ts`. On 14 November 2026 it was 173.3 KB in 15 files. Given the base's build too
+(`--base <dist>`), it notes a change that adds more than 5 KB, which the PR check puts in its comment. `web.firstload`,
+everything a cold first load fetches until Today is interactive, is counted by the runner's cold starts in a browser:
+291 KB on that day, gzipped.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

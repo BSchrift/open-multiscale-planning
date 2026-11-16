@@ -232,9 +232,7 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
     <>
       <p className="capwhen">
         <Icon name="calendar" size={16} />
-        <span>
-          {dayWord(slot.slot.date, today)}, {slotRange(slot.slot)}
-        </span>
+        <span>{`${dayWord(slot.slot.date, today)}, ${slotRange(slot.slot)}`}</span>
       </p>
       {slot.overlap && (
         <p className="capwhen">

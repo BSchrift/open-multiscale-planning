@@ -290,6 +290,8 @@ describe.each(['desktop', 'phone'] as const)('Capture from a hold on a calendar,
     await waitFor(() => expect(field()).toHaveFocus());
     expect(field()).toHaveAccessibleName('Capture to Inbox');
     expect(screen.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+    // One run of text, so VoiceOver and the iPhone's UI tests read it as one line rather than three.
+    expect(screen.getByText('Today, 5:45pm to 6:45pm').childNodes).toHaveLength(1);
     expect(screen.getByText('Overlaps Team sync prep by 15m.')).toBeVisible();
   });
 

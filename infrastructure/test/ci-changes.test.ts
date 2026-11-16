@@ -22,9 +22,17 @@ function changes(event: string, paths: string[]) {
     env: { PATH: process.env.PATH, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary },
   });
   assert.equal(r.status, 0, r.stderr);
-  return { ios: readFileSync(output, 'utf8'), summary: readFileSync(summary, 'utf8'), stdout: r.stdout };
+  return { ...outputs(readFileSync(output, 'utf8')), summary: readFileSync(summary, 'utf8'), stdout: r.stdout };
 }
-const runsIos = (event: string, paths: string[]) => changes(event, paths).ios === 'ios=true\n';
+/** A step's $GITHUB_OUTPUT, as the names it set, each once. */
+function outputs(text: string) {
+  const lines = text.split('\n').filter(Boolean);
+  const set = Object.fromEntries(lines.map((line) => line.split('=') as [string, string]));
+  assert.equal(Object.keys(set).length, lines.length, text);
+  return set as { ios?: string; suite?: string };
+}
+const runsIos = (event: string, paths: string[]) => changes(event, paths).ios === 'true';
+const suite = (event: string, paths: string[]) => changes(event, paths).suite;
 
 describe('scripts/ci-changes.sh', () => {
   it('runs the iPhone job for a pull request that changes what the app is built from', () => {
@@ -98,14 +106,14 @@ describe('scripts/ci-changes.sh', () => {
 
   it('runs it when any one changed path is an input, and says which', () => {
     const r = changes('pull_request', ['docs/releasing.md', 'backend/main.go', 'frontend/src/App.tsx', 'frontend/ios/App/App/Info.plist']);
-    assert.equal(r.ios, 'ios=true\n');
+    assert.equal(r.ios, 'true');
     assert.match(r.summary, /iPhone tests run.*frontend\/src\/App\.tsx/);
     assert.equal(r.stdout, r.summary);
   });
 
   it('says in the summary why it skipped, with what changed', () => {
     const r = changes('pull_request', ['docs/releasing.md', 'backend/main.go']);
-    assert.equal(r.ios, 'ios=false\n');
+    assert.equal(r.ios, 'false');
     assert.match(r.summary, /iPhone tests are skipped/);
     assert.match(r.summary, /2 changed files/);
   });
@@ -119,12 +127,46 @@ describe('scripts/ci-changes.sh', () => {
     assert.ok(!runsIos('merge_group', ['backend/main.go']));
   });
 
-  it('always runs it on a push to main, a scheduled run and a run started by hand, whatever changed', () => {
+  it('always runs every test on a push to main, a scheduled run and a run started by hand, whatever changed', () => {
     for (const event of ['push', 'schedule', 'workflow_dispatch']) {
       const r = changes(event, ['docs/releasing.md']);
-      assert.equal(r.ios, 'ios=true\n', event);
+      assert.equal(r.ios, 'true', event);
+      assert.equal(r.suite, 'full', event);
       assert.match(r.summary, /iPhone tests run/, event);
     }
+  });
+
+  it('runs the smoke set for a pull request that changes the app but not its iPhone tests', () => {
+    for (const path of [
+      'frontend/src/ui/screens/today/Today.tsx',
+      'frontend/ios/App/App/AppDelegate.swift',
+      'frontend/ios/App/App.xcodeproj/project.pbxproj',
+      'config/protocol.yaml',
+      'Makefile',
+      '.github/workflows/ci.yml',
+    ]) {
+      assert.equal(suite('pull_request', [path]), 'smoke', path);
+    }
+    assert.match(changes('pull_request', ['frontend/src/App.tsx']).summary, /smoke set/);
+  });
+
+  it('runs every iPhone test for a pull request that changes the tests, their test page or how they run', () => {
+    for (const path of [
+      'frontend/ios/App/UITests/TodayUITests.swift',
+      'frontend/src/platform/capacitor-checks.ts',
+      'frontend/ios/harness/index.html',
+      'scripts/test-ios.sh',
+    ]) {
+      assert.equal(suite('pull_request', [path]), 'full', path);
+    }
+    // Whichever path comes first.
+    assert.equal(suite('pull_request', ['frontend/src/App.tsx', 'frontend/ios/App/UITests/TodayUITests.swift']), 'full');
+    assert.equal(suite('merge_group', ['frontend/ios/App/UITests/TodayUITests.swift', 'frontend/src/App.tsx']), 'full');
+    assert.match(changes('pull_request', ['scripts/test-ios.sh']).summary, /every iPhone test/);
+  });
+
+  it('runs no suite when it skips the iPhone job', () => {
+    assert.equal(suite('pull_request', ['docs/releasing.md']), 'none');
   });
 
   // The lists above are samples. These hold the script to what the iPhone build actually reads, so a new input can't
@@ -211,14 +253,14 @@ describe('the iPhone job in .github/workflows/ci.yml', () => {
       writeFileSync(output, '');
       const r = spawnSync('bash', ['-e', '-c', step], { cwd: checkout, encoding: 'utf8', env: { PATH: process.env.PATH, GITHUB_EVENT_NAME: event, GITHUB_OUTPUT: output, ...env } });
       assert.equal(r.status, 0, r.stderr);
-      return readFileSync(output, 'utf8');
+      return outputs(readFileSync(output, 'utf8'));
     }
 
     it("reads a pull request's changes from its merge into the base", () => {
       const o = origin();
       o.git('checkout', '-q', '-b', 'merge', o.main);
       o.git('merge', '-q', '--no-ff', '-m', 'merge app', 'app');
-      assert.equal(runStep(o, 'pull_request', 'pull/1/merge'), 'ios=true\n');
+      assert.deepEqual(runStep(o, 'pull_request', 'pull/1/merge'), { ios: 'true', suite: 'smoke' });
     });
 
     it("reads a merge group's changes against the main it was made from, PRs ahead of it included", () => {
@@ -227,14 +269,26 @@ describe('the iPhone job in .github/workflows/ci.yml', () => {
       o.git('checkout', '-q', '-b', 'group', o.main);
       o.git('merge', '-q', '--no-ff', '-m', 'merge app', 'app');
       o.git('merge', '-q', '--no-ff', '-m', 'merge docs', 'docs');
-      assert.equal(runStep(o, 'merge_group', 'gh-readonly-queue/main/pr-2', { MERGE_GROUP_BASE: o.main }), 'ios=true\n');
+      assert.deepEqual(runStep(o, 'merge_group', 'gh-readonly-queue/main/pr-2', { MERGE_GROUP_BASE: o.main }), { ios: 'true', suite: 'smoke' });
     });
 
-    it('runs on a push to main without reading a diff', () => {
+    it('runs every iPhone test on a push to main without reading a diff', () => {
       const o = origin();
       o.git('checkout', '-q', 'docs');
-      assert.equal(runStep(o, 'push', 'main-copy'), 'ios=true\n');
+      assert.deepEqual(runStep(o, 'push', 'main-copy'), { ios: 'true', suite: 'full' });
     });
+  });
+
+  it('runs the suite the changes job picks, with a timeout to fit it', () => {
+    const { ios, changes: job } = ci.jobs as unknown as Record<string, { outputs?: Record<string, string>; 'timeout-minutes'?: string; steps: { run?: string; env?: Record<string, string> }[] }>;
+    assert.match(job!.outputs?.suite ?? '', /steps\.\w+\.outputs\.suite/);
+    const test = ios!.steps.find((step) => step.run === 'make test-ios');
+    assert.equal(test?.env?.MULTISCALE_SUITE, '${{ needs.changes.outputs.suite }}');
+    assert.match(ios!['timeout-minutes'] ?? '', /needs\.changes\.outputs\.suite == 'full'/);
+  });
+
+  it('runs every night, for the full suite', () => {
+    assert.ok('schedule' in ci.on);
   });
 
   it('can be started by hand, which runs every job', () => {

@@ -9,11 +9,11 @@ let patience: TimeInterval = 60
 /// the page's own second or two.
 let launchPatience: TimeInterval = 120
 /// Posted by the debug build each time its web view finishes loading a page (BridgeViewController.swift).
-private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
+let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 
 /// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
 let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
-private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
 extension XCUIApplication {
     var page: XCUIElement { webViews.firstMatch }
@@ -72,7 +72,7 @@ extension XCUIApplication {
 }
 
 /// Waits for an expectation made, before whatever opens the page, from the debug build's page-loaded notification.
-private func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #filePath, line: UInt = #line) {
+func waitForPage(_ loaded: XCTestExpectation, file: StaticString = #filePath, line: UInt = #line) {
     XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: launchPatience), .completed, "the web view never loaded its page", file: file, line: line)
 }
 
@@ -162,7 +162,7 @@ final class SeedTimeTests: XCTestCase {
  * screen changes didn't bring the content in reliably. Hiding the page and showing it again did, every time: so the
  * test goes to another tab and back.
  */
-private func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
     if tab == "Week" {
         app.tapWeb("Today", file: file, line: line)
@@ -179,7 +179,7 @@ func onToday(_ element: XCUIElement, in app: XCUIApplication, file: StaticString
 
 /// Set on a launch so the debug build brings the app's soonest reminder forward to two seconds after the app leaves the
 /// screen (BridgeViewController.swift).
-private let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
+let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
 
 /**
  * Goes to the Home Screen and answers the app's notification from its banner. The app was launched with
@@ -187,7 +187,7 @@ private let remindersOnLeave = "MULTISCALE_REMINDERS_ON_LEAVE"
  * Home Screen. One due at a set time could come while the test was still in the app, and its banner went with the app.
  * Notification Center keeps a notification for longer, but XCUITest can't see the actions a long press there brings up.
  */
-private func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
+func answerNotification(with action: String, alsoOffering others: [String], notOffering absent: [String] = [],
                                 file: StaticString = #filePath, line: UInt = #line) {
     XCUIDevice.shared.press(.home)
     let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
@@ -209,7 +209,7 @@ func allowNotificationsIfAsked() {
 /// Opens one of the app's links, as another app would. iOS asks first, though not every time, and on CI's Simulator the
 /// question can take longer than any fixed wait. So this waits for whichever comes first, the question or `opened`, and
 /// answers the question when that's the one.
-private func openLink(_ link: String, until opened: @escaping () -> Bool) {
+func openLink(_ link: String, until opened: @escaping () -> Bool) {
     XCUIDevice.shared.system.open(URL(string: link)!)
     let open = springboard.alerts.buttons["Open"]
     let either = NSPredicate { _, _ in open.exists || opened() }
@@ -268,7 +268,9 @@ final class ShellUITests: XCTestCase {
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
         }
 
-        app.tapWeb(startingWith: "Inbox")
+        // Straight after Capture closes, as its sheet and the keyboard go, a tap on the tab can be lost, so one the Inbox
+        // didn't open for is tapped again.
+        app.tapWeb("Inbox, 2 to sort", until: app.webButton("Process 2 items"))
         app.tapWeb("Process 2 items")
         // The card's title is a button, which edits it.
         exists(app.webButton("Buy a proofing basket"))
@@ -348,6 +350,13 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(keyboard.exists, "Bold put the keyboard away")
         app.typeText("rye")
         XCTAssertEqual(field.value as? String, "Use **rye**")
+        // The keyboard goes by its bar's Done before Save is tapped. With it up, WebKit has the page panned to keep the
+        // field in view, and a tap on Save there can land as the page moves: on CI the keyboard went, the page slid back,
+        // and the editor stayed open. Put away first, Save is tapped where it rests.
+        let done = app.toolbars.buttons["Done"]
+        exists(done)
+        done.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: patience), "the keyboard is still up. On screen:\n\(app.debugDescription)")
         app.tapWeb("Save")
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "the editor is still open")
 
@@ -455,21 +464,6 @@ final class ShellUITests: XCTestCase {
         let answered = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Proof the loaf, ' AND label ENDSWITH '. Not done.'")).firstMatch
         onToday(answered, in: app)
     }
-
-    /// A select opens as a menu of the app's own options, whatever element type this iOS gives its items.
-    private func choose(_ option: String, in label: String, app: XCUIApplication) {
-        let select = app.webElement(label)
-        exists(select)
-        select.tap()
-        let types = [XCUIElement.ElementType.button, .menuItem, .cell].map(\.rawValue)
-        let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND elementType IN %@", option, types)).firstMatch
-        exists(item)
-        item.tap()
-        // The select shows what's saved, so it goes back to the old value until the save lands, which on CI's Simulator
-        // can take longer than the tap does.
-        let chosen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", option), object: select)
-        XCTAssertEqual(XCTWaiter.wait(for: [chosen], timeout: patience), .completed, "\(label) shows \(select.value ?? "nothing"), not \(option)")
-    }
 }
 
 /// The adapter and plugins against real iOS, on a test page the script adds to this build only.
@@ -560,20 +554,17 @@ final class NativeUITests: XCTestCase {
 
     func testSignInLinkReturnsThroughTheURLSchemeAndClosesTheBrowser() {
         let browser = app.webButton("Browser")
+        // The browser sheet's own button, named Done before iOS 26 and Close since. Whether our page's button is hittable
+        // can't tell instead: asked while the sheet is still sliding up or down, XCUITest fails the test ("Failed to
+        // determine hittability ... Activation point invalid") rather than answering.
+        let sheet = app.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "Close"])).firstMatch
         // Tapped once only: the sheet hides the page from the tree, so tap(_:) couldn't see that it heard.
         browser.tap()
-        // Told by our own page being covered and uncovered, since the sheet's buttons are named differently across
-        // iOS versions (Done, then Close).
-        XCTAssertTrue(wait(for: browser, hittable: false), "the browser sheet never came up. On screen:\n\(app.debugDescription)")
+        XCTAssertTrue(sheet.waitForExistence(timeout: patience), "the browser sheet never came up. On screen:\n\(app.debugDescription)")
         let linked = app.webText("link:multiscale://auth/callback?code=abc&state=def")
         openLink("multiscale://auth/callback?code=abc&state=def") { linked.exists }
         exists(linked)
-        XCTAssertTrue(wait(for: browser, hittable: true), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
-    }
-
-    private func wait(for element: XCUIElement, hittable: Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == %@", NSNumber(value: hittable)), object: element)
-        return XCTWaiter.wait(for: [expectation], timeout: patience) == .completed
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: patience), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
     }
 
     func testCaptureLinkIsNotTreatedAsSignIn() {

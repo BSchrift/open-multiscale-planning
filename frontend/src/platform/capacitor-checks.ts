@@ -195,6 +195,8 @@ const address = document.createElement('input');
 // iOS's URL keyboard, which doesn't capitalize or correct what's typed.
 address.type = 'url';
 address.setAttribute('aria-label', 'Address');
+// Noted, so the test can tell a tap the field never heard, which it taps again, from one that gave it focus.
+address.addEventListener('focus', () => log('focused:Address'));
 document.getElementById('buttons')!.append(address);
 button('Fetch', () =>
   fetch(address.value, { mode: 'no-cors' }).then(

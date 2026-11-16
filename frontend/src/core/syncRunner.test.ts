@@ -9,6 +9,7 @@ import { SyncError, syncStatus, unsyncedChanges } from './sync';
 import type { SyncSend } from './sync';
 import { fakeSyncServer } from './sync-testing';
 import { createSyncRunner, startAppSync } from './syncRunner';
+import { perf } from './perf';
 import { memoryLifecycle } from '../platform/memory';
 import { openTestDb } from '../platform/node-sqlite';
 import { createTestPlatform } from '../platform/testing';
@@ -159,6 +160,56 @@ describe('when it syncs', () => {
     release();
     await Promise.all([first, second, third]);
     expect(t.send).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The sync KPIs in docs/performance.md.
+describe('what it measures', () => {
+  const measures = (name: string) => performance.getEntriesByType('measure').filter((m) => m.name === name);
+  beforeEach(() => {
+    performance.clearMeasures();
+    perf.reset();
+  });
+
+  it('a push: sync.send from its request to the reply, and sync.push from the first edit it carries', async () => {
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    performance.clearMeasures();
+    const before = performance.now();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    expect(measures('sync.send')).toHaveLength(1);
+    expect(measures('sync.push')).toHaveLength(1);
+    expect(measures('sync.push')[0]!.startTime).toBeGreaterThanOrEqual(before);
+    expect(measures('sync.push')[0]!.startTime).toBeLessThan(measures('sync.send')[0]!.startTime);
+    t.runner.stop();
+  });
+
+  it('a push that fails keeps its first edit for the next try, and times no send', async () => {
+    const t = await setup();
+    await t.runner.syncNow();
+    const before = performance.now();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    t.send.mockRejectedValueOnce(new SyncError('offline'));
+    perf.start('sync.push', before);
+    await t.runner.syncNow();
+    expect(measures('sync.send')).toHaveLength(0);
+    expect(perf.pending('sync.push')).toBe(before);
+    await t.runner.syncNow();
+    expect(measures('sync.push').map((m) => m.startTime)).toEqual([before]);
+  });
+
+  it('sync.pull waits for the screens only when a sync brought changes', async () => {
+    const t = await setup();
+    await t.runner.syncNow();
+    expect(perf.pending('sync.pull')).toBeUndefined();
+    const other = await openTestDb();
+    await transact(other, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'From the phone' }));
+    await createSyncRunner({ db: other, clock: t.clock, lifecycle: memoryLifecycle(), send: (req) => t.server.send(req) }).syncNow();
+    await t.runner.syncNow();
+    expect(perf.pending('sync.pull')).toBeDefined();
   });
 });
 

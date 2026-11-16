@@ -6,12 +6,13 @@
 // there, Time is the block's length, and Save's toast has Undo. On desktop it opens beside the draft, with no scrim.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { addToBacklog, backlogTitle, isBacklog } from '../../../core/backlog';
 import { placeBlock } from '../../../core/blocks';
 import { captureTitle, MAX_TITLE } from '../../../core/captureTitle';
 import { nowInstant } from '../../../core/dates';
+import { perf } from '../../../core/perf';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../core/plan';
 import { inboxCount } from '../../../core/queries';
@@ -42,6 +43,15 @@ const BACKLOG = 'b:';
 /** How long desktop shows what it saved before it fades and closes. */
 const SAVED_MS = 700;
 const FADE_MS = 120;
+
+// The capture KPIs (docs/performance.md), each from its key's own timestamp: Enter to saved, and a key to its character
+// drawn. Open ends when the field takes focus; Shell starts it.
+function startKey(e: KeyboardEvent<HTMLInputElement>) {
+  if (e.key === 'Enter') perf.start('capture.save', e.timeStamp);
+  else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) perf.start('capture.key', e.timeStamp);
+}
+const opened = () => perf.stopAfterPaint('capture.open');
+const saveTapped = (e: { timeStamp: number }) => perf.start('capture.save', e.timeStamp);
 /** On desktop, how far from the draft Capture opens beside it, and how far up it starts, so its first line meets it. */
 const BESIDE_PX = 8;
 const RISE_PX = 12;
@@ -84,6 +94,11 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
   const projects = useQuery((sql) => listRecords(sql, 'project'), []).data?.filter((p) => p.state === 'active' && !isBacklog(p)) ?? [];
   const goals = useQuery((sql) => listRecords(sql, 'objective'), []).data?.filter((g) => g.state !== 'archived') ?? [];
   const [text, setText] = useState('');
+  const type = (value: string) => {
+    setText(value);
+    slot?.onName?.(value);
+    perf.stopAfterPaint('capture.key');
+  };
   const [details, setDetails] = useState(false);
   const [where, setWhere] = useState('');
   const [milestone, setMilestone] = useState('');
@@ -150,12 +165,13 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
     const title = captureTitle(text);
     if (!title || saved || save.pending) return;
     const done = await save.run(fieldsFor(title, where, milestone, est, notes, today), drafts, slot?.slot);
-    if (done === undefined) return;
+    if (done === undefined) return perf.cancel('capture.save');
     const { waiting, kept, undo } = done;
     for (const [id, file] of kept) await platform.files.put(id, file);
     if (slot) {
       const at = slot.slot;
       toast.show(`Saved to ${place}, ${at.date === today ? '' : `${dayName(at.date)}, `}${slotRange(at)}`, { undo: () => revert.run(undo) });
+      perf.stopAfterPaint('capture.save');
       close();
       return;
     }
@@ -169,6 +185,7 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
       setDrafts([]);
       setSaved(message);
     }
+    perf.stopAfterPaint('capture.save');
   };
 
   const whereSelect = (
@@ -233,7 +250,16 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
       )}
     </>
   );
-  const description = <NotesField value={notes} onChange={setNotes} onSubmit={() => form.current?.requestSubmit()} />;
+  const description = (
+    <NotesField
+      value={notes}
+      onChange={setNotes}
+      onSubmit={() => {
+        perf.start('capture.save');
+        form.current?.requestSubmit();
+      }}
+    />
+  );
   const attachments = <DraftAttachments drafts={drafts} onChange={setDrafts} />;
   const detailsToggle = (className: string) => (
     <button className={className} type="button" aria-expanded={details} onClick={() => setDetails(!details)}>
@@ -256,10 +282,9 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
             maxLength={MAX_TITLE}
             value={text}
             placeholder="What's on your mind?"
-            onChange={(e) => {
-              setText(e.target.value);
-              slot?.onName?.(e.target.value);
-            }}
+            onFocus={opened}
+            onKeyDown={startKey}
+            onChange={(e) => type(e.target.value)}
           />
           <div>{detailsToggle('link')}</div>
           {details && (
@@ -289,12 +314,12 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
               <Button type="button" onClick={close}>
                 Cancel
               </Button>
-              <Button variant="primary" type="submit">
+              <Button variant="primary" type="submit" onPointerDown={saveTapped}>
                 Save
               </Button>
             </div>
           ) : (
-            <Button variant="primary" type="submit">
+            <Button variant="primary" type="submit" onPointerDown={saveTapped}>
               Save
             </Button>
           )}
@@ -315,10 +340,9 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
             maxLength={MAX_TITLE}
             value={text}
             placeholder="Type a thought"
-            onChange={(e) => {
-              setText(e.target.value);
-              slot?.onName?.(e.target.value);
-            }}
+            onFocus={opened}
+            onKeyDown={startKey}
+            onChange={(e) => type(e.target.value)}
           />
           {when}
           {details && !saved && (
@@ -363,7 +387,7 @@ export function Capture(props: { layout: Layout; close(): void; slot?: CaptureSl
                     </kbd>
                     Cancel
                   </button>
-                  <button className={`capact${text.trim() ? ' ready' : ''}`} type="submit">
+                  <button className={`capact${text.trim() ? ' ready' : ''}`} type="submit" onPointerDown={saveTapped}>
                     <kbd className="keycap" aria-hidden="true">
                       ↵
                     </kbd>

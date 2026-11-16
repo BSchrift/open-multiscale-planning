@@ -1,5 +1,5 @@
 # One entry point per job.
-.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
+.PHONY: test test-unit test-frontend test-backend test-infra test-integration test-e2e test-compat test-ios test-history test-perf test-deployed test-retention smoke deploy files-key storage-quota release testflight tester review-user promote release-surface release-tag pipeline-config pipeline-pause pipeline-resume pipeline-stop scan update-skills dev up down
 
 test: test-unit test-integration
 
@@ -36,6 +36,12 @@ test-ios:
 # out the iPhone.
 test-history:
 	@scripts/test-history.sh
+
+# The performance KPIs in docs/performance.md, timed on the browser at desktop and phone sizes and on the Mac app, and
+# reported against their targets in config/perf.ts: report-only. BASE=<commit> times that commit too, in turns, and
+# says what this checkout made slower. PERF_PLATFORMS, PERF_SAMPLES, PERF_LAUNCHES and PERF_SCENARIOS narrow or widen it.
+test-perf:
+	@scripts/test-perf.sh
 
 # Every suite that can run against a deployment: ENV=staging (default) or prod with CONFIRM_PROD=yes. make release
 # runs it after each release. SKIP_IOS=1 leaves out the iPhone tests, and SKIP_HISTORY=1 the history-scale test, which

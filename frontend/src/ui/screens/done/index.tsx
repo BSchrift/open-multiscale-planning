@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { addDays, formatDayLong, formatMinutes, formatTime } from '../../../core/dates';
 import type { DoneBlock, DoneDay, DoneFinish, DoneKind, DoneWork } from '../../../core/done';
 import type { LocalDate } from '../../../core/types';
+import { useDrawn } from '../../app/drawn';
 import { useNav } from '../../app/nav';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useQuery, useToday } from '../../app/store';
@@ -121,6 +122,7 @@ export default function DoneScreen(props: ScreenProps) {
     land(() => root.current?.querySelector<HTMLElement>(`[data-block="${marking}"]`)?.closest('li') ?? root.current?.querySelector<HTMLElement>('.donehead h1, .donehead h2'));
   }, [marking, done, asked, land]);
 
+  useDrawn('nav.done', !!done);
   const className = phone ? 'stack donepage' : 'wrap stack24 donepage';
   if (!done) return <div className={className} />;
   const date = done.date;

@@ -26,7 +26,7 @@ import { TimeUse } from '../../components/week/TimeUse';
 import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
-import type { AddRow, LaneItem } from './data';
+import type { LaneItem, Placeable } from './data';
 import { LaneActions, LaneCard, laneCount, laneWords } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
@@ -106,12 +106,18 @@ export function DesktopWeek(props: WeekProps) {
 
   const rows = model.addGroups.flatMap((g) => g.rows);
   const cur = editing && selected ? rows.find((r) => r.task.id === selected) : undefined;
-  // A new pick starts at its best time, which never overlaps an event or another block.
+  // Choose a time on a card with no row to add it from, such as a practice's session.
+  const curCard = editing && selected && !cur ? model.unscheduled.find((x) => x.id === selected) : undefined;
+  const drafted: Placeable | undefined = cur ? rowItem(cur) : curCard;
+  // A new pick starts at its best time, which never overlaps an event or another block; a card, at its first suggested
+  // time.
   useEffect(() => {
-    if (!cur) setDraft(null);
-    else setDraft((d) => d ?? defaultSlot(Math.min(cur.left, FIRST_BLOCK_MIN), cur.work, model.ctx));
+    const first = curCard?.offers[0];
+    if (cur) setDraft((d) => d ?? defaultSlot(Math.min(cur.left, FIRST_BLOCK_MIN), cur.work, model.ctx));
+    else if (curCard) setDraft((d) => d ?? (first ? { date: first.date, start: first.start, end: first.end } : defaultSlot(curCard.length, curCard.work, model.ctx)));
+    else setDraft(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur?.task.id]);
+  }, [drafted?.id]);
 
   const choose = (id: string | null) => {
     setOpenItem(null);
@@ -142,8 +148,8 @@ export function DesktopWeek(props: WeekProps) {
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
     return saved;
   };
-  const place = async (row: AddRow, slot: Slot) => {
-    if (await act.place(rowItem(row), slot)) {
+  const place = async (what: Placeable, slot: Slot) => {
+    if (await act.place(what, slot)) {
       choose(null);
       props.donePlacing();
     }
@@ -169,9 +175,11 @@ export function DesktopWeek(props: WeekProps) {
     ghosts = item.offers.map((o) => ({ ...o, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => placeItem(item, o) }));
   }
   if (dropAt) gridBlocks.push({ ...dropAt.slot, id: 'drop', title: dropAt.item.title, kind: dropAt.item.kind, draft: true, fixed: true });
-  if (cur && draft) {
-    gridBlocks.push({ ...draft, id: 'draft', title: cur.task.title, kind: cur.work.kind === 'one_off' ? 'one_off' : 'project', draft: true });
-    ghosts = otherOffers(draft, cur.work, model.ctx).map((o) => ({
+  if (drafted && draft) {
+    gridBlocks.push({ ...draft, id: 'draft', title: drafted.title, kind: drafted.kind, draft: true });
+    // A card's other suggested times keep a practice's session to its own day and usual time.
+    const others = curCard ? curCard.offers.filter((o) => o.date !== draft.date || o.start !== draft.start) : otherOffers(draft, drafted.work, model.ctx);
+    ghosts = others.map((o) => ({
       date: o.date,
       start: o.start,
       end: o.end,
@@ -263,7 +271,7 @@ export function DesktopWeek(props: WeekProps) {
               </div>
             </div>
             {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
-            {lastMoved && !cur && (
+            {lastMoved && !drafted && (
               <div className="stack8" role="status" aria-label="Last change">
                 <div className="small strong">
                   {lastMoved.title}, {dayName(lastMoved.date)}, {slotRange(lastMoved)}
@@ -306,7 +314,7 @@ export function DesktopWeek(props: WeekProps) {
                               model={model}
                               left={r.left}
                               hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
-                              onPlace={() => void place(r, draft)}
+                              onPlace={() => void place(rowItem(r), draft)}
                               onCancel={() => choose(null)}
                             />
                           )}
@@ -334,20 +342,32 @@ export function DesktopWeek(props: WeekProps) {
               />
             </div>
           )}
+          {curCard && draft && (
+            <div className="panel wkpanel" role="group" aria-label={`Placing ${curCard.title}`}>
+              <Placing
+                context={curCard.title}
+                draft={draft}
+                work={curCard.work}
+                model={model}
+                hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
+                onPlace={() => void place(curCard, draft)}
+                onCancel={() => {
+                  choose(null);
+                  props.donePlacing();
+                }}
+              />
+            </div>
+          )}
           {item && (
             <div className="panel stack8 wkpanel" role="group" aria-label={item.title}>
               <LaneActions
                 item={item}
                 canPlace={isThis}
                 onPlace={(slot) => placeItem(item, slot)}
-                onChoose={
-                  item.task && rows.some((r) => r.task.id === item.id)
-                    ? () => {
-                        props.setEditing(true);
-                        choose(item.id);
-                      }
-                    : undefined
-                }
+                onChoose={() => {
+                  props.setEditing(true);
+                  choose(item.id);
+                }}
                 onSkipDay={() => {
                   setOpenItem(null);
                   void act.skipDay(item, data.week);
@@ -444,7 +464,7 @@ export function DesktopWeek(props: WeekProps) {
               }}
               onOpen={(id) => {
                 const b = model.blocks.find((x) => x.id === id);
-                if (id === 'draft' && cur && draft) void place(cur, draft);
+                if (id === 'draft' && drafted && draft) void place(drafted, draft);
                 else if (id === PLANNING) void placePlanning();
                 // A task's block opens its popup while editing too, as on phone.
                 else if (b?.task_id && isTask(b)) setPop({ block: id, task: b.task_id });

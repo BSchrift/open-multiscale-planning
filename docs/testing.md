@@ -16,7 +16,7 @@ feature gets a row, and a test that covers a cell gets named in it.
 | iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
-| Capture benchmarks | `frontend/e2e/capture-bench.spec.ts`, `frontend/electron/e2e/capture-bench.spec.ts` | Web, Mac app | `BENCH=1`, on demand |
+| Performance KPIs | `frontend/e2e/perf/` | Web desktop, web phone and the Mac app | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts) |
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
@@ -125,7 +125,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | List view, kept after a reload | covered (today-timeline: "the timeline switches to a list of the day in order…") | covered (same) | missing | missing |
 | Zoom | covered (today-timeline: "zoom draws the calendar taller a step at a time and back…") | partly (the buttons; a pinch needs the Simulator) | missing | missing |
 | The planning block's Now card: Keep going, Free this time | partly (journeys/planning-task: Keep going on the planning row; stack/planning: the Now card's; Free this time untested) | partly (same) | partly (journeys/planning-task) | missing |
-| To schedule above the day, dragged onto it | covered (today: "to schedule sits just above the day, and a card dragged onto it is placed there…", "a practice on set days waits in To schedule on its own days only…") | covered (same, held first) | missing | covered (testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday) |
+| To schedule above the day, dragged onto it, or Choose a time to place it on Week | covered (today: "to schedule sits just above the day, and a card dragged onto it is placed there…", "a practice on set days waits in To schedule on its own days only… and Choose a time places it on Week") | covered (same, held first) | missing | covered (testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday) |
 | A clash with the calendar shifts the rest of today | covered (today: "a clash with the calendar shifts the rest of today") | covered (same) | missing | missing |
 | One offs on Today: tick, Change date, Find a time | covered (today-waiting: "a one off dated today offers Change date… and Find a time…"; journeys/capture-and-process: tick) | covered (same) | covered (journeys/capture-and-process: tick) | missing |
 | Short blocks keep 44pt targets on phone | n/a | covered (today: "on phone, a short block on the calendar still has a 44pt tap target", "on phone, a block's resize grip stays under the block right below it…") | n/a | missing |

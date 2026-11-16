@@ -9,6 +9,7 @@
 
 import { protocol } from '@multiscale/config';
 import { getMeta, META, setMeta } from './db';
+import { perf } from './perf';
 import type { Db, Sql } from './db';
 import { applyRemote } from './records';
 import type { Instant, RecordChange } from './types';
@@ -178,11 +179,12 @@ function assertResponse(res: SyncResponse): void {
 
 /**
  * One full sync. Throws on failure, leaving the outbox and cursor as they were before the failed request. A record too
- * large to send waits in the outbox while the rest syncs, and then the sync throws too_large.
+ * large to send waits in the outbox while the rest syncs, and then the sync throws too_large. Resolves to how many
+ * changes it brought down.
  * shortcut: a batch the server refuses for any other reason fails whole every time until edited; send its records one
  * by one on a refusal if that ever happens in practice.
  */
-export async function runSync(db: Db, send: SyncSend): Promise<void> {
+export async function runSync(db: Db, send: SyncSend): Promise<number> {
   let cursor = Number((await getMeta(db, META.cursor)) ?? 0);
   let seen = (await getMeta(db, META.generation)) ?? '';
   // Starting from 0, nothing here can be an older copy of the server's: every id it sends goes in here, and a reset
@@ -191,9 +193,10 @@ export async function runSync(db: Db, send: SyncSend): Promise<void> {
   // Set while pulling everything after a reset: the ids that came back.
   let pulled: Set<string> | null = null;
   let resets = 0;
+  let applied = 0;
   for (;;) {
     const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db);
-    const res = await send(pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+    const res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
     assertResponse(res);
     // A restore shows as a new generation. The cursor check also catches one whose generation was never written, but
     // only until other devices move the counter past this cursor.
@@ -215,6 +218,7 @@ export async function runSync(db: Db, send: SyncSend): Promise<void> {
     // A server that claims more without moving the cursor would otherwise loop forever.
     if (res.more && res.cursor === cursor) throw new SyncError('error');
     await applyRemote(db, res.changes);
+    applied += res.changes.length;
     for (const change of res.changes) {
       received?.add(change.id);
       pulled?.add(change.id);
@@ -232,7 +236,27 @@ export async function runSync(db: Db, send: SyncSend): Promise<void> {
     cursor = res.cursor;
     if (res.more || more) continue;
     if (held > 0) throw new SyncError('too_large');
-    return;
+    return applied;
+  }
+}
+
+/**
+ * A request, with the sync KPIs of a push (docs/performance.md): sync.send, the request alone, and sync.push, from the
+ * first change it carries, which syncRunner starts on that change's commit. A failed push leaves sync.push to the next.
+ */
+async function timedSend(send: SyncSend, request: SyncRequest): Promise<SyncResponse> {
+  if (request.changes.length === 0) return send(request);
+  const since = perf.pending('sync.push');
+  perf.cancel('sync.push');
+  const sent = performance.now();
+  try {
+    const res = await send(request);
+    perf.measure('sync.send', sent);
+    if (since !== undefined) perf.measure('sync.push', since);
+    return res;
+  } catch (err) {
+    if (since !== undefined) perf.start('sync.push', Math.min(since, perf.pending('sync.push') ?? since));
+    throw err;
   }
 }
 

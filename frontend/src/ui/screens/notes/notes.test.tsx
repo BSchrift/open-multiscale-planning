@@ -81,14 +81,19 @@ describe('Notes', () => {
   it('shows 100 notes, then 100 more on request, with focus on the first new one', async () => {
     await renderScreen('notes', {
       seed: async (w) => {
-        for (let i = 0; i < 130; i++) await note(w, `n${String(i).padStart(3, '0')}`, `Fact ${i}`);
+        // Written as notes straight away: 130 Inbox items through Process would take most of the test's time.
+        for (let i = 0; i < 130; i++) await w.create('memo', { title: `Fact ${i}`, saved_on: '2026-11-02' }, `note:n${String(i).padStart(3, '0')}`);
       },
     });
     await screen.findByRole('heading', { level: 3, name: 'November' });
-    expect(screen.getAllByRole('button', { name: /^Fact / })).toHaveLength(100);
+    // Counted by class: naming 130 rows for each look would be slow enough to time out on a busy machine.
+    const rows = () => document.querySelectorAll('button.nrow');
+    expect(rows()).toHaveLength(100);
     await userEvent.click(screen.getByRole('button', { name: 'Show 30 more' }));
-    expect(screen.getAllByRole('button', { name: /^Fact / })).toHaveLength(130);
-    await waitFor(() => expect(document.activeElement).toBe(screen.getAllByRole('button', { name: /^Fact / })[100]));
+    expect(rows()).toHaveLength(130);
+    // Newest first, so the first new row is the 101st: Fact 29.
+    await waitFor(() => expect(document.activeElement).toBe(rows()[100]));
+    expect(rows()[100]!.querySelector('.ntitle')).toHaveTextContent('Fact 29');
   });
 
   it('keeps a deleted note in Recently deleted, closed, until Restore brings it back with its photo', async () => {

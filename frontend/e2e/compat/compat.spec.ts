@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
 import { goals, openProject } from '../journeys/journey';
-import { account, go, oneOffRow, openSeeded, pane, seed, setDate, syncNow } from '../seed';
+import { account, go, oneOffRow, openSeeded, pane, readRecord, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
 import { capture, closeDevices, daysAhead, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
 
@@ -325,6 +325,49 @@ test.describe('one device', () => {
     await go(page, 'Goals');
     await expect(pane(page, 'Goals').getByRole('button', { name: /Practices with no goal/ })).toContainText('1 practice');
     await everyScreen(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('Inbox items the update saved as notes leave the bundle before\'s Inbox, unfinished, and its launch writes nothing to the notes', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, [...week, { type: 'attachment', id: 'att1', fields: { task_id: 'i1', kind: 'link', name: 'example.com', url: 'https://example.com/shops' } }]);
+
+    // The update saves both items as notes from Process, then deletes the second note.
+    await go(page, 'Inbox');
+    await pane(page, 'Inbox').getByRole('button', { name: 'Process 2 items' }).click();
+    const card = page.getByRole('dialog', { name: 'Process Inbox' });
+    for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) {
+      await expect(card.getByRole('heading', { level: 1, name: title })).toBeVisible();
+      await card.getByRole('button', { name: /Save as note$/ }).click();
+      await expect(page.locator('.toast')).toContainText(`Saved ${title} in Notes.`);
+    }
+    await go(page, 'Notes');
+    await pane(page, 'Notes').getByRole('button', { name: /^Order more coffee beans/ }).click();
+    await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Delete note' }).click();
+    await expect(page.locator('.toast')).toContainText('Deleted Order more coffee beans.');
+    // A photo another device added to it offline, as the sweep leaves it: deleted with the note.
+    const gone = (await readRecord(page, 'memo', 'note:i2'))?.deleted_at;
+    await seed(page, [{ type: 'attachment', id: 'late', fields: { memo_id: 'note:i2', kind: 'photo', name: 'Beans.jpg', deleted_at: gone } }]);
+    const ids = [['memo', 'note:i1'], ['memo', 'note:i2'], ['attachment', 'att1'], ['attachment', 'late'], ['task', 'i1'], ['task', 'i2']] as const;
+    const before = await Promise.all(ids.map(([type, id]) => readRecord(page, type, id)));
+    expect(before[2]).toMatchObject({ memo_id: 'note:i1', task_id: null });
+    expect(before[3]?.expires_at).toBeTruthy();
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before shows neither item, in the Inbox or as finished, and its launch's expiry
+    // pass leaves every note, attachment and item as the update wrote them, the swept photo's expiry included.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'Inbox');
+    for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) await expect(pane(page, 'Inbox').getByText(title)).toHaveCount(0);
+    await go(page, 'One offs');
+    await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
+    const finished = pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
+    await expect(finished.getByText('Return the borrowed ladder')).toBeVisible();
+    for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) await expect(finished.getByText(title)).toHaveCount(0);
+    expect(await Promise.all(ids.map(([type, id]) => readRecord(page, type, id)))).toEqual(before);
     expect(errors).toEqual([]);
   });
 

@@ -1,4 +1,4 @@
-// A task's attachments in its popup: links, and photos kept in private storage. Each is a row with its state and
+// A task's or a note's attachments in its popup: links, and photos kept in private storage. Each is a row with its state and
 // Remove, with Undo in the toast. Add link and Add photo sit under them, with the storage used under those. Photos are offered only where the server stores them and this app may reach its storage: signed in, on a
 // server with attachments, and not on a Mac app from before them.
 
@@ -11,7 +11,7 @@ import { OpenError } from '../../../core/files';
 import type { UploadState, Usage } from '../../../core/files';
 import { linkHref } from '../../../core/notes';
 import type { RecordWrite } from '../../../core/plan';
-import { taskAttachments } from '../../../core/queries';
+import { memoAttachments, taskAttachments } from '../../../core/queries';
 import { isSignedIn, syncStatus } from '../../../core/sync';
 import type { Attachment } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
@@ -54,7 +54,7 @@ export type NewAttachment =
   | { kind: 'photo'; name: string; file: Blob; size: number; type: string; sha256: string };
 
 /** The record fields for a new attachment, and the bytes to keep for it. */
-export const recordOf = (a: NewAttachment): Omit<Attachment, 'id' | 'task_id'> =>
+export const recordOf = (a: NewAttachment): Omit<Attachment, 'id' | 'task_id' | 'memo_id'> =>
   a.kind === 'link' ? { kind: 'link', name: a.name, url: a.url } : { kind: 'photo', name: a.name, size: a.size, type: a.type, sha256: a.sha256 };
 
 /**
@@ -145,18 +145,22 @@ function AddAttachment(props: { count: number; onAdd(a: NewAttachment): Promise<
 }
 
 export function Attachments(props: {
-  taskId: string;
+  /** The task they're on, or memoId, the note. */
+  taskId?: string;
+  memoId?: string;
   /** Told each change's exact reverse, for a caller that undoes them together, such as Process's card. */
   onWrite?(reverse: RecordWrite): void;
   /** With none yet, only Add link and Add photo, to sit in a row of other buttons. */
   inline?: boolean;
 }) {
-  const { taskId, onWrite } = props;
+  const { taskId, memoId, onWrite } = props;
   const { platform, clock } = useApp();
   const toast = useToast();
-  const rows = useQuery((sql) => taskAttachments(sql, taskId), [taskId]).data ?? [];
+  const rows = useQuery((sql) => (memoId ? memoAttachments(sql, memoId) : taskAttachments(sql, taskId ?? '')), [taskId, memoId]).data ?? [];
   const label = useId();
-  const create = useMutation((w, fields: Omit<Attachment, 'id' | 'task_id'>) => w.create('attachment', { task_id: taskId, ...fields }));
+  const create = useMutation((w, fields: Omit<Attachment, 'id' | 'task_id' | 'memo_id'>) =>
+    w.create('attachment', memoId ? { memo_id: memoId, ...fields } : { task_id: taskId ?? null, ...fields }),
+  );
   const remove = useMutation(async (w, id: string) => (await w.delete('attachment', id), true));
   const restore = useMutation((w, id: string) => w.set('attachment', id, { deleted_at: null }));
 

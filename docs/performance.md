@@ -15,6 +15,8 @@ reports, as `make test-deployed` does on staging.
 | Week query | Web, Mac, iPhone Simulator | 100 ms |
 | Pick estimate drag, slowest step (report only) | Web, Mac | 50 ms |
 | Done query (report only) | Web, Mac, iPhone Simulator | 100 ms |
+| Notes list (report only) | Web, Mac, iPhone Simulator | 100 ms |
+| Notes search (report only) | Web, Mac, iPhone Simulator | 100 ms |
 
 `frontend/scripts/history-report.ts` holds the same budgets and checks every run against them. A report-only budget is
 shown in the report but never fails a run, missed or not measured, until it has a baseline of its own.
@@ -99,7 +101,7 @@ device's database, as a sync would apply it, so no sync is timed but `sync.first
 - **Empty:** `emptyAccount(now)`, a new account past first-run setup.
 - **One year:** `historyChanges({ weeks: 52, now })`, the history-scale account's weekly mix over 52 weeks, about 7,800
   records, ending when the run starts, so Today and Week have this week's blocks.
-- **Five years:** `historyChanges({ weeks: 260, now })`, the same 38,836 records as the history-scale test, ending now.
+- **Five years:** `historyChanges({ weeks: 260, now })`, the same 41,685 records as the history-scale test, ending now.
 
 The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
 perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
@@ -151,15 +153,17 @@ it against staging, and its own user there.
 ending on a Wednesday noon in Chicago, 4 November 2026. Each week has about 35 time blocks and their 35 answers, 40
 tasks (20 for projects, 10 one offs with now and then a repeating one, and 10 Inbox captures, sorted later or still
 waiting), 20 picks, 10 finishes of repeating tasks, and 10 of a week plan, a project, its 6 milestones and 2 goals, time
-off, practices or calendars. One settings record ends it. That's 38,836 records, 7,747 of them (20%) deleted, at 400
-bytes each on average, measured as the sync API does: a record's fields with their clocks, as JSON. They're seeded in
+off, practices or calendars, and 10 notes: most 50 to 300 characters, one in fifty a full 20,000, a tenth with a link.
+One settings record ends it. That's 41,685 records, 8,301 of them (20%) deleted, at 423 bytes each on average, measured
+as the sync API does: a record's fields with their clocks, as JSON. The notes came on 17 November 2026, from randomness
+of their own, so the 38,836 records before them are unchanged. They're seeded in
 the order they were last written, oldest first and settings last, so a first sync brings them down in that order too.
 
 **Seeding** goes through the sync API as a device does, in batches of up to 99 records and 4 MB, paced on a deployment
 to 500 write units a second, half of what one user's partition takes. Every record has a fixed id and fixed clocks, so a
 rerun writes nothing and the account never grows. Locally the stack starts empty and is seeded each run, unpaced. It
 sends as an up-to-date app does, and leaves out the deleted records whose deleted period has passed, since the server
-drops those ([retention.md](retention.md)). That leaves about 31,000 records with few or none deleted: locally only
+drops those ([retention.md](retention.md)). That leaves about 33,500 records with few or none deleted: locally only
 those deleted in the last 30 days, and on staging, whose period is minutes, none. The rest carry no expiry, as records
 from before retention do, so the account still spans five years.
 
@@ -172,6 +176,12 @@ iPhone app is erased first.
 **An edit saved** is Notify at block start in Settings, turned off and on twice, the median of the four: from the click
 until the edit's transaction has committed in the web app's database worker, which keeps the database on the browser's
 private file system (OPFS), so a committed change is on disk.
+
+**Notes list and Notes search** are read on each device's own database after its first sync, as Today, Week and Done
+are, the median of five runs: the list is what the Notes screen loads, every live note with its attachments counted, and
+search is a keystroke's work, the JavaScript filter over that list, ignoring case and accents. Both are report only until
+they have a baseline. Where sql.js runs, every edit rewrites the whole database to IndexedDB, and notes, never purged
+and some 20,000 characters long, make that file larger for every edit.
 
 **Today and Week** are `loadToday` and `loadWeek`, everything each screen reads, again on every change. **Done** is
 `loadDoneDay` for the account's last day, which reads only that day's records, through indexes. Each is the median

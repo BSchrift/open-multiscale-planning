@@ -272,14 +272,16 @@ final class ShellUITests: XCTestCase {
         app.tapWeb("Process 2 items")
         // The card's title is a button, which edits it.
         exists(app.webButton("Buy a proofing basket"))
-        // Add to opens a sheet of places, ready to search; a tap on one adds the item there.
+        // Add to opens a sheet of places, ready to search; a tap on one picks it, and Add to adds the item there.
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        app.tapWeb("Add to Bake a sourdough loaf")
         exists(app.webText("Added Buy a proofing basket to Bake a sourdough loaf."))
 
         exists(app.webButton("Return the library books"))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
+        app.tapWeb("Add to One offs")
         // Process closes itself on the last item; its check fades, then the last item's toast shows.
         exists(app.webText("Added Return the library books to One offs."))
 
@@ -415,6 +417,51 @@ final class ShellUITests: XCTestCase {
         exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Mix the dough, '")).firstMatch)
         XCTAssertTrue(card.waitForNonExistence(timeout: patience), "Mix the dough is still waiting in To schedule")
         allowNotificationsIfAsked()
+    }
+
+    func testABlockHeldOnWeeksDayThenDraggedDownMovesLater() throws {
+        let app = launchApp(seed: "Seed later")
+        // Asked before the drag, so the question can't land in the middle of it.
+        allowNotificationsIfAsked()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        // Any kind of element: a task's block opens its popup, so iOS gives it the pop-up button type.
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onTab("Week", block, in: app)
+        let before = block.label
+
+        // The day runs on below the screen's bottom, where the tab bar would take the touch, so the page scrolls up
+        // first, by the margin left of the day, where nothing is held.
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -260)))
+        // Held past the lift, then let go two rows down, over the free time after it.
+        let from = block.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 120)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        let moved = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, ' AND label != %@", before)).firstMatch
+        exists(moved)
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
+    }
+
+    func testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onTab("Week", block, in: app)
+        let before = block.frame.height
+        // Two fingers on the block spread apart: a pinch, which a hold on the block gives way to.
+        block.pinch(withScale: 2.5, velocity: 1)
+        let taller = { (el: XCUIElement) in NSPredicate { _, _ in el.exists && el.frame.height > before * 1.8 } }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: taller(block), object: nil)], timeout: patience), .completed,
+                       "Shape the loaf is \(block.frame.height)pt tall after the pinch, from \(before)pt")
+
+        // The zoom is the phone's: the app opened again draws the day as tall.
+        app.terminate()
+        app.launchLoaded()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        let again = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onTab("Week", again, in: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: taller(again), object: nil)], timeout: patience), .completed,
+                       "Shape the loaf is \(again.frame.height)pt tall after a new launch, from \(before)pt")
     }
 
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {

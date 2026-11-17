@@ -6,7 +6,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Locator, Page, Request } from '@playwright/test';
-import { syncNow } from '../seed';
+import { holdMouse, syncNow } from '../seed';
 import { deployed } from './target';
 
 const d = deployed();
@@ -184,7 +184,13 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await page.getByRole('switch', { name: 'Add to this week' }).click();
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
   await page.keyboard.press('Enter');
-  await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
+  // Enter picks One offs, and Add to adds the item there. The release before, which the prod Test step meets, added it
+  // on the pick, so Add to is pressed only while the toast hasn't come.
+  const added = page.getByText(`Added ${title} to One offs and to this week.`);
+  const add = page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Add to One offs', exact: true });
+  await expect(added.or(add)).toBeVisible();
+  if (!(await added.isVisible())) await add.click();
+  await expect(added).toBeVisible();
   // The second check is on the card now, for the cleanup below to delete.
   await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
 
@@ -242,9 +248,8 @@ type Box = { x: number; y: number; width: number; height: number };
 async function dragTo(page: Page, from: Locator, grip: (box: Box) => { x: number; y: number }, to: Locator, at: (box: Box) => { x: number; y: number }) {
   await from.scrollIntoViewIfNeeded();
   const start = grip((await from.boundingBox())!);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  // A mouse lifts what it holds once it has moved a few pixels; the drop is read from where it's let go.
+  await holdMouse(page, { x: start.x, y: start.y });
+  // Held, it has lifted, and follows once moved past a click's wobble; the drop is read from where it's let go.
   await page.mouse.move(start.x, start.y + 10, { steps: 2 });
   await to.evaluate((el) => el.scrollIntoView({ block: 'center' }));
   const end = at((await to.boundingBox())!);

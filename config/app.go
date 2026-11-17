@@ -111,6 +111,7 @@ type Sync struct {
 type Records struct {
 	IDPattern     string `yaml:"idPattern" json:"idPattern"`
 	MaxNotesChars int    `yaml:"maxNotesChars" json:"maxNotesChars"`
+	MaxTitleChars int    `yaml:"maxTitleChars" json:"maxTitleChars"`
 }
 
 // Clock is the format of a field's clock.

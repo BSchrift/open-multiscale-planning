@@ -1,12 +1,15 @@
-// Package gcal keeps the Time blocks calendar in Google matching the plan, and mirrors the person's other calendars into
-// the calendar record. One worker run compares what should be there with what is and fixes the difference, so a failed
-// run or an edit made in Google is put right by the next run with no overwrite logic of its own. The one retry is a run
-// a minute after one that couldn't reach Google, so a passing outage doesn't wait for the half-hourly schedule.
+// Package gcal keeps each connected person's Time blocks calendar in Google matching their plan, and mirrors their other
+// calendars into their calendar record. Each person connects their own Google account and has their own run: one
+// compares what should be there with what is and fixes the difference, so a failed run or an edit made in Google is put
+// right by the next run with no overwrite logic of its own. One person's run never touches another's connection, records
+// or Google account, so their failures stay theirs. The one retry is a run a minute after one that couldn't reach Google,
+// so a passing outage doesn't wait for the half-hourly schedule.
 package gcal
 
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -46,6 +49,8 @@ const (
 
 	// TriggerRetry names the one run that follows a run that couldn't reach Google.
 	TriggerRetry = "retry"
+	// TriggerStream names a run for a person whose plan changed.
+	TriggerStream = "stream"
 
 	window = 8 * 7 * 24 * time.Hour
 	// The server has no zone for the person, so this covers the start of today in every zone.
@@ -76,28 +81,49 @@ var (
 // partway.
 const retryRoom = 2 * time.Minute
 
+// spreadOver is the window the schedule spreads people's runs across, each at a fixed offset of its own, so Google and the
+// worker see a steady rate rather than everyone at once, and each person's runs stay one schedule apart. 15 minutes is
+// SQS's longest delay.
+const spreadOver = 15 * time.Minute
+
 // Records is the part of the sync store the worker uses.
 type Records interface {
 	List(ctx context.Context, sub, recordType string) ([]sync.Change, error)
 	Push(ctx context.Context, sub string, cursor int64, changes []sync.Change) (sync.Stats, error)
 }
 
-// Google is the connection to one Google account. It implements api.Calendar.
+// Google is every person's connection to their own Google account. It implements api.Calendar.
 type Google struct {
-	Records Records
-	Secrets Secrets
-	States  States
-	Log     *slog.Logger
-	Env     string
-	Now     func() time.Time
+	Records     Records
+	Secrets     Secrets
+	Connections Connections
+	States      States
+	Log         *slog.Logger
+	Env         string
+	Now         func() time.Time
 	// APIURL is empty for the real Calendar API.
 	AuthURL, TokenURL, RevokeURL, APIURL string
 	RedirectURL                          string
-	// Trigger starts a worker run, from the API's side.
-	Trigger func(context.Context) error
-	// Retry asks whatever runs the worker for one more run after a delay. Nil waits within the run and runs again there,
-	// which is what the Lambda does, having no scheduler to ask; the local stack's loop takes it, so a test's clock decides.
-	Retry func(after time.Duration)
+	// Trigger starts one person's run, from the API's side.
+	Trigger func(ctx context.Context, sub string) error
+	// Queue starts many people's runs, from the worker's side: the schedule's and the stream's.
+	Queue Queue
+	// Retry asks whatever runs the worker for one more run of this person after a delay: the queue, deployed, or the local
+	// stack's loop, so a test's clock decides. Nil waits within the run and runs again there.
+	Retry func(ctx context.Context, sub string, after time.Duration) error
+}
+
+// Job is one person's run, for whatever runs the worker to start.
+type Job struct {
+	Sub     string `json:"sub"`
+	Trigger string `json:"trigger"`
+	// Delay is how long the run waits before it starts.
+	Delay time.Duration `json:"-"`
+}
+
+// Queue starts people's runs: SQS when deployed, the local stack's loop locally.
+type Queue interface {
+	Send(ctx context.Context, jobs []Job) error
 }
 
 type runCounts struct {
@@ -106,12 +132,13 @@ type runCounts struct {
 
 func (c runCounts) changed() int { return c.inserted + c.updated + c.deleted }
 
-// Run makes one pass for the connected user. A failure is recorded for the app and in the metrics, and returns nil since
-// the next run fixes it, which comes a minute later when Google couldn't be reached. Only a failure that couldn't be
-// recorded is returned, so Lambda tries again.
-func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
+// Run makes one pass for one person. A failure is recorded for the app and in the metrics, and returns nil since the next
+// run fixes it, which comes a minute later when Google couldn't be reached. Only a failure that couldn't be recorded is
+// returned, so their run is tried again. Google refusing their token is theirs to fix by connecting again: it's recorded
+// for the app, their stored token is deleted, and it isn't a failure of the worker's.
+func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error {
 	start := g.Now()
-	attrs := []any{"request_id", requestID, "trigger", trigger}
+	attrs := []any{"request_id", requestID, "trigger", trigger, "user", obs.HashSub(sub)}
 	finish := func(extra ...any) {
 		attrs = append(attrs, "duration_ms", g.Now().Sub(start).Milliseconds())
 		g.Log.Info("calendar_run", append(attrs, extra...)...)
@@ -120,8 +147,8 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 		return append([]any{"outcome", "failed", "error_type", code}, obs.Metrics(g.Env, g.Now(), map[string]int{"CalendarRunFailures": 1})...)
 	}
 
-	conn, err := g.connection(ctx)
-	if errors.Is(err, ErrNoSecret) {
+	conn, err := g.connectionOf(ctx, sub)
+	if errors.Is(err, ErrNotConnected) {
 		// A success: not connected is the person's choice, so the alarm on the worker going quiet mustn't fire.
 		finish(append([]any{"outcome", "not_connected"}, obs.Metrics(g.Env, g.Now(), map[string]int{
 			"CalendarEventsChanged": 0, "CalendarRunFailures": 0,
@@ -132,7 +159,9 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 		finish(failed(ErrorFailed)...)
 		return err
 	}
-	attrs = append(attrs, "user", obs.HashSub(conn.Sub))
+	if conn.legacy {
+		attrs = append(attrs, "legacy", true)
+	}
 
 	counts, err := g.pass(ctx, conn)
 	attrs = append(attrs, "inserted", counts.inserted, "updated", counts.updated, "deleted", counts.deleted,
@@ -151,8 +180,23 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 		})...)...)
 		return nil
 	}
+	// Google refusing one person, for their token or their quota, is theirs: counted in a metric of its own, and as a run
+	// that didn't fail, so that one person's choice or quota can't roll back a release. Only a removed token counts as
+	// the worker running, since that's the person's choice; a run held back by quota doesn't, so quota trouble for
+	// everyone shows as the worker going quiet.
 	code := errorCode(err)
-	finish(failed(code)...)
+	switch code {
+	case ErrorRevoked:
+		finish(append([]any{"outcome", "revoked"}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarEventsChanged": counts.changed(), "CalendarRunFailures": 0, "CalendarRevoked": 1,
+		})...)...)
+	case ErrorRateLimited:
+		finish(append([]any{"outcome", "rate_limited", "error_type", code}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarRunFailures": 0, "CalendarRateLimited": 1,
+		})...)...)
+	default:
+		finish(failed(code)...)
+	}
 	// On a context of its own, with a call's limit, so a run whose context ended still says why it failed.
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
 	defer cancel()
@@ -162,7 +206,77 @@ func (g *Google) Run(ctx context.Context, trigger, requestID string) error {
 	if trigger == TriggerRetry || !unreachable(err) {
 		return nil
 	}
-	return g.retry(ctx, requestID)
+	return g.retry(ctx, sub, requestID)
+}
+
+// Dispatch starts a run for every connected person, each at its own offset within spreadOver.
+func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error {
+	start := g.Now()
+	var jobs []Job
+	err := g.Connections.Each(ctx, func(sub string) error {
+		jobs = append(jobs, Job{Sub: sub, Trigger: trigger, Delay: offset(sub)})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	legacy, err := g.legacyConnection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return err
+	}
+	if legacy.Sub != "" {
+		own, err := g.Connections.Has(ctx, legacy.Sub)
+		if err != nil {
+			return err
+		}
+		if !own {
+			jobs = append(jobs, Job{Sub: legacy.Sub, Trigger: trigger, Delay: offset(legacy.Sub)})
+		}
+	}
+	if err := g.Queue.Send(ctx, jobs); err != nil {
+		return err
+	}
+	attrs := []any{"request_id", requestID, "trigger", trigger, "people", len(jobs), "duration_ms", g.Now().Sub(start).Milliseconds()}
+	if len(jobs) == 0 {
+		// With no one to run, this is the run that keeps the alarm on the worker going quiet from firing.
+		attrs = append(attrs, obs.Metrics(g.Env, g.Now(), map[string]int{"CalendarEventsChanged": 0, "CalendarRunFailures": 0})...)
+	}
+	g.Log.Info("calendar_dispatch", attrs...)
+	return nil
+}
+
+// Wake starts a run now for each of these people who is connected: those whose plan changed.
+func (g *Google) Wake(ctx context.Context, subs []string, requestID string) error {
+	legacy, err := g.legacyConnection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return err
+	}
+	var jobs []Job
+	for _, sub := range subs {
+		connected := sub == legacy.Sub
+		if !connected {
+			if connected, err = g.Connections.Has(ctx, sub); err != nil {
+				return err
+			}
+		}
+		if connected {
+			jobs = append(jobs, Job{Sub: sub, Trigger: TriggerStream})
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	if err := g.Queue.Send(ctx, jobs); err != nil {
+		return err
+	}
+	g.Log.Info("calendar_dispatch", "request_id", requestID, "trigger", TriggerStream, "people", len(jobs))
+	return nil
+}
+
+// offset is a person's fixed place in the schedule's spread.
+func offset(sub string) time.Duration {
+	sum := sha256.Sum256([]byte(sub))
+	return time.Duration(binary.BigEndian.Uint64(sum[:8])%uint64(spreadOver/time.Second)) * time.Second
 }
 
 // unreachable reports a run that failed on the way to Google: no answer, or a 5xx. Not Google refusing, which a run a
@@ -180,11 +294,10 @@ func unreachable(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-// retry has one more run follow, retryDelay later, and only one, so an outage costs a run a minute at most.
-func (g *Google) retry(ctx context.Context, requestID string) error {
+// retry has one more run of this person follow, retryDelay later, and only one, so an outage costs a run a minute at most.
+func (g *Google) retry(ctx context.Context, sub, requestID string) error {
 	if g.Retry != nil {
-		g.Retry(retryDelay)
-		return nil
+		return g.Retry(ctx, sub, retryDelay)
 	}
 	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < retryDelay+retryRoom {
 		return nil
@@ -196,20 +309,24 @@ func (g *Google) retry(ctx context.Context, requestID string) error {
 		return nil
 	case <-wait.C:
 	}
-	return g.Run(ctx, TriggerRetry, requestID)
+	return g.Run(ctx, sub, TriggerRetry, requestID)
 }
 
 // errConnectionGone stops a run whose connection ended while it ran.
 var errConnectionGone = errors.New("gcal: the connection ended during the run")
 
-// stillConnected reports whether conn is still the connection. A disconnect or another user's consent can end it while a
-// run is under way, and either has already shown this user unconnected, which the run's own writes would undo.
+// stillConnected reports whether conn's person is still connected. A disconnect can end it while a run is under way, and
+// has already shown them unconnected, which the run's own writes would undo. It reads no token, so it costs no decrypt.
 func (g *Google) stillConnected(ctx context.Context, conn connection) (bool, error) {
-	current, err := g.connection(ctx)
+	own, err := g.Connections.Has(ctx, conn.Sub)
+	if err != nil || own {
+		return own, err
+	}
+	legacy, err := g.legacyConnection(ctx)
 	if errors.Is(err, ErrNoSecret) {
 		return false, nil
 	}
-	return err == nil && current.Sub == conn.Sub, err
+	return err == nil && legacy.Sub == conn.Sub, err
 }
 
 func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
@@ -669,6 +786,9 @@ func (g *Google) change(recordType, id string, stored sync.Fields, values map[st
 	return sync.Change{Type: recordType, ID: id, Fields: fields}
 }
 
+// recordFailure tells the app why a run failed. For a token Google refused, it then deletes the token, which is no use to
+// anyone, and frees the Google account, unless the person connected again meanwhile. The legacy token is left: it goes by
+// a disconnect or with the legacy secret.
 func (g *Google) recordFailure(ctx context.Context, conn connection, code string) error {
 	if still, err := g.stillConnected(ctx, conn); err != nil || !still {
 		return err
@@ -681,7 +801,16 @@ func (g *Google) recordFailure(ctx context.Context, conn connection, code string
 	if code == ErrorRevoked {
 		values["connected"] = false
 	}
-	return g.writeCalendar(ctx, conn.Sub, stored, values)
+	if err := g.writeCalendar(ctx, conn.Sub, stored, values); err != nil {
+		return err
+	}
+	if code != ErrorRevoked || conn.legacy {
+		return nil
+	}
+	if err := g.Connections.Delete(ctx, conn); err != nil && !errors.Is(err, errConnectionChanged) {
+		return err
+	}
+	return nil
 }
 
 func errorCode(err error) string {

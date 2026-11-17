@@ -241,6 +241,8 @@ type account struct {
 	pushed   map[[2]string]bool
 	username string
 	base     int64
+	// google is the Google account this user signs in to at consent, on the local stack's stand-in: one of their own.
+	google string
 }
 
 // signIn returns the test's main user: on the local stack someone new, whose data starts empty; on a deployment the

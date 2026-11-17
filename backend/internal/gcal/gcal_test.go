@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	gosync "sync"
 	"testing"
@@ -19,6 +22,7 @@ import (
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/googleapi"
 
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/fakes"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
@@ -113,6 +117,96 @@ func (m *memSecrets) Delete(_ context.Context, name string) error {
 	return nil
 }
 
+// memConnections is DynamoConnections' behaviour with no DynamoDB or KMS: a fresh sealed value on each put, so a delete of
+// a connection that was replaced is refused, and one claim per Google account.
+type memConnections struct {
+	mu      gosync.Mutex
+	conns   map[string]connection
+	holders map[string]string
+	seals   int
+	failing error
+}
+
+func (m *memConnections) Get(ctx context.Context, sub string) (connection, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failing != nil {
+		return connection{}, m.failing
+	}
+	if err := ctx.Err(); err != nil {
+		return connection{}, err
+	}
+	conn, ok := m.conns[sub]
+	if !ok {
+		return connection{}, ErrNotConnected
+	}
+	return conn, nil
+}
+
+func (m *memConnections) Has(ctx context.Context, sub string) (bool, error) {
+	_, err := m.Get(ctx, sub)
+	if errors.Is(err, ErrNotConnected) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (m *memConnections) Holder(_ context.Context, account string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.holders[account], m.failing
+}
+
+func (m *memConnections) Put(_ context.Context, conn connection, previous string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failing != nil {
+		return m.failing
+	}
+	if holder := m.holders[conn.Account]; conn.Account != "" && holder != "" && holder != conn.Sub {
+		return api.ErrAccountTaken
+	}
+	if previous != "" && previous != conn.Account && m.holders[previous] == conn.Sub {
+		delete(m.holders, previous)
+	}
+	if conn.Account != "" {
+		m.holders[conn.Account] = conn.Sub
+	}
+	m.seals++
+	conn.sealed, conn.legacy = []byte(strconv.Itoa(m.seals)), false
+	m.conns[conn.Sub] = conn
+	return nil
+}
+
+func (m *memConnections) Delete(_ context.Context, conn connection) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failing != nil {
+		return m.failing
+	}
+	current, ok := m.conns[conn.Sub]
+	if ok && conn.sealed != nil && string(current.sealed) != string(conn.sealed) {
+		return errConnectionChanged
+	}
+	delete(m.conns, conn.Sub)
+	if conn.Account != "" && m.holders[conn.Account] == conn.Sub {
+		delete(m.holders, conn.Account)
+	}
+	return nil
+}
+
+func (m *memConnections) Each(_ context.Context, fn func(sub string) error) error {
+	m.mu.Lock()
+	subs := slices.Sorted(maps.Keys(m.conns))
+	m.mu.Unlock()
+	for _, sub := range subs {
+		if err := fn(sub); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type memStates map[string]string
 
 func (m memStates) Put(_ context.Context, sub, nonce string) error {
@@ -135,38 +229,68 @@ type world struct {
 	srv      *httptest.Server
 	records  *memRecords
 	secrets  *memSecrets
+	conns    *memConnections
+	queued   []Job
 	logs     *bytes.Buffer
 	now      time.Time
 	triggers int
-	trigger  error
-	devClock int64
+	// triggered is who each started run was for.
+	triggered []string
+	trigger   error
+	devClock  int64
 }
+
+// queueFunc lets a test's function stand in for the queue.
+type queueFunc func(ctx context.Context, jobs []Job) error
+
+func (f queueFunc) Send(ctx context.Context, jobs []Job) error { return f(ctx, jobs) }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
-	w := &world{t: t, records: &memRecords{}, logs: &bytes.Buffer{}, now: testNow, devClock: testNow.UnixMilli() - 1000}
+	w := &world{t: t, records: &memRecords{}, logs: &bytes.Buffer{}, now: testNow, devClock: testNow.UnixMilli() - 1000,
+		conns: &memConnections{conns: map[string]connection{}, holders: map[string]string{}}}
 	w.secrets = &memSecrets{values: map[string]string{SecretClientID: "cid", SecretClientSecret: "secret", SecretState: "state-key"}}
 	now := func() time.Time { return w.now }
 	w.fake = fakes.NewGoogle("cid", "secret", now)
 	w.srv = httptest.NewServer(w.fake)
 	t.Cleanup(w.srv.Close)
 	w.g = &Google{
-		Records: w.records, Secrets: w.secrets, States: memStates{},
+		Records: w.records, Secrets: w.secrets, Connections: w.conns, States: memStates{},
 		Log: obs.NewLogger(w.logs), Env: "staging", Now: now,
 		AuthURL: w.srv.URL + "/o/oauth2/auth", TokenURL: w.srv.URL + "/token", RevokeURL: w.srv.URL + "/revoke", APIURL: w.srv.URL + "/calendar/v3/",
 		RedirectURL: "https://app.example.test/calendar/callback",
-		Trigger: func(context.Context) error {
+		Trigger: func(_ context.Context, sub string) error {
 			w.triggers++
+			w.triggered = append(w.triggered, sub)
 			return w.trigger
 		},
+		Queue: queueFunc(func(_ context.Context, jobs []Job) error {
+			w.queued = append(w.queued, jobs...)
+			return nil
+		}),
 	}
 	return w
 }
 
-// connect goes through consent and the callback as the given user.
+// googleAccount is the Google account each person signs in to at consent: the stand-in's default for testSub, their
+// own for anyone else.
+func googleAccount(sub string) string {
+	if sub == testSub {
+		return fakes.DefaultGoogleAccount
+	}
+	return sub + "@example.test"
+}
+
+// connect goes through consent and the callback as the given user, signing in to their own Google account.
 func (w *world) connect(sub string) {
 	w.t.Helper()
-	state, code := w.consent(sub)
+	w.connectAs(sub, googleAccount(sub))
+}
+
+// connectAs goes through consent as sub, signing in to Google as account.
+func (w *world) connectAs(sub, account string) {
+	w.t.Helper()
+	state, code := w.consentAs(sub, account)
 	if err := w.g.Callback(context.Background(), state, code); err != nil {
 		w.t.Fatal(err)
 	}
@@ -174,10 +298,16 @@ func (w *world) connect(sub string) {
 
 func (w *world) consent(sub string) (state, code string) {
 	w.t.Helper()
+	return w.consentAs(sub, googleAccount(sub))
+}
+
+func (w *world) consentAs(sub, account string) (state, code string) {
+	w.t.Helper()
 	consentURL, err := w.g.Connect(context.Background(), sub)
 	if err != nil {
 		w.t.Fatal(err)
 	}
+	consentURL += "&login_hint=" + url.QueryEscape(account)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Get(consentURL)
 	if err != nil {
@@ -215,9 +345,21 @@ func (w *world) block(id, title string, start, end time.Time) {
 
 func (w *world) run() {
 	w.t.Helper()
-	if err := w.g.Run(context.Background(), "schedule", "req-1"); err != nil {
+	w.runFor(testSub)
+}
+
+func (w *world) runFor(sub string) {
+	w.t.Helper()
+	if err := w.g.Run(context.Background(), sub, "schedule", "req-1"); err != nil {
 		w.t.Fatal(err)
 	}
+}
+
+// storedToken is the refresh token held for sub, or "".
+func (w *world) storedToken(sub string) string {
+	w.conns.mu.Lock()
+	defer w.conns.mu.Unlock()
+	return w.conns.conns[sub].RefreshToken
 }
 
 func (w *world) timeBlocks() string { return w.fake.CalendarNamed(CalendarName) }
@@ -729,7 +871,7 @@ func TestRateLimitIsRecordedAndTheNextRunFixesIt(t *testing.T) {
 	w.connect(testSub)
 	w.block("b1", "Paint the fence", at(1), at(2))
 	w.fake.RateLimit(1)
-	if err := w.g.Run(context.Background(), "stream", "req-2"); err != nil {
+	if err := w.g.Run(context.Background(), testSub, "stream", "req-2"); err != nil {
 		t.Fatalf("a failure already recorded should not be retried by Lambda: %v", err)
 	}
 	rec := w.calendarRecord(testSub)
@@ -738,11 +880,13 @@ func TestRateLimitIsRecordedAndTheNextRunFixesIt(t *testing.T) {
 	}
 	lines := w.runLines()
 	last := lines[len(lines)-1]
-	if last["error_type"] != ErrorRateLimited || last["CalendarRunFailures"] != float64(1) || last["trigger"] != "stream" || last["request_id"] != "req-2" {
+	// One person's quota is theirs: counted on its own, not as the worker failing, nor as it running.
+	if last["outcome"] != "rate_limited" || last["error_type"] != ErrorRateLimited || last["CalendarRateLimited"] != float64(1) ||
+		last["CalendarRunFailures"] != float64(0) || last["trigger"] != "stream" || last["request_id"] != "req-2" {
 		t.Fatalf("%+v", last)
 	}
 	if _, success := last["CalendarEventsChanged"]; success {
-		t.Fatal("a failed run looks like a success to the 2-hour alarm")
+		t.Fatal("a run held back by quota looks like a success to the 2-hour alarm")
 	}
 
 	w.now = w.now.Add(time.Minute)
@@ -840,6 +984,7 @@ func TestRunEmitsEMFAndNoValues(t *testing.T) {
 	w := newWorld(t)
 	const marker = "MARKER-do-not-log"
 	w.connect(testSub)
+	token := w.storedToken(testSub)
 	w.block("b1", marker, at(1), at(2))
 	w.fake.AddCalendar("home@example.test", marker)
 	w.fake.AddEvent("home@example.test", &calendar.Event{
@@ -854,8 +999,7 @@ func TestRunEmitsEMFAndNoValues(t *testing.T) {
 	w.run()
 
 	logged := w.logs.String()
-	token := w.secrets.values[SecretRefreshToken]
-	for _, leak := range []string{marker, token, "state-key", "secret", testSub, "home@example.test"} {
+	for _, leak := range []string{marker, token, "state-key", "secret", testSub, "home@example.test", fakes.DefaultGoogleAccount} {
 		if strings.Contains(logged, leak) {
 			t.Fatalf("%q in logs: %s", leak, logged)
 		}
@@ -889,21 +1033,21 @@ func (h hookedRecords) List(ctx context.Context, sub, recordType string) ([]sync
 	return h.memRecords.List(ctx, sub, recordType)
 }
 
-// A run reads the connection when it starts. Another user's consent can take it over before the run's last writes, or
-// this user disconnect, and either has already shown this user unconnected. Writing on would show them connected again,
-// with events the app counts as busy time, or an error to fix.
+// A run reads the connection when it starts. The person can disconnect before the run's last writes, which has already
+// shown them unconnected. Writing on would show them connected again, with events the app counts as busy time, or an
+// error to fix.
 func TestARunWritesNothingMoreOnceItsConnectionIsGone(t *testing.T) {
+	disconnect := func(w *world) {
+		if err := w.g.Disconnect(context.Background(), testSub); err != nil {
+			w.t.Fatal(err)
+		}
+	}
 	for name, c := range map[string]struct {
 		during string
 		gone   func(w *world)
 	}{
-		"taken over":                  {"calendar_source", func(w *world) { w.connect("someone-else") }},
-		"taken over before a failure": {"time_block", func(w *world) { w.connect("someone-else"); w.fake.RateLimit(1) }},
-		"disconnected": {"calendar_source", func(w *world) {
-			if err := w.g.Disconnect(context.Background(), testSub); err != nil {
-				w.t.Fatal(err)
-			}
-		}},
+		"disconnected":                  {"calendar_source", disconnect},
+		"disconnected before a failure": {"time_block", func(w *world) { disconnect(w); w.fake.RateLimit(1) }},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
@@ -923,7 +1067,7 @@ func TestARunWritesNothingMoreOnceItsConnectionIsGone(t *testing.T) {
 				}
 			}}
 			w.now = w.now.Add(time.Minute)
-			if err := w.g.Run(context.Background(), "schedule", "r"); err != nil || !happened {
+			if err := w.g.Run(context.Background(), testSub, "schedule", "r"); err != nil || !happened {
 				t.Fatalf("%v, happened %v", err, happened)
 			}
 			if rec := w.calendarRecord(testSub); rec["connected"].V != false || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
@@ -937,7 +1081,7 @@ func TestStoreFailureThatCannotBeRecordedIsReturned(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)
 	w.records.failing = errors.New("store down")
-	if err := w.g.Run(context.Background(), "schedule", "r"); err == nil {
+	if err := w.g.Run(context.Background(), testSub, "schedule", "r"); err == nil {
 		t.Fatal("swallowed")
 	}
 	if lines := w.runLines(); lines[len(lines)-1]["CalendarRunFailures"] != float64(1) {
@@ -1011,7 +1155,7 @@ func dropped(http.ResponseWriter) { panic(http.ErrAbortHandler) }
 func (w *world) runWithin(ctx context.Context, limit time.Duration) error {
 	w.t.Helper()
 	done := make(chan error, 1)
-	go func() { done <- w.g.Run(ctx, "schedule", "r") }()
+	go func() { done <- w.g.Run(ctx, testSub, "schedule", "r") }()
 	select {
 	case err := <-done:
 		return err
@@ -1029,7 +1173,7 @@ func TestACallToGoogleThatHangsFailsTheRunAndIsRecorded(t *testing.T) {
 			shorten(t, &callTimeout, 100*time.Millisecond)
 			w := newWorld(t)
 			w.connect(testSub)
-			w.g.Retry = func(time.Duration) {}
+			w.g.Retry = func(context.Context, string, time.Duration) error { return nil }
 			w.hang(path)
 			if err := w.runWithin(context.Background(), 10*time.Second); err != nil {
 				t.Fatal(err)
@@ -1073,7 +1217,13 @@ func TestARunThatCannotReachGoogleIsFollowedByOneMoreAMinuteLater(t *testing.T) 
 			w := newWorld(t)
 			w.connect(testSub)
 			var asked []time.Duration
-			w.g.Retry = func(after time.Duration) { asked = append(asked, after) }
+			w.g.Retry = func(_ context.Context, sub string, after time.Duration) error {
+				if sub != testSub {
+					t.Fatalf("retry for %s", sub)
+				}
+				asked = append(asked, after)
+				return nil
+			}
 			if c.fail != nil {
 				w.failCalendarAPI(c.calls, c.fail)
 			} else {
@@ -1093,9 +1243,12 @@ func TestARunThatCannotReachGoogleIsFollowedByOneMoreAMinuteLater(t *testing.T) 
 func TestTheFollowUpRunAsksForNoOther(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)
-	w.g.Retry = func(time.Duration) { t.Fatal("asked again") }
+	w.g.Retry = func(context.Context, string, time.Duration) error {
+		t.Fatal("asked again")
+		return nil
+	}
 	w.failCalendarAPI(-1, unavailable)
-	if err := w.g.Run(context.Background(), TriggerRetry, "r"); err != nil {
+	if err := w.g.Run(context.Background(), testSub, TriggerRetry, "r"); err != nil {
 		t.Fatal(err)
 	}
 	if rec := w.calendarRecord(testSub); rec["last_error"].V != ErrorFailed {

@@ -1,5 +1,6 @@
-// Everything one environment runs on AWS. Cost is meant to stay under $1 a month, so secrets are SSM SecureString
-// parameters under the AWS-managed key rather than Secrets Manager or a customer-managed key.
+// Everything one environment runs on AWS. Cost is meant to stay under $1 a month with no one using it, so secrets are SSM
+// SecureString parameters under the AWS-managed key rather than Secrets Manager. The one customer-managed key is for
+// people's Google tokens, which KMS encrypts for each person: an AWS-managed key can't be called directly.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,6 +22,7 @@ import { CfnDeploymentGroup, LambdaApplication, LambdaDeploymentConfig, LambdaDe
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { Key } from 'aws-cdk-lib/aws-kms';
 import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { FilterPattern, LogGroup, MetricFilter, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -30,6 +32,7 @@ import { BlockPublicAccess, Bucket, BucketEncryption, HttpMethods } from 'aws-cd
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
+import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { loadRetention } from '../../config/retention.ts';
@@ -177,6 +180,34 @@ export class MultiscaleStack extends Stack {
       projectionType: ProjectionType.ALL,
     });
 
+    // People's Google connections: each one's refresh token, encrypted by this key under a context naming them, in the
+    // table (internal/gcal/aws.go). Not a Secrets Manager secret each, which at $0.40 a month would cost $4,000 a month for
+    // 10,000 people; the key is $1 a month and $0.03 per 10,000 decrypts, one a run. Kept if the stack goes, since every
+    // stored token is unreadable without it.
+    const tokenKey = new Key(this, 'GoogleTokenKey', {
+      description: `Multiscale ${envName}: people's Google refresh tokens`,
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const tokenPurpose = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': envName } };
+
+    // The worker's queue: one message a person's run, from the schedule, the stream, the API's refresh and the one retry.
+    // Visible again only after six times the worker's timeout, as Lambda advises, so a run still going isn't handed out
+    // twice. A run that couldn't record its failure three times goes to the dead letters, where an alarm says so; the
+    // schedule runs that person again anyway.
+    const calendarTimeout = Duration.minutes(5);
+    const calendarDeadLetters = new Queue(this, 'CalendarDeadLetters', {
+      retentionPeriod: Duration.days(14),
+      encryption: QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+    });
+    const calendarQueue = new Queue(this, 'CalendarQueue', {
+      visibilityTimeout: Duration.minutes(calendarTimeout.toMinutes() * 6),
+      encryption: QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      deadLetterQueue: { queue: calendarDeadLetters, maxReceiveCount: 3 },
+    });
+
     // Functions
 
     const functionLogs = (logId: string) => new LogGroup(this, logId, { retention: RetentionDays.ONE_MONTH });
@@ -243,7 +274,8 @@ export class MultiscaleStack extends Stack {
     // steps (Deployments, below). A deploy that changes a function publishes a new version.
     const live = (fn: LambdaFunction) => new Alias(this, `${fn.node.id.replace(/Function$/, '')}Live`, { aliasName: 'live', version: fn.currentVersion });
 
-    const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, Duration.minutes(5), {});
+    const google = { GOOGLE_TOKEN_KEY: tokenKey.keyArn, CALENDAR_QUEUE_URL: calendarQueue.queueUrl };
+    const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, calendarTimeout, google);
     const calendarAlias = live(calendarFunction);
     // The API starts the worker through its alias, named by ARN rather than by the alias resource: CloudFormation counts
     // the alias's UpdatePolicy, so the alias waits on its deployment group, whose alarms watch the API. Referring to the
@@ -253,7 +285,10 @@ export class MultiscaleStack extends Stack {
     const retentionAlias = live(retentionFunction);
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
+      // Read only by the API from before per-person connections, which invoked the worker itself; this one queues the run.
+      // shortcut: goes, with the invoke grant below, in the release that removes the legacy connection.
       CALENDAR_FUNCTION_NAME: calendarLiveArn,
+      ...google,
     });
     const apiAlias = live(apiFunction);
 
@@ -293,6 +328,22 @@ export class MultiscaleStack extends Stack {
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
     }));
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
+    // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
+    // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
+    // consent, with this key; both open them, only this environment's and for that purpose, with whichever key in the
+    // account sealed them, so tokens sealed before a reverted release made a new key still open.
+    const connectionItems = new PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
+      resources: [table.tableArn],
+      conditions: { 'ForAllValues:StringEquals': { 'dynamodb:LeadingKeys': ['google#connection', 'google#account'] } },
+    });
+    for (const fn of [apiFunction, calendarFunction]) {
+      fn.addToRolePolicy(connectionItems);
+      calendarQueue.grantSendMessages(fn);
+    }
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    const anyKey = this.formatArn({ service: 'kms', resource: 'key', resourceName: '*' });
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [anyKey], conditions: tokenPurpose }));
 
     // What runs the worker
 
@@ -322,6 +373,19 @@ export class MultiscaleStack extends Stack {
     new Schedule(this, 'CalendarSchedule', {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),
       target: new LambdaInvoke(calendarAlias),
+    });
+    // Each person's run, ten to an invocation and run at once there. The concurrency is the bound on the load on Google
+    // and on Lambda, however many people there are: four invocations of ten runs, each of about eight calls in two
+    // seconds, is at most about 9,600 calls a minute, under Google's 10,000 a project. The schedule spreads its runs
+    // over 15 minutes, which at 10,000 people is about 670 a minute, within that.
+    calendarQueue.grantConsumeMessages(calendarAlias);
+    new EventSourceMapping(calendarFunction, 'CalendarQueueSource', {
+      target: calendarAlias,
+      eventSourceArn: calendarQueue.queueArn,
+      batchSize: 10,
+      maxBatchingWindow: Duration.seconds(5),
+      reportBatchItemFailures: true,
+      maxConcurrency: 4,
     });
 
     // What keeps the expiry mark: TTL's removals only. A delete from anyone else, staging's cleanup included, isn't
@@ -395,7 +459,7 @@ export class MultiscaleStack extends Stack {
       statistic: 'Sum',
       period: fiveMinutes,
     });
-    const apiOperations = { query: 'Query', batchGet: 'BatchGetItem', transact: 'TransactWriteItems', put: 'PutItem', update: 'UpdateItem' };
+    const apiOperations = { query: 'Query', batchGet: 'BatchGetItem', get: 'GetItem', transact: 'TransactWriteItems', put: 'PutItem', update: 'UpdateItem' };
 
     const apiErrorRate = new MathExpression({
       label: '5xx %',
@@ -443,7 +507,14 @@ export class MultiscaleStack extends Stack {
       anyFailure('ApiLatency', 'API p99 latency was 10 seconds or more for 10 minutes', httpApi.metricLatency({ statistic: 'p99', period: fiveMinutes }), 10_000, 2),
       anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors),
       ...(settings.throttleReleaseAlarm ? [throttleAlarm] : []),
-      anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures')),
+      // A rate of the runs, so one person's failure among thousands can't roll a release back, while with one person a
+      // single failed run still does. A person's removed token or quota isn't a failure (internal/gcal).
+      anyFailure('CalendarFailures', 'At least 10% of calendar worker runs failed', new MathExpression({
+        label: 'Failed runs %',
+        expression: 'IF(runs > 0, 100 * failures / runs, 0)',
+        usingMetrics: { failures: custom('CalendarRunFailures'), runs: custom('CalendarRunFailures', 'SampleCount') },
+        period: fiveMinutes,
+      }), 10),
       // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
       anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
       // One failed run is enough: a new version gets about 1 run in 20, so two in a row would almost never come.
@@ -451,6 +522,7 @@ export class MultiscaleStack extends Stack {
         namespace: 'AWS/Lambda', metricName: 'Errors', dimensionsMap: { FunctionName: canaryName }, statistic: 'Sum', period: fiveMinutes,
       })),
     ];
+    anyFailure('CalendarDeadLetterAlarm', "A person's calendar run failed three times without recording why", calendarDeadLetters.metricApproximateNumberOfMessagesVisible({ period: fiveMinutes, statistic: 'Maximum' }));
     // The worker emits CalendarEventsChanged once per successful run, including runs that change nothing, so the
     // sample count is the number of successes.
     new Alarm(this, 'CalendarSilent', {
@@ -542,7 +614,12 @@ export class MultiscaleStack extends Stack {
           new GraphWidget({ title: 'Sync volume', width, left: [custom('SyncRecordsMerged'), custom('SyncConflictRetries'), custom('SyncRequestsRejected')] }),
         ],
         [
-          new GraphWidget({ title: 'Worker health', width, left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount')], right: [calendarFunction.metricDuration({ period: fiveMinutes })] }),
+          new GraphWidget({
+            title: 'Worker health',
+            width,
+            left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount'), custom('CalendarRevoked'), custom('CalendarRateLimited')],
+            right: [calendarFunction.metricDuration({ period: fiveMinutes }), calendarQueue.metricApproximateAgeOfOldestMessage({ period: fiveMinutes })],
+          }),
           new GraphWidget({ title: 'Largest user (GB of the 10 GB cap)', width, left: [largestUser] }),
         ],
         [

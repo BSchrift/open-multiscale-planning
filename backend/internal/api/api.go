@@ -44,6 +44,9 @@ type Files interface {
 // ErrInvalidState is what Calendar.Callback returns for a state it won't honour.
 var ErrInvalidState = errors.New("api: invalid state")
 
+// ErrAccountTaken is what Calendar.Callback returns for a Google account another person has connected.
+var ErrAccountTaken = errors.New("api: Google account connected to someone else")
+
 // Server is every route of the API. A nil Calendar or Files answers its routes with 501.
 type Server struct {
 	Sync     Syncer
@@ -216,6 +219,9 @@ func (s *Server) calendarCallback(w http.ResponseWriter, r *http.Request, _ stri
 	switch {
 	case errors.Is(err, ErrInvalidState):
 		return callbackPage(w, http.StatusBadRequest, "invalid_state", "Calendar not connected.")
+	case errors.Is(err, ErrAccountTaken):
+		return callbackPage(w, http.StatusConflict, "google_account_taken",
+			"Calendar not connected. This Google account is connected to another Multiscale account. Disconnect it there, or connect a different Google account.")
 	case err != nil:
 		return callbackPage(w, http.StatusBadGateway, "calendar_failed", "Calendar not connected.")
 	}

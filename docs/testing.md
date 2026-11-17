@@ -209,6 +209,11 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Calendar modes and busy time with seeded calendars | covered (settings: "edits settings in place") | covered (settings: "edits settings in place") | missing | missing |
 | A clash with the calendar shifts the rest of today | covered (today: "a clash with the calendar shifts the rest of today") | covered (same) | missing | missing |
 | Blocks mirrored to Google, edits there overwritten, errors | n/a: server side, in backend/integration/calendar_test.go and backend/cmd/local/calendar_test.go | | | |
+| Each person connects their own Google account: two at once each sync their own, one's removed access, outage, quota or slowness leaves the other syncing, a Google account connects to one person at a time | n/a: server side, in backend/integration/calendar_test.go ("TestTwoPeopleConnectedAtOnceEachSyncTheirOwn", "TestOnePersonsGoogleTroubleLeavesTheOtherSyncing", "TestAGoogleAccountConnectsToOnePersonAtATime") and backend/internal/gcal/people_test.go | | | |
+| A person's token is stored encrypted for them alone, never in the clear, and goes on disconnect and account deletion | n/a: server side, in backend/internal/gcal/aws_test.go ("TestConnectionsThroughDynamoDBAndKMS", against DynamoDB Local and Moto's KMS) and connect_test.go | | | |
+| The deployment's one connection from before keeps working until it's copied to its person's own | n/a: server side, in backend/internal/gcal/people_test.go ("TestTheLegacyConnectionKeepsRunningForItsPersonOnly") | | | |
+| The schedule and the stream start each connected person's run through the queue, spread and bounded | n/a: server side, in backend/internal/gcal/people_test.go, backend/cmd/calendar/main_test.go and infrastructure/test/stack.test.ts | | | |
+| A real Google account per person on staging | missing: needs a dedicated test Google account for the test user (`testCalendar`), and a second for the second test user | | | |
 
 ### Reminders and notifications
 

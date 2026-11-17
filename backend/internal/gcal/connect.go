@@ -26,6 +26,8 @@ const (
 	SecretClientID     = "google/client-id"
 	SecretClientSecret = "google/client-secret"
 	SecretState        = "google/state-secret"
+	// SecretRefreshToken is the deployment's one connection from before each person had their own. It is read only as a
+	// fallback, for the person it names, until the migration has copied it to their own connection.
 	SecretRefreshToken = "google/refresh-token"
 
 	// StateTTL is how long a consent link works.
@@ -46,6 +48,12 @@ var Scopes = []string{
 // ErrNoSecret is what Secrets.Get returns for a secret that isn't set.
 var ErrNoSecret = errors.New("gcal: secret not set")
 
+// ErrNotConnected is what Connections.Get returns for a person with no connection of their own.
+var ErrNotConnected = errors.New("gcal: not connected")
+
+// errConnectionChanged is what Connections.Delete returns when the connection was replaced since it was read.
+var errConnectionChanged = errors.New("gcal: the connection changed")
+
 // Secrets holds the Google client secret, the state key and the connection.
 type Secrets interface {
 	Get(ctx context.Context, name string) (string, error)
@@ -61,15 +69,51 @@ type States interface {
 	Consume(ctx context.Context, sub, nonce string) (bool, error)
 }
 
-// connection is the stored form of the refresh token. The user is with it because a scheduled run has no request to say who it is for.
-//
-// shortcut: each deployment connects one Google account; store a token per user if this ever has several.
+// connection is one person's Google connection: the refresh token the worker uses for them, and whose it is. The JSON is
+// the legacy secret's form.
 type connection struct {
 	RefreshToken string `json:"refresh_token"`
 	Sub          string `json:"sub"`
+	// Account names the Google account, by accountID, so that one Google account connects to one person. Empty in the
+	// legacy secret.
+	Account string `json:"-"`
+	// sealed is the stored, encrypted token as read, so a change can be made only to the connection that was read.
+	sealed []byte
+	// legacy marks the deployment's one connection from before, read from SecretRefreshToken.
+	legacy bool
 }
 
-func (g *Google) connection(ctx context.Context) (connection, error) {
+// Connections keeps each person's connection, with its refresh token encrypted for them alone. DynamoConnections is the
+// deployed one.
+type Connections interface {
+	// Get returns sub's own connection, or ErrNotConnected.
+	Get(ctx context.Context, sub string) (connection, error)
+	// Holder returns who holds a Google account's connection, or "" for no one.
+	Holder(ctx context.Context, account string) (string, error)
+	// Put stores conn as its person's connection and claims its Google account, releasing previous, the account they held
+	// before, if it's another. It returns api.ErrAccountTaken when someone else holds the account.
+	Put(ctx context.Context, conn connection, previous string) error
+	// Delete removes conn and releases its account. It succeeds when there's nothing to remove, and returns
+	// errConnectionChanged when conn was replaced since it was read, leaving the new one.
+	Delete(ctx context.Context, conn connection) error
+	// Has reports whether sub has a connection of their own, without decrypting it.
+	Has(ctx context.Context, sub string) (bool, error)
+	// Each calls fn with the sub of every person who has a connection of their own.
+	Each(ctx context.Context, fn func(sub string) error) error
+}
+
+// accountID names a Google account by a hash of its address, which is what its primary calendar's id is. A hash, so the
+// table holds no address.
+//
+// shortcut: an address changed in Google gets a new id, so the account could be connected to a second person; read
+// Google's own account id, with the openid scope, if that matters.
+func accountID(address string) string {
+	sum := sha256.Sum256([]byte("google-account:" + strings.ToLower(address)))
+	return hex.EncodeToString(sum[:])
+}
+
+// legacyConnection reads the deployment's one connection from before.
+func (g *Google) legacyConnection(ctx context.Context) (connection, error) {
 	var conn connection
 	raw, err := g.Secrets.Get(ctx, SecretRefreshToken)
 	if err != nil {
@@ -79,7 +123,23 @@ func (g *Google) connection(ctx context.Context) (connection, error) {
 		// The error text could quote the secret.
 		return conn, errors.New("gcal: stored connection is malformed")
 	}
+	conn.legacy = true
 	return conn, nil
+}
+
+// connectionOf returns sub's connection: their own, else the legacy one if it is theirs, else ErrNotConnected. The
+// fallback lets the worker keep running for the person connected before per-person connections, until the migration has
+// copied theirs.
+func (g *Google) connectionOf(ctx context.Context, sub string) (connection, error) {
+	conn, err := g.Connections.Get(ctx, sub)
+	if !errors.Is(err, ErrNotConnected) {
+		return conn, err
+	}
+	legacy, err := g.legacyConnection(ctx)
+	if errors.Is(err, ErrNoSecret) || (err == nil && legacy.Sub != sub) {
+		return connection{}, ErrNotConnected
+	}
+	return legacy, err
 }
 
 func (g *Google) oauthConfig(ctx context.Context) (*oauth2.Config, error) {
@@ -167,7 +227,10 @@ func (g *Google) verifyState(ctx context.Context, state string) (string, error) 
 	return claims.Sub, nil
 }
 
-// Callback finishes a consent: it stores the token, makes sure Time blocks exists, and starts a run.
+// Callback finishes a consent: it stores the token as this person's connection, makes sure Time blocks exists, and starts
+// a run. A Google account already connected to someone else is refused with api.ErrAccountTaken, before anything is made
+// in it: revoking access, by either person, would end both connections, and each would make its own Time blocks there.
+// The refused token is dropped, not revoked, since revoking it would end the other person's connection too.
 func (g *Google) Callback(ctx context.Context, state, code string) error {
 	sub, err := g.verifyState(ctx, state)
 	if err != nil {
@@ -188,6 +251,21 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if err != nil {
 		return err
 	}
+	primary, err := svc.CalendarList.Get("primary").Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	account := accountID(primary.Id)
+	if holder, err := g.Connections.Holder(ctx, account); err != nil {
+		return err
+	} else if holder != "" && holder != sub {
+		g.Log.Info("calendar_connect_refused", "user", obs.HashSub(sub), "reason", "account_taken")
+		return api.ErrAccountTaken
+	}
+	previous, err := g.Connections.Get(ctx, sub)
+	if err != nil && !errors.Is(err, ErrNotConnected) {
+		return err
+	}
 	stored, err := g.calendarRecord(ctx, sub)
 	if err != nil {
 		return err
@@ -197,82 +275,109 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if err != nil {
 		return err
 	}
-	encoded, err := json.Marshal(connection{RefreshToken: token.RefreshToken, Sub: sub})
+	err = g.Connections.Put(ctx, connection{RefreshToken: token.RefreshToken, Sub: sub, Account: account}, previous.Account)
+	if errors.Is(err, api.ErrAccountTaken) && calendarID != existing {
+		// Someone else connected the same account a moment ago, so the calendar just made there is a second one.
+		_ = svc.Calendars.Delete(calendarID).Context(ctx).Do()
+	}
 	if err != nil {
-		return err
-	}
-	// There is one connection, so another user's consent takes it over. Their app is told before it's replaced, so a
-	// failure here leaves nothing replaced unannounced. Their Google is left alone: it's theirs to remove access or Time
-	// blocks from. Time blocks is still there, so its id stays, for a later consent of theirs to find it again.
-	previous, err := g.connection(ctx)
-	if err != nil && !errors.Is(err, ErrNoSecret) {
-		return err
-	}
-	if previous.Sub != "" && previous.Sub != sub {
-		theirs, err := g.calendarRecord(ctx, previous.Sub)
-		if err != nil {
-			return err
-		}
-		if err := g.writeCalendar(ctx, previous.Sub, theirs, map[string]any{"connected": false, "events": []any{}, "last_error": nil}); err != nil {
-			return err
-		}
-	}
-	if err := g.Secrets.Put(ctx, SecretRefreshToken, string(encoded)); err != nil {
 		return err
 	}
 	if err := g.writeCalendar(ctx, sub, stored, map[string]any{"connected": true, "calendar_id": calendarID, "last_error": nil}); err != nil {
 		return err
 	}
 	// A first run that can't start now still happens at the next schedule, so this isn't worth failing a good consent.
-	_ = g.Trigger(ctx)
+	_ = g.Trigger(ctx, sub)
 	return nil
 }
 
-// Refresh starts a run for the connected user. It does nothing for anyone else, so another signed-in user, such as a
-// test user on a deployment, can't run the worker over the real account.
+// Refresh starts a run for this person, if they are connected.
 func (g *Google) Refresh(ctx context.Context, sub string) error {
-	conn, err := g.connection(ctx)
-	if errors.Is(err, ErrNoSecret) || (err == nil && conn.Sub != sub) {
+	_, err := g.connectionOf(ctx, sub)
+	if errors.Is(err, ErrNotConnected) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	return g.Trigger(ctx)
+	return g.Trigger(ctx, sub)
 }
 
-// Disconnect ends the connection: Google's access is revoked, Time blocks is removed from Google, and the app shows it
-// unconnected. Like Refresh, it leaves the connection alone for anyone but the connected user.
+// Disconnect ends this person's connection, as DeleteConnection does, and the app shows it unconnected.
 func (g *Google) Disconnect(ctx context.Context, sub string) error {
-	conn, err := g.connection(ctx)
-	if err != nil && !errors.Is(err, ErrNoSecret) {
+	if err := g.DeleteConnection(ctx, sub); err != nil {
 		return err
 	}
 	stored, err := g.calendarRecord(ctx, sub)
 	if err != nil {
 		return err
 	}
-	if conn.Sub != "" && conn.Sub == sub {
-		// Best effort with Google: access already removed there, or Time blocks already deleted, still disconnects here.
-		failed := []string{}
-		if id := fieldString(stored, "calendar_id"); id != "" {
-			svc, err := g.service(ctx, conn.RefreshToken)
-			if err == nil {
-				err = svc.Calendars.Delete(id).Context(ctx).Do()
-			}
-			if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) && errorCode(err) != ErrorRevoked {
-				failed = append(failed, "delete_calendar")
-			}
-		}
-		if err := g.revoke(ctx, conn.RefreshToken); err != nil {
-			failed = append(failed, "revoke")
-		}
-		g.Log.Info("calendar_disconnect", "user", obs.HashSub(sub), "google_failed", failed)
-		if err := g.Secrets.Delete(ctx, SecretRefreshToken); err != nil {
+	return g.writeCalendar(ctx, sub, stored, map[string]any{"connected": false, "calendar_id": nil, "events": []any{}, "last_error": nil})
+}
+
+// DeleteConnection ends this person's connection: Time blocks is removed from their Google, Google's access is revoked,
+// and the stored token is deleted, their own and the legacy one if it is theirs. It succeeds when they have none, so it
+// can run again. Deleting an account calls it before the records go, since it reads Time blocks' id from the calendar
+// record; with the records already gone, it still revokes and deletes. A consent finishing at the same moment is ended
+// too, by going round again.
+func (g *Google) DeleteConnection(ctx context.Context, sub string) error {
+	for attempt := 0; ; attempt++ {
+		err := g.deleteConnection(ctx, sub)
+		if !errors.Is(err, errConnectionChanged) || attempt == 2 {
 			return err
 		}
 	}
-	return g.writeCalendar(ctx, sub, stored, map[string]any{"connected": false, "calendar_id": nil, "events": []any{}, "last_error": nil})
+}
+
+func (g *Google) deleteConnection(ctx context.Context, sub string) error {
+	own, err := g.Connections.Get(ctx, sub)
+	if err != nil && !errors.Is(err, ErrNotConnected) {
+		return err
+	}
+	legacy, err := g.legacyConnection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return err
+	}
+	var tokens []string
+	if own.Sub != "" {
+		tokens = append(tokens, own.RefreshToken)
+	}
+	if legacy.Sub == sub && legacy.RefreshToken != own.RefreshToken {
+		tokens = append(tokens, legacy.RefreshToken)
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+	stored, err := g.calendarRecord(ctx, sub)
+	if err != nil {
+		return err
+	}
+	// Best effort with Google: access already removed there, or Time blocks already deleted, still disconnects here.
+	failed := []string{}
+	if id := fieldString(stored, "calendar_id"); id != "" {
+		svc, err := g.service(ctx, tokens[0])
+		if err == nil {
+			err = svc.Calendars.Delete(id).Context(ctx).Do()
+		}
+		if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) && errorCode(err) != ErrorRevoked {
+			failed = append(failed, "delete_calendar")
+		}
+	}
+	for _, token := range tokens {
+		if err := g.revoke(ctx, token); err != nil {
+			failed = append(failed, "revoke")
+		}
+	}
+	g.Log.Info("calendar_disconnect", "user", obs.HashSub(sub), "google_failed", failed)
+	if own.Sub != "" {
+		if err := g.Connections.Delete(ctx, own); err != nil {
+			return err
+		}
+	}
+	if legacy.Sub == sub {
+		return g.Secrets.Delete(ctx, SecretRefreshToken)
+	}
+	return nil
 }
 
 // revoke asks Google to stop honouring a refresh token. Google answers 400 for one it already doesn't.

@@ -1,6 +1,7 @@
 package fakes
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -19,18 +20,32 @@ import (
 
 const googleAccessTokenTTL = time.Hour
 
+// DefaultGoogleAccount is the account a consent signs in to when it doesn't name one with login_hint.
+const DefaultGoogleAccount = "person@example.test"
+
 // Google's documented event id alphabet. Its length limit is 1024; 1000 is as far as a Go regexp counts.
 var googleEventID = regexp.MustCompile(`^[a-v0-9]{5,1000}$`)
 
 type googleCalendar struct {
 	id, summary, zone string
-	appCreated        bool
-	events            map[string]*calendar.Event
+	// account is the Google account the calendar is in. Calendar ids are unique across accounts.
+	account    string
+	appCreated bool
+	events     map[string]*calendar.Event
+}
+
+// grant is what a token stands for: one Google account's consent to this client.
+type grant struct {
+	account string
+	offline bool
+	expires time.Time
 }
 
 // Google is a stand-in for Google's OAuth and Calendar APIs, with the behaviour the worker depends on: a deleted event
-// keeps its id, reminders default to on, and the app can only write to calendars it created. Requests under /_test/ let
-// a black-box test act as the person in Google and inject failures.
+// keeps its id, reminders default to on, and the app can only write to calendars it created. It holds any number of
+// Google accounts, each with its own calendars, tokens and failures; a consent signs in to the one its login_hint names,
+// else DefaultGoogleAccount. Requests under /_test/ let a black-box test act as the person in Google and inject failures,
+// for the account in their account parameter, else the default.
 type Google struct {
 	clientID, clientSecret string
 	now                    func() time.Time
@@ -40,12 +55,13 @@ type Google struct {
 	PageSize int
 
 	mu          stdsync.Mutex
-	codes       map[string]bool // code to whether offline access was asked for
-	refresh     map[string]bool
-	access      map[string]time.Time
+	codes       map[string]grant
+	refresh     map[string]grant
+	access      map[string]grant
 	calendars   map[string]*googleCalendar
-	rateLimited int
-	writes      int
+	rateLimited map[string]int
+	slow        map[string]time.Duration
+	writes      map[string]int
 	ids         int
 	// The Calendar API and the OAuth endpoints are reached separately, so each has its own outage.
 	apiOutage, tokenOutage outage
@@ -54,7 +70,8 @@ type Google struct {
 func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 	g := &Google{
 		clientID: clientID, clientSecret: clientSecret, now: now, PageSize: 250,
-		codes: map[string]bool{}, refresh: map[string]bool{}, access: map[string]time.Time{}, calendars: map[string]*googleCalendar{},
+		codes: map[string]grant{}, refresh: map[string]grant{}, access: map[string]grant{}, calendars: map[string]*googleCalendar{},
+		rateLimited: map[string]int{}, slow: map[string]time.Duration{}, writes: map[string]int{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /o/oauth2/auth", g.authorize)
@@ -65,6 +82,7 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 		mux.HandleFunc(pattern, g.dropping(&g.apiOutage, g.authorized(write, h)))
 	}
 	api("GET /calendar/v3/users/me/calendarList", false, g.listCalendars)
+	api("GET /calendar/v3/users/me/calendarList/{cal}", false, g.getCalendarListEntry)
 	api("POST /calendar/v3/calendars", true, g.createCalendar)
 	api("GET /calendar/v3/calendars/{cal}", false, g.getCalendar)
 	api("DELETE /calendar/v3/calendars/{cal}", true, g.deleteCalendar)
@@ -79,11 +97,12 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 	mux.HandleFunc("POST /_test/calendars/{cal}/events", g.testAddEvent)
 	mux.HandleFunc("POST /_test/calendars/{cal}/events/{id}/edit", g.testEditEvent)
 	mux.HandleFunc("POST /_test/calendars/{cal}/events/{id}/delete", g.testDeleteEvent)
-	mux.HandleFunc("POST /_test/revoke", func(w http.ResponseWriter, _ *http.Request) {
-		g.Revoke()
+	mux.HandleFunc("POST /_test/revoke", func(w http.ResponseWriter, r *http.Request) {
+		g.Account(testAccount(r)).Revoke()
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /_test/rate_limit", g.testRateLimit)
+	mux.HandleFunc("POST /_test/slow", g.testSlow)
 	mux.HandleFunc("POST /_test/outage", g.testOutage)
 	g.mux = mux
 	return g
@@ -91,12 +110,85 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 
 func (g *Google) ServeHTTP(w http.ResponseWriter, r *http.Request) { g.mux.ServeHTTP(w, r) }
 
-// AddCalendar adds a calendar the person already has, which the app can read but not write.
-func (g *Google) AddCalendar(id, summary string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.calendars[id] = &googleCalendar{id: id, summary: summary, events: map[string]*calendar.Event{}}
+// GoogleAccount is one person's Google account in the stand-in, for a test to act as them in Google.
+type GoogleAccount struct {
+	g     *Google
+	email string
 }
+
+// Account returns the Google account with this address, which exists from the first time anything names it.
+func (g *Google) Account(email string) *GoogleAccount { return &GoogleAccount{g, email} }
+
+func (g *Google) defaultAccount() *GoogleAccount { return g.Account(DefaultGoogleAccount) }
+
+// testAccount is the account a /_test/ request acts as.
+func testAccount(r *http.Request) string {
+	if account := r.URL.Query().Get("account"); account != "" {
+		return account
+	}
+	return DefaultGoogleAccount
+}
+
+// AddCalendar adds a calendar the person already has, which the app can read but not write.
+func (a *GoogleAccount) AddCalendar(id, summary string) {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	a.g.calendars[id] = &googleCalendar{id: id, summary: summary, account: a.email, events: map[string]*calendar.Event{}}
+}
+
+// CalendarNamed returns the id of this account's calendar with this name, or "".
+func (a *GoogleAccount) CalendarNamed(summary string) string {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	for _, c := range a.g.calendars {
+		if c.account == a.email && c.summary == summary {
+			return c.id
+		}
+	}
+	return ""
+}
+
+// Writes counts changes made through the API to this account.
+func (a *GoogleAccount) Writes() int {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	return a.g.writes[a.email]
+}
+
+// Revoke does what removing the app's access in a Google account does: every token of its grant stops working.
+func (a *GoogleAccount) Revoke() {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	a.g.revokeLocked(a.email)
+}
+
+// RateLimit makes this account's next calls to the Calendar API fail as over quota.
+func (a *GoogleAccount) RateLimit(calls int) {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	a.g.rateLimited[a.email] = calls
+}
+
+// Slow makes each of this account's calls to Google wait this long before Google answers, without holding up anyone
+// else's. Zero ends it.
+func (a *GoogleAccount) Slow(by time.Duration) {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	a.g.slow[a.email] = by
+}
+
+func (g *Google) revokeLocked(account string) {
+	for _, tokens := range []map[string]grant{g.refresh, g.access} {
+		for token, held := range tokens {
+			if held.account == account {
+				delete(tokens, token)
+			}
+		}
+	}
+}
+
+// AddCalendar adds a calendar the default account already has, which the app can read but not write.
+func (g *Google) AddCalendar(id, summary string) { g.defaultAccount().AddCalendar(id, summary) }
 
 // DeleteCalendar removes a calendar, as the person can in Google.
 func (g *Google) DeleteCalendar(id string) {
@@ -139,38 +231,27 @@ func (g *Google) Events(cal string) []*calendar.Event {
 	return g.calendars[cal].visible()
 }
 
-// CalendarNamed returns the id of the calendar with this name, or "".
+// CalendarNamed returns the id of the default account's calendar with this name, or "".
 func (g *Google) CalendarNamed(summary string) string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	for _, c := range g.calendars {
-		if c.summary == summary {
-			return c.id
-		}
-	}
-	return ""
+	return g.defaultAccount().CalendarNamed(summary)
 }
 
-// Writes counts changes made through the API, so a test can see a run that had nothing to do.
+// Writes counts changes made through the API to every account, so a test can see a run that had nothing to do.
 func (g *Google) Writes() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.writes
+	total := 0
+	for _, n := range g.writes {
+		total += n
+	}
+	return total
 }
 
-// Revoke does what removing the app's access in a Google account does.
-func (g *Google) Revoke() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.refresh, g.access = map[string]bool{}, map[string]time.Time{}
-}
+// Revoke removes the app's access in the default account.
+func (g *Google) Revoke() { g.defaultAccount().Revoke() }
 
-// RateLimit makes the next calls to the Calendar API fail as over quota.
-func (g *Google) RateLimit(calls int) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.rateLimited = calls
-}
+// RateLimit makes the default account's next calls to the Calendar API fail as over quota.
+func (g *Google) RateLimit(calls int) { g.defaultAccount().RateLimit(calls) }
 
 // GoogleOutage is the connection to Google dropping, for the calls the worker and the API make to it.
 type GoogleOutage struct {
@@ -185,11 +266,14 @@ type GoogleOutage struct {
 	Status int `json:"status"`
 	// Applied lets a failed call take effect in Google first, so that only its answer is lost on the way back.
 	Applied bool `json:"applied"`
+	// Account limits the outage to one Google account's calls, as when only that person's requests fail. Empty is everyone's.
+	Account string `json:"account"`
 }
 
 type outage struct {
 	after, calls, status int
 	applied              bool
+	account              string
 }
 
 // Outage makes calls to the Calendar API, or to the OAuth endpoints, fail as when the connection to Google drops. It
@@ -197,7 +281,7 @@ type outage struct {
 func (g *Google) Outage(o GoogleOutage) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	set := outage{after: o.After, calls: o.Calls, status: o.Status, applied: o.Applied}
+	set := outage{after: o.After, calls: o.Calls, status: o.Status, applied: o.Applied, account: o.Account}
 	if o.Token {
 		g.tokenOutage = set
 	} else {
@@ -205,10 +289,10 @@ func (g *Google) Outage(o GoogleOutage) {
 	}
 }
 
-// take counts a call and reports whether the outage ends it.
-func (o *outage) take() bool {
+// take counts a call from account and reports whether the outage ends it.
+func (o *outage) take(account string) bool {
 	switch {
-	case o.calls == 0:
+	case o.calls == 0, o.account != "" && o.account != account:
 		return false
 	case o.after > 0:
 		o.after--
@@ -219,12 +303,17 @@ func (o *outage) take() bool {
 	return true
 }
 
-// dropping ends the calls an outage takes, before Google acts on them or, for an applied outage, after.
+// dropping ends the calls an outage takes, before Google acts on them or, for an applied outage, after. It is also where a
+// slow account's calls wait, outside the lock so no one else's do.
 func (g *Google) dropping(o *outage, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
-		taken, current := o.take(), *o
+		account := g.callerLocked(r)
+		taken, current, delay := o.take(account), *o, g.slow[account]
 		g.mu.Unlock()
+		if delay > 0 {
+			time.Sleep(delay)
+		}
 		if !taken {
 			next(w, r)
 			return
@@ -239,6 +328,23 @@ func (g *Google) dropping(o *outage, next http.HandlerFunc) http.HandlerFunc {
 		// The server closes the connection without answering, which is what the caller sees when the connection drops.
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// callerLocked says which account a call is from, by its token, code or bearer token. "" is one no account holds.
+func (g *Google) callerLocked(r *http.Request) string {
+	const prefix = "Bearer "
+	if header := r.Header.Get("Authorization"); len(header) > len(prefix) && header[:len(prefix)] == prefix {
+		return g.access[header[len(prefix):]].account
+	}
+	if r.Method != http.MethodPost {
+		return ""
+	}
+	for _, held := range []grant{g.refresh[r.PostFormValue("refresh_token")], g.codes[r.PostFormValue("code")], g.refresh[r.PostFormValue("token")]} {
+		if held.account != "" {
+			return held.account
+		}
+	}
+	return ""
 }
 
 func (c *googleCalendar) visible() []*calendar.Event {
@@ -291,9 +397,13 @@ func (g *Google) authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid_request", http.StatusBadRequest)
 		return
 	}
+	account := q.Get("login_hint")
+	if account == "" {
+		account = DefaultGoogleAccount
+	}
 	code := randomGoogleToken()
 	g.mu.Lock()
-	g.codes[code] = q.Get("access_type") == "offline"
+	g.codes[code] = grant{account: account, offline: q.Get("access_type") == "offline"}
 	g.mu.Unlock()
 	back := redirect.Query()
 	back.Set("code", code)
@@ -314,21 +424,24 @@ func (g *Google) token(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	body := map[string]any{"token_type": "Bearer", "expires_in": int(googleAccessTokenTTL.Seconds())}
+	var held grant
 	switch r.PostFormValue("grant_type") {
 	case "authorization_code":
-		offline, ok := g.codes[r.PostFormValue("code")]
+		var ok bool
+		held, ok = g.codes[r.PostFormValue("code")]
 		if !ok {
 			writeGoogleJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 			return
 		}
 		delete(g.codes, r.PostFormValue("code"))
-		if offline {
+		if held.offline {
 			refresh := randomGoogleToken()
-			g.refresh[refresh] = true
+			g.refresh[refresh] = held
 			body["refresh_token"] = refresh
 		}
 	case "refresh_token":
-		if !g.refresh[r.PostFormValue("refresh_token")] {
+		var ok bool
+		if held, ok = g.refresh[r.PostFormValue("refresh_token")]; !ok {
 			writeGoogleJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "Token has been expired or revoked."})
 			return
 		}
@@ -337,10 +450,13 @@ func (g *Google) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	access := randomGoogleToken()
-	g.access[access] = g.now().Add(googleAccessTokenTTL)
+	g.access[access] = grant{account: held.account, expires: g.now().Add(googleAccessTokenTTL)}
 	body["access_token"] = access
 	writeGoogleJSON(w, http.StatusOK, body)
 }
+
+// callerKey carries the account a Calendar API call is from to its handler.
+type callerKey struct{}
 
 // authorized holds the lock for the handler, since every handler reads or changes shared state.
 func (g *Google) authorized(write bool, next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
@@ -349,20 +465,29 @@ func (g *Google) authorized(write bool, next func(http.ResponseWriter, *http.Req
 		defer g.mu.Unlock()
 		const prefix = "Bearer "
 		header := r.Header.Get("Authorization")
-		if len(header) <= len(prefix) || g.now().After(g.access[header[len(prefix):]]) {
+		var held grant
+		if len(header) > len(prefix) {
+			held = g.access[header[len(prefix):]]
+		}
+		if held.account == "" || g.now().After(held.expires) {
 			writeGoogleError(w, http.StatusUnauthorized, "authError", "Invalid Credentials")
 			return
 		}
-		if g.rateLimited > 0 {
-			g.rateLimited--
+		if g.rateLimited[held.account] > 0 {
+			g.rateLimited[held.account]--
 			writeGoogleError(w, http.StatusForbidden, "rateLimitExceeded", "Rate Limit Exceeded")
 			return
 		}
 		if write {
-			g.writes++
+			g.writes[held.account]++
 		}
-		next(w, r)
+		next(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, held.account)))
 	}
+}
+
+func caller(r *http.Request) string {
+	account, _ := r.Context().Value(callerKey{}).(string)
+	return account
 }
 
 func writeGoogleJSON(w http.ResponseWriter, status int, body any) {
@@ -392,11 +517,25 @@ func page[T any](g *Google, r *http.Request, items []T) ([]T, string) {
 func (g *Google) listCalendars(w http.ResponseWriter, r *http.Request) {
 	var items []*calendar.CalendarListEntry
 	for _, c := range g.calendars {
-		items = append(items, &calendar.CalendarListEntry{Id: c.id, Summary: c.summary, TimeZone: c.zone})
+		if c.account == caller(r) {
+			items = append(items, &calendar.CalendarListEntry{Id: c.id, Summary: c.summary, TimeZone: c.zone})
+		}
 	}
 	slices.SortFunc(items, func(a, b *calendar.CalendarListEntry) int { return cmpStrings(a.Id, b.Id) })
 	items, next := page(g, r, items)
 	writeGoogleJSON(w, http.StatusOK, calendar.CalendarList{Items: items, NextPageToken: next})
+}
+
+// getCalendarListEntry answers primary with the account's own address, which is how a client learns whose account a token
+// is for. The primary calendar is left out of the list, so a test's calendars are the only ones the worker reads.
+func (g *Google) getCalendarListEntry(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("cal") == "primary" {
+		writeGoogleJSON(w, http.StatusOK, calendar.CalendarListEntry{Id: caller(r), Summary: caller(r), Primary: true})
+		return
+	}
+	if c, ok := g.calendarOf(w, r); ok {
+		writeGoogleJSON(w, http.StatusOK, calendar.CalendarListEntry{Id: c.id, Summary: c.summary, TimeZone: c.zone})
+	}
 }
 
 func (g *Google) createCalendar(w http.ResponseWriter, r *http.Request) {
@@ -407,7 +546,7 @@ func (g *Google) createCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 	g.ids++
 	id := fmt.Sprintf("app%d@group.calendar.example.test", g.ids)
-	g.calendars[id] = &googleCalendar{id: id, summary: body.Summary, appCreated: true, events: map[string]*calendar.Event{}}
+	g.calendars[id] = &googleCalendar{id: id, summary: body.Summary, account: caller(r), appCreated: true, events: map[string]*calendar.Event{}}
 	writeGoogleJSON(w, http.StatusOK, calendar.Calendar{Id: id, Summary: body.Summary})
 }
 
@@ -425,21 +564,24 @@ func (g *Google) deleteCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// revoke takes a refresh token, as Google's revoke endpoint does, and answers 400 for one it doesn't know.
+// revoke takes a refresh token, as Google's revoke endpoint does, and answers 400 for one it doesn't know. Like Google's, it
+// ends the whole grant: every token the account gave this client.
 func (g *Google) revoke(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	token := r.PostFormValue("token")
-	if !g.refresh[token] {
+	held, ok := g.refresh[r.PostFormValue("token")]
+	if !ok {
 		writeGoogleJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_token"})
 		return
 	}
-	delete(g.refresh, token)
+	g.revokeLocked(held.account)
 	w.WriteHeader(http.StatusOK)
 }
 
+// calendarOf finds the calendar a call names, in the caller's account only.
 func (g *Google) calendarOf(w http.ResponseWriter, r *http.Request) (*googleCalendar, bool) {
 	c, ok := g.calendars[r.PathValue("cal")]
+	ok = ok && c.account == caller(r)
 	if !ok {
 		writeGoogleError(w, http.StatusNotFound, "notFound", "Not Found")
 	}
@@ -565,7 +707,7 @@ func (g *Google) deleteEvent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (g *Google) testState(w http.ResponseWriter, _ *http.Request) {
+func (g *Google) testState(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	type state struct {
@@ -576,7 +718,9 @@ func (g *Google) testState(w http.ResponseWriter, _ *http.Request) {
 	}
 	all := []state{}
 	for _, c := range g.calendars {
-		all = append(all, state{c.id, c.summary, c.appCreated, c.visible()})
+		if c.account == testAccount(r) {
+			all = append(all, state{c.id, c.summary, c.appCreated, c.visible()})
+		}
 	}
 	slices.SortFunc(all, func(a, b state) int { return cmpStrings(a.ID, b.ID) })
 	writeGoogleJSON(w, http.StatusOK, map[string]any{"calendars": all})
@@ -588,7 +732,7 @@ func (g *Google) testAddCalendar(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
-	g.AddCalendar(body.ID, body.Summary)
+	g.Account(testAccount(r)).AddCalendar(body.ID, body.Summary)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -654,7 +798,17 @@ func (g *Google) testRateLimit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
-	g.RateLimit(body.Calls)
+	g.Account(testAccount(r)).RateLimit(body.Calls)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (g *Google) testSlow(w http.ResponseWriter, r *http.Request) {
+	var body struct{ MS int }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	g.Account(testAccount(r)).Slow(time.Duration(body.MS) * time.Millisecond)
 	w.WriteHeader(http.StatusNoContent)
 }
 

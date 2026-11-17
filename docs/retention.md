@@ -32,7 +32,8 @@ them, encrypted with KMS for them alone, and a hash of the Google account's addr
 one person. Both go when they disconnect, and when they connect again in place of a connection Google refused. When
 Google refuses the token (they removed access there, or it expired) the worker stops using it and marks it, and it stays,
 unusable, until they connect again or disconnect. Deleting an account must remove them too, by calling
-`gcal.DeleteConnection` before the account's records go; the in-app account deletion being built does. Disconnecting and
+`gcal.Google.Forget`, which is `DeleteConnection` with no record written, before the account's records go; the in-app
+account deletion being built does. Disconnecting and
 deleting also revoke the token at Google. The connection is never synced to a device, never in an export, and never logged. It
 sits outside the person's records (`google#connection` and `google#account` in the table), so no period here applies to it.
 A week's planning task that was neither done nor deleted is an open task too: hidden once its week has passed, and kept.

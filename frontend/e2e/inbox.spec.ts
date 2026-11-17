@@ -97,11 +97,15 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   await page.screenshot({ path: info.outputPath('process.png') });
   if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', 'Undo', 'Skip', 'Done', 'Delete']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
 
-  /** Picks a place: typed and Enter on desktop, a tap in the sheet on phone. */
+  /** Picks a place, typed and Enter on desktop or a tap in the sheet on phone, then adds the item there. */
   const addTo = async (typed: string, option: string) => {
+    const add = card(page).getByRole('button', { name: `Add to ${option.split(',')[0]}`, exact: true });
     if (!phone) {
       await field.fill(typed);
       await expect(page.getByRole('option', { name: option })).toHaveAttribute('aria-selected', 'true');
+      await field.press('Enter');
+      // Enter only picks it; the item waits for a second Enter.
+      await expect(add).toBeVisible();
       return field.press('Enter');
     }
     await field.click();
@@ -109,6 +113,7 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
     await sheet.getByRole('combobox', { name: 'Add to a project or One offs' }).fill(typed);
     for (const row of await sheet.getByRole('option').all()) await expectTapTarget(row);
     await sheet.getByRole('option', { name: option }).click();
+    await add.click();
   };
   const toast = page.locator('.toast');
 
@@ -245,6 +250,7 @@ test("a date set on the card goes with the item to a project, warned in the pick
   await page.screenshot({ path: info.outputPath('process-late.png') });
   // It only warns: the item is added, date and all.
   await (phone ? option.click() : page.keyboard.press('Enter'));
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
   await expect(page.locator('.toast')).toContainText('Added Call the bank to Paint the fence, for Feb 10.');
   await expect(card(page)).toHaveCount(0);
 
@@ -381,8 +387,11 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
   const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
   await expect(picker).toBeFocused();
-  // In Add to, letters search, and Enter adds to the lit row.
+  // In Add to, letters search, Enter picks the lit row, and a second Enter adds the item there.
   await page.keyboard.type('paint');
+  await page.keyboard.press('Enter');
+  await expect(picker).toHaveValue('Paint the fence');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
   await expect(page.locator('.toast')).toContainText('Added Fix the gate to Paint the fence.');
@@ -482,6 +491,7 @@ test('makes a project under a new goal, a practice and a goal from cards, each o
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('paint');
     await page.keyboard.press('Enter');
   }
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
   await expect(toast).toContainText('Added Fix the gate to Paint the fence.');
   await card(page).getByRole('button', { name: 'Exit' }).click();
   await expect(card(page)).toHaveCount(0);

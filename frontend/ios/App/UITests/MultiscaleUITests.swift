@@ -272,14 +272,16 @@ final class ShellUITests: XCTestCase {
         app.tapWeb("Process 2 items")
         // The card's title is a button, which edits it.
         exists(app.webButton("Buy a proofing basket"))
-        // Add to opens a sheet of places, ready to search; a tap on one adds the item there.
+        // Add to opens a sheet of places, ready to search; a tap on one picks it, and Add to adds the item there.
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        app.tapWeb("Add to Bake a sourdough loaf")
         exists(app.webText("Added Buy a proofing basket to Bake a sourdough loaf."))
 
         exists(app.webButton("Return the library books"))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
+        app.tapWeb("Add to One offs")
         // Process closes itself on the last item; its check fades, then the last item's toast shows.
         exists(app.webText("Added Return the library books to One offs."))
 

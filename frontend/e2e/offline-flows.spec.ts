@@ -118,12 +118,16 @@ test('processes the Inbox offline: a home for each item, Undo, and Delete', asyn
       const field = page.getByRole('combobox', { name: 'Add to a project or One offs' });
       await field.fill(typed);
       await expect(page.getByRole('option', { name: option })).toHaveAttribute('aria-selected', 'true');
+      // Enter picks it, and a second Enter adds the item there.
+      await field.press('Enter');
+      await expect(card.getByRole('button', { name: `Add to ${option.split(',')[0]}`, exact: true })).toBeVisible();
       return field.press('Enter');
     }
     await card.getByRole('button', { name: /^Add to a project or One offs/ }).click();
     const sheet = page.getByRole('dialog', { name: 'Add to' });
     await sheet.getByRole('combobox', { name: 'Add to a project or One offs' }).fill(typed);
     await sheet.getByRole('option', { name: option }).click();
+    await card.getByRole('button', { name: `Add to ${option.split(',')[0]}`, exact: true }).click();
   };
 
   await addTo('paint', 'Paint the fence');
@@ -175,6 +179,7 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('report');
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).press('Enter');
   }
+  await card.getByRole('button', { name: 'Add to Write the report', exact: true }).click();
   await expect(card).toHaveCount(0);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 

@@ -597,6 +597,8 @@ aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time 
 
 Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
 
+The dashboard's **Battery** section reads the same lines, report-only and split by version so a release's change shows as a step: syncs per active hour on every platform, the Mac app's idle wakeups and CPU with its window closed on battery, and the iPhone's MetricKit totals per device per day and its CPU and disk exceptions. [performance.md](performance.md) lists the events.
+
 Costs should stay under $1 a month per environment. Attachments add about $0.006 a person a month at typical use, nearly all of it S3 storage. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 
 ## Restoring the table from a backup

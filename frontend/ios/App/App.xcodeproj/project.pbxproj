@@ -18,6 +18,7 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A1B2C3D4E5F6000000000040 /* BridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000003 /* BridgeViewController.swift */; };
 		A1B2C3D4E5F6000000000041 /* ShareQueuePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000004 /* ShareQueuePlugin.swift */; };
+		A1B2C3D4E5F6000000000047 /* EnergyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000E /* EnergyPlugin.swift */; };
 		A1B2C3D4E5F6000000000042 /* ShareQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000005 /* ShareQueue.swift */; };
 		A1B2C3D4E5F6000000000043 /* ShareQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000005 /* ShareQueue.swift */; };
 		A1B2C3D4E5F6000000000044 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000006 /* ShareViewController.swift */; };
@@ -68,6 +69,7 @@
 		A1B2C3D4E5F6000000000002 /* AppGroup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppGroup.entitlements; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000003 /* BridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeViewController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000004 /* ShareQueuePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareQueuePlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000000E /* EnergyPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnergyPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000005 /* ShareQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareQueue.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000006 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -124,6 +126,7 @@
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				A1B2C3D4E5F6000000000003 /* BridgeViewController.swift */,
 				A1B2C3D4E5F6000000000004 /* ShareQueuePlugin.swift */,
+				A1B2C3D4E5F600000000000E /* EnergyPlugin.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -331,6 +334,7 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A1B2C3D4E5F6000000000040 /* BridgeViewController.swift in Sources */,
 				A1B2C3D4E5F6000000000041 /* ShareQueuePlugin.swift in Sources */,
+				A1B2C3D4E5F6000000000047 /* EnergyPlugin.swift in Sources */,
 				A1B2C3D4E5F6000000000042 /* ShareQueue.swift in Sources */,
 				A1B2C3D4E5F6000000000202 /* OpenCapture.swift in Sources */,
 			);

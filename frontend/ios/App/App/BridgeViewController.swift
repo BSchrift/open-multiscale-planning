@@ -18,6 +18,7 @@ class BridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ShareQueuePlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
+        bridge?.registerPluginInstance(EnergyPlugin())
         bridge?.registerPluginInstance(UpdatesPlugin())
         #if DEBUG
         bridge?.registerPluginInstance(ChecksPlugin())
@@ -413,6 +414,7 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "MultiscaleChecks"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deliverEnergy", returnType: CAPPluginReturnPromise),
     ]
 
     /// The Control Center button's intent, which iOS runs in the app's process when the button is tapped.
@@ -425,6 +427,18 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
             } catch {
                 call.reject(String(describing: error))
             }
+        }
+    }
+
+    /// A day and a CPU exception, kept as EnergyPlugin keeps what MetricKit delivers, which the Simulator never does.
+    @objc func deliverEnergy(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let frame: [String: Any] = ["binaryName": "App", "offsetIntoBinaryTextSegment": 166460, "sampleCount": 30]
+            EnergyPlugin.store(
+                daily: [["day": "2026-11-15", "cpuSeconds": 100.5, "backgroundSeconds": 40.0, "cellularBytes": 2_000_000.0]],
+                exceptions: [["kind": "cpu", "cpuSeconds": 90.0, "callStackTree": ["callStacks": [["threadAttributed": true, "callStackRootFrames": [frame]]]]]]
+            )
+            call.resolve()
         }
     }
 }

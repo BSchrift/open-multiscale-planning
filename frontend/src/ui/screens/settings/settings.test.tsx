@@ -29,7 +29,8 @@ function fakeSync() {
     eraseAndSignIn: vi.fn(async () => undefined),
     signedInAt: vi.fn(async (): Promise<number | null> => null),
     exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
-    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again'> => 'deleted'),
+    deletionTarget: vi.fn(async () => ({ sameAccount: true, email: 'reader@example.com' as string | null })),
+    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> => 'deleted'),
     files: noFiles(),
   } satisfies AppSync;
 }
@@ -151,9 +152,10 @@ describe('Settings', () => {
     });
 
     describe.each(['desktop', 'phone'] as const)('Delete my account and data, on %s', (layout) => {
-      const open = async (signedInAt: number | null) => {
+      const open = async (signedInAt: number | null, target = { sameAccount: true, email: 'reader@example.com' as string | null }) => {
         const sync = fakeSync();
         sync.signedInAt.mockResolvedValue(signedInAt);
+        sync.deletionTarget.mockResolvedValue(target);
         const t = await renderScreen('settings', { sync, layout, params: { page: 'delete-account' } });
         await screen.findByRole('heading', { level: 1, name: 'Delete my account and data' });
         return { sync, t };
@@ -192,6 +194,19 @@ describe('Settings', () => {
         expect(remove()).toBeEnabled();
         await userEvent.click(remove());
         expect(sync.deleteAccount).toHaveBeenCalledOnce();
+      });
+
+      it('names the account it deletes', async () => {
+        await open(NOW - 60_000);
+        expect(await screen.findByText(/This deletes the account reader@example\.com/)).toBeVisible();
+      });
+
+      it("signed in again as another account than this device's, deletes nothing", async () => {
+        const { sync } = await open(NOW - 60_000, { sameAccount: false, email: 'someone@example.com' });
+        expect(await screen.findByText(/You're signed in to another account than the one whose data is on this device/)).toBeVisible();
+        expect(screen.getByRole('textbox', { name: 'Type DELETE to confirm' })).toBeDisabled();
+        expect(remove()).toBeDisabled();
+        expect(sync.deleteAccount).not.toHaveBeenCalled();
       });
 
       it("asks for a sign-in again when the server finds the last one too old, and says when it's offline", async () => {

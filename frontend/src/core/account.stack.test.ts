@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { deleteAccount, exportData } from './account';
 import type { AccountRequest } from './account';
-import { createAuth } from './auth';
+import { createAuth, tokenSubject } from './auth';
 import { fixedClock } from './clock';
 import { apiRequest, createHttpSend } from './sync';
 import { RECORD_TYPES } from './types';
@@ -58,7 +58,7 @@ describe.skipIf(!API)('Export my data and Delete my account and data, with the a
     const changes: RecordChange[] = RECORD_TYPES.map((type) => ({ type, id: `ts-${type}-${crypto.randomUUID()}`, fields: { title: { v: `A ${type}`, c: clockNow() } } }));
     await send({ cursor: 0, changes });
 
-    const url = await exportData({ request, wait: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 200))) });
+    const url = await exportData({ request, wait: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 200))), isFilesLink: (link) => link.startsWith(`${API}/edge/`) });
     const file = join(mkdtempSync(join(tmpdir(), 'export-')), 'export.zip');
     writeFileSync(file, Buffer.from(await (await fetch(url)).arrayBuffer()));
     for (const change of changes) {
@@ -70,7 +70,10 @@ describe.skipIf(!API)('Export my data and Delete my account and data, with the a
   it('a deleted account is found by a token still good, and by one that has lapsed', async () => {
     const { auth, send, request } = await signIn(`ts-delete-${crypto.randomUUID()}`);
     await send({ cursor: 0, changes: [{ type: 'task', id: `ts-task-${crypto.randomUUID()}`, fields: { title: { v: 'Gone', c: clockNow() } } }] });
-    expect(await deleteAccount(request)).toBe('deleting');
+    const sub = tokenSubject(await auth.accessToken())!;
+    // Naming another account deletes nothing.
+    expect(await deleteAccount(request, 'someone-else')).toBe('wrong_account');
+    expect(await deleteAccount(request, sub)).toBe('deleting');
     await expect(send({ cursor: 0, changes: [] })).rejects.toMatchObject({ code: 'account_deleted' });
     // Two hours on, the token has lapsed. Once the job has deleted the sign-in, a moment after the request, the refresh
     // is refused, and the lapsed token asks.

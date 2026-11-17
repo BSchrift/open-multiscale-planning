@@ -952,11 +952,22 @@ describe('a deleted account', () => {
     u.sync.stop();
   });
 
+  /** Signs this device in as user-b, whose sync is refused, since the device's data is user-a's. */
+  async function signInAsB(t: Awaited<ReturnType<typeof device>>) {
+    t.state.who = 'b';
+    await t.sync.signIn({ again: true });
+    const signInState = new URL(t.platform.opened.at(-1)!).searchParams.get('state');
+    t.platform.openDeepLink(`${t.platform.signInRedirectUri}?code=c&state=${signInState}`);
+    await flush();
+    expect((await syncStatus(t.db)).lastError).toBe('other_account');
+  }
+
   it("Delete my account asks the server once DELETE is typed, then erases this device's copy", async () => {
     const t = await device();
     expect(await t.sync.signedInAt()).toBe(Date.parse(NOW));
+    expect(await t.sync.deletionTarget()).toEqual({ sameAccount: true, email: null });
     expect(await t.sync.deleteAccount()).toBe('deleted');
-    expect(t.requests.find((r) => r.url === `${API}/account/delete`)?.body).toEqual({ confirm: 'DELETE' });
+    expect(t.requests.find((r) => r.url === `${API}/account/delete`)?.body).toEqual({ confirm: 'DELETE', sub: 'user-a' });
     await expectErased(t);
     expect(await t.sync.signedInAt()).toBeNull();
     t.sync.stop();
@@ -968,6 +979,34 @@ describe('a deleted account', () => {
     expect(await t.sync.deleteAccount()).toBe('sign_in_again');
     expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
     expect((await syncStatus(t.db)).lastError).toBeNull();
+    t.sync.stop();
+  });
+
+  it("Delete my account signed in again as another account deletes nothing, and erases nothing", async () => {
+    const t = await device();
+    await signInAsB(t);
+    expect(await t.sync.deletionTarget()).toMatchObject({ sameAccount: false });
+    expect(await t.sync.deleteAccount()).toBe('wrong_account');
+    expect(t.requests.some((r) => r.url === `${API}/account/delete`)).toBe(false);
+    expect(t.state.deleted).toBe(false);
+    expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
+    t.sync.stop();
+  });
+
+  it("another account's lapsed token, found deleted, signs this device out and erases nothing of its own account", async () => {
+    const t = await device();
+    await signInAsB(t);
+    t.state.refuseRefresh = true;
+    t.state.deleted = true;
+    t.clock.set(Date.parse(NOW) + 2 * 60 * MINUTE);
+    const waiting = await outboxCount(t.db);
+    expect(waiting).toBeGreaterThan(0);
+    await t.sync.syncNow();
+    expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
+    expect(await outboxCount(t.db)).toBe(waiting);
+    expect(await getMeta(t.db, META.account)).toBe('user-a');
+    expect(t.forget).not.toHaveBeenCalled();
+    expect((await syncStatus(t.db)).lastError).toBe('sign_in_expired');
     t.sync.stop();
   });
 

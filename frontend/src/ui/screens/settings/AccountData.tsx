@@ -87,8 +87,11 @@ export function DeleteAccountPage(props: { layout: Layout }) {
   useEffect(() => heading.current?.focus({ preventScroll: true }), []);
   // Read again whenever the database changes, as when the sign-in comes back and syncs.
   const { data: signedInAt } = useQuery(async () => (sync ? await sync.signedInAt() : null), [sync]);
+  // Only the account this device's data belongs to: signed in again as another, nothing may be deleted here.
+  const { data: target } = useQuery(async () => (sync ? await sync.deletionTarget() : null), [sync]);
   const now = useNow(15_000);
   const fresh = !!signedInAt && now - signedInAt < FRESH_MS;
+  const ready = fresh && !!target?.sameAccount;
   const text = props.layout === 'phone' ? 'small' : undefined;
   const btn = { className: props.layout === 'phone' ? 'grow' : undefined };
 
@@ -97,7 +100,9 @@ export function DeleteAccountPage(props: { layout: Layout }) {
     setBusy(true);
     try {
       // Done, the app starts over as on a new device, and says the account was deleted.
-      if ((await sync.deleteAccount()) === 'sign_in_again') toast.show('Sign in again first: your last sign-in was too long ago.');
+      const answer = await sync.deleteAccount();
+      if (answer === 'sign_in_again') toast.show('Sign in again first: your last sign-in was too long ago.');
+      if (answer === 'wrong_account') toast.show("You're signed in to another account. Nothing was deleted.");
     } catch (error) {
       toast.show(error instanceof SyncError && error.code === 'offline' ? "You're offline. Connect to delete your account." : "That didn't work. Try again.");
     }
@@ -110,7 +115,8 @@ export function DeleteAccountPage(props: { layout: Layout }) {
         Delete my account and data
       </h1>
       <p className={text}>
-        This deletes your account and everything in it, from Multiscale's servers and from every device you're signed in on. It can't be undone.
+        {target?.email ? `This deletes the account ${target.email}` : 'This deletes your account'} and everything in it, from Multiscale's servers and
+        from every device you're signed in on. It can't be undone.
       </p>
       <section className="stack8" aria-labelledby={`${id}what`}>
         <h2 id={`${id}what`}>What's deleted</h2>
@@ -138,7 +144,13 @@ export function DeleteAccountPage(props: { layout: Layout }) {
       <section className="stack8" aria-labelledby={`${id}sign`}>
         <h2 id={`${id}sign`}>2. Sign in again</h2>
         <div className="card stack8">
-          {fresh ? (
+          {fresh && target && !target.sameAccount ? (
+            <p className={text}>
+              You're signed in to another account than the one whose data is on this device, so it can't be deleted here. Sign in again as the account
+              you mean to delete.
+            </p>
+          ) : null}
+          {fresh && target?.sameAccount ? (
             <p className={text}>You've signed in recently enough to delete.</p>
           ) : (
             <>
@@ -168,10 +180,10 @@ export function DeleteAccountPage(props: { layout: Layout }) {
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
-            disabled={!fresh}
+            disabled={!ready}
           />
           <div className="row">
-            <Button {...btn} variant="destructive" filled type="submit" disabled={!fresh || typed.trim() !== CONFIRMATION || busy}>
+            <Button {...btn} variant="destructive" filled type="submit" disabled={!ready || typed.trim() !== CONFIRMATION || busy}>
               Delete my account and data
             </Button>
           </div>

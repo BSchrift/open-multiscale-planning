@@ -4,6 +4,7 @@
 // the browser is in front.
 
 import type { Clock } from './clock';
+import { claim, rawClaim, tokenSubject } from './tokenClaims';
 import { SyncError } from './sync';
 import type { FetchFn } from './sync';
 
@@ -44,24 +45,7 @@ export interface AuthDeps {
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const randomString = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 
-/** A claim from a token, or undefined if it can't be read. Not verified: the server checks every token. */
-function rawClaim(token: string, name: string): unknown {
-  try {
-    const payload = token.split('.')[1] ?? '';
-    return (JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown> | null)?.[name];
-  } catch {
-    return undefined;
-  }
-}
-
-/** A text claim from a token, or null if it can't be read. */
-function claim(token: string, name: string): string | null {
-  const value = rawClaim(token, name);
-  return typeof value === 'string' && value ? value : null;
-}
-
-/** The user an access token names, from its sub claim. This only tells one account's sign-in from another's on this device. */
-export const tokenSubject = (token: string): string | null => claim(token, 'sub');
+export { tokenSubject };
 
 export function createAuth(deps: AuthDeps) {
   const { tokens, clock } = deps;
@@ -115,7 +99,9 @@ export function createAuth(deps: AuthDeps) {
         await expire();
         // Refused because the account was deleted on another device, while this one's token lapsed: it can't sync to
         // find out, so it asks with the lapsed token.
-        if (await deps.accountGone?.(session.access_token).catch(() => false)) throw new SyncError('account_deleted');
+        if (await deps.accountGone?.(session.access_token).catch(() => false)) {
+          throw new SyncError('account_deleted', tokenSubject(session.access_token));
+        }
       }
       throw err;
     }

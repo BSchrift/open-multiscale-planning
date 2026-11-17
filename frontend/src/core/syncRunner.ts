@@ -62,8 +62,11 @@ export function createSyncRunner(deps: {
   afterSync?(): Promise<void>;
   /** Calls back when the computer wakes from sleep or its screen unlocks. Only on the Mac. */
   onWake?(listener: () => void): () => void;
-  /** Erases this device's copy once a sync finds the account deleted. */
-  onAccountDeleted?(): Promise<void>;
+  /**
+   * Once a sync finds an account deleted, the one the token named, signs out and erases this device's copy if it's that
+   * account's. Resolves to whether it erased.
+   */
+  onAccountDeleted?(account: string | null): Promise<boolean>;
 }) {
   const { db, clock, lifecycle, send } = deps;
   let running: Promise<void> | null = null;
@@ -95,8 +98,12 @@ export function createSyncRunner(deps: {
     } catch (err) {
       perf.cancel('sync.pull');
       if (!(err instanceof SyncError)) console.error('Sync failed', err);
-      const code = err instanceof SyncError ? err.code : 'error';
-      if (code === 'account_deleted') await deps.onAccountDeleted?.().catch((e: unknown) => console.error('Erasing a deleted account failed', e));
+      let code = err instanceof SyncError ? err.code : 'error';
+      if (code === 'account_deleted' && deps.onAccountDeleted) {
+        const erased = await deps.onAccountDeleted((err as SyncError).account).catch((e: unknown) => (console.error('Erasing a deleted account failed', e), true));
+        // Another account's, signed in here and refused: this device's own account is still there, so it's only signed out.
+        if (!erased) code = 'sign_in_expired';
+      }
       // Signed out with its account deleted, it says so until someone signs in, rather than just signed out.
       if (code === 'sign_in_expired' && (await getMeta(db, META.lastSyncError).catch(() => null)) === 'account_deleted') return;
       await recordFailure(db, code).catch((e: unknown) => console.error('Could not record sync failure', e));
@@ -281,12 +288,20 @@ export function startAppSync(
     // tapped; remove delivered ones too if that matters.
     await platform.notifications.replaceAll([]);
   };
-  /** A deleted account: signed out, and nothing of it left here. */
-  const eraseDeleted = async () => {
+  /**
+   * A deleted account: signed out, and nothing of it left here. Only the account this device's data belongs to is erased;
+   * another's, as of a sign-in here that sync refused, leaves the data alone.
+   */
+  const eraseDeleted = async (account: string | null): Promise<boolean> => {
     await auth.expire();
+    if (!account || account !== (await getMeta(platform.db, META.account))) return false;
     await eraseLocal(null);
     options.forget?.();
+    return true;
   };
+  // An export's link is only ever to the files host: https, except the local stack's stand-in.
+  const filesBase = config.filesUrl ?? `${config.apiUrl}/edge`;
+  const isFilesLink = (url: string) => url.startsWith(`${filesBase}/`) && (url.startsWith('https://') || config.env === 'local');
   const runner = createSyncRunner({
     db: platform.db,
     clock,
@@ -404,18 +419,31 @@ export function startAppSync(
     },
     syncNow: runner.syncNow,
     /** The link to an export of everything the account has, once the server has built it. Throws ExportError or SyncError. */
-    exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }),
+    exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), isFilesLink }),
     /**
-     * Deletes the account, once the person has typed DELETE, then erases this device's copy and signs it out. Resolves
-     * to 'sign_in_again' when their sign-in is too old for it, changing nothing. Throws SyncError.
+     * The account Delete would delete: whether the sign-in is the account this device's data belongs to, and its email.
+     * Signed in again as another, it's not, and nothing may be deleted here.
      */
-    async deleteAccount(): Promise<'deleted' | 'sign_in_again'> {
-      if ((await deleteAccount(accountRequest)) === 'sign_in_again') return 'sign_in_again';
+    async deletionTarget(): Promise<{ sameAccount: boolean; email: string | null }> {
+      const account = await getMeta(platform.db, META.account);
+      const signedIn = await auth.accessToken().then(tokenSubject, () => null);
+      return { sameAccount: !!account && signedIn === account, email: await auth.email() };
+    },
+    /**
+     * Deletes the account this device's data belongs to, once the person has typed DELETE, then erases this device's copy
+     * and signs it out. Resolves to 'sign_in_again' when their sign-in is too old for it, and 'wrong_account' when it's
+     * another account's, changing nothing either way. Throws SyncError.
+     */
+    async deleteAccount(): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> {
+      const account = await getMeta(platform.db, META.account);
+      if (!account || tokenSubject(await auth.accessToken()) !== account) return 'wrong_account';
+      const answer = await deleteAccount(accountRequest, account);
+      if (answer !== 'deleting') return answer;
       // The next sync is refused as deleted, which erases this device's copy. It runs after any sync under way, so
       // nothing that one pulls comes back after the erase.
       await runner.syncNow();
       if ((await getMeta(platform.db, META.lastSyncError)) !== 'account_deleted') {
-        await eraseDeleted();
+        await eraseDeleted(account);
         await recordFailure(platform.db, 'account_deleted');
       }
       return 'deleted';

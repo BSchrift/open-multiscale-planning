@@ -75,6 +75,8 @@ export async function deleteAccount(page: Page, options: { signInAgain?: boolean
   await account(page).getByRole('button', { name: 'Delete my account and data' }).click();
   const p = pane(page, 'Settings');
   await expect(p.getByRole('heading', { name: 'Delete my account and data', level: 1 })).toBeVisible();
+  // It names the account it deletes: the one this device's data belongs to.
+  await expect(p.getByText(/^This deletes the account \S+ and everything in it/)).toBeVisible(NETWORK);
   if (options.signInAgain) {
     const field = p.getByRole('textbox', { name: 'Type DELETE to confirm' });
     await expect(field).toBeDisabled();

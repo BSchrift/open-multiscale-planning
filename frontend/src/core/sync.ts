@@ -12,6 +12,7 @@ import { getMeta, META, setMeta } from './db';
 import { perf } from './perf';
 import type { Db, Sql } from './db';
 import { applyRemote } from './records';
+import { tokenSubject } from './tokenClaims';
 import type { Instant, RecordChange } from './types';
 
 // The server's limits, from config/protocol.yaml.
@@ -37,7 +38,11 @@ export type SyncErrorCode =
 
 /** A failed sync, by what the user can be told about it. Stored as last_sync_error. */
 export class SyncError extends Error {
-  constructor(readonly code: SyncErrorCode) {
+  constructor(
+    readonly code: SyncErrorCode,
+    /** For account_deleted, the account that was deleted, from the token that found it, when the token said. */
+    readonly account: string | null = null,
+  ) {
     super(code);
     this.name = 'SyncError';
   }
@@ -305,11 +310,13 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
       throw new SyncError('offline');
     }
   };
-  let res = await post(await deps.auth.accessToken());
-  if (await accountDeleted(res)) throw new SyncError('account_deleted');
+  let token = await deps.auth.accessToken();
+  let res = await post(token);
+  if (await accountDeleted(res)) throw new SyncError('account_deleted', tokenSubject(token));
   if (res.status === 401) {
-    res = await post(await deps.auth.accessToken({ refresh: true }));
-    if (await accountDeleted(res)) throw new SyncError('account_deleted');
+    token = await deps.auth.accessToken({ refresh: true });
+    res = await post(token);
+    if (await accountDeleted(res)) throw new SyncError('account_deleted', tokenSubject(token));
     if (res.status === 401) {
       await deps.auth.expire();
       throw new SyncError('sign_in_expired');

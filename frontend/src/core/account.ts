@@ -1,8 +1,8 @@
 // Export my data and Delete my account and data, through the API (docs/retention.md). The server builds an export of
 // everything the account has and hands its link out once it's ready; this asks for one and waits for it.
 //
-//   const url = await exportData({ request, wait });   // throws ExportError or SyncError
-//   const answer = await deleteAccount(request);        // 'deleting' or 'sign_in_again'; throws SyncError
+//   const url = await exportData({ request, wait, isFilesLink });  // throws ExportError or SyncError
+//   const answer = await deleteAccount(request, sub);   // 'deleting', 'sign_in_again' or 'wrong_account'
 
 import { SyncError } from './sync';
 
@@ -23,7 +23,12 @@ export type AccountRequest = (method: 'GET' | 'POST', path: string, body?: unkno
 const answer = async (res: Response) => (await res.json().catch(() => null)) as Record<string, unknown> | null;
 
 /** The link to the account's export, once the server has built it. It works for a few minutes, and only once. */
-export async function exportData(deps: { request: AccountRequest; wait(ms: number): Promise<void> }): Promise<string> {
+export async function exportData(deps: {
+  request: AccountRequest;
+  wait(ms: number): Promise<void>;
+  /** Whether a link is on the files host, the only one an export's may be. */
+  isFilesLink(url: string): boolean;
+}): Promise<string> {
   const start = await deps.request('POST', '/account/export');
   if (start.status === 501) throw new ExportError('unavailable');
   if (!start.ok) throw new SyncError('error');
@@ -32,20 +37,22 @@ export async function exportData(deps: { request: AccountRequest; wait(ms: numbe
     const res = await deps.request('GET', '/account/export');
     if (!res.ok) throw new SyncError('error');
     const body = await answer(res);
-    // Only a web page: a link to another app's scheme from a bad response must not be opened.
-    if (body?.state === 'ready' && typeof body.url === 'string' && /^https?:\/\//.test(body.url)) return body.url;
+    // Only the files host: a link anywhere else from a bad response must not be opened.
+    if (body?.state === 'ready' && typeof body.url === 'string' && deps.isFilesLink(body.url)) return body.url;
     if (body?.state !== 'building') throw new ExportError('failed');
   }
   throw new ExportError('failed');
 }
 
 /**
- * Asks the server to delete the account, once the person has typed DELETE. 'sign_in_again' when their sign-in is older
- * than the server takes for this.
+ * Asks the server to delete the account sub, the one this device's data belongs to, once the person has typed DELETE.
+ * 'sign_in_again' when their sign-in is older than the server takes for this, and 'wrong_account' when the sign-in is
+ * another account's.
  */
-export async function deleteAccount(request: AccountRequest): Promise<'deleting' | 'sign_in_again'> {
-  const res = await request('POST', '/account/delete', { confirm: 'DELETE' });
+export async function deleteAccount(request: AccountRequest, sub: string): Promise<'deleting' | 'sign_in_again' | 'wrong_account'> {
+  const res = await request('POST', '/account/delete', { confirm: 'DELETE', sub });
   if (res.status === 403 && (await answer(res))?.error === 'sign_in_again') return 'sign_in_again';
+  if (res.status === 409 && (await answer(res))?.error === 'wrong_account') return 'wrong_account';
   if (res.status !== 202) throw new SyncError('error');
   return 'deleting';
 }

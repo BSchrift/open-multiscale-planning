@@ -11,7 +11,7 @@ function server(start: Response, looks: Response[]) {
     asked.push(`${method} ${path}`);
     return method === 'POST' ? start : (looks.shift() ?? json(200, { state: 'building' }));
   });
-  return { request, asked, wait: vi.fn(async () => undefined) };
+  return { request, asked, wait: vi.fn(async () => undefined), isFilesLink: (url: string) => url.startsWith('https://files.example.test/') };
 }
 
 describe('exportData', () => {
@@ -29,9 +29,11 @@ describe('exportData', () => {
     }
   });
 
-  it('never opens a link to anything but a web page', async () => {
-    const s = server(json(202, {}), [json(200, { state: 'ready', url: 'multiscale://somewhere' })]);
-    await expect(exportData(s)).rejects.toMatchObject({ reason: 'failed' });
+  it('never opens a link to anything but the files host', async () => {
+    for (const url of ['multiscale://somewhere', 'https://elsewhere.example.test/x.zip', 'http://files.example.test/x.zip']) {
+      const s = server(json(202, {}), [json(200, { state: 'ready', url })]);
+      await expect(exportData(s), url).rejects.toMatchObject({ reason: 'failed' });
+    }
   });
 
   it('fails as a sync error on any other answer', async () => {
@@ -48,15 +50,19 @@ describe('exportData', () => {
 });
 
 describe('deleteAccount', () => {
-  it('sends the typed confirmation', async () => {
+  it('sends the typed confirmation and the account it means', async () => {
     const request = vi.fn<AccountRequest>(async () => json(202, { state: 'deleting' }));
-    expect(await deleteAccount(request)).toBe('deleting');
-    expect(request).toHaveBeenCalledWith('POST', '/account/delete', { confirm: 'DELETE' });
+    expect(await deleteAccount(request, 'user-a')).toBe('deleting');
+    expect(request).toHaveBeenCalledWith('POST', '/account/delete', { confirm: 'DELETE', sub: 'user-a' });
+  });
+
+  it("deletes nothing when the server finds the sign-in is another account's", async () => {
+    expect(await deleteAccount(async () => json(409, { error: 'wrong_account' }), 'user-a')).toBe('wrong_account');
   });
 
   it('asks for a sign-in again when the last one is too old, and fails on anything else', async () => {
-    expect(await deleteAccount(async () => json(403, { error: 'sign_in_again' }))).toBe('sign_in_again');
-    await expect(deleteAccount(async () => json(400, { error: 'invalid_request' }))).rejects.toMatchObject({ code: 'error' });
-    await expect(deleteAccount(async () => json(403, {}))).rejects.toMatchObject({ code: 'error' });
+    expect(await deleteAccount(async () => json(403, { error: 'sign_in_again' }), 'user-a')).toBe('sign_in_again');
+    await expect(deleteAccount(async () => json(400, { error: 'invalid_request' }), 'user-a')).rejects.toMatchObject({ code: 'error' });
+    await expect(deleteAccount(async () => json(403, {}), 'user-a')).rejects.toMatchObject({ code: 'error' });
   });
 });

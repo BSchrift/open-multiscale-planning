@@ -705,8 +705,9 @@ describe('observability', () => {
     assert.equal(filter.Properties.MetricTransformations[0].MetricNamespace, 'Multiscale/staging');
   });
 
-  it('has one dashboard with requests, errors, latency, sync volume, worker health and the largest user', () => {
-    const dashboards = ofType('AWS::CloudWatch::Dashboard');
+  it('has a dashboard of its own with requests, errors, latency, sync volume, worker health and the largest user', () => {
+    // Beside it on staging, the performance KPIs' (test/perf-dashboard.test.ts).
+    const dashboards = ofType('AWS::CloudWatch::Dashboard').filter(([, d]) => d.Properties.DashboardName === 'Multiscale-staging');
     assert.equal(dashboards.length, 1);
     const body = JSON.stringify(dashboards[0][1].Properties.DashboardBody);
     for (const title of ['Requests', 'Errors', 'Latency', 'Sync volume', 'Worker health', 'Largest user (GB of the 10 GB cap)']) assert.ok(body.includes(title), title);
@@ -721,7 +722,8 @@ describe('observability', () => {
     for (const title of ['App memory (MB), by platform and version', 'App memory, by platform and version', 'How app runs ended', 'App errors', 'App events by screen', 'Update checks', 'Updates rolled back']) {
       assert.ok(body.includes(title), title);
     }
-    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 7);
+    // And the server's two: per-route latency and Lambda init.
+    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 9);
     assert.equal(body.match(/client_event/g)?.length, 7);
     // Every panel tells desktop from mobile and one build from another.
     assert.equal(body.match(/app\.platform/g)?.length, 7);

@@ -19,6 +19,7 @@ type fakeAccount struct {
 	asked     []string
 	export    account.ExportState
 	exportErr error
+	deleteErr error
 	err       error
 }
 
@@ -34,6 +35,9 @@ func (f *fakeAccount) Export(_ context.Context, sub string) (account.ExportState
 
 func (f *fakeAccount) Delete(_ context.Context, sub string) error {
 	f.asked = append(f.asked, "delete:"+sub)
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	return f.err
 }
 
@@ -71,7 +75,7 @@ func signedInAt(s *Server, method, target, body string, at time.Time) *httptest.
 func TestDeletingTakesARecentSignInAndTheTypedConfirmation(t *testing.T) {
 	a := &fakeAccount{}
 	s := accountServer(a)
-	confirm := `{"confirm":"DELETE"}`
+	confirm := `{"confirm":"DELETE","sub":"user-sub-1"}`
 	for _, c := range []struct {
 		name, body string
 		signedIn   time.Time
@@ -106,7 +110,7 @@ func TestTheAccountRoutesNeedASignInAndNameNoOne(t *testing.T) {
 	s, logs := newServer(&fakeSyncer{}, nil)
 	s.Account, s.Tokens = a, fakeTokens{}
 	for _, route := range [][2]string{{"POST", "/account/export"}, {"GET", "/account/export"}, {"POST", "/account/delete"}} {
-		if rec := do(s, route[0], route[1], `{"confirm":"DELETE"}`, ""); rec.Code != 401 {
+		if rec := do(s, route[0], route[1], `{"confirm":"DELETE","sub":"user-sub-1"}`, ""); rec.Code != 401 {
 			t.Fatalf("%v without a sign-in: %d", route, rec.Code)
 		}
 	}
@@ -162,7 +166,7 @@ func TestADeletedAccountIsRefusedEverywhereItCouldWrite(t *testing.T) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	// Asking again while it's under way is fine.
-	if rec := signedInAt(s, "POST", "/account/delete", `{"confirm":"DELETE"}`, testNow); rec.Code != 202 {
+	if rec := signedInAt(s, "POST", "/account/delete", `{"confirm":"DELETE","sub":"user-sub-1"}`, testNow); rec.Code != 202 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
@@ -215,7 +219,7 @@ func TestAccountFailuresAreInternal(t *testing.T) {
 	if rec := do(s, "GET", "/files/usage", "", testSub); rec.Code != 500 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	if rec := signedInAt(s, "POST", "/account/delete", `{"confirm":"DELETE"}`, testNow); rec.Code != 500 {
+	if rec := signedInAt(s, "POST", "/account/delete", `{"confirm":"DELETE","sub":"user-sub-1"}`, testNow); rec.Code != 500 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
@@ -228,5 +232,50 @@ func TestAuthTimeClaim(t *testing.T) {
 		if _, ok := AuthTimeClaim(bad); ok {
 			t.Fatalf("%q read as a time", bad)
 		}
+	}
+}
+
+// The app sends the account it means to delete: a sign-in as another one, as when Sign in again picked another
+// account, deletes nothing.
+func TestDeletingTakesTheAccountTheAppMeans(t *testing.T) {
+	a := &fakeAccount{}
+	s := accountServer(a)
+	for _, body := range []string{`{"confirm":"DELETE"}`, `{"confirm":"DELETE","sub":"someone-else"}`} {
+		rec := signedInAt(s, "POST", "/account/delete", body, testNow)
+		if rec.Code != 409 || !strings.Contains(rec.Body.String(), `"error":"wrong_account"`) {
+			t.Fatalf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	if len(a.asked) != 0 {
+		t.Fatalf("deleted: %v", a.asked)
+	}
+}
+
+// Asking again while the deletion is under way starts nothing more.
+func TestDeletingAgainStartsNothing(t *testing.T) {
+	a := &fakeAccount{deleted: map[string]bool{testSub: true}}
+	s := accountServer(a)
+	if rec := signedInAt(s, "POST", "/account/delete", `{"confirm":"DELETE","sub":"user-sub-1"}`, testNow); rec.Code != 202 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if len(a.asked) != 0 {
+		t.Fatalf("asked %v", a.asked)
+	}
+}
+
+func TestAProtectedAccountIsRefused(t *testing.T) {
+	a := &fakeAccount{deleteErr: account.ErrProtected}
+	s := accountServer(a)
+	rec := signedInAt(s, "POST", "/account/delete", `{"confirm":"DELETE","sub":"user-sub-1"}`, testNow)
+	if rec.Code != 403 || !strings.Contains(rec.Body.String(), `"error":"protected_account"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestADeletedAccountsTelemetryIsRefused(t *testing.T) {
+	a := &fakeAccount{deleted: map[string]bool{testSub: true}}
+	s := accountServer(a)
+	if rec := do(s, "POST", "/v1/logs", `{"resourceLogs":[]}`, testSub); rec.Code != 401 || !strings.Contains(rec.Body.String(), "account_deleted") {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }

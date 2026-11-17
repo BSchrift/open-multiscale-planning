@@ -87,27 +87,41 @@ type CognitoIdentity struct {
 	PoolID string
 }
 
-func (c *CognitoIdentity) username(ctx context.Context, sub string) (string, error) {
+// user is the sign-in with this sub: its username and attributes, or "" for none.
+func (c *CognitoIdentity) user(ctx context.Context, sub string) (string, map[string]string, error) {
 	// The filter quotes the sub, so one that could close the quote is refused, though a verified token's never is.
 	if sub == "" || strings.ContainsAny(sub, `"\`) {
-		return "", errors.New("account: not a sub")
+		return "", nil, errors.New("account: not a sub")
 	}
 	out, err := c.Client.ListUsers(ctx, &cognito.ListUsersInput{
 		UserPoolId: aws.String(c.PoolID), Filter: aws.String(`sub = "` + sub + `"`), Limit: aws.Int32(1),
 	})
 	if err != nil || len(out.Users) == 0 {
-		return "", err
+		return "", nil, err
 	}
-	return aws.ToString(out.Users[0].Username), nil
+	attributes := map[string]string{}
+	for _, a := range out.Users[0].Attributes {
+		attributes[aws.ToString(a.Name)] = aws.ToString(a.Value)
+	}
+	// Only ever the user the sub names, whatever the filter matched.
+	if attributes["sub"] != sub {
+		return "", nil, errors.New("account: the pool answered with another user")
+	}
+	return aws.ToString(out.Users[0].Username), attributes, nil
 }
 
 func (c *CognitoIdentity) Exists(ctx context.Context, sub string) (bool, error) {
-	username, err := c.username(ctx, sub)
+	username, _, err := c.user(ctx, sub)
 	return username != "", err
 }
 
+func (c *CognitoIdentity) Email(ctx context.Context, sub string) (string, error) {
+	_, attributes, err := c.user(ctx, sub)
+	return attributes["email"], err
+}
+
 func (c *CognitoIdentity) Delete(ctx context.Context, sub string) error {
-	username, err := c.username(ctx, sub)
+	username, _, err := c.user(ctx, sub)
 	if err != nil || username == "" {
 		return err
 	}

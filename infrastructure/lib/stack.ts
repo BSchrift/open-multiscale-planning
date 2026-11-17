@@ -21,7 +21,7 @@ import { CfnDeploymentGroup, LambdaApplication, LambdaDeploymentConfig, LambdaDe
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
-import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
+import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition, CfnFunction } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { FilterPattern, LogGroup, MetricFilter, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
@@ -228,14 +228,14 @@ export class MultiscaleStack extends Stack {
       },
     });
 
-    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string) =>
+    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string, memorySize = 256) =>
       new LambdaFunction(this, functionId, {
         functionName,
         runtime: Runtime.PROVIDED_AL2023,
         architecture: Architecture.ARM_64,
         handler: 'bootstrap',
         code: goCode(name),
-        memorySize: 256,
+        memorySize,
         timeout,
         logGroup,
         environment: { TABLE_NAME: table.tableName, ENV_NAME: envName, SSM_PREFIX: ssmPrefix, ...environment },
@@ -255,8 +255,14 @@ export class MultiscaleStack extends Stack {
     const retentionAlias = live(retentionFunction);
     // Exports and account deletions (internal/account): an export of a five-year history with its photos, or a large
     // account's deletion, outlasts any request, so the API starts them here. Its 15 minutes are Lambda's most.
-    const accountFunction = goFunction('AccountFunction', 'account', accountLogs, Duration.minutes(15), { USER_POOL_ID: userPool.userPoolId });
+    // 1 GB, for the zip's upload and the CPU that comes with it. At most 10 at once, so a burst of exports can't take the
+    // account's concurrency from the API, and no retries: the app asks for an export again and the schedule carries a
+    // deletion on.
+    const protectedEmails = [config.integration?.testUser, secondUser(config) ? config.integration?.secondTestUser : undefined].filter((e): e is string => !!e);
+    const accountFunction = goFunction('AccountFunction', 'account', accountLogs, Duration.minutes(15), { USER_POOL_ID: userPool.userPoolId }, undefined, 1024);
+    (accountFunction.node.defaultChild as CfnFunction).reservedConcurrentExecutions = 10;
     const accountAlias = live(accountFunction);
+    accountAlias.configureAsyncInvoke({ retryAttempts: 0 });
     // By ARN, as the worker is, so the API's grant doesn't make a loop through the alias's deployment group.
     const accountLiveArn = `${accountFunction.functionArn}:${accountAlias.aliasName}`;
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
@@ -266,6 +272,8 @@ export class MultiscaleStack extends Stack {
       // For a lapsed token's question whether its account was deleted: the pool's keys and the clients it may be from.
       USER_POOL_ID: userPool.userPoolId,
       USER_POOL_CLIENT_IDS: [appClient.userPoolClientId, testClient.userPoolClientId].join(','),
+      // The integration suite's users, which no request deletes.
+      ...(protectedEmails.length ? { PROTECTED_EMAILS: protectedEmails.join(',') } : {}),
     });
     const apiAlias = live(apiFunction);
 
@@ -446,12 +454,11 @@ export class MultiscaleStack extends Stack {
     });
     const lambdaErrors = new MathExpression({
       label: 'Lambda errors',
-      expression: 'FILL(api, 0) + FILL(calendar, 0) + FILL(retention, 0) + FILL(account, 0)',
+      expression: 'FILL(api, 0) + FILL(calendar, 0) + FILL(retention, 0)',
       usingMetrics: {
         api: apiFunction.metricErrors({ period: fiveMinutes }),
         calendar: calendarFunction.metricErrors({ period: fiveMinutes }),
         retention: retentionFunction.metricErrors({ period: fiveMinutes }),
-        account: accountFunction.metricErrors({ period: fiveMinutes }),
       },
       period: fiveMinutes,
     });
@@ -513,6 +520,16 @@ export class MultiscaleStack extends Stack {
       evaluationPeriods: 1,
       comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: TreatMissingData.IGNORE,
+    }).addAlarmAction(alarmAction);
+    // The account function crashing or timing out, as an export too large for its 15 minutes would. Not a release alarm:
+    // one person's export says little about the backend a deploy would roll back.
+    new Alarm(this, 'AccountFunctionErrors', {
+      alarmDescription: 'The account function crashed or timed out on an export or a deletion. Its log lines say which.',
+      metric: accountFunction.metricErrors({ period: fiveMinutes }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(alarmAction);
     // A deletion that keeps failing: the schedule tries again every 5 minutes, so three runs in a row mean someone looks.
     // Not a release alarm: one person's deletion says little about the backend a deploy would roll back.
@@ -865,7 +882,9 @@ export class MultiscaleStack extends Stack {
       accountFunction.addToRolePolicy(new PolicyStatement({
         actions: ['s3:ListBucket'],
         resources: [filesBucket.bucketArn],
-        conditions: { StringLike: { 's3:prefix': ['u/*', 'exports/*'] } },
+        // IfExists: a GetObject of a key that isn't there checks ListBucket with no prefix, and only then answers 404
+        // rather than 403, as an export of a file whose upload never finished needs.
+        conditions: { StringLikeIfExists: { 's3:prefix': ['u/*', 'exports/*'] } },
       }));
       accountFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:GetObject'], resources: [filesBucket.arnForObjects('u/*')] }));
       accountFunction.addToRolePolicy(new PolicyStatement({

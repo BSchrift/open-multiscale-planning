@@ -90,6 +90,9 @@ func TestCognitoIdentityFindsAndDeletesASignIn(t *testing.T) {
 	if exists, err := identity.Exists(ctx, sub); err != nil || !exists {
 		t.Fatalf("Exists = %v, %v", exists, err)
 	}
+	if email, err := identity.Email(ctx, sub); err != nil || email != "alice@example.com" {
+		t.Fatalf("Email = %q, %v", email, err)
+	}
 	// A refresh an hour later still says when the sign-in was.
 	clock.Set(time.Unix(1800003600, 0))
 	status, refreshed := post(t, srv, url.Values{"grant_type": {"refresh_token"}, "client_id": {"local-client"}, "refresh_token": {tokens["refresh_token"].(string)}})
@@ -118,5 +121,28 @@ func TestCognitoIdentityFindsAndDeletesASignIn(t *testing.T) {
 	}
 	if _, err := identity.Exists(ctx, `x" or sub = "y`); err == nil {
 		t.Fatal("a sub that closes the filter's quote was sent")
+	}
+}
+
+// A user the pool answers with whose sub isn't the one asked about is never taken for it.
+func TestCognitoIdentityTakesOnlyTheUserWithThatSub(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+		if r.Header.Get("X-Amz-Target") == "AWSCognitoIdentityProviderService.AdminDeleteUser" {
+			t.Error("deleted a user whose sub didn't match")
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Users": []any{map[string]any{
+			"Username": "someone-else", "Attributes": []any{map[string]string{"Name": "sub", "Value": "another-sub"}},
+		}}})
+	}))
+	defer srv.Close()
+	identity := &account.CognitoIdentity{PoolID: "local", Client: cognito.New(cognito.Options{
+		Region: "us-west-2", BaseEndpoint: aws.String(srv.URL), Credentials: credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+	})}
+	if _, err := identity.Exists(context.Background(), "the-sub"); err == nil {
+		t.Fatal("took another user for this sub")
+	}
+	if err := identity.Delete(context.Background(), "the-sub"); err == nil {
+		t.Fatal("deleted, or said it had, another user")
 	}
 }

@@ -112,20 +112,128 @@ Why TTL and Streams rather than a job: TTL deletes cost no write units, and Lamb
 would read the whole table each run, or need an index that every write pays for, and pay for each delete. Late removal
 is safe because everything goes by `expires_at`, not by whether the item is gone.
 
+### Devices that missed something
+
+A device that holds an older copy of a record that has since expired must not keep it, or bring it back. An app sends
+`expiry_reset: true` with each sync, and the API answers `reset: "expired"` instead of merging when:
+
+- its cursor is below the user's mark, so something it never saw the last of was removed; or
+- its pull left out an expired record above its cursor, so it may hold an older copy of that.
+
+The device then keeps its outbox, pulls everything from 0 without sending, and drops what didn't come back, outbox rows
+and all, unless every field of it is still to send, which means it made it since it last synced. Then it sends the rest
+of its outbox. It doesn't empty itself first, so its screens never show an empty app, and it stores its cursor only at
+the end, so a failure part way starts the reset over. A device at cursor 0 holds nothing from the server, so a reset
+during its first pull carries on from where it is.
+
+The API also drops a change that would bring an expired record back:
+
+- any change whose record, once merged, has an expiry that has passed;
+- from an app from before, which can't take a reset, a change to a record the server doesn't hold whose every clock is
+  older than the deleted period;
+- an expiry alone for a record the server doesn't hold.
+
+An app filling in expiries for records it held from before sends each as an expiry alone with the lowest clock. The API
+writes those in place, keeping the record's sequence number, since every device fills in the same value and none needs
+to pull the record again. Each is a write of its own, so it makes four at a time: one at a time, a device filling in
+thousands at its first launch would sync for minutes. This is also how records deleted before retention, whose expiry
+has already passed, reach TTL.
+
+## Exporting and deleting an account
+
+Settings > Account has **Export my data** and **Delete my account and data**. Both run in the account function
+(`backend/cmd/account`, [internal/account](../backend/internal/account)), since a five-year history with its photos
+outlasts an API request.
+
+### Export
+
+The server builds the export, rather than the app, because it holds the whole account: every record of every type,
+including any this device hasn't pulled yet, and every file, which a device would have to download first under its
+hourly download limit. A device would also have to hold a zip of up to the storage quota in memory, and the iPhone hand
+it to the share sheet through the web view's bridge, which can't carry that much. A link works the same on every
+platform: the browser downloads it, the Mac app hands it to the default browser, and the iPhone app to Safari, which
+saves it to Files.
+
+- `POST /account/export` writes `meta#export` in the person's partition, on condition that none is building, and starts
+  the job with the export's id. One already building is the one they get, so there's only ever one at a time, and a job
+  whose export another has replaced builds nothing.
+- The job reads the partition and streams a zip into the files bucket at `exports/<hashed sub>/<random>.zip`, holding no
+  more in memory than the attachments' names: records and notes go into the zip as they're read. Every key it reads from
+  the person's items, a file's or the export's, must be under the person's own prefix, or it's refused. It holds:
+  - `README.md`, saying what's where;
+  - `records/<type>.json`, every record of every type the server holds, read generically, so a new type such as notes
+    comes along without a change here. Each record is its id and its fields' values, without sync's clocks. Deleted
+    records within their 30 days are included with `deleted_at`, and expired ones that TTL hasn't reached yet aren't;
+  - `notes/<title>.md`, each note again as Markdown, its title as the heading, then its body, with relative links to its
+    photos and files in `notes/<title>/` beside it;
+  - `files/<attachment id>/<name>`, every other attachment's file. One granted but never uploaded is left out.
+
+  Every path is relative, so a later layout can nest the whole under a folder per space. Names are made safe on any
+  computer: at most 100 bytes before a " (2)" or ".md", without Windows' device names such as CON, trailing dots, or
+  characters that reverse the text's direction, and a note's file and folder never share a name with another's.
+- `GET /account/export` says `building`, `failed` (also for one still building after 20 minutes) or `ready` with a
+  download link through the files distribution that works for 5 minutes. The link is handed out once; asked for again,
+  the answer is `none`, and the person exports again.
+- The bucket's lifecycle deletes `exports/` a day after each was made, which S3 does within a day of that, so an export
+  lasts up to two days.
+- Settings come with the records, in `records/settings.json`. Choices kept on one device only, such as its appearance,
+  never reach the server, so aren't in it.
+
+### Deletion
+
+Deleting is immediate once the person has been through Settings' safeguards: there's no grace period to cancel in. The
+app offers an export first, says what goes and that it can't be undone, has them sign in again, and has them type
+DELETE. The API takes it only with that confirmation, the sub of the account the app holds, which must be the token's,
+so a sign-in again as another account deletes nothing, and an access token whose `auth_time` is within
+`account.maxSignInAgeMinutes` of [config/protocol.yaml](../config/protocol.yaml), 10 minutes. A refresh keeps
+`auth_time`, so only a sign-in counts. It never deletes a deployment's integration test users, named to it in
+`PROTECTED_EMAILS`, whatever their suite's requests say. Asked again while a deletion is under way, it starts nothing
+more.
+
+1. `POST /account/delete` writes `account#deleting/<sub>`, which is how the schedule finds a deletion under way, then
+   `meta#deleted` in the person's partition, and starts the job. From then on the person's devices are refused: `/sync`
+   reads the mark with the counter it reads anyway, and the calendar, files, export and telemetry routes check it,
+   answering `401 {"error": "account_deleted"}`.
+2. The job ends their Google connection, revoking access at Google and removing Time blocks from their calendar as
+   disconnecting does, deletes their sign-in from the user pool, which ends every refresh token, deletes everything under
+   their two prefixes in the files bucket, `u/<hashed sub>/` and `exports/<hashed sub>/`, and deletes every item in their
+   partition but the mark. Each step is safe to run again, so a run that fails part way is simply run again.
+3. The account function's schedule runs every deletion under way again every 5 minutes, which also removes anything that
+   landed meanwhile: a calendar run in flight, or a file whose upload link was granted just before. The first run that
+   finds the sign-in gone records when, as `signin_deleted_at` on the entry: until then a device could still refresh a
+   token. Once 70 minutes have passed since then, longer than the app's access and ID tokens last (an infrastructure
+   test keeps them to an hour), and the pool still has no such sign-in, no device can reach the API as the person, and
+   the run removes the mark and the entry. A run after that doesn't mark the account again. Nothing of the person stays
+   in DynamoDB, the bucket or the user pool.
+
+A job does nothing for a sub without the entry the person's own request wrote, and every step works in the partition,
+prefixes and sign-in named by that sub, which the gateway verified. Telemetry gets counts, never who:
+`AccountDeletionsStarted`, `AccountsDeleted` and `AccountDeletionFailures`, and `AccountExports` and
+`AccountExportFailures`. The account routes' request lines and the job's lines carry no user hash. The request lines of
+the person's earlier requests keep the hash of their sub, never anything they wrote, for the log groups' 30 days, and
+the table's stream holds its changes, deletions included, for 24 hours.
+
+A deletion that fails three runs in a row raises the `AccountDeletionFailing` alarm, and keeps trying. The account
+function crashing or timing out raises `AccountFunctionErrors`. Neither is a release alarm. It runs with 1 GB, at most
+10 at once, and without Lambda's retries: the app asks for an export again, and the schedule carries a deletion on.
+
 ### Devices
 
 - A device that still holds a good token gets `401 {"error": "account_deleted"}` from its next sync, at launch or later.
-  It signs out and erases its copy: its records, outbox and sync state, its photos and files, text shared to it, its
-  reminders, and what screens keep in local storage, keeping only the device's own choices such as its appearance.
-  It then starts over as a new device, whose first screen says the account was deleted, and so does Settings.
+  If the account deleted is the one its data belongs to, it signs out and erases its copy: its records, outbox and sync
+  state, its photos and files, text shared to it, its reminders, and what screens keep in local storage, keeping only
+  the device's own choices such as its appearance. It then starts over as a new device, whose first screen says the
+  account was deleted, and so does Settings. A device holding another account's data only signs out.
 - A device whose token has lapsed gets its refresh refused, since the sign-in is gone. It then asks
   `POST /account/status` with the lapsed token, which the gateway can't check, so the API checks its signature itself
   against the user pool's keys, and its issuer, client and use, but not its expiry. The account is gone if its mark is
   there or the pool has no sign-in with that sub. Asked about the token's own sub only, it tells a stranger nothing. A
-  yes erases the device's copy as above.
-- The device that deleted the account erases its copy as soon as the server has taken the request.
+  yes erases the device's copy as above, again only if the account was the one its data belongs to.
+- The device that deleted the account erases its copy as soon as the server has taken the request. It deletes only the
+  account its data belongs to: Settings names that account's email, offers Delete only while the sign-in is that
+  account's, and sends its sub, which the server checks against the token's.
 - An app from before this gets the same `401` from sync, and its refresh is refused, so it shows the signed-out state.
-  It keeps its copy until someone signs in on it, which a deleted account can't.
+  It keeps its copy until it's updated or someone signs in on it, which a deleted account can't.
 - A device that was signed out by hand before the deletion keeps its copy: it holds no token to ask with.
 
 ### Backups
@@ -170,4 +278,4 @@ isn't versioned, so a deleted file is gone at once, and the user pool keeps no c
 | Local integration | `backend/cmd/local` removes an attachment's file with its record through the cleanup; `backend/integration/retention_test.go` moves the local clock past each period, and `frontend/src/core/retention.stack.test.ts` does the same with the app's own client, in `make test-integration` |
 | Staging | `make test-retention`, also part of `make test-deployed` on staging: the same app-client suite in real time, about 50 minutes |
 | End to end | `frontend/e2e/settings.spec.ts` opens the Data retention page at desktop and phone sizes |
-| Export and deletion | `backend/internal/account`: every record type and note in the export, its link once, a failed or stalled export, safe names; a deletion's completeness, other people untouched, an interrupted deletion carried on, late writes removed, the mark kept until tokens lapse, a job for someone who didn't ask doing nothing, counts without who, and lapsed tokens' signatures. `backend/internal/api`: the sign-in age, the typed confirmation, the refusals of a deleted account and of anyone without a token. `backend/integration/account_test.go`, in `make test-integration`: the same through the local stack, with a second user and a second device; `frontend/src/core/account.stack.test.ts`, also there: every type in the app's `RECORD_TYPES` comes back in an export, and a deletion is found by a good token and a lapsed one. On the device: `syncRunner.test.ts` erases a deleted account's copy, `settings.test.tsx` checks the page's safeguards, `e2e/stack/account.spec.ts` runs both flows at desktop and phone sizes with a second device, and `e2e/compat` has a released app show it's signed out |
+| Export and deletion | `backend/internal/account`: every record type and note in the export, one export at a time, its link once, keys outside the person's prefix refused, a failed or stalled export, names safe on any computer; a deletion's completeness, other people untouched, an interrupted deletion carried on, late writes removed, the mark kept until tokens from the sign-in's last moment lapse, a job for someone who didn't ask doing nothing, protected accounts, counts without who, and lapsed tokens' signatures. `backend/internal/api`: the sign-in age, the typed confirmation and account, the refusals of a deleted account and of anyone without a token. `backend/integration/account_test.go`, in `make test-integration`: the same through the local stack, with a second user and a second device; `frontend/src/core/account.stack.test.ts`, also there: every type in the app's `RECORD_TYPES` comes back in an export, and a deletion is found by a good token and a lapsed one. On the device: `syncRunner.test.ts` erases a deleted account's copy, and only the copy of that account, `settings.test.tsx` checks the page's safeguards, `e2e/stack/account.spec.ts` runs both flows at desktop and phone sizes with a second device, and `e2e/compat` has a released app show it's signed out |

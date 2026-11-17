@@ -8,8 +8,9 @@
 //     entry under account#deleting, which is how the schedule finds a deletion to carry on.
 //  2. The job ends their Google connection, deletes their sign-in, their files and every item in their partition but
 //     the mark. Each step is safe to run again, so a run that fails part way is simply run again.
-//  3. The schedule runs it again every few minutes. Once every token issued before the sign-in went has lapsed, the run
-//     that finds nothing left removes the mark and the entry, and nothing of the person stays.
+//  3. The schedule runs it again every few minutes. Once every token issued before the sign-in went has lapsed, counted
+//     from the run that first found the sign-in gone, the run that finds nothing left removes the mark and the entry,
+//     and nothing of the person stays.
 package account
 
 import (
@@ -18,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -31,10 +34,10 @@ import (
 const (
 	// pendingPK holds an entry per deletion under way, by sub, so the schedule can find them without reading the table.
 	pendingPK = "account#deleting"
-	// Settle is how long a deletion's mark stays after it starts: Cognito's access tokens last an hour, and none can be
-	// issued once the sign-in is gone, so by then no device can reach the API as the person. Until then a device that
-	// still holds one is refused, and each run removes anything written meanwhile, such as a file whose upload link was
-	// granted just before.
+	// Settle is how long a deletion's mark stays after its sign-in is gone: Cognito's access and ID tokens last an hour
+	// (infrastructure/test checks the app's client keeps that), and none can be issued once the sign-in is gone, so by
+	// then no device can reach the API as the person. Until then a device that still holds one is refused, and each run
+	// removes anything written meanwhile, such as a file whose upload link was granted just before.
 	Settle = 70 * time.Minute
 	// batchSize is the most deletes BatchWriteItem takes at once.
 	batchSize   = 25
@@ -50,9 +53,10 @@ type DB interface {
 	BatchWriteItem(context.Context, *dynamodb.BatchWriteItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
 }
 
-// Records reads every record a person has. *sync.Store implements it.
+// Records reads every record a person has, or every one of a type. *sync.Store implements it.
 type Records interface {
 	Each(ctx context.Context, sub string, fn func(sync.Change) error) error
+	EachOf(ctx context.Context, sub, recordType string, fn func(sync.Change) error) error
 }
 
 // Objects is the files bucket. *S3Objects and the local stack's stand-in implement it.
@@ -68,6 +72,8 @@ type Objects interface {
 type Identity interface {
 	// Exists reports whether a sign-in with this sub exists.
 	Exists(ctx context.Context, sub string) (bool, error)
+	// Email is the sign-in's email, or "" when there's none.
+	Email(ctx context.Context, sub string) (string, error)
 	// Delete removes the sign-in with this sub, which ends every refresh token it has, and succeeds when there is none.
 	Delete(ctx context.Context, sub string) error
 }
@@ -83,6 +89,8 @@ type Google interface {
 type Job struct {
 	Kind string `json:"job,omitempty"`
 	Sub  string `json:"sub,omitempty"`
+	// ID is the export the job builds, which it builds only while it's still the person's latest.
+	ID string `json:"id,omitempty"`
 }
 
 const (
@@ -112,13 +120,19 @@ type Service struct {
 	Env   string
 	// Settle overrides the package's Settle, for tests.
 	Settle time.Duration
+	// Protected are the emails of accounts never deleted, whatever a request says: a deployment's integration test
+	// users, whose suite calls the delete route.
+	Protected []string
 }
+
+// ErrProtected refuses deleting one of Protected.
+var ErrProtected = errors.New("account: this account can't be deleted")
 
 // Run does a job in the account function.
 func (s *Service) Run(ctx context.Context, job Job) error {
 	switch job.Kind {
 	case JobExport:
-		return s.BuildExport(ctx, job.Sub)
+		return s.BuildExport(ctx, job.Sub, job.ID)
 	case JobDelete:
 		return s.Continue(ctx, job.Sub)
 	case "":
@@ -132,6 +146,15 @@ func (s *Service) Run(ctx context.Context, job Job) error {
 func (s *Service) Delete(ctx context.Context, sub string) error {
 	if sub == "" {
 		return errors.New("account: no user")
+	}
+	if len(s.Protected) > 0 {
+		email, err := s.Identity.Email(ctx, sub)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(s.Protected, func(p string) bool { return strings.EqualFold(p, email) }) {
+			return ErrProtected
+		}
 	}
 	now := s.Now()
 	// The entry first: a mark with no entry would refuse the devices with nothing to delete their data.
@@ -239,7 +262,9 @@ func (s *Service) Continue(ctx context.Context, sub string) error {
 	if err != nil {
 		return errors.New("account: entry has no start")
 	}
-	step, err := s.deleteAll(ctx, sub, started)
+	// Zero until a run has found the sign-in gone.
+	gone, _ := time.Parse(time.RFC3339, stringAttr(out.Item["signin_deleted_at"]))
+	step, err := s.deleteAll(ctx, sub, started, gone)
 	if err != nil {
 		// Counted, never who.
 		attrs := append([]any{"outcome", "failed", "step", step}, sync.ErrorAttrs(err)...)
@@ -250,11 +275,19 @@ func (s *Service) Continue(ctx context.Context, sub string) error {
 }
 
 // deleteAll is the deletion's steps in order, and the step that failed. Google goes first, while the calendar record
-// still says which calendar it made there.
-func (s *Service) deleteAll(ctx context.Context, sub string, started time.Time) (string, error) {
-	// The mark again, in case the request that wrote the entry stopped before it.
-	if err := s.setStarted(ctx, userKey(sub), sync.DeletedKey, started); err != nil {
-		return "mark", err
+// still says which calendar it made there. gone is when a run first found the sign-in gone, or zero.
+func (s *Service) deleteAll(ctx context.Context, sub string, started, gone time.Time) (string, error) {
+	settle := s.Settle
+	if settle == 0 {
+		settle = Settle
+	}
+	finishing := !gone.IsZero() && !s.Now().Before(gone.Add(settle))
+	// The mark again, in case the request that wrote the entry stopped before it. Never once the deletion is finishing,
+	// when the mark may already have gone and only the entry is left to remove.
+	if !finishing {
+		if err := s.setStarted(ctx, userKey(sub), sync.DeletedKey, started); err != nil {
+			return "mark", err
+		}
 	}
 	if s.Google != nil {
 		if err := s.Google.Forget(ctx, sub); err != nil {
@@ -263,6 +296,23 @@ func (s *Service) deleteAll(ctx context.Context, sub string, started time.Time) 
 	}
 	if err := s.Identity.Delete(ctx, sub); err != nil {
 		return "sign_in", err
+	}
+	exists, err := s.Identity.Exists(ctx, sub)
+	if err != nil {
+		return "sign_in", err
+	}
+	// Tokens can be issued until the sign-in is gone, so the wait for them to lapse counts from here.
+	if !exists && gone.IsZero() {
+		gone = s.Now()
+		_, err := s.DB.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+			TableName:                 aws.String(s.Table),
+			Key:                       key(pendingPK, sub),
+			UpdateExpression:          aws.String("SET signin_deleted_at = if_not_exists(signin_deleted_at, :now)"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{":now": str(gone.UTC().Format(time.RFC3339))},
+		})
+		if err != nil {
+			return "sign_in", err
+		}
 	}
 	if s.Objects != nil {
 		for _, prefix := range Prefixes(sub) {
@@ -278,11 +328,7 @@ func (s *Service) deleteAll(ctx context.Context, sub string, started time.Time) 
 	if err := s.purge(ctx, sub); err != nil {
 		return "records", err
 	}
-	settle := s.Settle
-	if settle == 0 {
-		settle = Settle
-	}
-	if s.Now().Before(started.Add(settle)) {
+	if exists || gone.IsZero() || s.Now().Before(gone.Add(settle)) {
 		return "", nil
 	}
 	// Nothing is left and no token can reach the API as them, so the mark goes, then the entry: a failure between them

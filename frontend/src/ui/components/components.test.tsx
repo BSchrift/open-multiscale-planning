@@ -115,15 +115,25 @@ describe('Toast', () => {
     }
   });
 
-  it('goes away when tapped, or on a tap anywhere else, but not on Undo', async () => {
+  it('goes away when a tap on it or anywhere else finishes, but not on Undo', async () => {
     await inApp(<Host undo={vi.fn()} />);
     fireEvent.click(screen.getByText('go'));
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.getByText('Moved')).toBeInTheDocument();
+    // Not as the finger goes down: on phone the toast holds space, and the page moving then would put the release on
+    // something else.
     fireEvent.pointerDown(screen.getByText('Moved'));
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    // A click counts as a tap when it has a count, as from a finger or the mouse.
+    fireEvent.click(screen.getByText('Moved'), { detail: 1 });
     expect(screen.queryByText('Moved')).toBeNull();
     fireEvent.click(screen.getByText('go'));
     fireEvent.pointerDown(document.body);
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    // Enter or Space on a button clicks it with no count, and keys leave the toast.
+    fireEvent.click(document.body);
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(document.body, { detail: 1 });
     expect(screen.queryByText('Moved')).toBeNull();
   });
 });

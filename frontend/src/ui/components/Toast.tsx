@@ -34,6 +34,9 @@ interface ToastApi {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
+/** A click from a finger or the mouse. Enter or Space on a button also clicks it, with no count, and keys never put a toast away. */
+const tapped = (event: MouseEvent) => event.detail > 0;
+
 export function useToast(): ToastApi {
   const toast = useContext(ToastContext);
   if (!toast) throw new Error('useToast needs a ToastProvider');
@@ -72,7 +75,9 @@ export function ToastProvider(props: { children: ReactNode }) {
     [],
   );
 
-  // The check holds, then fades. A tap or Esc puts it away sooner; it never takes focus.
+  // The check holds, then fades. A tap or Esc puts it away sooner; it never takes focus. A tap counts once it finishes,
+  // its click: put away as the finger went down, the toast waiting behind the check came in and moved the page, so the
+  // release landed on something else.
   useEffect(() => {
     if (!check) return;
     if (check.leaving) {
@@ -83,11 +88,12 @@ export function ToastProvider(props: { children: ReactNode }) {
     const leave = () => setCheck((c) => c && { ...c, leaving: true });
     const timer = setTimeout(leave, CHECK_MS);
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && leave();
-    document.addEventListener('pointerdown', leave, true);
+    const onTap = (event: MouseEvent) => tapped(event) && leave();
+    document.addEventListener('click', onTap, true);
     document.addEventListener('keydown', onKey, true);
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('pointerdown', leave, true);
+      document.removeEventListener('click', onTap, true);
       document.removeEventListener('keydown', onKey, true);
     };
   }, [check]);
@@ -95,12 +101,14 @@ export function ToastProvider(props: { children: ReactNode }) {
   useEffect(() => {
     // A toast waiting for the check isn't showing yet, so nothing puts it away.
     if (!current || check) return;
-    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click.
-    const away = (event: PointerEvent) => {
-      if (!(event.target as Element).closest?.('.toastact')) setCurrent(null);
+    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click. Once the tap finishes,
+    // on its click: on phone the toast holds space above the bottom bar, and put away as the finger went down, the page
+    // moved under it, so the release pressed whatever had moved there.
+    const away = (event: MouseEvent) => {
+      if (tapped(event) && !(event.target as Element).closest?.('.toastact')) setCurrent(null);
     };
-    document.addEventListener('pointerdown', away, true);
-    return () => document.removeEventListener('pointerdown', away, true);
+    document.addEventListener('click', away, true);
+    return () => document.removeEventListener('click', away, true);
   }, [current, !!check]);
 
   const paused = held.focus || held.hover;

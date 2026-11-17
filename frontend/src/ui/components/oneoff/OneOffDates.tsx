@@ -26,6 +26,8 @@ export function OneOffDateForm(props: {
   commit?(from: LocalDate | null, to: LocalDate | null): Promise<unknown>;
   /** Called as the dates save, so a list can say where focus lands if they take the row out of it. */
   onSave?(): void;
+  /** For a caller that can move on with the form still open, as Process's card does: set to save the dates typed, if whole. */
+  pending?: { current: (() => Promise<boolean>) | null };
   onClose(): void;
 }) {
   const { task, onClose } = props;
@@ -49,13 +51,14 @@ export function OneOffDateForm(props: {
     props.onSave?.();
     if (await commit(from, to)) onClose();
   };
+  const to = ed.ranged && ed.to ? ed.to : null;
+  const invalid = ed.from ? validateSchedule(setOnceDates(ed.from, to).schedule!) : 'Pick a date.';
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const to = ed.ranged && ed.to ? ed.to : null;
-    const error = ed.from ? validateSchedule(setOnceDates(ed.from, to).schedule!) : 'Pick a date.';
-    if (error) return put({ error });
+    if (invalid) return put({ error: invalid });
     await apply(ed.from, to);
   };
+  if (props.pending) props.pending.current = changed && !invalid ? async () => !!(await commit(ed.from, to)) : null;
 
   return (
     <form

@@ -88,6 +88,11 @@ export interface Platform {
   };
   /** Only where native parts draw around the page: the window and menus on desktop, the status bar on iPhone. */
   setAppearance?(appearance: Appearance): Promise<void>;
+  /**
+   * One light tap, as a held block lifts: the iPhone's Taptic Engine, or the browser's vibrate where a phone's browser
+   * has one. Absent on the Mac, which can't. Never fails.
+   */
+  haptic?(): Promise<void>;
   /** Only where native code can measure the app: memory, and memory warnings. */
   readonly diagnostics?: Diagnostics;
   /** Only in the apps, whose native code checks and installs a downloaded web bundle. */

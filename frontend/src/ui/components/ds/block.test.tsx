@@ -49,6 +49,14 @@ describe('BlockMarks', () => {
     expect(render(<BlockMarks state="planned" />).container.innerHTML).toBe('');
   });
 
+  it('marks an Inbox item’s block with the inbox icon, before what its state draws', () => {
+    const { container } = render(<BlockMarks look="inbox" state="now" />);
+    expect((container.firstElementChild as SVGElement).dataset.icon).toBe('inbox');
+    expect(container.querySelector('.live')).not.toBeNull();
+    cleanup();
+    expect(render(<BlockMarks look="project" state="planned" />).container.innerHTML).toBe('');
+  });
+
   it('draws a 12px badge on a 15-minute block, and 16px otherwise', () => {
     expect(render(<AnswerBadge answer="done" />).container.querySelector('.ansbadge')!.className).toBe('ansbadge b-done');
     cleanup();
@@ -81,5 +89,12 @@ describe('the block’s look', () => {
     expect(rule('.blk')).toMatch(/border-left: var\(--edge\) solid var\(--kc\)/);
     expect(rule('.blk.k-practice')).toMatch(/border-left-style: double/);
     expect(rule('.blk.k-oneoff')).toMatch(/border-left-style: dotted/);
+  });
+
+  it('gives an Inbox item’s block no kind’s colour: Planning’s neutral wash, told apart by a dashed edge', () => {
+    expect(blockClass('inbox', 'planned')).toBe('blk k-inbox s-planned');
+    const colours = (selector: string) => rule(selector).replace(/^[^{]*\{/, '').trim();
+    expect(colours('.k-inbox')).toBe(colours('.k-planning'));
+    expect(rule('.blk.k-inbox')).toMatch(/border-left-style: dashed/);
   });
 });

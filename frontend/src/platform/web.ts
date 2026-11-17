@@ -133,6 +133,11 @@ function holdDatabase(): Promise<boolean> {
   });
 }
 
+/** A phone browser's short vibration, as on Android. Desktop browsers and iPhones have none, and it does nothing there. */
+export async function vibrateOnce(): Promise<void> {
+  navigator.vibrate?.(10);
+}
+
 export async function createWebPlatform(): Promise<Platform> {
   const signInRedirectUri = `${location.origin}/auth/callback`;
   const links = deepLinks();
@@ -169,5 +174,6 @@ export async function createWebPlatform(): Promise<Platform> {
     openExternal: async (url) => void window.open(url, '_blank', 'noopener'),
     signInRedirectUri,
     onDeepLink: links.onDeepLink,
+    haptic: vibrateOnce,
   };
 }

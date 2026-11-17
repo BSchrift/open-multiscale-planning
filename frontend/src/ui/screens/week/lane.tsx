@@ -50,13 +50,14 @@ export function LaneCard(props: {
   onDrop(slot: Slot): void;
 }) {
   const { item } = props;
+  const { platform } = useApp();
   return (
     <button
       type="button"
       className={`lanecard ${KIND_CLASS[item.kind]}${props.open ? ' on' : ''}`}
       aria-expanded={props.open}
       aria-label={`${item.title}, ${KIND_WORD[item.kind]}, ${laneWords(item)}, to schedule`}
-      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop }) : undefined}
+      onPointerDown={props.draggable ? (e) => dragCard(e, item, props.ctx, { preview: props.onPreview, drop: props.onDrop, haptic: platform.haptic }) : undefined}
       onClick={props.onToggle}
     >
       <span className="strong lanet">{item.title}</span>
@@ -99,7 +100,7 @@ export function LaneActions(props: {
         <div className={layout === 'phone' ? 'stack8' : 'row'} role="group" aria-label={`Suggested times for ${item.title}`}>
           {item.offers.map((o, i) => (
             <Button key={`${o.date}${o.start}`} {...btn} variant={i === 0 ? 'primary' : 'secondary'} type="button" onClick={() => props.onPlace(o)}>
-              {i + 1} · {dayName(o.date).slice(0, 3)} {formatTimeOfDay(o.start)} to {formatTimeOfDay(o.end)}
+              {dayName(o.date).slice(0, 3)} {formatTimeOfDay(o.start)} to {formatTimeOfDay(o.end)}
             </Button>
           ))}
           {item.offers.length === 0 && (

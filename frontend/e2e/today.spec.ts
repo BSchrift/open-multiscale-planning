@@ -410,7 +410,7 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
   // The block's own section, at the top, with what can be done to it.
   const section = popup.getByRole('region', { name: 'Time block' });
   await expect(section.getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
-  for (const name of ['Start now', 'Remove from calendar']) {
+  for (const name of ['Start now', 'Done', 'Remove from calendar']) {
     const action = section.getByRole('button', { name });
     await expect(action).toBeVisible();
     if (phone) await expectTapTarget(action);
@@ -438,6 +438,45 @@ test("a click or tap on a block opens its task, a hand's wobble is still a click
     await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }
+  expect(errors).toEqual([]);
+});
+
+test("Done in a block's popup: one later today finishes its task and frees the time, and the one under way ends now, after Pause and Resume", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, fence, block('b1', 't1', '13:30', '15:00', { started_at: at('13:30') }), block('b2', 't2', '16:00', '17:00')]);
+  await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  const section = (title: string) => page.getByRole('dialog', { name: title }).getByRole('region', { name: 'Time block' });
+
+  // Later today: Done ticks the one off, and its block comes off the calendar.
+  const later = page.getByRole(phone ? 'slider' : 'button', { name: /^Paint the fence, 4pm to 5pm/ });
+  await later.scrollIntoViewIfNeeded();
+  await (phone ? later.tap() : later.click());
+  const done = section('Paint the fence').getByRole('button', { name: 'Done' });
+  if (phone) await expectTapTarget(done);
+  await done.click();
+  await expect(page.getByText('Marked Paint the fence done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
+  await expect(later).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(later).toBeVisible();
+  await page.getByRole('dialog', { name: 'Paint the fence' }).getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // Under way: Pause, Resume, then Done ends it now and says how long it took.
+  const now = page.getByRole('button', { name: /^Write the report, 1:30pm to 3pm/ });
+  await (phone ? now.tap() : now.click());
+  const own = section('Write the report');
+  for (const name of ['Done', 'Pause']) if (phone) await expectTapTarget(own.getByRole('button', { name }));
+  // Once the popup has finished sliding in.
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: info.outputPath(`today-done-under-way-${info.project.name}.png`) });
+  await own.getByRole('button', { name: 'Pause' }).click();
+  await expect(page.getByText('Paused Write the report')).toBeVisible();
+  await own.getByRole('button', { name: 'Resume' }).click();
+  await expect(page.getByText('Resumed. It now ends at 3pm.')).toBeVisible();
+  await own.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByText("Marked done after 30m. You're free until 4pm.")).toBeVisible();
+  await expect(own.getByRole('button', { name: 'Done' })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`today-done-marked-${info.project.name}.png`) });
   expect(errors).toEqual([]);
 });
 

@@ -18,6 +18,8 @@ export interface TestPlatform extends Platform {
   readonly appearances: Appearance[];
   /** Every haptic tap the screens asked for, by its strength, which is always light. */
   readonly haptics: 'light'[];
+  /** Every file passed to saveFile. */
+  readonly saved: { name: string; text: string }[];
 }
 
 export async function createTestPlatform(db?: Db): Promise<TestPlatform> {
@@ -25,6 +27,7 @@ export async function createTestPlatform(db?: Db): Promise<TestPlatform> {
   const opened: string[] = [];
   const appearances: Appearance[] = [];
   const haptics: 'light'[] = [];
+  const saved: { name: string; text: string }[] = [];
   return {
     kind: 'test',
     db: db ?? (await openTestDb()),
@@ -41,5 +44,7 @@ export async function createTestPlatform(db?: Db): Promise<TestPlatform> {
     appearances,
     haptic: async () => void haptics.push('light'),
     haptics,
+    saveFile: async (name, text) => void saved.push({ name, text }),
+    saved,
   };
 }

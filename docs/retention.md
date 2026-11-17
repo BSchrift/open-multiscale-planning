@@ -41,6 +41,11 @@ Done, a day's list of what was finished and the time worked, stores nothing. It 
 so a day's list shrinks as they go: its time worked and repeat finishes after 2 years, its finished tasks after 5, and a
 task deleted since, shown as "deleted", 30 days after the delete, with its blocks' entries.
 
+The diagnostic log that **Settings > Diagnostics** exports is not synced data and none of these periods apply to it. Each
+device keeps its own in the page's local storage, never sent: the newest 2,000 entries from the last 7 days
+(`frontend/src/core/diagnosticLog.ts`). It holds errors, syncs and the app's comings and goings, and nothing anyone
+wrote in a record.
+
 ## The configuration
 
 [config/retention.yaml](../config/retention.yaml) holds a block per environment: `prod`, `staging` and `local`, each

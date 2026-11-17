@@ -163,6 +163,8 @@ export async function createWebPlatform(): Promise<Platform> {
   return {
     kind: 'web',
     db,
+    // The worker can stop later and leave IndexedDB's copy, which the diagnostic log notes as a warning.
+    database: opfs ? 'sqlite-wasm on OPFS' : 'sql.js in IndexedDB',
     notifications: memoryNotifications(),
     tokens: {
       get: async (key) => ((await tokenRequest('readonly', (files) => files.get(`token:${key}`))) as string | undefined) ?? null,

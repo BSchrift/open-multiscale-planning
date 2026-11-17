@@ -219,6 +219,11 @@ button('Diagnostics', async () => {
   log(`previous:${snap.previous?.state ?? 'none'}`);
   return snap.footprint > 0 && snap.peak >= snap.footprint && /^\w+\d/.test(snap.model ?? '') ? 'diagnostics:ok' : `diagnostics:${JSON.stringify(snap)}`;
 });
+// Settings > Export diagnostic log's share sheet. Done once the sheet shows, which the UI test then closes.
+button('Share file', async () => {
+  await platform.saveFile!('multiscale-diagnostics-check.json', '{"file":"multiscale-diagnostic-log"}');
+  return 'sharefile:shown';
+});
 button('Erase', () => erase(platform));
 button('Seed plan', () => seed(platform.db, []));
 // Picked for this week with nothing placed, so it waits in To schedule on Today.

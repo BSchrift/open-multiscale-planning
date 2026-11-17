@@ -4,6 +4,7 @@ import { availableHours } from '../../../core/capacity';
 import type { Clock } from '../../../core/clock';
 import { addWeeks, formatDate, formatMinutes, formatTime, localDate, nowInstant, thisWeek, today } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
+import { diagnosticLog, diagnosticReport, MAX_LOG_AGE_DAYS } from '../../../core/diagnosticLog';
 import { cadenceLabel } from '../../../core/plan';
 import { CALENDAR_ID, getRecord, getSettings, listRecords, updateSettings } from '../../../core/records';
 import { PAUSE_REMINDER_MIN } from '../../../core/reminders';
@@ -12,6 +13,7 @@ import { syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
 import type { AppPlace, UpdateStatus, Updater } from '../../../core/updates';
 import type { CalendarMode, Fields, Instant, ReminderSettings } from '../../../core/types';
+import { downloadFile } from '../../../platform/download';
 import { DEFAULT_SHORTCUT, shortcutFromKeys, shortcutLabel } from '../../../platform/shortcut';
 import { setAppearance, useAppearance } from '../../app/appearance';
 import { useCaptureShortcut } from '../../app/captureShortcut';
@@ -448,6 +450,39 @@ function DataRetention(props: { layout: Layout }) {
   );
 }
 
+/** Recent errors and syncs on this device as a file, for looking into a problem (core/diagnosticLog.ts). */
+function Diagnostics(props: { layout: Layout }) {
+  const { platform, db, clock } = useApp();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const phone = props.layout === 'phone';
+  const save = async () => {
+    setBusy(true);
+    try {
+      const text = await diagnosticReport(db, diagnosticLog, { userAgent: navigator.userAgent });
+      await (platform.saveFile ?? downloadFile)(`multiscale-diagnostics-${today(clock)}.json`, text);
+    } catch (error) {
+      console.error('Exporting the diagnostic log failed', error);
+      toast.show("Couldn't export the diagnostic log. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Diagnostics">
+      <div className={phone ? 'stack8' : 'setrow'}>
+        <span className={phone ? 'small' : undefined}>Recent errors and syncs on this device, as a file.</span>
+        <Button size="compact" type="button" disabled={busy} onClick={() => void save()}>
+          Export diagnostic log
+        </Button>
+      </div>
+      <p className={phone ? 'small quiet' : 'quiet'}>
+        For looking into a problem. It leaves out what you've written and your sign-in. Kept on this device for {MAX_LOG_AGE_DAYS} days.
+      </p>
+    </Section>
+  );
+}
+
 const UPDATE_LINE: Record<UpdateStatus['state'], string | null> = {
   idle: null,
   checking: 'Checking…',
@@ -681,6 +716,7 @@ export default function Screen(props: ScreenProps) {
       <CaptureKeys />
       {updates && <Updates layout={layout} updates={updates} />}
       <DataRetention layout={layout} />
+      <Diagnostics layout={layout} />
       {/* AGPL-3.0: the app shows where its source is. A target="_blank" link opens in the system browser on Electron and iOS too. */}
       <a className="small source" href="https://github.com/BSchrift/open-multiscale-planning" target="_blank" rel="noreferrer">
         Source code

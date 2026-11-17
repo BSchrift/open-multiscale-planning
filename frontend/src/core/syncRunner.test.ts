@@ -9,6 +9,7 @@ import { SyncError, syncStatus, unsyncedChanges } from './sync';
 import type { SyncSend } from './sync';
 import { fakeSyncServer } from './sync-testing';
 import { createSyncRunner, startAppSync } from './syncRunner';
+import { createDiagnosticLog, watchErrors } from './diagnosticLog';
 import { perf } from './perf';
 import { memoryLifecycle } from '../platform/memory';
 import { openTestDb } from '../platform/node-sqlite';
@@ -248,6 +249,37 @@ describe('what Settings shows', () => {
     expect((await syncStatus(t.db)).lastError).toBe('error');
     expect(log).toHaveBeenCalled();
     log.mockRestore();
+  });
+});
+
+describe('what the diagnostic log keeps', () => {
+  it('each sync and how it ended: what it brought, or why it failed, with an unexpected failure’s stack', async () => {
+    const db = await openTestDb();
+    const clock = fixedClock(NOW);
+    const server = fakeSyncServer({ now: () => clock.now() });
+    const log = createDiagnosticLog({ store: null, now: () => clock.now() });
+    const send = vi.fn<SyncSend>((req) => server.send(req));
+    const runner = createSyncRunner({ db, clock, lifecycle: memoryLifecycle(), send, log });
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const stop = watchErrors(log, new EventTarget(), console);
+    const c = `${Date.parse(NOW) - MINUTE}-000000-other`;
+    await server.send({ cursor: 0, changes: [{ type: 'task', id: 't1', fields: { kind: { v: 'inbox', c }, title: { v: 'Buy milk', c } } }] });
+    await runner.syncNow();
+    await runner.syncNow();
+    send.mockRejectedValueOnce(new SyncError('offline'));
+    await runner.syncNow();
+    const odd = new TypeError('x is undefined');
+    send.mockRejectedValueOnce(odd);
+    await runner.syncNow();
+    stop();
+    quiet.mockRestore();
+    expect(log.entries().map(({ level, source, message, stack }) => ({ level, source, message, ...(stack ? { stack } : {}) }))).toEqual([
+      { level: 'info', source: 'sync', message: 'Synced, 1 change pulled' },
+      { level: 'info', source: 'sync', message: 'Synced, nothing new' },
+      { level: 'warn', source: 'sync', message: 'Sync failed: offline' },
+      { level: 'error', source: 'console', message: 'Sync failed: TypeError: x is undefined', stack: odd.stack },
+    ]);
+    expect(JSON.stringify(log.entries())).not.toContain('milk');
   });
 });
 

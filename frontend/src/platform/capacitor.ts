@@ -28,8 +28,11 @@ const ShareQueue = registerPlugin<{
 
 /** Implemented in the app target. Sets the window's light or dark, which the status bar and keyboard follow. */
 const NativeAppearance = registerPlugin<{ set(options: { appearance: Appearance }): Promise<void> }>('MultiscaleAppearance');
+/** Implemented in the app target. Measures the app for telemetry, and shares the diagnostic log. */
 const NativeDiagnostics = registerPlugin<{
   snapshot(): Promise<DiagnosticsSnapshot>;
+  /** The share sheet, with the text as a file of this name. Resolves once the sheet shows. */
+  shareFile(options: { name: string; text: string }): Promise<void>;
   addListener(event: 'memoryWarning', listener: () => void): Promise<PluginListenerHandle>;
 }>('MultiscaleDiagnostics');
 /** Implemented in the app target. Checks and installs a downloaded web bundle, and picks when to switch to it. */
@@ -174,6 +177,9 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
   return {
     kind: 'ios',
     db: await openDb(await capacitorSqlDriver(env === 'prod' ? 'multiscale' : `multiscale-${env}`)),
+    database: '@capacitor-community/sqlite',
+    // A web view can't download a file, so it goes to the share sheet.
+    saveFile: (name, text) => NativeDiagnostics.shareFile({ name, text }),
     notifications: capacitorNotifications(),
     tokens: await keychainTokens(),
     lifecycle: { onForeground: foreground.on, onBackground: background.on },

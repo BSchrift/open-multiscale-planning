@@ -326,6 +326,30 @@ test('Appearance in Settings sets the native theme and the window background, an
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
 });
 
+test("Export diagnostic log in Settings saves the file where it's put, as a download Electron asks about", async () => {
+  const { app: running, page } = await launch();
+  await pastSetup(page);
+  const saveTo = join(dataDir, 'diagnostics.json');
+  // Electron asks where with a save dialog for any download whose place the app doesn't set. A test can't answer a
+  // native dialog, so it sets the place, as the person would pick it.
+  const saved = running.evaluate(
+    ({ session }, path) =>
+      new Promise<string>((resolve) => {
+        session.defaultSession.once('will-download', (_event, item) => {
+          item.setSavePath(path);
+          item.once('done', (_done, state) => resolve(`${item.getFilename()} ${state}`));
+        });
+      }),
+    saveTo,
+  );
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('region', { name: 'Diagnostics' }).getByRole('button', { name: 'Export diagnostic log' }).click();
+  expect(await saved).toMatch(/^multiscale-diagnostics-\d{4}-\d{2}-\d{2}\.json completed$/);
+  const file = JSON.parse(readFileSync(saveTo, 'utf8'));
+  expect(file).toMatchObject({ file: 'multiscale-diagnostic-log', device: { platform: 'electron', database: 'better-sqlite3 in the main process' } });
+  expect(file.entries).toContainEqual(expect.objectContaining({ source: 'app', message: expect.stringMatching(/^Started version /) }));
+});
+
 test('a new capture shortcut from Settings replaces the old one, shows in the tray menu, and a restart keeps it', async () => {
   let { app: running, page } = await launch();
   await pastSetup(page);

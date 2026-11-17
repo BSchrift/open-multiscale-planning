@@ -69,6 +69,26 @@ export async function saved(page: Page, text: string): Promise<void> {
     .toBe(true);
 }
 
+/**
+ * Checks nothing, such as a sticky bar, draws over an element: at points across it, near its edges and in its middle, the
+ * browser's hit is it or inside it. Scrolled into view first, as in a popover taller than its room.
+ */
+export async function expectOnTop(target: Locator): Promise<void> {
+  await expect(target).toBeVisible();
+  await target.scrollIntoViewIfNeeded();
+  const covered = await target.evaluate((e) => {
+    const r = e.getBoundingClientRect();
+    for (const fy of [0.15, 0.5, 0.85]) {
+      for (const fx of [0.1, 0.5, 0.9]) {
+        const at = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy);
+        if (!at || !(e === at || e.contains(at))) return at?.outerHTML.slice(0, 120) ?? 'nothing';
+      }
+    }
+    return 'nothing over it';
+  });
+  expect(covered, 'what the browser hits on it').toBe('nothing over it');
+}
+
 /** Checks a control is at least 44pt each way, the smallest a finger can hit reliably. */
 export async function expectTapTarget(target: Locator): Promise<void> {
   // A control that isn't there fails here, by name, rather than as a timeout in the wait below, which reads like an

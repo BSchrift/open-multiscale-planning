@@ -389,20 +389,30 @@ func (g *Google) Disconnect(ctx context.Context, sub string) error {
 }
 
 // DeleteConnection ends this person's connection: Time blocks is removed from their Google, Google's access is revoked,
-// and the stored token is deleted, their own and the legacy one if it is theirs. It succeeds when they have none, so it
-// can run again. Deleting an account calls it before the records go, since it reads Time blocks' id from the calendar
-// record; with the records already gone, it still revokes and deletes. A consent finishing at the same moment is ended
-// too, by going round again.
+// the stored token is deleted, their own and the legacy one if it is theirs, and their Google account's claim released.
+// It succeeds when they have none, so it can run again. A consent finishing at the same moment is ended too, by going
+// round again. Disconnect calls it; deleting an account calls Forget.
 func (g *Google) DeleteConnection(ctx context.Context, sub string) error {
+	return g.endConnection(ctx, sub, "calendar_disconnect", "user", obs.HashSub(sub))
+}
+
+// Forget is what deleting an account does with Google (account.Google): DeleteConnection, called before the records go,
+// since it reads Time blocks' id from the calendar record; with the records already gone, it still revokes and deletes.
+// It writes no record, and its log line counts without saying who, since the account is going.
+func (g *Google) Forget(ctx context.Context, sub string) error {
+	return g.endConnection(ctx, sub, "calendar_forget")
+}
+
+func (g *Google) endConnection(ctx context.Context, sub, msg string, attrs ...any) error {
 	for attempt := 0; ; attempt++ {
-		err := g.deleteConnection(ctx, sub)
+		err := g.deleteConnection(ctx, sub, msg, attrs)
 		if !errors.Is(err, errConnectionChanged) || attempt == 2 {
 			return err
 		}
 	}
 }
 
-func (g *Google) deleteConnection(ctx context.Context, sub string) error {
+func (g *Google) deleteConnection(ctx context.Context, sub, msg string, attrs []any) error {
 	// Read as stored, then opened: one that won't open is still deleted, without the revoke it can't make.
 	own, err := g.Connections.Peek(ctx, sub)
 	if err != nil && !errors.Is(err, ErrNotConnected) {
@@ -450,7 +460,7 @@ func (g *Google) deleteConnection(ctx context.Context, sub string) error {
 			failed = append(failed, "revoke")
 		}
 	}
-	g.Log.Info("calendar_disconnect", "user", obs.HashSub(sub), "google_failed", failed)
+	g.Log.Info(msg, append(attrs, "google_failed", failed)...)
 	if own.Sub != "" {
 		if err := g.Connections.Delete(ctx, own); err != nil {
 			return err

@@ -26,8 +26,8 @@ const (
 	SecretClientID     = "google/client-id"
 	SecretClientSecret = "google/client-secret"
 	SecretState        = "google/state-secret"
-	// SecretRefreshToken is the deployment's one connection from before each person had their own. It is read only as a
-	// fallback, for the person it names, until the migration has copied it to their own connection.
+	// SecretRefreshToken is the deployment's one connection from before each person had their own, which the migration
+	// release copied to its person's own. It is read only to delete it.
 	SecretRefreshToken = "google/refresh-token"
 
 	// StateTTL is how long a consent link works.
@@ -93,9 +93,6 @@ type Connections interface {
 	// Put stores conn as its person's connection and claims its Google account, releasing previous, the account they held
 	// before, if it's another. It returns api.ErrAccountTaken when someone else holds the account.
 	Put(ctx context.Context, conn connection, previous string) error
-	// PutNew stores conn as Put does, only if its person has no connection of their own, and returns errConnectionChanged
-	// if they have one.
-	PutNew(ctx context.Context, conn connection) error
 	// Delete removes conn and releases its account. It succeeds when there's nothing to remove, and returns
 	// errConnectionChanged when conn was replaced since it was read, leaving the new one.
 	Delete(ctx context.Context, conn connection) error
@@ -115,7 +112,9 @@ func accountID(address string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// legacyConnection reads the deployment's one connection from before.
+// legacyConnection reads the deployment's one connection from before, for its deletion.
+//
+// shortcut: remove it, with retireLegacy and the grants on the parameter, once every deployment logs it retired.
 func (g *Google) legacyConnection(ctx context.Context) (connection, error) {
 	var conn connection
 	raw, err := g.Secrets.Get(ctx, SecretRefreshToken)
@@ -128,21 +127,6 @@ func (g *Google) legacyConnection(ctx context.Context) (connection, error) {
 	}
 	conn.legacy = true
 	return conn, nil
-}
-
-// connectionOf returns sub's connection: their own, else the legacy one if it is theirs, else ErrNotConnected. The
-// fallback lets the worker keep running for the person connected before per-person connections, until the migration has
-// copied theirs.
-func (g *Google) connectionOf(ctx context.Context, sub string) (connection, error) {
-	conn, err := g.Connections.Get(ctx, sub)
-	if !errors.Is(err, ErrNotConnected) {
-		return conn, err
-	}
-	legacy, err := g.legacyConnection(ctx)
-	if errors.Is(err, ErrNoSecret) || (err == nil && legacy.Sub != sub) {
-		return connection{}, ErrNotConnected
-	}
-	return legacy, err
 }
 
 func (g *Google) oauthConfig(ctx context.Context) (*oauth2.Config, error) {
@@ -296,8 +280,8 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 
 // Refresh starts a run for this person, if they are connected.
 func (g *Google) Refresh(ctx context.Context, sub string) error {
-	_, err := g.connectionOf(ctx, sub)
-	if errors.Is(err, ErrNotConnected) {
+	connected, err := g.Connections.Has(ctx, sub)
+	if err == nil && !connected {
 		return nil
 	}
 	if err != nil {

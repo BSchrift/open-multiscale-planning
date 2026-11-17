@@ -197,23 +197,6 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 		t.Fatalf("after a new key: %+v %v", got, err)
 	}
 
-	// The migration's copy goes in only where its person has none.
-	if err := conns.PutNew(ctx, connection{RefreshToken: "copy", Sub: "a", Account: "acct-1"}); !errors.Is(err, errConnectionChanged) {
-		t.Fatalf("copy over a connection: %v", err)
-	}
-	if got, _ := conns.Get(ctx, "a"); got.RefreshToken != tokenA {
-		t.Fatalf("replaced by the copy: %+v", got)
-	}
-	if err := conns.PutNew(ctx, connection{RefreshToken: "copy", Sub: "d", Account: "acct-4"}); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := conns.Get(ctx, "d"); got.RefreshToken != "copy" {
-		t.Fatalf("%+v", got)
-	}
-	if err := conns.Delete(ctx, connection{Sub: "d", Account: "acct-4"}); err != nil {
-		t.Fatal(err)
-	}
-
 	// One person to a Google account.
 	if holder, err := conns.Holder(ctx, "acct-1"); holder != "a" || err != nil {
 		t.Fatalf("holder %q %v", holder, err)

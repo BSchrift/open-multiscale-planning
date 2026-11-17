@@ -124,10 +124,9 @@ func TestOnePersonsRateLimitAndOutageLeaveTheOthersAlone(t *testing.T) {
 
 func TestDispatchStartsEveryConnectedPersonSpreadAcrossTheWindow(t *testing.T) {
 	w := newWorld(t)
-	for _, sub := range []string{"a", "b", "c", "legacy-person"} {
+	for _, sub := range []string{"a", "b", "c", "d"} {
 		w.connect(sub)
 	}
-	w.legacy("legacy-person")
 	if err := w.g.Dispatch(context.Background(), "schedule", "r"); err != nil {
 		t.Fatal(err)
 	}
@@ -138,21 +137,47 @@ func TestDispatchStartsEveryConnectedPersonSpreadAcrossTheWindow(t *testing.T) {
 			t.Fatalf("%+v", job)
 		}
 	}
-	if slices.Sort(subs); !slices.Equal(subs, []string{"a", "b", "c", "legacy-person"}) {
+	if slices.Sort(subs); !slices.Equal(subs, []string{"a", "b", "c", "d"}) {
 		t.Fatalf("%v", subs)
 	}
 	if offset("a") == offset("b") && offset("b") == offset("c") {
 		t.Fatal("no spread")
 	}
+}
 
-	// Once the legacy person has a connection of their own, they're started once.
-	w.queued = nil
-	w.connect("legacy-person")
+// The legacy connection, once its person has their own, goes; one whose person has none is never lost.
+func TestTheScheduleRetiresTheLegacyConnectionOnceItsPersonHasTheirOwn(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.legacy(testSub)
 	if err := w.g.Dispatch(context.Background(), "schedule", "r"); err != nil {
 		t.Fatal(err)
 	}
-	if len(w.queued) != 4 {
-		t.Fatalf("%+v", w.queued)
+	if _, ok := w.secrets.values[SecretRefreshToken]; !ok {
+		t.Fatal("deleted a legacy connection its person had no copy of")
+	}
+	if len(w.queued) != 0 {
+		t.Fatalf("the legacy connection still runs: %+v", w.queued)
+	}
+	w.connect(testSub)
+	if err := w.g.Dispatch(context.Background(), "schedule", "r"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
+		t.Fatal("kept a legacy connection its person has their own of")
+	}
+	var outcomes []any
+	for _, raw := range strings.Split(strings.TrimSpace(w.logs.String()), "\n") {
+		var line map[string]any
+		if json.Unmarshal([]byte(raw), &line); line["msg"] == "calendar_legacy_retirement" {
+			outcomes = append(outcomes, line["outcome"], line["CalendarLegacyUnmigrated"])
+		}
+	}
+	if !slices.Equal(outcomes, []any{"kept_unmigrated", float64(1), "retired", float64(0)}) {
+		t.Fatalf("%v", outcomes)
+	}
+	if w.storedToken(testSub) == "" {
+		t.Fatal("their own connection went too")
 	}
 }
 
@@ -175,79 +200,13 @@ func TestDispatchWithNoOneConnectedStillCountsAsTheWorkerRunning(t *testing.T) {
 func TestWakeStartsOnlyThosePeopleWhoAreConnected(t *testing.T) {
 	w := newWorld(t)
 	w.connect("a")
-	w.connect("legacy-person")
-	w.legacy("legacy-person")
-	if err := w.g.Wake(context.Background(), []string{"a", "not-connected", "legacy-person"}, "r"); err != nil {
+	w.connect("b")
+	if err := w.g.Wake(context.Background(), []string{"a", "not-connected", "b"}, "r"); err != nil {
 		t.Fatal(err)
 	}
-	want := []Job{{Sub: "a", Trigger: TriggerStream}, {Sub: "legacy-person", Trigger: TriggerStream}}
+	want := []Job{{Sub: "a", Trigger: TriggerStream}, {Sub: "b", Trigger: TriggerStream}}
 	if !slices.Equal(w.queued, want) {
 		t.Fatalf("%+v", w.queued)
-	}
-}
-
-// Until the migration copies it, the deployment's one connection from before keeps working, for the person it names
-// and no one else.
-func TestTheLegacyConnectionKeepsRunningForItsPersonOnly(t *testing.T) {
-	w := newWorld(t)
-	ctx := context.Background()
-	w.connect(testSub)
-	w.legacy(testSub)
-	w.block("b1", "Write the report", at(1), at(2))
-
-	w.run()
-	if w.eventFor("b1") == nil || w.calendarRecord(testSub)["connected"].V != true {
-		t.Fatalf("%+v", w.calendarRecord(testSub))
-	}
-	if line := w.linesFor(testSub)[0]; line["outcome"] != "ok" || line["legacy"] != true {
-		t.Fatalf("%+v", line)
-	}
-	w.runFor(otherSub)
-	if line := w.linesFor(otherSub)[0]; line["outcome"] != "not_connected" {
-		t.Fatalf("%+v", line)
-	}
-	if err := w.g.Refresh(ctx, otherSub); err != nil || len(w.triggered) != 1 {
-		t.Fatalf("%v %v", err, w.triggered)
-	}
-	if err := w.g.Refresh(ctx, testSub); err != nil || len(w.triggered) != 2 || w.triggered[1] != testSub {
-		t.Fatalf("%v %v", err, w.triggered)
-	}
-	if _, ok := w.secrets.values[SecretRefreshToken]; !ok {
-		t.Fatal("the run touched the legacy secret")
-	}
-}
-
-// Their own connection, once they have one, comes first: the legacy token may be one Google no longer honours.
-func TestTheirOwnConnectionComesBeforeTheLegacyOne(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	w.legacy(testSub)
-	w.fake.Revoke()
-	w.connect(testSub)
-	w.block("b1", "Write the report", at(1), at(2))
-	w.run()
-	if w.eventFor("b1") == nil || w.calendarRecord(testSub)["last_error"].V != nil {
-		t.Fatalf("%+v", w.calendarRecord(testSub))
-	}
-	// Connecting leaves the legacy secret as it was, so a release rolled back still finds it.
-	if _, ok := w.secrets.values[SecretRefreshToken]; !ok {
-		t.Fatal("legacy secret gone")
-	}
-}
-
-// A refused legacy token is recorded as any is, and left for a disconnect to remove: the worker never deletes the
-// legacy secret.
-func TestARevokedLegacyTokenIsRecordedAndKept(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	w.legacy(testSub)
-	w.fake.Revoke()
-	w.run()
-	if rec := w.calendarRecord(testSub); rec["last_error"].V != ErrorRevoked || rec["connected"].V != false {
-		t.Fatalf("%+v", rec)
-	}
-	if _, ok := w.secrets.values[SecretRefreshToken]; !ok {
-		t.Fatal("legacy secret deleted by the worker")
 	}
 }
 

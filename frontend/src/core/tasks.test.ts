@@ -14,6 +14,7 @@ import {
   makeHome,
   retickOneOff,
   scheduledWork,
+  shortenEstimate,
   tickOneOff,
   undoHome,
   undoProjectChange,
@@ -509,5 +510,25 @@ describe('makeHome', () => {
     expect(await live('project')).toEqual(['Japan trip']);
     expect((await live('objective')).sort()).toEqual(['See Asia', 'Travel more']);
     expect((await getRecord(db, 'task', 'i'))?.kind).toBe('inbox');
+  });
+});
+
+describe('shortenEstimate', () => {
+  it("takes the minutes off a task's estimate and its plan for the week, with an exact Undo", async () => {
+    const { clock, db } = await setup();
+    await transact(db, clock, (w) => w.set('task', 't', { estimate_min: 240 }));
+    await transact(db, clock, (w) => w.set('week_pick', 'pick:2026-11-02:t', { minutes: 120 }));
+    const reverse = await transact(db, clock, (w) => shortenEstimate(w, 't', 30, '2026-11-02'));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ estimate_min: 210 });
+    expect(await getRecord(db, 'week_pick', 'pick:2026-11-02:t')).toMatchObject({ minutes: 90 });
+    // Other weeks' plans stay as they were.
+    expect(await getRecord(db, 'week_pick', 'pick:2026-11-09:t')).toMatchObject({ minutes: 30 });
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ estimate_min: 240 });
+    expect(await getRecord(db, 'week_pick', 'pick:2026-11-02:t')).toMatchObject({ minutes: 120 });
+
+    // Not picked that week, only the estimate changes; and it never goes under a quarter hour.
+    await transact(db, clock, (w) => shortenEstimate(w, 't', 300, '2026-11-16'));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ estimate_min: 15 });
   });
 });

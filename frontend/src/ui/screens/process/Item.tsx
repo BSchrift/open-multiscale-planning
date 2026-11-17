@@ -36,6 +36,8 @@ export function Item(props: {
   dated: boolean;
   /** Saves fields on the item. True once saved. */
   save(fields: Fields<'task'>): Promise<boolean>;
+  /** Set to save what's typed in the open title, date or description, for the card to call as the item moves on. */
+  pending: { current: (() => Promise<boolean>) | null };
   /** An attachment added or removed, by its exact reverse. */
   onAttachment(reverse: RecordWrite): void;
   /** A key's cap, on desktop. */
@@ -43,6 +45,8 @@ export function Item(props: {
   slider: ReactNode;
   /** Last on the phone's card: the week toggle. */
   children?: ReactNode;
+  /** When its block is on the calendar, as hold to create leaves one, and that filing keeps it. */
+  when?: string | null;
 }) {
   const { task, phone, editing, setEditing } = props;
   const count = useQuery((sql) => taskAttachments(sql, task.id), [task.id]).data?.length ?? 0;
@@ -63,6 +67,8 @@ export function Item(props: {
   const saveNotes = async () => {
     if (await props.save({ notes: notes.trim() ? notes : null })) setEditing(null);
   };
+  // The open title or date form sets its own once it draws, after this.
+  props.pending.current = editing === 'notes' && notes !== (task.notes ?? '') ? () => props.save({ notes: notes.trim() ? notes : null }) : null;
 
   const once = task.schedule?.type === 'once' && task.schedule.from ? task.schedule : null;
   const when = once ? onceWhen(once) : '';
@@ -90,7 +96,7 @@ export function Item(props: {
   );
   const dateForm = editing === 'date' && (
     <div className="pxdateform">
-      <OneOffDateForm task={task} commit={(from, to) => props.save(setOnceDates(from, to))} onClose={() => setEditing(null)} />
+      <OneOffDateForm task={task} commit={(from, to) => props.save(setOnceDates(from, to))} pending={props.pending} onClose={() => setEditing(null)} />
     </div>
   );
   const dateNote = once && props.dated && <span className="pxdatenote">It came with this date.</span>;
@@ -111,7 +117,7 @@ export function Item(props: {
       {props.cap('E')}
     </div>
   );
-  const title = editing === 'title' ? <TitleForm title={task.title} phone={phone} cap={plainCap} onSave={(title) => props.save({ title })} onClose={() => setEditing(null)} /> : heading;
+  const title = editing === 'title' ? <TitleForm title={task.title} phone={phone} cap={plainCap} pending={props.pending} onSave={(title) => props.save({ title })} onClose={() => setEditing(null)} /> : heading;
   const adds = (
     <>
       {!task.notes && editing !== 'notes' && (
@@ -141,11 +147,18 @@ export function Item(props: {
     </div>
   );
   const attachments = count > 0 && <Attachments taskId={task.id} onWrite={props.onAttachment} />;
+  const onCalendar = props.when && (
+    <p className="pxwhen">
+      <Icon name="calendar" size={16} />
+      <span>{props.when}</span>
+    </p>
+  );
 
   if (phone) {
     return (
       <div className="card stack pxitem">
         {title}
+        {onCalendar}
         {once && dateChip}
         {dateNote}
         {dateForm}
@@ -163,6 +176,7 @@ export function Item(props: {
   return (
     <div className="pxitem">
       {title}
+      {onCalendar}
       <div className="pxfacts">
         {dateChip}
         {adds}
@@ -181,10 +195,19 @@ export function Item(props: {
 }
 
 /** The title as a field of its own size: Enter or Save keeps it, Esc or Cancel puts the old one back. */
-function TitleForm(props: { title: string; phone: boolean; cap(key: string): ReactNode; onSave(title: string): Promise<boolean>; onClose(): void }) {
+function TitleForm(props: {
+  title: string;
+  phone: boolean;
+  cap(key: string): ReactNode;
+  pending: { current: (() => Promise<boolean>) | null };
+  onSave(title: string): Promise<boolean>;
+  onClose(): void;
+}) {
   const { phone } = props;
   const [title, setTitle] = useState(props.title);
   const [error, setError] = useState('');
+  const typed = title.trim();
+  props.pending.current = typed && typed !== props.title ? () => props.onSave(typed) : null;
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();

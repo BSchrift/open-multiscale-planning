@@ -20,7 +20,7 @@ import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
 import { OutcomeTag } from '../blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../ds/Block';
-import { columnStyle, overlapGroups, overlapNote } from './columns';
+import { columnStyle, laneRows, overlapGroups, overlapNote } from './columns';
 import { clearLane, overLane } from './drop';
 import './weekgrid.css';
 import { Icon } from '../ds/Icon';
@@ -261,7 +261,12 @@ export function WeekGrid(props: WeekGridProps) {
     props.onChange?.(b.id, next);
   };
 
-  const laneH = lane.length ? lane.length * LANE_ROW + 4 : 0;
+  // What waits above the week shares rows across days, so the strip is only as tall as its busiest day, and a practice's
+  // sessions keep to one row.
+  const laneAt = laneRows(
+    lane.map((a) => ({ from: Math.max(0, diffDays(days[0]!, a.from)), to: Math.min(6, diffDays(days[0]!, a.to)), ...(a.practice ? { group: a.title } : {}) })),
+  );
+  const laneH = laneAt.count ? laneAt.count * LANE_ROW + 4 : 0;
   const gridH = (TO - FROM) * (hr / 60);
 
   return (
@@ -315,7 +320,7 @@ export function WeekGrid(props: WeekGridProps) {
                       key={a.id}
                       type="button"
                       className={a.planning ? 'oochip planchip' : a.practice ? 'oochip pracchip' : 'oochip'}
-                      style={{ top: i * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
+                      style={{ top: laneAt.rows[i]! * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
                       title={a.alt}
                       aria-label={a.alt}
                       aria-expanded={a.open}

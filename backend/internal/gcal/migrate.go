@@ -43,7 +43,7 @@ func (g *Google) MigrateLegacy(ctx context.Context, requestID string) (string, e
 	}
 	attrs := []any{"request_id", requestID, "outcome", outcome}
 	if err != nil {
-		attrs = append(attrs, "error_type", errorCode(err))
+		attrs = append(append(attrs, "error_type", errorCode(err)), awsError(err)...)
 	}
 	g.Log.Info("calendar_legacy_migration", append(attrs, obs.Metrics(g.Env, g.Now(), map[string]int{"CalendarLegacyUnmigrated": unmigrated})...)...)
 	return outcome, err
@@ -107,8 +107,28 @@ func (g *Google) copyLegacy(ctx context.Context, legacy connection) (string, err
 		// Someone else connected the same Google account since; the fallback keeps serving the legacy person meanwhile.
 		return migrationAccountTaken, nil
 	}
-	err = g.Connections.PutNew(ctx, connection{RefreshToken: legacy.RefreshToken, Sub: legacy.Sub, Account: account})
-	if err != nil && !errors.Is(err, errConnectionChanged) {
+	sealed, err := g.Connections.PutNew(ctx, connection{RefreshToken: legacy.RefreshToken, Sub: legacy.Sub, Account: account})
+	if errors.Is(err, errConnectionChanged) {
+		// A consent of theirs got there first, and stays.
+		return "", nil
+	}
+	if err != nil {
+		return migrationUnverified, err
+	}
+	// Read back and opened. A copy that won't open, or opens as anything but the legacy token, is taken away again, so the
+	// fallback keeps serving them; one a consent has replaced since is theirs, and stays.
+	got, err := g.Connections.Get(ctx, legacy.Sub)
+	if errors.Is(err, ErrNotConnected) || (err == nil && string(got.sealed) != string(sealed)) {
+		// Gone already, by a disconnect, or replaced: the step goes on to say which.
+		return "", nil
+	}
+	if err != nil || got.RefreshToken != legacy.RefreshToken {
+		if removeErr := g.Connections.Delete(ctx, connection{Sub: legacy.Sub, Account: account, sealed: sealed}); removeErr != nil && !errors.Is(removeErr, errConnectionChanged) {
+			return migrationUnverified, removeErr
+		}
+		if err == nil {
+			err = errors.New("gcal: the copy doesn't read back as the legacy token")
+		}
 		return migrationUnverified, err
 	}
 	return "", nil

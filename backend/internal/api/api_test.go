@@ -383,9 +383,10 @@ func TestCalendarCallbackErrors(t *testing.T) {
 		err    error
 		status int
 	}{
-		"forged state":  {ErrInvalidState, 400},
-		"google down":   {errors.New("upstream"), 502},
-		"account taken": {ErrAccountTaken, 409},
+		"forged state":          {ErrInvalidState, 400},
+		"google down":           {errors.New("upstream"), 502},
+		"account taken":         {ErrAccountTaken, 409},
+		"a permission unticked": {ErrScopesMissing, 400},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -125,9 +125,11 @@ type memConnections struct {
 	holders map[string]string
 	seals   int
 	failing error
+	// unreadable makes these people's tokens fail to open, as one sealed by another key or for another person would.
+	unreadable map[string]bool
 }
 
-func (m *memConnections) Get(ctx context.Context, sub string) (connection, error) {
+func (m *memConnections) Peek(ctx context.Context, sub string) (connection, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failing != nil {
@@ -140,15 +142,28 @@ func (m *memConnections) Get(ctx context.Context, sub string) (connection, error
 	if !ok {
 		return connection{}, ErrNotConnected
 	}
+	conn.RefreshToken = ""
 	return conn, nil
 }
 
+func (m *memConnections) Get(ctx context.Context, sub string) (connection, error) {
+	if _, err := m.Peek(ctx, sub); err != nil {
+		return connection{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.unreadable[sub] {
+		return connection{}, errors.New("gcal: connection doesn't decrypt for this person")
+	}
+	return m.conns[sub], nil
+}
+
 func (m *memConnections) Has(ctx context.Context, sub string) (bool, error) {
-	_, err := m.Get(ctx, sub)
+	conn, err := m.Peek(ctx, sub)
 	if errors.Is(err, ErrNotConnected) {
 		return false, nil
 	}
-	return err == nil, err
+	return err == nil && !conn.Revoked, err
 }
 
 func (m *memConnections) Holder(_ context.Context, account string) (string, error) {
@@ -157,35 +172,50 @@ func (m *memConnections) Holder(_ context.Context, account string) (string, erro
 	return m.holders[account], m.failing
 }
 
-func (m *memConnections) Put(_ context.Context, conn connection, previous string) error {
+func (m *memConnections) Put(_ context.Context, conn connection, previous connection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failing != nil {
 		return m.failing
 	}
+	if current, ok := m.conns[conn.Sub]; ok != (previous.sealed != nil) || (ok && string(current.sealed) != string(previous.sealed)) {
+		return errConnectionChanged
+	}
 	if holder := m.holders[conn.Account]; conn.Account != "" && holder != "" && holder != conn.Sub {
 		return api.ErrAccountTaken
 	}
-	if previous != "" && previous != conn.Account && m.holders[previous] == conn.Sub {
-		delete(m.holders, previous)
+	if previous.Account != "" && previous.Account != conn.Account && m.holders[previous.Account] == conn.Sub {
+		delete(m.holders, previous.Account)
 	}
 	if conn.Account != "" {
 		m.holders[conn.Account] = conn.Sub
 	}
 	m.seals++
-	conn.sealed, conn.legacy = []byte(strconv.Itoa(m.seals)), false
+	conn.sealed, conn.legacy, conn.Revoked = []byte(strconv.Itoa(m.seals)), false, false
 	m.conns[conn.Sub] = conn
 	return nil
 }
 
-func (m *memConnections) PutNew(ctx context.Context, conn connection) error {
-	m.mu.Lock()
-	_, exists := m.conns[conn.Sub]
-	m.mu.Unlock()
-	if exists {
-		return errConnectionChanged
+func (m *memConnections) PutNew(ctx context.Context, conn connection) ([]byte, error) {
+	if err := m.Put(ctx, conn, connection{}); err != nil {
+		return nil, err
 	}
-	return m.Put(ctx, conn, "")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.conns[conn.Sub].sealed, nil
+}
+
+func (m *memConnections) MarkRevoked(_ context.Context, conn connection) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failing != nil {
+		return m.failing
+	}
+	if current, ok := m.conns[conn.Sub]; ok && string(current.sealed) == string(conn.sealed) {
+		current.Revoked = true
+		m.conns[conn.Sub] = current
+	}
+	return nil
 }
 
 func (m *memConnections) Delete(_ context.Context, conn connection) error {
@@ -207,7 +237,12 @@ func (m *memConnections) Delete(_ context.Context, conn connection) error {
 
 func (m *memConnections) Each(_ context.Context, fn func(sub string) error) error {
 	m.mu.Lock()
-	subs := slices.Sorted(maps.Keys(m.conns))
+	var subs []string
+	for _, sub := range slices.Sorted(maps.Keys(m.conns)) {
+		if !m.conns[sub].Revoked {
+			subs = append(subs, sub)
+		}
+	}
 	m.mu.Unlock()
 	for _, sub := range subs {
 		if err := fn(sub); err != nil {

@@ -135,10 +135,10 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 		t.Fatalf("none yet: %v", err)
 	}
 	const tokenA, tokenB = "refresh-token-of-a", "refresh-token-of-b"
-	if err := conns.Put(ctx, connection{RefreshToken: tokenA, Sub: "a", Account: "acct-1"}, ""); err != nil {
+	if err := conns.Put(ctx, connection{RefreshToken: tokenA, Sub: "a", Account: "acct-1"}, connection{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := conns.Put(ctx, connection{RefreshToken: tokenB, Sub: "b", Account: "acct-2"}, ""); err != nil {
+	if err := conns.Put(ctx, connection{RefreshToken: tokenB, Sub: "b", Account: "acct-2"}, connection{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := conns.Get(ctx, "a")
@@ -176,7 +176,12 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 	if swapped, err := conns.Get(ctx, "b"); err == nil || swapped.RefreshToken == tokenA || strings.Contains(err.Error(), tokenA) {
 		t.Fatalf("decrypted for the wrong person: %+v %v", swapped, err)
 	}
-	if err := conns.Put(ctx, connection{RefreshToken: tokenB, Sub: "b", Account: "acct-2"}, "acct-2"); err != nil {
+	// What the swap left is still what's stored, so a new consent goes over it without opening it.
+	swappedB, err := conns.Peek(ctx, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conns.Put(ctx, connection{RefreshToken: tokenB, Sub: "b", Account: "acct-2"}, swappedB); err != nil {
 		t.Fatal(err)
 	}
 	// Nor does it open for the same person in another environment.
@@ -186,31 +191,21 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 		t.Fatal("decrypted for another environment")
 	}
 
-	// A token sealed by an earlier key, as one a reverted release left, still opens once the key has changed.
-	newer, err := keys.CreateKey(ctx, &kms.CreateKeyInput{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rekeyed := *conns
-	rekeyed.KeyID = aws.ToString(newer.KeyMetadata.KeyId)
-	if got, err := rekeyed.Get(ctx, "a"); err != nil || got.RefreshToken != tokenA {
-		t.Fatalf("after a new key: %+v %v", got, err)
-	}
-
 	// The migration's copy goes in only where its person has none.
-	if err := conns.PutNew(ctx, connection{RefreshToken: "copy", Sub: "a", Account: "acct-1"}); !errors.Is(err, errConnectionChanged) {
+	if _, err := conns.PutNew(ctx, connection{RefreshToken: "copy", Sub: "a", Account: "acct-1"}); !errors.Is(err, errConnectionChanged) {
 		t.Fatalf("copy over a connection: %v", err)
 	}
 	if got, _ := conns.Get(ctx, "a"); got.RefreshToken != tokenA {
 		t.Fatalf("replaced by the copy: %+v", got)
 	}
-	if err := conns.PutNew(ctx, connection{RefreshToken: "copy", Sub: "d", Account: "acct-4"}); err != nil {
+	sealed, err := conns.PutNew(ctx, connection{RefreshToken: "copy", Sub: "d", Account: "acct-4"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := conns.Get(ctx, "d"); got.RefreshToken != "copy" {
+	if got, _ := conns.Get(ctx, "d"); got.RefreshToken != "copy" || string(got.sealed) != string(sealed) {
 		t.Fatalf("%+v", got)
 	}
-	if err := conns.Delete(ctx, connection{Sub: "d", Account: "acct-4"}); err != nil {
+	if err := conns.Delete(ctx, connection{Sub: "d", Account: "acct-4", sealed: sealed}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -218,7 +213,7 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 	if holder, err := conns.Holder(ctx, "acct-1"); holder != "a" || err != nil {
 		t.Fatalf("holder %q %v", holder, err)
 	}
-	if err := conns.Put(ctx, connection{RefreshToken: "c's", Sub: "c", Account: "acct-1"}, ""); !errors.Is(err, api.ErrAccountTaken) {
+	if err := conns.Put(ctx, connection{RefreshToken: "c's", Sub: "c", Account: "acct-1"}, connection{}); !errors.Is(err, api.ErrAccountTaken) {
 		t.Fatalf("second person: %v", err)
 	}
 	if _, err := conns.Get(ctx, "c"); !errors.Is(err, ErrNotConnected) {
@@ -226,7 +221,15 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 	}
 
 	// Moving to another account frees the first.
-	if err := conns.Put(ctx, connection{RefreshToken: tokenA + "-2", Sub: "a", Account: "acct-3"}, "acct-1"); err != nil {
+	// A put over a connection that has changed since it was read is refused; over the one read, it goes in.
+	if err := conns.Put(ctx, connection{RefreshToken: tokenA + "-2", Sub: "a", Account: "acct-3"}, connection{}); !errors.Is(err, errConnectionChanged) {
+		t.Fatalf("put over an unread connection: %v", err)
+	}
+	readA, _ := conns.Peek(ctx, "a")
+	if readA.RefreshToken != "" || readA.Account != "acct-1" {
+		t.Fatalf("peek opened the token or lost the account: %+v", readA)
+	}
+	if err := conns.Put(ctx, connection{RefreshToken: tokenA + "-2", Sub: "a", Account: "acct-3"}, readA); err != nil {
 		t.Fatal(err)
 	}
 	if holder, _ := conns.Holder(ctx, "acct-1"); holder != "" {
@@ -241,9 +244,46 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 		t.Fatalf("each: %v", subs)
 	}
 
+	// Marked revoked, it's kept, sealed, but out of the schedule's list and not counted as connected; a stale mark misses.
+	readB, _ := conns.Peek(ctx, "b")
+	if err := conns.MarkRevoked(ctx, readB); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := conns.Get(ctx, "b"); !got.Revoked || got.RefreshToken != tokenB {
+		t.Fatalf("revoked: %+v", got)
+	}
+	if has, _ := conns.Has(ctx, "b"); has {
+		t.Fatal("a revoked connection counts as connected")
+	}
+	var listed []string
+	conns.Each(ctx, func(sub string) error { listed = append(listed, sub); return nil })
+	if slices.Contains(listed, "b") {
+		t.Fatalf("each: %v", listed)
+	}
+	if err := conns.Put(ctx, connection{RefreshToken: tokenB + "-2", Sub: "b", Account: "acct-2"}, readB); err != nil {
+		t.Fatal(err)
+	}
+	if err := conns.MarkRevoked(ctx, readB); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := conns.Get(ctx, "b"); got.Revoked {
+		t.Fatal("a stale mark landed on a new consent")
+	}
+
+	// A decrypt names the key, so a token sealed by another key doesn't open.
+	otherKey, err := keys.CreateKey(ctx, &kms.CreateKeyInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rekeyed := *conns
+	rekeyed.KeyID = aws.ToString(otherKey.KeyMetadata.KeyId)
+	if got, err := rekeyed.Get(ctx, "b"); err == nil {
+		t.Fatalf("opened with another key: %+v", got)
+	}
+
 	// A delete of a connection read before a reconnect leaves the new one.
 	stale, _ := conns.Get(ctx, "a")
-	if err := conns.Put(ctx, connection{RefreshToken: tokenA + "-3", Sub: "a", Account: "acct-3"}, "acct-3"); err != nil {
+	if err := conns.Put(ctx, connection{RefreshToken: tokenA + "-3", Sub: "a", Account: "acct-3"}, stale); err != nil {
 		t.Fatal(err)
 	}
 	if err := conns.Delete(ctx, stale); !errors.Is(err, errConnectionChanged) {

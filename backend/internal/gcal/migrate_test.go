@@ -182,12 +182,12 @@ func (h hookedConnections) Holder(ctx context.Context, account string) (string, 
 	return h.memConnections.Holder(ctx, account)
 }
 
-func (h hookedConnections) PutNew(ctx context.Context, conn connection) error {
-	err := h.memConnections.PutNew(ctx, conn)
+func (h hookedConnections) PutNew(ctx context.Context, conn connection) ([]byte, error) {
+	sealed, err := h.memConnections.PutNew(ctx, conn)
 	if h.afterPutNew != nil {
 		h.afterPutNew()
 	}
-	return err
+	return sealed, err
 }
 
 // A disconnect at any point while the step runs stays a disconnect: the copy doesn't connect them again.

@@ -23,12 +23,12 @@ import {
   taskDue,
 } from '../../../../core/plan';
 import type { Candidate, ProjectPlan } from '../../../../core/plan';
-import { SLIDER_STEP } from '../../../../core/slots';
 import { status } from '../../../../core/status';
 import type { ProjectStatus } from '../../../../core/status';
 import { backlogId } from '../../../../core/backlog';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { LocalDate, Milestone, Minutes, Task } from '../../../../core/types';
+import { SLIDER_STEP } from '../../../components/EstimateSlider';
 import type { DiamondState } from '../../../components/MilestoneDiamond';
 import type { PlanningData, WeekModel } from '../model';
 

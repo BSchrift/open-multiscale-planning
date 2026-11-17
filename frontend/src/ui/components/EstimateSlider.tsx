@@ -5,8 +5,13 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatMinutes } from '../../core/dates';
-import { SLIDER_STEP } from '../../core/slots';
 import type { Minutes } from '../../core/types';
+
+/**
+ * Every time and length slider moves in steps of this many minutes, finer than a drag's GRID. Here rather than in
+ * core/slots, so what imports the slider's steps, such as an e2e spec run in Node, doesn't load the whole of core.
+ */
+export const SLIDER_STEP = 5;
 
 export const EST_STEPS: readonly Minutes[] = [
   ...Array.from({ length: 120 / SLIDER_STEP + 1 }, (_, i) => i * SLIDER_STEP),

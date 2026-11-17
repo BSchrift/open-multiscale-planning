@@ -4,7 +4,8 @@
 
 import { useId, useState } from 'react';
 import { formatMinutes, formatTime } from '../../../core/dates';
-import { GRID, SLIDER_STEP } from '../../../core/slots';
+import { GRID } from '../../../core/slots';
+import { SLIDER_STEP } from '../EstimateSlider';
 import type { Slot } from '../../../core/slots';
 import { isWeek } from '../../../core/planning';
 import type { PlanningFor } from '../../../core/planning';

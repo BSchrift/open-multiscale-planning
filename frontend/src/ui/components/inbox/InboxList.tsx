@@ -6,10 +6,11 @@
 import { useRef, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
 import { MAX_TITLE } from '../../../core/captureTitle';
-import { formatMinutes } from '../../../core/dates';
+import { formatMinutes, localDate } from '../../../core/dates';
 import type { InboxRow } from '../../../core/queries';
 import type { Fields } from '../../../core/types';
-import { useMutation } from '../../app/store';
+import { useApp, useMutation, useToday } from '../../app/store';
+import { dayWord, formatRange } from '../blocks/describe';
 import { TaskName, useOpenTask } from '../task/TaskName';
 import { useToast } from '../Toast';
 import { useFocusLanding } from '../useFocusLanding';
@@ -29,6 +30,8 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
   const openTask = useOpenTask();
   const toast = useToast();
   const rename = useMutation((w, id: string, fields: Fields<'task'>) => w.set('task', id, fields));
+  const zone = useApp().clock.zone();
+  const today = useToday();
   if (rows.length === 0) return null;
 
   const pen = (id: string) => () => list.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] .rowpen`);
@@ -100,7 +103,15 @@ export function InboxList(props: { rows: readonly InboxRow[]; phone: boolean; on
       </div>
       <div ref={list} className="card inboxlist">
         {rows.map((i) => {
-          const est = i.estimate_min ? `${formatMinutes(i.estimate_min)} estimate` : null;
+          // An item already on the calendar says when, which says its length too, in place of its estimate.
+          const est = i.block_start && i.block_end ? (
+            <>
+              <Icon name="calendar" size={16} />
+              {`${dayWord(localDate(i.block_start, zone), today)}, ${formatRange(i.block_start, i.block_end, zone)}`}
+            </>
+          ) : i.estimate_min ? (
+            `${formatMinutes(i.estimate_min)} estimate`
+          ) : null;
           // While selecting, the whole row is the checkbox's label.
           if (selecting) {
             return (

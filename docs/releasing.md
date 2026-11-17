@@ -24,7 +24,7 @@ no long-lived key.
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
-| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
+| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them, switching them back if a suite fails | A release alarm rolls the canary back, or a suite fails |
 | **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
@@ -168,6 +168,11 @@ The release records it: the email before prod shows the run's canary and alarm s
 - **After promotion:** revert the bad commit on main and let it release. A fix that can't wait 90 minutes can skip
   the canary.
 - **The web app, or one app's feed:** switch it back to a version kept, as below.
+- **When prod's suites fail after its release publishes,** the release switches the web app and each feed it switched
+  back to what they served before, which prod's Test step had just passed against the new backend, and the run fails.
+  The Test step runs the same suites before each release publishes, so a release left live after failing them would
+  fail every later run there, the fix's too: on 16 November prod's desktop feed named a Mac app its downloads host
+  didn't have, and every run stopped at Test until the feed was switched back by hand.
 
 ### One surface at a time
 

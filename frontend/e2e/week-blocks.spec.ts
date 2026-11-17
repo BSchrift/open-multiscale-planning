@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, pane } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -90,8 +90,7 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   const hour = (await summary.boundingBox())!.height;
   const edge = (await summary.locator('.evh').boundingBox())!;
   const x = edge.x + edge.width / 2;
-  await page.mouse.move(x, edge.y + edge.height / 2);
-  await page.mouse.down();
+  await holdMouse(page, { x, y: edge.y + edge.height / 2 });
   await page.mouse.move(x, edge.y + edge.height / 2 + hour / 6, { steps: 3 });
   await page.mouse.move(x, edge.y + edge.height / 2 + (hour * 20) / 60, { steps: 3 });
   await page.mouse.up();
@@ -108,6 +107,24 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   await expect(page.getByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 6:15pm/ })).toBeFocused();
   await page.getByRole('button', { name: 'Done editing' }).click();
   await expect(page.getByRole('button', { name: /^Draft the summary, Tue Nov 3, 6pm to 6:15pm, Project\./ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("a task's block made shorter while editing asks what about the rest, and Change the estimate takes it off the task", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openWeek(page);
+  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  // Shift and the up arrow take a quarter hour off, on both layouts.
+  const block = phone ? page.getByRole('slider', { name: /^Draft the summary\./ }) : page.getByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+  await block.focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  const ask = page.getByRole('group', { name: 'What about the other 15m?' });
+  await expect(ask.getByRole('button', { name: 'Split it' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`week-split-ask-${info.project.name}.png`) });
+  await ask.getByRole('button', { name: 'Change the estimate' }).click();
+  await expect(page.getByText('Draft the summary is now 1h 45m. Its estimate was 2h.')).toBeVisible();
+  await expect(ask).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

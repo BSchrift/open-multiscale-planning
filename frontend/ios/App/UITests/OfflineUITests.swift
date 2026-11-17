@@ -77,10 +77,12 @@ final class OfflineUITests: XCTestCase {
         exists(app.webButton(toProject))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        app.tapWeb("Add to Bake a sourdough loaf")
         exists(app.webText("Added \(toProject) to Bake a sourdough loaf."))
         exists(app.webButton(toOneOffs))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
+        app.tapWeb("Add to One offs")
         exists(app.webText("Added \(toOneOffs) to One offs."))
         landed(toProject, toOneOffs, in: app)
 
@@ -161,6 +163,7 @@ extension SignedInUITests {
         app.tapWeb("Process \(oneOff)")
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
+        app.tapWeb("Add to One offs")
         exists(app.webText("Added \(oneOff) to One offs."))
         // Process goes on to the next item, which a deployment's Inbox may hold besides this run's.
         app.tapWeb("Exit")

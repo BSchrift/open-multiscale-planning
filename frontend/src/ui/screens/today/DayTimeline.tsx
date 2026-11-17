@@ -1,9 +1,8 @@
 // The day's timeline: a calendar column that zooms (buttons, or pinching on phone), or a list. Blocks are coloured
 // by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so, and
 // blocks at the same time sit side by side.
-// On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
-// the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
-// click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
+// On the calendar, blocks still to start drag and resize as on Week, once held, so a click stays a click and a swipe
+// still scrolls, and the one under way changes its end. A click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
 // session or a planning block in its details.
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -30,7 +29,7 @@ import type { Shortened } from '../../components/editors/SplitAsk';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
-import { columnStyle, DRAG_PX, HOLD_MS, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, SLOP_PX, swallowClick, useWidth } from '../../components/weekgrid';
+import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
@@ -82,7 +81,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
-  const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null } | null>(null);
+  // held: still under the pointer, drawn lifted; one let go is put down where it landed while it saves.
+  const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null; held?: boolean } | null>(null);
   const steps = useRef<{ id: string; at: Slot; reverse: PlanChange } | null>(null);
   // Arrow steps save one after another, each from where the last one put the block, since the day can redraw from a
   // step's save while the next is still saving and show the block a step behind.
@@ -211,63 +211,23 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const len = slot.end - slot.start;
     const start = mode === 'move' ? dayOffer(data.date, len, workOf(i), { ...ctx, placed: ctx.placed.filter((s) => s.id !== i.id) }) : null;
     const ghost = start === null ? null : { date: data.date, start, end: start + len };
-    const [x0, y0, perPx] = [e.clientX, e.clientY, 60 / ph];
-    // A press on the length handle drags the block it's in, and the click after a drag lands on the block.
-    const target = (e.currentTarget as Element).closest('.cev') ?? e.currentTarget;
-    let lifted = false;
-    let moved = false;
+    const perPx = 60 / ph;
     let last = slot;
-    const lift = () => {
-      lifted = true;
-      setDrag({ id: i.id, slot, ghost });
-    };
-    const hold = (ev: Event) => {
-      if (lifted) ev.preventDefault();
-    };
-    const on: Record<string, (ev: Event) => void> = {
-      pointermove: (ev) => {
-        const m = ev as PointerEvent;
-        if (!lifted) {
-          // A finger that moves before the hold is scrolling. A mouse lifts the block once moved past a click's wobble.
-          if (phone) {
-            if (Math.abs(m.clientX - x0) > SLOP_PX || Math.abs(m.clientY - y0) > SLOP_PX) stop();
-            return;
-          }
-          if (Math.hypot(m.clientX - x0, m.clientY - y0) < DRAG_PX) return;
-          lift();
-        }
-        last = dragResult(slot, mode, 0, (m.clientY - y0) * perPx, ghost ? [ghost] : [], bounds(slot));
-        moved ||= !same(last, slot);
-        if (moved) setDrag({ id: i.id, slot: last, ghost });
+    // A click, or a tap let go without dragging, opens the block by its own click.
+    holdToDrag(e, {
+      lift: () => setDrag({ id: i.id, slot, ghost, held: true }),
+      drag: (_dx, dy) => {
+        last = dragResult(slot, mode, 0, dy * perPx, ghost ? [ghost] : [], bounds(slot));
+        setDrag({ id: i.id, slot: last, ghost, held: true });
       },
-      pointerup: () => {
-        stop();
-        // A click, or a tap let go before the hold: it opens the block.
-        if (!lifted) return;
-        swallowClick(target);
+      drop: () => {
         if (same(last, slot)) return setDrag(null);
         setDrag({ id: i.id, slot: last, ghost: null });
         void save(i, slot, last);
       },
-      pointercancel: () => {
-        stop();
-        setDrag(null);
-      },
-      // While held, the page stays still and the long-press menu stays away.
-      touchmove: hold,
-      contextmenu: hold,
-    };
-    const stop = () => {
-      clearTimeout(timer);
-      for (const [k, f] of Object.entries(on)) window.removeEventListener(k, f);
-    };
-    for (const [k, f] of Object.entries(on)) window.addEventListener(k, f, k === 'touchmove' ? { passive: false } : undefined);
-    const timer = phone
-      ? setTimeout(() => {
-          void platform.haptic?.();
-          lift();
-        }, HOLD_MS)
-      : undefined;
+      cancel: () => setDrag(null),
+      ...(platform.haptic ? { haptic: platform.haptic } : {}),
+    });
   };
 
   const step = (i: Item, move: boolean) => (e: KeyboardEvent) => {
@@ -300,9 +260,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         end: 'Hold its handle and drag to change its length.',
       }
     : {
-        move: 'Drag to move it, or drag its bottom edge to change its length. Up and down arrow keys move it, and Shift and arrows change its length.',
-        'move-short': 'Drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.',
-        end: 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.',
+        move: 'Hold it, then drag to move it, or hold its bottom edge and drag to change its length. Up and down arrow keys move it, and Shift and arrows change its length.',
+        'move-short': 'Hold it, then drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.',
+        end: 'Hold its bottom edge and drag, or use Shift and the up and down arrow keys, to change its length.',
         'end-short': 'Use Shift and the up and down arrow keys to change its length.',
       };
   const helpOf = (move: boolean, resize: boolean, short: boolean) => {
@@ -388,7 +348,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const said = look === 'inbox' ? !compact && <span className="time">Inbox, {i.time}</span> : time;
           const move = movable(i.block);
           const resize = resizable(i.block);
-          const lifted = drag?.id === i.id;
+          const lifted = drag?.id === i.id && !!drag.held;
           // On phone a block that moves is a slider, as on Week, so VoiceOver's swipe up and down move it.
           const slider = phone && move;
           const Tag = slider ? 'div' : 'button';

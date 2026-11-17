@@ -39,6 +39,36 @@ describe('scripts/mac-update-check.sh', () => {
     }
   });
 
+  // The apps from before electron-builder wrote app-update.yml into them can't download an update, so updating from one
+  // would fail every run. As with no app passed before, the check then installs the new app and checks it starts.
+  it("checks only that the new app installs when the app passed before can't update itself", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mac-update-check-'));
+    const bin = join(dir, 'bin');
+    mkdirSync(bin);
+    const log = join(dir, 'log');
+    writeFileSync(log, '');
+    const stub = (name: string, body: string) => {
+      writeFileSync(join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${log}"\n${body}\n`);
+      chmodSync(join(bin, name), 0o755);
+    };
+    // Each disk image holds the app it was downloaded from: 0.1.4's without app-update.yml, 0.1.5's with it.
+    stub('curl', `case "$*" in *release.json*) printf '%s\\n' '${feed}';; *) out=""; prev=""; for a in "$@"; do [ "$prev" = -o ] && out="$a"; prev="$a"; done; echo "$*" > "$out";; esac`);
+    stub('hdiutil', `[ "$1" = attach ] || exit 0; app="$5/Multiscale Staging.app/Contents/Resources"; mkdir -p "$app"; grep -q 0.1.5 "$6" && touch "$app/app-update.yml"; exit 0`);
+    stub('ditto', 'cp -R "$1" "$2"');
+    stub('open', 'exit 0');
+    // Waiting for the old app to stage an update takes up to 15 minutes, so a run that waits is cut short.
+    const r = spawnSync('bash', [script], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: { PATH: `${bin}:${process.env.PATH}`, HOME: dir, OUT: join(dir, 'out'), RELEASE_URL: 'https://release.example.net', DOWNLOADS_URL: 'https://downloads.example.net', PREVIOUS: '0.1.4' },
+    });
+    const calls = readFileSync(log, 'utf8');
+    assert.match(r.stdout, /App 0\.1\.4 can't update itself, as it has no app-update\.yml, so this checks only that app 0\.1\.5 installs and starts\./, r.stderr);
+    assert.match(calls, /^curl .*mac\/0\.1\.4\/Multiscale\.dmg\n(.*\n)*curl .*mac\/0\.1\.5\/Multiscale\.dmg$/m);
+    // It never opened the old app to wait for an update it couldn't download.
+    assert.doesNotMatch(calls, /^open .*\n(.*\n)*curl .*mac\/0\.1\.5\//m);
+  });
+
   it('stops before reading the feed when a host is missing, and says which', () => {
     for (const missing of ['RELEASE_URL', 'DOWNLOADS_URL']) {
       const r = check({ [missing]: '' });

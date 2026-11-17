@@ -440,7 +440,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                   {b && <div className="strong">{when}</div>}
                   {said}
                   {buttons('sm')}
-                  <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
+                  <p className="small quiet">Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time.</p>
                 </div>
               </section>
             )}
@@ -601,7 +601,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           </div>
           <PackedDay date={day} ctx={ctx} />
           <h3 className="schday">{dayName(day)}</h3>
-          <p className="small quiet">Drag the block anywhere, or tap a suggested time. Drag its bottom edge to change the time.</p>
+          <p className="small quiet">Hold the block, then drag it anywhere, or tap a suggested time. Hold its bottom edge and drag to change the time.</p>
           <BringIntoView watch={`${curKey}|${day}`}>
             <DragDay
               date={day}

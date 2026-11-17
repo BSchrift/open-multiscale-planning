@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, pane } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -90,8 +90,7 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   const hour = (await summary.boundingBox())!.height;
   const edge = (await summary.locator('.evh').boundingBox())!;
   const x = edge.x + edge.width / 2;
-  await page.mouse.move(x, edge.y + edge.height / 2);
-  await page.mouse.down();
+  await holdMouse(page, { x, y: edge.y + edge.height / 2 });
   await page.mouse.move(x, edge.y + edge.height / 2 + hour / 6, { steps: 3 });
   await page.mouse.move(x, edge.y + edge.height / 2 + (hour * 20) / 60, { steps: 3 });
   await page.mouse.up();

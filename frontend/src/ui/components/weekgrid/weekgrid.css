@@ -4,8 +4,8 @@
 [data-layout] .ev.clash, [data-layout] .ev.beside { left: 50%; }
 /* The current time's line starts at the column's edge, which clips anything outside it. */
 [data-layout] .colbody > .nowline { left: 0; }
-/* The block being dragged rides over the current time's line. */
-[data-layout] .ev.lifted { z-index: calc(var(--z-raised) + 2); }
+/* The block being dragged rides over the current time's line, raised so a hold shows it has lifted. */
+[data-layout] .ev.lifted { z-index: calc(var(--z-raised) + 2); box-shadow: var(--shadow-2); }
 [data-layout] .ev.short { padding-top: 0; padding-bottom: 0; line-height: 11px; white-space: nowrap; text-overflow: ellipsis; }
 /* A day gone by, or today: its heading says what was finished and opens Done on that day. */
 [data-layout] .colhead.dnhead { display: block; width: 100%; border: 0; border-radius: var(--radius-block); background: transparent; color: inherit; font: inherit; font-size: var(--fs-meta); text-align: left; cursor: pointer; }

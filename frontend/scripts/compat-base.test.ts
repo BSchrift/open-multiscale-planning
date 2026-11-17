@@ -27,7 +27,7 @@ describe('oldestLive', () => {
     expect(asked).toEqual([`${WEB}/version.json`, `${RELEASE}/desktop/release.json`, `${RELEASE}/iphone/release.json`]);
   });
 
-  it('never reads the shared feed at the root, which is gone', async () => {
+  it('never reads the feed at the root, which serves no bundle', async () => {
     const { fetch, asked } = host({
       [`${WEB}/version.json`]: page('0.1.0-ccccccc', 300),
       [`${RELEASE}/desktop/release.json`]: feed('0.1.0-ccccccc', 300),

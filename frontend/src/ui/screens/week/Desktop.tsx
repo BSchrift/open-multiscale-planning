@@ -269,7 +269,7 @@ export function DesktopWeek(props: WeekProps) {
         {editing && (
           <div className="planleft stack">
             <div className="stack8">
-              <p className="small quiet">Drag or resize anything from now on, or click <Icon name="close" size={16} /> to remove it. Changes save as you go.</p>
+              <p className="small quiet">Hold anything from now on, then drag to move or resize it, or click <Icon name="close" size={16} /> to remove it. Changes save as you go.</p>
               <div>
                 <Button ref={doneBtn} variant="primary" type="button" onClick={stopEditing}>
                   Done editing
@@ -320,7 +320,7 @@ export function DesktopWeek(props: WeekProps) {
                               work={r.work}
                               model={model}
                               left={r.left}
-                              hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
+                              hint="Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time."
                               onPlace={() => void place(rowItem(r), draft)}
                               onCancel={() => choose(null)}
                             />
@@ -343,7 +343,7 @@ export function DesktopWeek(props: WeekProps) {
                 work={{ kind: 'project' }}
                 model={model}
                 problem={late ? `Too late: plan it by ${dayName(plan.last)}.` : undefined}
-                hint="Drag the block anywhere, or use the arrow keys and Enter. The week arrows take it to another week. Drag its bottom edge to change its length."
+                hint="Hold the block, then drag it anywhere, or use the arrow keys and Enter. The week arrows take it to another week. Hold its bottom edge and drag to change its length."
                 onPlace={() => void placePlanning()}
                 onCancel={cancelPlanning}
               />
@@ -356,7 +356,7 @@ export function DesktopWeek(props: WeekProps) {
                 draft={draft}
                 work={curCard.work}
                 model={model}
-                hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
+                hint="Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time."
                 onPlace={() => void place(curCard, draft)}
                 onCancel={() => {
                   choose(null);
@@ -425,7 +425,7 @@ export function DesktopWeek(props: WeekProps) {
                 )}
                 {isThis && (
                   <p className="small quiet">
-                    {editing ? 'Drag work onto a day to place it, or a block back here to take it off the calendar.' : 'Drag work onto a day to place it, or click it for suggested times.'}
+                    {editing ? 'Hold work, then drag it onto a day to place it, or a block back here to take it off the calendar.' : 'Hold work, then drag it onto a day to place it, or click it for suggested times.'}
                   </p>
                 )}
               </section>

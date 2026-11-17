@@ -339,7 +339,6 @@ export class MultiscaleStack extends Stack {
     }));
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
-    // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
     // claim on a Google account is a Put, which the data actions above already allow. Both seal tokens, the API at consent
     // and the worker when it copies the legacy connection, and open them, only this environment's and for that purpose,
     // with this key alone.

@@ -1027,6 +1027,28 @@ describe('Week on phone', () => {
     expect(parseFloat(early.style.top)).toBeGreaterThanOrEqual(0);
   });
 
+  it('a block held on the day, then let go over a later row, moves to the time under the finger, with Undo', async () => {
+    const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
+    const el = await screen.findByRole('button', { name: /^Paint the fence, 5pm to 6pm/ });
+    // jsdom has no layout: the free row after it, from 6pm to 10pm, is drawn 240px tall, so y 120 is 8pm.
+    const free = document.querySelector('.tlrow[data-drop-from="1080"]')!;
+    expect(free).toHaveTextContent('Free, 6pm to 10pm');
+    vi.spyOn(free, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 240, top: 0, left: 0, right: 300, bottom: 240, x: 0, y: 0, toJSON: () => ({}) });
+    Object.defineProperty(document, 'elementFromPoint', { value: () => free, configurable: true });
+    try {
+      holdDown(el, { clientX: 10, clientY: 10, pointerType: 'touch' });
+      fireEvent.pointerMove(window, { clientX: 50, clientY: 120, pointerType: 'touch' });
+      expect(document.querySelector('.cardghost .ghostwhen')).toHaveTextContent('8pm');
+      fireEvent.pointerUp(window, { clientX: 50, clientY: 120, pointerType: 'touch' });
+    } finally {
+      Reflect.deleteProperty(document, 'elementFromPoint');
+    }
+    await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('20:00')));
+    expect(await screen.findByRole('button', { name: /^Paint the fence, 8pm to 9pm/ })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('17:00')));
+  });
+
   describe('blocks at the same time', () => {
     const FRI = '2026-11-06';
     // As the owner had it: an hour's practice at 5:30pm, and planning from 5:30pm to 6:45pm.

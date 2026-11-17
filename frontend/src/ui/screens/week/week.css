@@ -66,8 +66,12 @@
 [data-layout] .lanecard { -webkit-touch-callout: none; transition: transform var(--dur-fast); }
 /* Held long enough on phone: the card lifts out of the row. */
 [data-layout] .lanecard.lifted { opacity: .4; }
-/* The card following the pointer while it's dragged, with the time it would land at. */
+/* Phone: a block on the day lifts the same way, to be let go on another row, so a hold brings up no menu. */
+[data-layout='phone'] .tlblock { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+[data-layout] .tlblock.lifted { opacity: .4; }
+/* The card following the pointer while it's dragged, with the time it would land at. A long block's stays short. */
 .cardghost { position: fixed; z-index: var(--z-toast); margin: 0; pointer-events: none; opacity: .95; box-shadow: var(--shadow-1); cursor: grabbing; transform: scale(1.04); }
+.cardghost.tlblock { max-height: calc(var(--tap) * 2); overflow: hidden; }
 .cardghost .ghostwhen { color: var(--project); }
 .cardghost .ghostwhen:empty { display: none; }
 @media (prefers-reduced-motion: reduce) {

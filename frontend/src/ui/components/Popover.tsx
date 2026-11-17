@@ -19,6 +19,8 @@ function Anchored(props: { label: string; onClose(): void; children: ReactNode }
   }, [ref, onClose]);
   // The room left below it in the window, for one that must fit there, such as Pick's in the sticky This week column,
   // which the page can't scroll into view.
+  // shortcut: measured once, as it opens, so resizing the window while it's open keeps the old room; measure on resize
+  // if someone hits that.
   useLayoutEffect(() => {
     const el = ref.current;
     if (el) el.style.setProperty('--room', `${Math.max(0, window.innerHeight - el.getBoundingClientRect().top - 16)}px`);

@@ -1,0 +1,126 @@
+/* A right-click's menu (Menu.tsx): in the popover look at the pointer on desktop, and by the block held on phone. */
+
+/* Takes a press outside the menu, which closes it rather than reaching what's under it. */
+.menucatch {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-dialog) - 1);
+}
+
+[data-layout='phone'] .menucatch {
+  background: var(--scrim);
+}
+
+.cmenu {
+  position: fixed;
+  z-index: var(--z-dialog);
+  min-width: 240px;
+  padding: var(--space-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--raised);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+}
+
+.cmenu .mi {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--space-8);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-block);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cmenu .mi .ico {
+  color: var(--ink-3);
+}
+
+/* The item under the pointer or the keys, and the one whose submenu is open. */
+.cmenu .mi:hover,
+.cmenu .mi:focus,
+.cmenu .mi[aria-expanded='true'] {
+  background: var(--accent-tint);
+  outline: none;
+}
+
+.cmenu .mkey {
+  margin-left: auto;
+}
+
+.cmenu .sep {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--hairline);
+}
+
+.imenu {
+  position: fixed;
+  z-index: var(--z-dialog);
+  width: 260px;
+  max-width: calc(100vw - 2 * var(--space-4));
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--raised);
+  box-shadow: var(--shadow-3);
+}
+
+.imenu .mi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  text-align: left;
+}
+
+.imenu .mi + .mi {
+  border-top: 1px solid var(--hairline);
+}
+
+.imenu .mi .ico {
+  color: var(--ink-2);
+}
+
+.imenu .mi:active,
+.imenu .mi:focus {
+  background: var(--wash);
+  outline: none;
+}
+
+.imenu .sep {
+  height: var(--space-2);
+  background: var(--wash);
+}
+
+.imenu .mback {
+  justify-content: flex-start;
+  color: var(--accent-text);
+}
+
+.cmenu .mi.mok .ico,
+.imenu .mi.mok .ico {
+  color: var(--ok);
+}
+
+.cmenu .mi.mdanger,
+.cmenu .mi.mdanger .ico,
+.imenu .mi.mdanger,
+.imenu .mi.mdanger .ico {
+  color: var(--danger);
+}

@@ -12,6 +12,8 @@ declare global {
   var firedNotifications: Electron.Notification[];
   var browserUrls: string[];
   var trayMenu: Electron.Menu;
+  var poppedMenu: unknown;
+  var menuChoice: string | null;
 }
 
 // Always the unpackaged app: the packaged one has its inspector fuse off, so Playwright can't attach to it.
@@ -286,6 +288,32 @@ test('a sign-in return reaches the page, a foreign link does not, and links open
   expect(await page.evaluate(() => (window.multiscaleElectron as ElectronBridge).attachments)).toBe(true);
   // The app's window and its hidden capture window, and nothing else.
   expect(running.windows().map((w) => new URL(w.url()).pathname.split('/').pop()).sort()).toEqual(['', 'capture.html']);
+});
+
+test("a right-click's menu: macOS draws the items the page gives, and the page hears which was chosen", async () => {
+  const { app: running, page } = await launch();
+  // Stands in for macOS's menu, which a test can't click: it keeps what it was asked to draw, then chooses the item
+  // labelled menuChoice, if any, and closes.
+  await running.evaluate(({ Menu }) => {
+    Menu.prototype.popup = function (this: Electron.Menu, options?: Electron.PopupOptions) {
+      const said = (items: Electron.MenuItem[]): unknown[] => items.map((i) => (i.type === 'separator' ? '-' : i.submenu ? { [i.label]: said(i.submenu.items) } : i.label));
+      globalThis.poppedMenu = said(this.items);
+      this.items.flatMap((i) => [i, ...(i.submenu?.items ?? [])]).find((i) => i.label === globalThis.menuChoice)?.click();
+      options?.callback?.();
+    };
+  });
+  const choose = (label: string | null) => running.evaluate((_, l) => void (globalThis.menuChoice = l), label);
+  const show = (items: unknown) => page.evaluate((i) => (window.multiscaleElectron as ElectronBridge).showMenu!(i as never), items);
+  const menu = [{ id: 'done', label: 'Done' }, { type: 'separator' }, { id: 'move', label: 'Move to', submenu: [{ id: 'move:tomorrow', label: 'Tomorrow, 4pm' }] }];
+
+  await choose('Tomorrow, 4pm');
+  expect(await show(menu)).toBe('move:tomorrow');
+  expect(await running.evaluate(() => globalThis.poppedMenu)).toEqual(['Done', '-', { 'Move to': ['Tomorrow, 4pm'] }]);
+  // Closed without a choice.
+  await choose(null);
+  expect(await show(menu)).toBeNull();
+  // Anything but labelled choices is refused before macOS sees it, such as an item with a role of its own.
+  await expect(show([{ id: 'quit', label: 'Quit', role: 'quit' }])).rejects.toThrow(/Bad menu/);
 });
 
 test('closing the window keeps the app running in the tray, and it comes back', async () => {

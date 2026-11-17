@@ -16,6 +16,7 @@ function block(pointerType = 'mouse') {
           drop: () => calls.push('drop'),
           tap: () => calls.push('tap'),
           cancel: () => calls.push('cancel'),
+          held: () => calls.push('held'),
           haptic: () => calls.push('haptic'),
         })
       }
@@ -65,14 +66,14 @@ describe('a press on a block that moves', () => {
     expect(b.calls).toEqual(['lift', 'drag 0,30', 'drop']);
   });
 
-  it('lifts on its timer, and let go in place opens nothing', () => {
+  it('lifts on its timer, and let go in place is held, with no click', () => {
     vi.useFakeTimers();
     const b = block();
     b.down();
     vi.advanceTimersByTime(HOLD_MS);
     expect(b.calls).toEqual(['lift']);
     b.up(100, 100);
-    expect(b.calls).toEqual(['lift', 'cancel']);
+    expect(b.calls).toEqual(['lift', 'cancel', 'held']);
   });
 
   it('lets a finger that moves before the hold scroll, and lifts with a tap from the device after one', () => {
@@ -99,5 +100,11 @@ describe('a press on a block that moves', () => {
     fireEvent.pointerCancel(window, { pointerId: 1, pointerType: 'touch' });
     b.move(100, 180);
     expect(b.calls).toEqual(['haptic', 'lift', 'drag 0,40', 'cancel']);
+    // Taken back before it moved, it was never let go, so it isn't held.
+    const still = block('touch');
+    still.hold();
+    still.move(100, 102);
+    fireEvent.pointerCancel(window, { pointerId: 1, pointerType: 'touch' });
+    expect(still.calls).toEqual(['haptic', 'lift', 'cancel']);
   });
 });

@@ -426,12 +426,20 @@ only from `main`, may need the owner's approval, and holds the only copies of th
 | `ASC_KEY_ID` | Secret or variable | That key's id |
 | `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
 | `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, attachment hosts, sign-in client, bundle id and release key's public half |
+| `STAGING_TEST_TARGET` | Secret | Staging's API, test client and test user, password included, as `ENV=staging node frontend/scripts/test-target.mjs` prints it, for the nightly iPhone tests against staging (`ios-staging.yml`). Set it again if the test user's password in SSM changes |
 | `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
 | `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
 | `AWS_REGION` | Variable | The control account's region |
 
 The key id, issuer id and role ARN work as either, but a variable's value is printed in the run's log, which anyone can
 read on a public repository, and the role's ARN names the control account. Secrets are masked.
+
+`STAGING_TEST_TARGET` comes from SSM, so set it from the Mac, signed in to AWS for staging and to `gh` as the owner, with
+`MULTISCALE_CONFIG_DIR` set:
+
+```sh
+(cd frontend && ENV=staging node scripts/test-target.mjs) | gh secret set STAGING_TEST_TARGET --env release
+```
 
 The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
 `repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included, or the

@@ -36,10 +36,31 @@ async function noteSync(r: Request) {
   syncs.push(`${new Date(startTime).toISOString().slice(11, 19)} ${Math.round(responseEnd)} ms: sent ${sent.changes?.length} at ${sent.cursor}, ${answer}`);
 }
 
+/**
+ * The time zone the page runs in: the runner's own, unless it's late on Sunday there. The journey asks for a suggested
+ * half hour later this week, and suggestions end at the default closed hours from 10pm, so late on Sunday the week has
+ * no room left. Then the page runs in Honolulu, 10 hours behind UTC, the runner's zone on CodeBuild, where it's still
+ * Sunday morning or early afternoon. A runner so far east that it's late on Sunday in Honolulu too gets Kiritimati, a
+ * day ahead of Honolulu, where it's Monday. A zone rather than a page clock, since a zone moves no clock: what the page
+ * writes to the shared test user carries the real time.
+ */
+function timezoneWithRoom(now = new Date()): string | undefined {
+  // From 8pm, since the journey starts some minutes after the page opens, and needs half an hour before 10pm.
+  const lateSunday = (timeZone?: string) => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', hour: 'numeric', hourCycle: 'h23' }).formatToParts(now);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value;
+    return part('weekday') === 'Sun' && Number(part('hour')) >= 20;
+  };
+  if (!lateSunday()) return undefined;
+  return lateSunday('Pacific/Honolulu') ? 'Pacific/Kiritimati' : 'Pacific/Honolulu';
+}
+
 // One signed-in page for the whole file, as a person would keep one tab.
 test.beforeAll(async ({ browser }, info) => {
   const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL } = info.project.use;
-  context = await browser.newContext({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL });
+  const timezoneId = timezoneWithRoom();
+  if (timezoneId) console.log(`It's late on Sunday here, so the page runs in ${timezoneId}, where this week still has room.`);
+  context = await browser.newContext({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, baseURL, timezoneId });
   await context.addInitScript(() =>
     document.addEventListener('securitypolicyviolation', (e) => console.error(`CSP blocked ${e.violatedDirective} ${e.blockedURI}`)),
   );
@@ -151,11 +172,6 @@ test('clears the checks earlier runs left on the shared test user', async ({}, i
 
 test('work goes from Capture to this week, onto the calendar by suggestion and by drag, back off, and done', async ({}, info) => {
   test.skip(info.project.name !== 'desktop', 'The mouse journey is the desktop layout; phone is covered by the local suites');
-  // shortcut: suggestions stay in this week and out of the default closed hours from 10pm, so after 9:30pm on Sunday
-  // there's no room for the half hour and the test skips; run it at any hour once a deployed test can move the
-  // page's clock without writing future clocks to the shared test user.
-  const now = new Date();
-  test.skip(now.getDay() === 0 && now.getHours() * 60 + now.getMinutes() >= 21 * 60 + 30, "late on Sunday this week has no room left");
   const nav = page.getByRole('navigation', { name: 'Main' });
   const title = `Deployed check ${new Date().toISOString().slice(11, 19)}`;
 

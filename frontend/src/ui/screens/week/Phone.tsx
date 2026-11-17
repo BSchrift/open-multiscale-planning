@@ -37,6 +37,8 @@ import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
+import type { Shortened } from '../../components/editors/SplitAsk';
 import { useWeekActions } from './useWeekActions';
 import { TaskPopupFor } from '../task';
 import { Button } from '../../components/ds/Button';
@@ -74,6 +76,8 @@ export function PhoneWeek(props: WeekProps) {
   const [at, setAt] = useState<Slot | null>(null);
   const [edSel, setEdSel] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // A task's block made shorter asks what about the rest, until answered or another block is opened.
+  const [split, setSplit] = useState<Shortened | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   // Pinching the day draws its hours taller or shorter, kept on this device. At its smallest the whole day fits between
   // the week's sticky top and whatever covers the bottom of the screen.
@@ -138,6 +142,7 @@ export function PhoneWeek(props: WeekProps) {
     void act.move(b.id, slot);
     setEdSel(b.id);
     setAsk(b.practice_id ? { blockId: b.id, wasMin: ask?.blockId === b.id ? ask.wasMin : b.end - b.start } : null);
+    setSplit(shortened(b, slot, { task: isTask(b), underWay: !!b.now, week: data.week, title: b.title, open: split }));
   };
 
   const cancelPlacing = () => {
@@ -310,6 +315,7 @@ export function PhoneWeek(props: WeekProps) {
       )}
       <PackedDay date={selDay} ctx={ctx} />
       {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
+      {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
 
       {offset >= 0 && !placing && (
         <section className="card stack8 tosched" aria-label="To schedule" data-unscheduled>
@@ -369,6 +375,7 @@ export function PhoneWeek(props: WeekProps) {
                 void act.unschedule(b.id, b.title, data.week);
               }}
               onOpen={(id) => {
+                if (split?.blockId !== id) setSplit(null);
                 setEdSel(id);
                 openBlock(id);
               }}

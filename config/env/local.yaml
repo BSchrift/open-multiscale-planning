@@ -16,6 +16,9 @@ stack:
   # Whether DynamoDB throttling the API's requests stops a release and rolls it back.
   # Local runs no stack, so nothing reads this there either.
   throttleReleaseAlarm: false
+  # Whether the stack has the performance KPIs' dashboard (docs/performance.md). Only staging's: CI's results are
+  # published there.
+  performanceDashboard: false
 
 attachments:
   # What one person may store, unless make storage-quota raised theirs in meta#quota: 20 MiB, as on

@@ -356,8 +356,9 @@ app_folder() {
   for name in "$ZIP_NAME" "$ZIP_NAME.blockmap" "$DMG_NAME"; do
     aws s3 cp "$dir/$name" "s3://$bucket/$folder$name" --cache-control "$IMMUTABLE" >&2 || return 1
   done
-  node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(`version: ${r.version}\nfiles:\n  - url: ${r.file}\n    sha512: ${r.sha512}\n    size: ${r.size}\npath: ${r.file}\nsha512: ${r.sha512}\nreleaseDate: \x27${new Date().toISOString()}\x27\n`)' "$record" |
-    aws s3 cp - "s3://$bucket/${folder}latest-mac.yml" --cache-control "$IMMUTABLE" --content-type text/yaml >&2 || return 1
+  local yml
+  yml="$(node "$root/frontend/scripts/latest-mac.mjs" "$record")" || return 1
+  printf '%s\n' "$yml" | aws s3 cp - "s3://$bucket/${folder}latest-mac.yml" --cache-control "$IMMUTABLE" --content-type text/yaml >&2 || return 1
   echo "Published the app's folder, $folder."
 }
 
@@ -737,6 +738,11 @@ case "$command" in
     profiles
     outputs staging
     outputs prod
+    # CI's performance results onto staging's performance dashboard. It never stops the suites.
+    (
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      AWS_PROFILE="$profile" "$root/scripts/perf-publish.sh"
+    ) || echo "Publishing the performance results failed, above. The suites go on." >&2
     frontend_deps
     browsers
     # Each surface back one version and forward again, as make release-surface would, then the suites against it.

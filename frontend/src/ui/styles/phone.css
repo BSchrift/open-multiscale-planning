@@ -64,7 +64,7 @@
 :where([data-layout='phone']) .tlfree{padding:var(--space-1) var(--space-3);border:1px solid var(--hairline);border-radius:var(--radius-control);color:var(--ink-3);font-size:var(--fs-caption)}
 :where([data-layout='phone']) .dragday{margin-bottom:calc(var(--space-16) + var(--space-12) + var(--space-2))}
 :where([data-layout='phone']) .dzone{position:absolute;left:0;right:0;background:var(--wash)}
-:where([data-layout='phone']) .cev.dragblock{z-index:calc(var(--z-raised) + 1);overflow:visible;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;font-weight:var(--fw-strong);box-shadow:var(--shadow-2)}
+:where([data-layout='phone']) .cev.dragblock{z-index:calc(var(--z-raised) + 1);overflow:visible;cursor:grab;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;font-weight:var(--fw-strong);box-shadow:var(--shadow-2)}
 :where([data-layout='phone']) .dragblock::before{content:'';position:absolute;left:0;right:0;top:-10px;bottom:-10px}
 :where([data-layout='phone']) .dragblock:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 :where([data-layout='phone']) .tray.dragbar{flex-direction:column;align-items:stretch;padding:var(--space-2) var(--space-3)}
@@ -126,7 +126,9 @@
 :where([data-layout='phone']) .cev.dragblock.calm{font-weight:var(--fw-regular);box-shadow:none}
 :where([data-layout='phone']) .cev.dragblock.draft{background:var(--placing);color:var(--on-kind);border:2px solid var(--placing);box-shadow:inset 0 0 0 1px var(--card),var(--shadow-2)}
 :where([data-layout='phone']) .cev.dragblock.beside{left:50%}
-:where([data-layout='phone']) .rz{position:absolute;right:0;bottom:-22px;z-index:var(--z-raised);display:flex;align-items:center;justify-content:center;width:44px;height:44px;touch-action:none;cursor:ns-resize}
+/* Held, a block lifts before it drags; until then a swipe across it scrolls the day. */
+:where([data-layout='phone']) .cev.dragblock.lifted{box-shadow:var(--shadow-3)}
+:where([data-layout='phone']) .rz{position:absolute;right:0;bottom:-22px;z-index:var(--z-raised);display:flex;align-items:center;justify-content:center;width:44px;height:44px;touch-action:pan-y;cursor:ns-resize}
 :where([data-layout='phone']) .rz i{display:block;width:24px;height:6px;border-radius:var(--radius-block);background:currentColor;border:1px solid var(--card)}
 :where([data-layout='phone']) .tlbtn{width:100%;border:0;border-top:1px solid var(--hairline);background:transparent;text-align:left}
 :where([data-layout='phone']) .tlbtn.cur{width:calc(100% + 16px);background:var(--accent-tint)}

@@ -151,6 +151,22 @@ test('Undo steps back over each card in turn, a skip as well as an add, until th
   expect(errors).toEqual([]);
 });
 
+test('picking a place in Add to only chooses it: the item stays until Add to adds it there', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, phone);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  if (phone) await card(page).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  await page.getByRole('combobox', { name: 'Add to a project or One offs' }).click();
+  await page.getByRole('option', { name: 'Paint the fence' }).click();
+  await expect(page.getByRole('listbox', { name: 'Projects and One offs' })).toHaveCount(0);
+  await expect(title(page, 'Call the bank')).toBeVisible();
+  await expect(card(page).getByText('1 of 3')).toBeVisible();
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
+  await expect(toast(page)).toContainText('Added Call the bank to Paint the fence.');
+  await expect(title(page, 'Fix the gate')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('Add to this week is off again on each new card, and the item it adds waits in the week to be scheduled', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
@@ -205,6 +221,24 @@ test('the Time slider saves the estimate as it moves, even for an item skipped, 
   await expect(rows(page).filter({ hasText: 'Fix the gate' })).toContainText('2h 30m estimate');
   await (phone ? nav(page).getByRole('button', { name: 'More' }).click().then(() => pane(page, 'More').getByRole('button', { name: /^One offs/ }).click()) : nav(page).getByRole('button', { name: 'One offs' }).click());
   await expect(oneOffRow(page, 'Call the bank')).toContainText('30m');
+  expect(errors).toEqual([]);
+});
+
+test('a title being edited when the item is added is saved to that item, and the next card shows its own title', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, phone);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  await title(page, 'Call the bank').getByRole('button').click();
+  await card(page).getByRole('textbox', { name: 'Title' }).fill('Call the bank about the loan');
+  await processTo(page, phone, 'One offs');
+  await expect(toast(page)).toContainText('Added Call the bank about the loan to One offs.');
+  await expect(title(page, 'Fix the gate')).toBeVisible();
+  await expect(card(page).getByRole('textbox', { name: 'Title' })).toHaveCount(0);
+  await exit(page, phone);
+
+  await expect(rows(page)).toHaveText([/Fix the gate/, /Buy stamps/]);
+  await (phone ? nav(page).getByRole('button', { name: 'More' }).click().then(() => pane(page, 'More').getByRole('button', { name: /^One offs/ }).click()) : nav(page).getByRole('button', { name: 'One offs' }).click());
+  await expect(oneOffRow(page, 'Call the bank about the loan')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -292,6 +326,25 @@ test('Done and Delete stand apart: Done in the success colour with a tick, Delet
   const yes = card(page).getByRole('button', { name: 'Yes, delete' });
   await expect(yes).toHaveCSS('background-color', await token('--danger'));
   await page.screenshot({ path: info.outputPath('process-delete-ask.png') });
+  expect(errors).toEqual([]);
+});
+
+test('desktop: a click outside the card closes Process, as Exit does, and what was changed on the card stays', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'On phone Process fills the screen, so there is no outside to click.');
+  const errors = await open(page, false);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  const slider = card(page).getByRole('slider', { name: 'Time' });
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  // A click on the card itself leaves it open.
+  await card(page).getByText('1 of 3').click();
+  await expect(card(page)).toBeVisible();
+  await page.mouse.click(20, 980);
+  await expect(card(page)).toHaveCount(0);
+  await expect(rows(page)).toHaveText([/Call the bank/, /Fix the gate/, /Buy stamps/]);
+  await expect(rows(page).filter({ hasText: 'Call the bank' })).toContainText('30m estimate');
   expect(errors).toEqual([]);
 });
 

@@ -25,7 +25,7 @@ no long-lived key.
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
-| **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
+| **Nightly** | Staging | CI's performance results published to staging's performance dashboard ([docs/performance.md](performance.md)). Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
@@ -53,6 +53,7 @@ switches each surface to it (`upload` and `switch` in `scripts/pipeline.sh`, whi
 | `web/index.html` and the rest | A copy of the version web serves | Web host |
 | `release/files/` | Every version's files, named by their contents, cached for a year | Release host |
 | `release/desktop/release.json`, `release/iphone/release.json` | A copy of the Mac's and the iPhone's version's feed, cached for 60 seconds | Release host |
+| `release/release.json` | For bundles from before the apps' own feeds: a feed that names no native code, so they say they need a new app | Release host |
 | `downloads/mac/<app version>/` | Each checked Mac app: its zip, the zip's blockmap, its disk image, then `latest-mac.yml`, written once and cached for good | Downloads host |
 | `downloads/Multiscale.dmg` | A copy of the disk image of the app the desktop feed names, for first installs, cached for 5 minutes | Downloads host |
 | `mac/manifest.json` | The record of the checked Mac app that's live, with its app record | No |
@@ -81,9 +82,11 @@ For now every surface switches in one step, staging's and prod's Release. Each b
 files from `release/files/`, which both feeds share.
 
 Bundles from before 10 November 2026 read a shared feed, `release/release.json`, which switched only when both apps
-could take a build. It's gone: each release deletes it from the bucket if it's still there, and the feed test checks
-the release host answers 403 or 404 for it. An app still running one of those bundles, having taken no update since,
-gets no more updates and needs installing again.
+could take a build. None of them can take one now, so each release writes it as a feed that names its version and no
+native code, unsigned and listing no files. An app still running one of those bundles then says the update needs a new
+version of the app, and the Mac app offers the disk image, which is the last install by hand; nothing installs from it.
+The feed test checks the release host serves it so. Between 14 and 16 November 2026 releases deleted it instead, and
+those apps said only "Couldn't check for updates".
 
 ## The backend canary
 
@@ -329,7 +332,11 @@ app that has this code; every app before it is installed by hand once, as the no
    folder's `latest-mac.yml` says exactly what the signed record does: version, file, SHA-512 and size. It checks the
    zip's SHA-512, including a zip it builds from the blocks that changed, and falls back to the whole zip if that
    doesn't match. `autoDownload`, `allowDowngrade` and `allowPrerelease` are off, and `channel` is never set, since
-   setting it turns `allowDowngrade` on.
+   setting it turns `allowDowngrade` on. Before it downloads, electron-updater reads the app's
+   `Contents/Resources/app-update.yml` for the folder it downloads into. electron-builder writes that file only from a
+   publish setting, so `electron/identity.ts` names the downloads host there and `electron-build.mjs` passes publish
+   never; the pipeline's check refuses an app without it. Apps built before 17 November 2026 have none, so they can't
+   update themselves, and each is installed by hand once more.
 4. **Squirrel.Mac installs it** after checking its signature against the running app's Team ID and bundle id: when
    Multiscale quits or the Mac restarts, or at once with Restart to update, in Settings, the sidebar's notice or the
    menu bar menu. Quit installs it and doesn't reopen.
@@ -359,11 +366,16 @@ stage the new one. Then it quits the app, as from the menu bar, waits for Squirr
 the app didn't open again, and opens it to check it's the new version and starts. A pass goes to
 `inbox/update-check/<app version>.json`. The app it passed is kept in the run's artifact, so the next run updates
 from it. With no app passed before, as for the first app that updates itself, it checks only that the new app installs
-and starts.
+and starts. It does the same when the app passed before has no `Contents/Resources/app-update.yml`, as every app from
+before 17 November 2026 has none: electron-updater reads that file before it downloads, so those apps can't update
+themselves, and updating from one would fail every run.
 
 **Prod waits for it.** Prod's release publishes a new Mac app only once the inbox has its pass. Until then prod's
-desktop feed stays as it is, and the run says so, as the iPhone feed does for TestFlight. A run that needs no new app
-doesn't wait. Staging gets each new app a promote window ahead, which is time for the check to run.
+desktop feed stays as it is, and the run says so, as the iPhone feed does for TestFlight. That holds for a new app with
+unchanged native code too, as when prod's downloads host served no checked app when the MacApp step looked: the
+build's signed manifest names that app, and a feed must never name an app the downloads host doesn't have. The next run
+that finds a checked app live names that one instead. A run that needs no new app doesn't wait. Staging gets each new
+app a promote window ahead, which is time for the check to run.
 
 ### What the check proves
 
@@ -385,7 +397,9 @@ For each environment's upload, on Linux, with OpenSSL and 7-Zip:
   out the same on macOS and Linux.
 - **It runs Electron's own native code.** Every file in the app is Electron's, from its darwin-arm64 zip, which the
   check downloads and refuses unless it has the SHA-256 in the installed `electron` package's `checksums.json`, or one
-  of the app's own: `app.asar` and what's unpacked beside it, the icon, the resource seals and the stapled ticket. Each
+  of the app's own: `app.asar` and what's unpacked beside it, the icon, `app-update.yml`, the resource seals and the
+  stapled ticket. `app-update.yml` must be there, sealed, and name a generic feed at the environment's downloads host
+  and a folder for downloads, or the app couldn't update itself. Each
   Mach-O binary must equal Electron's byte for byte once signed again: only its signature, the load command that
   points at it, and the `__LINKEDIT` sizes that follow from it are left out, and only after checking that's all
   signing changed. better-sqlite3's binaries must equal the installed package's the same way. Electron's fuses, which
@@ -426,12 +440,20 @@ only from `main`, may need the owner's approval, and holds the only copies of th
 | `ASC_KEY_ID` | Secret or variable | That key's id |
 | `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
 | `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, attachment hosts, sign-in client, bundle id and release key's public half |
+| `STAGING_TEST_TARGET` | Secret | Staging's API, test client and test user, password included, as `ENV=staging node frontend/scripts/test-target.mjs` prints it, for the nightly iPhone tests against staging (`ios-staging.yml`). Set it again if the test user's password in SSM changes |
 | `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
 | `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
 | `AWS_REGION` | Variable | The control account's region |
 
 The key id, issuer id and role ARN work as either, but a variable's value is printed in the run's log, which anyone can
 read on a public repository, and the role's ARN names the control account. Secrets are masked.
+
+`STAGING_TEST_TARGET` comes from SSM, so set it from the Mac, signed in to AWS for staging and to `gh` as the owner, with
+`MULTISCALE_CONFIG_DIR` set:
+
+```sh
+(cd frontend && ENV=staging node scripts/test-target.mjs) | gh secret set STAGING_TEST_TARGET --env release
+```
 
 The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
 `repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included, or the

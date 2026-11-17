@@ -73,6 +73,8 @@ if (command === 'record') {
 \n`);
   writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
+  writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
+  chmodSync(join(s.root, 'scripts/perf-publish.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
@@ -436,18 +438,18 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     return { CODEBUILD_SRC_DIR_Built: builtDir, [`CODEBUILD_SRC_DIR_Signed${env === 'staging' ? 'Staging' : 'Prod'}`]: signed };
   };
   const FEEDS = { desktop: 's3://bucket/release/desktop/release.json', iphone: 's3://bucket/release/iphone/release.json' };
-  // The feed bundles from before the apps' own feeds read, which the releases delete.
-  const SHARED = 's3://bucket/release/release.json';
+  // The feed bundles from before the apps' own feeds read, which the releases point at no native code.
+  const ROOT_FEED = 's3://bucket/release/release.json';
   // Each app's feed serving a build for this native code.
   const live = (s: ReturnType<typeof sandbox>, sh: object = shell) => {
     for (const feed of Object.values(FEEDS)) s.put(feed, feedWith(sh));
   };
   const history = (s: ReturnType<typeof sandbox>) => JSON.parse(s.get('s3://bucket/state/history.json') ?? '{}') as Record<string, { version: string; build: number; at: string }[]>;
 
-  it("uploads staging's version where no host serves it, switches the web app and every feed to it, deletes the shared feed, then tests it", () => {
+  it("uploads staging's version where no host serves it, switches the web app and every feed to it, tells old bundles they need a new app, then tests it", () => {
     const s = configured();
     live(s);
-    s.put(SHARED, feedWith(shell));
+    s.put(ROOT_FEED, feedWith(shell));
     const r = s.run(['release-staging'], artifacts(s));
     assert.equal(r.status, 0, r.stderr);
     // The version, kept: its page, and its feed as signed.
@@ -470,9 +472,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
       web: [[VERSION, 1]], desktop: [[VERSION, 1]], iphone: [[VERSION, 1]],
     });
     assert.match(history(s).web![0]!.at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
-    // The shared feed, after the feeds: no bundle that reads it is left to update.
-    assert.equal(s.get(SHARED), null);
-    assert.match(s.log(), /s3:\/\/bucket\/release\/iphone\/release\.json\n(.*\n)*aws AWS_PROFILE=ms-staging s3 rm s3:\/\/bucket\/release\/release\.json\n/);
+    // Then the feed bundles from before the apps' own feeds read, at the root, after the feeds. It names no native code,
+    // so each of those bundles says it needs a new app, rather than that it couldn't check, and installs nothing.
+    assert.deepEqual(JSON.parse((JSON.parse(s.get(ROOT_FEED)!) as { manifest: string }).manifest), { version: VERSION, build: 1, shell: {}, files: [] });
+    assert.match(s.log(), /s3:\/\/bucket\/release\/iphone\/release\.json\n(.*\n)*aws AWS_PROFILE=ms-staging s3 cp - s3:\/\/bucket\/release\/release\.json --cache-control public, max-age=60 --content-type application\/json\n/);
     assert.match(s.log(), /test-deployed ENV=staging EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop iphone SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1/);
     // Each profile signs in as its account's release role.
     assert.match(readFileSync(join(s.root, '.aws/config'), 'utf8'), /\[profile ms-staging\]\nrole_arn = arn:aws:iam::210987654321:role\/multiscale-release\ncredential_source = EcsContainer/);
@@ -530,11 +533,11 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /EXPECT_FEEDS=desktop SKIP_IOS/);
   });
 
-  it("reads only each app's own feed, never the shared one a bucket may still hold", () => {
+  it("reads only each app's own feed, never the root one older bundles read", () => {
     const s = configured();
     live(s);
-    // The shared feed serves a Mac app for e2, but the desktop feed doesn't, so the build waits for one.
-    s.put(SHARED, feedWith({ electron: 'e2', ios: 'i1' }));
+    // The root feed serves a Mac app for e2, but the desktop feed doesn't, so the build waits for one.
+    s.put(ROOT_FEED, feedWith({ electron: 'e2', ios: 'i1' }));
     const r = s.run(['release-staging'], artifacts(s, { electron: 'e2', ios: 'i1' }));
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /needs a newer Mac app than staging's feeds serve/);
@@ -559,7 +562,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.notEqual(missing.status, 0);
     assert.match(missing.stderr, /staging has no version 0\.1\.0-zzz uploaded/);
     for (const surface of ['watch', 'shared']) assert.notEqual(s.run(['switch', 'staging', surface, VERSION], mac).status, 0);
-    assert.equal(s.get(SHARED), null);
+    assert.equal(s.get(ROOT_FEED), null);
     assert.deepEqual(history(s).web!.map((l) => l.version), [VERSION]);
   });
 
@@ -778,6 +781,21 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(s.get(FEEDS.desktop), feedWith(shell));
     assert.equal(s.get(FEEDS.iphone), release);
     assert.equal(s.get('s3://bucket/web/index.html'), '<html>new</html>');
+    assert.match(s.log(), /EXPECT_FEEDS= iphone SKIP_IOS/);
+  });
+
+  // As when prod's downloads host served no app the pipeline checked when the MacApp step looked. The build's signed
+  // manifest names the new app, so switching the feed to it would name an app the downloads host doesn't have.
+  it("holds prod's desktop feed while the staging update check hasn't passed its new Mac app, though its native code is unchanged", () => {
+    const s = configured();
+    live(s);
+    const r = s.run(['release-prod'], withProdApp(s, shell));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /The staging update check hasn't passed Mac app 0\.1\.5 yet, so prod's desktop feed stays as it is/);
+    assert.equal(s.get(`${FOLDER}latest-mac.yml`), null);
+    assert.equal(s.get('s3://bucket/downloads/Multiscale.dmg'), null);
+    assert.equal(s.get(FEEDS.desktop), feedWith(shell));
+    assert.equal(s.get(FEEDS.iphone), release);
     assert.match(s.log(), /EXPECT_FEEDS= iphone SKIP_IOS/);
   });
 
@@ -1002,6 +1020,17 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(r.stdout, /iphone has no version before 0\.1\.0-ccc to go back to/);
     // Then the suites, against what it serves again.
     assert.match(s.log(), /test-deployed ENV=staging/);
+  });
+
+  it("publishes CI's performance results to staging's dashboard each night, as staging's release role, and goes on if that fails", () => {
+    for (const fails of ['', '1']) {
+      const s = configured();
+      kept(s);
+      const r = s.run(['nightly'], { PUBLISH_FAILS: fails });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(s.log(), /perf-publish AWS_PROFILE=ms-staging\n(.*\n)*test-deployed ENV=staging/);
+      if (fails) assert.match(r.stderr, /Publishing the performance results failed, above\. The suites go on\./);
+    }
   });
 
   it("goes back across native code each night when the desktop feed's version before names an app, and forward again", () => {

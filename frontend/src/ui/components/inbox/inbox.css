@@ -198,6 +198,12 @@
   grid-row: 2;
 }
 
+/* An item already on the calendar says when, after the calendar icon. */
+[data-layout] .inboxest > .ico {
+  margin-right: var(--space-1);
+  vertical-align: -3px;
+}
+
 [data-layout] .rowmain > .rowpen {
   grid-column: 2;
   grid-row: 1;

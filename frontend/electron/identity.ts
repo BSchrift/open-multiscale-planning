@@ -16,8 +16,8 @@ export function appIdentity(env: AppEnv, bundleId = DEFAULT_BUNDLE_ID): AppIdent
   return { name: `Multiscale ${label}`, appId: `${bundleId}.${env}`, scheme: `multiscale-${env}` };
 }
 
-/** electron-builder's settings for one environment. */
-export function builderConfig(env: AppEnv, identity: AppIdentity) {
+/** electron-builder's settings for one environment, and its downloads host, where an app that has one updates from. */
+export function builderConfig(env: AppEnv, identity: AppIdentity, downloadsUrl?: string) {
   return {
     appId: identity.appId,
     productName: identity.name,
@@ -52,6 +52,10 @@ export function builderConfig(env: AppEnv, identity: AppIdentity) {
       enableEmbeddedAsarIntegrityValidation: true,
       onlyLoadAppFromAsar: true,
     },
-    publish: null,
+    // electron-updater reads Resources/app-update.yml before it downloads an app, for the folder it downloads into, and
+    // electron-builder writes that file into a disk image's or zip's app only from this setting. The app points the
+    // updater at each app's own folder itself (appUpdates.ts), so this url isn't fetched, and electron-build.mjs passes
+    // publish never, so nothing is uploaded.
+    publish: downloadsUrl ? { provider: 'generic' as const, url: downloadsUrl } : null,
   };
 }

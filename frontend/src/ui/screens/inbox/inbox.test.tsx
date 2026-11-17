@@ -16,6 +16,26 @@ async function seed(w: Writer) {
 
 const rows = () => Array.from(document.querySelectorAll('.inboxrow')).map((r) => r.textContent);
 
+describe.each(['desktop', 'phone'] as const)('an Inbox item with a time block, on %s', (layout) => {
+  it('shows its time on its row, with the calendar icon, in place of an estimate', async () => {
+    await renderScreen('inbox', {
+      layout,
+      seed: async (w) => {
+        await seed(w);
+        await w.create('task', { kind: 'inbox', title: 'Book dentist', estimate_min: 60 }, 'i3');
+        await w.create('time_block', { task_id: 'i3', start: '2026-11-02T23:45:00Z', end: '2026-11-03T00:45:00Z', tz: 'America/Chicago' }, 'b3');
+        await w.create('time_block', { task_id: 'i2', start: '2026-11-03T15:00:00Z', end: '2026-11-03T16:00:00Z', tz: 'America/Chicago', cancelled: true }, 'b2');
+      },
+    });
+    const when = await screen.findByText('Today, 5:45pm to 6:45pm');
+    expect(when.closest('[data-id]')).toHaveAttribute('data-id', 'i3');
+    expect(when.closest('.inboxest')!.querySelector('svg[data-icon="calendar"]')).not.toBeNull();
+    expect(screen.queryByText('1h estimate')).toBeNull();
+    // A block taken off the calendar isn't its time any more.
+    expect(screen.getByText('2h estimate')).toBeInTheDocument();
+  });
+});
+
 describe('Inbox on desktop', () => {
   it('lists what was captured in added order, live, with Process first', async () => {
     const t = await renderScreen('inbox', { seed });
@@ -87,6 +107,7 @@ describe('Inbox on phone', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Add to a project or One offs' }));
     await userEvent.click(await screen.findByRole('option', { name: 'One offs' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add to One offs' }));
     // Process closes itself on the last item, and focus goes to the Inbox's heading, since its button has gone.
     expect(await screen.findByText('Inbox is empty. Anything you capture lands here.')).toBeVisible();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -98,7 +119,7 @@ describe('Inbox on phone', () => {
     const t = await renderApp({ seed: (w) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1') });
     await userEvent.click(await screen.findByRole('button', { name: /^Inbox/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
-    await userEvent.type(await screen.findByRole('combobox', { name: 'Add to a project or One offs' }), 'One offs{Enter}');
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Add to a project or One offs' }), 'One offs{Enter}{Enter}');
     // That was the last item, so Process closes itself; Esc puts its check away, and the last toast shows.
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await userEvent.keyboard('{Escape}');

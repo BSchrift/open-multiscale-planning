@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, overNowLine, saved, touchDrag } from './seed';
+import { expectTapTarget, openSeeded, overNowLine, saved, settled, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -491,6 +491,11 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   const card = lane.getByRole('button', { name: /^Paint the fence, One off, 30m/ });
   await expect(card).toBeVisible();
   if (phone) await expectTapTarget(card);
+  // The day is measured once nothing above it is still to come, since the drop goes where 3pm was then. The prompt for
+  // the planning task Today makes once it has drawn lands above To schedule, and the other screens' code, loaded once
+  // Today has drawn, restyles Today's view buttons, moving the day down a few pixels: enough to drop at 2:45pm.
+  await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
+  await settled(page);
   await lane.evaluate((el) => el.scrollIntoView({ block: 'start' }));
   const day = page.locator('[data-drop-date="2026-11-02"]');
   const [l, d] = [(await lane.boundingBox())!, (await day.boundingBox())!];

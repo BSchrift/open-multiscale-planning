@@ -353,6 +353,22 @@ fails the build when it bundles a package `ELECTRON_PACKAGES` in `scripts/shell-
 and translocation, once per major macOS version; the administrator's password dialog, once before shipping; VoiceOver
 on macOS's dialogs and the menu bar menu, once.
 
+**How it's tested**, layer by layer:
+
+| Layer | Where | What it shows |
+| --- | --- | --- |
+| Unit | `src/core/updates.test.ts`, the Settings and sidebar tests | The page: which feed it reads, when a release needs the app, every state and failure it shows |
+| Unit | `electron/appUpdates.test.ts` | The main process, with electron-updater stood in for: the signature, the record, where the app runs, and each refusal's code |
+| Unit | `scripts/latest-mac.test.ts`, `scripts/sign-release.test.ts` | `latest-mac.yml` and the signed feed as the pipeline writes them, and electron-updater's own parser reading the yml back as the signed record |
+| Unit | `scripts/mac-inbox.test.ts`, `electron/identity.test.ts` | The pipeline's check of each Mac app, `app-update.yml` included |
+| Integration | `electron/appUpdates.integration.test.ts` | electron-updater's own MacUpdater over HTTP: it reads the pipeline's `latest-mac.yml`, downloads and checks the zip, and hands it to a stand-in for Squirrel.Mac, which fetches it as Squirrel does; a missing folder, a wrong yml, a wrong zip and a missing `app-update.yml` each fail as the app reports them |
+| Pipeline | `infrastructure/test/pipeline-script.test.ts`, `mac-update-check.test.ts` | What each release publishes and in what order, when the desktop feed waits, and the update check's choice of app to update from |
+| Deployed | `e2e/deployed/feed.spec.ts`, on every release | Each feed checks out with the release key, the root feed names no native code, and the desktop feed's app is on the downloads host as `latest-mac.yml` says |
+| macOS | `scripts/mac-update-check.sh`, every half hour | The real thing on staging: the app passed before updates itself, Squirrel checks the signature and installs at quit, and the new app opens |
+
+Only the macOS check proves Squirrel's signature check, ShipIt's install, and that a signed app opens. It runs only when
+staging's desktop feed names an app it hasn't passed, and on staging alone.
+
 ### The staging update check
 
 Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.

@@ -431,3 +431,44 @@ func TestDisconnectStillDisconnectsWhenGoogleAccessIsAlreadyGone(t *testing.T) {
 }
 
 var _ api.Calendar = (*Google)(nil)
+
+// Forget is what deleting an account calls (account.Google): DeleteConnection's revoke and delete, the account's claim
+// released, and no record written, since the deletion removes them all. Its log line counts, and never says who.
+func TestForgetEndsTheConnectionWithoutWritingOrNamingAnyone(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	if err := w.g.Forget(ctx, testSub); err != nil {
+		t.Fatalf("with nothing to forget: %v", err)
+	}
+	w.connect(testSub)
+	w.connect("someone-else")
+	stored := w.storedToken(testSub)
+	before := w.calendarRecord(testSub)["connected"]
+	if err := w.g.Forget(ctx, testSub); err != nil {
+		t.Fatal(err)
+	}
+	if w.refreshWorks(stored) || w.storedToken(testSub) != "" || w.timeBlocks() != "" {
+		t.Fatal("token still honoured, kept, or Time blocks left")
+	}
+	if w.conns.holders[accountID(googleAccount(testSub))] != "" {
+		t.Fatal("the Google account is still claimed")
+	}
+	if w.calendarRecord(testSub)["connected"] != before {
+		t.Fatal("wrote the calendar record")
+	}
+	if w.storedToken("someone-else") == "" {
+		t.Fatal("forgot someone else")
+	}
+	lines := w.logLines("calendar_forget")
+	if len(lines) != 1 || lines[0]["user"] != nil {
+		t.Fatalf("%s", w.logs)
+	}
+	if err := w.g.Forget(ctx, testSub); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+}
+
+// The deletion's interface, which *gcal.Google is passed as.
+var _ interface {
+	Forget(ctx context.Context, sub string) error
+} = (*Google)(nil)

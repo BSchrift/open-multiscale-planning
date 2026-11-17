@@ -264,3 +264,88 @@ func fmtAny(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 var _ = calendar.Event{}
 var _ = fakes.DefaultGoogleAccount
+
+// countingSecrets counts reads of each secret.
+type countingSecrets struct {
+	*memSecrets
+	reads map[string]int
+}
+
+func (c *countingSecrets) Get(ctx context.Context, name string) (string, error) {
+	c.reads[name]++
+	return c.memSecrets.Get(ctx, name)
+}
+
+// The stream's wake reads the legacy parameter once, however many of its people aren't connected: SSM allows 40 reads a
+// second across the account.
+func TestWakeReadsTheLegacyConnectionOnce(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.legacy(testSub)
+	counting := &countingSecrets{memSecrets: w.secrets, reads: map[string]int{}}
+	w.g.Secrets = counting
+	if err := w.g.Wake(context.Background(), []string{"a", "b", "c", testSub}, "r"); err != nil {
+		t.Fatal(err)
+	}
+	if counting.reads[SecretRefreshToken] != 1 || len(w.queued) != 1 || w.queued[0].Sub != testSub {
+		t.Fatalf("%d reads, queued %+v", counting.reads[SecretRefreshToken], w.queued)
+	}
+}
+
+// When the connections can't be read, the schedule and the stream fail, so the Lambda's error alarm sees it, rather than
+// quietly starting no one.
+func TestDispatchAndWakeFailWhenConnectionsCantBeRead(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.conns.failing = &smithy.GenericAPIError{Code: "ProvisionedThroughputExceededException"}
+	if err := w.g.Dispatch(context.Background(), "schedule", "r"); err == nil {
+		t.Fatal("dispatch swallowed it")
+	}
+	if err := w.g.Wake(context.Background(), []string{testSub}, "r"); err == nil {
+		t.Fatal("wake swallowed it")
+	}
+	if len(w.queued) != 0 {
+		t.Fatalf("%+v", w.queued)
+	}
+}
+
+// A connection that won't open, with no legacy one to fall back to, asks its person to connect again, once: it's marked,
+// so its runs stop failing.
+func TestAnUnreadableConnectionWithNoFallbackAsksToConnectAgain(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.conns.unreadable = map[string]bool{testSub: true}
+	w.run()
+	if rec := w.calendarRecord(testSub); rec["connected"].V != false || rec["last_error"].V != ErrorRevoked {
+		t.Fatalf("%+v", rec)
+	}
+	if line := w.linesFor(testSub)[0]; line["outcome"] != "unreadable" || line["CalendarRunFailures"] != float64(1) {
+		t.Fatalf("%+v", line)
+	}
+	if !w.conns.conns[testSub].Revoked {
+		t.Fatal("not marked")
+	}
+	w.run()
+	if line := w.linesFor(testSub)[1]; line["outcome"] != "revoked" || line["CalendarRunFailures"] != float64(0) {
+		t.Fatalf("ran again: %+v", line)
+	}
+	// Connecting again starts afresh.
+	w.conns.unreadable = nil
+	w.connect(testSub)
+	w.run()
+	if w.calendarRecord(testSub)["connected"].V != true {
+		t.Fatalf("%+v", w.calendarRecord(testSub))
+	}
+}
+
+// A refused consent's log line names the permissions left unticked, which name nothing about the person.
+func TestAConsentWithAPermissionUntickedLogsWhich(t *testing.T) {
+	w := newWorld(t)
+	w.fake.Account(googleAccount(testSub)).Withhold(Scopes[2])
+	state, code := w.consent(testSub)
+	w.g.Callback(context.Background(), state, code)
+	lines := w.logLines("calendar_connect_refused")
+	if len(lines) != 1 || fmtAny(lines[0]["missing"]) != fmtAny([]string{Scopes[2]}) {
+		t.Fatalf("%s", w.logs)
+	}
+}

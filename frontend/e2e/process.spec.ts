@@ -151,6 +151,22 @@ test('Undo steps back over each card in turn, a skip as well as an add, until th
   expect(errors).toEqual([]);
 });
 
+test('picking a place in Add to only chooses it: the item stays until Add to adds it there', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, phone);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  if (phone) await card(page).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  await page.getByRole('combobox', { name: 'Add to a project or One offs' }).click();
+  await page.getByRole('option', { name: 'Paint the fence' }).click();
+  await expect(page.getByRole('listbox', { name: 'Projects and One offs' })).toHaveCount(0);
+  await expect(title(page, 'Call the bank')).toBeVisible();
+  await expect(card(page).getByText('1 of 3')).toBeVisible();
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
+  await expect(toast(page)).toContainText('Added Call the bank to Paint the fence.');
+  await expect(title(page, 'Fix the gate')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('Add to this week is off again on each new card, and the item it adds waits in the week to be scheduled', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);

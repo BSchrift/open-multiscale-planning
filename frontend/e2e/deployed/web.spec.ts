@@ -184,7 +184,13 @@ test('work goes from Capture to this week, onto the calendar by suggestion and b
   await page.getByRole('switch', { name: 'Add to this week' }).click();
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
   await page.keyboard.press('Enter');
-  await expect(page.getByText(`Added ${title} to One offs and to this week.`)).toBeVisible();
+  // Enter picks One offs, and Add to adds the item there. The release before, which the prod Test step meets, added it
+  // on the pick, so Add to is pressed only while the toast hasn't come.
+  const added = page.getByText(`Added ${title} to One offs and to this week.`);
+  const add = page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Add to One offs', exact: true });
+  await expect(added.or(add)).toBeVisible();
+  if (!(await added.isVisible())) await add.click();
+  await expect(added).toBeVisible();
   // The second check is on the card now, for the cleanup below to delete.
   await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
 

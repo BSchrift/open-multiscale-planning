@@ -142,6 +142,22 @@ from the first day: the frontend CI job runs `node scripts/bundle-budget.ts dist
 everything a cold first load fetches until Today is interactive, is counted by the runner's cold starts in a browser:
 291 KB on that day, gzipped.
 
+## In CI
+
+Report-only until phase 3: nothing on a timing blocks a merge, and only the bundle bytes above do.
+
+**Each PR** (`.github/workflows/perf.yml`, the `perf` check): desktop Chromium and the 4× slower phone, each in its own
+Linux job, time the PR's merge with its base beside the base commit on the same runner, 100 samples per KPI after 20
+thrown away, on a year of data. When the first round finds a KPI slower, a second round of fresh samples decides. One
+comment on the PR, updated on each push, says what's slower, faster and unchanged, with the bundle note; the raw
+samples are the run's artifacts. A fork's PR can't comment, so its numbers are in the run's summary. The perf check
+fails only when the timing couldn't run. No iPhone or Mac app run on a PR: the macOS runners are few and shared.
+
+**Accepting a slowdown on purpose:** the `perf-accepted` label, which only maintainers can add, and a "Performance"
+section in the PR description naming the KPI, the cost and why it's worth it. The comment then says it's accepted.
+While everything is report-only that's all it does; once a KPI blocks, it lets that KPI's check pass. If an absolute
+target changes, the PR changes `config/perf.ts` and this file in the same diff.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

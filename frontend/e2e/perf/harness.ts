@@ -69,9 +69,9 @@ export const takeMeasures = (page: Page) =>
     return all;
   });
 
-/** Waits until the page holds at least count measures of the name. */
+/** Waits until the page holds at least count measures of the name: 15 seconds at most, so a lost one fails the action. */
 export const waitForMeasure = (page: Page, name: string, count = 1) =>
-  page.waitForFunction(([n, c]) => performance.getEntriesByName(n as string, 'measure').length >= (c as number), [name, count] as const, { polling: 20 });
+  page.waitForFunction(([n, c]) => performance.getEntriesByName(n as string, 'measure').length >= (c as number), [name, count] as const, { polling: 20, timeout: 15_000 });
 
 /** The phone rows' slower CPU, as Lighthouse slows it for phones. Chromium only. */
 export async function slowCpu(page: Page, rate: number) {
@@ -150,19 +150,41 @@ function collect(page: Page): Record<string, number[]> {
 }
 
 /**
+ * An action, tried again up to twice when it fails: Today opens some questions by itself, such as how a block that
+ * ended went, and one opening over capture closes it. Whatever is open is closed with Escape, and the measures the
+ * failed try left in the page thrown away.
+ */
+async function attempt(action: Action, page: Page, phone: boolean) {
+  for (let tries = 1; ; tries++) {
+    try {
+      return await action(page, phone);
+    } catch (err) {
+      if (tries === 3) throw err;
+      console.log(`${action.name} failed, trying again: ${String(err).split('\n')[0]}`);
+      for (let i = 0; i < 3; i++) await page.keyboard.press('Escape');
+      await takeMeasures(page);
+    }
+  }
+}
+
+/**
  * Warms each build up, then takes SAMPLES rounds' worth from them in turn, ROUND actions at a time, in alternating order
  * (ABBAAB...), so neither always goes first.
  */
 export async function interleave(builds: { page: Page; results: Results }[], action: Action, phone: boolean) {
+  const began = Date.now();
+  const rounds = Math.ceil(SAMPLES / ROUND);
   for (const { page } of builds) {
-    for (let i = 0; i < WARMUP; i++) await action(page, phone);
+    for (let i = 0; i < WARMUP; i++) await attempt(action, page, phone);
     collect(page);
   }
   for (let round = 0; round * ROUND < SAMPLES; round++) {
     const order = round % 2 === 0 ? builds : [...builds].reverse();
     for (const { page, results } of order) {
-      for (let i = 0; i < ROUND; i++) await action(page, phone);
+      for (let i = 0; i < ROUND; i++) await attempt(action, page, phone);
       for (const [name, values] of Object.entries(collect(page))) results.add(name, values);
     }
+    // The pace, so a run that's slow or stuck shows where.
+    if ((round + 1) % 5 === 0 || round + 1 === rounds) console.log(`${action.name}: round ${round + 1} of ${rounds} after ${Math.round((Date.now() - began) / 1000)} s`);
   }
 }

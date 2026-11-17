@@ -2,9 +2,10 @@
 // against its target in config/perf.ts, and with two builds, whether the second made each one slower. Report-only: it
 // never fails a run on a timing. Reads the raw samples e2e/perf writes, and writes one summary per build, which the main
 // and nightly runs keep on the perf-data branch.
-//   node scripts/perf-report.ts <raw folder> [--base <build> --head <build>] [--markdown <file>] [--summary <folder>]
+//   node scripts/perf-report.ts <raw folder> [--summary <folder>]
+//     [--base <build> --head <build> [--again <second round's raw folder>] [--notes <file>] [--markdown <file>]]
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFAULT_SCENARIO, kpi, KPIS, targetFor } from '../../config/perf.ts';
@@ -61,7 +62,10 @@ export interface Change {
   change: number;
 }
 
-/** Each KPI both builds measured, compared by perf-stats' rule. sync.push is for trends, so it's never compared. */
+/**
+ * Each KPI both builds measured many times, compared by perf-stats' rule. sync.push is for trends, so it's never
+ * compared, and one-a-run numbers such as the heap need the nightly's 14 runs.
+ */
 export function changes(base: readonly Raw[], head: readonly Raw[]): Change[] {
   const out: Change[] = [];
   for (const h of head) {
@@ -70,7 +74,7 @@ export function changes(base: readonly Raw[], head: readonly Raw[]): Change[] {
     for (const [name, values] of Object.entries(h.samples)) {
       const k = kpi(name);
       const before = b.samples[name];
-      if (!k || k.trendOnly || !before?.length || !values.length) continue;
+      if (!k || k.trendOnly || k.kind === 'run' || k.kind === 'build' || !before?.length || !values.length) continue;
       const { verdict, change } = compare(before, values, k.floorMs ?? 0);
       out.push({ kpi: name, platform: h.platform, scenario: h.scenario, base: summarize(before), head: summarize(values), verdict, change });
     }
@@ -78,10 +82,21 @@ export function changes(base: readonly Raw[], head: readonly Raw[]): Change[] {
   return out.sort((a, b) => order({ ...a, ...a.head }, { ...b, ...b.head }));
 }
 
+/** The second round's say: a KPI stays slower or faster only if fresh samples find the same. */
+export function confirm(first: readonly Change[], again: readonly Change[]): Change[] {
+  return first.map((c) => {
+    if (c.verdict === 'unchanged') return c;
+    const second = again.find((a) => a.kpi === c.kpi && a.platform === c.platform && a.scenario === c.scenario);
+    return second && second.verdict === c.verdict ? c : { ...c, verdict: 'unchanged' };
+  });
+}
+
 const percent = (x: number) => `${x > 0 ? '+' : '−'}${Math.round(Math.abs(x) * 100)}%`;
 
 /** The PR comment's table: slower and faster first, the rest folded away. */
-export function markdown(found: readonly Change[], intro: string): string {
+export function markdown(found: readonly Change[], intro: string, options: { noBase?: boolean; notes?: readonly string[] } = {}): string {
+  const footer = [...(options.notes ?? []), 'Report only. To accept a slowdown on purpose, add the `perf-accepted` label and say why under "Performance" in the PR description.'];
+  if (options.noBase) return [`**Performance: no comparison.** The base is from before the performance runner, so only this PR was timed. ${intro}`, '', ...footer].join('\n');
   const slower = found.filter((c) => c.verdict === 'slower');
   const faster = found.filter((c) => c.verdict === 'faster');
   const same = found.filter((c) => c.verdict === 'unchanged');
@@ -93,7 +108,7 @@ export function markdown(found: readonly Change[], intro: string): string {
     '',
     ...(slower.length + faster.length > 0 ? [head, ...[...slower, ...faster].map(row), ''] : []),
     ...(same.length > 0 ? ['<details><summary>Unchanged</summary>', '', head, ...same.map(row), '', '</details>', ''] : []),
-    'Report only. To accept a slowdown on purpose, add the `perf-accepted` label and say why under "Performance" in the PR description.',
+    ...footer,
   ].join('\n');
 }
 
@@ -118,10 +133,13 @@ function main(argv: string[]) {
       writeFileSync(join(out, `${build}.json`), JSON.stringify(rows, null, 1));
     }
   }
-  const [base, head] = [option('--base'), option('--head')];
+  const [base, head, again] = [option('--base'), option('--head'), option('--again')];
   if (base && head) {
-    const found = changes(raws.filter((r) => r.target === base), raws.filter((r) => r.target === head));
-    const text = markdown(found, process.env.PERF_INTRO ?? '');
+    const compared = (from: readonly Raw[]) => changes(from.filter((r) => r.target === base), from.filter((r) => r.target === head));
+    let found = compared(raws);
+    if (again && existsSync(again)) found = confirm(found, compared(readRaw(again)));
+    const notes = option('--notes') && existsSync(option('--notes')!) ? readFileSync(option('--notes')!, 'utf8').split('\n').filter(Boolean) : [];
+    const text = markdown(found, process.env.PERF_INTRO ?? '', { noBase: !raws.some((r) => r.target === base), notes });
     console.log(`\n${text}`);
     const file = option('--markdown');
     if (file) writeFileSync(file, `${text}\n`);

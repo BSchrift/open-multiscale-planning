@@ -19,6 +19,9 @@ const (
 	migrationRevoked      = "legacy_revoked"
 	migrationAccountTaken = "account_taken"
 	migrationDisconnected = "disconnected_meanwhile"
+	// migrationCopyRevoked is a copy marked refused by Google: it stops the person's runs and keeps the fallback from
+	// serving them until they connect again, which replaces it.
+	migrationCopyRevoked = "copy_revoked"
 )
 
 // MigrateLegacy copies the deployment's one connection from before into its person's own, and reports whether their own
@@ -74,6 +77,9 @@ func (g *Google) migrateLegacy(ctx context.Context) (string, error) {
 	if own.RefreshToken != legacy.RefreshToken {
 		// They connected again since: their own is newer, and the legacy one is no longer needed.
 		return migrationSuperseded, nil
+	}
+	if own.Revoked {
+		return migrationCopyRevoked, nil
 	}
 	if err := g.refreshes(ctx, own.RefreshToken); err != nil {
 		if errorCode(err) == ErrorRevoked {

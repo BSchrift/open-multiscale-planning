@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
 import { CALENDAR_ID, getRecord, listRecords, outcomeId, setWeekPick, updateSettings, weekPickId, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { renderScreen } from '../../app/testing';
+import { holdDown, renderScreen } from '../../app/testing';
 import type { HarnessOptions } from '../../app/testing';
 import { placePlanningParams } from '../../components/planning/usePlanning';
 import type { PlanningPlace } from '../../components/planning/usePlanning';
@@ -380,7 +380,7 @@ describe('Week on desktop', () => {
     expect(await screen.findByRole('heading', { name: 'Editing this week' })).toBeVisible();
     // The button pressed has gone, so focus moves to the one that ends editing, and back again after.
     await waitFor(() => expect(screen.getByRole('button', { name: 'Done editing' })).toHaveFocus());
-    expect(screen.getByText(/^Drag or resize anything from now on, or click/)).toBeVisible();
+    expect(screen.getByText(/^Hold anything from now on, then drag to move or resize it, or click/)).toBeVisible();
     // Monday morning has passed.
     expect(screen.queryByRole('group', { name: /^Paint the fence/ })).toBeNull();
 
@@ -549,8 +549,9 @@ describe('To schedule on Week', () => {
   const pointAt = (el: () => Element | null) => Object.defineProperty(document, 'elementFromPoint', { value: () => el(), configurable: true });
   const rect = (el: Element, height: number, top = 0) =>
     vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({ width: 100, height, top, left: 0, right: 100, bottom: top + height, x: 0, y: top, toJSON: () => ({}) });
+  // Held first, as a card or block lifts to drag only after a hold.
   const drag = (el: Element, to: { x: number; y: number }) => {
-    fireEvent.pointerDown(el, { clientX: 10, clientY: 10, button: 0 });
+    holdDown(el, { clientX: 10, clientY: 10 });
     fireEvent.pointerMove(window, { clientX: to.x, clientY: to.y });
     fireEvent.pointerUp(window, { clientX: to.x, clientY: to.y });
   };
@@ -721,7 +722,7 @@ describe('To schedule on Week', () => {
     await waitFor(async () => expect((await live(t, (b) => b.practice_id === 'pr')).map((b) => b.start)).toContain(at('19:00')));
 
     pointAt(() => screen.getByRole('region', { name: 'To schedule' }));
-    fireEvent.pointerDown(screen.getByRole('slider', { name: /^Paint the fence\. Drag/ }), { clientY: 300, button: 0 });
+    holdDown(screen.getByRole('slider', { name: /^Paint the fence\. Hold, then drag/ }), { clientY: 300 });
     fireEvent.pointerMove(window, { clientY: 0 });
     fireEvent.pointerUp(window, { clientY: 0 });
     await waitFor(async () => expect((await block('b4')(t))?.cancelled).toBe(true));
@@ -989,17 +990,19 @@ describe('Week on phone', () => {
   it('editing on the day: a press opens the block, a drag saves on drop, passed time is locked, the bottom edge resizes', async () => {
     const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
-    const handle = () => screen.getByRole('slider', { name: /^Paint the fence\. Drag/ });
+    const handle = () => screen.getByRole('slider', { name: /^Paint the fence\. Hold, then drag/ });
     // jsdom has no layout: the day from 6am to 11pm is drawn 816px tall, 48px an hour.
     const day = document.querySelector('.day')!;
     vi.spyOn(day, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 816, top: 0, left: 0, right: 300, bottom: 816, x: 0, y: 0, toJSON: () => ({}) });
-    const press = (el: Element, dy: number) => {
-      fireEvent.pointerDown(el, { clientY: 300, button: 0 });
+    // Let go before the hold, a press is a tap, wobble and all; a drag is held first.
+    const press = (el: Element, dy: number, held = true) => {
+      if (held) holdDown(el, { clientY: 300 });
+      else fireEvent.pointerDown(el, { clientY: 300, button: 0 });
       if (dy) fireEvent.pointerMove(window, { clientY: 300 + dy });
       fireEvent.pointerUp(window, { clientY: 300 + dy });
     };
 
-    press(await waitFor(handle), 4);
+    press(await waitFor(handle), 4, false);
     const popup = await screen.findByRole('dialog', { name: 'Paint the fence' });
     expect(within(popup).getByRole('region', { name: 'Time block' })).toBeVisible();
     await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
@@ -1012,7 +1015,7 @@ describe('Week on phone', () => {
     press(handle().querySelector('.rz')!, 24);
     await waitFor(async () => expect((await block('b4')(t))?.end).toBe(at('15:30')));
     // Monday morning has passed, so its block is drawn but doesn't move.
-    expect(screen.queryByRole('slider', { name: /^Paint the fence\. Drag/ })).toBeVisible();
+    expect(screen.queryByRole('slider', { name: /^Paint the fence\. Hold, then drag/ })).toBeVisible();
     expect(screen.getAllByText('Paint the fence').length).toBeGreaterThan(1);
   });
 
@@ -1020,7 +1023,7 @@ describe('Week on phone', () => {
     await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('06:15', WED), end: at('06:45', WED), tz: ZONE }, 'b4'); } });
     await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[2]!);
-    const early = await screen.findByRole('slider', { name: /^Paint the fence\. Drag/ });
+    const early = await screen.findByRole('slider', { name: /^Paint the fence\. Hold, then drag/ });
     expect(parseFloat(early.style.top)).toBeGreaterThanOrEqual(0);
   });
 
@@ -1126,8 +1129,8 @@ describe('Week on phone', () => {
       await phone({ seed: async (w) => { await planned(w); await together(w); } });
       await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
       await friday();
-      const plan = await screen.findByRole('slider', { name: /^Plan the week of Nov 9\. Overlaps Plan meals for the week\. Drag/ });
-      const meals = screen.getByRole('slider', { name: /^Plan meals for the week\. Overlaps Plan the week of Nov 9\. Drag/ });
+      const plan = await screen.findByRole('slider', { name: /^Plan the week of Nov 9\. Overlaps Plan meals for the week\. Hold, then drag/ });
+      const meals = screen.getByRole('slider', { name: /^Plan meals for the week\. Overlaps Plan the week of Nov 9\. Hold, then drag/ });
       sideBySide([plan, meals]);
       expect(plan).toHaveAttribute('aria-valuetext', 'Fri Nov 6, 5:30pm to 6:45pm');
       expect(plan.style.top).toBe(meals.style.top);

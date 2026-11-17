@@ -298,6 +298,23 @@ test('closing the window keeps the app running in the tray, and it comes back', 
   expect(await page.evaluate(() => 1 + 1)).toBe(2);
 });
 
+test("the page reads each process's CPU and idle wakeups and the power source, for telemetry, with the window closed too", async () => {
+  const { app: running, page } = await launch();
+  const sample = () => page.evaluate(() => (window.multiscaleElectron as ElectronBridge).energy!.sample());
+  const first = await sample();
+  // The GPU process isn't there on every machine.
+  expect(first.processes!.map((p) => p.process)).toEqual(expect.arrayContaining(['main', 'renderer']));
+  for (const p of first.processes!) {
+    expect(p.cpuPercent).toBeGreaterThanOrEqual(0);
+    expect(p.idleWakeupsPerSecond).toBeGreaterThanOrEqual(0);
+  }
+  expect(typeof first.power.charging).toBe('boolean');
+  expect(['unknown', 'nominal', 'fair', 'serious', 'critical']).toContain(first.power.thermal);
+  expect(first.windowVisible).toBe(true);
+  await running.evaluate(({ BrowserWindow }) => BrowserWindow.fromId(1)!.close());
+  await expect.poll(async () => (await sample()).windowVisible).toBe(false);
+});
+
 
 test('Appearance in Settings sets the native theme and the window background, and the next launch keeps it', async () => {
   let { app: running, page } = await launch();

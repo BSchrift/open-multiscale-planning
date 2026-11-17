@@ -22,7 +22,7 @@ import { createFiles } from './files';
 import { perf } from './perf';
 import type { FileBytes, FilesApi } from './files';
 import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
-import type { Diagnostics } from './telemetry';
+import type { Diagnostics, Energy } from './telemetry';
 import { apiPost, apiRequest, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
 import type { Reminder } from './types';
@@ -184,6 +184,7 @@ export function startAppSync(
     files: FileBytes & { clear(): Promise<void> };
     kind?: string;
     diagnostics?: Diagnostics;
+    energy?: Energy;
   },
   clock: Clock,
   config: AppConfig,
@@ -306,6 +307,7 @@ export function startAppSync(
             ...(device ? { 'device.id': device } : {}),
           },
           ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
+          ...(platform.energy ? { energy: platform.energy } : {}),
           ...(options.updates ? { updates: options.updates } : {}),
           syncs: () => {
             const taken = synced;

@@ -28,8 +28,8 @@ const (
 	SecretClientID     = "google/client-id"
 	SecretClientSecret = "google/client-secret"
 	SecretState        = "google/state-secret"
-	// SecretRefreshToken is the deployment's one connection from before each person had their own. It is read only as a
-	// fallback, for the person it names, until the migration has copied it to their own connection.
+	// SecretRefreshToken is the deployment's one connection from before each person had their own, which the migration
+	// release copied to its person's own. It is read only to delete it.
 	SecretRefreshToken = "google/refresh-token"
 
 	// StateTTL is how long a consent link works.
@@ -105,9 +105,6 @@ type Connections interface {
 	// stored is still previous, as Peek read it, or nothing for a zero previous. It returns errConnectionChanged if not,
 	// and api.ErrAccountTaken when someone else holds the account.
 	Put(ctx context.Context, conn connection, previous connection) error
-	// PutNew stores conn as Put does, only if its person has no connection of their own, and returns its sealed token as
-	// stored, for a change to that copy alone. It returns errConnectionChanged if they have one.
-	PutNew(ctx context.Context, conn connection) ([]byte, error)
 	// MarkRevoked records that Google refused conn's token, if conn is still what's stored.
 	MarkRevoked(ctx context.Context, conn connection) error
 	// Delete removes conn and releases its account. It succeeds when there's nothing to remove, and returns
@@ -129,7 +126,9 @@ func accountID(address string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// legacyConnection reads the deployment's one connection from before.
+// legacyConnection reads the deployment's one connection from before, for its deletion.
+//
+// shortcut: remove it, with retireLegacy and the grants on the parameter, once every deployment logs it retired.
 func (g *Google) legacyConnection(ctx context.Context) (connection, error) {
 	var conn connection
 	raw, err := g.Secrets.Get(ctx, SecretRefreshToken)
@@ -144,50 +143,9 @@ func (g *Google) legacyConnection(ctx context.Context) (connection, error) {
 	return conn, nil
 }
 
-// connectionOf returns sub's connection: their own, else the legacy one if it is theirs, else ErrNotConnected. The
-// fallback lets the worker keep running for the person connected before per-person connections, until the migration has
-// copied theirs, and also when their own won't open, which is logged.
-func (g *Google) connectionOf(ctx context.Context, sub string) (connection, error) {
-	conn, ownErr := g.Connections.Get(ctx, sub)
-	if ownErr == nil {
-		return conn, nil
-	}
-	legacy, err := g.legacyConnection(ctx)
-	if err == nil && legacy.Sub == sub {
-		if !errors.Is(ownErr, ErrNotConnected) {
-			g.Log.Info("calendar_connection_unreadable", append([]any{"user", obs.HashSub(sub), "fallback", "legacy"}, awsError(ownErr)...)...)
-		}
-		return legacy, nil
-	}
-	if !errors.Is(ownErr, ErrNotConnected) {
-		return connection{}, ownErr
-	}
-	if errors.Is(err, ErrNoSecret) || err == nil {
-		return connection{}, ErrNotConnected
-	}
-	return connection{}, err
-}
-
-// connected reports whether sub has a connection to run, their own or the legacy one, without opening a token.
+// connected reports whether sub has a connection to run, without opening a token.
 func (g *Google) connected(ctx context.Context, sub string) (bool, error) {
-	legacy, err := g.legacyConnection(ctx)
-	if err != nil && !errors.Is(err, ErrNoSecret) {
-		return false, err
-	}
-	return g.connectedBeside(ctx, sub, legacy)
-}
-
-// connectedBeside is connected, with the legacy connection already read, so many people cost one read of it.
-func (g *Google) connectedBeside(ctx context.Context, sub string, legacy connection) (bool, error) {
-	own, err := g.Connections.Has(ctx, sub)
-	if err != nil || own {
-		return own, err
-	}
-	if _, err := g.Connections.Peek(ctx, sub); !errors.Is(err, ErrNotConnected) {
-		// Theirs, refused by Google, comes before the legacy one.
-		return false, err
-	}
-	return legacy.Sub == sub, nil
+	return g.Connections.Has(ctx, sub)
 }
 
 // awsError names an AWS failure by its code, such as AccessDeniedException, for a log line: never its message.
@@ -481,7 +439,7 @@ func (g *Google) deleteConnection(ctx context.Context, sub, msg string, attrs []
 			return err
 		}
 	}
-	// A connection made meanwhile, by a consent or the migration's copy of the legacy one, goes round again.
+	// A connection made meanwhile, by a consent, goes round again.
 	if _, err := g.Connections.Peek(ctx, sub); !errors.Is(err, ErrNotConnected) {
 		if err == nil {
 			return errConnectionChanged

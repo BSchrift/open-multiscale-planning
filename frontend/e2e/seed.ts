@@ -178,7 +178,8 @@ export async function overNowLine(line: Locator, x: number): Promise<{ at: strin
 export async function holdMouse(page: Page, at: { x: number; y: number }): Promise<void> {
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
-  await expect(page.locator('.lifted').first()).toBeVisible();
+  // What's under the mouse, since a block dropped a moment ago stays lifted until its new time is saved.
+  await expect.poll(() => page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.lifted'), at)).toBe(true);
 }
 
 /**

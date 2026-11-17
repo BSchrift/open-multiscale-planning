@@ -27,6 +27,9 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    signedInAt: vi.fn(async (): Promise<number | null> => null),
+    exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
+    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again'> => 'deleted'),
     files: noFiles(),
   } satisfies AppSync;
 }
@@ -96,6 +99,112 @@ describe('Settings', () => {
     await renderScreen('settings', { layout: 'phone' });
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     expect(screen.queryByRole('checkbox', { name: 'Single-key shortcuts in Process' })).toBeNull();
+  });
+
+  describe('your data and your account', () => {
+    const NOW = Date.parse('2026-11-02T20:00:00Z');
+
+    it('signed in, offers Export my data and Delete my account and data; signed out, neither', async () => {
+      const t = await renderScreen('settings', { sync: fakeSync() });
+      await syncState(t, '2026-11-02T19:30:00Z', null);
+      const account = section('Account');
+      expect(await within(account).findByRole('button', { name: 'Export my data' })).toBeVisible();
+      await userEvent.click(within(account).getByRole('button', { name: 'Delete my account and data' }));
+      await waitFor(() => expect(t.nav().route).toMatchObject({ area: 'settings', params: { page: 'delete-account' } }));
+      cleanup();
+      const u = await renderScreen('settings', { sync: fakeSync() });
+      await syncState(u, null, 'sign_in_expired');
+      await within(section('Account')).findByText('Signed out');
+      expect(within(section('Account')).queryByRole('button', { name: 'Export my data' })).toBeNull();
+      expect(within(section('Account')).queryByRole('button', { name: 'Delete my account and data' })).toBeNull();
+    });
+
+    it("downloads the export the server built, the device's own way", async () => {
+      const sync = fakeSync();
+      const t = await renderScreen('settings', { sync });
+      const openDownload = vi.fn(async () => undefined);
+      Object.assign(t.platform, { openDownload });
+      await syncState(t, '2026-11-02T19:30:00Z', null);
+      await userEvent.click(await within(section('Account')).findByRole('button', { name: 'Export my data' }));
+      expect(sync.exportData).toHaveBeenCalledOnce();
+      await waitFor(() => expect(openDownload).toHaveBeenCalledWith('https://files.example.test/export.zip'));
+      expect(await screen.findByText('Your export is ready and downloading.')).toBeVisible();
+    });
+
+    it('says why an export failed', async () => {
+      const { ExportError } = await import('../../../core/account');
+      const sync = fakeSync();
+      sync.exportData.mockRejectedValueOnce(new ExportError('unavailable'));
+      const t = await renderScreen('settings', { sync });
+      await syncState(t, '2026-11-02T19:30:00Z', null);
+      await userEvent.click(await within(section('Account')).findByRole('button', { name: 'Export my data' }));
+      expect(await screen.findByText("Export isn't available on this server.")).toBeVisible();
+    });
+
+    it('a deleted account says so, and offers Sign in', async () => {
+      const t = await renderScreen('settings', { sync: fakeSync() });
+      await syncState(t, null, 'account_deleted');
+      const account = section('Account');
+      expect(await within(account).findByText('Account deleted')).toBeVisible();
+      expect(within(account).getByText('Your account and its data were deleted, and erased from this device.')).toBeVisible();
+      expect(within(account).getByRole('button', { name: 'Sign in' })).toBeVisible();
+    });
+
+    describe.each(['desktop', 'phone'] as const)('Delete my account and data, on %s', (layout) => {
+      const open = async (signedInAt: number | null) => {
+        const sync = fakeSync();
+        sync.signedInAt.mockResolvedValue(signedInAt);
+        const t = await renderScreen('settings', { sync, layout, params: { page: 'delete-account' } });
+        await screen.findByRole('heading', { level: 1, name: 'Delete my account and data' });
+        return { sync, t };
+      };
+      const remove = () => screen.getByRole('button', { name: 'Delete my account and data' });
+
+      it("says what goes, that it can't be undone and how long backups keep it, and offers an export first", async () => {
+        await open(NOW - 60_000);
+        expect(screen.getByRole('heading', { level: 1, name: 'Delete my account and data' })).toHaveFocus();
+        expect(screen.getByText(/It can't be undone\./)).toBeVisible();
+        expect(screen.getByText(/Your goals, projects, milestones, tasks, practices, notes, time blocks/)).toBeVisible();
+        expect(screen.getByText(/Your Google Calendar connection/)).toBeVisible();
+        expect(screen.getByText(/Copies in Multiscale's backups are kept for 35 days/)).toBeVisible();
+        const sections = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+        expect(sections).toEqual(["What's deleted", '1. Export your data first', '2. Sign in again', '3. Delete']);
+        expect(within(screen.getByRole('region', { name: '1. Export your data first' })).getByRole('button', { name: 'Export my data' })).toBeVisible();
+      });
+
+      it('needs a sign-in of the last few minutes first', async () => {
+        const { sync } = await open(NOW - 11 * 60_000);
+        await userEvent.type(screen.getByRole('textbox', { name: 'Type DELETE to confirm' }), 'DELETE');
+        expect(remove()).toBeDisabled();
+        await userEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
+        expect(sync.signIn).toHaveBeenCalledWith({ again: true });
+      });
+
+      it('then needs DELETE typed, and deletes', async () => {
+        const { sync } = await open(NOW - 60_000);
+        expect(screen.getByText(/signed in recently enough to delete/)).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Sign in again' })).toBeNull();
+        const field = screen.getByRole('textbox', { name: 'Type DELETE to confirm' });
+        await userEvent.type(field, 'delete');
+        expect(remove()).toBeDisabled();
+        await userEvent.clear(field);
+        await userEvent.type(field, 'DELETE');
+        expect(remove()).toBeEnabled();
+        await userEvent.click(remove());
+        expect(sync.deleteAccount).toHaveBeenCalledOnce();
+      });
+
+      it("asks for a sign-in again when the server finds the last one too old, and says when it's offline", async () => {
+        const { SyncError } = await import('../../../core/sync');
+        const { sync } = await open(NOW - 60_000);
+        sync.deleteAccount.mockResolvedValueOnce('sign_in_again').mockRejectedValueOnce(new SyncError('offline'));
+        await userEvent.type(screen.getByRole('textbox', { name: 'Type DELETE to confirm' }), 'DELETE');
+        await userEvent.click(remove());
+        expect(await screen.findByText('Sign in again first: your last sign-in was too long ago.')).toBeVisible();
+        await userEvent.click(remove());
+        expect(await screen.findByText("You're offline. Connect to delete your account.")).toBeVisible();
+      });
+    });
   });
 
   describe('account and sync', () => {

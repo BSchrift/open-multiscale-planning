@@ -10,7 +10,11 @@
 //
 // On the Mac it also syncs when the computer wakes from sleep or its screen unlocks, so a laptop opened in the morning
 // shows what changed overnight without waiting for a click on the window or the 5-minute timer.
+//
+// A sync refused because the account was deleted, on this device or another, erases this device's copy and signs it
+// out, and Settings says so until someone signs in.
 
+import { deleteAccount, exportData } from './account';
 import type { AppConfig } from './appConfig';
 import { createAuth, tokenSubject } from './auth';
 import type { Clock } from './clock';
@@ -58,6 +62,8 @@ export function createSyncRunner(deps: {
   afterSync?(): Promise<void>;
   /** Calls back when the computer wakes from sleep or its screen unlocks. Only on the Mac. */
   onWake?(listener: () => void): () => void;
+  /** Erases this device's copy once a sync finds the account deleted. */
+  onAccountDeleted?(): Promise<void>;
 }) {
   const { db, clock, lifecycle, send } = deps;
   let running: Promise<void> | null = null;
@@ -89,7 +95,11 @@ export function createSyncRunner(deps: {
     } catch (err) {
       perf.cancel('sync.pull');
       if (!(err instanceof SyncError)) console.error('Sync failed', err);
-      await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
+      const code = err instanceof SyncError ? err.code : 'error';
+      if (code === 'account_deleted') await deps.onAccountDeleted?.().catch((e: unknown) => console.error('Erasing a deleted account failed', e));
+      // Signed out with its account deleted, it says so until someone signs in, rather than just signed out.
+      if (code === 'sign_in_expired' && (await getMeta(db, META.lastSyncError).catch(() => null)) === 'account_deleted') return;
+      await recordFailure(db, code).catch((e: unknown) => console.error('Could not record sync failure', e));
       return;
     }
     await expire(() => expireLocal(db, clock));
@@ -187,8 +197,11 @@ export function startAppSync(
   },
   clock: Clock,
   config: AppConfig,
-  /** updates is the app's updater, whose checks telemetry reports. */
-  options: { fetch?: FetchFn; updates?: Updater } = {},
+  /**
+   * updates is the app's updater, whose checks telemetry reports. forget erases what screens keep on this device, such as
+   * a plan in progress, when the account it belongs to is deleted.
+   */
+  options: { fetch?: FetchFn; updates?: Updater; forget?: () => void } = {},
 ) {
   // WebKit refuses a request started while the page unloads, before the next page shows, and logs it as an error the
   // page can't catch ("due to access control checks"). So none starts then: each fails as offline, as one the unload
@@ -212,6 +225,14 @@ export function startAppSync(
     tokens: platform.tokens,
     openExternal: (url) => platform.openExternal(url),
     fetch: fetchFn,
+    accountGone: async (token) => {
+      const res = await fetchFn(`${config.apiUrl}/account/status`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+      return res.ok && ((await res.json().catch(() => null)) as { deleted?: unknown } | null)?.deleted === true;
+    },
   });
   const api = { apiUrl: config.apiUrl, auth, fetch: fetchFn };
   const httpSend = createHttpSend(api);
@@ -239,7 +260,43 @@ export function startAppSync(
     window.addEventListener('online', listener);
     return () => window.removeEventListener('online', listener);
   };
-  const runner = createSyncRunner({ db: platform.db, clock, lifecycle: platform.lifecycle, onOnline, send, afterSync: () => files.run(), onWake: platform.onWake });
+  /** Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text and reminders. */
+  const eraseLocal = async (account: string | null) => {
+    const { db } = platform;
+    await db.transaction(async (tx) => {
+      await tx.run('DELETE FROM records');
+      await tx.run('DELETE FROM outbox');
+      await tx.run('DELETE FROM meta WHERE key NOT IN (:schema, :minApp, :device)', {
+        schema: META.schemaVersion,
+        minApp: META.minAppSchema,
+        device: META.deviceId,
+      });
+      if (account) await setMeta(tx, META.account, account);
+    });
+    db.notifyChanged({ source: 'remote' });
+    await platform.files.clear();
+    const share = platform.shareImport;
+    if (share) await share.remove((await share.peek()).map((item) => item.id));
+    // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when
+    // tapped; remove delivered ones too if that matters.
+    await platform.notifications.replaceAll([]);
+  };
+  /** A deleted account: signed out, and nothing of it left here. */
+  const eraseDeleted = async () => {
+    await auth.expire();
+    await eraseLocal(null);
+    options.forget?.();
+  };
+  const runner = createSyncRunner({
+    db: platform.db,
+    clock,
+    lifecycle: platform.lifecycle,
+    onOnline,
+    send,
+    afterSync: () => files.run(),
+    onWake: platform.onWake,
+    onAccountDeleted: eraseDeleted,
+  });
   const calendarPost = async (path: string) => {
     const res = await apiPost(api, path);
     if (!res.ok) throw new SyncError('error');
@@ -313,8 +370,12 @@ export function startAppSync(
         if (leaving === undefined) console.error('Telemetry did not start', err);
       });
   }
+  const accountRequest = (method: 'GET' | 'POST', path: string, body?: unknown) => apiRequest(api, method, path, body);
   return {
-    signIn: () => auth.signIn(),
+    /** again asks the person to sign in even if the browser still is, as deleting the account needs. */
+    signIn: (options?: { again?: boolean }) => auth.signIn(options),
+    /** When the person last signed in, in epoch milliseconds, or null when signed out. */
+    signedInAt: () => auth.signedInAt(),
     /** Signs this device out, and shows the sign-in prompt. Local data and the outbox stay, and stay this account's. */
     async signOut(): Promise<void> {
       await auth.signOut();
@@ -329,36 +390,36 @@ export function startAppSync(
     async eraseAndSignIn(): Promise<void> {
       const account = tokenSubject(await auth.accessToken());
       if (!account) throw new SyncError('error');
-      const { db } = platform;
       // A sync that read the old data before the erase must not send it once the device is this account's. So none
       // starts, and any under way finishes first, refused like every sync since this sign-in.
       runner.stop();
       try {
         await runner.syncNow();
-        await db.transaction(async (tx) => {
-          await tx.run('DELETE FROM records');
-          await tx.run('DELETE FROM outbox');
-          await tx.run('DELETE FROM meta WHERE key NOT IN (:schema, :minApp, :device)', {
-            schema: META.schemaVersion,
-            minApp: META.minAppSchema,
-            device: META.deviceId,
-          });
-          await setMeta(tx, META.account, account);
-        });
-        db.notifyChanged({ source: 'remote' });
         // The other account's photos and files too.
-        await platform.files.clear();
-        const share = platform.shareImport;
-        if (share) await share.remove((await share.peek()).map((item) => item.id));
-        // shortcut: notifications already showing stay in Notification Center until dismissed, and do nothing when
-        // tapped; remove delivered ones too if that matters.
-        await platform.notifications.replaceAll([]);
+        await eraseLocal(account);
       } finally {
         // Syncs straight away, which brings the signed-in account's data.
         runner.start();
       }
     },
     syncNow: runner.syncNow,
+    /** The link to an export of everything the account has, once the server has built it. Throws ExportError or SyncError. */
+    exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }),
+    /**
+     * Deletes the account, once the person has typed DELETE, then erases this device's copy and signs it out. Resolves
+     * to 'sign_in_again' when their sign-in is too old for it, changing nothing. Throws SyncError.
+     */
+    async deleteAccount(): Promise<'deleted' | 'sign_in_again'> {
+      if ((await deleteAccount(accountRequest)) === 'sign_in_again') return 'sign_in_again';
+      // The next sync is refused as deleted, which erases this device's copy. It runs after any sync under way, so
+      // nothing that one pulls comes back after the erase.
+      await runner.syncNow();
+      if ((await getMeta(platform.db, META.lastSyncError)) !== 'account_deleted') {
+        await eraseDeleted();
+        await recordFailure(platform.db, 'account_deleted');
+      }
+      return 'deleted';
+    },
     /** Attachments' uploads and downloads, through the API. */
     files,
     /** Opens Google's consent page in the browser. The connection arrives in the calendar record by sync. */

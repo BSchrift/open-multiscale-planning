@@ -34,20 +34,30 @@ export interface AuthDeps {
   };
   openExternal(url: string): Promise<void>;
   fetch: FetchFn;
+  /**
+   * Asks whether the account a lapsed access token was issued to has been deleted, once the identity provider refuses
+   * its refresh. Never throws: anything but a yes is a no.
+   */
+  accountGone?(token: string): Promise<boolean>;
 }
 
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const randomString = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 
-/** A text claim from a token, or null if it can't be read. Not verified: the server checks every token. */
-function claim(token: string, name: string): string | null {
+/** A claim from a token, or undefined if it can't be read. Not verified: the server checks every token. */
+function rawClaim(token: string, name: string): unknown {
   try {
     const payload = token.split('.')[1] ?? '';
-    const value = (JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown> | null)?.[name];
-    return typeof value === 'string' && value ? value : null;
+    return (JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown> | null)?.[name];
   } catch {
-    return null;
+    return undefined;
   }
+}
+
+/** A text claim from a token, or null if it can't be read. */
+function claim(token: string, name: string): string | null {
+  const value = rawClaim(token, name);
+  return typeof value === 'string' && value ? value : null;
 }
 
 /** The user an access token names, from its sub claim. This only tells one account's sign-in from another's on this device. */
@@ -101,14 +111,22 @@ export function createAuth(deps: AuthDeps) {
       return await requestTokens({ grant_type: 'refresh_token', refresh_token: session.refresh_token }, session);
     } catch (err) {
       // Only a refused token ends the session: being offline must not sign anyone out.
-      if (err instanceof SyncError && err.code === 'sign_in_expired') await expire();
+      if (err instanceof SyncError && err.code === 'sign_in_expired') {
+        await expire();
+        // Refused because the account was deleted on another device, while this one's token lapsed: it can't sync to
+        // find out, so it asks with the lapsed token.
+        if (await deps.accountGone?.(session.access_token).catch(() => false)) throw new SyncError('account_deleted');
+      }
       throw err;
     }
   }
 
   return {
-    /** Sends the user to the browser. The result arrives later through handleRedirect. */
-    async signIn(): Promise<void> {
+    /**
+     * Sends the user to the browser. The result arrives later through handleRedirect. again asks them to sign in even
+     * when the browser is still signed in, as deleting an account needs a sign-in of the last few minutes.
+     */
+    async signIn(options: { again?: boolean } = {}): Promise<void> {
       const verifier = randomString();
       const state = randomString();
       await tokens.set(PENDING_KEY, JSON.stringify({ verifier, state }));
@@ -122,6 +140,7 @@ export function createAuth(deps: AuthDeps) {
         code_challenge: base64url(new Uint8Array(digest)),
         code_challenge_method: 'S256',
       });
+      if (options.again) query.set('prompt', 'login');
       await deps.openExternal(`${deps.authUrl}/oauth2/authorize?${query}`);
     },
 
@@ -155,6 +174,13 @@ export function createAuth(deps: AuthDeps) {
 
     /** The signed-in account's email, or null when signed out or the identity provider didn't say. */
     email: async () => (await readSession())?.email ?? null,
+
+    /** When the person last signed in, in epoch milliseconds, from the token's auth_time, which a refresh keeps. */
+    async signedInAt(): Promise<number | null> {
+      const session = await readSession();
+      const at = session ? rawClaim(session.access_token, 'auth_time') : null;
+      return typeof at === 'number' && at > 0 ? at * 1000 : null;
+    },
 
     /** Forgets the tokens. Local data stays. */
     expire,

@@ -47,6 +47,9 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    signedInAt: vi.fn(async (): Promise<number | null> => null),
+    exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
+    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again'> => 'deleted'),
     files: noFiles(),
   } satisfies AppSync;
 }

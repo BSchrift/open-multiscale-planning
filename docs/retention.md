@@ -114,12 +114,19 @@ is safe because everything goes by `expires_at`, not by whether the item is gone
 
 ### Devices
 
-- A device that still holds a good token gets `401 {"error": "account_deleted"}` from its next sync.
-- A device whose token has lapsed gets its refresh refused, since the sign-in is gone. It can then ask
+- A device that still holds a good token gets `401 {"error": "account_deleted"}` from its next sync, at launch or later.
+  It signs out and erases its copy: its records, outbox and sync state, its photos and files, text shared to it, its
+  reminders, and what screens keep in local storage, keeping only the device's own choices such as its appearance.
+  It then starts over as a new device, whose first screen says the account was deleted, and so does Settings.
+- A device whose token has lapsed gets its refresh refused, since the sign-in is gone. It then asks
   `POST /account/status` with the lapsed token, which the gateway can't check, so the API checks its signature itself
   against the user pool's keys, and its issuer, client and use, but not its expiry. The account is gone if its mark is
-  there or the pool has no sign-in with that sub. Asked about the token's own sub only, it tells a stranger nothing.
+  there or the pool has no sign-in with that sub. Asked about the token's own sub only, it tells a stranger nothing. A
+  yes erases the device's copy as above.
+- The device that deleted the account erases its copy as soon as the server has taken the request.
 - An app from before this gets the same `401` from sync, and its refresh is refused, so it shows the signed-out state.
+  It keeps its copy until someone signs in on it, which a deleted account can't.
+- A device that was signed out by hand before the deletion keeps its copy: it holds no token to ask with.
 
 ### Backups
 
@@ -163,4 +170,4 @@ isn't versioned, so a deleted file is gone at once, and the user pool keeps no c
 | Local integration | `backend/cmd/local` removes an attachment's file with its record through the cleanup; `backend/integration/retention_test.go` moves the local clock past each period, and `frontend/src/core/retention.stack.test.ts` does the same with the app's own client, in `make test-integration` |
 | Staging | `make test-retention`, also part of `make test-deployed` on staging: the same app-client suite in real time, about 50 minutes |
 | End to end | `frontend/e2e/settings.spec.ts` opens the Data retention page at desktop and phone sizes |
-| Export and deletion | `backend/internal/account`: every record type and note in the export, its link once, a failed or stalled export, safe names; a deletion's completeness, other people untouched, an interrupted deletion carried on, late writes removed, the mark kept until tokens lapse, a job for someone who didn't ask doing nothing, counts without who, and lapsed tokens' signatures. `backend/internal/api`: the sign-in age, the typed confirmation, the refusals of a deleted account and of anyone without a token. `backend/integration/account_test.go`, in `make test-integration`: the same through the local stack, with a second user and a second device |
+| Export and deletion | `backend/internal/account`: every record type and note in the export, its link once, a failed or stalled export, safe names; a deletion's completeness, other people untouched, an interrupted deletion carried on, late writes removed, the mark kept until tokens lapse, a job for someone who didn't ask doing nothing, counts without who, and lapsed tokens' signatures. `backend/internal/api`: the sign-in age, the typed confirmation, the refusals of a deleted account and of anyone without a token. `backend/integration/account_test.go`, in `make test-integration`: the same through the local stack, with a second user and a second device; `frontend/src/core/account.stack.test.ts`, also there: every type in the app's `RECORD_TYPES` comes back in an export, and a deletion is found by a good token and a lapsed one. On the device: `syncRunner.test.ts` erases a deleted account's copy, `settings.test.tsx` checks the page's safeguards, `e2e/stack/account.spec.ts` runs both flows at desktop and phone sizes with a second device, and `e2e/compat` has a released app show it's signed out |

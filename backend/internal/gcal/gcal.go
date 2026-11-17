@@ -209,9 +209,13 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 	return g.retry(ctx, sub, requestID)
 }
 
-// Dispatch starts a run for every connected person, each at its own offset within spreadOver.
+// Dispatch starts a run for every connected person, each at its own offset within spreadOver. The schedule's first copies
+// the legacy connection into its person's own, if it's still to do; its outcome is logged, and never stops the runs.
 func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error {
 	start := g.Now()
+	if trigger == "schedule" {
+		g.MigrateLegacy(ctx, requestID)
+	}
 	var jobs []Job
 	err := g.Connections.Each(ctx, func(sub string) error {
 		jobs = append(jobs, Job{Sub: sub, Trigger: trigger, Delay: offset(sub)})

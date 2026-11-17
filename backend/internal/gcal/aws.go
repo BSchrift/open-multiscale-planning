@@ -202,6 +202,14 @@ func (c *DynamoConnections) Holder(ctx context.Context, account string) (string,
 }
 
 func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous string) error {
+	return c.put(ctx, conn, previous, false)
+}
+
+func (c *DynamoConnections) PutNew(ctx context.Context, conn connection) error {
+	return c.put(ctx, conn, "", true)
+}
+
+func (c *DynamoConnections) put(ctx context.Context, conn connection, previous string, onlyNew bool) error {
 	sealed, err := c.KMS.Encrypt(ctx, &kms.EncryptInput{KeyId: aws.String(c.KeyID), Plaintext: []byte(conn.RefreshToken), EncryptionContext: c.tokenContext(conn.Sub)})
 	if err != nil {
 		// Only the error's type: its request held the token.
@@ -211,6 +219,9 @@ func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous s
 	item["token"] = &dynamotypes.AttributeValueMemberB{Value: sealed.CiphertextBlob}
 	item["connected_at"] = &dynamotypes.AttributeValueMemberS{Value: instant(c.Now())}
 	writes := []dynamotypes.TransactWriteItem{{Put: &dynamotypes.Put{TableName: aws.String(c.Table), Item: item}}}
+	if onlyNew {
+		writes[0].Put.ConditionExpression = aws.String("attribute_not_exists(pk)")
+	}
 	if conn.Account != "" {
 		item["account"] = &dynamotypes.AttributeValueMemberS{Value: conn.Account}
 		claim := accountKey(conn.Account)
@@ -226,7 +237,10 @@ func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous s
 		writes = append(writes, c.release(previous, conn.Sub))
 	}
 	_, err = c.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: writes})
-	if failed, _ := cancelledAt(err); failed == 1 {
+	switch failed, _ := cancelledAt(err); failed {
+	case 0:
+		return errConnectionChanged
+	case 1:
 		return api.ErrAccountTaken
 	}
 	if err != nil {

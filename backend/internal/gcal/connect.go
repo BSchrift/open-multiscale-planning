@@ -93,6 +93,9 @@ type Connections interface {
 	// Put stores conn as its person's connection and claims its Google account, releasing previous, the account they held
 	// before, if it's another. It returns api.ErrAccountTaken when someone else holds the account.
 	Put(ctx context.Context, conn connection, previous string) error
+	// PutNew stores conn as Put does, only if its person has no connection of their own, and returns errConnectionChanged
+	// if they have one.
+	PutNew(ctx context.Context, conn connection) error
 	// Delete removes conn and releases its account. It succeeds when there's nothing to remove, and returns
 	// errConnectionChanged when conn was replaced since it was read, leaving the new one.
 	Delete(ctx context.Context, conn connection) error

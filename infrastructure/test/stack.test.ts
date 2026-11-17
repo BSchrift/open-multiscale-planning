@@ -318,10 +318,11 @@ describe("people's Google tokens", () => {
 
   // A decrypt may use any key in the account, so tokens sealed by a key a reverted release left behind still open, but
   // only this environment's tokens, sealed for this purpose.
-  it('may be encrypted only by the API with its key, decrypted by both, only for this environment and purpose', () => {
+  // The worker encrypts too, while it copies the legacy connection into its person's own.
+  it('may be encrypted with its key and decrypted by both, only for this environment and purpose', () => {
     const kms = (fn: string) => policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('kms:')));
     assert.deepEqual(kms('Api').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
-    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action), ['kms:Decrypt']);
+    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
     const condition = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': 'staging' } };
     for (const s of [...kms('Api'), ...kms('Calendar')]) {
       assert.deepEqual(s.Condition, condition);

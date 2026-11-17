@@ -329,9 +329,10 @@ export class MultiscaleStack extends Stack {
     }));
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
-    // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
-    // consent, with this key; both open them, only this environment's and for that purpose, with whichever key in the
-    // account sealed them, so tokens sealed before a reverted release made a new key still open.
+    // claim on a Google account is a Put, which the data actions above already allow. Both seal tokens with this key, the
+    // API at consent and the worker when it copies the legacy connection, and open them, only this environment's and for
+    // that purpose, with whichever key in the account sealed them, so tokens sealed before a reverted release made a new
+    // key still open.
     const connectionItems = new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
       resources: [table.tableArn],
@@ -341,7 +342,8 @@ export class MultiscaleStack extends Stack {
       fn.addToRolePolicy(connectionItems);
       calendarQueue.grantSendMessages(fn);
     }
-    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    // shortcut: the worker's Encrypt is for the migration alone; it goes with the migration, in the contract release.
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     const anyKey = this.formatArn({ service: 'kms', resource: 'key', resourceName: '*' });
     for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [anyKey], conditions: tokenPurpose }));
 

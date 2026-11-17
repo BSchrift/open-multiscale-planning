@@ -178,6 +178,16 @@ func (m *memConnections) Put(_ context.Context, conn connection, previous string
 	return nil
 }
 
+func (m *memConnections) PutNew(ctx context.Context, conn connection) error {
+	m.mu.Lock()
+	_, exists := m.conns[conn.Sub]
+	m.mu.Unlock()
+	if exists {
+		return errConnectionChanged
+	}
+	return m.Put(ctx, conn, "")
+}
+
 func (m *memConnections) Delete(_ context.Context, conn connection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

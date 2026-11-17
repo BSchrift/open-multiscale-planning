@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,7 +162,11 @@ func TestDispatchWithNoOneConnectedStillCountsAsTheWorkerRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var line map[string]any
-	json.Unmarshal(w.logs.Bytes(), &line)
+	for _, raw := range strings.Split(strings.TrimSpace(w.logs.String()), "\n") {
+		if json.Unmarshal([]byte(raw), &line); line["msg"] == "calendar_dispatch" {
+			break
+		}
+	}
 	if line["msg"] != "calendar_dispatch" || line["people"] != float64(0) || line["CalendarEventsChanged"] != float64(0) {
 		t.Fatalf("%s", w.logs)
 	}

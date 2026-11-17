@@ -54,7 +54,8 @@ async function moveAttachments(w: Writer, from: { task_id: string } | { memo_id:
 
 /**
  * Saves an Inbox item as a note, in one change: a note with its title and description, its attachments moved onto the
- * note, and the item deleted as Delete does, giving up any block it holds. Returns the exact reverse.
+ * note, and the item deleted as Delete does. Every block it holds that wasn't started comes off the calendar, earlier
+ * today's too, since a note is never timed; one worked on stays as time worked. Returns the exact reverse.
  */
 export async function saveAsNote(w: Writer, taskId: string, clock: Clock): Promise<PlanChange> {
   const task = await getRecord(w.sql, 'task', taskId);
@@ -63,8 +64,13 @@ export async function saveAsNote(w: Writer, taskId: string, clock: Clock): Promi
   // The attachments first, so the item's delete has none left to pass its expiry on to.
   const moved = await applyPlanChange(w, { writes: await moveAttachments(w, { task_id: taskId }, { memo_id: id, task_id: null }) });
   const closed = await closeTask(w, taskId, 'deleted', clock);
+  const past = await w.sql.all<{ id: string }>(
+    'SELECT id FROM time_block WHERE task_id = :id AND started_at IS NULL AND cancelled IS NOT 1 AND deleted_at IS NULL',
+    { id: taskId },
+  );
+  const freed = await applyPlanChange(w, { writes: past.map((b): RecordWrite => ({ type: 'time_block', id: b.id, fields: { cancelled: true } })) });
   const made = await put(w, id, { ...clamped({ title: task.title, body: task.notes ?? null }), saved_on: today(clock), deleted_at: null }, clock);
-  return { writes: [made, ...closed.writes, ...moved.writes] };
+  return { writes: [made, ...freed.writes, ...closed.writes, ...moved.writes] };
 }
 
 /** Saves a note's title and description as edited, cut to what the server takes. Returns the exact reverse. */

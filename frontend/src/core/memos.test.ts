@@ -73,6 +73,20 @@ describe('a note', () => {
     expect((await getRecord(db, 'memo', id))?.deleted_at).toBe(NOW);
   });
 
+  it("takes the item's blocks off the calendar in the same change, past and future, and its one Undo puts them back", async () => {
+    await transact(db, clock, async (w) => {
+      // Held for later today, held for earlier today and never started, and one worked on, which stays as time worked.
+      await w.create('time_block', { task_id: 'boiler', start: '2026-11-17T17:00:00Z', end: '2026-11-17T17:30:00Z', tz: 'UTC' }, 'later');
+      await w.create('time_block', { task_id: 'boiler', start: '2026-11-17T09:00:00Z', end: '2026-11-17T09:30:00Z', tz: 'UTC' }, 'missed');
+      await w.create('time_block', { task_id: 'boiler', start: '2026-11-16T09:00:00Z', end: '2026-11-16T09:30:00Z', tz: 'UTC', started_at: '2026-11-16T09:00:00Z', ended_at: '2026-11-16T09:30:00Z' }, 'worked');
+    });
+    let reverse = { writes: [] } as Awaited<ReturnType<typeof saveAsNote>>;
+    expect(await commits(async () => (reverse = await transact(db, clock, (w) => saveAsNote(w, 'boiler', clock))))).toBe(1);
+    expect([(await row('later'))!.cancelled, (await row('missed'))!.cancelled, (await row('worked'))!.cancelled ?? null]).toEqual([true, true, null]);
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect([(await row('later'))!.cancelled, (await row('missed'))!.cancelled]).toEqual([null, null]);
+  });
+
   it('is one note for one item, however often it is saved and undone, here or on another device', async () => {
     const first = await transact(db, clock, (w) => saveAsNote(w, 'paint', clock));
     await transact(db, clock, (w) => applyPlanChange(w, first));

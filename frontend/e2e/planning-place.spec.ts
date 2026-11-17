@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, pane } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 // When will you plan this week, opened from Week's Choose a time: the sheet shows whole, over the tab bar and the +
@@ -101,8 +101,7 @@ test('Choose another time: the block waits on the calendar to drag beside what i
     // A day later and an hour later: one column right, and 40px down at 40px an hour.
     const box = (await block.boundingBox())!;
     const column = (await page.locator('.colbody').first().boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + 8);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
     await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 30, { steps: 4 });
     await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 48, { steps: 4 });
     await page.mouse.up();

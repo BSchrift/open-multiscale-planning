@@ -3,7 +3,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
 import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
-import { openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
+import { holdMouse, openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 // Each main flow done with no connection, start to finish, by a signed-out app: everything it does is on this device,
@@ -253,8 +253,7 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
     const draft = page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, Project\./ });
     const box = (await draft.boundingBox())!;
     const column = (await page.locator('.colbody').first().boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + 8);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
     await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 30, { steps: 4 });
     await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 48, { steps: 4 });
     await page.mouse.up();

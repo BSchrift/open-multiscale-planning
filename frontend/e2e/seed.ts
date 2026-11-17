@@ -172,6 +172,16 @@ export async function overNowLine(line: Locator, x: number): Promise<{ at: strin
 }
 
 /**
+ * The mouse pressed at a point and held until what's under it lifts to drag, as a person holds before dragging. The
+ * caller then moves the mouse and lets go. A press let go before the lift is a click.
+ */
+export async function holdMouse(page: Page, at: { x: number; y: number }): Promise<void> {
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await expect(page.locator('.lifted').first()).toBeVisible();
+}
+
+/**
  * A finger held on an element, then dragged to a point and let go, as touch pointer events: Playwright's touchscreen
  * only taps. The hold is real time, so the app's hold-to-drag timer runs as it would.
  */

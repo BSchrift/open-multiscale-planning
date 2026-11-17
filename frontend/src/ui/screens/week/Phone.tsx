@@ -27,7 +27,7 @@ import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
-import { clearLane, columnStyle, dayName, finishedCount, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
+import { clearLane, columnStyle, dayName, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
 import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { landOn, rowItem } from './data';
@@ -311,7 +311,7 @@ export function PhoneWeek(props: WeekProps) {
           {laneItems.length > 0 && <div className="lanerow">{laneItems.map(card)}</div>}
           {isThis && laneItems.length > 0 && (
             <p className="small quiet">
-              {editing ? 'Hold a card, then drag it down onto the day. Drag a block up here to take it off the calendar.' : 'Hold a card, then drag it down onto the day, or tap it for suggested times.'}
+              {editing ? 'Hold a card, then drag it down onto the day. Hold a block, then drag it up here to take it off the calendar.' : 'Hold a card, then drag it down onto the day, or tap it for suggested times.'}
             </p>
           )}
           {model.unscheduled.length > 0 && (
@@ -333,8 +333,8 @@ export function PhoneWeek(props: WeekProps) {
           )}
           <p className="small quiet wkhint">
             {placing
-              ? 'Drag the block to any time, or pick another day above. Drag its bottom edge to change its length.'
-              : 'Drag or resize anything from now on, or tap it to change it. Changes save as you go.'}
+              ? 'Hold the block, then drag it to any time, or pick another day above. Hold its bottom edge and drag to change its length.'
+              : 'Hold anything from now on, then drag to move or resize it, or tap it to change it. Changes save as you go.'}
           </p>
           <div className="card wkdaycard">
             <DragDay
@@ -728,7 +728,7 @@ export function DragDay(props: {
   onOpen(id: string): void;
 }) {
   const { date, ctx, floor, moving, ghosts = [] } = props;
-  const { clock } = useApp();
+  const { clock, platform } = useApp();
   const nowMin = localMinutes(clock.now(), clock.zone());
   const targets = ghosts.map((g) => ({ date: g.date, start: g.start }));
   const [preview, setPreview] = useState<{ id: string; slot: Slot } | null>(null);
@@ -749,38 +749,37 @@ export function DragDay(props: {
   }
   if (floor > DAY_FROM) zones.push({ top: 0, h: y(Math.min(floor, DAY_TO)), lock: true });
 
+  // The block a hold has lifted, drawn raised until it's let go.
+  const [lifted, setLifted] = useState<string | null>(null);
   // Measured from the drawn track each move, so zoom and scrolling during the drag can't shift the block.
-  const track = (event: ReactPointerEvent, apply: (minutes: number) => void, done?: () => void, tap?: () => void, off?: () => void) => {
+  const track = (key: string, event: ReactPointerEvent, apply: (minutes: number) => void, done?: () => void, tap?: () => void, off?: () => void) => {
     event.preventDefault();
     event.stopPropagation();
     const day = (event.currentTarget as HTMLElement).closest('.day');
     const perPx = (DAY_TO - DAY_FROM) / (day?.getBoundingClientRect().height || y(DAY_TO));
-    const y0 = event.clientY;
-    let moved = false;
     const leaving = (e: PointerEvent) => !!off && overLane(e.clientX, e.clientY);
-    const move = (e: PointerEvent) => {
-      if (!moved && Math.abs(e.clientY - y0) < 8) return;
-      moved = true;
-      if (!leaving(e)) apply((e.clientY - y0) * perPx);
-    };
-    const stop = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', stop);
-      clearLane();
-    };
-    const up = (e: PointerEvent) => {
-      const out = moved && leaving(e);
-      stop();
-      if (out) {
+    holdToDrag(event, {
+      lift: () => setLifted(key),
+      drag: (_dx, dy, e) => {
+        if (!leaving(e)) apply(dy * perPx);
+      },
+      drop: (e) => {
+        const out = leaving(e);
+        clearLane();
+        setLifted(null);
+        if (out) {
+          setPreview(null);
+          off?.();
+        } else done?.();
+      },
+      ...(tap ? { tap } : {}),
+      cancel: () => {
+        clearLane();
+        setLifted(null);
         setPreview(null);
-        off?.();
-      } else if (moved) done?.();
-      else tap?.();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', stop);
+      },
+      ...(platform.haptic ? { haptic: platform.haptic } : {}),
+    });
   };
 
   const handle = (
@@ -811,6 +810,7 @@ export function DragDay(props: {
     const chosen = key === 'moving' || key === props.selected;
     const drag = (mode: 'move' | 'resize') => (e: ReactPointerEvent) =>
       track(
+        key,
         e,
         (minutes) => {
           latest = dragResult(slot, mode, 0, minutes, mode === 'move' && chosen ? targets : [], bounds);
@@ -827,11 +827,11 @@ export function DragDay(props: {
     const shown = preview?.id === key ? preview.slot : slot;
     // It floats beside what it overlaps, so nothing under it moves or hides; one in a column is beside them already.
     const beside = chosen && !column && overlaps([...props.blocks.filter((b) => b.id !== key), ...ctx.busy], date, shown.start, shown.end);
-    const help = on.commit ? ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter opens its options.' : ' Drag, or use the up and down arrow keys. Shift and arrows change its length. Enter saves.';
+    const help = on.commit ? ' Hold, then drag, or use the up and down arrow keys. Shift and arrows change its length. Enter opens its options.' : ' Hold, then drag, or use the up and down arrow keys. Shift and arrows change its length. Enter saves.';
     return (
       <div
         key={key}
-        className={`cev dragblock ${blockClass(LOOK[kind], chosen ? 'placing' : 'planned')}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}`}
+        className={`cev dragblock ${blockClass(LOOK[kind], chosen ? 'placing' : 'planned')}${calm ? ' calm' : ''}${chosen ? ' draft' : ''}${beside ? ' beside' : ''}${lifted === key ? ' lifted' : ''}`}
         role="slider"
         tabIndex={0}
         aria-label={(on.commit ? title : `Time for ${title}, being placed`) + '.' + overlapNote(column?.others ?? []) + help}

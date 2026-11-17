@@ -59,6 +59,10 @@ async function seedSmall(db: Db) {
     await add(tx, outcomeId('b3'), 'block_outcome', { result: 'partly', remaining_min: 30, logged_min: 30 });
     await add(tx, 'b4', 'time_block', { task_id: 't4', start: '2026-11-03T17:00:00Z', end: '2026-11-03T18:00:00Z', cancelled: true });
     await add(tx, 'b5', 'time_block', { task_id: 't7', start: '2026-11-04T17:00:00Z', end: '2026-11-04T18:00:00Z' });
+    // The Inbox item's, next week: one taken off the calendar, then the two still on it.
+    await add(tx, 'b6', 'time_block', { task_id: 't5', start: '2026-11-09T17:00:00Z', end: '2026-11-09T18:00:00Z', cancelled: true });
+    await add(tx, 'b7', 'time_block', { task_id: 't5', start: '2026-11-11T17:00:00Z', end: '2026-11-11T18:00:00Z' });
+    await add(tx, 'b8', 'time_block', { task_id: 't5', start: '2026-11-10T17:00:00Z', end: '2026-11-10T18:00:00Z' });
     await add(tx, 'c1', 'task_completion', { task_id: 't7', done_at: '2026-10-20T10:00:00Z' });
     await add(tx, 'c2', 'task_completion', { task_id: 't7', done_at: '2026-09-20T10:00:00Z', deleted_at: '2026-09-21T10:00:00Z' });
   });
@@ -76,6 +80,10 @@ function answers(open: () => Promise<Db>) {
   it('inbox and its count share one filter', async () => {
     expect((await inboxTasks(db)).map((r) => r.title)).toEqual(['Water the plants']);
     expect(await inboxCount(db)).toBe(1);
+  });
+
+  it('an Inbox row carries the time of its first block still on the calendar, which hold to create gives it', async () => {
+    expect(await inboxTasks(db)).toMatchObject([{ id: 't5', block_start: '2026-11-10T17:00:00Z', block_end: '2026-11-10T18:00:00Z' }]);
   });
 
   it('blocks in a range, with outcome and kind, skipping cancelled', async () => {

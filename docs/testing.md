@@ -213,6 +213,10 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A person's token is stored encrypted for them alone, never in the clear, and goes on disconnect and account deletion | n/a: server side, in backend/internal/gcal/aws_test.go ("TestConnectionsThroughDynamoDBAndKMS", against DynamoDB Local and Moto's KMS) and connect_test.go | | | |
 | The deployment's one connection from before keeps working until it's copied to its person's own | n/a: server side, in backend/internal/gcal/people_test.go ("TestTheLegacyConnectionKeepsRunningForItsPersonOnly") | | | |
 | The schedule and the stream start each connected person's run through the queue, spread and bounded | n/a: server side, in backend/internal/gcal/people_test.go, backend/cmd/calendar/main_test.go and infrastructure/test/stack.test.ts | | | |
+| Google refusing a token marks the connection and keeps it until they connect again or disconnect; a 401 from the Calendar API, a lasting 403 or an organisation's policy isn't a worker failure; a consent with a permission unticked is refused | n/a: server side, in backend/internal/gcal/review_test.go | | | |
+| A connection that won't open never locks its person out, and falls back to the legacy one naming them; a disconnect goes round for a connection made while it ran; a consent stores over only the connection it read | n/a: server side, in backend/internal/gcal/review_test.go | | | |
+| A run's failure names its AWS error code, never a value | n/a: server side, in backend/internal/gcal/review_test.go ("TestARunsFailureNamesTheAWSErrorCode") | | | |
+| The queue mapping exists through the canary, the failure and revocation alarms, the dead-letter alarm on arrivals, and the token key used only by the two functions | n/a: infrastructure/test/stack.test.ts | | | |
 | A real Google account per person on staging | missing: needs a dedicated test Google account for the test user (`testCalendar`), and a second for the second test user | | | |
 
 ### Reminders and notifications

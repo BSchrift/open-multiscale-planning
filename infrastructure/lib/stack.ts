@@ -340,8 +340,7 @@ export class MultiscaleStack extends Stack {
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
     // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
-    // consent, with this key; both open them, only this environment's and for that purpose, with whichever key in the
-    // account sealed them, so tokens sealed before a reverted release made a new key still open.
+    // consent; both open them, only this environment's and for that purpose, with this key alone.
     const connectionItems = new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
       resources: [table.tableArn],

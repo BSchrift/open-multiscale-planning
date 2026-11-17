@@ -49,9 +49,10 @@ describe('the iPhone app against staging, .github/workflows/ios-staging.yml', ()
 
   it('takes nothing another workflow wrote: no cache, and every action pinned to a commit', () => {
     for (const step of job.steps.filter((s) => s.uses)) {
-      assert.match(step.uses!, /^[\w-]+\/[\w-]+@[0-9a-f]{40}$/, step.uses);
-      assert.ok(!step.uses!.startsWith('actions/cache'), step.uses);
-      assert.equal(step.with?.cache, undefined, step.uses);
+      const uses = step.uses!;
+      assert.match(uses, /^[\w-]+\/[\w-]+@[0-9a-f]{40}$/, uses);
+      assert.ok(!uses.startsWith('actions/cache'), uses);
+      assert.equal(step.with?.cache, undefined, uses);
     }
   });
 });

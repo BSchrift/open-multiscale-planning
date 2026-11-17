@@ -303,13 +303,23 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
   return res;
 }
 
-/** The real network behind runSync. */
-export function createHttpSend(deps: ApiDeps): SyncSend {
+/**
+ * The real network behind runSync. counted hears of each request the server answered, with the characters it sent and
+ * received, about its bytes for JSON: each one wakes the radio, which telemetry's app.sync.count reports.
+ */
+export function createHttpSend(deps: ApiDeps, counted?: (bytes: number) => void): SyncSend {
   return async (request) => {
     const res = await apiPost(deps, '/sync', request);
-    if (res.ok) return (await res.json()) as SyncResponse;
-    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-    throw new SyncError(body?.error === 'clock_ahead' ? 'clock_ahead' : 'error');
+    const text = await res.text().catch(() => '');
+    counted?.(JSON.stringify(request).length + text.length);
+    if (res.ok) return JSON.parse(text) as SyncResponse;
+    let error: unknown;
+    try {
+      error = (JSON.parse(text) as { error?: unknown } | null)?.error;
+    } catch {
+      // Not JSON, such as a proxy's error page.
+    }
+    throw new SyncError(error === 'clock_ahead' ? 'clock_ahead' : 'error');
   };
 }
 

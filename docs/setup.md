@@ -597,6 +597,8 @@ aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time 
 
 Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
 
+Telemetry says how often each error happens and where, never its message. To see why, ask for the device's diagnostic log: **Settings > Diagnostics > Export diagnostic log** saves a JSON file, through the share sheet on iPhone, a save dialog on the Mac, and a download in a browser. It holds the device's last 7 days of errors with their messages and stacks, warnings, each sync and how it ended, and the page hiding, showing and going offline, with the build, the platform, the database, the sync state and what waits to sync. Each device keeps its own and never sends it; sign-in tokens, cookies and signed links are scrubbed from it, and it names records only by id. Its `device.deviceId` is the `device.id` in `client_event` lines, so the two can be read together.
+
 Costs should stay under $1 a month per environment. Attachments add about $0.006 a person a month at typical use, nearly all of it S3 storage. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 
 ## Restoring the table from a backup

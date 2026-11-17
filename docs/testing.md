@@ -74,6 +74,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture shortcut | n/a (apps only) | n/a | covered (desktop: "a new capture shortcut from Settings replaces the old one…") | n/a |
 | Updates | n/a (apps only) | n/a | partly (unit tests only; the section shows only in builds with a release feed) | partly (unit tests only) |
 | Data retention | covered (settings: "Data retention says what's kept and for how long…") | covered (same) | missing | missing |
+| Diagnostics: export the diagnostic log | covered (settings: "Export diagnostic log downloads a file of what happened here…") | covered (same) | covered (desktop: "Export diagnostic log in Settings saves the file where it's put…") | partly (testAFileToSaveGoesToTheShareSheetByItsName, from the test page rather than Settings) |
 
 ### Stretch planning (Plan)
 

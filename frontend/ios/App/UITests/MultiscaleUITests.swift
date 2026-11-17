@@ -571,6 +571,19 @@ final class NativeUITests: XCTestCase {
         XCTAssertTrue(wait(for: browser, hittable: true), "the browser sheet is still in front. On screen:\n\(app.debugDescription)")
     }
 
+    /// Settings > Export diagnostic log offers the file in the share sheet, since the web view can't download one.
+    func testAFileToSaveGoesToTheShareSheetByItsName() {
+        tap("Share file")
+        let sheet = app.otherElements["ActivityListView"]
+        exists(sheet)
+        // By the name the app gave it, and with Save to Files, which is where a person keeps it to send on.
+        exists(sheet.descendants(matching: .any)["multiscale-diagnostics-check"].firstMatch)
+        exists(sheet.descendants(matching: .any)["Save to Files"].firstMatch)
+        sheet.buttons["Close"].tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: patience), "the share sheet didn't close. On screen:\n\(app.debugDescription)")
+        exists(app.webText("sharefile:shown"))
+    }
+
     private func wait(for element: XCUIElement, hittable: Bool) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == %@", NSNumber(value: hittable)), object: element)
         return XCTWaiter.wait(for: [expectation], timeout: patience) == .completed

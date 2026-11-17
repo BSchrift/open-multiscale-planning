@@ -95,6 +95,13 @@ export interface Platform {
   haptic?(): Promise<void>;
   /** Only where native code can measure the app: memory, and memory warnings. */
   readonly diagnostics?: Diagnostics;
+  /** The SQLite build the database runs on, for the diagnostic log. */
+  readonly database?: string;
+  /**
+   * Only where the page can't download a file: the iPhone, which offers it in the share sheet, for Files, Mail or
+   * AirDrop. Elsewhere screens download it (download.ts), and the Mac app asks where to save it.
+   */
+  saveFile?(name: string, text: string): Promise<void>;
   /** Only in the apps, whose native code checks and installs a downloaded web bundle. */
   readonly updates?: NativeUpdates;
   /** Only on desktop: the global shortcut that opens capture, as an Electron accelerator. */

@@ -320,13 +320,15 @@ class UpdatesPlugin: CAPPlugin, CAPBridgedPlugin {
 }
 
 /// How the app runs, for telemetry: its memory footprint, iOS's memory warnings, and how the last run ended. Each sample
-/// is saved as it's taken, so a run iOS kills still leaves its last numbers for the next run to report.
+/// is saved as it's taken, so a run iOS kills still leaves its last numbers for the next run to report. Also shares the
+/// diagnostic log Settings exports.
 @objc(MultiscaleDiagnosticsPlugin)
 class DiagnosticsPlugin: CAPPlugin, CAPBridgedPlugin {
     let identifier = "MultiscaleDiagnosticsPlugin"
     let jsName = "MultiscaleDiagnostics"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shareFile", returnType: CAPPluginReturnPromise),
     ]
     private static let key = "multiscale.diagnostics.run"
     private let started = Date()
@@ -401,6 +403,29 @@ class DiagnosticsPlugin: CAPPlugin, CAPBridgedPlugin {
             // Reported once: a reload of the page in this run shouldn't report the last run again.
             if let last = self.previous, self.pageLoads == 1 { result["previous"] = last }
             call.resolve(result)
+        }
+    }
+
+    /// Settings > Export diagnostic log: the share sheet, with the text as a file, for Files, Mail or AirDrop. The web
+    /// view can't download a file itself. The file is removed once the sheet closes.
+    @objc func shareFile(_ call: CAPPluginCall) {
+        guard let name = call.getString("name"), let text = call.getString("text") else {
+            return call.reject("shareFile needs a name and the text")
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent((name as NSString).lastPathComponent)
+        do {
+            try text.write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            return call.reject("Couldn't write the file: \(error.localizedDescription)")
+        }
+        DispatchQueue.main.async {
+            guard let controller = self.bridge?.viewController else { return call.reject("there's no window to share from") }
+            let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+            // An iPad shows the sheet as a popover, which needs somewhere to point.
+            sheet.popoverPresentationController?.sourceView = controller.view
+            sheet.popoverPresentationController?.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY, width: 0, height: 0)
+            sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: file) }
+            controller.present(sheet, animated: true) { call.resolve() }
         }
     }
 }

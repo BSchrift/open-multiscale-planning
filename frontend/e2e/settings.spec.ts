@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { expectTapTarget, openSeeded, pane } from './seed';
@@ -185,6 +186,36 @@ test("Data retention says what's kept and for how long, from this build's period
   await expect(pane(page, 'Today').getByRole('heading', { level: 1 })).toBeVisible();
   await expect(pane(page, 'Today').getByText(/retention|expire/i)).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test('Export diagnostic log downloads a file of what happened here, with no sign-in token or anything anyone wrote', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await openSettings(page, phone);
+  // As the app reports an error it caught, here one that quotes a token.
+  await page.evaluate(() => console.error('Request failed', new Error('401 for Bearer abc.def.ghi')));
+  const row = pane(page, 'Settings').getByRole('region', { name: 'Diagnostics' });
+  await expect(row.getByText(/Recent errors and syncs on this device/)).toBeVisible();
+  const button = row.getByRole('button', { name: 'Export diagnostic log' });
+  if (phone) await expectTapTarget(button);
+  await row.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('diagnostics.png') });
+
+  const [download] = await Promise.all([page.waitForEvent('download'), button.click()]);
+  expect(download.suggestedFilename()).toBe('multiscale-diagnostics-2026-11-02.json');
+  const text = readFileSync((await download.path())!, 'utf8');
+  const file = JSON.parse(text);
+  expect(file).toMatchObject({
+    file: 'multiscale-diagnostic-log',
+    app: { env: 'local' },
+    // Phone's WebKit has no OPFS here (playwright.config.ts).
+    device: { platform: 'web', database: phone ? 'sql.js in IndexedDB' : 'sqlite-wasm on OPFS' },
+    records: { calendar: 1, calendar_source: 2 },
+  });
+  expect(file.entries).toContainEqual(expect.objectContaining({ source: 'app', message: expect.stringMatching(/^Started version /) }));
+  expect(file.entries).toContainEqual(expect.objectContaining({ level: 'error', source: 'console', message: 'Request failed: Error: 401 for Bearer [token]' }));
+  expect(text).not.toContain('abc.def.ghi');
+  // A seeded calendar event's title and a calendar's name.
+  for (const words of ['Team meeting', 'Family']) expect(text).not.toContain(words);
 });
 
 test('appearance follows the system live until chosen, and a choice holds from the first paint', async ({ page }, info) => {

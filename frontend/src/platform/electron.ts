@@ -36,6 +36,7 @@ export async function createElectronPlatform(): Promise<Platform> {
   return {
     kind: 'electron',
     db,
+    database: 'better-sqlite3 in the main process',
     notifications: bridge.notifications,
     tokens: bridge.tokens,
     lifecycle,

@@ -11,17 +11,12 @@ import { MAX_TITLE } from './captureTitle';
 import { MAX_NOTES } from './notes';
 import { applyPlanChange } from './plan';
 import type { PlanChange, RecordWrite } from './plan';
-import { getRecord } from './records';
+import { getRecord, noteId } from './records';
 import type { Writer } from './records';
 import { closeTask } from './tasks';
 import type { Fields, Memo } from './types';
 
-/**
- * The note an Inbox item is saved as: one per item, so saving it again after an Undo, or on two devices, makes one note.
- * The prefix sorts after every newId, so a push split across requests sends a note's attachments before the note: a note
- * deleted or made a task never reaches another device ahead of the attachments it let go (attachments.sweepOrphans).
- */
-export const noteId = (taskId: string) => `note:${taskId}`;
+export { noteId };
 
 /** The text cut to max UTF-16 units, at the last space or line break that fits, else at max, never between a pair. */
 export function clampText(text: string, max: number): string {

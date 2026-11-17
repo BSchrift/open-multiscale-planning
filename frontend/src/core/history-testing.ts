@@ -5,8 +5,7 @@
 import { protocol } from '@multiscale/config';
 import { formatClock } from './clock';
 import { addDays, localDate, localToMs, toInstant, weekStart } from './dates';
-import { noteId } from './memos';
-import { occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
+import { noteId, occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
 import { addPeriod } from './retention';
 import type { Period } from './retention';
 import type { BlockResult, LocalDate, Practice, RecordChange, RecordMap, RecordType, TaskSchedule, Weekday } from './types';

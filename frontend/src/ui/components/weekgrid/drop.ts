@@ -22,7 +22,7 @@ const EDGE_PX = 120;
 const SCROLL_PX = 12;
 
 /** What scrolls under an element: its nearest scrolling ancestor, else the page. */
-function scrollerOf(el: Element): Element {
+export function scrollerOf(el: Element): Element {
   for (let e = el.parentElement; e; e = e.parentElement) {
     const o = getComputedStyle(e).overflowY;
     if ((o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight) return e;
@@ -137,17 +137,25 @@ export function holdToDrag(
     end();
     if (lifted) on.cancel?.();
   };
+  // A second finger down means a pinch, which the press gives way to.
+  const second = (e: PointerEvent) => {
+    if (own(e)) return;
+    end();
+    if (lifted) on.cancel?.();
+  };
   const end = () => {
     clearTimeout(timer);
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
+    window.removeEventListener('pointerdown', second);
     window.removeEventListener('touchmove', still);
     window.removeEventListener('contextmenu', still);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', cancel);
+  window.addEventListener('pointerdown', second);
   window.addEventListener('touchmove', still, { passive: false });
   window.addEventListener('contextmenu', still);
   const timer = setTimeout(lift, HOLD_MS);

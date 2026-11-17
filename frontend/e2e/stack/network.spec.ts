@@ -304,6 +304,7 @@ test('a sign-in cut off midway says so and keeps local work, and signing in agai
   await go(a.page, 'Inbox');
   await expect(pane(a.page, 'Inbox').getByText(title)).toBeVisible();
 
+  // On a deployment the sign-in page kept this browser signed in, so this time it comes straight back without asking.
   await signIn(a.page);
   const b = await device(browser, `e2e-${run}`);
   await signIn(b.page);

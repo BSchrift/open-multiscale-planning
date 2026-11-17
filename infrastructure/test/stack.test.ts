@@ -87,6 +87,62 @@ describe('sign-in', () => {
   });
 });
 
+describe('the second test user', () => {
+  const withSecond = (envName: 'staging' | 'prod', capabilities: string[]) => {
+    const integration = { testUser: 'test@example.net', secondTestUser: 'second-test@example.net', capabilities };
+    return Template.fromStack(build(envName, '/nonexistent', false, { ...config, integration })).toJSON().Resources as Record<string, Resource>;
+  };
+  const ids = (resources: Record<string, Resource>, type: string) => Object.keys(resources).filter((id) => resources[id].Type === type);
+
+  it("is made by each deploy that has secondUser in integration.capabilities, with its password beside the first test user's", () => {
+    for (const envName of ['staging', 'prod'] as const) {
+      const resources = withSecond(envName, ['googleClient', 'secondUser']);
+      const users = ids(resources, 'Custom::TestUser');
+      assert.equal(users.length, 1, envName);
+      const { ServiceToken, ...properties } = resources[users[0]].Properties;
+      assert.ok(ServiceToken, envName);
+      assert.deepEqual(properties, {
+        UserPoolId: { Ref: ids(resources, 'AWS::Cognito::UserPool')[0] },
+        Username: 'second-test@example.net',
+        Parameter: `/multiscale/${envName}/second-test-user-password`,
+      });
+    }
+  });
+
+  it('is not made without secondUser', () => {
+    assert.deepEqual(ofType('Custom::TestUser'), []);
+    assert.deepEqual(ids(withSecond('staging', ['googleClient']), 'Custom::TestUser'), []);
+  });
+
+  it('is made by a function that may only look up, make and set the password of users in this pool, and only write its own password', () => {
+    const resources = withSecond('staging', ['googleClient', 'secondUser']);
+    const fn = Object.keys(resources).find((id) => id.startsWith('TestUserFunction') && resources[id].Type === 'AWS::Lambda::Function')!;
+    assert.ok(fn);
+    assert.equal(resources[fn].Properties.Runtime, 'nodejs24.x');
+    assert.deepEqual(resources[fn].Properties.Architectures, ['arm64']);
+    const role = resources[fn].Properties.Role['Fn::GetAtt'][0];
+    const statements = ids(resources, 'AWS::IAM::Policy')
+      .filter((id) => resources[id].Properties.Roles.some((r: any) => r.Ref === role))
+      .flatMap((id) => resources[id].Properties.PolicyDocument.Statement as any[])
+      .map((s) => ({ Action: [s.Action].flat().sort(), Resource: JSON.stringify(s.Resource) }));
+    const pool = ids(resources, 'AWS::Cognito::UserPool')[0];
+    assert.deepEqual(statements.map((s) => s.Action), [
+      ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminGetUser', 'cognito-idp:AdminSetUserPassword'],
+      ['ssm:GetParameter', 'ssm:PutParameter'],
+    ]);
+    assert.equal(statements[0].Resource, JSON.stringify({ 'Fn::GetAtt': [pool, 'Arn'] }));
+    assert.match(statements[1].Resource, /:parameter\/multiscale\/staging\/second-test-user-password"/);
+    assert.doesNotMatch(statements[1].Resource, /\*/);
+  });
+
+  it("keeps the function's logs for 30 days, as every function's", () => {
+    const resources = withSecond('staging', ['googleClient', 'secondUser']);
+    const fn = Object.keys(resources).find((id) => id.startsWith('TestUserFunction') && resources[id].Type === 'AWS::Lambda::Function')!;
+    const group = resources[fn].Properties.LoggingConfig.LogGroup.Ref;
+    assert.equal(resources[group].Properties.RetentionInDays, 30);
+  });
+});
+
 describe('API', () => {
   const route = (key: string) => {
     const hit = ofType('AWS::ApiGatewayV2::Route').find(([, r]) => r.Properties.RouteKey === key);

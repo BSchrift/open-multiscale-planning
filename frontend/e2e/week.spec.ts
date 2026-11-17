@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, overNowLine, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, overNowLine, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -108,8 +108,7 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   const box = (await block.boundingBox())!;
   const column = (await page.locator('.colbody').first().boundingBox())!;
   // One column right and 40px down: a day later and an hour later, at 40px an hour.
-  await page.mouse.move(box.x + box.width / 2, box.y + 8);
-  await page.mouse.down();
+  await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
   await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 30, { steps: 4 });
   await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 48, { steps: 4 });
   await page.mouse.up();
@@ -118,8 +117,7 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   // The bottom edge makes it longer.
   const moved = page.getByRole('group', { name: /^Draft the summary/ });
   const edge = (await moved.locator('.evh').boundingBox())!;
-  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
-  await page.mouse.down();
+  await holdMouse(page, { x: edge.x + edge.width / 2, y: edge.y + edge.height / 2 });
   await page.mouse.move(edge.x + edge.width / 2, edge.y + 20, { steps: 4 });
   await page.mouse.up();
   await expect(page.getByRole('group', { name: /^Draft the summary, Wed Nov 4, 7pm to 8:30pm, Project\./ })).toBeVisible();
@@ -228,6 +226,23 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   await expect(page.getByText('Moved Draft the summary to Sat Nov 7, 6:15pm')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Sat Nov 7' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Draft the summary, 6:15pm to 7:15pm/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("phone: a block held on the day, then dragged to a later row, moves to the time it's let go at, with Undo", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The day of rows is the phone layout');
+  const errors = await openWeek(page, [...records, { type: 'time_block', id: 'b5', fields: { task_id: 't2', start: at(2, '16:00'), end: at(2, '17:00'), tz: 'America/Chicago' } }]);
+  const block = page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ });
+  await block.scrollIntoViewIfNeeded();
+  // Let go over the middle of the free evening after it, which runs from 5pm to the day's close.
+  const evening = page.locator('.tlrow', { hasText: /^5pmFree, / });
+  await evening.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const e = (await evening.boundingBox())!;
+  await touchDrag(page, block, { x: e.x + e.width / 2, y: e.y + e.height / 2 });
+  await expect(page.getByText(/^Moved Paint the fence to Mon Nov 2, (6|7|8)/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -374,8 +389,7 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
     // Dragged by the mouse onto Thursday, 26px an hour from 6am: 8am.
     const thu = (await page.locator('[data-drop-date="2026-11-05"]').boundingBox())!;
     const from = (await card.boundingBox())!;
-    await page.mouse.move(from.x + 20, from.y + 10);
-    await page.mouse.down();
+    await holdMouse(page, { x: from.x + 20, y: from.y + 10 });
     await page.mouse.move(thu.x + thu.width / 2, thu.y + 26 * 2 + 1, { steps: 8 });
     await page.mouse.up();
     await expect(page.getByRole('button', { name: /^Draft the summary, Thu Nov 5, 8am to 10am, Project\./ })).toBeVisible();
@@ -386,8 +400,7 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
     const placed = page.getByRole('group', { name: /^Draft the summary, Thu Nov 5/ });
     const box = (await placed.boundingBox())!;
     const target = (await lane.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + 8);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
     await page.mouse.move(target.x + target.width / 2, target.y + 10, { steps: 8 });
     await page.mouse.up();
     await expect(placed).toHaveCount(0);

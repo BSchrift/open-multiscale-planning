@@ -57,6 +57,8 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   // What the steps call beyond this script.
   mkdirSync(join(s.root, 'frontend/scripts'), { recursive: true });
   writeFileSync(join(s.root, 'frontend/scripts/sign-release.mjs'), '// the signer\n');
+  // The real one, which needs nothing installed: latest-mac.yml must come out as electron-updater reads it.
+  writeFileSync(join(s.root, 'frontend/scripts/latest-mac.mjs'), readFileSync(join(import.meta.dirname, '../../frontend/scripts/latest-mac.mjs')));
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   // record and live-record write the app record as mac-inbox.ts does: from the inbox, or from the live mac/manifest.json.

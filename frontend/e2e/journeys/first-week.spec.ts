@@ -45,6 +45,11 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(card).toHaveCount(0);
   await expect(page.locator('.clearveil')).toHaveText('Inbox clear1 item processed');
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
+  // Where the item went is said once the check has faded, and the next tap anywhere puts it away. On phone the flow's
+  // dock moves up to make room for it, and back down as that tap lands, so a tap on Place here while it shows misses.
+  // So it's seen to come, and the first pick to put it away, before the dock is used.
+  const added = page.getByText('Added Find a title for the novel to Finish the first draft.');
+  await expect(added).toBeVisible();
 
   const picks = ['Sketch the chapter list', 'Write the opening scene', 'Draft chapter one'];
   if (phone) {
@@ -56,6 +61,7 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
     for (const t of picks) await page.getByRole('button', { name: new RegExp(`^Add .*to this week: ${t}$`) }).click();
     for (const t of picks) await expect(page.getByRole('button', { name: new RegExp(`this week: ${t}$`) })).toBeVisible();
   }
+  await expect(added).toHaveCount(0);
 
   await steps.getByRole('button', { name: /Schedule/ }).click();
   if (phone) {

@@ -1,10 +1,10 @@
 // How a block reads anywhere it's shown: its kind (and so its colour), what it belongs to, and its time.
 
 import { isBacklog } from '../../../core/backlog';
-import { formatTime } from '../../../core/dates';
+import { addDays, formatDate, formatTime, formatWeekday } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { isRepeating, onceWhen, scheduleLabel } from '../../../core/schedule';
-import type { BlockResult, Instant, Objective, Practice, Project, Task } from '../../../core/types';
+import type { BlockResult, Instant, LocalDate, Objective, Practice, Project, Task } from '../../../core/types';
 import { practiceRule } from '../editors/PracticeSchedule';
 
 /** Blue for projects, purple for one offs, teal for practices, grey for planning, and no kind yet for the Inbox. */
@@ -22,6 +22,13 @@ function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKin
 }
 
 export const OUTCOME_WORD: Record<BlockResult, string> = { done: 'Done', partly: 'Partly', not: 'Not done' };
+
+/** 'Today', 'Tomorrow' or 'Thu Nov 12': a day, said from today. */
+export function dayWord(date: LocalDate, today: LocalDate): string {
+  if (date === today) return 'Today';
+  if (date === addDays(today, 1)) return 'Tomorrow';
+  return `${formatWeekday(date)} ${formatDate(date)}`;
+}
 
 /** '6pm to 7:30pm' */
 export function formatRange(start: Instant, end: Instant, zone: string): string {

@@ -23,6 +23,8 @@ export function EstimateSlider(props: {
   value: Minutes | null | undefined;
   /** When a drag is let go, and on each arrow key. Not for a drag that ends where it started. */
   onChange(minutes: Minutes): void;
+  /** Each step as the thumb moves, for what follows it on screen without saving, such as a draft block's length. */
+  onMove?(minutes: Minutes): void;
   label: string;
   /** Hides the label visually, for when the row already says what it's for. */
   hideLabel?: boolean;
@@ -80,7 +82,10 @@ export function EstimateSlider(props: {
         step={1}
         value={step}
         aria-valuetext={text}
-        onChange={(event) => setMoving({ step: Number(event.target.value), from: value })}
+        onChange={(event) => {
+          setMoving({ step: Number(event.target.value), from: value });
+          props.onMove?.(EST_STEPS[Number(event.target.value)] ?? 0);
+        }}
       />
       <span className="small estval">{text}</span>
     </div>

@@ -6,7 +6,7 @@
 
 import { parseClock } from './clock';
 import type { Sql } from './db';
-import type { Attachment, BlockResult, Instant, LocalDate, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
+import type { Attachment, BlockResult, Instant, LocalDate, Memo, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
 import type { UtcRange } from './dates';
 
 export const SQL = {
@@ -91,6 +91,33 @@ export const SQL = {
     FROM attachment
     WHERE task_id = :task_id AND deleted_at IS NULL
     ORDER BY id`,
+
+  memoAttachments: `
+    SELECT id, task_id, memo_id, kind, name, url, size, type, sha256, uploaded_at, deleted_at
+    FROM attachment
+    WHERE memo_id = :memo_id AND deleted_at IS NULL
+    ORDER BY id`,
+
+  notes: `
+    SELECT id, title, body, saved_on, deleted_at
+    FROM memo
+    WHERE deleted_at IS NULL
+    ORDER BY saved_on DESC, id DESC`,
+
+  // Not a save that was undone: memos.noteId names the item it came from, after "note:", back in the Inbox or wherever
+  // it went next.
+  deletedNotes: `
+    SELECT id, title, body, saved_on, deleted_at
+    FROM memo m
+    WHERE deleted_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM task t WHERE t.id = substr(m.id, 6) AND t.deleted_at IS NULL)
+    ORDER BY deleted_at DESC, id DESC`,
+
+  noteAttachments: `
+    SELECT memo_id, kind, COUNT(*) AS n
+    FROM attachment
+    WHERE memo_id IS NOT NULL AND deleted_at IS NULL
+    GROUP BY memo_id, kind`,
 
   oneOffs: `
     SELECT id, data
@@ -190,6 +217,10 @@ export const QUERY_INDEX = {
   finished: [],
   finishedCount: [],
   taskAttachments: [],
+  memoAttachments: [],
+  notes: [],
+  deletedNotes: [],
+  noteAttachments: [],
   oneOffs: ['task_kind'],
   completionsSince: [],
   doneTasks: ['task_done'],
@@ -218,6 +249,39 @@ export interface InboxRow {
 /** A task's attachments, in the order they were added. */
 export function taskAttachments(sql: Sql, taskId: string): Promise<Attachment[]> {
   return sql.all<Attachment>(SQL.taskAttachments, { task_id: taskId });
+}
+
+/** A note's attachments, in the order they were added. */
+export function memoAttachments(sql: Sql, memoId: string): Promise<Attachment[]> {
+  return sql.all<Attachment>(SQL.memoAttachments, { memo_id: memoId });
+}
+
+/** A note in a list, with what's attached to it. */
+export interface NoteRow extends Required<Pick<Memo, 'id' | 'title' | 'body' | 'saved_on' | 'deleted_at'>> {
+  photos: number;
+  links: number;
+  files: number;
+}
+
+async function withAttachments(sql: Sql, memos: Promise<Memo[]>): Promise<NoteRow[]> {
+  const counts = new Map<string, Record<string, number>>();
+  for (const c of await sql.all<{ memo_id: string; kind: string; n: number }>(SQL.noteAttachments)) {
+    counts.set(c.memo_id, { ...counts.get(c.memo_id), [c.kind]: c.n });
+  }
+  return (await memos).map((m) => {
+    const n = counts.get(m.id) ?? {};
+    return { id: m.id, title: m.title, body: m.body ?? null, saved_on: m.saved_on ?? null, deleted_at: m.deleted_at ?? null, photos: n.photo ?? 0, links: n.link ?? 0, files: n.file ?? 0 };
+  });
+}
+
+/** Every note, newest first. Search filters these in JavaScript (memos.searchNotes). */
+export function notesList(sql: Sql): Promise<NoteRow[]> {
+  return withAttachments(sql, sql.all<Memo>(SQL.notes));
+}
+
+/** Notes deleted and not yet gone, latest first, for Recently deleted. */
+export function deletedNotes(sql: Sql): Promise<NoteRow[]> {
+  return withAttachments(sql, sql.all<Memo>(SQL.deletedNotes));
 }
 
 export function inboxTasks(sql: Sql): Promise<InboxRow[]> {

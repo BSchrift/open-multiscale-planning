@@ -1,10 +1,11 @@
 // A made-up five-year account for the history-scale test (make test-history), and the code that seeds it through the
-// sync API. The same records on every run: about 40,000 in a heavy user's weekly mix, about 400 bytes each as sent, a
-// fifth of them deleted. The app never imports this file.
+// sync API. The same records on every run: about 41,700 in a heavy user's weekly mix, about 420 bytes each as sent, a
+// fifth of them deleted, notes among them. The app never imports this file.
 
 import { protocol } from '@multiscale/config';
 import { formatClock } from './clock';
 import { addDays, localDate, localToMs, toInstant, weekStart } from './dates';
+import { noteId } from './memos';
 import { occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
 import { addPeriod } from './retention';
 import type { Period } from './retention';
@@ -68,6 +69,8 @@ const DETAILS = ['', '', ' for next week', ' before Friday', ' with Sam', ' and 
 const GOALS = ['Run a half marathon', 'Ship the side project', 'Learn Spanish', 'Renovate the house', 'Grow the consulting work', 'Read 40 books', 'Get the finances in order'];
 const PRACTICES = ['Guitar practice', 'Morning run', 'Spanish lessons', 'Strength training', 'Writing hour', 'Meditation'];
 const REPEATS = ['Water the plants', 'Take out the recycling', 'Weekly review', 'Pay the bills', 'Call Mum', 'Back up the laptop', 'Clean the bathroom'];
+const FACTS = ['Paint for the hall', 'Bike tyres', 'Gate code at the allotment', "Sam's kid", 'Boiler serviced', 'Dishwasher warranty', 'Wifi at the cabin', 'Recipe from Priya', 'Long run'];
+const WORDS = ['pale', 'oat', 'eggshell', 'two', 'coats', 'from', 'the', 'garage', 'shelf', 'ask', 'about', 'next', 'time', 'felt', 'easy', 'renews', 'in', 'march', 'vegetarian', 'room'];
 
 type DraftOf<T extends RecordType> = { type: T; id: string; at: number; fields: Omit<RecordMap[T], 'id'> };
 type Draft = { [T in RecordType]: DraftOf<T> }[RecordType];
@@ -95,14 +98,15 @@ function build(weeks: number, nowMs: number): Draft[] {
     return noon + (minutes - 720) * 60_000;
   };
   /** A UUID version 7 for a record made at ms, as newId makes them, from this run's randomness. */
-  const uuid = (ms: number) => {
-    const bytes = Array.from({ length: 16 }, () => r.int(0, 255));
+  const uuidFrom = (g: typeof r) => (ms: number) => {
+    const bytes = Array.from({ length: 16 }, () => g.int(0, 255));
     for (let i = 5, rest = ms; i >= 0; i--, rest = Math.floor(rest / 256)) bytes[i] = rest % 256;
     bytes[6] = 0x70 | (bytes[6]! & 0x0f);
     bytes[8] = 0x80 | (bytes[8]! & 0x3f);
     const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   };
+  const uuid = uuidFrom(r);
   const title = () => `${r.pick(VERBS)} ${r.pick(THINGS)}${r.pick(DETAILS)}`;
   const estimate = () => 15 * r.int(2, 12);
 
@@ -272,6 +276,29 @@ function build(weeks: number, nowMs: number): Draft[] {
       add('task_completion', id, done, { task_id: t.id, done_at: toInstant(done), previous_next: t.fields.next_due ?? date, undo: null });
       t.fields.next_due = addDays(date, 7);
       t.at = Math.max(t.at, done);
+    }
+  }
+
+  // Ten notes a week, from their own randomness so the records above stay as they were: most 50 to 300 characters, one
+  // in fifty a full 20,000, a tenth with a link on it.
+  const n = random(20261117);
+  const noteUuid = uuidFrom(n);
+  for (let w = 0; w < weeks; w++) {
+    const week = addDays(first, 7 * w);
+    for (let i = 0; i < 10; i++) {
+      const date = addDays(week, n.int(0, 6));
+      const made = at(date, n.int(8 * 60, 21 * 60));
+      const id = noteId(noteUuid(made - DAY_MS));
+      const length = n.chance(0.02) ? protocol.records.maxNotesChars : n.int(50, 300);
+      let body = '';
+      while (body.length < length) body += `${n.pick(WORDS)} `;
+      const note = add('memo', id, made, { title: `${n.pick(FACTS)}: ${n.pick(WORDS)} ${n.pick(WORDS)}`, body: body.slice(0, length), saved_on: date }, false);
+      const link = note && n.chance(0.1) ? add('attachment', noteUuid(made), made, { memo_id: id, kind: 'link', name: 'example.com', url: `https://example.com/${i}` }, false) : null;
+      // Deleted by chance, its link with it at the same time, as Delete note does.
+      if (note && n.chance(DELETED)) {
+        const gone = Math.min(nowMs, made + n.int(1, 10) * DAY_MS);
+        for (const d of link ? [note, link] : [note]) Object.assign(d, { at: gone }).fields.deleted_at = toInstant(gone);
+      }
     }
   }
 

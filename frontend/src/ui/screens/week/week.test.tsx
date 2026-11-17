@@ -162,6 +162,58 @@ const morning = async (w: Writer) => {
   }
 };
 
+describe.each(['desktop', 'phone'] as const)('a task\'s block made shorter while editing, on %s', (layout) => {
+  // Paint the fence, estimated at an hour, picked for 1h this week and placed Monday 5pm to 6pm.
+  const fence = async (w: Writer) => {
+    await planned(w);
+    await setWeekPick(w, MON, 't2', 60);
+    await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4');
+  };
+  const shorten = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    // Shift and an arrow change a block's length on both layouts: twice is half an hour off.
+    const el = layout === 'phone' ? await screen.findByRole('slider', { name: /^Paint the fence\./ }) : await screen.findByRole('group', { name: /^Paint the fence, Mon Nov 2, 5pm to 6pm/ });
+    el.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    await screen.findByRole('group', { name: 'What about the other 15m?' });
+    (layout === 'phone' ? await screen.findByRole('slider', { name: /^Paint the fence\./ }) : await screen.findByRole('group', { name: /^Paint the fence, Mon Nov 2, 5pm to 5:45pm/ })).focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    return screen.findByRole('group', { name: 'What about the other 30m?' });
+  };
+
+  it('asks what about the rest, and Change the estimate takes it off the task and its week, with Undo', async () => {
+    const t = await open({ layout, seed: fence });
+    const ask = await shorten();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Change the estimate' }));
+    expect(await screen.findByText('Paint the fence is now 30m. Its estimate was 1h.')).toBeVisible();
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 't2')).toMatchObject({ estimate_min: 30 }));
+    expect(await getRecord(t.db, 'week_pick', weekPickId(MON, 't2'))).toMatchObject({ minutes: 30 });
+    expect(screen.queryByRole('group', { name: /^What about the other/ })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 't2')).toMatchObject({ estimate_min: 60 }));
+  });
+
+  it('Split it keeps the rest to schedule, as leaving it does, and Undo puts the block back', async () => {
+    const t = await open({ layout, seed: fence });
+    const ask = await shorten();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Split it' }));
+    expect(await screen.findByText('Split Paint the fence: 30m stays to schedule.')).toBeVisible();
+    expect(await getRecord(t.db, 'task', 't2')).toMatchObject({ estimate_min: 60 });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await block('b4')(t))?.end).toBe(at('18:00')));
+  });
+
+  it("doesn't ask when a block gets longer, or for a practice's session", async () => {
+    await open({ layout, seed: fence });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    const el = layout === 'phone' ? await screen.findByRole('slider', { name: /^Paint the fence\./ }) : await screen.findByRole('group', { name: /^Paint the fence, Mon Nov 2, 5pm to 6pm/ });
+    el.focus();
+    await userEvent.keyboard('{Shift>}{ArrowDown}{/Shift}');
+    expect(await screen.findByRole(layout === 'phone' ? 'slider' : 'group', { name: layout === 'phone' ? /^Paint the fence\./ : /^Paint the fence, Mon Nov 2, 5pm to 6:15pm/ })).toBeVisible();
+    expect(screen.queryByRole('group', { name: /^What about the other/ })).toBeNull();
+  });
+});
+
 describe('Week on desktop', () => {
   it('shows this week: blocks in their colours, calendar events behind, a conflict named, and the time left', async () => {
     await open();

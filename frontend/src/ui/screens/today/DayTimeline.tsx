@@ -25,6 +25,8 @@ import { describeBlock, formatRange, isTaskBlock, KIND_WORD, OUTCOME_WORD } from
 import type { BlockKind } from '../../components/blocks/describe';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
+import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
+import type { Shortened } from '../../components/editors/SplitAsk';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
@@ -75,6 +77,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const actions = useBlockActions();
   /** A task's block opened in the task's popup. */
   const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
+  // A task's block made shorter asks what about the rest, under the timeline, until answered.
+  const [split, setSplit] = useState<Shortened | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
@@ -196,6 +200,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       return run((w) => applyPlanChange(w, first));
     };
     toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo });
+    const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
+    setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
 
   const press = (i: Item, mode: 'move' | 'resize') => (e: ReactPointerEvent) => {
@@ -528,6 +534,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
+      {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
       {pop && (
         <TaskPopupFor

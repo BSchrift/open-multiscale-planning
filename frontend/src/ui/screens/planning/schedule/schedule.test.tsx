@@ -475,6 +475,37 @@ describe('Schedule on desktop', () => {
   });
 });
 
+describe("a task's placed block made shorter in Schedule", () => {
+  const fence = async (w: Writer) => {
+    await picked(w);
+    await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 15), end: at('2026-11-03', 16, 30), tz: ZONE }, 'b1');
+  };
+
+  it('on desktop asks beside the list, and Change the estimate takes the rest off the task and the week', async () => {
+    const t = await open({ seed: fence });
+    const placed = await screen.findByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm/ });
+    placed.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const ask = await screen.findByRole('group', { name: 'What about the other 15m?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Change the estimate' }));
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 'o1')).toMatchObject({ estimate_min: 75 }));
+    expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 'o1'))).toMatchObject({ minutes: 75 });
+  });
+
+  it('on phone asks in a sheet, and closing it unanswered keeps the rest to schedule', async () => {
+    const t = await open({ layout: 'phone', seed: fence });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
+    const placed = await screen.findByRole('slider', { name: /^Paint the fence\./ });
+    placed.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const sheet = await screen.findByRole('dialog', { name: 'What about the other 15m?' });
+    expect(within(sheet).getByRole('button', { name: 'Split it' })).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'What about the other 15m?' })).toBeNull());
+    expect(await getRecord(t.db, 'task', 'o1')).toMatchObject({ estimate_min: 90 });
+  });
+});
+
 describe('Schedule on phone', () => {
   const phone = (options: Parameters<typeof open>[0] = {}) => open({ layout: 'phone', ...options });
 

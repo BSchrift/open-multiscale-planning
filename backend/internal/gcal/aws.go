@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamotypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -182,6 +183,11 @@ func (c *DynamoConnections) Get(ctx context.Context, sub string) (connection, er
 		return conn, err
 	}
 	opened, err := c.KMS.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: conn.sealed, KeyId: aws.String(c.KeyID), EncryptionContext: c.tokenContext(sub)})
+	var invalid *kmstypes.InvalidCiphertextException
+	var otherKey *kmstypes.IncorrectKeyException
+	if errors.As(err, &invalid) || errors.As(err, &otherKey) {
+		return connection{}, fmt.Errorf("%w: %w", errUnreadable, err)
+	}
 	if err != nil {
 		return connection{}, fmt.Errorf("gcal: connection doesn't decrypt for this person: %w", err)
 	}

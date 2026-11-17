@@ -155,6 +155,19 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 		})...)...)
 		return nil
 	}
+	if errors.Is(err, errUnreadable) {
+		if peeked, peekErr := g.Connections.Peek(ctx, sub); peekErr == nil && peeked.Revoked {
+			conn, err = peeked, nil
+		}
+	}
+	if errors.Is(err, errUnreadable) {
+		// Never opens, and there's no legacy one for them: they connect again, as the app asks, and it's marked so their
+		// runs stop failing. Counted as a failure, once, since a release that sealed tokens wrongly would look like this.
+		finish(append([]any{"outcome", "unreadable", "error_type", ErrorRevoked}, append(obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarRunFailures": 1,
+		}), awsError(err)...)...)...)
+		return g.markUnreadable(ctx, sub)
+	}
 	if err != nil {
 		finish(append(failed(ErrorFailed), awsError(err)...)...)
 		return err
@@ -259,9 +272,13 @@ func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error 
 
 // Wake starts a run now for each of these people who is connected: those whose plan changed.
 func (g *Google) Wake(ctx context.Context, subs []string, requestID string) error {
+	legacy, err := g.legacyConnection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return err
+	}
 	var jobs []Job
 	for _, sub := range subs {
-		connected, err := g.connected(ctx, sub)
+		connected, err := g.connectedBeside(ctx, sub, legacy)
 		if err != nil {
 			return err
 		}
@@ -813,6 +830,25 @@ func (g *Google) recordFailure(ctx context.Context, conn connection, code string
 	}
 	if !revoked || conn.legacy {
 		return nil
+	}
+	return g.Connections.MarkRevoked(ctx, conn)
+}
+
+// markUnreadable tells the app to connect again, and marks the connection that won't open, as one Google refused is.
+func (g *Google) markUnreadable(ctx context.Context, sub string) error {
+	conn, err := g.Connections.Peek(ctx, sub)
+	if errors.Is(err, ErrNotConnected) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	stored, err := g.calendarRecord(ctx, sub)
+	if err != nil {
+		return err
+	}
+	if err := g.writeCalendar(ctx, sub, stored, map[string]any{"connected": false, "last_error": ErrorRevoked}); err != nil {
+		return err
 	}
 	return g.Connections.MarkRevoked(ctx, conn)
 }

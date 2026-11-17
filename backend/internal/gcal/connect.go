@@ -53,6 +53,10 @@ var ErrNoSecret = errors.New("gcal: secret not set")
 // ErrNotConnected is what Connections.Get returns for a person with no connection of their own.
 var ErrNotConnected = errors.New("gcal: not connected")
 
+// errUnreadable is what Connections.Get returns for a stored token that will never open: sealed for someone else, or by
+// another key. Not KMS being unreachable or throttled, which a later run gets past.
+var errUnreadable = errors.New("gcal: the connection doesn't open")
+
 // errConnectionChanged is what Connections.Delete returns when the connection was replaced since it was read.
 var errConnectionChanged = errors.New("gcal: the connection changed")
 
@@ -163,6 +167,15 @@ func (g *Google) connectionOf(ctx context.Context, sub string) (connection, erro
 
 // connected reports whether sub has a connection to run, their own or the legacy one, without opening a token.
 func (g *Google) connected(ctx context.Context, sub string) (bool, error) {
+	legacy, err := g.legacyConnection(ctx)
+	if err != nil && !errors.Is(err, ErrNoSecret) {
+		return false, err
+	}
+	return g.connectedBeside(ctx, sub, legacy)
+}
+
+// connectedBeside is connected, with the legacy connection already read, so many people cost one read of it.
+func (g *Google) connectedBeside(ctx context.Context, sub string, legacy connection) (bool, error) {
 	own, err := g.Connections.Has(ctx, sub)
 	if err != nil || own {
 		return own, err
@@ -171,11 +184,7 @@ func (g *Google) connected(ctx context.Context, sub string) (bool, error) {
 		// Theirs, refused by Google, comes before the legacy one.
 		return false, err
 	}
-	legacy, err := g.legacyConnection(ctx)
-	if errors.Is(err, ErrNoSecret) {
-		return false, nil
-	}
-	return err == nil && legacy.Sub == sub, err
+	return legacy.Sub == sub, nil
 }
 
 // awsError names an AWS failure by its code, such as AccessDeniedException, for a log line: never its message.
@@ -187,20 +196,21 @@ func awsError(err error) []any {
 	return nil
 }
 
-// grantedAll reports whether a consent's token carries every scope asked for. Google lists the granted ones; someone
+// missingScopes returns the scopes asked for that a consent's token doesn't carry. Google lists the granted ones; someone
 // can untick any of them on its consent screen.
-func grantedAll(token *oauth2.Token) bool {
+func missingScopes(token *oauth2.Token) []string {
 	granted, ok := token.Extra("scope").(string)
 	if !ok {
-		return true
+		return nil
 	}
 	have := strings.Fields(granted)
+	var missing []string
 	for _, scope := range Scopes {
 		if !slices.Contains(have, scope) {
-			return false
+			missing = append(missing, scope)
 		}
 	}
-	return true
+	return missing
 }
 
 func (g *Google) oauthConfig(ctx context.Context) (*oauth2.Config, error) {
@@ -308,8 +318,8 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if token.RefreshToken == "" {
 		return errors.New("gcal: consent returned no refresh token")
 	}
-	if !grantedAll(token) {
-		g.Log.Info("calendar_connect_refused", "user", obs.HashSub(sub), "reason", "scopes_missing")
+	if missing := missingScopes(token); len(missing) > 0 {
+		g.Log.Info("calendar_connect_refused", "user", obs.HashSub(sub), "reason", "scopes_missing", "missing", missing)
 		return api.ErrScopesMissing
 	}
 	svc, err := g.serviceFor(ctx, cfg, token)

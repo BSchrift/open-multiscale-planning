@@ -173,8 +173,8 @@ func TestConnectionsThroughDynamoDBAndKMS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if swapped, err := conns.Get(ctx, "b"); err == nil || swapped.RefreshToken == tokenA || strings.Contains(err.Error(), tokenA) {
-		t.Fatalf("decrypted for the wrong person: %+v %v", swapped, err)
+	if swapped, err := conns.Get(ctx, "b"); !errors.Is(err, errUnreadable) || swapped.RefreshToken == tokenA || strings.Contains(err.Error(), tokenA) {
+		t.Fatalf("decrypted for the wrong person, or not called unreadable: %+v %v", swapped, err)
 	}
 	// What the swap left is still what's stored, so a new consent goes over it without opening it.
 	swappedB, err := conns.Peek(ctx, "b")

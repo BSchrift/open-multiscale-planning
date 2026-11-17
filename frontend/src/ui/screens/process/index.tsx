@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { formatDate, formatTime, formatWeekRange, isDay, localDate, nowInstant, thisWeek } from '../../../core/dates';
 import { fileToBacklog } from '../../../core/backlog';
-import { applyPlanChange, dueAfter } from '../../../core/plan';
+import { applyPlanChange, dueAfter, effectiveDue, msReached, sortedMilestones } from '../../../core/plan';
 import type { PlanChange, RecordWrite, Stretch } from '../../../core/plan';
 import type { InboxRow } from '../../../core/queries';
 import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
@@ -35,6 +35,8 @@ import { useDialogFocus } from '../../components/useDialogFocus';
 import { useToast } from '../../components/Toast';
 import { BacklogChooser, BacklogSheet } from './BacklogChooser';
 import { loadProcess } from './data';
+import { Milestones } from './Milestones';
+import type { MilestoneChoice } from './Milestones';
 import { dayWord, formatRange } from '../../components/blocks/describe';
 import { Item } from './Item';
 import type { Editing } from './Item';
@@ -64,8 +66,8 @@ interface Step {
   sorted: number;
   /** Finished as done or deleted. */
   closed: number;
-  /** A project just made from the card, which the picker holds until the item is added, with the milestone named with it. */
-  made: { id: string; milestone: string | null; under: string | null } | null;
+  /** A project just made from the card, which the picker holds until the item is added. */
+  made: { id: string } | null;
   /** The exact reverse of what's been changed on this item, latest first, which puts it back as it arrived. */
   edits: RecordWrite[];
 }
@@ -108,10 +110,7 @@ function keyOf(event: ReactKeyboardEvent): string {
 
 /** What the toast says once a home is made: made and kept on the card, or what the item became. */
 function homeLine(home: Home, item: string, goal: string | null): string {
-  if (home.keep) {
-    const ms = home.kind === 'project' && home.milestone ? `, with the milestone ${home.milestone}` : '';
-    return `Created ${home.title}${goal ? `, under ${goal}` : ''}${ms}.`;
-  }
+  if (home.keep) return `Created ${home.title}${goal ? `, under ${goal}` : ''}.`;
   return `${item} is now ${home.title === item ? `a ${home.kind}` : `the ${home.kind} ${home.title}`}.`;
 }
 
@@ -194,8 +193,16 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const focusPicker = () => pickRef.current?.focus();
   const dests = data.groups.flatMap((g) => g.dests);
   const placeOf = (key: string | undefined): Place | undefined => (key === ONE_OFFS ? null : dests.find((d) => d.plan.project.id === key));
-  // The picker shows a project just made, else the place last added to while it's still there.
-  const shown = placeOf(s.made ? s.made.id : lastKey);
+  // The picker shows a place picked from its list for this item, else a project just made, else the place last added to
+  // while it's still there.
+  const [pick, setPick] = useState<{ itemId: string; key: string } | null>(null);
+  const picked = pick && pick.itemId === item?.id ? placeOf(pick.key) : undefined;
+  const shown = picked !== undefined ? picked : placeOf(s.made ? s.made.id : lastKey);
+  // The milestone picked in the project the picker holds, for this item, else the one suggested.
+  const [msPick, setMsPick] = useState<{ itemId: string; projectId: string; choice: MilestoneChoice } | null>(null);
+  // The milestone each project's last item went under in this run, null for none.
+  const [lastMs, setLastMs] = useState<Record<string, string | null>>({});
+  const [naming, setNaming] = useState(false);
 
   const closeForm = () => {
     refocus.current = form?.opener ?? null;
@@ -213,8 +220,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     if (form) closeForm();
     else if (editing) closeEditing();
     else if (delAsk) setDelAsk(false);
-    // From Add to a project just made, back into the picker to put the item somewhere else.
-    else if (addRef.current && document.activeElement === addRef.current) focusPicker();
+    // From Add to a project just made, or from its milestones, back into the picker to put the item somewhere else.
+    else if ((addRef.current && document.activeElement === addRef.current) || document.activeElement?.closest('.pkms')) focusPicker();
     else if (isField(document.activeElement)) focusTitle();
     else close();
   });
@@ -278,6 +285,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     setDelAsk(false);
     setForm(null);
     setEditing(null);
+    setNaming(false);
     refocus.current = 'pick';
     toast.show(back.home ? undoneLine(back.home, kept) : `${back.title} is back.`);
   };
@@ -309,7 +317,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     // Focus moved on the card while it saved, as by Esc, stays where it was put.
     const moved = document.activeElement !== from && !!ref.current?.contains(document.activeElement);
     const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, edits: [], ...next() };
-    if (step.idx !== s.idx) swipeAway(ref.current);
+    if (step.idx !== s.idx) {
+      swipeAway(ref.current);
+      setNaming(false);
+    }
     const prev = history[history.length - 1];
     const merged = options.merge && prev?.home;
     const entry: Entry = merged
@@ -349,35 +360,55 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
   const weekWords = planning ? 'and to the plan' : 'and to this week';
   const ctx = { settings: data.settings, clock };
+  /** A project's milestones still to reach, by date. */
+  const openMilestones = (dest: Destination) => sortedMilestones(dest.plan, ctx).filter((m) => !m.dropped_at && !msReached(dest.plan, m));
+  /** Where an item goes in a project unless another is picked: under the milestone its last item went under in this run, else the next. */
+  const suggested = (dest: Destination): MilestoneChoice => {
+    const open = openMilestones(dest);
+    const id = dest.plan.project.id;
+    if (id in lastMs && (lastMs[id] === null || open.some((m) => m.id === lastMs[id]))) return lastMs[id] ? { id: lastMs[id]! } : null;
+    return open[0] ? { id: open[0].id } : null;
+  };
+  const msFor = (dest: Destination): MilestoneChoice =>
+    msPick && msPick.itemId === item?.id && msPick.projectId === dest.plan.project.id ? msPick.choice : suggested(dest);
   const lateFor = (dest: Destination) => {
     if (!current) return null;
-    const milestone_id = s.made?.id === dest.plan.project.id ? s.made.milestone : null;
-    const late = dueAfter(dest.plan, { schedule: current.schedule ?? null, milestone_id }, ctx);
+    const ms = msFor(dest);
+    const late = dueAfter(dest.plan, { schedule: current.schedule ?? null, milestone_id: ms && 'id' in ms ? ms.id : null }, ctx);
     return late && lateText(late);
   };
   // A date the item came with, rather than one set on the card this time.
   const dated = !s.edits.some((r) => r.id === item?.id && 'schedule' in r.fields);
 
-  /** Adds the item to a project, or to One offs as null. One just made from the card puts it under the milestone named with it. */
+  /** Adds the item to a project, under the milestone chosen there, or to One offs as null. A new milestone is made with it. */
   const send = (dest: Place) => {
     if (!item) return Promise.resolve(false);
     // shortcut: no estimate picks 30m for a one off and 1h for a project, ask later if these prove wrong.
     const minutes = est || (dest ? 60 : 30);
     const made = dest && s.made?.id === dest.plan.project.id ? s.made : null;
+    const ms = dest ? msFor(dest) : null;
+    let madeMs: string | null = null;
     const once = current?.schedule?.type === 'once' && current.schedule.from ? current.schedule : null;
     const run = async (w: Writer): Promise<PlanChange> => {
+      // Undated, as any milestone named without a date: it goes by the stretch, or the project's end, until given one.
+      if (dest && ms && 'name' in ms) madeMs = await w.create('milestone', { project_id: dest.plan.project.id, title: ms.name, stretch: stretch?.start ?? null, added_on: today });
+      const milestone_id = madeMs ?? (ms && 'id' in ms ? ms.id : null);
       // Fields merge one by one, so each kind clears the other's: another device may have sent this item the other way.
       const fields: Fields<'task'> = dest
-        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id: made?.milestone ?? null, ...projectDates(current ?? {}), estimate_min: est || null }
+        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id, ...projectDates(current ?? {}), estimate_min: est || null }
         : oneOffFields({ ...emptyDraft(today), title: name, estimate: est, ...(once ? { from: once.from ?? '', to: once.to ?? '', ranged: !!once.to } : {}) }, today);
       const filed = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
-      return s.planOn ? addToWeek(w, minutes, filed) : filed;
+      const reverse = madeMs ? { writes: [...filed.writes, { type: 'milestone' as const, id: madeMs, fields: { deleted_at: nowInstant(clock) } }] } : filed;
+      return s.planOn ? addToWeek(w, minutes, reverse) : reverse;
     };
-    const where = `${placeName(dest)}${made?.under ? `, under ${made.under}` : ''}${once ? `, for ${onceWhen(once)}` : ''}`;
+    const under = !dest || !ms ? '' : 'name' in ms ? `, under the new milestone ${ms.name}` : `, under ${dest.plan.milestones.find((m) => m.id === ms.id)?.title}`;
+    const where = `${placeName(dest)}${under}${once ? `, for ${onceWhen(once)}` : ''}`;
     const repeatGoes = dest && current && isRepeating(current) ? " Repeats stay with One offs, so it won't repeat." : '';
     const says = () => `Added ${name} to ${where}${s.planOn ? ` ${weekWords}` : ''}.${repeatGoes}${stays}`;
     return commit(run, () => ({ sorted: s.sorted + 1 }), says, { merge: !!made }).then((done) => {
-      if (done) setLastKey(placeKey(dest));
+      if (!done) return done;
+      setLastKey(placeKey(dest));
+      if (dest) setLastMs((all) => ({ ...all, [dest.plan.project.id]: madeMs ?? (ms && 'id' in ms ? ms.id : null) }));
       return done;
     });
   };
@@ -405,13 +436,15 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               est: s.est,
               planOn: s.planOn,
               edits: s.edits,
-              made: made!.type === 'project' ? { id: made!.id, milestone: made!.milestone ?? null, under: home.kind === 'project' ? (home.milestone ?? null) : null } : null,
+              made: made!.type === 'project' ? { id: made!.id } : null,
             }
           : { sorted: s.sorted + 1 },
       () => `${homeLine(home, name, goal)}${cameOff()}`,
       { home: () => ({ made: made!, itemId: item.id, item: name, title: home.title, goal: made!.goal ? goal : null, left: !home.keep }) },
     );
     if (!done || !made) return false;
+    // The picker holds a project just made, over a place picked before it.
+    if (home.keep && made.type === 'project') setPick(null);
     if (home.kind !== 'goal') setLastGoal(made.goal ?? (home.goal && 'id' in home.goal ? home.goal.id : ''));
     setForm(null);
     return true;
@@ -486,6 +519,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       g: () => openForm('goal', 'g'),
       ...(data.backlogs.length ? { b: () => setChoosing(true) } : {}),
       ...(stretch ? {} : { w: togglePlan }),
+      ...(shown ? { m: () => setNaming(true) } : {}),
     };
     const fn = keys[k];
     if (fn) run(fn);
@@ -559,6 +593,22 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const homeForm = form && item && (
     <HomeForm key={item.id} item={name} kind={form.kind} name={form.name} goals={data.goals} goal={lastGoal} end={data.end} onSave={addHome} onClose={closeForm} />
   );
+  // Under a project the picker holds, its milestones.
+  const milestones = item && shown && (
+    <Milestones
+      key={shown.plan.project.id}
+      phone={phone}
+      project={shown.title}
+      milestones={openMilestones(shown)}
+      due={(m) => formatDate(effectiveDue(shown.plan, m, ctx))}
+      chosen={msFor(shown)}
+      onChoose={(choice) => setMsPick({ itemId: item.id, projectId: shown.plan.project.id, choice })}
+      onAdd={() => addRef.current?.click()}
+      naming={naming}
+      setNaming={setNaming}
+      cap={cap('M')}
+    />
+  );
   const picker = item && (
     <Picker
       // Its own key beside the form's: a fresh field, with nothing typed, for each item.
@@ -578,7 +628,9 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       }
       late={lateFor}
       onAdd={(place) => void send(place)}
+      onPick={(place) => setPick({ itemId: item.id, key: placeKey(place) })}
       onNew={(name) => openForm('project', 'pick', name)}
+      milestones={milestones}
     >
       {!phone && weekToggle}
     </Picker>

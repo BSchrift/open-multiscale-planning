@@ -433,29 +433,22 @@ describe('makeHome', () => {
   }
   const dates = { start: '2026-11-04', end: '2026-12-31' };
 
-  it('makes a project under a new goal with a milestone at its end, and leaves the item to add next, in one change that undoes exactly', async () => {
+  it('makes a project under a new goal, with no milestone, and leaves the item to add next, in one change that undoes exactly', async () => {
     const { db, make, undo, live } = await inbox();
     const before = await getRecord(db, 'task', 'i');
-    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true, milestone: 'Visas sorted' });
-    expect(made).toMatchObject({ type: 'project', milestone: expect.any(String) });
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true });
+    expect(made).toMatchObject({ type: 'project' });
     expect(await getRecord(db, 'project', made.id)).toMatchObject({ title: 'Japan trip', state: 'active', ...dates, objective_id: made.goal, added_on: '2026-11-04' });
     expect(await getRecord(db, 'objective', made.goal!)).toMatchObject({ title: 'See Asia', state: 'active' });
-    expect(await getRecord(db, 'milestone', made.milestone!)).toMatchObject({ project_id: made.id, title: 'Visas sorted', due: '2026-12-31', added_on: '2026-11-04' });
+    // Milestones are chosen under Process's picker, as the item is added.
+    expect(await listRecords(db, 'milestone')).toEqual([]);
     // The item waits on the card, to be added on a second Enter.
     expect(await getRecord(db, 'task', 'i')).toEqual(before);
 
     expect(await undo(made, reverse)).toBe(false);
     expect(await live('project')).toEqual([]);
     expect(await live('objective')).toEqual(['Travel more']);
-    expect((await getRecord(db, 'milestone', made.milestone!))?.deleted_at).toBeTruthy();
     expect(await getRecord(db, 'task', 'i')).toEqual(before);
-  });
-
-  it('makes a project with no milestone when none is named', async () => {
-    const { db, make } = await inbox();
-    const { made } = await make({ kind: 'project', title: 'Japan trip', goal: null, ...dates, keep: true, milestone: null });
-    expect(made.milestone).toBeNull();
-    expect(await listRecords(db, 'milestone')).toEqual([]);
   });
 
   it('makes a project from an item that is the project itself: closed with a link, listed as finished, and back on Undo', async () => {
@@ -503,7 +496,7 @@ describe('makeHome', () => {
 
   it('keeps a project another device has put tasks in since, with its new goal, and gives back only the item', async () => {
     const { db, clock, make, undo, live } = await inbox();
-    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true, milestone: null });
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true });
     await transact(db, clock, (w) => w.create('task', { kind: 'project', project_id: made.id, title: 'Renew the passport' }, 'other'));
     expect(await undo(made, reverse)).toBe(true);
     expect(await live('project')).toEqual(['Japan trip']);

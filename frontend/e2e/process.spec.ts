@@ -298,6 +298,56 @@ test('a new project from Process needs a goal: Add project says so with focus on
   expect(errors).toEqual([]);
 });
 
+test('the project Add to holds shows its milestones, the next one chosen, and a new one is made as the item is added', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [
+    ...records,
+    { type: 'milestone', id: 'm1', fields: { project_id: 'p1', title: 'First coat', due: '2026-11-20' } },
+    { type: 'milestone', id: 'm2', fields: { project_id: 'p1', title: 'Second coat', due: '2026-12-10' } },
+  ]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 3 to sort' : 'Inbox' }).click();
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  if (phone) await card(page).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await picker.fill('Paint');
+  if (phone) await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: 'Paint the fence' }).click();
+  else await picker.press('Enter');
+  const row = card(page).getByRole('radiogroup', { name: 'Milestone in Paint the fence' });
+  await expect(row.getByRole('radio', { name: 'First coat, due Nov 20' })).toHaveAttribute('aria-checked', 'true');
+  if (phone) for (const name of ['First coat, due Nov 20', 'Second coat, due Dec 10', 'No milestone']) await expectTapTarget(row.getByRole('radio', { name }));
+  await page.screenshot({ path: info.outputPath('process-milestones.png') });
+
+  // New milestone: Option M on desktop, a tap on phone. It's chosen once named, and made as the item is added.
+  if (phone) await row.getByRole('button', { name: 'New milestone' }).click();
+  else await page.keyboard.press('Alt+KeyM');
+  const name = row.getByRole('textbox', { name: 'New milestone name' });
+  await expect(name).toBeFocused();
+  await name.fill('Sand it down');
+  await name.press('Enter');
+  await expect(row.getByRole('radio', { name: 'Sand it down, new' })).toHaveAttribute('aria-checked', 'true');
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
+  await expect(toast(page)).toContainText('Added Call the bank to Paint the fence, under the new milestone Sand it down.');
+
+  // The next card starts on it. On desktop the arrows move the choice and Enter files the item; on phone, a tap.
+  await expect(title(page, 'Fix the gate')).toBeVisible();
+  const made = row.getByRole('radio', { name: /^Sand it down, due / });
+  await expect(made).toHaveAttribute('aria-checked', 'true');
+  if (phone) {
+    await row.getByRole('radio', { name: 'Second coat, due Dec 10' }).click();
+    await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
+  } else {
+    await made.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(row.getByRole('radio', { name: 'Second coat, due Dec 10' })).toBeFocused();
+    await page.keyboard.press('Enter');
+  }
+  await expect(toast(page)).toContainText('Added Fix the gate to Paint the fence, under Second coat.');
+  expect(errors).toEqual([]);
+});
+
 test('Add details sends a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);

@@ -77,6 +77,8 @@ final class OfflineUITests: XCTestCase {
         exists(app.webButton(toProject))
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        // Its next milestone is chosen; No milestone puts it under the project's Done, which landed() opens.
+        app.tapWeb(anyStartingWith: "No milestone")
         app.tapWeb("Add to Bake a sourdough loaf")
         exists(app.webText("Added \(toProject) to Bake a sourdough loaf."))
         exists(app.webButton(toOneOffs))

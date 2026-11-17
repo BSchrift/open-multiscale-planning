@@ -11,7 +11,7 @@ import { deployed } from './target';
 const d = deployed();
 // Where each app's feed is on the release host (src/core/updates.ts).
 const FEEDS = { desktop: 'desktop/release.json', iphone: 'iphone/release.json' };
-// Prod's Test step runs before its release publishes, and so before that release deletes the shared feed.
+// Prod's Test step runs before its release publishes, and so before that release writes the feed at the root.
 const beforePublish = process.env.DEPLOYED_BEFORE_PUBLISH === '1';
 // An Ed25519 public key's DER prefix, before the 32 bytes a build carries.
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
@@ -52,16 +52,24 @@ test('each feed checks out with the release key and names the version released, 
   }
 });
 
-// Bundles from before the apps' own feeds read release.json at the host's root. Each release deletes it, so no one is
-// left reading a feed nothing switches.
-test('the shared feed at the root is gone', async ({ request }, info) => {
+// Bundles from before the apps' own feeds read release.json at the host's root. None of them can take a build any more,
+// so each release points it at no native code: such a bundle then says it needs a new app, and offers the disk image,
+// rather than saying it couldn't check for updates.
+test("the feed at the root tells bundles from before the apps' own feeds that they need a new app", async ({ request }, info) => {
   test.skip(info.project.name !== 'desktop', 'The feeds are the same at every size');
   test.skip(!d.releaseUrl, `${d.env} has no release host`);
-  test.skip(beforePublish, "needs: this release's publish, which deletes it, and which release-prod checks");
-  // A copy may stay at the edge for the minute it cached for.
+  test.skip(beforePublish, "needs: this release's publish, which writes it, and which release-prod checks");
+  // It caches for a minute at the edge, so one just written may take that long to show.
+  const rootFeed = async () => {
+    const response = await request.get(`${d.releaseUrl}/release.json`);
+    return response.ok() ? (JSON.parse(((await response.json()) as { manifest: string }).manifest) as { version: string; shell: object; files: unknown[] }) : null;
+  };
   await expect
-    .poll(async () => [403, 404].includes((await request.get(`${d.releaseUrl}/release.json`)).status()), { message: `${d.releaseUrl}/release.json answers 403 or 404`, timeout: 90_000, intervals: [10_000] })
-    .toBe(true);
+    .poll(async () => {
+      const m = await rootFeed();
+      return m && (!d.version || m.version === d.version) ? { shell: m.shell, files: m.files } : m;
+    }, { message: `${d.releaseUrl}/release.json names no native code${d.version ? ` at ${d.version}` : ''}`, timeout: 90_000, intervals: [10_000] })
+    .toEqual({ shell: {}, files: [] });
 });
 
 // The Mac app the desktop feed names, as an installed app updates to it: electron-updater reads latest-mac.yml from the

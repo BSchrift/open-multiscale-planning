@@ -10,7 +10,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { openDb } from '../../src/core/db';
 import { applyRemote } from '../../src/core/records';
 import { nodeSqliteDriver } from '../../src/platform/node-sqlite';
-import { capture, heapMb, interleave, keep, LAUNCHES, Results, ROUND, SAMPLES, scenarioData, SCENARIOS, screens, settled, waitForMeasure, WARMUP } from './harness';
+import { capture, heapMb, interleave, keep, LAUNCHES, purgeFileCache, Results, ROUND, SAMPLES, scenarioData, SCENARIOS, screens, settled, waitForMeasure, WARMUP } from './harness';
 import type { Action } from './harness';
 
 test.describe.configure({ timeout: 3_600_000 });
@@ -28,7 +28,8 @@ async function dataFolder(scenario: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'multiscale-perf-'));
   writeFileSync(join(dir, 'login-item-set'), '');
   const db = await openDb(nodeSqliteDriver(join(dir, 'multiscale.sqlite')));
-  await applyRemote(db, scenarioData(scenario));
+  // The data alone: the nightly's conditions are the browser's.
+  await applyRemote(db, scenarioData(scenario.split('+')[0]!));
   await db.close();
   return dir;
 }
@@ -83,6 +84,7 @@ for (const scenario of SCENARIOS) {
     for (let i = 0; i < LAUNCHES; i++) {
       for (const { target, own, results } of i % 2 === 0 ? builds : [...builds].reverse()) {
         for (const kpi of ['start.cold', 'start.warm']) {
+          if (kpi === 'start.cold') purgeFileCache();
           const { app, page, launched } = await launch(target.dir, own);
           await page.waitForFunction(() => performance.getEntriesByName('today:interactive', 'mark').length > 0, undefined, { timeout: 120_000, polling: 20 });
           const at = await page.evaluate(() => performance.timeOrigin + performance.getEntriesByName('today:interactive', 'mark')[0]!.startTime);

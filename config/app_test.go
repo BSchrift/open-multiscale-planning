@@ -95,6 +95,15 @@ func TestThrottlesStopReleasesOnlyOnProd(t *testing.T) {
 	}
 }
 
+func TestPerformanceDashboardOnlyOnStaging(t *testing.T) {
+	// CI's performance results are published to staging's account, where its nightly runs.
+	for name, want := range map[string]bool{"local": false, "staging": true, "prod": false} {
+		if env, _ := ForEnv(name); env.Stack.PerformanceDashboard != want {
+			t.Errorf("%s: performanceDashboard %v", name, env.Stack.PerformanceDashboard)
+		}
+	}
+}
+
 func TestAttachmentLimits(t *testing.T) {
 	a := Protocol.Attachments
 	if a.MaxFileBytes != 10<<20 || a.MaxPerTask != 10 || a.MaxIDsPerDownload != 20 {

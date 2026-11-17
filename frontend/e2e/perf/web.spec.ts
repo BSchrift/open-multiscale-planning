@@ -1,5 +1,7 @@
 // The browser's performance KPIs (docs/performance.md), on the runner's build of each target: capture, the screens, the
-// heap after them, and cold and warm starts with the bytes a first load fetches. Run by scripts/test-perf.sh.
+// heap after them, and cold and warm starts with the bytes a first load fetches. Run by scripts/test-perf.sh. A scenario
+// is its data, and the nightly's conditions after a +: one-year+offline with the browser offline once loaded, and
+// one-year+cpu6x with the phone's CPU 6 times slower, for low-end phones.
 
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +10,7 @@ import { test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { Platform } from '../../../config/perf';
 import { openWithHistory } from '../seed';
-import { capture, CPU, heapMb, interleave, LAUNCHES, Results, scenarioData, SCENARIOS, screens, settled, slowCpu, targets } from './harness';
+import { capture, CPU, heapMb, interleave, LAUNCHES, purgeFileCache, Results, scenarioData, SCENARIOS, screens, settled, slowCpu, targets } from './harness';
 
 test.describe.configure({ timeout: 3_600_000 });
 
@@ -21,15 +23,18 @@ for (const scenario of SCENARIOS) {
     const phone = platform === 'web-phone';
     const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, launchOptions } = info.project.use;
     const device = { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch };
-    const data = scenarioData(scenario);
+    const [dataName, condition] = scenario.split('+');
+    const data = scenarioData(dataName!);
+    const cpu = condition === 'cpu6x' ? 6 : CPU;
     const builds = await Promise.all(
       targets().map(async (target) => {
         const context = await browser.newContext({ ...device, baseURL: target.url });
         const page = await context.newPage();
-        if (phone) await slowCpu(page, CPU);
+        if (phone) await slowCpu(page, cpu);
         await openWithHistory(page, data);
         await page.reload();
         await settled(page);
+        if (condition === 'offline') await context.setOffline(true);
         return { target, page, results: new Results(target.name, platform, scenario) };
       }),
     );
@@ -57,9 +62,10 @@ for (const scenario of SCENARIOS) {
         const copy = mkdtempSync(join(tmpdir(), 'multiscale-perf-'));
         cpSync(profiles.get(target.name)!, copy, { recursive: true });
         for (const cache of ['Default/Cache', 'Default/Code Cache', 'Default/GPUCache']) rmSync(join(copy, cache), { recursive: true, force: true });
+        purgeFileCache();
         const context = await launch(copy, target.url);
         const page = context.pages()[0] ?? (await context.newPage());
-        if (phone) await slowCpu(page, CPU);
+        if (phone) await slowCpu(page, cpu);
         const cdp = await context.newCDPSession(page);
         await cdp.send('Network.enable');
         if (phone) await cdp.send('Network.emulateNetworkConditions', SLOW_4G);

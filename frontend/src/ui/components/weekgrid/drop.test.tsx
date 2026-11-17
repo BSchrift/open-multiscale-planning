@@ -93,6 +93,24 @@ describe('a press on a block that moves', () => {
     expect(held.calls).toEqual(['haptic', 'lift', 'drag 0,40', 'drop']);
   });
 
+  it('gives way to a second finger, which is a pinch, before or after the lift', () => {
+    vi.useFakeTimers();
+    const before = block('touch');
+    before.down();
+    fireEvent.pointerDown(window, { pointerId: 2, pointerType: 'touch', button: 0 });
+    vi.advanceTimersByTime(HOLD_MS);
+    before.move(100, 140);
+    expect(before.calls).toEqual([]);
+
+    const after = block('touch');
+    after.down();
+    vi.advanceTimersByTime(HOLD_MS);
+    after.move(100, 140);
+    fireEvent.pointerDown(window, { pointerId: 2, pointerType: 'touch', button: 0 });
+    after.move(100, 180);
+    expect(after.calls).toEqual(['haptic', 'lift', 'drag 0,40', 'cancel']);
+  });
+
   it('lets go when the browser takes the press back', () => {
     const b = block('touch');
     b.hold();

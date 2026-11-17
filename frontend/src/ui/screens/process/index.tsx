@@ -693,7 +693,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   }
 
   return (
-    <div className="pxwrap">
+    // A press on the veil around the card closes Process, as Exit does.
+    <div className="pxwrap" onMouseDown={(event) => event.target === event.currentTarget && close()}>
       <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="pxtop">
           <Button size="compact" type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo">

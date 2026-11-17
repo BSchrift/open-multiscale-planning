@@ -287,6 +287,25 @@ test('desktop: W, E and G do what their buttons do, D asks and Enter or a second
   expect(errors).toEqual([]);
 });
 
+test('desktop: a click outside the card closes Process, as Exit does, and what was changed on the card stays', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'On phone Process fills the screen, so there is no outside to click.');
+  const errors = await open(page, false);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  const slider = card(page).getByRole('slider', { name: 'Time' });
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  // A click on the card itself leaves it open.
+  await card(page).getByText('1 of 3').click();
+  await expect(card(page)).toBeVisible();
+  await page.mouse.click(20, 980);
+  await expect(card(page)).toHaveCount(0);
+  await expect(rows(page)).toHaveText([/Call the bank/, /Fix the gate/, /Buy stamps/]);
+  await expect(rows(page).filter({ hasText: 'Call the bank' })).toContainText('30m estimate');
+  expect(errors).toEqual([]);
+});
+
 test('Add details sends a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);

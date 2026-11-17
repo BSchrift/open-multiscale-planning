@@ -85,7 +85,7 @@ export function ToSchedule(props: { date: LocalDate }) {
             ))}
           </div>
           <p className="small quiet">
-            {phone ? 'Hold a card, then drag it onto the day, or tap it for suggested times.' : 'Drag work onto the day to place it, or click it for suggested times.'}
+            {phone ? 'Hold a card, then drag it onto the day, or tap it for suggested times.' : 'Hold work, then drag it onto the day to place it, or click it for suggested times.'}
           </p>
           {phone && planOne}
         </>

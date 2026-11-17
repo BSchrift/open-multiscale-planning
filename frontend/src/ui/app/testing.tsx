@@ -92,13 +92,26 @@ function harness(
 }
 
 /** Renders one area on its own, with the same data, toast and navigation context it has in the app. */
-export async function renderScreen(
+export function renderScreen(
   area: AreaId,
   options: HarnessOptions & { params?: RouteParams; presentation?: Presentation; close?(): void } = {},
 ): Promise<Harness> {
-  const prepared = await prepare(options);
   const layout = options.layout ?? 'desktop';
   const { Screen } = AREAS[area];
+  return renderInApp(
+    <Screen params={options.params ?? {}} layout={layout} presentation={options.presentation ?? 'page'} close={options.close ?? (() => undefined)} />,
+    options,
+    area !== 'task',
+  );
+}
+
+/**
+ * Renders part of a screen, such as a component a calendar opens, with the data, toast and navigation context an area
+ * has in the app.
+ */
+export async function renderInApp(ui: ReactElement, options: HarnessOptions = {}, taskPopups = true): Promise<Harness> {
+  const prepared = await prepare(options);
+  const layout = options.layout ?? 'desktop';
   let nav: (Nav & { overlay: Overlay | null }) | undefined;
   const Grab = () => {
     nav = { ...useNav(), overlay: useOverlay() };
@@ -119,13 +132,8 @@ export async function renderScreen(
         <NavProvider layout={layout}>
           <Grab />
           <Suspense fallback={null}>
-            <Screen
-              params={options.params ?? {}}
-              layout={layout}
-              presentation={options.presentation ?? 'page'}
-              close={options.close ?? (() => undefined)}
-            />
-            {area !== 'task' && <TaskPopup />}
+            {ui}
+            {taskPopups && <TaskPopup />}
           </Suspense>
         </NavProvider>
       </ToastProvider>

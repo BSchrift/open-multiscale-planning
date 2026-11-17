@@ -52,6 +52,44 @@ async function openCapture(page: Page, phone: boolean) {
   return capture;
 }
 
+test('an Inbox item with a block shows its time on its row and its card, and filing it keeps the block, then Delete takes one off', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  // As hold to create leaves them: Inbox items with their blocks on the calendar, at 5:45pm and 7pm today.
+  const held = (id: string, title: string, start: string, end: string): Seed[] => [
+    { type: 'task', id, fields: { kind: 'inbox', title, estimate_min: 60 } },
+    { type: 'time_block', id: `b-${id}`, fields: { task_id: id, start, end, tz: 'America/Chicago' } },
+  ];
+  await openSeeded(page, [records[0]!, records[1]!, ...held('a1', 'Book dentist', '2026-11-02T23:45:00Z', '2026-11-03T00:45:00Z'), ...held('a2', 'Call the plumber', '2026-11-03T01:00:00Z', '2026-11-03T02:00:00Z')]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 2 to sort' : 'Inbox' }).click();
+  await expect(rows(page)).toHaveText([/Book dentist.*Today, 5:45pm to 6:45pm/, /Call the plumber.*Today, 7pm to 8pm/]);
+  await page.screenshot({ path: info.outputPath('inbox-rows-with-blocks.png') });
+
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 2 items' }).click();
+  await expect(title(page, 'Book dentist')).toBeVisible();
+  await expect(card(page).getByText('On the calendar today, 5:45pm to 6:45pm. It keeps this time wherever it goes.')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('process-card-with-block.png') });
+  await processTo(page, phone, 'One offs');
+  await expect(toast(page)).toContainText('Added Book dentist to One offs. Its block at 5:45pm stays.');
+
+  await expect(title(page, 'Call the plumber')).toBeVisible();
+  await card(page).getByRole('button', { name: 'Delete', exact: true }).click();
+  await card(page).getByRole('alert').getByRole('button', { name: 'Yes, delete' }).click();
+  await expect(card(page)).toHaveCount(0);
+  // The last item's toast waits until the Inbox clear check has gone.
+  await expect(page.locator('.clearveil')).toHaveCount(0, { timeout: 4000 });
+  await expect(toast(page)).toContainText('Deleted Call the plumber and its block at 7pm.');
+
+  // On Today the filed one keeps its time, now drawn as a one off, and the deleted one's is gone.
+  await nav(page).getByRole('button', { name: 'Today' }).click();
+  const filed = page.getByRole(phone ? 'slider' : 'button', { name: /^Book dentist, 5:45pm to 6:45pm, One off\./ });
+  await expect(filed).toHaveClass(/\bk-oneoff\b/);
+  await expect(page.getByRole(phone ? 'slider' : 'button', { name: /^Call the plumber/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("Skip keeps an item for later, Delete's Cancel keeps it too, and leaving part way, Process starts again on what's left", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);

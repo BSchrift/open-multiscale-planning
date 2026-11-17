@@ -77,7 +77,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
-  const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null } | null>(null);
+  // held: still under the pointer, drawn lifted; one let go is put down where it landed while it saves.
+  const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null; held?: boolean } | null>(null);
   const steps = useRef<{ id: string; at: Slot; reverse: PlanChange } | null>(null);
   // Arrow steps save one after another, each from where the last one put the block, since the day can redraw from a
   // step's save while the next is still saving and show the block a step behind.
@@ -208,10 +209,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     let last = slot;
     // A click, or a tap let go without dragging, opens the block by its own click.
     holdToDrag(e, {
-      lift: () => setDrag({ id: i.id, slot, ghost }),
+      lift: () => setDrag({ id: i.id, slot, ghost, held: true }),
       drag: (_dx, dy) => {
         last = dragResult(slot, mode, 0, dy * perPx, ghost ? [ghost] : [], bounds(slot));
-        setDrag({ id: i.id, slot: last, ghost });
+        setDrag({ id: i.id, slot: last, ghost, held: true });
       },
       drop: () => {
         if (same(last, slot)) return setDrag(null);
@@ -341,7 +342,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const said = look === 'inbox' ? !compact && <span className="time">Inbox, {i.time}</span> : time;
           const move = movable(i.block);
           const resize = resizable(i.block);
-          const lifted = drag?.id === i.id;
+          const lifted = drag?.id === i.id && !!drag.held;
           // On phone a block that moves is a slider, as on Week, so VoiceOver's swipe up and down move it.
           const slider = phone && move;
           const Tag = slider ? 'div' : 'button';

@@ -230,11 +230,13 @@ describe('the week grid', () => {
     expect(block(/^Write the report, Sat Nov 7/)).toHaveFocus();
   });
 
-  it('a dropped block stays where it landed until the new position arrives', () => {
+  it('a dropped block stays where it landed until the new position arrives, no longer lifted', () => {
     const t = draw({ editing: true });
     drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });
     expect(t.onChange).toHaveBeenCalledWith('b1', { date: '2026-11-05', start: 18 * 60, end: 19 * 60 });
     expect(block(/^Write the report/)).toHaveAccessibleName(/6pm to 7pm/);
+    // Let go, it's put down, so a hold on it straight away is a hold of its own.
+    expect(block(/^Write the report/)).not.toHaveClass('lifted');
   });
 
   it('a dropped block stays put while its caller redraws the old position, until a new one arrives', () => {

@@ -359,6 +359,8 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   // To schedule, above the day, reads the week on its own, and changes height once it has. Measured before that, the
   // block had moved down 80px by the time the mouse pressed, which then missed it.
   await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  // So are the other screens' styles, which load after Today and can move the day a few pixels.
+  await settled(page);
   const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;

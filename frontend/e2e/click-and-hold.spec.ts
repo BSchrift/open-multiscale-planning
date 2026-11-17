@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { holdMouse, openSeeded, touchDrag } from './seed';
+import { holdMouse, openSeeded, settled, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -34,6 +34,8 @@ async function open(page: Page, extra: Seed[] = []) {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.clock.install({ time: NOW });
   await openSeeded(page, [...records, ...extra]);
+  // Every screen's styles, which load after the first and can move what's measured, are in before anything is pressed.
+  await settled(page);
   return errors;
 }
 

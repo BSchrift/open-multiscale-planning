@@ -1377,6 +1377,8 @@ describe('moving a block on the timeline', () => {
         expect(await screen.findByText('Suggested 5pm')).toBeVisible();
         expect(await movable(/^Write the report, 5pm to 6pm/)).toHaveClass('lifted');
         fireEvent.pointerUp(window, { clientY: 325 });
+        // Put down at once, where it was let go, while its new time saves.
+        expect(screen.getByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 5pm to 6pm/ })).not.toHaveClass('lifted');
         await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('17:00'), end: at('18:00') }));
         expect(screen.queryByText('Suggested 5pm')).toBeNull();
       });

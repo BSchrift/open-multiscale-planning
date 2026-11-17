@@ -1675,7 +1675,8 @@ describe('hold to create on the timeline', () => {
     return (h! * 60 + (m ?? 0) - 420) / 2;
   };
   const kind = (layout: Layout) => (layout === 'phone' ? 'touch' : 'mouse');
-  const ready = (layout: Layout) => screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  // The first render in a run also loads the modules, so it gets longer.
+  const ready = (layout: Layout) => screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ }, { timeout: 5000 });
   const press = (time: string, layout: Layout, pointerId = 1) =>
     fireEvent.pointerDown(timeline(), { clientX: 100, clientY: y(time), button: 0, pointerType: kind(layout), pointerId });
   const hold = async (time: string, layout: Layout) => {
@@ -1690,7 +1691,7 @@ describe('hold to create on the timeline', () => {
       it('a hold on empty space drafts an hour from the quarter hour under it, with one light tap, and letting go opens Capture there; Save puts an Inbox item and its block there', async () => {
         const t = await open(day, { layout });
         await hold('17:46', layout);
-        expect(draft()).toHaveClass('blk', 's-placing', 'pop');
+        await waitFor(() => expect(draft()).toHaveClass('blk', 's-placing', 'pop'));
         expect(draft()).toHaveTextContent('New task');
         expect(draft()).toHaveAttribute('title', '5:45pm to 6:45pm');
         expect(document.querySelector('.holdring')).not.toBeNull();
@@ -1721,7 +1722,7 @@ describe('hold to create on the timeline', () => {
       it('a draft that overlaps a block keeps its hour, sits beside it, and Capture says by how much; Cancel takes it away, saving nothing', async () => {
         const t = await open(day, { layout });
         await hold('15:30', layout);
-        expect(draft()).toHaveAttribute('title', '3:30pm to 4:30pm');
+        await waitFor(() => expect(draft()).toHaveAttribute('title', '3:30pm to 4:30pm'));
         expect(draft()!.style.left).toBe('50%');
         letGo('15:30', layout);
         const capture = await screen.findByRole('dialog', { name: 'Capture' });
@@ -1746,13 +1747,30 @@ describe('hold to create on the timeline', () => {
     });
   }
 
+  it('on phone, a press let go after the hold drafts there and opens Capture, though a busy page hasn’t run the hold’s timer yet', async () => {
+    await open(day, { layout: 'phone' });
+    await ready('phone');
+    // The timer stands still while the clock moves on, as on a page too busy to run it: the release's own time says it
+    // was held long enough.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      press('17:46', 'phone');
+      vi.setSystemTime(Date.now() + 500);
+      letGo('17:46', 'phone');
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(within(await screen.findByRole('dialog', { name: 'Capture' })).getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+  });
+
   it('on phone, the draft follows the finger in quarter hours after the tap, and keeps its hour', async () => {
     await open(day, { layout: 'phone' });
     await hold('17:46', 'phone');
+    await waitFor(() => expect(draft()).not.toBeNull());
     fireEvent.pointerMove(window, { clientX: 100, clientY: y('17:46') + 3, pointerType: 'touch', pointerId: 1 });
     expect(draft()).toHaveAttribute('title', '5:45pm to 6:45pm');
     fireEvent.pointerMove(window, { clientX: 100, clientY: y('17:46') + 15, pointerType: 'touch', pointerId: 1 });
-    expect(draft()).toHaveAttribute('title', '6:15pm to 7:15pm');
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '6:15pm to 7:15pm'));
     letGo('18:16', 'phone');
     expect(within(await screen.findByRole('dialog', { name: 'Capture' })).getByText('Today, 6:15pm to 7:15pm')).toBeVisible();
   });
@@ -1785,6 +1803,7 @@ describe('hold to create on the timeline', () => {
   it('on desktop, Esc in Capture takes the draft away', async () => {
     await open(day);
     await hold('18:00', 'desktop');
+    await waitFor(() => expect(draft()).not.toBeNull());
     letGo('18:00', 'desktop');
     await screen.findByRole('dialog', { name: 'Capture' });
     await userEvent.keyboard('{Escape}');

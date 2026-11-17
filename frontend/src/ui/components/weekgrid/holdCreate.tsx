@@ -120,7 +120,8 @@ export function useHoldToCreate(opts: {
     const el = event.currentTarget;
     const box = el.getBoundingClientRect();
     const [x0, y0] = [event.clientX, event.clientY];
-    const pressed = performance.now();
+    // From the events' own times, which say when the finger moved or lifted however late a busy page hears of it.
+    const pressed = event.timeStamp;
     let held: Slot | null = null;
     const own = (e: Event) => (e as PointerEvent).pointerId === event.pointerId;
     const lift = () => {
@@ -143,7 +144,7 @@ export function useHoldToCreate(opts: {
         if (!own(m)) return;
         if (!held) {
           // Held long enough, though a busy page ran the timer late: it drafts rather than reading as a swipe.
-          if (performance.now() - pressed >= HOLD_MS) lift();
+          if (m.timeStamp - pressed >= HOLD_MS) lift();
           else {
             const [dx, dy] = [m.clientX - x0, m.clientY - y0];
             if (mouse ? Math.hypot(dx, dy) >= DRAG_PX : Math.abs(dx) > SLOP_PX || Math.abs(dy) > SLOP_PX) stop();
@@ -156,6 +157,8 @@ export function useHoldToCreate(opts: {
       },
       pointerup: (ev) => {
         if (!own(ev)) return;
+        // Let go after the hold, though the timer hasn't run yet on a busy page.
+        if (!held && ev.timeStamp - pressed >= HOLD_MS) lift();
         stop();
         if (!held) return;
         // Letting go isn't a click on whatever is under the finger.

@@ -293,3 +293,103 @@ func TestExportNeedsAFilesBucket(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A job for an export that another has since replaced builds nothing, so the person only ever gets their latest.
+func TestAJobForAReplacedExportBuildsNothing(t *testing.T) {
+	w := newWorld(t)
+	w.seed("alice", 1)
+	ctx := context.Background()
+	w.svc.StartExport(ctx, "alice")
+	first := w.started[0]
+	if first.ID == "" {
+		t.Fatal("the job doesn't say which export it builds")
+	}
+	// The first stalls, and the person asks again.
+	w.now = w.now.Add(21 * time.Minute)
+	w.svc.StartExport(ctx, "alice")
+	second := w.started[1]
+	if second.ID == first.ID {
+		t.Fatal("the same id twice")
+	}
+	w.mustRun(first)
+	if keys, _ := w.bucket.List(ctx, "exports/"+obs.HashSub("alice")+"/"+first.ID); len(keys) != 0 {
+		t.Fatalf("the replaced export was built: %v", keys)
+	}
+	if state, _ := w.svc.Export(ctx, "alice"); state.State != account.ExportBuilding {
+		t.Fatalf("got %+v", state)
+	}
+	w.mustRun(second)
+	if state, _ := w.svc.Export(ctx, "alice"); state.State != account.ExportReady {
+		t.Fatalf("got %+v", state)
+	}
+}
+
+// A key in the person's own items that points anywhere but their own prefix is refused, rather than read or signed.
+func TestAKeyOutsideThePersonsPrefixIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.seed("alice", 1)
+	w.seed("bob", 1)
+	ctx := context.Background()
+	w.put("alice", "file#alice-a1", map[string]types.AttributeValue{"key": &types.AttributeValueMemberS{Value: "u/" + obs.HashSub("bob") + "/0123456789abcdef"}})
+	w.svc.StartExport(ctx, "alice")
+	if err := w.run(w.started[0]); err == nil {
+		t.Fatal("built an export holding another person's file")
+	}
+	if state, _ := w.svc.Export(ctx, "alice"); state.State != account.ExportFailed {
+		t.Fatalf("got %+v", state)
+	}
+	w.put("alice", "meta#export", map[string]types.AttributeValue{
+		"state": &types.AttributeValueMemberS{Value: "ready"}, "id": &types.AttributeValueMemberS{Value: "x"},
+		"key":        &types.AttributeValueMemberS{Value: "exports/" + obs.HashSub("bob") + "/x.zip"},
+		"started_at": &types.AttributeValueMemberS{Value: w.now.Format(time.RFC3339)},
+	})
+	if state, err := w.svc.Export(ctx, "alice"); err == nil || state.URL != "" {
+		t.Fatalf("signed a link to another person's export: %+v", state)
+	}
+}
+
+// Every name in the zip unpacks as itself on macOS, Windows and Linux, and none hides what it is.
+func TestNamesAreSafeOnEveryComputer(t *testing.T) {
+	w := newWorld(t)
+	w.identity.add("alice")
+	c := clockAt(w.now)
+	f := func(v any) sync.Field { return sync.Field{V: v, C: c} }
+	ctx := context.Background()
+	long := strings.Repeat("é", 200)
+	titles := map[string]string{"m1": "CON", "m2": "x", "m3": "x.md", "m4": "Trailing. ", "m5": "\u202Egpj.exe", "m6": long, "m7": "aux.txt"}
+	var changes []sync.Change
+	for id, title := range titles {
+		changes = append(changes, sync.Change{Type: "memo", ID: id, Fields: sync.Fields{"title": f(title)}})
+		changes = append(changes, sync.Change{Type: "attachment", ID: "p" + id, Fields: sync.Fields{"memo_id": f(id), "kind": f("photo"), "name": f(title), "type": f("image/jpeg")}})
+	}
+	if _, err := w.store.Push(ctx, "alice", 0, changes); err != nil {
+		t.Fatal(err)
+	}
+	for id := range titles {
+		object := "u/" + obs.HashSub("alice") + "/p" + id
+		w.bucket.Put(ctx, object, strings.NewReader("bytes"), "image/jpeg", "")
+		w.put("alice", "file#p"+id, map[string]types.AttributeValue{"key": &types.AttributeValueMemberS{Value: object}})
+	}
+	files := w.exportOf("alice")
+	reserved := map[string]bool{"con": true, "prn": true, "aux": true, "nul": true, "com1": true, "lpt1": true}
+	folders := map[string]bool{}
+	for name := range files {
+		for i, part := range strings.Split(name, "/") {
+			stem := strings.ToLower(strings.SplitN(part, ".", 2)[0])
+			if reserved[stem] || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || len(part) > 120 || strings.ContainsAny(part, "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u200e\u200f") {
+				t.Errorf("unsafe part %q of %q", part, name)
+			}
+			if i < len(strings.Split(name, "/"))-1 {
+				folders[strings.Join(strings.Split(name, "/")[:i+1], "/")] = true
+			}
+		}
+	}
+	for name := range files {
+		if folders[name] {
+			t.Errorf("%q is both a file and a folder", name)
+		}
+	}
+	if notes := len(names(files)) - 3; notes != 2*len(titles) {
+		t.Errorf("got %d notes and photos, want %d: %v", notes, 2*len(titles), names(files))
+	}
+}

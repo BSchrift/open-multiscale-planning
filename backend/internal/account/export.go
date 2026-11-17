@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -76,36 +77,37 @@ func (s *Service) readExport(ctx context.Context, sub string) (export, error) {
 	return export{state: stringAttr(out.Item["state"]), id: stringAttr(out.Item["id"]), key: stringAttr(out.Item["key"]), started: started}, nil
 }
 
-// StartExport starts building an export of everything the caller has. One already building is the one they get.
+// StartExport starts building an export of everything the caller has. One already building is the one they get: the
+// table decides, so two requests at once start one export, never two.
 func (s *Service) StartExport(ctx context.Context, sub string) (ExportState, error) {
 	if s.Sign == nil {
 		return ExportState{}, ErrNoFiles
 	}
 	now := s.Now()
-	current, err := s.readExport(ctx, sub)
-	if err != nil {
-		return ExportState{}, err
-	}
-	if current.state == ExportBuilding && !current.stale(now) {
-		return ExportState{State: ExportBuilding}, nil
-	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return ExportState{}, err
 	}
-	_, err = s.DB.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	id := hex.EncodeToString(random)
+	_, err := s.DB.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                aws.String(s.Table),
 		Key:                      key(userKey(sub), exportKey),
 		UpdateExpression:         aws.String("SET #state = :building, id = :id, started_at = :now REMOVE #key"),
+		ConditionExpression:      aws.String("attribute_not_exists(#state) OR #state <> :building OR started_at < :stale"),
 		ExpressionAttributeNames: map[string]string{"#state": "state", "#key": "key"},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":building": str(ExportBuilding), ":id": str(hex.EncodeToString(random)), ":now": str(now.UTC().Format(time.RFC3339)),
+			":building": str(ExportBuilding), ":id": str(id), ":now": str(now.UTC().Format(time.RFC3339)),
+			":stale": str(now.Add(-exportTimeout).UTC().Format(time.RFC3339)),
 		},
 	})
+	var refused *types.ConditionalCheckFailedException
+	if errors.As(err, &refused) {
+		return ExportState{State: ExportBuilding}, nil
+	}
 	if err != nil {
 		return ExportState{}, fmt.Errorf("account: start export: %w", err)
 	}
-	s.start(ctx, Job{Kind: JobExport, Sub: sub})
+	s.start(ctx, Job{Kind: JobExport, Sub: sub, ID: id})
 	return ExportState{State: ExportBuilding}, nil
 }
 
@@ -132,6 +134,10 @@ func (s *Service) Export(ctx context.Context, sub string) (ExportState, error) {
 	default:
 		return ExportState{State: ExportNone}, nil
 	}
+	// Only ever a link to the person's own export, whatever the item says.
+	if !strings.HasPrefix(current.key, exportPrefix(sub)) {
+		return ExportState{}, errors.New("account: the export's key is outside the person's prefix")
+	}
 	expires := now.Add(ExportLinkLife).UTC().Truncate(time.Second)
 	url, err := s.Sign(ctx, current.key, expires)
 	if err != nil {
@@ -156,18 +162,22 @@ func (s *Service) Export(ctx context.Context, sub string) (ExportState, error) {
 	return ExportState{State: ExportReady, URL: url, ExpiresAt: &expires}, nil
 }
 
-// BuildExport builds the export the person asked for, as a zip streamed to the bucket, so its size never meets the
-// function's memory. The bucket's lifecycle removes it a day later.
-func (s *Service) BuildExport(ctx context.Context, sub string) error {
+func exportPrefix(sub string) string { return Prefixes(sub)[1] }
+
+func filePrefixOf(sub string) string { return Prefixes(sub)[0] }
+
+// BuildExport builds the export id, as a zip streamed to the bucket, so its size never meets the function's memory.
+// It builds nothing once another export has replaced it. The bucket's lifecycle removes it a day later.
+func (s *Service) BuildExport(ctx context.Context, sub, id string) error {
 	if s.Objects == nil {
 		return ErrNoFiles
 	}
 	current, err := s.readExport(ctx, sub)
-	if err != nil || current.state != ExportBuilding {
+	if err != nil || current.state != ExportBuilding || current.id != id {
 		return err
 	}
 	now := s.Now()
-	object := "exports/" + obs.HashSub(sub) + "/" + current.id + ".zip"
+	object := exportPrefix(sub) + current.id + ".zip"
 	name := "multiscale-export-" + now.UTC().Format("2006-01-02") + ".zip"
 	reader, writer := io.Pipe()
 	var counts archiveCounts
@@ -214,21 +224,16 @@ func (s *Service) BuildExport(ctx context.Context, sub string) error {
 
 type archiveCounts struct{ records, notes, files int }
 
-// file is a granted attachment's object in the bucket, from its file# item.
-type file struct{ key, contentType string }
-
 // attachment is what the archive needs of an attachment's record: where it's shown, and what it's called.
 type attachment struct {
 	id, memoID, kind, name, url, contentType string
 	deleted                                  bool
 }
 
-// note is a note's record, which the archive also writes as Markdown.
-type note struct{ id, title, body string }
-
 // writeArchive writes the zip: README.md; records/<type>.json for each type in the person's partition; notes/<title>.md
 // for each note, with its photos and files in notes/<title>/ beside it; and files/<attachment id>/<name> for every other
-// attachment's file in the bucket. Every path is relative, so the whole can nest in a folder of its own.
+// attachment's file in the bucket. Every path is relative, so the whole can nest in a folder of its own. It holds no
+// more than the attachments' names in memory: records and notes go straight into the zip as they're read.
 func (s *Service) writeArchive(ctx context.Context, sub string, w io.Writer, at time.Time) (archiveCounts, error) {
 	var counts archiveCounts
 	files, err := s.fileItems(ctx, sub)
@@ -250,7 +255,6 @@ func (s *Service) writeArchive(ctx context.Context, sub string, w io.Writer, at 
 	var out io.Writer
 	current := ""
 	attachments := map[string]attachment{}
-	var notes []note
 	err = s.Records.Each(ctx, sub, func(c sync.Change) error {
 		if c.Type != current || out == nil {
 			if out != nil {
@@ -277,16 +281,10 @@ func (s *Service) writeArchive(ctx context.Context, sub string, w io.Writer, at 
 			return err
 		}
 		counts.records++
-		deleted := c.Fields["deleted_at"].V != nil
-		switch c.Type {
-		case attachmentType:
+		if c.Type == attachmentType {
 			attachments[c.ID] = attachment{
 				id: c.ID, memoID: text(c.Fields, "memo_id"), kind: text(c.Fields, "kind"), name: text(c.Fields, "name"),
-				url: text(c.Fields, "url"), contentType: text(c.Fields, "type"), deleted: deleted,
-			}
-		case memoType:
-			if !deleted {
-				notes = append(notes, note{id: c.ID, title: text(c.Fields, "title"), body: text(c.Fields, "body")})
+				url: text(c.Fields, "url"), contentType: text(c.Fields, "type"), deleted: c.Fields["deleted_at"].V != nil,
 			}
 		}
 		return nil
@@ -300,7 +298,7 @@ func (s *Service) writeArchive(ctx context.Context, sub string, w io.Writer, at 
 		}
 	}
 
-	// Where each attachment's file goes: beside its note, or under files/.
+	// Each note again as Markdown, read a second time so no note's body waits in memory for another's.
 	paths := map[string]string{}
 	byNote := map[string][]attachment{}
 	ids := make([]string, 0, len(attachments))
@@ -311,21 +309,26 @@ func (s *Service) writeArchive(ctx context.Context, sub string, w io.Writer, at 
 		}
 	}
 	slices.Sort(ids)
-	usedNotes := map[string]bool{}
-	for _, n := range notes {
-		stem := unique(fileName(n.title, "Untitled"), "", usedNotes)
-		md := "# " + strings.TrimSpace(n.title) + "\n"
-		if body := strings.TrimSpace(n.body); body != "" {
+	used := map[string]bool{}
+	err = s.Records.EachOf(ctx, sub, memoType, func(c sync.Change) error {
+		if c.Fields["deleted_at"].V != nil {
+			return nil
+		}
+		title := text(c.Fields, "title")
+		// The note's file and its folder both take the name, so a note called "x" and one called "x.md" never meet.
+		stem := uniqueStem(fileName(title, "Untitled"), used)
+		md := "# " + strings.TrimSpace(title) + "\n"
+		if body := strings.TrimSpace(text(c.Fields, "body")); body != "" {
 			md += "\n" + body + "\n"
 		}
-		own := byNote[n.id]
+		own := byNote[c.ID]
 		slices.SortFunc(own, func(a, b attachment) int { return strings.Compare(a.id, b.id) })
 		usedFiles := map[string]bool{}
 		var links []string
 		for _, a := range own {
 			label := markdownLabel(a.name)
 			if _, stored := files[a.id]; stored {
-				name := unique(fileName(a.name, "file"), extension(a.name), usedFiles)
+				name := unique(fileName(a.name, "file"), extension(fileName(a.name, "file")), usedFiles)
 				paths[a.id] = "notes/" + stem + "/" + name
 				link := "[" + label + "](<" + stem + "/" + name + ">)"
 				if strings.HasPrefix(a.contentType, "image/") {
@@ -343,10 +346,11 @@ func (s *Service) writeArchive(ctx context.Context, sub string, w io.Writer, at 
 		if err == nil {
 			_, err = io.WriteString(entry, md)
 		}
-		if err != nil {
-			return counts, err
-		}
 		counts.notes++
+		return err
+	})
+	if err != nil {
+		return counts, err
 	}
 
 	for _, id := range ids {
@@ -397,6 +401,16 @@ func unique(name, ext string, used map[string]bool) string {
 	return candidate
 }
 
+// uniqueStem is a note's name for both its Markdown, stem.md, and its folder, stem: one neither of which is taken.
+func uniqueStem(stem string, used map[string]bool) string {
+	candidate := stem
+	for n := 2; used[strings.ToLower(candidate)] || used[strings.ToLower(candidate)+".md"]; n++ {
+		candidate = fmt.Sprintf("%s (%d)", stem, n)
+	}
+	used[strings.ToLower(candidate)], used[strings.ToLower(candidate)+".md"] = true, true
+	return candidate
+}
+
 // extension is a file name's extension with its dot, or "" when it has none.
 func extension(name string) string {
 	if i := strings.LastIndex(name, "."); i > 0 {
@@ -415,7 +429,11 @@ func markdownURL(s string) string {
 	return strings.NewReplacer(" ", "%20", "(", "%28", ")", "%29", "<", "%3C", ">", "%3E", "\n", "").Replace(s)
 }
 
-// fileItems reads the person's file# items: the object each granted attachment's file is at.
+// file is a granted attachment's object in the bucket, from its file# item.
+type file struct{ key, contentType string }
+
+// fileItems reads the person's file# items: the object each granted attachment's file is at. A key outside the person's
+// own prefix is refused, so an export can only ever read their own files.
 func (s *Service) fileItems(ctx context.Context, sub string) (map[string]file, error) {
 	files := map[string]file{}
 	var start map[string]types.AttributeValue
@@ -434,7 +452,11 @@ func (s *Service) fileItems(ctx context.Context, sub string) (map[string]file, e
 		}
 		for _, item := range out.Items {
 			id := strings.TrimPrefix(stringAttr(item["sk"]), filePrefix)
-			files[id] = file{key: stringAttr(item["key"]), contentType: stringAttr(item["type"])}
+			object := stringAttr(item["key"])
+			if !strings.HasPrefix(object, filePrefixOf(sub)) {
+				return nil, errors.New("account: a file's key is outside the person's prefix")
+			}
+			files[id] = file{key: object, contentType: stringAttr(item["type"])}
 		}
 		if len(out.LastEvaluatedKey) == 0 {
 			return files, nil
@@ -476,8 +498,12 @@ func recordJSON(c sync.Change) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// safeName makes an id safe as one part of a path in the zip: letters, digits, dots, dashes and underscores, with no
-// leading dot. An id it had to change also gets a short hash of itself, so two ids never share a name.
+// maxNameBytes is the longest a name in the zip is before its " (2)" or ".md": with them, well under the 255 bytes most
+// file systems take.
+const maxNameBytes = 100
+
+// safeName makes an id safe as one part of a path in the zip: letters, digits, dots, dashes and underscores. An id it
+// had to change also gets a short hash of itself, so two ids never share a name.
 func safeName(id string) string {
 	var b strings.Builder
 	for _, r := range id {
@@ -487,10 +513,7 @@ func safeName(id string) string {
 			b.WriteByte('_')
 		}
 	}
-	name := strings.TrimLeft(b.String(), ".")
-	if len(name) > 80 {
-		name = name[:80]
-	}
+	name := portable(b.String(), "_", maxNameBytes-9)
 	if name == id {
 		return name
 	}
@@ -502,20 +525,47 @@ func safeName(id string) string {
 func fileName(name, fallback string) string {
 	var b strings.Builder
 	for _, r := range name {
-		if strings.ContainsRune(`<>:"/\|?*`, r) || unicode.IsControl(r) {
+		switch {
+		case bidi(r):
+		case strings.ContainsRune(`<>:"/\|?*`, r) || unicode.IsControl(r):
 			b.WriteByte('_')
-		} else {
+		default:
 			b.WriteRune(r)
 		}
 	}
-	safe := strings.TrimSpace(strings.TrimLeft(b.String(), ". "))
-	if len([]rune(safe)) > 120 {
-		safe = strings.TrimSpace(string([]rune(safe)[:120]))
+	return portable(b.String(), fallback, maxNameBytes)
+}
+
+// portable trims what Windows and macOS drop or refuse: leading dots and spaces, trailing dots and spaces, and
+// Windows' device names such as CON and LPT1, with or without an extension. It cuts to limit bytes at a character.
+func portable(name, fallback string, limit int) string {
+	name = strings.TrimLeft(name, ". ")
+	for len(name) > limit {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
 	}
-	if safe == "" {
+	name = strings.TrimRight(name, ". ")
+	if name == "" {
 		return fallback
 	}
-	return safe
+	if reserved[strings.ToUpper(strings.SplitN(name, ".", 2)[0])] {
+		return "_" + name
+	}
+	return name
+}
+
+var reserved = map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true}
+
+func init() {
+	for n := 1; n <= 9; n++ {
+		reserved[fmt.Sprintf("COM%d", n)], reserved[fmt.Sprintf("LPT%d", n)] = true, true
+	}
+}
+
+// bidi is a character that changes which way text runs, which could make a name read as something else, such as
+// "gpj.exe" shown as "exe.jpg".
+func bidi(r rune) bool {
+	return (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) || r == 0x200e || r == 0x200f || r == 0x061c
 }
 
 const readmeText = `# Your Multiscale data

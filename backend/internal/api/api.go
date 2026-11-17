@@ -166,7 +166,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /calendar/callback", public, s.calendarCallback)
 	route("POST /calendar/refresh", signedIn, s.live(s.calendarRefresh))
 	route("POST /calendar/disconnect", signedIn, s.live(s.calendarDisconnect))
-	route("POST /v1/logs", signedIn, s.telemetry)
+	route("POST /v1/logs", signedIn, s.live(s.telemetry))
 	route("POST /files/upload", signedIn, s.live(s.filesUpload))
 	route("POST /files/download", signedIn, s.live(s.filesDownload))
 	route("GET /files/usage", signedIn, s.live(s.filesUsage))
@@ -457,29 +457,47 @@ var maxSignInAge = time.Duration(appconfig.Protocol.Account.MaxSignInAgeMinutes)
 const deleteConfirmation = "DELETE"
 
 // accountDelete starts deleting the caller's account, after a sign-in of the last few minutes. Asking again while it's
-// under way answers the same, so a lost answer can be asked for again.
+// under way answers the same and starts nothing more, so a lost answer can be asked for again.
 func (s *Server) accountDelete(w http.ResponseWriter, r *http.Request, sub string) outcome {
 	if s.Account == nil {
 		return accountNotConfigured(w)
 	}
 	var body struct {
 		Confirm string `json:"confirm"`
+		// Sub is the account the app means to delete: the one its data belongs to.
+		Sub string `json:"sub"`
 	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFilesBodyBytes))
 	if err != nil || json.Unmarshal(raw, &body) != nil || body.Confirm != deleteConfirmation {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return outcome{status: http.StatusBadRequest, errorType: "invalid_request"}
 	}
+	// Signed in again as another account than the one the app holds: that one isn't the person's to delete here.
+	if body.Sub != sub {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "wrong_account"})
+		return outcome{status: http.StatusConflict, errorType: "wrong_account"}
+	}
 	signedInAt := AuthTimeFrom(r.Context())
 	if signedInAt.IsZero() || s.Now().Sub(signedInAt) > maxSignInAge {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "sign_in_again"})
 		return outcome{status: http.StatusForbidden, errorType: "sign_in_again"}
 	}
-	if err := s.Account.Delete(r.Context(), sub); err != nil {
+	deleted, err := s.Account.Deleted(r.Context(), sub)
+	if err == nil && !deleted {
+		err = s.Account.Delete(r.Context(), sub)
+	}
+	if errors.Is(err, account.ErrProtected) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "protected_account"})
+		return outcome{status: http.StatusForbidden, errorType: "protected_account"}
+	}
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return outcome{status: http.StatusInternalServerError, errorType: "internal", attrs: sync.ErrorAttrs(err)}
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"state": "deleting"})
+	if deleted {
+		return outcome{status: http.StatusAccepted}
+	}
 	return outcome{status: http.StatusAccepted, attrs: obs.Metrics(s.Env, s.Now(), map[string]int{"AccountDeletionsStarted": 1})}
 }
 

@@ -909,6 +909,15 @@ func (s *Store) Record(ctx context.Context, sub, recordType, id string) (Fields,
 // Each calls fn with every record the user has, of every type, in type and id order, and stops at fn's first error. It
 // leaves out what has expired, as pulls do.
 func (s *Store) Each(ctx context.Context, sub string, fn func(Change) error) error {
+	return s.each(ctx, sub, recordPrefix, fn)
+}
+
+// EachOf is Each for one type's records.
+func (s *Store) EachOf(ctx context.Context, sub, recordType string, fn func(Change) error) error {
+	return s.each(ctx, sub, recordKey(recordType, ""), fn)
+}
+
+func (s *Store) each(ctx context.Context, sub, prefix string, fn func(Change) error) error {
 	var start map[string]types.AttributeValue
 	for {
 		out, err := s.DB.Query(ctx, &dynamodb.QueryInput{
@@ -918,7 +927,7 @@ func (s *Store) Each(ctx context.Context, sub string, fn func(Change) error) err
 			KeyConditionExpression: aws.String("pk = :user AND begins_with(sk, :prefix)"),
 			ExpressionAttributeValues: map[string]types.AttributeValue{
 				":user":   &types.AttributeValueMemberS{Value: userKey(sub)},
-				":prefix": &types.AttributeValueMemberS{Value: recordPrefix},
+				":prefix": &types.AttributeValueMemberS{Value: prefix},
 			},
 		})
 		if err != nil {

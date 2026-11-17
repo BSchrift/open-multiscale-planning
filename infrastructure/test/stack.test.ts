@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { before, describe, it } from 'node:test';
@@ -247,6 +247,38 @@ describe('Lambdas', () => {
     assert.deepEqual(Object.keys(accounts.Environment.Variables).sort(), ['ENV_NAME', 'SSM_PREFIX', 'TABLE_NAME', 'USER_POOL_ID']);
     // Lambda's most: an export of a five-year history with its photos takes a while.
     assert.equal(accounts.Timeout, 900);
+  });
+
+  it("gives the account function the memory a zip's upload needs, and bounds how many run at once, with no retries", () => {
+    const accounts = all[logicalId('Account')].Properties;
+    assert.ok(accounts.MemorySize >= 1024, String(accounts.MemorySize));
+    assert.ok(accounts.ReservedConcurrentExecutions >= 10 && accounts.ReservedConcurrentExecutions <= 20, String(accounts.ReservedConcurrentExecutions));
+    // The API starts jobs on the alias, so that's where retries are turned off: a retried export or deletion only adds
+    // to what the app's next request or the schedule does anyway.
+    const configs = ofType('AWS::Lambda::EventInvokeConfig').filter(([, r]) => JSON.stringify(r.Properties.FunctionName).includes(logicalId('Account')));
+    assert.equal(configs.length, 1);
+    assert.equal(configs[0]![1].Properties.MaximumRetryAttempts, 0);
+    assert.match(JSON.stringify(configs[0]![1].Properties.Qualifier), new RegExp(aliasOf('Account')));
+  });
+
+  it("names the integration suite's users to the API, which never deletes them", () => {
+    const resources = Template.fromStack(build('staging', '/nonexistent', false, {
+      ...config, integration: { testUser: 'integration-test@example.com', secondTestUser: 'second-test@example.com', capabilities: ['secondUser'] },
+    } as Config)).toJSON().Resources as Record<string, Resource>;
+    const api = Object.entries(resources).find(([id, r]) => id.startsWith('ApiFunction') && r.Type === 'AWS::Lambda::Function')![1];
+    assert.equal(api.Properties.Environment.Variables.PROTECTED_EMAILS, 'integration-test@example.com,second-test@example.com');
+  });
+
+  it("keeps the app's tokens to an hour, which the account function's mark outlasts", () => {
+    // The mark stays for Settle after the sign-in goes, which only works while no token lives longer.
+    const source = readFileSync(join(import.meta.dirname, '../../backend/internal/account/account.go'), 'utf8');
+    const settle = Number(source.match(/Settle = (\d+) \* time\.Minute/)?.[1]);
+    assert.ok(settle > 60, `Settle is ${settle} minutes`);
+    const client = ofType('AWS::Cognito::UserPoolClient').find(([id]) => id.startsWith('UserPoolAppClient'))![1].Properties;
+    for (const field of ['AccessTokenValidity', 'IdTokenValidity']) {
+      const minutes = client[field] === undefined ? 60 : client.TokenValidityUnits?.[field === 'AccessTokenValidity' ? 'AccessToken' : 'IdToken'] === 'minutes' ? client[field] : client[field] * 60;
+      assert.ok(minutes <= 60 && minutes < settle, `${field}: ${minutes} minutes`);
+    }
   });
 });
 
@@ -665,9 +697,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly eleven alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly twelve alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 11);
+    assert.equal(alarms.length, 12);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -688,7 +720,16 @@ describe('observability', () => {
 
   it('Lambda errors alarm covers every function', () => {
     const body = JSON.stringify(alarm('LambdaErrors').Metrics);
-    for (const fn of ['Api', 'Calendar', 'Retention', 'Account']) assert.ok(body.includes(logicalId(fn)), fn);
+    for (const fn of ['Api', 'Calendar', 'Retention']) assert.ok(body.includes(logicalId(fn)), fn);
+    // One person's export or deletion says little about a release, so the account function has its own alarm.
+    assert.ok(!body.includes(logicalId('Account')));
+  });
+
+  it("alarms on the account function's own errors, without holding back a release", () => {
+    const a = alarm('AccountFunctionErrors');
+    assert.ok(JSON.stringify(a).includes(logicalId('Account')));
+    const [[id]] = ofType('AWS::CloudWatch::Alarm').filter(([id]) => id.startsWith('AccountFunctionErrors'));
+    assert.ok(!JSON.stringify(ofType('AWS::CodeDeploy::DeploymentGroup')).includes(id));
   });
 
   it("alarms on a deletion failing three runs in a row, without holding back a release", () => {
@@ -1214,7 +1255,8 @@ describe('attachments', () => {
     assert.ok(byAction('s3:PutObject').length > 0 && byAction('s3:PutObject').every((r) => under('exports/*').test(r)));
     assert.deepEqual(byAction('s3:DeleteObject').map((r) => (under('u/*').test(r) ? 'u' : under('exports/*').test(r) ? 'exports' : r)), ['u', 'exports']);
     const list = statements.find((st) => [st.Action].flat().includes('s3:ListBucket'));
-    assert.deepEqual(list.Condition, { StringLike: { 's3:prefix': ['u/*', 'exports/*'] } });
+    // IfExists: a GetObject of a key that isn't there checks ListBucket with no prefix, and so answers 404, not 403.
+    assert.deepEqual(list.Condition, { StringLikeIfExists: { 's3:prefix': ['u/*', 'exports/*'] } });
   });
 
   it("adds the files host and the bucket to the web app's connect-src, and blob: images", () => {

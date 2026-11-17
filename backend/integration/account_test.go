@@ -116,6 +116,11 @@ func TestAnExportHoldsEveryRecordTypeAndFile(t *testing.T) {
 	if res := direct(t, "PUT", grant.URL, photo, grant.Headers); res.status != 200 {
 		t.Fatalf("upload: %d", res.status)
 	}
+	// Granted, but the device never put it: the bucket has no such object, which the export leaves out rather than
+	// failing on.
+	unsent := fresh("photo")
+	a.attach(unsent, []byte("never sent"), "name", "unsent.jpg")
+	a.grantUpload(unsent)
 
 	files := a.export()
 	for kind, id := range ids {
@@ -125,6 +130,9 @@ func TestAnExportHoldsEveryRecordTypeAndFile(t *testing.T) {
 	}
 	if !bytes.Equal(files["files/"+photoID+"/receipt.jpg"], photo) {
 		t.Errorf("the photo isn't in files/: %v", names(files))
+	}
+	if _, ok := files["files/"+unsent+"/unsent.jpg"]; ok {
+		t.Errorf("a file never uploaded is in the export")
 	}
 	if !bytes.Contains(files["README.md"], []byte("records/")) {
 		t.Errorf("README %q", files["README.md"])
@@ -165,7 +173,7 @@ func TestAnExportHoldsOnlyItsOwnersData(t *testing.T) {
 func TestTheAccountRoutesNeedTheirOwnersToken(t *testing.T) {
 	needs(t)
 	for _, route := range [][2]string{{"POST", "/account/export"}, {"GET", "/account/export"}, {"POST", "/account/delete"}} {
-		if res := request(t, route[0], route[1], "", []byte(`{"confirm":"DELETE"}`)); res.status != 401 {
+		if res := request(t, route[0], route[1], "", []byte(`{"confirm":"DELETE","sub":"x"}`)); res.status != 401 {
 			t.Errorf("%v without a token: %d", route, res.status)
 		}
 	}
@@ -240,12 +248,17 @@ func TestDeletingAnAccountRemovesItAndLeavesOthersAlone(t *testing.T) {
 	// A sign-in from more than 10 minutes ago isn't enough, however fresh its token.
 	clock.advance(11 * time.Minute)
 	a.tokens.access, _ = refreshAccess(t, a.tokens.refresh)
-	if res := request(t, "POST", "/account/delete", a.tokens.access, []byte(`{"confirm":"DELETE"}`)); res.status != 403 || res.errorCode() != "sign_in_again" {
+	confirm := []byte(fmt.Sprintf(`{"confirm":"DELETE","sub":%q}`, sub))
+	if res := request(t, "POST", "/account/delete", a.tokens.access, confirm); res.status != 403 || res.errorCode() != "sign_in_again" {
 		t.Fatalf("an old sign-in: %d %s", res.status, truncated(res.body))
 	}
 	a.reSignIn()
 	link := a.grantDownloads(photoID).Files[0].URL
-	if res := request(t, "POST", "/account/delete", a.tokens.access, []byte(`{"confirm":"DELETE"}`)); res.status != 202 {
+	// Another account's sub, as from a device that signed in again as someone else, deletes nothing.
+	if res := request(t, "POST", "/account/delete", a.tokens.access, []byte(fmt.Sprintf(`{"confirm":"DELETE","sub":%q}`, subOf(t, other.tokens.access)))); res.status != 409 {
+		t.Fatalf("delete naming another account: %d %s", res.status, truncated(res.body))
+	}
+	if res := request(t, "POST", "/account/delete", a.tokens.access, confirm); res.status != 202 {
 		t.Fatalf("delete: %d %s", res.status, truncated(res.body))
 	}
 
@@ -306,7 +319,7 @@ func TestADeletionNamesNoOneButTheTokensOwner(t *testing.T) {
 	a, other := signIn(t), signInOther(t)
 	kept := fresh("task")
 	other.sync(other.startCursor(), other.record("task", kept, "title", "Kept"))
-	body := []byte(fmt.Sprintf(`{"confirm":"DELETE","sub":%q,"user":%q}`, subOf(t, other.tokens.access), other.username))
+	body := []byte(fmt.Sprintf(`{"confirm":"DELETE","sub":%q,"user":%q}`, subOf(t, a.tokens.access), other.username))
 	if res := request(t, "POST", "/account/delete?sub="+url.QueryEscape(subOf(t, other.tokens.access)), a.tokens.access, body); res.status != 202 {
 		t.Fatalf("delete: %d %s", res.status, truncated(res.body))
 	}

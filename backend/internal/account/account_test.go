@@ -179,7 +179,10 @@ func (w *world) mustDelete(sub string) {
 type identity struct {
 	mu          gosync.Mutex
 	users       map[string]bool
+	emails      map[string]string
 	failDeletes int
+	// keep leaves the user there though Delete succeeds, as a pool that answered before it had removed them.
+	keep bool
 }
 
 func (i *identity) add(sub string) {
@@ -201,8 +204,16 @@ func (i *identity) Delete(_ context.Context, sub string) error {
 		i.failDeletes--
 		return errors.New("cognito unavailable")
 	}
-	delete(i.users, sub)
+	if !i.keep {
+		delete(i.users, sub)
+	}
 	return nil
+}
+
+func (i *identity) Email(_ context.Context, sub string) (string, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.emails[sub], nil
 }
 
 type google struct{ forgot []string }
@@ -375,6 +386,7 @@ func TestResumeCarriesOnEveryDeletionUnderWay(t *testing.T) {
 	}
 	w.mustDelete("alice")
 	w.mustDelete("carol")
+	w.mustRun(account.Job{})
 	w.now = w.now.Add(account.Settle)
 	w.mustRun(account.Job{})
 	for _, sub := range []string{"alice", "carol"} {
@@ -401,10 +413,11 @@ func TestAJobForSomeoneWhoDidntAskDoesNothing(t *testing.T) {
 	}
 }
 
-func TestAskingAgainKeepsTheFirstStart(t *testing.T) {
+func TestAskingAgainChangesNothing(t *testing.T) {
 	w := newWorld(t)
 	w.seed("alice", 1)
 	w.mustDelete("alice")
+	w.mustRun(account.Job{Kind: account.JobDelete, Sub: "alice"})
 	w.now = w.now.Add(30 * time.Minute)
 	w.mustDelete("alice")
 	w.now = w.now.Add(account.Settle - 30*time.Minute)
@@ -418,6 +431,7 @@ func TestADeletionIsCountedNeverNamed(t *testing.T) {
 	w := newWorld(t)
 	w.seed("alice-sub", 1)
 	w.mustDelete("alice-sub")
+	w.mustRun(account.Job{})
 	w.now = w.now.Add(account.Settle)
 	w.mustRun(account.Job{})
 	logs := w.logs.String()
@@ -426,5 +440,107 @@ func TestADeletionIsCountedNeverNamed(t *testing.T) {
 	}
 	if strings.Contains(logs, "alice-sub") || strings.Contains(logs, obs.HashSub("alice-sub")) {
 		t.Fatalf("a log line names the person: %s", logs)
+	}
+}
+
+// The 70 minutes count from when the sign-in went, not from the request: until then a device could still refresh a
+// token, and every token from before has to have lapsed by the time the mark goes.
+func TestTheMarkStaysUntilTokensFromTheSignInsLastMomentHaveLapsed(t *testing.T) {
+	w := newWorld(t)
+	w.seed("alice", 1)
+	w.mustDelete("alice")
+	// The user pool refuses for an hour and a half, so the sign-in only goes then.
+	w.identity.failDeletes = 2
+	w.run(account.Job{Kind: account.JobDelete, Sub: "alice"})
+	w.now = w.now.Add(time.Hour)
+	w.run(account.Job{})
+	w.now = w.now.Add(30 * time.Minute)
+	w.mustRun(account.Job{})
+	gone := w.now
+	// Past the request's 70 minutes, but not the sign-in's.
+	w.now = gone.Add(account.Settle - time.Minute)
+	w.mustRun(account.Job{})
+	if deleted, _ := w.svc.Deleted(context.Background(), "alice"); !deleted {
+		t.Fatal("the mark went before every token from the sign-in's last moment had lapsed")
+	}
+	w.now = gone.Add(account.Settle)
+	w.mustRun(account.Job{})
+	if left := w.partition("user#alice"); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+	if pending := w.partition("account#deleting"); len(pending) != 0 {
+		t.Fatalf("still under way: %v", pending)
+	}
+}
+
+func TestTheMarkStaysWhileTheSignInIsStillThere(t *testing.T) {
+	w := newWorld(t)
+	w.seed("alice", 1)
+	w.mustDelete("alice")
+	w.identity.keep = true
+	w.now = w.now.Add(2 * account.Settle)
+	w.mustRun(account.Job{})
+	w.now = w.now.Add(2 * account.Settle)
+	w.mustRun(account.Job{})
+	if deleted, _ := w.svc.Deleted(context.Background(), "alice"); !deleted {
+		t.Fatal("the mark went while the sign-in could still issue tokens")
+	}
+	w.identity.keep = false
+	w.mustRun(account.Job{})
+	w.now = w.now.Add(account.Settle)
+	w.mustRun(account.Job{})
+	if left := w.partition("user#alice"); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+}
+
+// A run after the mark went, whose removal of the entry failed, doesn't bring the mark back.
+func TestAFinishedDeletionIsntMarkedAgain(t *testing.T) {
+	w := newWorld(t)
+	w.seed("alice", 1)
+	w.mustDelete("alice")
+	w.mustRun(account.Job{Kind: account.JobDelete, Sub: "alice"})
+	w.now = w.now.Add(account.Settle)
+	w.svc.DB = &failingEntryDelete{DB: w.client}
+	if err := w.run(account.Job{}); err == nil {
+		t.Fatal("no error")
+	}
+	if left := w.partition("user#alice"); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+	w.svc.DB = w.client
+	w.mustRun(account.Job{})
+	if left := w.partition("user#alice"); len(left) != 0 {
+		t.Fatalf("the mark came back: %v", left)
+	}
+	if pending := w.partition("account#deleting"); len(pending) != 0 {
+		t.Fatalf("still under way: %v", pending)
+	}
+}
+
+// failingEntryDelete fails removing a deletion's entry, as an outage between the mark and the entry does.
+type failingEntryDelete struct{ account.DB }
+
+func (d *failingEntryDelete) DeleteItem(ctx context.Context, in *dynamodb.DeleteItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	if pk, _ := in.Key["pk"].(*types.AttributeValueMemberS); pk != nil && pk.Value == "account#deleting" {
+		return nil, errors.New("dynamodb unavailable")
+	}
+	return d.DB.DeleteItem(ctx, in, opts...)
+}
+
+// The integration suite's users on a deployment are never deleted, whatever a request says.
+func TestAProtectedAccountIsNeverDeleted(t *testing.T) {
+	w := newWorld(t)
+	w.seed("tester", 1)
+	w.identity.emails = map[string]string{"tester": "Integration-Test@Example.com"}
+	w.svc.Protected = []string{"integration-test@example.com"}
+	if err := w.svc.Delete(context.Background(), "tester"); !errors.Is(err, account.ErrProtected) {
+		t.Fatalf("got %v", err)
+	}
+	if deleted, _ := w.svc.Deleted(context.Background(), "tester"); deleted || len(w.started) != 0 {
+		t.Fatal("the protected account was marked or a job started")
+	}
+	if pending := w.partition("account#deleting"); len(pending) != 0 {
+		t.Fatalf("under way: %v", pending)
 	}
 }

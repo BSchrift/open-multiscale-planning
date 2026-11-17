@@ -176,13 +176,13 @@ func (b *Bucket) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-// Get reads an object, as the account function's GetObject does.
+// Get reads an object, as the account function's GetObject does, or returns nil for one that isn't there.
 func (b *Bucket) Get(_ context.Context, key string) (io.ReadCloser, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	found, ok := b.objects[key]
 	if !ok {
-		return nil, fmt.Errorf("fakes: NoSuchKey: %s", key)
+		return nil, nil
 	}
 	return io.NopCloser(bytes.NewReader(found.body)), nil
 }

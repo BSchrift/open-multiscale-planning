@@ -93,6 +93,19 @@ func TestEachReadsEveryRecordOfEveryTypeAndLeavesOutWhatExpired(t *testing.T) {
 	}
 }
 
+func TestEachOfReadsOneTypesRecords(t *testing.T) {
+	s, _ := newStore(t)
+	mustSync(t, s, "alice", 0, task("t1", title("a", clock(1, "a"))), sync.Change{Type: "memo", ID: "m1", Fields: sync.Fields{"title": {V: "n", C: clock(1, "a")}}})
+	mustSync(t, s, "bob", 0, sync.Change{Type: "memo", ID: "m2", Fields: sync.Fields{"title": {V: "his", C: clock(1, "b")}}})
+	var got []string
+	if err := s.EachOf(context.Background(), "alice", "memo", func(c sync.Change) error { got = append(got, c.Type+"/"+c.ID); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"memo/m1"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func TestEachStopsAtTheCallbacksError(t *testing.T) {
 	s, _ := newStore(t)
 	mustSync(t, s, "alice", 0, task("t1", title("a", clock(1, "a"))), task("t2", title("b", clock(1, "a"))))

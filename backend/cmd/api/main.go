@@ -59,6 +59,10 @@ func main() {
 		DB: db, Table: store.Table, Records: store, Identity: account.IdentityFromEnvironment(cfg),
 		Start: startJob(invoker, os.Getenv("ACCOUNT_FUNCTION_NAME")), Now: time.Now, Log: logger, Env: server.Env,
 	}
+	// The integration suite's users, which its requests never delete.
+	if emails := os.Getenv("PROTECTED_EMAILS"); emails != "" {
+		accounts.Protected = strings.Split(emails, ",")
+	}
 	// Nil where the environment stores no files, so the routes say so, and there's nowhere to build an export.
 	if service := files.FromEnvironment(cfg, store, files.LimitsFor(env)); service != nil {
 		server.Files = service

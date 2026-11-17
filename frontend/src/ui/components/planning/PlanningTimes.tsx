@@ -4,7 +4,7 @@
 
 import { useId, useState } from 'react';
 import { formatMinutes, formatTime } from '../../../core/dates';
-import { GRID } from '../../../core/slots';
+import { GRID, SLIDER_STEP } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import { isWeek } from '../../../core/planning';
 import type { PlanningFor } from '../../../core/planning';
@@ -150,7 +150,7 @@ function Length(props: { minutes: number; onChange(minutes: number): void }) {
         type="range"
         min={GRID}
         max={LONGEST_MIN}
-        step={GRID}
+        step={SLIDER_STEP}
         value={props.minutes}
         aria-valuetext={formatMinutes(props.minutes)}
         onChange={(e) => props.onChange(Number(e.target.value))}

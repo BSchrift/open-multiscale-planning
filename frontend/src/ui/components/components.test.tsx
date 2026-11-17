@@ -32,12 +32,13 @@ async function inApp(ui: ReactNode, layout: Layout = 'desktop') {
 }
 
 describe('EstimateSlider', () => {
-  it('has 15-minute steps to 2h, coarser to 16h, and starts from none', () => {
+  it('has 5-minute steps to 2h, coarser to 16h, and starts from none', () => {
     expect(EST_STEPS[0]).toBe(0);
-    expect(EST_STEPS.slice(1, 9).every((s, i) => s === (i + 1) * 15)).toBe(true);
+    expect(EST_STEPS.slice(1, 25).every((s, i) => s === (i + 1) * 5)).toBe(true);
+    expect(EST_STEPS[25]).toBe(150);
     expect(EST_STEPS[EST_STEPS.length - 1]).toBe(960);
     expect(estIndex(0)).toBe(0);
-    expect(estIndex(50)).toBe(EST_STEPS.indexOf(45));
+    expect(estIndex(52)).toBe(EST_STEPS.indexOf(50));
     expect(estIndex(5000)).toBe(EST_STEPS.length - 1);
   });
 

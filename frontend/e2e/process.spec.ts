@@ -147,9 +147,11 @@ test('the Time slider saves the estimate as it moves, even for an item skipped, 
   const slider = card(page).getByRole('slider', { name: 'Time' });
   await expect(slider).toHaveAttribute('aria-valuetext', 'No estimate');
   await slider.focus();
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  // Five minutes a step, each checked before the next, as each one saves.
+  for (const text of ['5m', '10m', '15m', '20m', '25m', '30m']) {
+    await page.keyboard.press('ArrowRight');
+    await expect(slider).toHaveAttribute('aria-valuetext', text);
+  }
   await processTo(page, phone, 'One offs');
   await expect(toast(page)).toContainText('Added Call the bank to One offs.');
 
@@ -227,7 +229,12 @@ test('Add details sends a task with its time straight to One offs, past the Inbo
   if (!phone) await expect(capture.getByText('Saves to One offs')).toBeVisible();
   const slider = capture.getByRole('slider', { name: 'Time' });
   await slider.focus();
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  // Five minutes a step, each checked before the next.
+  for (let m = 5; m < 60; m += 5) {
+    await page.keyboard.press('ArrowRight');
+    await expect(slider).toHaveAttribute('aria-valuetext', `${m}m`);
+  }
+  await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', '1h');
   if (phone) await capture.getByRole('button', { name: 'Save' }).click();
   else await field.press('Enter');

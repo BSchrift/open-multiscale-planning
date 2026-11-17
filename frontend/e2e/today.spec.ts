@@ -201,9 +201,11 @@ test('a finished block asks how it went; Partly sets the time left and it waits 
   const left = page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' });
   await expect(left).toHaveAttribute('aria-valuetext', '2h');
   await left.focus();
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
-  await expect(left).toHaveAttribute('aria-valuetext', '1h 30m');
+  // Five minutes a step, each checked before the next.
+  for (const text of ['1h 55m', '1h 50m', '1h 45m', '1h 40m', '1h 35m', '1h 30m']) {
+    await page.keyboard.press('ArrowLeft');
+    await expect(left).toHaveAttribute('aria-valuetext', text);
+  }
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
 

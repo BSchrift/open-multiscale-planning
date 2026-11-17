@@ -13,7 +13,7 @@ import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
 import { sessionDay } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
-import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
+import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, SLIDER_STEP, slotInstants, slotNotes } from '../../../../core/slots';
 import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
@@ -668,7 +668,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                     type="range"
                     min={GRID}
                     max={lenMax}
-                    step={GRID}
+                    step={SLIDER_STEP}
                     value={len}
                     aria-valuetext={formatMinutes(len)}
                     onChange={(e) => setLength(Number(e.target.value))}

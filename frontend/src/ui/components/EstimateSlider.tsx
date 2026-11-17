@@ -1,13 +1,17 @@
-// The one way to set a time estimate or an aim: 15-minute steps to 2h, coarser to 16h. All the way left is none.
+// The one way to set a time estimate or an aim: 5-minute steps to 2h, coarser to 16h. All the way left is none.
 //
 // The thumb follows a drag step by step, but the value is passed on only once it's let go, and on each arrow key. Many
 // callers save it, and every save re-reads each screen's data, so saving each step made a drag lag behind the mouse.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatMinutes } from '../../core/dates';
+import { SLIDER_STEP } from '../../core/slots';
 import type { Minutes } from '../../core/types';
 
-export const EST_STEPS: readonly Minutes[] = [0, 15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240, 300, 360, 420, 480, 600, 720, 960];
+export const EST_STEPS: readonly Minutes[] = [
+  ...Array.from({ length: 120 / SLIDER_STEP + 1 }, (_, i) => i * SLIDER_STEP),
+  ...[150, 180, 210, 240, 300, 360, 420, 480, 600, 720, 960],
+];
 
 /** The nearest step to a value that may have come from elsewhere, such as a block's length. */
 export function estIndex(minutes: Minutes): number {

@@ -125,11 +125,11 @@ test("phone: a task's block changes its length on a slider in the task's popup, 
   await expectTapTarget(length);
   await length.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(length).toHaveAttribute('aria-valuetext', '1h 15m');
-  await expect(section.getByText('Tue Nov 3, 6pm to 7:15pm')).toBeVisible();
+  await expect(length).toHaveAttribute('aria-valuetext', '1h 5m');
+  await expect(section.getByText('Tue Nov 3, 6pm to 7:05pm')).toBeVisible();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
-  await expect(section.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
+  await expect(section.getByText('Tue Nov 3, 6pm to 6:55pm')).toBeVisible();
   await page.screenshot({ path: info.outputPath('week-phone-length.png') });
 
   // The block comes off the day and its section goes, while the task stays open.

@@ -13,6 +13,7 @@ import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
 import { parsePeriod } from '../../../../../config/retention';
 import { noFiles } from '../../../core/sync-testing';
+import { EST_STEPS } from '../../components/EstimateSlider';
 
 afterEach(cleanup);
 
@@ -267,7 +268,7 @@ describe('Settings', () => {
       const t = await renderScreen('settings');
       const aim = await screen.findByRole('slider', { name: 'Weekly one offs aim' });
       expect(aim).toHaveAttribute('aria-valuetext', 'No aim');
-      fireEvent.change(aim, { target: { value: '13' } });
+      fireEvent.change(aim, { target: { value: String(EST_STEPS.indexOf(300)) } });
       await waitFor(async () => expect((await stored(t)).one_offs_weekly_aim).toBe(300));
       expect(aim).toHaveAttribute('aria-valuetext', '5h');
     });

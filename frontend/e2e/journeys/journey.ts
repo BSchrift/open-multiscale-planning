@@ -138,11 +138,24 @@ export async function addTasks(page: Page | Locator, milestone: string, tasks: r
   for (const t of tasks) await expect(page.getByRole('button', { name: `Edit task ${t.title}, ${t.estimate}` })).toBeVisible();
 }
 
-/** Adds the item on Process's card to a project or One offs: typed and Enter on desktop, picked in the sheet on phone. */
+/**
+ * Adds the item on Process's card to a project or One offs: picked by typing and Enter on desktop, then added with a
+ * second Enter; picked in the sheet on phone, then added with Add to.
+ */
 export async function processTo(page: Page, phone: boolean, place: string) {
-  if (phone) await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  const card = page.getByRole('dialog', { name: 'Process Inbox' });
+  if (phone) await card.getByRole('button', { name: /^Add to a project or One offs/ }).click();
   const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  // Cleared first: typed over the place it already shows, the field would see no change and open no list to pick from.
+  await picker.clear();
   await picker.fill(place);
-  if (phone) await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: new RegExp(`^${place}`) }).first().click();
-  else await picker.press('Enter');
+  const add = card.getByRole('button', { name: `Add to ${place}`, exact: true });
+  if (phone) {
+    await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: new RegExp(`^${place}`) }).first().click();
+    await add.click();
+  } else {
+    await picker.press('Enter');
+    await expect(add).toBeVisible();
+    await picker.press('Enter');
+  }
 }

@@ -103,7 +103,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `dns.zone` | This environment's zone under your domain, such as `staging.example.com` and `app.example.com`. Without a domain, delete the `dns` section. |
    | `integration.testUser` | The email of a dedicated test user, created in step 8. No email is ever sent to it. |
    | `integration.historyUser` | Optional, staging only: the email of the history-scale test's own user, created in step 8. Only `make test-history ENV=staging` reads it. |
-   | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
+   | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email, and the deploy creates that user. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
    | `files` | Leave it out: `make files-key` writes it in step 7. It holds the public keys CloudFront checks attachments' download links against, and `signWith`, the one the API signs with. |
 
@@ -201,7 +201,9 @@ aws ssm put-parameter --type SecureString --name /multiscale/staging/test-user-p
 unset TEST_PASSWORD
 ```
 
-With `secondUser` in `integration.capabilities`, make the user in `integration.secondTestUser` the same way, and store its password as `/multiscale/staging/second-test-user-password`. To change a stored password later, add `--overwrite`.
+To change a stored password later, add `--overwrite`.
+
+With `secondUser` in `integration.capabilities`, the deploy creates the user in `integration.secondTestUser` itself, verified and sent no email like the test user above, with a new password it stores as `/multiscale/staging/second-test-user-password` and never prints. Each deploy leaves a user that's already there alone. If that email already belongs to a user in the pool and no password is stored for it, the deploy stops and says so, rather than reset someone's password: name another user. Taking `secondUser` out leaves the user and its password where they are.
 
 For `make test-history ENV=staging`, make one more user. The history-scale test seeds a made-up five-year account into it, about 40,000 records that stay there, so it has a user of its own rather than sharing the test user. Put its email in `integration.historyUser` in `staging.yaml`, then:
 

@@ -69,6 +69,23 @@ export async function saved(page: Page, text: string): Promise<void> {
     .toBe(true);
 }
 
+/**
+ * Waits until the browser build has loaded every screen's code and the app's font, so a page measured next keeps its
+ * layout. Once it has drawn, the app loads each screen's code in turn (preloadScreens in app/screenLoad.tsx), and each
+ * brings its stylesheet, which can restyle the page already drawn: one moves Today's timeline down a few pixels. This
+ * loads them all now, through the app's own registry, which the dev server shares with the page.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    // A variable, so TypeScript leaves the dev server's path alone.
+    const registry = '/src/ui/app/registry.tsx';
+    const { AREAS } = (await import(registry)) as { AREAS: Record<string, { Screen: { preload?(): Promise<boolean> } }> };
+    const loaded = await Promise.all(Object.values(AREAS).map((a) => a.Screen.preload?.() ?? true));
+    if (loaded.includes(false)) throw new Error("A screen's code didn't load");
+    await document.fonts.ready;
+  });
+}
+
 /** Checks a control is at least 44pt each way, the smallest a finger can hit reliably. */
 export async function expectTapTarget(target: Locator): Promise<void> {
   // A control that isn't there fails here, by name, rather than as a timeout in the wait below, which reads like an
@@ -152,6 +169,17 @@ export async function overNowLine(line: Locator, x: number): Promise<{ at: strin
     el.style.pointerEvents = dot.style.pointerEvents = '';
     return { at: hit === el ? 'line' : (hit?.closest('[aria-label]')?.getAttribute('aria-label') ?? hit?.className ?? ''), dotOnTop: onDot === dot };
   }, x);
+}
+
+/**
+ * The mouse pressed at a point and held until what's under it lifts to drag, as a person holds before dragging. The
+ * caller then moves the mouse and lets go. A press let go before the lift is a click.
+ */
+export async function holdMouse(page: Page, at: { x: number; y: number }): Promise<void> {
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  // What's under the mouse, since a block dropped a moment ago stays lifted until its new time is saved.
+  await expect.poll(() => page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.lifted'), at)).toBe(true);
 }
 
 /**

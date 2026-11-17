@@ -13,4 +13,7 @@ dns:
   zone: app.example.com # optional; a subdomain of control.yaml's domain
 integration:
   testUser: integration-test@example.com # its password lives in SSM at /multiscale/prod/test-user-password
+  # With secondUser in capabilities, the deploy creates this user, to prove one user can't read another's records; its
+  # password goes to SSM at /multiscale/prod/second-test-user-password.
+  # secondTestUser: second-test@example.com
   capabilities: [googleClient]

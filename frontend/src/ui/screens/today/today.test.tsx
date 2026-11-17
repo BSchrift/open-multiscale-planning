@@ -8,7 +8,7 @@ import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
-import { renderApp, renderScreen } from '../../app/testing';
+import { holdDown, renderApp, renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
 import { noFiles } from '../../../core/sync-testing';
 
@@ -1284,6 +1284,30 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the tim
   });
 });
 
+describe("a task's block made shorter on the timeline", () => {
+  it('asks what about the rest under the timeline; Change the estimate takes it off the task, and the block under way never asks', async () => {
+    const t = await open(async (w) => {
+      await task(w, 't1', 'Write the report');
+      await block(w, 'b1', 't1', '16:00', '17:00');
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '13:30', '15:00', { started_at: at('13:30') });
+    });
+    const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+    el.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const ask = await screen.findByRole('group', { name: 'What about the other 15m?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Change the estimate' }));
+    expect(await screen.findByText('Write the report is now 2h 45m. Its estimate was 3h.')).toBeVisible();
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 't1')).toMatchObject({ estimate_min: 165 }));
+
+    const now = await screen.findByRole('button', { name: /^Paint the fence, 1:30pm to 3pm/ });
+    now.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    expect(await screen.findByText(/^Paint the fence is now 1:30pm to 2:45pm/)).toBeVisible();
+    expect(screen.queryByRole('group', { name: /^What about the other/ })).toBeNull();
+  });
+});
+
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const day = async (w: Writer) => {
@@ -1292,14 +1316,11 @@ describe('moving a block on the timeline', () => {
   };
   const report = (name: RegExp = /^Write the report, /, role = 'button') => screen.findByRole(role, { name });
   const saved = (t: Harness, id = 'b1') => getRecord(t.db, 'time_block', id);
-  // jsdom has no layout. The first zoom draws 30px an hour, so each pixel is two minutes.
-  const press = async (el: Element, layout: Layout) => {
-    fireEvent.pointerDown(el, { clientY: 300, button: 0 });
-    // On phone a block moves once held, so a swipe still scrolls the page.
-    if (layout === 'phone') await wait(450);
-  };
+  // jsdom has no layout. The first zoom draws 30px an hour, so each pixel is two minutes. A block moves once held, by
+  // mouse or finger, so a click stays a click and a swipe still scrolls the page.
+  const press = (el: Element, layout: Layout) => holdDown(el, { clientY: 300, pointerType: layout === 'phone' ? 'touch' : 'mouse' });
   const drag = async (el: Element, dy: number, layout: Layout) => {
-    await press(el, layout);
+    press(el, layout);
     fireEvent.pointerMove(window, { clientY: 300 + dy });
     fireEvent.pointerUp(window, { clientY: 300 + dy });
   };
@@ -1375,11 +1396,13 @@ describe('moving a block on the timeline', () => {
       it("snaps to the day's suggested time, shown while dragging", async () => {
         const t = await open(day, { layout });
         // 25px is 50 minutes, 4:50pm, within 20 minutes of 5pm: the first open hour of a weekday evening.
-        await press(await movable(), layout);
+        press(await movable(), layout);
         fireEvent.pointerMove(window, { clientY: 325 });
         expect(await screen.findByText('Suggested 5pm')).toBeVisible();
         expect(await movable(/^Write the report, 5pm to 6pm/)).toHaveClass('lifted');
         fireEvent.pointerUp(window, { clientY: 325 });
+        // Put down at once, where it was let go, while its new time saves.
+        expect(screen.getByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 5pm to 6pm/ })).not.toHaveClass('lifted');
         await waitFor(async () => expect(await saved(t)).toMatchObject({ start: at('17:00'), end: at('18:00') }));
         expect(screen.queryByText('Suggested 5pm')).toBeNull();
       });
@@ -1475,7 +1498,7 @@ describe('moving a block on the timeline', () => {
           { layout },
         );
         const el = await report(/^Write the report, 1pm to 3pm/);
-        expect(el).toHaveAccessibleDescription(layout === 'phone' ? 'Hold its handle and drag to change its length.' : 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.');
+        expect(el).toHaveAccessibleDescription(layout === 'phone' ? 'Hold its handle and drag to change its length.' : 'Hold its bottom edge and drag, or use Shift and the up and down arrow keys, to change its length.');
         await drag(el, 30, layout);
         el.focus();
         await userEvent.keyboard('{ArrowDown}');
@@ -1538,18 +1561,19 @@ describe('moving a block on the timeline', () => {
   it('on phone, a finger that moves before the hold scrolls instead, and a hold let go in place opens nothing', async () => {
     const t = await open(day, { layout: 'phone' });
     const el = await report(undefined, 'slider');
-    fireEvent.pointerDown(el, { clientY: 300, button: 0 });
-    fireEvent.pointerMove(window, { clientY: 330 });
+    fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch' });
+    fireEvent.pointerMove(window, { clientY: 330, pointerType: 'touch' });
     await wait(450);
     expect(el).not.toHaveClass('lifted');
-    fireEvent.pointerMove(window, { clientY: 360 });
-    fireEvent.pointerUp(window, { clientY: 360 });
+    fireEvent.pointerMove(window, { clientY: 360, pointerType: 'touch' });
+    fireEvent.pointerUp(window, { clientY: 360, pointerType: 'touch' });
     expect(await saved(t)).toMatchObject({ start: at('16:00') });
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    await press(el, 'phone');
+    press(el, 'phone');
+    fireEvent.pointerMove(window, { clientY: 302 });
     expect(el).toHaveClass('lifted');
-    fireEvent.pointerUp(window, { clientY: 300 });
+    fireEvent.pointerUp(window, { clientY: 302 });
     fireEvent.click(el);
     expect(screen.queryByRole('dialog', { name: 'Write the report' })).toBeNull();
     expect(el).not.toHaveClass('lifted');
@@ -1593,7 +1617,7 @@ describe('moving a block on the timeline', () => {
       const el = await report();
       expect(el).toHaveClass('compact');
       expect(el.querySelector('.evh')).toBeNull();
-      expect(el).toHaveAccessibleDescription('Drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.');
+      expect(el).toHaveAccessibleDescription('Hold it, then drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.');
       // 15px is half an hour: start and end both move.
       await drag(el, 15, 'desktop');
       expect(await screen.findByText('Write the report is now 4:30pm to 4:45pm.')).toBeVisible();
@@ -1640,10 +1664,19 @@ describe('moving a block on the timeline', () => {
       expect(screen.queryByText(/^Write the report is now/)).toBeNull();
     });
 
-    it('a press that moves past the threshold drags, and opens nothing even let go where it started', async () => {
+    it('a press that moves further before the hold is still a click; held, it lifts, and opens nothing let go where it started', async () => {
       const t = await open(day);
       const el = await report();
+      // 12px would be 24 minutes, were it a drag.
       fireEvent.pointerDown(el, { clientX: 100, clientY: 300, button: 0 });
+      fireEvent.pointerMove(window, { clientX: 108, clientY: 312 });
+      expect(el).not.toHaveClass('lifted');
+      fireEvent.pointerUp(window, { clientX: 108, clientY: 312 });
+      fireEvent.click(el);
+      await userEvent.click(within(await taskPopup('Write the report')).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+      holdDown(el, { clientX: 100, clientY: 300 });
       fireEvent.pointerMove(window, { clientX: 108, clientY: 300 });
       expect(el).toHaveClass('lifted');
       fireEvent.pointerMove(window, { clientX: 100, clientY: 300 });
@@ -1733,7 +1766,7 @@ describe('To schedule on Today', () => {
     // The day from 7am to 10pm drawn 450px tall, 30px an hour, so y 330 is 6pm.
     vi.spyOn(day, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 450, top: 0, left: 0, right: 300, bottom: 450, x: 0, y: 0, toJSON: () => ({}) });
     pointAt(() => day);
-    fireEvent.pointerDown(card, { clientX: 10, clientY: 10, button: 0 });
+    holdDown(card, { clientX: 10, clientY: 10 });
     fireEvent.pointerMove(window, { clientX: 100, clientY: 330 });
     fireEvent.pointerUp(window, { clientX: 100, clientY: 330 });
     await waitFor(async () => expect((await live(t, 'o2')).map((b) => b.start)).toEqual([at('18:00')]));

@@ -233,6 +233,8 @@ button('Seed today', () =>
 // A started block, so its end notification is the app's soonest. It ends 20 minutes out, so the notification comes only
 // when the UI test's launch has the debug build bring it forward, once the app leaves the screen.
 button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
+// A block half an hour out, still to come with free time after it, for Week's day to move.
+button('Seed later', () => seed(platform.db, [{ title: 'Shape the loaf', from: 30, to: 90 }]));
 // Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
 button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');

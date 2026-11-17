@@ -142,6 +142,88 @@ from the first day: the frontend CI job runs `node scripts/bundle-budget.ts dist
 everything a cold first load fetches until Today is interactive, is counted by the runner's cold starts in a browser:
 291 KB on that day, gzipped.
 
+## In CI
+
+Report-only until phase 3: nothing on a timing blocks a merge, and only the bundle bytes above do.
+
+**Each PR** (`.github/workflows/perf.yml`, the `perf` check): desktop Chromium and the 4× slower phone, each in its own
+Linux job, time the PR's merge with its base beside the base commit on the same runner, 100 samples per KPI after 20
+thrown away, on a year of data. When the first round finds a KPI slower, a second round of fresh samples decides. One
+comment on the PR, updated on each push, says what's slower, faster and unchanged, with the bundle note; the raw
+samples are the run's artifacts. A fork's PR can't comment, so its numbers are in the run's summary. The perf check
+fails only when the timing couldn't run. No iPhone or Mac app run on a PR: the macOS runners are few and shared.
+
+**Each merge to main** (`.github/workflows/perf-main.yml`): the fuller set on Linux, timed beside the previous main
+commit, in nine jobs at once, a platform and a scenario each: desktop, phone and the Mac app under xvfb, on a year of
+data (500 samples, 30 cold and warm starts, 10 on the phone, whose cold start over slow 4G takes 15 to 30 seconds), a
+new account and five years (100 samples, 10 starts each). A run still going when main moves again finishes, and only
+the newest commit waiting runs after it. Each run's comparison is in its summary.
+
+**Each night main moved** (`.github/workflows/perf-nightly.yml`, at 04:30 UTC, away from midnight UTC when the iPhone
+tests' seed waits for its blocks to fit in a day): every scenario on Linux, each job a platform and a scenario, each
+timed beside the same commit built again (an A/A run), with the OS file cache emptied before each cold start:
+
+- the browser and the Mac app on a year (500 samples, 30 cold and warm starts, 10 on the phone), a new account and five
+  years; the browser offline once loaded (`+offline`), which should stay within 10% of online; and the phone with its
+  CPU slowed 6× for low-end phones (`+cpu6x`);
+- sync between two signed-in browsers through the local stack behind Toxiproxy (`PERF_SYNC=1`), on a good network, a
+  slow 3G (about 2 s round trips and 400 kbps) and a flaky one (5% of connections reset, up to a second of jitter and
+  a 10-second outage every 2 minutes), shaped once the devices are signed in: `sync.send`, `sync.push` and `sync.pull`;
+- on the good network, capture and the screens while 5,000 records from a third device come down, against the same
+  device idle (p95 within 1.5 times, and no main-thread task over 200 ms), and two devices capturing every second for
+  a minute, which must end up with the same Inbox.
+
+What the A/A run calls slower or faster is a false alarm. Each night's go to `perf-data` with the results, and their
+rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more than 10% and its floor over main's
+baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
+in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
+
+**Once a week** (`.github/workflows/perf-mac.yml`, Sunday at 06:00 UTC): the Mac app's KPIs on a macOS runner, 200
+samples and 20 cold and warm starts after emptying the file cache, set beside the Linux numbers in main's baseline in
+the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25
+minutes, 60 at most.
+
+**Results** go to the `perf-data` branch, which only the scheduled and main performance workflows write (`scripts/perf-data.sh`):
+one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
+`baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The
+targets stay here, in `config/perf.ts` and this file.
+
+**Accepting a slowdown on purpose:** the `perf-accepted` label, which only maintainers can add, and a "Performance"
+section in the PR description naming the KPI, the cost and why it's worth it. The comment then says it's accepted.
+While everything is report-only that's all it does; once a KPI blocks, it lets that KPI's check pass. If an absolute
+target changes, the PR changes `config/perf.ts` and this file in the same diff.
+
+## The dashboard
+
+Staging's stack has a CloudWatch dashboard of the KPIs, `Multiscale-staging-performance`, in the spec's sections and
+order: Capture; Start; Screens; Task popup and Process; Calendar drag and drop, and Plan the week; Sync; and
+Notifications, memory, web bytes and the server. Each section opens with a text header, then a graph for each row of
+each KPI's targets: its p50, p95 and p99 for each platform in the row and its scenario, a day's point the average of
+that day's runs, with the row's targets from `config/perf.ts` drawn across. Each section ends with a line kept for
+numbers from real phones and Macs, which come later, through the app's telemetry.
+
+**The server** is in the last section: API Gateway's latency by route from the access logs (`responseLatency`, by
+`routeKey`), and Lambda init durations from the functions' REPORT lines, both as Logs Insights tables, which can't draw
+a target line, so the targets are in the text beside them; and `POST /sync`'s p50, p95 and p99 a day. Every
+environment's own dashboard has the route and init tables too, for its own traffic, prod's included.
+
+**Where the numbers come from:** CI's main and nightly runs, the iPhone nightly and the Mac app weekly write their
+results to the `perf-data` branch, as above. Every night the release pipeline's nightly run on staging, which already
+signs in to staging as its release role, publishes the last 13 days of them to `Multiscale/Perf` in staging's account
+(`scripts/perf-publish.sh`): one metric each for p50, p95 and p99, with the dimensions KPI, Platform and Scenario,
+timed at the run. CloudWatch takes points up to two weeks old, and a point sent again changes no average, so a night
+missed loses nothing. The release role may put metrics in that namespace alone. Chosen over GitHub Actions publishing
+through OIDC, which would need a new role trusting GitHub in staging's account and AWS credentials in the workflows of
+a public repository, for results that reach the dashboard a few hours later this way. Only staging has the dashboard
+(`stack.performanceDashboard` in `config/env/`): that's where the results are published and where the per-route
+targets' request mix runs.
+
+**What it costs:** CloudWatch bills a custom metric by the hours it gets data in, so a metric published once a night
+costs about a cent a month: about 120 of them once phase 2's KPIs are measured on every platform, 350 if every row of
+`config/perf.ts` is, so $1.50 to $4.50 a month in staging's account. A dashboard of more than 50 metrics is $3 a month.
+That's above the $1 a month per environment docs/setup.md aims for, so the budget alert at $5 may come sooner. Logs
+Insights widgets cost $0.005 per GB they scan, which at this traffic is nothing.
+
 ## How it's measured
 
 `make test-history` runs [scripts/test-history.sh](../scripts/test-history.sh). [docs/setup.md](setup.md) covers running

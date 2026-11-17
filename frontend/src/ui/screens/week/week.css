@@ -9,6 +9,8 @@
 /* Phone: the sticky header is ground, so the week's figures and the chosen day read as the cards under it. */
 [data-layout='phone'] .week .weektop { border-bottom: 0; background: var(--ground); }
 [data-layout='phone'] :is(.wksum, .wkdaycard) { padding: var(--space-3); }
+/* Two fingers on the day zoom its hours, not the page; one still scrolls. */
+[data-layout='phone'] .wkdaycard { touch-action: pan-y; }
 /* Keeps each day 44pt wide on 375pt phones. */
 [data-layout='phone'] .wksum .wstrip { margin-inline: calc(-1 * var(--space-1)); }
 [data-layout='phone'] .wkdaycard > .daywrap { padding-block: 0; }
@@ -44,7 +46,8 @@
 [data-layout] .wkrange { width: 100%; }
 /* On phone a length slider is a whole tap target tall, as the estimate sliders are. */
 [data-layout='phone'] .wkrange { min-height: var(--tap); }
-[data-layout] .day.dragday { background: repeating-linear-gradient(to bottom, var(--hairline) 0, var(--hairline) 1px, var(--card) 1px, var(--card) 48px); }
+/* A line each hour, however tall a pinch draws them (--hour). */
+[data-layout] .day.dragday { background: repeating-linear-gradient(to bottom, var(--hairline) 0, var(--hairline) 1px, var(--card) 1px, var(--card) var(--hour, 48px)); }
 @media (prefers-reduced-motion: reduce) {
   [data-layout] .dragblock, [data-layout] .evdrag { transition: none; }
 }

@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
-import { formatDate, formatWeekRange, isDay, nowInstant, thisWeek } from '../../../core/dates';
+import { formatDate, formatTime, formatWeekRange, isDay, localDate, nowInstant, thisWeek } from '../../../core/dates';
 import { fileToBacklog } from '../../../core/backlog';
 import { applyPlanChange, dueAfter } from '../../../core/plan';
 import type { PlanChange, RecordWrite, Stretch } from '../../../core/plan';
@@ -35,6 +35,7 @@ import { useDialogFocus } from '../../components/useDialogFocus';
 import { useToast } from '../../components/Toast';
 import { BacklogChooser, BacklogSheet } from './BacklogChooser';
 import { loadProcess } from './data';
+import { dayWord, formatRange } from '../../components/blocks/describe';
 import { Item } from './Item';
 import type { Editing } from './Item';
 import type { Destination, ProcessData } from './data';
@@ -171,6 +172,22 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   // description; load whole records with the Inbox if that moment ever shows.
   const current = task?.id === item?.id ? task : item && ({ id: item.id, kind: 'inbox', title: item.title, estimate_min: item.estimate_min ?? null } as Task);
   const name = current?.title ?? '';
+  // Its block, which hold to create gives it: filing keeps it, and what closes the item takes it off.
+  const zone = clock.zone();
+  const block = item?.block_start && item.block_end ? { start: item.block_start, end: item.block_end } : null;
+  const day = block && dayWord(localDate(block.start, zone), today);
+  const near = day === 'Today' || day === 'Tomorrow';
+  const onCalendar = block && `On the calendar ${near ? day!.toLowerCase() : day}, ${formatRange(block.start, block.end, zone)}. It keeps this time wherever it goes.`;
+  const blockAt = block && `${day === 'Today' ? '' : ` ${near ? day!.toLowerCase() : `on ${day}`}`} at ${formatTime(block.start, zone)}`;
+  const stays = block ? ` Its block${blockAt} stays.` : '';
+  /** Runs what closes the item, noting whether that took its block off. */
+  let freed = false;
+  const closing = (run: (w: Writer) => Promise<PlanChange>) => async (w: Writer) => {
+    const reverse = await run(w);
+    freed = reverse.writes.some((r) => r.type === 'time_block');
+    return reverse;
+  };
+  const cameOff = () => (freed ? ` Its block${blockAt} came off the calendar.` : '');
   const est = s.est ?? current?.estimate_min ?? item?.estimate_min ?? 0;
   const [editing, setEditing] = useState<Editing>(null);
   const focusTitle = () => titleRef.current?.focus();
@@ -358,7 +375,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     };
     const where = `${placeName(dest)}${made?.under ? `, under ${made.under}` : ''}${once ? `, for ${onceWhen(once)}` : ''}`;
     const repeatGoes = dest && current && isRepeating(current) ? " Repeats stay with One offs, so it won't repeat." : '';
-    const says = () => `Added ${name} to ${where}${s.planOn ? ` ${weekWords}` : ''}.${repeatGoes}`;
+    const says = () => `Added ${name} to ${where}${s.planOn ? ` ${weekWords}` : ''}.${repeatGoes}${stays}`;
     return commit(run, () => ({ sorted: s.sorted + 1 }), says, { merge: !!made }).then((done) => {
       if (done) setLastKey(placeKey(dest));
       return done;
@@ -374,11 +391,11 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     let made: Made | undefined;
     const pick = home.kind === 'goal' ? null : home.goal;
     const goal = pick ? ('title' in pick ? pick.title : (data.goals.find((g) => g.id === pick.id)?.title ?? null)) : null;
-    const run = async (w: Writer): Promise<PlanChange> => {
+    const run = closing(async (w: Writer): Promise<PlanChange> => {
       const result = await makeHome(w, item.id, home, clock);
       made = result.made;
       return result.reverse;
-    };
+    });
     const done = await commit(
       run,
       () =>
@@ -391,7 +408,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               made: made!.type === 'project' ? { id: made!.id, milestone: made!.milestone ?? null, under: home.kind === 'project' ? (home.milestone ?? null) : null } : null,
             }
           : { sorted: s.sorted + 1 },
-      () => homeLine(home, name, goal),
+      () => `${homeLine(home, name, goal)}${cameOff()}`,
       { home: () => ({ made: made!, itemId: item.id, item: name, title: home.title, goal: made!.goal ? goal : null, left: !home.keep }) },
     );
     if (!done || !made) return false;
@@ -410,7 +427,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       const filed = await fileToBacklog(w, goalId, [item.id], clock, { estimate_min: est || null });
       return s.planOn ? addToWeek(w, minutes, filed) : filed;
     };
-    const says = () => `Added ${name} to the backlog for ${goal.title}${s.planOn ? ` ${weekWords}` : ''}.${once ? ' Backlog tasks have no date, so its date was cleared.' : ''}`;
+    const says = () => `Added ${name} to the backlog for ${goal.title}${s.planOn ? ` ${weekWords}` : ''}.${once ? ' Backlog tasks have no date, so its date was cleared.' : ''}${stays}`;
     setChoosing(false);
     return commit(run, () => ({ sorted: s.sorted + 1 }), says).then((done) => {
       if (done) setLastBacklog(goalId);
@@ -429,8 +446,15 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   // Done finishes the item as any task finishes, so Done lists it; Delete asks first and leaves no trace there.
   // shortcut: an item that repeats, which only a field-by-field merge from another device can make, fails to finish as
   // done and says so; give Done a repeat's own finish if that ever turns up.
-  const markDone = () => item && void commit((w) => closeTask(w, item.id, 'done', clock), () => ({ closed: s.closed + 1 }), () => `Marked ${name} done.`);
-  const remove = () => item && void commit((w) => closeTask(w, item.id, 'deleted', clock), () => ({ closed: s.closed + 1 }), () => `Deleted ${name}.`);
+  const markDone = () =>
+    item && void commit(closing((w) => closeTask(w, item.id, 'done', clock)), () => ({ closed: s.closed + 1 }), () => `Marked ${name} done.${cameOff()}`);
+  const remove = () =>
+    item &&
+    void commit(
+      closing((w) => closeTask(w, item.id, 'deleted', clock)),
+      () => ({ closed: s.closed + 1 }),
+      () => (freed ? `Deleted ${name} and its block${blockAt}.` : `Deleted ${name}.`),
+    );
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
 
   // Single keys need the device setting, since speech input can type them; with Option or Alt they always work, in Add
@@ -584,6 +608,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         onAttachment={keepReverse}
         cap={cap}
         slider={slider}
+        when={onCalendar}
       >
         {children}
       </Item>

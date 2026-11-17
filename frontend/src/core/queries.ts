@@ -11,7 +11,9 @@ import type { UtcRange } from './dates';
 
 export const SQL = {
   inbox: `
-    SELECT id, title, estimate_min, notes IS NOT NULL AND notes != '' AS has_notes
+    SELECT id, title, estimate_min, notes IS NOT NULL AND notes != '' AS has_notes,
+      (SELECT b.start FROM time_block b WHERE b.task_id = task.id AND b.cancelled IS NOT 1 AND b.deleted_at IS NULL ORDER BY b.start LIMIT 1) AS block_start,
+      (SELECT b.end FROM time_block b WHERE b.task_id = task.id AND b.cancelled IS NOT 1 AND b.deleted_at IS NULL ORDER BY b.start LIMIT 1) AS block_end
     FROM task
     WHERE kind = 'inbox'
       AND done_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL
@@ -180,7 +182,7 @@ export const SQL = {
  * full scan. Finished has no index of its own: it stays fast through the type index alone.
  */
 export const QUERY_INDEX = {
-  inbox: ['task_kind'],
+  inbox: ['task_kind', 'block_task'],
   inboxCount: ['task_kind'],
   blocks: ['block_start'],
   placed: ['block_start', 'pick_week'],
@@ -208,6 +210,9 @@ export interface InboxRow {
   estimate_min: Minutes | null;
   /** 1 when it has a description. */
   has_notes: number;
+  /** Its first block still on the calendar, which hold to create gives it. */
+  block_start: Instant | null;
+  block_end: Instant | null;
 }
 
 /** A task's attachments, in the order they were added. */

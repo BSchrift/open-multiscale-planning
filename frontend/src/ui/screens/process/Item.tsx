@@ -43,6 +43,8 @@ export function Item(props: {
   slider: ReactNode;
   /** Last on the phone's card: the week toggle. */
   children?: ReactNode;
+  /** When its block is on the calendar, as hold to create leaves one, and that filing keeps it. */
+  when?: string | null;
 }) {
   const { task, phone, editing, setEditing } = props;
   const count = useQuery((sql) => taskAttachments(sql, task.id), [task.id]).data?.length ?? 0;
@@ -141,11 +143,18 @@ export function Item(props: {
     </div>
   );
   const attachments = count > 0 && <Attachments taskId={task.id} onWrite={props.onAttachment} />;
+  const onCalendar = props.when && (
+    <p className="pxwhen">
+      <Icon name="calendar" size={16} />
+      <span>{props.when}</span>
+    </p>
+  );
 
   if (phone) {
     return (
       <div className="card stack pxitem">
         {title}
+        {onCalendar}
         {once && dateChip}
         {dateNote}
         {dateForm}
@@ -163,6 +172,7 @@ export function Item(props: {
   return (
     <div className="pxitem">
       {title}
+      {onCalendar}
       <div className="pxfacts">
         {dateChip}
         {adds}

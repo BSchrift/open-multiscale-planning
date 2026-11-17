@@ -26,9 +26,14 @@ export function inputTime(event: { type: string; timeStamp: number; detail?: num
 }
 
 function record(name: string, start: number, detail?: Record<string, unknown>) {
+  // At the limit, what the page still holds decides, since a reader may have cleared them since: a test clears after
+  // each action, and clearing under it would lose the action's first measures.
   if (++measured > MEASURE_LIMIT) {
-    performance.clearMeasures();
-    measured = 1;
+    measured = performance.getEntriesByType('measure').length + 1;
+    if (measured > MEASURE_LIMIT) {
+      performance.clearMeasures();
+      measured = 1;
+    }
   }
   try {
     performance.measure(name, { start, end: performance.now(), ...(detail ? { detail } : {}) });

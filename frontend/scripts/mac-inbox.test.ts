@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { APP_VERSION, BUILD, fakeBuild, file, link, linkedMachO, makeIdentity, OUR_FUSES, signMachO, trustOf, writeApp, writeZip, zipOf } from './fake-mac-build';
+import { APP_VERSION, BUILD, DOWNLOADS, fakeBuild, file, link, linkedMachO, makeIdentity, OUR_FUSES, signMachO, trustOf, writeApp, writeZip, zipOf } from './fake-mac-build';
 import type { FakeBuild } from './fake-mac-build';
 import { appRecord, appVersion, buildConfig, liveRecord, notarizations, parsePlist, readManifest, readZip, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
 import type { Manifest } from './mac-inbox';
@@ -57,7 +57,7 @@ describe('the inbox manifest', () => {
 
 describe('verifyInbox', () => {
   const verify = (b: FakeBuild, { commit = COMMIT, ticket = true, trust = trustOf(identity) } = {}) =>
-    verifyInbox(b.inbox, { env: 'staging', commit, teamId: TEAM, identity: b.identity, ...b.build }, {
+    verifyInbox(b.inbox, { env: 'staging', commit, teamId: TEAM, identity: b.identity, downloadsUrl: DOWNLOADS, ...b.build }, {
       extract: (_dmg, into) => cpSync(b.volume, into, { recursive: true, verbatimSymlinks: true }),
       hasTicket: async () => ticket,
       trust,
@@ -254,6 +254,21 @@ describe('verifyInbox', () => {
       const problems = await verify(b);
       expect(problems).toContain(`Contents/Info.plist has CFBundleShortVersionString "0.1.0", not "${APP_VERSION}"`);
       expect(problems).toContain('Contents/Frameworks/Multiscale Staging Helper (GPU).app/Contents/Info.plist has LSEnvironment "x", not as Electron has it');
+    });
+
+    // electron-updater reads it before it downloads an update, for the folder it downloads into. electron-builder writes
+    // it only from a publish setting, and an app without it can never update itself.
+    it('refuses an app without the app-update.yml electron-updater reads, or with one for another host', async () => {
+      const UPDATE_CONFIG = 'Contents/Resources/app-update.yml';
+      const missing = good();
+      missing.tree.delete(UPDATE_CONFIG);
+      writeApp(missing);
+      expect(await verify(missing)).toContain(`The app lacks ${UPDATE_CONFIG}, which electron-updater reads before it downloads an update, so it couldn't update itself`);
+      const other = good();
+      change(other, UPDATE_CONFIG, (data) => Buffer.from(data.toString().replace(DOWNLOADS, 'https://elsewhere.example.test')));
+      const problems = await verify(other);
+      expect(problems).toContain(`${UPDATE_CONFIG} says {"provider":"generic","updaterCacheDirName":"multiscale-updater","url":"https://elsewhere.example.test"}, not a generic feed at ${DOWNLOADS} with a folder for its downloads`);
+      expect(problems).toContain("The app's code signature doesn't seal Resources/app-update.yml as it is");
     });
 
     it("refuses an app whose package.json doesn't say the version 0.1.<build>", async () => {

@@ -21,7 +21,7 @@ import type { BlockKind } from '../blocks/describe';
 import { OutcomeTag } from '../blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../ds/Block';
 import { columnStyle, laneRows, overlapGroups, overlapNote } from './columns';
-import { clearLane, overLane } from './drop';
+import { clearLane, holdToDrag, overLane } from './drop';
 import './weekgrid.css';
 import { Icon } from '../ds/Icon';
 
@@ -156,7 +156,8 @@ export function WeekGrid(props: WeekGridProps) {
   const { ctx, blocks, info = [], ghosts = [], lane = [], editing = false, lockPast = false } = props;
   const hr = editing ? 40 : 26;
   const y = (m: number) => ((Math.max(FROM, Math.min(TO, m)) - FROM) * hr) / 60;
-  const [drag, setDrag] = useState<{ id: string; slot: Slot } | null>(null);
+  // held: still under the pointer, drawn lifted; a block let go stays where it landed, put down, until it's saved.
+  const [drag, setDrag] = useState<{ id: string; slot: Slot; held?: boolean } | null>(null);
   const live = useRef(props);
   live.current = props;
   // A dropped block stays where it landed until the saved position comes back in blocks. Compared by position, since
@@ -202,46 +203,38 @@ export function WeekGrid(props: WeekGridProps) {
     (event.currentTarget as HTMLElement).closest<HTMLElement>('.evdrag')?.focus();
     const column = (event.currentTarget as HTMLElement).closest('.colbody');
     const wide = (column?.getBoundingClientRect().width ?? 100) + COLUMN_GAP;
-    const [x0, y0] = [event.clientX, event.clientY];
     let last: Slot = b;
-    let moved = false;
     const leaving = (e: PointerEvent) => mode === 'move' && !!live.current.onUnschedule && overLane(e.clientX, e.clientY);
-    const move = (e: PointerEvent) => {
-      if (leaving(e)) return;
-      const next = dragResult(b, mode, Math.round((e.clientX - x0) / wide), ((e.clientY - y0) * 60) / hr, mode === 'move' ? targets : []);
-      if (same(next, b) && !moved) return;
-      moved = true;
-      if (isPast(next.date, next.start)) return;
-      last = next;
-      setDrag({ id: b.id, slot: next });
-    };
-    const stop = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      clearLane();
-    };
-    const cancel = () => {
-      stop();
-      setDrag(null);
-    };
-    const up = (e: PointerEvent) => {
-      const off = leaving(e);
-      stop();
-      if (off) {
+    holdToDrag(event, {
+      lift: () => setDrag({ id: b.id, slot: b, held: true }),
+      drag: (dx, dy, e) => {
+        if (leaving(e)) return;
+        const next = dragResult(b, mode, Math.round(dx / wide), (dy * 60) / hr, mode === 'move' ? targets : []);
+        if (isPast(next.date, next.start)) return;
+        last = next;
+        setDrag({ id: b.id, slot: next, held: true });
+      },
+      drop: (e) => {
+        const off = leaving(e);
+        clearLane();
+        if (off) {
+          setDrag(null);
+          live.current.onUnschedule?.(b.id);
+        } else if (!same(last, b)) {
+          setDrag({ id: b.id, slot: last });
+          const saved = live.current.onChange?.(b.id, last);
+          if (saved instanceof Promise) {
+            void saved.then((ok) => ok === undefined && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
+          }
+        } else setDrag(null);
+      },
+      // A click, held or not, opens it: the block is a group, with no click of its own.
+      tap: () => live.current.onOpen?.(b.id),
+      cancel: () => {
+        clearLane();
         setDrag(null);
-        live.current.onUnschedule?.(b.id);
-      } else if (!moved) live.current.onOpen?.(b.id);
-      else if (!same(last, b)) {
-        const saved = live.current.onChange?.(b.id, last);
-        if (saved instanceof Promise) {
-          void saved.then((ok) => ok === undefined && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
-        }
-      } else setDrag(null);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
+      },
+    });
   };
 
   const onKey = (event: KeyboardEvent, b: GridBlock) => {
@@ -376,7 +369,7 @@ export function WeekGrid(props: WeekGridProps) {
                       <div
                         key={b.id}
                         data-id={b.id}
-                        className={b.draft ? cls : `${cls} evdrag${drag?.id === b.id ? ' lifted' : ''}`}
+                        className={`${cls}${b.draft ? '' : ' evdrag'}${drag?.id === b.id && drag.held ? ' lifted' : ''}`}
                         tabIndex={0}
                         role="group"
                         aria-label={said + help}

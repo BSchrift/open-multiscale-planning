@@ -103,9 +103,10 @@ differs() {
 
 # Where each app's feed is in the release bucket, on the release host: desktop or iphone (frontend/src/core/updates.ts).
 feed_key() { echo "release/$1/release.json"; }
-# The feed bundles from before the apps' own feeds read, at the release host's root. Releases delete it: no bundle that
-# reads it is left to take an update from it.
-shared_feed=release/release.json
+# The feed bundles from before the apps' own feeds read, at the release host's root. None of them can take a build any
+# more, so releases point it at no native code: each of those bundles then says it needs a new app, and offers the disk
+# image, rather than saying it couldn't check for updates.
+root_feed=release/release.json
 
 # The shell of what an app's feed serves now, signed in as the environment's release role: desktop or iphone.
 live_shell() {
@@ -323,6 +324,8 @@ IMMUTABLE='public, max-age=31536000, immutable'
 
 # Whether the staging update check has passed the app a record names: staging's app of the same version updated itself
 # to it. Read as the pipeline's own role, which may read the inbox.
+# shortcut: keyed by app version, so a prod app staging never took, as when staging was a Mac app ahead, never passes;
+# match on the app's native code instead if prod's desktop feed is ever seen waiting on one.
 update_checked() {
   [ -n "${MAC_INBOX_BUCKET:-}" ] || return 1
   aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "inbox/update-check/$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$1").json" >/dev/null 2>&1
@@ -365,8 +368,10 @@ app_folder() {
 # iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, so no installed app is
 # told it needs an app that isn't out. A run doesn't wait for Beta App Review, which can take a day: the first run after
 # it passes the build switches the iPhone feed. A Mac app the MacApp step checked is published whenever it hands one on,
-# as when the downloads host served none it checked, with the record that it's a checked one. Last, it deletes the
-# shared feed, if the bucket still has it.
+# as when the downloads host served none it checked, with the record that it's a checked one. Prod's desktop feed waits
+# for the staging update check whenever this run hands on a new Mac app, even one with unchanged native code: the
+# build's signed manifest names that app, and the feed mustn't name an app the downloads host doesn't have. Last, it
+# points the root feed that bundles from before the apps' own feeds read at this version, with no native code.
 publish() {
   local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" record="" waiting="" feed testflight="" update_waiting=""
   web="$(built)/web/$env_name"
@@ -389,10 +394,11 @@ publish() {
     record=""
     update_waiting=1
   fi
-  if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
+  if [ -n "$update_waiting" ]; then
+    # Said above. Checked first, since the signed manifest names the app held back, whatever its native code.
+    :
+  elif ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
-  elif [ -n "$update_waiting" ]; then
-    waiting="Mac update check"
   elif [ -z "$mac" ]; then
     waiting="Mac"
   elif [ -n "$dmg" ]; then
@@ -422,15 +428,17 @@ publish() {
       echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
     fi
     for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
-    # Gone once, then a no-op: S3 answers a delete of a missing key as done.
-    aws s3 rm "s3://$(release_bucket "$env_name")/$shared_feed" >&2
+    # Unsigned, since an old bundle compares the native code before anything else, and with none named it never asks
+    # native code to install. Only the version it names, which Settings shows, changes from one release to the next.
+    node -e 'const { version, build } = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(JSON.stringify({ manifest: JSON.stringify({ version, build, shell: {}, files: [] }), signature: "" }));' "$web/version.json" |
+      aws s3 cp - "s3://$(release_bucket "$env_name")/$root_feed" --cache-control 'public, max-age=60' --content-type application/json >&2
   )
   if [ -n "$testflight" ]; then
     echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
   fi
   if [ -n "$waiting" ]; then
     echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds stay as they are."
-    case "$waiting" in *"Mac update check"*) ;; *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
+    case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
     case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
 }
@@ -729,6 +737,11 @@ case "$command" in
     profiles
     outputs staging
     outputs prod
+    # CI's performance results onto staging's performance dashboard. It never stops the suites.
+    (
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      AWS_PROFILE="$profile" "$root/scripts/perf-publish.sh"
+    ) || echo "Publishing the performance results failed, above. The suites go on." >&2
     frontend_deps
     browsers
     # Each surface back one version and forward again, as make release-surface would, then the suites against it.

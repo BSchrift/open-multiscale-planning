@@ -48,7 +48,8 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   // Where the item went is said once the check has faded, and the next tap anywhere puts it away. On phone the flow's
   // dock moves up to make room for it, and back down as that tap lands, so a tap on Place here while it shows misses.
   // So it's seen to come, and the first pick to put it away, before the dock is used.
-  const added = page.getByText('Added Find a title for the novel to Finish the first draft.');
+  // Under the project's next milestone, which Process chooses unless another is picked.
+  const added = page.getByText('Added Find a title for the novel to Finish the first draft, under Outline done.');
   await expect(added).toBeVisible();
 
   const picks = ['Sketch the chapter list', 'Write the opening scene', 'Draft chapter one'];
@@ -164,7 +165,8 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await openProject(page, phone, 'Write a novel', 'Finish the first draft');
   await page.getByRole('group', { name: 'Milestone: Outline done' }).getByRole('button', { name: 'Show 1 completed' }).click();
   await expect(page.getByRole('checkbox', { name: 'Sketch the chapter list done' })).toBeChecked();
-  await expect(page.getByRole('group', { name: 'Milestone: Outline done' })).toContainText('1 of 2 done, due Nov 6');
+  // Three: the item processed on the first day went under it too.
+  await expect(page.getByRole('group', { name: 'Milestone: Outline done' })).toContainText('1 of 3 done, due Nov 6');
   await tab(page, phone, 'Analytics');
   await expect(pane(page, 'Analytics').getByRole('img', { name: 'Project tasks: 1 done, 1 partly, 0 not done' })).toBeVisible();
 

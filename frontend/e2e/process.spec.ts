@@ -253,6 +253,48 @@ test('desktop: W, E and G do what their buttons do, D asks and Enter or a second
   expect(errors).toEqual([]);
 });
 
+test('Done and Delete stand apart: Done in the success colour with a tick, Delete red with a bin, and Yes, delete solid red', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, phone);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  const done = card(page).getByRole('button', { name: 'Done', exact: true });
+  const remove = card(page).getByRole('button', { name: 'Delete', exact: true });
+  // A token as the page has it now, as the rgb() a computed style gives.
+  const token = (name: string) =>
+    page.evaluate((n) => {
+      const probe = document.createElement('i');
+      probe.style.color = `var(${n})`;
+      document.body.append(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    }, name);
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expect(done).toHaveCSS('color', await token('--ok'));
+    await expect(done).toHaveCSS('border-top-color', await token('--ok'));
+    await expect(remove).toHaveCSS('color', await token('--danger'));
+    await expect(done.locator('[data-icon="done"]')).toBeVisible();
+    await expect(remove.locator('[data-icon="bin"]')).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`process-done-delete-${scheme}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (phone) {
+    // Undo keeps its icon and drops its word, still named for VoiceOver, and every button still fits the row.
+    const undo = card(page).getByRole('button', { name: 'Undo', exact: true });
+    await expect(undo).toHaveText('');
+    for (const name of ['Undo', 'Skip', 'Done', 'Delete']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
+    const row = (await card(page).locator('.pxacts').boundingBox())!;
+    const end = (await remove.boundingBox())!;
+    expect(end.x + end.width).toBeLessThanOrEqual(row.x + row.width + 0.5);
+  }
+  await remove.click();
+  const yes = card(page).getByRole('button', { name: 'Yes, delete' });
+  await expect(yes).toHaveCSS('background-color', await token('--danger'));
+  await page.screenshot({ path: info.outputPath('process-delete-ask.png') });
+  expect(errors).toEqual([]);
+});
+
 test('Add details sends a task with its time straight to One offs, past the Inbox', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);

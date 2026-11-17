@@ -1,0 +1,17 @@
+port 53600
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "../config/retention" without a file extension (vite.config.ts:8:31). Add the file extension
+[WebServer]   - import "./electron/identity" without a file extension (vite.config.ts:9:29). Add the file extension
+[WebServer]   - import "./src/core/appConfig" without a file extension (vite.config.ts:10:31). Add the file extension
+[WebServer]   - import "./src/core/retention" without a file extension (vite.config.ts:11:32). Add the file extension
+[WebServer]   - import "./scripts/shell-hash" without a file extension (vite.config.ts:12:39). Add the file extension
+[WebServer]   - import "./retention" without a file extension (src/core/appConfig.ts:7:32). Add the file extension
+[WebServer]   - import "../src/core/appConfig" without a file extension (electron/identity.ts:3:29). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+
+Running 2 tests using 1 worker
+
+[1/2] [desktop] › e2e/process.spec.ts:256:1 › Done and Delete stand apart: Done in the success colour with a tick, Delete red with a bin, and Yes, delete solid red
+[2/2] [phone] › e2e/process.spec.ts:256:1 › Done and Delete stand apart: Done in the success colour with a tick, Delete red with a bin, and Yes, delete solid red
+  2 passed (12.3s)

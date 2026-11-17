@@ -46,7 +46,7 @@ never by how it looks, and never add a colour for one screen.
 | `--placing` | `#c2410c` | `#f5944d` | The block being placed, whatever its kind. |
 | `--danger` | `#b3261e` | `#f08a80` | Overdue, Past end date, Delete. |
 | `--warn` | `#8a5300` | `#e0a040` | Behind, No tasks. Never Not done. |
-| `--ok` | `#1e6b3e` | `#6fcf97` | On track. |
+| `--ok` | `#1e6b3e` | `#6fcf97` | On track. Also the Done action, as Process's Done button, beside a destructive Delete. |
 | `--ink-action` | `#bfe0f5` | `#1f5f8b` | Undo, and the focus ring, on the toast. |
 
 **Derived colours** are made from the roles and never chosen on their own; `tokens.test.ts` checks each against its

@@ -234,6 +234,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Appearance sets the native theme | covered (desktop: "Appearance in Settings sets the native theme…") |
 | A page reload mid-transaction | covered (desktop: "a page reloading mid-transaction leaves no open transaction behind") |
 | Over-the-air updates and the Updates prompt | partly: unit tests (electron/updates.test.ts, src/core/updates.test.ts); the prompt only shows in builds with a release feed |
+| Battery: each process's CPU and idle wakeups and the power source, for telemetry, window open or closed | covered (desktop: "the page reads each process's CPU and idle wakeups and the power source…"); electron/energy.test.ts sums them by kind |
 | Attachments' file picker | missing: photos need sign-in and the stack; the Mac's picker is Chromium's, as the browser's |
 
 ### Undo everywhere

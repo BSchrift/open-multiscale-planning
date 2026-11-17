@@ -12,6 +12,7 @@ import type { DownloadedRelease, SignedRelease } from '../src/core/updates';
 import type { ReminderResponse } from '../src/platform/types';
 import { afterMove, appUpdates, MOVED_FILE, readOnlyPlace, setsLoginItem } from './appUpdates';
 import type { Updater } from './appUpdates';
+import { processEnergy } from './energy';
 import { captureHotkey } from './hotkey';
 import { createReminderTimers } from './reminder-timers';
 import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl } from './security';
@@ -381,6 +382,12 @@ function start() {
   };
   powerMonitor.on('resume', wake);
   powerMonitor.on('unlock-screen', wake);
+  // Each minute, with telemetry's heartbeat: Electron measures CPU and idle wakeups since it was last asked.
+  handleFrom(main, 'energy:sample', () => ({
+    power: { charging: !powerMonitor.isOnBatteryPower(), thermal: powerMonitor.getCurrentThermalState() },
+    processes: processEnergy(app.getAppMetrics()),
+    windowVisible: mainWindow.isVisible(),
+  }));
   handleFrom(main, 'notifications:permission', () => Notification.isSupported());
   handleFrom(main, 'notifications:replace', (reminders: Reminder[]) => timers.replaceAll(reminders));
   handleFrom(main, 'notifications:cancel', (ids: string[]) => timers.cancel(ids));

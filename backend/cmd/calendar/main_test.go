@@ -121,3 +121,20 @@ func TestQueuedRunsGoAtOnceAndOnlyFailuresGoBack(t *testing.T) {
 		t.Fatalf("%v", f.ran)
 	}
 }
+
+// The same person twice in one batch, from the schedule and the stream at once, runs once.
+func TestAPersonQueuedTwiceInABatchRunsOnce(t *testing.T) {
+	f := &fakeWorker{}
+	payload := `{"Records":[
+		{"eventSource":"aws:sqs","messageId":"m1","body":"{\"sub\":\"a\",\"trigger\":\"schedule\"}"},
+		{"eventSource":"aws:sqs","messageId":"m2","body":"{\"sub\":\"a\",\"trigger\":\"stream\"}"},
+		{"eventSource":"aws:sqs","messageId":"m3","body":"{\"sub\":\"b\",\"trigger\":\"stream\"}"}
+	]}`
+	if _, err := handle(context.Background(), f, json.RawMessage(payload), "r"); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(f.ran)
+	if !slices.Equal(f.ran, []string{"a:schedule", "b:stream"}) {
+		t.Fatalf("%v", f.ran)
+	}
+}

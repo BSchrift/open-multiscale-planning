@@ -190,7 +190,7 @@ type racingConnections struct {
 	before func()
 }
 
-func (r racingConnections) Put(ctx context.Context, conn connection, previous string) error {
+func (r racingConnections) Put(ctx context.Context, conn connection, previous connection) error {
 	r.before()
 	return r.memConnections.Put(ctx, conn, previous)
 }

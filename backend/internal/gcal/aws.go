@@ -106,13 +106,13 @@ func (s *DynamoStates) Consume(ctx context.Context, sub, nonce string) (bool, er
 //   - google#account / <account id>: who holds that Google account, so a second person can't connect it.
 //
 // A token is encrypted directly by KMS rather than under a data key of our own: it's under KMS's 4 KB limit, and each
-// person's context then shows in CloudTrail for every decrypt. A decrypt names no key, so KMS uses the one the token was
-// sealed with: a release reverted and made again creates a new key, and tokens sealed by the old, retained one still open.
+// person's context then shows in CloudTrail for every decrypt. A decrypt names the key, so nothing sealed by another key
+// opens, even with this person's context.
 type DynamoConnections struct {
 	DB    ConnectionsDB
 	Table string
 	KMS   KMSClient
-	// KeyID is the KMS key new tokens are encrypted with.
+	// KeyID is the KMS key tokens are encrypted with.
 	KeyID string
 	// Env is in every token's encryption context, so one environment's grants never open another's tokens.
 	Env string
@@ -124,6 +124,7 @@ type ConnectionsDB interface {
 	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 	TransactWriteItems(context.Context, *dynamodb.TransactWriteItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
+	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 }
 
 // KMSClient is the part of KMS that DynamoConnections uses.
@@ -158,7 +159,7 @@ func (c *DynamoConnections) tokenContext(sub string) map[string]string {
 	return map[string]string{"purpose": tokenPurpose, "env": c.Env, "sub": sub}
 }
 
-func (c *DynamoConnections) Get(ctx context.Context, sub string) (connection, error) {
+func (c *DynamoConnections) Peek(ctx context.Context, sub string) (connection, error) {
 	out, err := c.DB.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String(c.Table), Key: connectionKey(sub), ConsistentRead: aws.Bool(true)})
 	if err != nil {
 		return connection{}, fmt.Errorf("gcal: read connection: %w", err)
@@ -167,26 +168,58 @@ func (c *DynamoConnections) Get(ctx context.Context, sub string) (connection, er
 	if !ok {
 		return connection{}, ErrNotConnected
 	}
-	opened, err := c.KMS.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: sealed.Value, EncryptionContext: c.tokenContext(sub)})
+	conn := connection{Sub: sub, sealed: sealed.Value}
+	if account, ok := out.Item["account"].(*dynamotypes.AttributeValueMemberS); ok {
+		conn.Account = account.Value
+	}
+	_, conn.Revoked = out.Item["revoked_at"]
+	return conn, nil
+}
+
+func (c *DynamoConnections) Get(ctx context.Context, sub string) (connection, error) {
+	conn, err := c.Peek(ctx, sub)
+	if err != nil {
+		return conn, err
+	}
+	opened, err := c.KMS.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: conn.sealed, KeyId: aws.String(c.KeyID), EncryptionContext: c.tokenContext(sub)})
 	if err != nil {
 		return connection{}, fmt.Errorf("gcal: connection doesn't decrypt for this person: %w", err)
 	}
-	account, _ := out.Item["account"].(*dynamotypes.AttributeValueMemberS)
-	conn := connection{RefreshToken: string(opened.Plaintext), Sub: sub, sealed: sealed.Value}
-	if account != nil {
-		conn.Account = account.Value
-	}
+	conn.RefreshToken = string(opened.Plaintext)
 	return conn, nil
 }
 
 func (c *DynamoConnections) Has(ctx context.Context, sub string) (bool, error) {
 	out, err := c.DB.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(c.Table), Key: connectionKey(sub), ConsistentRead: aws.Bool(true), ProjectionExpression: aws.String("pk"),
+		TableName: aws.String(c.Table), Key: connectionKey(sub), ConsistentRead: aws.Bool(true), ProjectionExpression: aws.String("pk, revoked_at"),
 	})
 	if err != nil {
 		return false, fmt.Errorf("gcal: read connection: %w", err)
 	}
-	return out.Item != nil, nil
+	_, revoked := out.Item["revoked_at"]
+	return out.Item != nil && !revoked, nil
+}
+
+func (c *DynamoConnections) MarkRevoked(ctx context.Context, conn connection) error {
+	_, err := c.DB.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(c.Table), Key: connectionKey(conn.Sub),
+		UpdateExpression:         aws.String("SET revoked_at = :now"),
+		ConditionExpression:      aws.String("#token = :token"),
+		ExpressionAttributeNames: map[string]string{"#token": "token"},
+		ExpressionAttributeValues: map[string]dynamotypes.AttributeValue{
+			":token": &dynamotypes.AttributeValueMemberB{Value: conn.sealed},
+			":now":   &dynamotypes.AttributeValueMemberS{Value: instant(c.Now())},
+		},
+	})
+	var replaced *dynamotypes.ConditionalCheckFailedException
+	if errors.As(err, &replaced) {
+		// They connected again, or disconnected, since the run read it.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("gcal: mark connection revoked: %w", err)
+	}
+	return nil
 }
 
 func (c *DynamoConnections) Holder(ctx context.Context, account string) (string, error) {
@@ -201,7 +234,7 @@ func (c *DynamoConnections) Holder(ctx context.Context, account string) (string,
 	return holder.Value, nil
 }
 
-func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous string) error {
+func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous connection) error {
 	sealed, err := c.KMS.Encrypt(ctx, &kms.EncryptInput{KeyId: aws.String(c.KeyID), Plaintext: []byte(conn.RefreshToken), EncryptionContext: c.tokenContext(conn.Sub)})
 	if err != nil {
 		// Only the error's type: its request held the token.
@@ -210,7 +243,13 @@ func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous s
 	item := connectionKey(conn.Sub)
 	item["token"] = &dynamotypes.AttributeValueMemberB{Value: sealed.CiphertextBlob}
 	item["connected_at"] = &dynamotypes.AttributeValueMemberS{Value: instant(c.Now())}
-	writes := []dynamotypes.TransactWriteItem{{Put: &dynamotypes.Put{TableName: aws.String(c.Table), Item: item}}}
+	stored := &dynamotypes.Put{TableName: aws.String(c.Table), Item: item, ConditionExpression: aws.String("attribute_not_exists(pk)")}
+	if previous.sealed != nil {
+		stored.ConditionExpression = aws.String("#token = :previous")
+		stored.ExpressionAttributeNames = map[string]string{"#token": "token"}
+		stored.ExpressionAttributeValues = map[string]dynamotypes.AttributeValue{":previous": &dynamotypes.AttributeValueMemberB{Value: previous.sealed}}
+	}
+	writes := []dynamotypes.TransactWriteItem{{Put: stored}}
 	if conn.Account != "" {
 		item["account"] = &dynamotypes.AttributeValueMemberS{Value: conn.Account}
 		claim := accountKey(conn.Account)
@@ -222,11 +261,14 @@ func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous s
 			ExpressionAttributeValues: map[string]dynamotypes.AttributeValue{":sub": &dynamotypes.AttributeValueMemberS{Value: conn.Sub}},
 		}})
 	}
-	if previous != "" && previous != conn.Account {
-		writes = append(writes, c.release(previous, conn.Sub))
+	if previous.Account != "" && previous.Account != conn.Account {
+		writes = append(writes, c.release(previous.Account, conn.Sub))
 	}
 	_, err = c.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: writes})
-	if failed, _ := cancelledAt(err); failed == 1 {
+	switch failed, _ := cancelledAt(err); failed {
+	case 0:
+		return errConnectionChanged
+	case 1:
 		return api.ErrAccountTaken
 	}
 	if err != nil {
@@ -287,6 +329,7 @@ func (c *DynamoConnections) Each(ctx context.Context, fn func(sub string) error)
 			TableName:                 aws.String(c.Table),
 			KeyConditionExpression:    aws.String("pk = :pk"),
 			ExpressionAttributeValues: map[string]dynamotypes.AttributeValue{":pk": &dynamotypes.AttributeValueMemberS{Value: connectionPK}},
+			FilterExpression:          aws.String("attribute_not_exists(revoked_at)"),
 			ProjectionExpression:      aws.String("sk"),
 			ExclusiveStartKey:         start,
 		})

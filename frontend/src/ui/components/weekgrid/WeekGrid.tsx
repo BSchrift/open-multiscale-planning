@@ -156,7 +156,8 @@ export function WeekGrid(props: WeekGridProps) {
   const { ctx, blocks, info = [], ghosts = [], lane = [], editing = false, lockPast = false } = props;
   const hr = editing ? 40 : 26;
   const y = (m: number) => ((Math.max(FROM, Math.min(TO, m)) - FROM) * hr) / 60;
-  const [drag, setDrag] = useState<{ id: string; slot: Slot } | null>(null);
+  // held: still under the pointer, drawn lifted; a block let go stays where it landed, put down, until it's saved.
+  const [drag, setDrag] = useState<{ id: string; slot: Slot; held?: boolean } | null>(null);
   const live = useRef(props);
   live.current = props;
   // A dropped block stays where it landed until the saved position comes back in blocks. Compared by position, since
@@ -205,13 +206,13 @@ export function WeekGrid(props: WeekGridProps) {
     let last: Slot = b;
     const leaving = (e: PointerEvent) => mode === 'move' && !!live.current.onUnschedule && overLane(e.clientX, e.clientY);
     holdToDrag(event, {
-      lift: () => setDrag({ id: b.id, slot: b }),
+      lift: () => setDrag({ id: b.id, slot: b, held: true }),
       drag: (dx, dy, e) => {
         if (leaving(e)) return;
         const next = dragResult(b, mode, Math.round(dx / wide), (dy * 60) / hr, mode === 'move' ? targets : []);
         if (isPast(next.date, next.start)) return;
         last = next;
-        setDrag({ id: b.id, slot: next });
+        setDrag({ id: b.id, slot: next, held: true });
       },
       drop: (e) => {
         const off = leaving(e);
@@ -220,6 +221,7 @@ export function WeekGrid(props: WeekGridProps) {
           setDrag(null);
           live.current.onUnschedule?.(b.id);
         } else if (!same(last, b)) {
+          setDrag({ id: b.id, slot: last });
           const saved = live.current.onChange?.(b.id, last);
           if (saved instanceof Promise) {
             void saved.then((ok) => ok === undefined && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
@@ -362,7 +364,7 @@ export function WeekGrid(props: WeekGridProps) {
                       <div
                         key={b.id}
                         data-id={b.id}
-                        className={`${cls}${b.draft ? '' : ' evdrag'}${drag?.id === b.id ? ' lifted' : ''}`}
+                        className={`${cls}${b.draft ? '' : ' evdrag'}${drag?.id === b.id && drag.held ? ' lifted' : ''}`}
                         tabIndex={0}
                         role="group"
                         aria-label={said + help}

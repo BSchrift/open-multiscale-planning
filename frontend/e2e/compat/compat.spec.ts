@@ -851,8 +851,10 @@ test("an old device whose account a new device deleted shows it's signed out", a
   const fresh = await device(browser, `e2e-${run}`, on('new'));
   await signIn(fresh.page);
   await deleteAccount(fresh.page);
-  // The released app's sync is refused, and so is its refresh, since the sign-in is gone: it shows it's signed out.
-  await syncNow(old.page);
+  // At its next launch the released app's sync is refused, and so is its refresh, since the sign-in is gone: it shows
+  // it's signed out. A launch rather than Sync now, since a sync of its own may have signed it out already.
+  await old.page.reload();
+  await go(old.page, 'Settings');
   await expect(account(old.page).getByText('Signed out', { exact: true })).toBeVisible();
   expect(old.errors).toEqual([]);
 });

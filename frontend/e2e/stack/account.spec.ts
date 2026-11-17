@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { account, pane, readRecord, seed, syncNow } from '../seed';
+import { account, pane, readRecord, seed } from '../seed';
 import { closeDevices, DELETED, deleteAccount, device, NETWORK, oneOff, signIn } from './devices';
 import { target } from './target';
 
@@ -97,8 +97,8 @@ for (const [size, options] of Object.entries(sizes)) {
       expect(await readRecord(a.page, 'task', paint.id)).toBeUndefined();
       await a.page.screenshot({ path: test.info().outputPath('deleted.png'), fullPage: true });
 
-      // The other device's next sync erases its copy too.
-      await syncNow(b.page);
+      // The other device erases its copy too, at its next launch, or before it at a sync of its own.
+      await b.page.reload();
       await expect(b.page.getByText(DELETED)).toBeVisible(NETWORK);
       expect(await readRecord(b.page, 'task', paint.id)).toBeUndefined();
       expect(a.errors).toEqual([]);

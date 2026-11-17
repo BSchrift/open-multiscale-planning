@@ -10,7 +10,11 @@ const MB = 1024 * 1024;
 beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'], now: T0 }));
 afterEach(() => vi.useRealTimers());
 
-async function setup(snapshot?: Partial<DiagnosticsSnapshot>, updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>) {
+async function setup(
+  snapshot?: Partial<DiagnosticsSnapshot>,
+  updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>,
+  more: Pick<Parameters<typeof startTelemetry>[0], 'syncs'> = {},
+) {
   const exporter = new InMemoryLogRecordExporter();
   let warn: (() => void) | undefined;
   const diagnostics: Diagnostics | undefined = snapshot && {
@@ -30,6 +34,7 @@ async function setup(snapshot?: Partial<DiagnosticsSnapshot>, updates?: Pick<Upd
     resource: { 'os.name': 'ios', 'session.id': 's-1' },
     ...(diagnostics ? { diagnostics } : {}),
     ...(updates ? { updates } : {}),
+    ...more,
     screen: () => 'week',
     target: target as never,
   });
@@ -57,6 +62,21 @@ describe('startTelemetry', () => {
     const beat = (await t.events()).at(-1)!;
     expect(beat.eventName).toBe('app.heartbeat');
     expect(beat.attributes).toMatchObject({ 'app.screen.name': 'week', 'process.memory.usage': 200 * MB, 'browser.dom.nodes': 1500, 'app.uptime': 60 });
+    t.telemetry.stop();
+  });
+
+  it('reports the syncs since the last heartbeat with each one, and their bytes, idle minutes too', async () => {
+    const taken = [
+      { count: 2, bytes: 3000 },
+      { count: 0, bytes: 0 },
+    ];
+    const t = await setup(undefined, undefined, { syncs: () => taken.shift()! });
+    await vi.advanceTimersByTimeAsync(120_000);
+    const synced = (await t.events()).filter((e) => e.eventName === 'app.sync.count');
+    expect(synced.map((e) => e.attributes)).toEqual([
+      { 'app.screen.name': 'week', 'sync.count': 2, 'sync.bytes': 3000 },
+      { 'app.screen.name': 'week', 'sync.count': 0, 'sync.bytes': 0 },
+    ]);
     t.telemetry.stop();
   });
 

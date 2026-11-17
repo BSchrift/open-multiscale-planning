@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
-import { Annotations, CfnOutput, Duration, Names, RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { Annotations, CfnOutput, CustomResource, Duration, Names, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { forEnv } from '@multiscale/config';
 import { AccessLogFormat } from 'aws-cdk-lib/aws-apigateway';
@@ -31,7 +31,9 @@ import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
+import { Provider } from 'aws-cdk-lib/custom-resources';
 import { loadRetention } from '../../config/retention.ts';
+import { secondUser } from './config.ts';
 import type { Config, ControlConfig, EnvName } from './config.ts';
 import { DELEGATION_ROLE_NAME } from './control-stack.ts';
 import { PERF_NAMESPACE, perfDashboard, serverWidgets } from './perf-dashboard.ts';
@@ -115,6 +117,37 @@ export class MultiscaleStack extends Stack {
       disableOAuth: true,
       preventUserExistenceErrors: true,
     });
+    // The suite's second user, which proves one user can't read another's records through the real authorizer, made by
+    // this deploy rather than by hand (test-user/index.mjs). Its password is made there, never in the template, and goes
+    // beside the first test user's, which the release role reads.
+    if (secondUser(config)) {
+      const parameter = `${ssmPrefix}/second-test-user-password`;
+      const testUserFunction = new LambdaFunction(this, 'TestUserFunction', {
+        runtime: Runtime.NODEJS_24_X,
+        architecture: Architecture.ARM_64,
+        code: Code.fromAsset(join(import.meta.dirname, '../test-user')),
+        handler: 'index.handler',
+        logGroup: new LogGroup(this, 'TestUserLogs', { retention: RetentionDays.ONE_MONTH }),
+        timeout: Duration.seconds(30),
+      });
+      testUserFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['cognito-idp:AdminGetUser', 'cognito-idp:AdminCreateUser', 'cognito-idp:AdminSetUserPassword'],
+        resources: [userPool.userPoolArn],
+      }));
+      testUserFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['ssm:GetParameter', 'ssm:PutParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: parameter.slice(1) })],
+      }));
+      const provider = new Provider(this, 'TestUserProvider', {
+        onEventHandler: testUserFunction,
+        logGroup: new LogGroup(this, 'TestUserProviderLogs', { retention: RetentionDays.ONE_MONTH }),
+      });
+      new CustomResource(this, 'SecondTestUser', {
+        serviceToken: provider.serviceToken,
+        resourceType: 'Custom::TestUser',
+        properties: { UserPoolId: userPool.userPoolId, Username: config.integration!.secondTestUser!, Parameter: parameter },
+      });
+    }
 
     // Data
 

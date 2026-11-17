@@ -357,3 +357,22 @@ test('Esc and Cancel drop what was typed, and on desktop a click outside keeps i
   }
   expect(errors).toEqual([]);
 });
+
+test('a shared description that was cut to fit says so under it', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // As share import leaves it on this device, for the item whose description it cut.
+  await page.addInitScript(() => localStorage.setItem('multiscale.cutShares', '["shared"]'));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [{ type: 'task', id: 'shared', fields: { kind: 'inbox', title: 'Notes from the talk', notes: 'word '.repeat(4000).trim() } }]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 1 to sort' : 'Inbox' }).click();
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 1 item' }).click();
+  await expect(title(page, 'Notes from the talk')).toBeVisible();
+  const said = card(page).getByText('The description was cut to 20,000 characters.');
+  await expect(said).toBeVisible();
+  // Under the description's first lines, not over them.
+  const lines = (await card(page).locator('.pxnotes .notes').boundingBox())!;
+  expect((await said.boundingBox())!.y).toBeGreaterThanOrEqual(lines.y + lines.height);
+  expect(errors).toEqual([]);
+});

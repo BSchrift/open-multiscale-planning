@@ -5,7 +5,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { protocol } from '@multiscale/config';
-import { formatBytes, linkName, storageFull, tooLarge, usageLine } from '../../../core/attachments';
+import { formatBytes, linkName, MAX_LINK, storageFull, tooLarge, usageLine } from '../../../core/attachments';
 import { formatTime, nowInstant } from '../../../core/dates';
 import { OpenError } from '../../../core/files';
 import type { UploadState, Usage } from '../../../core/files';
@@ -24,7 +24,6 @@ import { Icon } from '../ds/Icon';
 
 const MAX_FILE = protocol.attachments.maxFileBytes;
 const MAX_PER_TASK = protocol.attachments.maxPerTask;
-const MAX_LINK = 2000;
 
 /** Whether this device can add photos, and the storage used when the server has said. */
 function usePhotos(): { offered: boolean; usage: Usage | null } {

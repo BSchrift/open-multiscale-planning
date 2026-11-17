@@ -17,6 +17,9 @@ export const storageFull = (used: number, quota: number) => `Storage full: ${usa
 
 export const tooLarge = (size: number, max: number) => `This file is ${formatBytes(size)}. Files can be up to ${formatBytes(max)}.`;
 
+/** The longest address a link can have. */
+export const MAX_LINK = 2000;
+
 /** A link with no name of its own goes by its site. */
 export function linkName(url: string): string {
   try {

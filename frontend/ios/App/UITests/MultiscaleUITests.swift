@@ -439,6 +439,29 @@ final class ShellUITests: XCTestCase {
         exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
     }
 
+    func testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onTab("Week", block, in: app)
+        let before = block.frame.height
+        // Two fingers on the block spread apart: a pinch, which a hold on the block gives way to.
+        block.pinch(withScale: 2.5, velocity: 1)
+        let taller = { (el: XCUIElement) in NSPredicate { _, _ in el.exists && el.frame.height > before * 1.8 } }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: taller(block), object: nil)], timeout: patience), .completed,
+                       "Shape the loaf is \(block.frame.height)pt tall after the pinch, from \(before)pt")
+
+        // The zoom is the phone's: the app opened again draws the day as tall.
+        app.terminate()
+        app.launchLoaded()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        let again = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onTab("Week", again, in: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: taller(again), object: nil)], timeout: patience), .completed,
+                       "Shape the loaf is \(again.frame.height)pt tall after a new launch, from \(before)pt")
+    }
+
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()

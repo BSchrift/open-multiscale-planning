@@ -419,6 +419,28 @@ final class ShellUITests: XCTestCase {
         allowNotificationsIfAsked()
     }
 
+    func testABlockHeldOnWeeksDayThenDraggedDownMovesLater() throws {
+        let app = launchApp(seed: "Seed later")
+        // Asked before the drag, so the question can't land in the middle of it.
+        allowNotificationsIfAsked()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        // Any kind of element: a task's block opens its popup, so iOS gives it the pop-up button type.
+        let block = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, '")).firstMatch
+        onTab("Week", block, in: app)
+        let before = block.label
+
+        // The day runs on below the screen's bottom, where the tab bar would take the touch, so the page scrolls up
+        // first, by the margin left of the day, where nothing is held.
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -260)))
+        // Held past the lift, then let go two rows down, over the free time after it.
+        let from = block.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 120)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        let moved = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, ' AND label != %@", before)).firstMatch
+        exists(moved)
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
+    }
+
     func testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted() throws {
         let app = launchApp(seed: "Seed today")
         allowNotificationsIfAsked()

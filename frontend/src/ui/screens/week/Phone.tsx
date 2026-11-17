@@ -1,6 +1,7 @@
 // Week on phone. A full week grid doesn't fit, so a sticky strip of seven day buttons shows each day's shape on a
 // shared time axis above one day's timeline. Tapping a task's block opens the task's popup, with the block's section
-// at its top, and a practice's session or planning opens its sheet; Move, or Choose another time for a
+// at its top, and a practice's session or planning opens its sheet. Holding a block still to come lifts it, to be let
+// go on another row of the day at the time under the finger. Move, or Choose another time for a
 // task or for planning, makes the block draggable on the day, the strip carries it to another day, and planning's
 // week arrows to another week. To schedule sits above the
 // day: a card opens its suggested times, and while editing, cards drag onto the day and blocks drag back up to it.
@@ -27,7 +28,7 @@ import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { NowLine } from '../../components/NowLine';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
-import { clearLane, columnStyle, dayName, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
+import { clearLane, columnStyle, dayName, dragCard, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
 import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { landOn, rowItem } from './data';
@@ -150,17 +151,20 @@ export function PhoneWeek(props: WeekProps) {
   // Planning goes no later than the end of the week or stretch it plans.
   const late = !!plan && !!at && at.date > plan.last;
   const locked = gone || late;
+  /** Moves a placed block, from Move here or a hold on the day. Resolves to whether it moved, or was already there. */
+  const moveTo = async (b: PlacedBlock, slot: Slot) => {
+    // A session moved to another day is for this week only, so nothing asks about future weeks.
+    if (b.practice_id && slot.date !== b.date) return act.moveSessionDay(b, slot, model.blocks);
+    if (slot.date !== b.date || slot.start !== b.start || slot.end !== b.end) {
+      await act.moveWithUndo(b.id, b.title, slot);
+      if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
+    }
+    return true;
+  };
   const finishPlacing = async () => {
     if (!placing || !at || locked) return;
     if (placing.mode === 'move') {
-      const b = placing.block;
-      // A session moved to another day is for this week only, so nothing asks about future weeks.
-      if (b.practice_id && at.date !== b.date) {
-        if (!(await act.moveSessionDay(b, at, model.blocks))) return;
-      } else if (at.date !== b.date || at.start !== b.start || at.end !== b.end) {
-        await act.moveWithUndo(b.id, b.title, at);
-        if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
-      }
+      if (!(await moveTo(placing.block, at))) return;
     } else if (placing.mode === 'planning') {
       if (!(await planning.place(placing.plan, at))) return;
     } else if (!(await act.place(placing.item, at))) return;
@@ -379,7 +383,7 @@ export function PhoneWeek(props: WeekProps) {
             <h3 className="wkday">{dayTitle}</h3>
           )}
           <div className="card wkdaycard">
-            <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={openBlock} />
+            <DayRows date={selDay} model={model} readOnly={offset < 0} onOpen={openBlock} onMove={(b, slot) => void moveTo(b, slot)} />
           </div>
           {isThis && (
             <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
@@ -538,9 +542,9 @@ export function PhoneWeek(props: WeekProps) {
  * One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. Blocks at the
  * same time share a row, side by side.
  */
-function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; onOpen(id: string): void }) {
+function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; onOpen(id: string): void; onMove(block: PlacedBlock, slot: Slot): void }) {
   const { date, model } = props;
-  const { clock } = useApp();
+  const { clock, platform } = useApp();
   // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
   const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
   const { availability, busy } = model.ctx;
@@ -566,6 +570,17 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
 
   // A task's block always opens, to its popup; a practice's or planning's only while it can still change.
   const shut = (block: PlacedBlock) => (props.readOnly || block.ended) && !isTask(block);
+  // Held, a block still to come lifts and drags as a card does, onto whichever row it's let go over, at the time under
+  // the finger there. Its own time is free while it moves. The press stays with the block, so the row under it never
+  // takes it for a hold on empty time.
+  const hold = (block: PlacedBlock) => (e: ReactPointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    dragCard(e, { length: block.end - block.start, offers: [] }, { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== block.id) }, {
+      preview: () => undefined,
+      drop: (slot) => props.onMove(block, slot),
+      ...(platform.haptic ? { haptic: platform.haptic } : {}),
+    });
+  };
   /** A block filling its row, or in its column of its group's row, whose time is `from`: one starting later says when. */
   const draw = (block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties) => {
     const word = KIND_WORD[block.kind];
@@ -595,6 +610,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; readOnly: boolean; 
         style={style}
         aria-label={`${block.title}, ${slotRange(block)}, ${word}.${block.note ? ` ${block.note}.` : ''}${overlapNote(others)}`}
         onClick={() => props.onOpen(block.id)}
+        onPointerDown={props.readOnly || block.past ? undefined : hold(block)}
       >
         {inner}
       </button>

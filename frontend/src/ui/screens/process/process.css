@@ -228,6 +228,17 @@
   font-size: var(--fs-meta);
 }
 
+/* When its block is on the calendar, as hold to create leaves one. */
+[data-layout] .pxwhen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+
 [data-layout] .pxdateform {
   padding: var(--space-3);
   border: 1px solid var(--hairline);

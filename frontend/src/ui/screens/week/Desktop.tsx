@@ -32,6 +32,8 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
+import type { Shortened } from '../../components/editors/SplitAsk';
 import { TaskPopupFor } from '../task';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
@@ -64,6 +66,8 @@ export function DesktopWeek(props: WeekProps) {
   const [selected, setSelected] = useState<string | null>(props.place);
   const [draft, setDraft] = useState<Slot | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // A task's block made shorter asks what about the rest, until answered or another block is chosen.
+  const [split, setSplit] = useState<Shortened | null>(null);
   const [moved, setMoved] = useState<string | null>(null);
   // Edit and Done editing each go once pressed, so focus moves to the other one rather than the page.
   const editBtn = useRef<HTMLButtonElement>(null);
@@ -124,6 +128,7 @@ export function DesktopWeek(props: WeekProps) {
     setSelected(id);
     setDraft(null);
     setAsk(null);
+    setSplit(null);
   };
   const stopEditing = () => {
     choose(null);
@@ -146,6 +151,7 @@ export function DesktopWeek(props: WeekProps) {
     const saved = act.move(id, slot);
     setMoved(id);
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
+    setSplit(shortened(b, slot, { task: isTaskBlock(b.kind), underWay: !!b.now, week: data.week, title: b.title, open: split }));
     return saved;
   };
   const place = async (what: Placeable, slot: Slot) => {
@@ -263,7 +269,7 @@ export function DesktopWeek(props: WeekProps) {
         {editing && (
           <div className="planleft stack">
             <div className="stack8">
-              <p className="small quiet">Drag or resize anything from now on, or click <Icon name="close" size={16} /> to remove it. Changes save as you go.</p>
+              <p className="small quiet">Hold anything from now on, then drag to move or resize it, or click <Icon name="close" size={16} /> to remove it. Changes save as you go.</p>
               <div>
                 <Button ref={doneBtn} variant="primary" type="button" onClick={stopEditing}>
                   Done editing
@@ -271,6 +277,7 @@ export function DesktopWeek(props: WeekProps) {
               </div>
             </div>
             {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
+            {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
             {lastMoved && !drafted && (
               <div className="stack8" role="status" aria-label="Last change">
                 <div className="small strong">
@@ -313,7 +320,7 @@ export function DesktopWeek(props: WeekProps) {
                               work={r.work}
                               model={model}
                               left={r.left}
-                              hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
+                              hint="Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time."
                               onPlace={() => void place(rowItem(r), draft)}
                               onCancel={() => choose(null)}
                             />
@@ -336,7 +343,7 @@ export function DesktopWeek(props: WeekProps) {
                 work={{ kind: 'project' }}
                 model={model}
                 problem={late ? `Too late: plan it by ${dayName(plan.last)}.` : undefined}
-                hint="Drag the block anywhere, or use the arrow keys and Enter. The week arrows take it to another week. Drag its bottom edge to change its length."
+                hint="Hold the block, then drag it anywhere, or use the arrow keys and Enter. The week arrows take it to another week. Hold its bottom edge and drag to change its length."
                 onPlace={() => void placePlanning()}
                 onCancel={cancelPlanning}
               />
@@ -349,7 +356,7 @@ export function DesktopWeek(props: WeekProps) {
                 draft={draft}
                 work={curCard.work}
                 model={model}
-                hint="Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time."
+                hint="Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time."
                 onPlace={() => void place(curCard, draft)}
                 onCancel={() => {
                   choose(null);
@@ -418,7 +425,7 @@ export function DesktopWeek(props: WeekProps) {
                 )}
                 {isThis && (
                   <p className="small quiet">
-                    {editing ? 'Drag work onto a day to place it, or a block back here to take it off the calendar.' : 'Drag work onto a day to place it, or click it for suggested times.'}
+                    {editing ? 'Hold work, then drag it onto a day to place it, or a block back here to take it off the calendar.' : 'Hold work, then drag it onto a day to place it, or click it for suggested times.'}
                   </p>
                 )}
               </section>

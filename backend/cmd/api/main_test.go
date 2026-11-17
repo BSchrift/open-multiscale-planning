@@ -14,6 +14,7 @@ import (
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/account"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 )
@@ -51,6 +52,19 @@ func TestAdapterPassesTheRequestThrough(t *testing.T) {
 	}
 	if res.StatusCode != 201 || res.Body != `{"ok":true}` || res.Headers["Content-Type"] != "application/json" {
 		t.Fatalf("%+v", res)
+	}
+}
+
+func TestAdapterPassesOnWhenTheSignInWas(t *testing.T) {
+	var got time.Time
+	handle := adapter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = api.AuthTimeFrom(r.Context()) }))
+	handle(context.Background(), gatewayEvent("POST", "/account/delete", "", "{}", map[string]string{"sub": "user-1", "auth_time": "1800000000"}))
+	if !got.Equal(time.Unix(1800000000, 0)) {
+		t.Fatalf("got %v", got)
+	}
+	handle(context.Background(), gatewayEvent("POST", "/account/delete", "", "{}", map[string]string{"sub": "user-1", "auth_time": "soon"}))
+	if !got.IsZero() {
+		t.Fatalf("got %v from a claim that isn't a time", got)
 	}
 }
 
@@ -101,6 +115,19 @@ type fakeInvoker struct {
 func (f *fakeInvoker) Invoke(_ context.Context, in *lambdasdk.InvokeInput, _ ...func(*lambdasdk.Options)) (*lambdasdk.InvokeOutput, error) {
 	f.in = in
 	return &lambdasdk.InvokeOutput{}, f.err
+}
+
+func TestAnAccountJobStartsWithoutWaitingForIt(t *testing.T) {
+	invoker := &fakeInvoker{}
+	if err := startJob(invoker, "the-account-function")(context.Background(), account.Job{Kind: account.JobExport, Sub: "user-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if aws.ToString(invoker.in.FunctionName) != "the-account-function" || invoker.in.InvocationType != lambdatypes.InvocationTypeEvent {
+		t.Fatalf("%+v", invoker.in)
+	}
+	if string(invoker.in.Payload) != `{"job":"export","sub":"user-1"}` {
+		t.Fatalf("payload %s", invoker.in.Payload)
+	}
 }
 
 func TestWorkerStartsWithoutWaitingForIt(t *testing.T) {

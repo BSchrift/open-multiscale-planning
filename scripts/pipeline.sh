@@ -565,7 +565,7 @@ case "$command" in
     fetch_config
     for env_name in "${environments[@]}"; do (cd "$root/config" && go run ./cmd/check "$env_name"); done
     # Built once: both environments deploy these binaries, from these assemblies.
-    for name in api calendar retention canary; do
+    for name in api calendar retention canary account; do
       (cd "$root/backend" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags='-s -w -buildid=' \
         -o "$root/backend/dist/$name/bootstrap" "./cmd/$name")
     done

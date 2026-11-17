@@ -38,6 +38,10 @@ const (
 // DynamoDB kept throttling. Nothing was lost, and what landed stays: merging is idempotent, so the device resends.
 var ErrConflict = errors.New("sync: counter kept moving")
 
+// ErrAccountDeleted means the person deleted their account: a device that still holds a good token is refused, signs
+// out and wipes its copy, rather than writing their data back.
+var ErrAccountDeleted = errors.New("sync: account deleted")
+
 // throttleWait is how long to wait before sending a throttled transaction again for the try-th time.
 var throttleWait = func(try int) time.Duration { return min(time.Duration(try+1)*100*time.Millisecond, time.Second) }
 
@@ -170,6 +174,11 @@ func (s *Store) push(ctx context.Context, sub string, cursor int64, changes []Ch
 			return stats, err
 		}
 		stats.counter, stats.generation = state.counter, state.generation
+		// Read with the counter, so it costs nothing. The calendar worker's write in flight still lands, since a refusal
+		// would count as a failed run; the deletion's later passes remove it.
+		if state.deleted && who != server {
+			return stats, ErrAccountDeleted
+		}
 		if cursor > state.counter {
 			stats.reset = true
 			return stats, nil
@@ -232,7 +241,9 @@ type storedState struct {
 	exists     bool
 	generation string
 	// mark is the highest sequence number removed as expired, or about to be by staging's cleanup.
-	mark    int64
+	mark int64
+	// deleted is set once the person has asked to delete their account (internal/account).
+	deleted bool
 	records map[string]Fields
 	seqs    map[string]int64
 }
@@ -246,6 +257,7 @@ func (s *Store) read(ctx context.Context, sub string, changes []Change) (storedS
 	counter := []map[string]types.AttributeValue{
 		{"pk": pk, "sk": &types.AttributeValueMemberS{Value: counterKey}},
 		{"pk": pk, "sk": &types.AttributeValueMemberS{Value: markKey}},
+		{"pk": pk, "sk": &types.AttributeValueMemberS{Value: DeletedKey}},
 		{"pk": &types.AttributeValueMemberS{Value: generationPK}, "sk": &types.AttributeValueMemberS{Value: generationKey}},
 	}
 	if err := s.readKeys(ctx, counter, &state); err != nil {
@@ -286,6 +298,10 @@ func (s *Store) readKeys(ctx context.Context, keys []map[string]types.AttributeV
 				if state.mark, err = numberAttr(item["value"]); err != nil {
 					return err
 				}
+				continue
+			}
+			if sk.Value == DeletedKey {
+				state.deleted = true
 				continue
 			}
 			if sk.Value == generationKey {
@@ -751,6 +767,9 @@ const (
 	counterKey = "meta#counter"
 	// markKey holds a user's expiry mark, the highest sequence number removed as expired, and when it was last raised.
 	markKey = "meta#expired"
+	// DeletedKey marks an account whose deletion has started, until it has finished and every token issued before it
+	// has lapsed. internal/account writes and removes it.
+	DeletedKey = "meta#deleted"
 	// ttlAttribute is the table's TTL attribute: when the item expires, in epoch seconds.
 	ttlAttribute = "expires_at"
 	recordPrefix = "rec#"
@@ -885,6 +904,51 @@ func (s *Store) Record(ctx context.Context, sub, recordType, id string) (Fields,
 	}
 	fields, found := state.records[recordKey(recordType, id)]
 	return fields, found, nil
+}
+
+// Each calls fn with every record the user has, of every type, in type and id order, and stops at fn's first error. It
+// leaves out what has expired, as pulls do.
+func (s *Store) Each(ctx context.Context, sub string, fn func(Change) error) error {
+	var start map[string]types.AttributeValue
+	for {
+		out, err := s.DB.Query(ctx, &dynamodb.QueryInput{
+			TableName:              aws.String(s.Table),
+			ConsistentRead:         aws.Bool(true),
+			ExclusiveStartKey:      start,
+			KeyConditionExpression: aws.String("pk = :user AND begins_with(sk, :prefix)"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":user":   &types.AttributeValueMemberS{Value: userKey(sub)},
+				":prefix": &types.AttributeValueMemberS{Value: recordPrefix},
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("sync: each: %w", err)
+		}
+		for _, item := range out.Items {
+			sk, _ := item["sk"].(*types.AttributeValueMemberS)
+			if sk == nil {
+				return errors.New("sync: each: item has no sort key")
+			}
+			recordType, id, ok := strings.Cut(strings.TrimPrefix(sk.Value, recordPrefix), "#")
+			if !ok {
+				return errors.New("sync: each: malformed sort key")
+			}
+			fields, err := fieldsFromItem(item)
+			if err != nil {
+				return err
+			}
+			if expires, ok := s.expiry(fields); s.Expiry != nil && ok && expires.Before(s.Expiry.Now()) {
+				continue
+			}
+			if err := fn(Change{Type: recordType, ID: id, Fields: fields}); err != nil {
+				return err
+			}
+		}
+		if len(out.LastEvaluatedKey) == 0 {
+			return nil
+		}
+		start = out.LastEvaluatedKey
+	}
 }
 
 // List returns every record of one type for one user, following pages.

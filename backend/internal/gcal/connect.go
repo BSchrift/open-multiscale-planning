@@ -19,6 +19,7 @@ import (
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
 )
 
 const (
@@ -253,26 +254,55 @@ func (g *Google) Disconnect(ctx context.Context, sub string) error {
 		return err
 	}
 	if conn.Sub != "" && conn.Sub == sub {
-		// Best effort with Google: access already removed there, or Time blocks already deleted, still disconnects here.
-		failed := []string{}
-		if id := fieldString(stored, "calendar_id"); id != "" {
-			svc, err := g.service(ctx, conn.RefreshToken)
-			if err == nil {
-				err = svc.Calendars.Delete(id).Context(ctx).Do()
-			}
-			if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) && errorCode(err) != ErrorRevoked {
-				failed = append(failed, "delete_calendar")
-			}
-		}
-		if err := g.revoke(ctx, conn.RefreshToken); err != nil {
-			failed = append(failed, "revoke")
-		}
+		failed, err := g.end(ctx, conn, stored)
 		g.Log.Info("calendar_disconnect", "user", obs.HashSub(sub), "google_failed", failed)
-		if err := g.Secrets.Delete(ctx, SecretRefreshToken); err != nil {
+		if err != nil {
 			return err
 		}
 	}
 	return g.writeCalendar(ctx, sub, stored, map[string]any{"connected": false, "calendar_id": nil, "events": []any{}, "last_error": nil})
+}
+
+// Forget is what deleting an account does with Google: access revoked there, Time blocks removed from it, and the
+// stored connection deleted, as Disconnect does, but with no record written, since the deletion removes them all.
+// Like Disconnect, it leaves the connection alone for anyone but the connected user.
+//
+// shortcut: today's single connection; the per-person connections replace what it reads and deletes.
+func (g *Google) Forget(ctx context.Context, sub string) error {
+	conn, err := g.connection(ctx)
+	if errors.Is(err, ErrNoSecret) || (err == nil && conn.Sub != sub) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	stored, err := g.calendarRecord(ctx, sub)
+	if err != nil {
+		return err
+	}
+	// Counted, never who: the account is going.
+	failed, err := g.end(ctx, conn, stored)
+	g.Log.Info("calendar_forget", "google_failed", failed)
+	return err
+}
+
+// end revokes a connection and deletes it, and says what failed at Google. Best effort there: access already removed, or
+// Time blocks already deleted, still ends it here.
+func (g *Google) end(ctx context.Context, conn connection, stored sync.Fields) ([]string, error) {
+	failed := []string{}
+	if id := fieldString(stored, "calendar_id"); id != "" {
+		svc, err := g.service(ctx, conn.RefreshToken)
+		if err == nil {
+			err = svc.Calendars.Delete(id).Context(ctx).Do()
+		}
+		if err != nil && !hasStatus(err, http.StatusNotFound, http.StatusGone) && errorCode(err) != ErrorRevoked {
+			failed = append(failed, "delete_calendar")
+		}
+	}
+	if err := g.revoke(ctx, conn.RefreshToken); err != nil {
+		failed = append(failed, "revoke")
+	}
+	return failed, g.Secrets.Delete(ctx, SecretRefreshToken)
 }
 
 // revoke asks Google to stop honouring a refresh token. Google answers 400 for one it already doesn't.

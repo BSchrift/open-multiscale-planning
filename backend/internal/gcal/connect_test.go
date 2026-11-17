@@ -331,4 +331,59 @@ func TestDisconnectStillDisconnectsWhenGoogleAccessIsAlreadyGone(t *testing.T) {
 	}
 }
 
+// Forget is what deleting an account does with Google: the same as disconnecting there, but it writes no record, since
+// the deletion removes every record the person has and refuses their devices' writes.
+func TestForgetRevokesAccessRemovesTimeBlocksAndDeletesTheConnection(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	stored := w.secrets.values[SecretRefreshToken]
+	before := w.calendarRecord(testSub)
+	if err := w.g.Forget(context.Background(), testSub); err != nil {
+		t.Fatal(err)
+	}
+	if w.timeBlocks() != "" {
+		t.Fatal("Time blocks is still in Google")
+	}
+	if w.refreshWorks(stored) {
+		t.Fatal("Google still honours the token")
+	}
+	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
+		t.Fatal("token kept")
+	}
+	if after := w.calendarRecord(testSub); after["connected"] != before["connected"] {
+		t.Fatalf("wrote the calendar record: %+v", after)
+	}
+}
+
+func TestForgetLeavesAnotherUsersConnectionAlone(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	stored := w.secrets.values[SecretRefreshToken]
+	if err := w.g.Forget(context.Background(), "someone-else"); err != nil {
+		t.Fatal(err)
+	}
+	if w.secrets.values[SecretRefreshToken] != stored || w.timeBlocks() == "" || !w.refreshWorks(stored) {
+		t.Fatal("another user's deletion reached the connection")
+	}
+}
+
+func TestForgetWithNoConnectionDoesNothing(t *testing.T) {
+	w := newWorld(t)
+	if err := w.g.Forget(context.Background(), testSub); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestForgetStillForgetsWhenGoogleAccessIsAlreadyGone(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.fake.Revoke()
+	if err := w.g.Forget(context.Background(), testSub); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
+		t.Fatal("token kept")
+	}
+}
+
 var _ api.Calendar = (*Google)(nil)

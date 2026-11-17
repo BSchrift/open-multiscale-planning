@@ -177,7 +177,7 @@ describe('scripts/deploy.sh', () => {
   it('builds every Lambda for arm64 Linux with no cgo, from cmd/api, cmd/calendar, cmd/retention and cmd/canary', () => {
     const s = sandbox();
     s.run();
-    for (const name of ['api', 'calendar', 'retention', 'canary']) {
+    for (const name of ['api', 'calendar', 'retention', 'canary', 'account']) {
       assert.match(s.log(), new RegExp(`go GOOS=linux GOARCH=arm64 CGO=0 build .*-o \\S*backend/dist/${name}/bootstrap \\./cmd/${name}`));
     }
   });

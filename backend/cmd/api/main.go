@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/account"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/gcal"
@@ -41,21 +43,28 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	store := &sync.Store{
-		DB: dynamodb.NewFromConfig(cfg), Table: os.Getenv("TABLE_NAME"),
-		Expiry: &sync.Expiry{Now: time.Now, Deleted: retention.Deleted},
-	}
+	db := dynamodb.NewFromConfig(cfg)
+	invoker := lambdasdk.NewFromConfig(cfg)
+	store := &sync.Store{DB: db, Table: os.Getenv("TABLE_NAME"), Expiry: &sync.Expiry{Now: time.Now, Deleted: retention.Deleted}}
+	logger := obs.NewLogger(os.Stdout)
 	server := &api.Server{
 		Sync:     store,
-		Calendar: gcal.FromEnvironment(cfg, store.Expiry, startWorker(lambdasdk.NewFromConfig(cfg), os.Getenv("CALENDAR_FUNCTION_NAME"))),
-		Log:      obs.NewLogger(os.Stdout),
+		Calendar: gcal.FromEnvironment(cfg, store.Expiry, startWorker(invoker, os.Getenv("CALENDAR_FUNCTION_NAME"))),
+		Tokens:   account.TokensFromEnvironment(cfg),
+		Log:      logger,
 		Env:      os.Getenv("ENV_NAME"),
 		Now:      time.Now,
 	}
-	// Nil where the environment stores no files, so the routes say so.
+	accounts := &account.Service{
+		DB: db, Table: store.Table, Records: store, Identity: account.IdentityFromEnvironment(cfg),
+		Start: startJob(invoker, os.Getenv("ACCOUNT_FUNCTION_NAME")), Now: time.Now, Log: logger, Env: server.Env,
+	}
+	// Nil where the environment stores no files, so the routes say so, and there's nowhere to build an export.
 	if service := files.FromEnvironment(cfg, store, files.LimitsFor(env)); service != nil {
 		server.Files = service
+		accounts.Sign = service.SignURL
 	}
+	server.Account = accounts
 	lambda.Start(adapter(server.Handler()))
 }
 
@@ -66,6 +75,21 @@ func startWorker(client invoker, name string) func(context.Context) error {
 			FunctionName:   aws.String(name),
 			InvocationType: lambdatypes.InvocationTypeEvent,
 			Payload:        []byte(`{"trigger":"refresh"}`),
+		})
+		return err
+	}
+}
+
+// startJob runs an export or a deletion in the account function without waiting, since either can far outlast this
+// function's timeout.
+func startJob(client invoker, name string) func(context.Context, account.Job) error {
+	return func(ctx context.Context, job account.Job) error {
+		payload, err := json.Marshal(job)
+		if err != nil {
+			return err
+		}
+		_, err = client.Invoke(ctx, &lambdasdk.InvokeInput{
+			FunctionName: aws.String(name), InvocationType: lambdatypes.InvocationTypeEvent, Payload: payload,
 		})
 		return err
 	}
@@ -95,6 +119,9 @@ func adapter(next http.Handler) lambdaHandler {
 		ctx = api.WithRequestID(ctx, event.RequestContext.RequestID)
 		if authorizer := event.RequestContext.Authorizer; authorizer != nil && authorizer.JWT != nil {
 			ctx = api.WithSub(ctx, authorizer.JWT.Claims["sub"])
+			if at, ok := api.AuthTimeClaim(authorizer.JWT.Claims["auth_time"]); ok {
+				ctx = api.WithAuthTime(ctx, at)
+			}
 		}
 		req, err := http.NewRequestWithContext(ctx, event.RequestContext.HTTP.Method, target, bytes.NewReader(body))
 		if err != nil {

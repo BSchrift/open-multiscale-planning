@@ -150,20 +150,24 @@ describe('API', () => {
     return hit[1].Properties;
   };
 
-  it('has exactly the nine routes, the files ones whether or not the environment stores files', () => {
+  it('has exactly the thirteen routes, the files ones whether or not the environment stores files', () => {
     const keys = ofType('AWS::ApiGatewayV2::Route').map(([, r]) => r.Properties.RouteKey).sort();
     assert.deepEqual(keys, [
-      'GET /calendar/callback', 'GET /files/usage', 'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh',
-      'POST /files/download', 'POST /files/upload', 'POST /sync', 'POST /v1/logs',
+      'GET /account/export', 'GET /calendar/callback', 'GET /files/usage', 'POST /account/delete', 'POST /account/export', 'POST /account/status',
+      'POST /calendar/connect', 'POST /calendar/disconnect', 'POST /calendar/refresh', 'POST /files/download', 'POST /files/upload', 'POST /sync', 'POST /v1/logs',
     ]);
   });
 
-  it('protects every route with the JWT authorizer except the Google callback', () => {
-    for (const key of ['POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect', 'POST /v1/logs', 'POST /files/upload', 'POST /files/download', 'GET /files/usage']) {
+  it("protects every route with the JWT authorizer except the Google callback and a lapsed token's account status", () => {
+    for (const key of [
+      'POST /sync', 'POST /calendar/connect', 'POST /calendar/refresh', 'POST /calendar/disconnect', 'POST /v1/logs', 'POST /files/upload',
+      'POST /files/download', 'GET /files/usage', 'POST /account/export', 'GET /account/export', 'POST /account/delete',
+    ]) {
       assert.equal(route(key).AuthorizationType, 'JWT', key);
       assert.ok(route(key).AuthorizerId, key);
     }
-    assert.equal(route('GET /calendar/callback').AuthorizationType, 'NONE');
+    // The API checks a lapsed token's signature itself, against the pool's keys.
+    for (const key of ['GET /calendar/callback', 'POST /account/status']) assert.equal(route(key).AuthorizationType, 'NONE', key);
   });
 
   it('authorizer accepts the app and test clients, from this pool', () => {
@@ -204,9 +208,9 @@ describe('API', () => {
 });
 
 describe('Lambdas', () => {
-  it('are exactly four arm64 Go functions', () => {
+  it('are exactly five arm64 Go functions', () => {
     const fns = ofType('AWS::Lambda::Function');
-    assert.equal(fns.length, 4);
+    assert.equal(fns.length, 5);
     for (const [, f] of fns) {
       assert.deepEqual(f.Properties.Architectures, ['arm64']);
       assert.equal(f.Properties.Runtime, 'provided.al2023');
@@ -216,7 +220,7 @@ describe('Lambdas', () => {
 
   it('each has its own role', () => {
     const roles = new Set(ofType('AWS::Lambda::Function').map(([, f]) => f.Properties.Role['Fn::GetAtt'][0]));
-    assert.equal(roles.size, 4);
+    assert.equal(roles.size, 5);
   });
 
   it('get what they need through the environment', () => {
@@ -225,7 +229,11 @@ describe('Lambdas', () => {
     assert.equal(env.ENV_NAME, 'staging');
     assert.equal(env.SSM_PREFIX, '/multiscale/staging');
     // Exactly what the Go code reads: the metric namespace comes from ENV_NAME there, so it isn't passed twice.
-    assert.deepEqual(Object.keys(env).sort(), ['API_URL', 'CALENDAR_FUNCTION_NAME', 'ENV_NAME', 'SSM_PREFIX', 'TABLE_NAME']);
+    assert.deepEqual(Object.keys(env).sort(), [
+      'ACCOUNT_FUNCTION_NAME', 'API_URL', 'CALENDAR_FUNCTION_NAME', 'ENV_NAME', 'SSM_PREFIX', 'TABLE_NAME', 'USER_POOL_CLIENT_IDS', 'USER_POOL_ID',
+    ]);
+    // The app's client and the integration suite's, which a lapsed token may be from.
+    assert.equal(env.USER_POOL_CLIENT_IDS['Fn::Join'][1].length, 3);
     assert.ok(env.API_URL);
     assert.ok(env.CALENDAR_FUNCTION_NAME);
     const worker = all[logicalId('Calendar')].Properties.Environment.Variables;
@@ -235,6 +243,10 @@ describe('Lambdas', () => {
     const retention = all[logicalId('Retention')].Properties.Environment.Variables;
     assert.ok(retention.TABLE_NAME);
     assert.equal(retention.ENV_NAME, 'staging');
+    const accounts = all[logicalId('Account')].Properties;
+    assert.deepEqual(Object.keys(accounts.Environment.Variables).sort(), ['ENV_NAME', 'SSM_PREFIX', 'TABLE_NAME', 'USER_POOL_ID']);
+    // Lambda's most: an export of a five-year history with its photos takes a while.
+    assert.equal(accounts.Timeout, 900);
   });
 });
 
@@ -252,7 +264,8 @@ describe('table', () => {
         // The old image, for the sequence number of what TTL removed.
         StreamSpecification: { StreamViewType: 'OLD_IMAGE' },
         TimeToLiveSpecification: { AttributeName: 'expires_at', Enabled: true },
-        PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+        // docs/retention.md and the privacy policy say a deleted account stays in backups for 35 days.
+        PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true, RecoveryPeriodInDays: 35 },
         DeletionProtectionEnabled: true,
       },
       DeletionPolicy: 'Retain',
@@ -303,8 +316,8 @@ describe('retention', () => {
     });
     const prod = Template.fromStack(build('prod'));
     const prodSchedules = Object.values(prod.toJSON().Resources as Record<string, Resource>).filter((r) => r.Type === 'AWS::Scheduler::Schedule');
-    // The worker's and the canary's.
-    assert.deepEqual(prodSchedules.map((r) => r.Properties.ScheduleExpression).sort(), ['rate(30 minutes)', 'rate(5 minutes)']);
+    // The worker's, the canary's and the account function's.
+    assert.deepEqual(prodSchedules.map((r) => r.Properties.ScheduleExpression).sort(), ['rate(30 minutes)', 'rate(5 minutes)', 'rate(5 minutes)']);
     assert.ok(mapping(prod));
   });
 
@@ -329,7 +342,9 @@ describe('least privilege', () => {
     it(`${fn} has only the data actions a sync transaction uses, on this table`, () => {
       const isStream = (a: string) => /Stream|Shard|GetRecords/.test(a);
       const dynamo = policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('dynamodb:') && !isStream(a)));
-      assert.deepEqual(dynamo.flatMap((s) => s.Action).filter((a: string) => !isStream(a)).sort(), data);
+      // The API also reads single items: an account's deletion mark and its export.
+      const expected = fn === 'Api' ? [...data, 'dynamodb:GetItem'].sort() : data;
+      assert.deepEqual(dynamo.flatMap((s) => s.Action).filter((a: string) => !isStream(a)).sort(), expected);
       for (const s of dynamo) assert.notEqual(s.Resource, '*');
     });
 
@@ -380,6 +395,34 @@ describe('least privilege', () => {
     assert.ok(!actions('Api').includes('dynamodb:GetRecords'));
   });
 
+  it('Account has no wildcard actions or resources, and works only on this table, pool and Google connection', () => {
+    for (const s of policyFor('Account')) {
+      for (const a of s.Action) assert.ok(!a.endsWith(':*') && a !== '*', a);
+      assert.notEqual(s.Resource, '*');
+    }
+    const dynamo = policyFor('Account').filter((s) => s.Action.some((a: string) => a.startsWith('dynamodb:')));
+    assert.deepEqual(dynamo.flatMap((s) => s.Action).sort(), [
+      'dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem',
+    ]);
+    for (const s of dynamo) assert.doesNotMatch(JSON.stringify(s.Resource), /index/);
+    const get = policyFor('Account').find((s) => s.Action.includes('ssm:GetParameter'))!;
+    const names = [get.Resource].flat().map((r: unknown) => JSON.stringify(r).match(/google\/([a-z-]+)"/)?.[1]);
+    assert.deepEqual(names.sort(), ['client-id', 'client-secret', 'refresh-token']);
+    const remove = policyFor('Account').filter((s) => s.Action.includes('ssm:DeleteParameter'));
+    assert.equal(remove.length, 1);
+    assert.match(JSON.stringify(remove[0].Resource), /google\/refresh-token"/);
+    assert.ok(!actions('Account').includes('ssm:PutParameter'));
+    const cognito = policyFor('Account').filter((s) => s.Action.some((a: string) => a.startsWith('cognito-idp:')));
+    assert.deepEqual(cognito.flatMap((s) => s.Action).sort(), ['cognito-idp:AdminDeleteUser', 'cognito-idp:ListUsers']);
+    for (const s of cognito) assert.match(JSON.stringify(s.Resource), /UserPool/);
+  });
+
+  it('lets the API find a sign-in but never delete one', () => {
+    const cognito = policyFor('Api').filter((s) => s.Action.some((a: string) => a.startsWith('cognito-idp:')));
+    assert.deepEqual(cognito.flatMap((s) => s.Action), ['cognito-idp:ListUsers']);
+    for (const fn of ['Calendar', 'Retention']) assert.ok(!actions(fn).some((a) => a.startsWith('cognito-idp:')), fn);
+  });
+
   it('only the API can invoke the worker', () => {
     assert.ok(actions('Api').includes('lambda:InvokeFunction'));
     assert.ok(!actions('Calendar').includes('lambda:InvokeFunction'));
@@ -387,7 +430,7 @@ describe('least privilege', () => {
 });
 
 describe('the backend canary', () => {
-  const functions = ['Api', 'Calendar', 'Retention'];
+  const functions = ['Api', 'Calendar', 'Retention', 'Account'];
   // Staging's: its test load goes through the API, so a throttle there isn't a release's doing. Prod adds DynamoThrottles.
   const releaseAlarms = ['Api5xxRate', 'ApiLatency', 'LambdaErrors', 'CalendarFailures', 'RetentionBehind', 'CanaryFailures'];
   const prodReleaseAlarms = [...releaseAlarms, 'DynamoThrottles'];
@@ -408,7 +451,7 @@ describe('the backend canary', () => {
     const [, integration] = ofType('AWS::ApiGatewayV2::Integration')[0];
     assert.deepEqual(integration.Properties.IntegrationUri, { Ref: aliasOf('Api') });
     for (const [id, schedule] of ofType('AWS::Scheduler::Schedule').filter(([id]) => !id.startsWith('CanarySchedule'))) {
-      assert.ok([aliasOf('Calendar'), aliasOf('Retention')].includes(schedule.Properties.Target.Arn.Ref), `${id}: ${JSON.stringify(schedule.Properties.Target)}`);
+      assert.ok([aliasOf('Calendar'), aliasOf('Retention'), aliasOf('Account')].includes(schedule.Properties.Target.Arn.Ref), `${id}: ${JSON.stringify(schedule.Properties.Target)}`);
     }
     const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m)).sort();
     assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention')].sort());
@@ -416,8 +459,10 @@ describe('the backend canary', () => {
     // By ARN, not the alias resource, which would make a loop through the alias's deployment group (cycles.test.ts).
     const calendarLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] };
     assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, calendarLive);
+    const accountLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Account'), 'Arn'] }, ':live']] };
+    assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.ACCOUNT_FUNCTION_NAME, accountLive);
     const invoke = policyFor('Api').filter((s) => s.Action.includes('lambda:InvokeFunction'));
-    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [calendarLive]);
+    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [calendarLive, accountLive]);
   });
 
   it('keeps the stream mappings where they are, so they move to the alias in place rather than start over', () => {
@@ -429,7 +474,7 @@ describe('the backend canary', () => {
 
   it('shifts each alias with CodeDeploy, and any release alarm rolls it back', () => {
     const found = groups(t);
-    assert.equal(found.length, 3);
+    assert.equal(found.length, 4);
     const alarmIds = (group: Resource) => group.Properties.AlarmConfiguration.Alarms.map((a: any) => a.Name.Ref.replace(/[0-9A-F]{8}$/, '')).sort();
     for (const group of found) {
       assert.equal(group.Properties.AlarmConfiguration.Enabled, true);
@@ -563,7 +608,7 @@ describe('the backend canary', () => {
       .map(([, r]) => r.Properties.PolicyDocument));
     // The same with another build of the API, as a release has.
     const built = mkdtempSync(join(tmpdir(), 'dist-'));
-    for (const name of ['api', 'calendar', 'retention', 'canary']) {
+    for (const name of ['api', 'calendar', 'retention', 'canary', 'account']) {
       mkdirSync(join(built, name));
       writeFileSync(join(built, name, 'bootstrap'), `${name} as released`);
     }
@@ -613,16 +658,16 @@ describe('the backend canary', () => {
 });
 
 describe('observability', () => {
-  it('sets 30-day retention on all five log groups, and every function uses its own', () => {
+  it('sets 30-day retention on all six log groups, and every function uses its own', () => {
     const groups = ofType('AWS::Logs::LogGroup');
-    assert.equal(groups.length, 5);
+    assert.equal(groups.length, 6);
     for (const [, g] of groups) assert.equal(g.Properties.RetentionInDays, 30);
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly ten alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly eleven alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 10);
+    assert.equal(alarms.length, 11);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -643,7 +688,15 @@ describe('observability', () => {
 
   it('Lambda errors alarm covers every function', () => {
     const body = JSON.stringify(alarm('LambdaErrors').Metrics);
-    for (const fn of ['Api', 'Calendar', 'Retention']) assert.ok(body.includes(logicalId(fn)), fn);
+    for (const fn of ['Api', 'Calendar', 'Retention', 'Account']) assert.ok(body.includes(logicalId(fn)), fn);
+  });
+
+  it("alarms on a deletion failing three runs in a row, without holding back a release", () => {
+    const a = alarm('AccountDeletionFailing');
+    assert.equal(a.MetricName, 'AccountDeletionFailures');
+    assert.equal(a.EvaluationPeriods, 3);
+    const [[id]] = ofType('AWS::CloudWatch::Alarm').filter(([id]) => id.startsWith('AccountDeletionFailing'));
+    assert.ok(!JSON.stringify(ofType('AWS::CodeDeploy::DeploymentGroup')).includes(id));
   });
 
   it("throttle alarm counts only the API's own operations, not the cleanup's scan and deletes", () => {
@@ -784,7 +837,7 @@ describe('Go binaries', () => {
 
   const dist = (files: string[]) => {
     const dir = mkdtempSync(join(tmpdir(), 'dist-'));
-    for (const name of ['api', 'calendar', 'retention', 'canary']) {
+    for (const name of ['api', 'calendar', 'retention', 'canary', 'account']) {
       mkdirSync(join(dir, name));
       for (const file of files) writeFileSync(join(dir, name, file), name);
     }
@@ -1019,8 +1072,11 @@ describe('attachments', () => {
     assert.equal(b.DeletionPolicy, 'Retain');
   });
 
-  it('has one lifecycle rule, aborting uploads left unfinished for a day, and no expiry or move to another class', () => {
-    assert.deepEqual(zr[bucket].Properties.LifecycleConfiguration.Rules, [{ AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }, Status: 'Enabled' }]);
+  it('aborts uploads left unfinished for a day, expires exports after a day, and never expires or moves a file', () => {
+    assert.deepEqual(zr[bucket].Properties.LifecycleConfiguration.Rules, [
+      { AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }, Status: 'Enabled' },
+      { ExpirationInDays: 1, Prefix: 'exports/', Status: 'Enabled' },
+    ]);
   });
 
   it('lets only the files distribution read the bucket, through origin access control, and refuses plain HTTP', () => {
@@ -1134,7 +1190,7 @@ describe('attachments', () => {
   it('gives no other role any access to the files bucket', () => {
     const resources = resourcesOf(withFiles('staging', true, '333333333333'));
     const files = idOf(resources, 'AWS::S3::Bucket', 'Files');
-    const allowed = new Set([roleOf(resources, 'Api'), roleOf(resources, 'Retention')]);
+    const allowed = new Set([roleOf(resources, 'Api'), roleOf(resources, 'Retention'), roleOf(resources, 'Account')]);
     const naming = Object.values(resources)
       .filter((r) => r.Type === 'AWS::IAM::Policy' && JSON.stringify(r.Properties.PolicyDocument).includes(`"${files}"`))
       .flatMap((r) => r.Properties.Roles.map((x: any) => x.Ref));
@@ -1142,6 +1198,23 @@ describe('attachments', () => {
     for (const r of Object.values(resources).filter((r) => r.Type === 'AWS::IAM::Role')) {
       assert.doesNotMatch(JSON.stringify(r.Properties.Policies ?? []), new RegExp(`"${files}"`));
     }
+  });
+
+  it("lets the account function reach only people's own prefixes: read files, put exports, list and delete both", () => {
+    const resources = resourcesOf(withFiles('staging', true, '333333333333'));
+    const files = idOf(resources, 'AWS::S3::Bucket', 'Files');
+    const role = roleOf(resources, 'Account');
+    const statements = Object.values(resources)
+      .filter((r) => r.Type === 'AWS::IAM::Policy' && r.Properties.Roles.some((x: any) => x.Ref === role))
+      .flatMap((r) => r.Properties.PolicyDocument.Statement as any[])
+      .filter((st) => JSON.stringify(st.Resource).includes(`"${files}"`));
+    const byAction = (action: string) => statements.filter((st) => [st.Action].flat().includes(action)).flatMap((st) => [st.Resource].flat().map((r: unknown) => JSON.stringify(r)));
+    const under = (prefix: string) => new RegExp(`"/${prefix.replace('*', '\\*')}"`);
+    assert.ok(byAction('s3:GetObject').every((r) => under('u/*').test(r)));
+    assert.ok(byAction('s3:PutObject').length > 0 && byAction('s3:PutObject').every((r) => under('exports/*').test(r)));
+    assert.deepEqual(byAction('s3:DeleteObject').map((r) => (under('u/*').test(r) ? 'u' : under('exports/*').test(r) ? 'exports' : r)), ['u', 'exports']);
+    const list = statements.find((st) => [st.Action].flat().includes('s3:ListBucket'));
+    assert.deepEqual(list.Condition, { StringLike: { 's3:prefix': ['u/*', 'exports/*'] } });
   });
 
   it("adds the files host and the bucket to the web app's connect-src, and blob: images", () => {
@@ -1154,7 +1227,7 @@ describe('attachments', () => {
 
   it('has none of it until the environment sets files', () => {
     for (const type of ['AWS::CloudFront::KeyGroup', 'AWS::CloudFront::PublicKey', 'AWS::CloudFront::Distribution', 'AWS::S3::Bucket']) t.resourceCountIs(type, 0);
-    for (const fn of ['Api', 'Retention']) assert.ok(!actions(fn).some((a) => a.startsWith('s3:')), fn);
+    for (const fn of ['Api', 'Retention', 'Account']) assert.ok(!actions(fn).some((a) => a.startsWith('s3:')), fn);
     const variables = ofType('AWS::Lambda::Function').flatMap(([, r]) => Object.keys(r.Properties.Environment?.Variables ?? {}));
     assert.ok(!variables.some((name) => name.startsWith('FILES_')));
     assert.ok(!Object.keys(t.toJSON().Outputs).some((name) => name.startsWith('Files')));

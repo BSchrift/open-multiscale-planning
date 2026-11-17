@@ -252,6 +252,7 @@ test('Goals asks for some when there are none, and the Inbox lists a big one who
   if (phone) await cards.getByRole('button', { name: 'Add to a project or One offs' }).click();
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('One offs');
   await page.keyboard.press('Enter');
+  await cards.getByRole('button', { name: 'Add to One offs', exact: true }).click();
   await expect(page.locator('.toast')).toContainText(/Added Inbox item \d+ to One offs\./);
   // Esc leaves Add to, then closes Process.
   await (phone ? cards.getByRole('button', { name: 'Back to planning' }).click() : page.keyboard.press('Escape').then(() => page.keyboard.press('Escape')));

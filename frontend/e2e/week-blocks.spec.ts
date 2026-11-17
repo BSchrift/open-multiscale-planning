@@ -138,10 +138,10 @@ test("phone: a task's block changes its length on a slider in the task's popup, 
   await expect(section).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Draft the summary, / })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(section.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
+  await expect(section.getByText('Tue Nov 3, 6pm to 6:55pm')).toBeVisible();
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(popup).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 6:45pm, Project\./ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 6:55pm, Project\./ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

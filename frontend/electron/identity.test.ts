@@ -31,8 +31,14 @@ describe('builderConfig', () => {
     expect(config.directories.output).toBe('release/staging');
   });
 
-  it('builds a Mac app with no signing identity, and publishes nothing', () => {
+  it('builds a Mac app with no signing identity', () => {
     expect(config.mac.identity).toBe('-');
+  });
+
+  // electron-updater reads Resources/app-update.yml before it downloads an app, and electron-builder writes that file
+  // only from a publish setting. electron-build.mjs passes publish never, so nothing is uploaded.
+  it("names the downloads host where the app updates from, so electron-builder writes the app-update.yml electron-updater reads", () => {
+    expect(builderConfig('staging', appIdentity('staging'), 'https://downloads.example.test').publish).toEqual({ provider: 'generic', url: 'https://downloads.example.test' });
     expect(config.publish).toBeNull();
   });
 

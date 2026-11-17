@@ -1355,6 +1355,30 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the tim
   });
 });
 
+describe("a task's block made shorter on the timeline", () => {
+  it('asks what about the rest under the timeline; Change the estimate takes it off the task, and the block under way never asks', async () => {
+    const t = await open(async (w) => {
+      await task(w, 't1', 'Write the report');
+      await block(w, 'b1', 't1', '16:00', '17:00');
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '13:30', '15:00', { started_at: at('13:30') });
+    });
+    const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+    el.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const ask = await screen.findByRole('group', { name: 'What about the other 15m?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Change the estimate' }));
+    expect(await screen.findByText('Write the report is now 2h 45m. Its estimate was 3h.')).toBeVisible();
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 't1')).toMatchObject({ estimate_min: 165 }));
+
+    const now = await screen.findByRole('button', { name: /^Paint the fence, 1:30pm to 3pm/ });
+    now.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    expect(await screen.findByText(/^Paint the fence is now 1:30pm to 2:45pm/)).toBeVisible();
+    expect(screen.queryByRole('group', { name: /^What about the other/ })).toBeNull();
+  });
+});
+
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const day = async (w: Writer) => {

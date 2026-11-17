@@ -145,6 +145,16 @@ describe('loadConfig', () => {
     assert.deepEqual(loadConfig('staging', withStaging(withField(good, 'auth.signInCallbackUrls', urls)), false).config.auth.signInCallbackUrls, urls);
   });
 
+  it('reads the second test user, whose email secondUser needs, since the deploy makes it', () => {
+    const second = { testUser: 'test@example.net', secondTestUser: 'second-test@example.net', capabilities: ['googleClient', 'secondUser'] };
+    assert.deepEqual(loadConfig('staging', withStaging({ ...good, integration: second }), true).config.integration, second);
+    for (const secondTestUser of [undefined, '', 'second-test']) {
+      throwsNaming(() => loadConfig('staging', withStaging({ ...good, integration: { ...second, secondTestUser } }), false), 'integration.secondTestUser');
+    }
+    // Without secondUser it isn't made, so it isn't needed.
+    assert.equal(loadConfig('staging', withStaging(good), true).config.integration?.secondTestUser, undefined);
+  });
+
   describe('files', () => {
     const rsa = (modulusLength = 2048) => generateKeyPairSync('rsa', { modulusLength }).publicKey.export({ type: 'spki', format: 'pem' }) as string;
     const key = rsa();

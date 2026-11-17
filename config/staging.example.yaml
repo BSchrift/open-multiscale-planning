@@ -16,4 +16,7 @@ integration:
   testUser: integration-test@example.com # its password lives in SSM at /multiscale/staging/test-user-password
   # For make test-history ENV=staging, a user of its own; its password lives in SSM at /multiscale/staging/history-user-password.
   # historyUser: history-test@example.com
+  # With secondUser in capabilities, the deploy creates this user, to prove one user can't read another's records; its
+  # password goes to SSM at /multiscale/staging/second-test-user-password.
+  # secondTestUser: second-test@example.com
   capabilities: [googleClient]

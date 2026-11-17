@@ -43,10 +43,10 @@ export function Menu(props: { label: string; entries: readonly MenuEntry[]; at: 
   const [root] = useState(() => document.querySelector<HTMLElement>('[data-layout]') ?? document.body);
 
   const items = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]') ?? [])];
-  const focusIn = (panel: HTMLElement | null, which: 'first' | 'last' | string) => {
+  /** Focuses the panel's first item, or the one with this id. */
+  const focusIn = (panel: HTMLElement | null, id?: string) => {
     const all = items(panel);
-    const el = which === 'first' ? all[0] : which === 'last' ? all.at(-1) : all.find((i) => i.dataset.id === which);
-    el?.focus({ preventScroll: true });
+    (id ? all.find((i) => i.dataset.id === id) : all[0])?.focus({ preventScroll: true });
   };
 
   // Kept inside the window: moved left or above where it would run off, and a submenu to the other side of its item.
@@ -69,9 +69,9 @@ export function Menu(props: { label: string; entries: readonly MenuEntry[]; at: 
 
   /** The item to take focus back to once its submenu closes. */
   const from = useRef<string | null>(null);
-  useEffect(() => focusIn(main.current, 'first'), []);
+  useEffect(() => focusIn(main.current), []);
   useEffect(() => {
-    if (open?.focus) focusIn(phone ? main.current : side.current, phone ? BACK : 'first');
+    if (open?.focus) focusIn(phone ? main.current : side.current, phone ? BACK : undefined);
     if (open || !from.current) return;
     focusIn(main.current, from.current);
     from.current = null;
@@ -101,13 +101,13 @@ export function Menu(props: { label: string; entries: readonly MenuEntry[]; at: 
   const onKey = (inSub: boolean) => (event: KeyboardEvent<HTMLDivElement>) => {
     const panel = event.currentTarget;
     const all = items(panel);
-    const at = all.indexOf(document.activeElement as HTMLElement);
+    const index = all.indexOf(document.activeElement as HTMLElement);
     const go = (i: number) => all[(i + all.length) % all.length]?.focus({ preventScroll: true });
     const current = (document.activeElement as HTMLElement | null)?.dataset.id;
     const entry = (inSub || (phone && parent) ? parent?.submenu ?? [] : entries).find((e): e is MenuChoice => e !== 'separator' && e.id === current);
     const keys: Record<string, () => void> = {
-      ArrowDown: () => go(at + 1),
-      ArrowUp: () => go(at < 0 ? -1 : at - 1),
+      ArrowDown: () => go(index + 1),
+      ArrowUp: () => go(index < 0 ? -1 : index - 1),
       Home: () => go(0),
       End: () => go(-1),
       ArrowRight: () => entry?.submenu && setOpen({ id: entry.id, focus: true }),

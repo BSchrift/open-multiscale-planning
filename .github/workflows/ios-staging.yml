@@ -1,0 +1,96 @@
+# The iPhone app against staging (docs/testing.md), every night and by hand: the signed-in tests that make test-ios
+# ENV=staging runs, on one of GitHub's Macs. The app is built for staging and signs in from Settings as staging's test
+# user, through the hosted sign-in page. It captures a task, and a second device, signed in through the API, sees the
+# task reach staging and then its deletion. The same tests also cut a sync off part way and check its work arrives once.
+# Nothing else runs them against a real backend: the release pipeline's suites run on Linux, and CI's iPhone job has no
+# Docker for the local stack, so it skips them.
+# It runs in the release environment, which takes only main and has no required reviewer, for staging's build config
+# and its test user. No signing secret is read here. A failed run emails whoever last changed this schedule.
+# By hand: gh workflow run ios-staging.yml
+name: iPhone against staging
+
+on:
+  schedule:
+    # Away from the pipeline's nightly run at 10:00 UTC, whose suites sign in as the same test user.
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ios-staging
+  cancel-in-progress: false
+
+jobs:
+  signed-in:
+    if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
+    # CI's iPhone job's Mac and Simulator, which scripts/test-ios.sh expects.
+    runs-on: macos-15
+    environment: release
+    # About 30 minutes: two builds, as with and without the extensions, and four tests against staging, each waiting
+    # up to 3 minutes for the test user's first sync.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 25
+      # From the lockfile, running no package's install script. Not cached: nothing another workflow wrote goes in.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: frontend
+
+      # Capacitor's and SQLCipher's frameworks come from GitHub's release downloads, which fail now and then, so they're
+      # resolved with retries first, into the DerivedData the build uses.
+      - name: Resolve Swift packages
+        run: |
+          for attempt in 1 2 3; do
+            xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -derivedDataPath ios/DerivedData && exit 0
+            sleep $((attempt * 20))
+          done
+          exit 1
+        working-directory: frontend
+
+      # Staging's addresses and sign-in client, from the build config the Mac release reads, and its test user, as
+      # frontend/scripts/test-target.mjs prints it. Both are kept out of this public log.
+      - name: Read staging's build config and test user
+        env:
+          MAC_BUILD_CONFIG: ${{ secrets.MAC_BUILD_CONFIG }}
+          STAGING_TEST_TARGET: ${{ secrets.STAGING_TEST_TARGET }}
+        run: |
+          missing=""
+          for name in MAC_BUILD_CONFIG STAGING_TEST_TARGET; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The release environment lacks$missing. See docs/releasing.md."
+            exit 1
+          fi
+          node frontend/scripts/mac-inbox.ts unpack-config "$RUNNER_TEMP/config"
+          # Each value on its own, since GitHub hides only a secret's whole text. A parse error would quote the secret,
+          # so it isn't printed.
+          node -e '
+            let t;
+            try { t = JSON.parse(process.env.STAGING_TEST_TARGET); } catch { t = {}; }
+            const { env, api_url: api, client_id: client, test_user: user } = t;
+            if (env !== "staging" || !/^https:\/\//.test(api ?? "") || !client || !user?.username || !user?.password) {
+              console.log("::error::STAGING_TEST_TARGET must be what ENV=staging node frontend/scripts/test-target.mjs prints. See docs/releasing.md.");
+              process.exit(1);
+            }
+            for (const value of [user.username, user.password, client, api, new URL(api).host]) console.log("::add-mask::" + value);
+          '
+          echo "MULTISCALE_CONFIG_DIR=$RUNNER_TEMP/config" >>"$GITHUB_ENV"
+
+      # No result bundle is kept: against a deployment it would hold what XCTest typed, the password included.
+      - name: Run the signed-in tests against staging
+        env:
+          ENV: staging
+          MULTISCALE_TARGET: ${{ secrets.STAGING_TEST_TARGET }}
+        run: scripts/test-ios.sh
+
+      - name: Delete the config
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/config"

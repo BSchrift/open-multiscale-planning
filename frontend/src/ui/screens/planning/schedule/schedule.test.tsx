@@ -5,6 +5,7 @@ import { localToInstant } from '../../../../core/dates';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { openPlanning } from '../testing';
+import { holdDown } from '../../../app/testing';
 import type { HarnessOptions } from '../../../app/testing';
 
 afterEach(cleanup);
@@ -362,7 +363,7 @@ describe('Schedule on desktop', () => {
     });
     const placed = await screen.findByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm/ });
     // 40px is an hour.
-    fireEvent.pointerDown(placed, { clientX: 100, clientY: 100, button: 0 });
+    holdDown(placed, { clientX: 100, clientY: 100 });
     fireEvent.pointerMove(window, { clientX: 100, clientY: 140 });
     fireEvent.pointerUp(window, { clientX: 100, clientY: 140 });
     await waitFor(async () => expect(await blocks(t, 'o1')).toEqual([[at('2026-11-03', 16), at('2026-11-03', 17, 30)]]));
@@ -501,6 +502,37 @@ describe('Schedule on desktop', () => {
   });
 });
 
+describe("a task's placed block made shorter in Schedule", () => {
+  const fence = async (w: Writer) => {
+    await picked(w);
+    await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 15), end: at('2026-11-03', 16, 30), tz: ZONE }, 'b1');
+  };
+
+  it('on desktop asks beside the list, and Change the estimate takes the rest off the task and the week', async () => {
+    const t = await open({ seed: fence });
+    const placed = await screen.findByRole('group', { name: /^Paint the fence, Tue Nov 3, 3pm to 4:30pm/ });
+    placed.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const ask = await screen.findByRole('group', { name: 'What about the other 15m?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Change the estimate' }));
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 'o1')).toMatchObject({ estimate_min: 75 }));
+    expect(await getRecord(t.db, 'week_pick', weekPickId(WEEK, 'o1'))).toMatchObject({ minutes: 75 });
+  });
+
+  it('on phone asks in a sheet, and closing it unanswered keeps the rest to schedule', async () => {
+    const t = await open({ layout: 'phone', seed: fence });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
+    const placed = await screen.findByRole('slider', { name: /^Paint the fence\./ });
+    placed.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const sheet = await screen.findByRole('dialog', { name: 'What about the other 15m?' });
+    expect(within(sheet).getByRole('button', { name: 'Split it' })).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'What about the other 15m?' })).toBeNull());
+    expect(await getRecord(t.db, 'task', 'o1')).toMatchObject({ estimate_min: 90 });
+  });
+});
+
 describe('Schedule on phone', () => {
   const phone = (options: Parameters<typeof open>[0] = {}) => open({ layout: 'phone', ...options });
 
@@ -632,7 +664,7 @@ describe('Schedule on phone', () => {
     expect(screen.getByRole('button', { name: 'Remove from calendar' })).toBeInTheDocument();
 
     // The drawn day is 17 hours over 816px, so 48px is an hour.
-    fireEvent.pointerDown(session(), { clientY: 300, button: 0 });
+    holdDown(session(), { clientY: 300 });
     fireEvent.pointerMove(window, { clientY: 348 });
     fireEvent.pointerUp(window, { clientY: 348 });
     const ask = await screen.findByRole('dialog', { name: 'Use this in future weeks too?' });
@@ -680,7 +712,7 @@ describe('Schedule on phone', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
     const placed = () => screen.getByRole('slider', { name: /^Paint the fence\./ });
     // The drawn day is 17 hours over 816px, so 48px is an hour.
-    fireEvent.pointerDown(placed(), { clientY: 300, button: 0 });
+    holdDown(placed(), { clientY: 300 });
     fireEvent.pointerMove(window, { clientY: 348 });
     fireEvent.pointerUp(window, { clientY: 348 });
     await waitFor(async () => expect(await blocks(t, 'o1')).toEqual([[at('2026-11-03', 9), at('2026-11-03', 10, 30)]]));
@@ -700,7 +732,7 @@ describe('Schedule on phone', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Move to Tue Nov 3' }));
     const handle = screen.getByRole('slider', { name: /^Time for Collect the sources/ });
-    fireEvent.pointerDown(handle, { clientY: 300, button: 0 });
+    holdDown(handle, { clientY: 300 });
     fireEvent.pointerMove(window, { clientY: 348 });
     fireEvent.pointerUp(window, { clientY: 348 });
     expect(screen.getByText('Tue Nov 3, 10:30am to 12:30pm (2h)')).toBeInTheDocument();

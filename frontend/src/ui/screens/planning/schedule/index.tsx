@@ -21,6 +21,8 @@ import { useApp, useMutation, useQuery } from '../../../app/store';
 import { isTaskBlock } from '../../../components/blocks/describe';
 import { KeepAsk } from '../../../components/editors/KeepAsk';
 import { useBothAsk } from '../../../components/blocks/BothAsk';
+import { shortened, SplitAsk } from '../../../components/editors/SplitAsk';
+import type { Shortened } from '../../../components/editors/SplitAsk';
 import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
 import { Popover } from '../../../components/Popover';
@@ -72,6 +74,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const [skipped, setSkipped] = useState<readonly string[]>([]);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
   const both = useBothAsk();
+  // A task's block made shorter asks what about the rest, until answered or another block is chosen.
+  const [split, setSplit] = useState<Shortened | null>(null);
   /** Phone: the day looked at, while it differs from the current block's. */
   const [look, setLook] = useState<{ key: string; date: LocalDate } | null>(null);
   const [listOpen, setListOpen] = useState(false);
@@ -146,6 +150,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     setSkipped(skipped.filter((id) => id !== r.id));
   };
   const selectBlock = (x: PlacedBlock) => {
+    if (split?.blockId !== x.id) setSplit(null);
     if (!phone && !s.rows.some((r) => r.id === rowId(x))) return;
     setSelected(rowId(x));
     setEditId(x.id);
@@ -224,6 +229,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     }
     const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
     setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
+    setSplit(shortened(x, slot, { task: isTaskBlock(x.kind), underWay: !!x.now, week, title: x.title, open: split }));
     return saved;
   };
   const moveTo = (o: { date: LocalDate; start: number }) => {
@@ -412,6 +418,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
         <div className="planleft stack">
           {keepAsk}
           {both.asking}
+          {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
           {none && (
             <div className="stack8">
               <h2 ref={noneRef} tabIndex={-1}>
@@ -442,7 +449,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                   {b && <div className="strong">{when}</div>}
                   {said}
                   {buttons('sm')}
-                  <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
+                  <p className="small quiet">Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time.</p>
                 </div>
               </section>
             )}
@@ -603,7 +610,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           </div>
           <PackedDay date={day} ctx={ctx} />
           <h3 className="schday">{dayName(day)}</h3>
-          <p className="small quiet">Drag the block anywhere, or tap a suggested time. Drag its bottom edge to change the time.</p>
+          <p className="small quiet">Hold the block, then drag it anywhere, or tap a suggested time. Hold its bottom edge and drag to change the time.</p>
           <BringIntoView watch={`${curKey}|${day}`}>
             <DragDay
               date={day}
@@ -775,6 +782,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           {keepAsk}
         </Sheet>
       )}
+      {phone && split && <SplitAsk ask={split} sheet onDone={() => setSplit(null)} />}
     </>
   );
 }

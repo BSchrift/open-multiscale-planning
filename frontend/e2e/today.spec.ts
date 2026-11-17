@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, overNowLine, saved, settled, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -359,13 +359,13 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   // To schedule, above the day, reads the week on its own, and changes height once it has. Measured before that, the
   // block had moved down 80px by the time the mouse pressed, which then missed it.
   await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  // So are the other screens' styles, which load after Today and can move the day a few pixels.
+  await settled(page);
   const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
   const x = box.x + box.width / 3;
-  await page.mouse.move(x, box.y + 4);
-  await page.mouse.down();
-  if (phone) await page.waitForTimeout(500);
+  await holdMouse(page, { x, y: box.y + 4 });
   // The first zoom draws 30px an hour, so 15px down is half an hour later.
   await page.mouse.move(x, box.y + 12, { steps: 3 });
   await page.mouse.move(x, box.y + 19, { steps: 3 });
@@ -457,8 +457,7 @@ test('on desktop, a 15-minute block moves from wherever it is pressed, even righ
   // 2px from its bottom, where a handle to change its length used to take most of a block this short.
   const x = box.x + box.width / 3;
   const y = box.y + box.height - 2;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
+  await holdMouse(page, { x, y });
   // 15px is half an hour: start and end both move.
   await page.mouse.move(x, y + 8, { steps: 3 });
   await page.mouse.move(x, y + 15, { steps: 3 });
@@ -512,8 +511,7 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   if (phone) await touchDrag(page, card, to);
   else {
     const c = (await card.boundingBox())!;
-    await page.mouse.move(c.x + 20, c.y + 10);
-    await page.mouse.down();
+    await holdMouse(page, { x: c.x + 20, y: c.y + 10 });
     await page.mouse.move(to.x, to.y, { steps: 8 });
     await page.mouse.up();
   }

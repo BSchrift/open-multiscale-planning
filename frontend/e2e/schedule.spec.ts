@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, startPlanningThenUndo } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -50,8 +50,7 @@ test('desktop: drag the task to a time, place it, then place the rest with Undo'
   // One column right and 40px down: a day later and an hour later, at 40px an hour.
   const box = (await draft.boundingBox())!;
   const column = (await page.locator('.colbody').first().boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + 8);
-  await page.mouse.down();
+  await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
   await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 30, { steps: 4 });
   await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 48, { steps: 4 });
   await page.mouse.up();
@@ -101,8 +100,7 @@ test('desktop: the draft floats over a placed block, which stays put, and Place 
   // One column right and 280px up: a day later and seven hours earlier, at 40px an hour.
   const box = (await draft.boundingBox())!;
   const column = (await page.locator('.colbody').first().boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + 8);
-  await page.mouse.down();
+  await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
   await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y - 140, { steps: 4 });
   await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y - 272, { steps: 4 });
   await page.mouse.up();
@@ -137,8 +135,7 @@ test('phone: the draft floats beside a placed block, which stays put, and Place 
 
   // Half an hour up, at 48px an hour.
   const box = (await handle.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + 12);
-  await page.mouse.down();
+  await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 12 });
   await page.mouse.move(box.x + box.width / 2, box.y, { steps: 3 });
   await page.mouse.move(box.x + box.width / 2, box.y - 12, { steps: 3 });
   await page.mouse.up();

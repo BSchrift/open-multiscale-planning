@@ -77,6 +77,11 @@ export interface Config {
    * one the API signs with. Without it the environment has no attachments.
    */
   files?: { keys: Record<string, string>; signWith: string };
+  /**
+   * The integration suite's test users and what the environment offers it. With secondUser in capabilities, the deploy
+   * makes the user secondTestUser names, its password the SSM SecureString /multiscale/<env>/second-test-user-password.
+   */
+  integration?: { secondTestUser?: string; capabilities?: string[] };
 }
 
 // Holds the committed examples, and is the config folder unless MULTISCALE_CONFIG_DIR names another.
@@ -140,6 +145,9 @@ function filesProblems(files: any): string[] {
   return problems;
 }
 
+/** Whether the environment's deploy makes a second test user, for the integration suite's capability of that name. */
+export const secondUser = (config: Config) => Array.isArray(config.integration?.capabilities) && config.integration.capabilities.includes('secondUser');
+
 function done<T>(path: string, problems: string[], value: T): T {
   if (problems.length > 0) throw new Error(`${path}: ${problems.join('; ')}`);
   return value;
@@ -197,6 +205,7 @@ export function loadConfig(envName: EnvName, dir: string, deploying: boolean): {
     problems.push('auth.signInCallbackUrls must list https, custom scheme or localhost URLs');
   }
   if (c.files != null) problems.push(...filesProblems(c.files));
+  if (secondUser(c) && !matches(email, c.integration.secondTestUser)) problems.push('integration.secondTestUser must be an email address, since secondUser is in integration.capabilities');
 
   let control: ControlConfig | undefined;
   const zone = c.dns?.zone;

@@ -309,6 +309,21 @@ describe('Process on desktop', () => {
     expect(within(card()).queryByRole('button', { name: /^Add to (?!this week)/ })).toBeNull();
   });
 
+  it('closes Process on a click outside the card, as Exit does, keeping what was saved on it', async () => {
+    const close = vi.fn();
+    const t = await open({ close });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    slide(90);
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.estimate_min).toBe(90));
+    // A press on the card, or one that starts there and ends outside, leaves it open.
+    fireEvent.mouseDown(title());
+    fireEvent.mouseDown(card());
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.mouseDown(card().parentElement!);
+    expect(close).toHaveBeenCalledOnce();
+    expect((await task(t.db, 'i1'))?.estimate_min).toBe(90);
+  });
+
   it('closes the list on Esc, then clears what was typed, then leaves the field, and only then Process', async () => {
     const close = vi.fn();
     await open({ close });

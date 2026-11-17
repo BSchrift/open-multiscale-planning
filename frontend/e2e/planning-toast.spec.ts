@@ -26,6 +26,7 @@ test('phone: a press that puts a toast away still presses the button under it', 
   await page.getByRole('button', { name: 'Process 1 item' }).click();
   await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: /^Add to a project or One offs/ }).click();
   await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: 'Write the report' }).click();
+  await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Add to Write the report', exact: true }).click();
   // The toast stays while the pointer rests on it, and keys don't put it away, so it's still there in Schedule.
   const toast = page.locator('.toast');
   await toast.hover();

@@ -3,7 +3,8 @@
 // never fails a run on a timing. Reads the raw samples e2e/perf writes, and writes one summary per build, which the main
 // and nightly runs keep on the perf-data branch.
 //   node scripts/perf-report.ts <raw folder> [--summary <folder>]
-//     [--base <build> --head <build> [--again <second round's raw folder>] [--notes <file>] [--markdown <file>]]
+//     [--base <build> --head <build> [--again <second round's raw folder>] [--notes <file>] [--markdown <file>]
+//      [--flagged <file>]]
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -143,6 +144,9 @@ function main(argv: string[]) {
     console.log(`\n${text}`);
     const file = option('--markdown');
     if (file) writeFileSync(file, `${text}\n`);
+    // An A/A run's false alarms, for the nightly to keep: each KPI called slower or faster, as "kpi platform scenario".
+    const flagged = option('--flagged');
+    if (flagged) writeFileSync(flagged, found.filter((c) => c.verdict !== 'unchanged').map((c) => `${c.kpi} ${c.platform} ${c.scenario}\n`).join(''));
   }
   return 0;
 }

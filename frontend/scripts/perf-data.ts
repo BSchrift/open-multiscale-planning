@@ -2,10 +2,13 @@
 // percentiles, and baseline.json, each KPI's median over main's last 10 runs, which trends and the nightly comparisons
 // read. Only the main and nightly workflows write it. The CloudWatch dashboard's numbers come from these files too.
 //   node scripts/perf-data.ts add <perf-data folder> <summary.json>... --kind main --commit <sha> --runner <runner>
+//     [--flagged <file of the A/A's flagged KPIs>]
+//   node scripts/perf-data.ts regressions <perf-data folder> <summary.json>...
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { kpi } from '../../config/perf.ts';
 import type { Row } from './perf-report.ts';
 
 export type Kind = 'main' | 'nightly' | 'ios' | 'mac' | 'staging' | 'aa';
@@ -17,6 +20,8 @@ export interface Run {
   /** When it ran, as an ISO instant. */
   at: string;
   rows: Row[];
+  /** An A/A run's KPIs that its comparison called slower or faster, as "kpi platform scenario": false alarms. */
+  flagged?: string[];
 }
 
 /** How many of main's runs a baseline is the median of. */
@@ -76,8 +81,28 @@ export function baseline(runs: readonly Run[]): (Row & { runs: number })[] {
   }));
 }
 
+/**
+ * The nightly's KPIs whose p95 is more than 10% and the KPI's floor over main's baseline. Without the samples there's no
+ * test that they differ, so this is noisier than the PR check's rule; it only emails.
+ */
+export function regressions(base: readonly Row[], rows: readonly Row[]): string[] {
+  return rows.flatMap((r) => {
+    const k = kpi(r.kpi);
+    const b = base.find((x) => x.kpi === r.kpi && x.platform === r.platform && x.scenario === r.scenario);
+    if (!k || k.trendOnly || !b || !(r.p95 > b.p95 * 1.1 && r.p95 - b.p95 > (k.floorMs ?? 0))) return [];
+    return [`${r.kpi} on ${r.platform}, ${r.scenario}: p95 ${r.p95} ${k.unit} against a baseline of ${b.p95} ${k.unit} (+${Math.round((r.p95 / b.p95 - 1) * 100)}%)`];
+  });
+}
+
 function main(argv: string[]) {
   const [command, dir, ...rest] = argv;
+  if (command === 'regressions' && dir) {
+    // node scripts/perf-data.ts regressions <perf-data folder> <summary.json>...: exits 1 if there are any.
+    const base = JSON.parse(readFileSync(join(dir, 'baseline.json'), 'utf8')) as Row[];
+    const found = regressions(base, rest.flatMap((file) => JSON.parse(readFileSync(file, 'utf8')) as Row[]));
+    console.log(found.length ? `Slower than main's baseline:\n${found.join('\n')}` : "Nothing slower than main's baseline.");
+    return found.length ? 1 : 0;
+  }
   const option = (name: string) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined);
   const summaries = rest.filter((arg, i) => !arg.startsWith('--') && !rest[i - 1]?.startsWith('--'));
   if (command !== 'add' || !dir || summaries.length === 0 || !option('--kind') || !option('--commit')) {
@@ -85,7 +110,9 @@ function main(argv: string[]) {
   }
   // One run, from the summaries of the jobs it was split into.
   const rows = summaries.flatMap((file) => JSON.parse(readFileSync(file, 'utf8')) as Row[]);
-  const path = addRun(dir, { kind: option('--kind') as Kind, commit: option('--commit')!, runner: option('--runner') ?? 'unknown', at: new Date().toISOString(), rows });
+  const flaggedFile = option('--flagged');
+  const flagged = flaggedFile ? readFileSync(flaggedFile, 'utf8').split('\n').filter(Boolean) : undefined;
+  const path = addRun(dir, { kind: option('--kind') as Kind, commit: option('--commit')!, runner: option('--runner') ?? 'unknown', at: new Date().toISOString(), rows, ...(flagged ? { flagged } : {}) });
   console.log(`Added ${path}, ${rows.length} rows.`);
   return 0;
 }

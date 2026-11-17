@@ -59,6 +59,73 @@ const addTo = async (name: string) => {
   await userEvent.type(picker(), `${name}{Enter}{Enter}`);
 };
 
+// Hold to create makes an Inbox item with its block already on the calendar.
+const withBlock = async (w: Writer) => {
+  await seed(w);
+  await w.create('task', { kind: 'inbox', title: 'Book dentist', estimate_min: 60 }, 'i0');
+  await w.create('time_block', { task_id: 'i0', start: '2026-11-02T23:45:00Z', end: '2026-11-03T00:45:00Z', tz: 'America/Chicago' }, 'b0');
+};
+const heldBlock = (db: Parameters<typeof getRecord>[0]) => getRecord(db, 'time_block', 'b0');
+
+describe.each(['desktop', 'phone'] as const)('an Inbox item with a time block, on %s', (layout) => {
+  it('says on its card when it is on the calendar, and that it keeps that time wherever it goes', async () => {
+    await open({ layout, seed: withBlock });
+    await screen.findByRole('heading', { name: 'Book dentist', level: 1 });
+    const when = within(card()).getByText('On the calendar today, 5:45pm to 6:45pm. It keeps this time wherever it goes.');
+    expect(when.closest('.pxwhen')!.querySelector('svg[data-icon="calendar"]')).not.toBeNull();
+  });
+});
+
+describe('Process on desktop, an Inbox item with a time block', () => {
+  it('filing it keeps its block, which then takes the look of what it became, and the toast says so', async () => {
+    const t = await open({ seed: withBlock });
+    await screen.findByRole('heading', { name: 'Book dentist' });
+    await addTo('One offs');
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(toast()).toHaveTextContent('Added Book dentist to One offs. Its block at 5:45pm stays.');
+    expect(await task(t.db, 'i0')).toMatchObject({ kind: 'one_off' });
+    expect((await heldBlock(t.db))?.cancelled ?? false).toBe(false);
+    await addTo('Paint the fence');
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence.');
+  });
+
+  it('Delete takes its block off too, and says so, and Undo puts both back', async () => {
+    const t = await open({ seed: withBlock });
+    await screen.findByRole('heading', { name: 'Book dentist' });
+    await userEvent.click(btn('Delete'));
+    await userEvent.click(btn('Yes, delete'));
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(toast()).toHaveTextContent('Deleted Book dentist and its block at 5:45pm.');
+    expect(await heldBlock(t.db)).toMatchObject({ cancelled: true });
+    await userEvent.click(toastUndo());
+    await waitFor(async () => expect((await heldBlock(t.db))?.cancelled).toBeFalsy());
+    expect((await task(t.db, 'i0'))?.deleted_at).toBeNull();
+  });
+
+  it('Done takes its block off, and says so', async () => {
+    const t = await open({ seed: withBlock });
+    await screen.findByRole('heading', { name: 'Book dentist' });
+    await userEvent.click(btn('Done'));
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(toast()).toHaveTextContent('Marked Book dentist done. Its block at 5:45pm came off the calendar.');
+    expect(await heldBlock(t.db)).toMatchObject({ cancelled: true });
+  });
+
+  it('making it a project of its own takes its block off, and says so; kept as the first task, the block stays', async () => {
+    const t = await open({ seed: withBlock });
+    await screen.findByRole('heading', { name: 'Book dentist' });
+    await userEvent.type(picker(), 'Book dentist{Enter}');
+    await userEvent.click(within(form()).getByRole('checkbox', { name: 'Keep "Book dentist" as its first task' }));
+    await userEvent.click(within(form()).getByRole('button', { name: 'Add project' }));
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(toast()).toHaveTextContent('Book dentist is now a project. Its block at 5:45pm came off the calendar.');
+    expect(await heldBlock(t.db)).toMatchObject({ cancelled: true });
+    await userEvent.click(toastUndo());
+    await screen.findByRole('heading', { name: 'Book dentist' });
+    await waitFor(async () => expect((await heldBlock(t.db))?.cancelled).toBeFalsy());
+  });
+});
+
 describe('Process on desktop', () => {
   it('shows one item at a time, with focus in Add to, which starts empty, and a group to make a home', async () => {
     await open();

@@ -28,6 +28,7 @@ import {
 } from './code-signature.ts';
 import type { Signature, Trust } from './code-signature.ts';
 import { FuseV1Options } from '@electron/fuses';
+import { parse as parseYaml } from 'yaml';
 import { appIdentity, builderConfig } from '../electron/identity.ts';
 import type { AppIdentity } from '../electron/identity.ts';
 
@@ -379,7 +380,8 @@ function packageProblems(packed: Buffer, ours: Buffer, path: string, version?: s
 function sealProblems(app: string, codeResources: unknown): string[] {
   const files = (codeResources as { files2?: Record<string, { hash2?: Buffer }> }).files2 ?? {};
   const resources = join(app, 'Contents/Resources');
-  const sealed = [ASAR, ...walk(join(resources, 'app.asar.unpacked')).filter((f) => !f.endsWith('.node')).map((f) => `app.asar.unpacked/${f}`)];
+  const updateConfig = existsSync(join(app, UPDATE_CONFIG)) ? ['app-update.yml'] : [];
+  const sealed = [ASAR, ...updateConfig, ...walk(join(resources, 'app.asar.unpacked')).filter((f) => !f.endsWith('.node')).map((f) => `app.asar.unpacked/${f}`)];
   return sealed
     .filter((file) => !files[`Resources/${file}`]?.hash2?.equals(createHash('sha256').update(plainFile(join(resources, file))).digest()))
     .map((file) => `The app's code signature doesn't seal Resources/${file} as it is`);
@@ -443,12 +445,36 @@ export interface AppExpectations {
   env: Env;
   version: string;
   build: number;
+  /** The downloads host the app updates from, which its app-update.yml names, when the environment has one. */
+  downloadsUrl?: string;
+}
+
+/**
+ * electron-updater reads this before it downloads an update, for the folder it downloads into, and electron-builder
+ * writes it from identity.ts's publish setting. An app without it can never update itself.
+ */
+const UPDATE_CONFIG = 'Contents/Resources/app-update.yml';
+
+/** What's wrong with the app's app-update.yml: a generic feed at the downloads host, and a folder for downloads. */
+function updateConfigProblems(data: Buffer, downloadsUrl: string | undefined): string[] {
+  if (!downloadsUrl) return [`The app holds ${UPDATE_CONFIG}, though its environment has no downloads host`];
+  let config: unknown;
+  try {
+    config = parseYaml(data.toString('utf8'));
+  } catch {
+    config = data.toString('utf8');
+  }
+  const c = config as Record<string, unknown> | null;
+  const ok =
+    !!c && typeof c === 'object' && Object.keys(c).sort().join() === 'provider,updaterCacheDirName,url' &&
+    c.provider === 'generic' && c.url === downloadsUrl && typeof c.updaterCacheDirName === 'string' && /^[\w.-]+$/.test(c.updaterCacheDirName);
+  return ok ? [] : [`${UPDATE_CONFIG} says ${canonical(config)}, not a generic feed at ${downloadsUrl} with a folder for its downloads`];
 }
 
 /** Where each of the app's files comes from in Electron's zip, or null for one of the app's own. */
 function upstreamPath(path: string, name: string): string | null {
   if (COPIED[path]) return COPIED[path]!;
-  if (/^Contents\/(Resources\/(app\.asar|icon\.icns)|CodeResources)$/.test(path) || /^Contents\/Resources\/app\.asar\.unpacked(\/|$)/.test(path) || /(^|\/)_CodeSignature(\/|$)/.test(path)) return null;
+  if (/^Contents\/(Resources\/(app\.asar|icon\.icns|app-update\.yml)|CodeResources)$/.test(path) || /^Contents\/Resources\/app\.asar\.unpacked(\/|$)/.test(path) || /(^|\/)_CodeSignature(\/|$)/.test(path)) return null;
   const helper = new RegExp(`^Contents/Frameworks/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} Helper( \\(\\w+\\))?\\.app(/.*)?$`).exec(path);
   if (helper) {
     const kind = helper[1] ?? '';
@@ -542,6 +568,7 @@ export function nativeProblems(app: Map<string, AppFile>, electron: Map<string, 
         }
       } else if (isMachO(data)) problems.push(`The app holds ${path}, which Electron's app doesn't`);
       else if (path === 'Contents/Resources/icon.icns' && data.toString('latin1', 0, 4) !== 'icns') problems.push(`${path} is not an icon`);
+      else if (path === UPDATE_CONFIG) problems.push(...updateConfigProblems(data, want.downloadsUrl));
       continue;
     }
     const theirs = electron.get(from);
@@ -593,6 +620,9 @@ export function nativeProblems(app: Map<string, AppFile>, electron: Map<string, 
     if (path === null || mapped.has(from) || LEFT_OUT.has(path) || (entry.type === 'dir' && !path)) continue;
     problems.push(`The app lacks Electron's ${path}`);
   }
+  if (want.downloadsUrl && app.get(UPDATE_CONFIG)?.type !== 'file') {
+    problems.push(`The app lacks ${UPDATE_CONFIG}, which electron-updater reads before it downloads an update, so it couldn't update itself`);
+  }
   return problems;
 }
 
@@ -643,7 +673,7 @@ async function signatureProblems(what: string, signature: Signature, codeProblem
  * its disk image. Stops at the first of a wrong manifest, commit or file hash, since nothing after them is worth
  * reading. Otherwise reports every problem with the disk image's signature, the app's, and its code.
  */
-export async function verifyInbox(inbox: string, want: { env: Env; commit: string; teamId: string; identity: AppIdentity } & Build, checks: Checks): Promise<string[]> {
+export async function verifyInbox(inbox: string, want: { env: Env; commit: string; teamId: string; identity: AppIdentity; downloadsUrl?: string } & Build, checks: Checks): Promise<string[]> {
   let manifest: Manifest;
   try {
     manifest = readManifest(readFileSync(join(inbox, 'manifest.json'), 'utf8'));
@@ -702,7 +732,7 @@ export async function verifyInbox(inbox: string, want: { env: Env; commit: strin
     } catch (error) {
       problems.push((error as Error).message);
     }
-    problems.push(...nativeProblems(tree, electron, join(want.frontend, 'node_modules/better-sqlite3'), { identity: want.identity, env: want.env, version, build }));
+    problems.push(...nativeProblems(tree, electron, join(want.frontend, 'node_modules/better-sqlite3'), { identity: want.identity, env: want.env, version, build, downloadsUrl: want.downloadsUrl }));
   } catch (error) {
     problems.push(`The app: ${(error as Error).message}`);
   } finally {
@@ -855,10 +885,13 @@ async function main([command, ...args]: string[]) {
     const [env, commit, inbox, web, electron] = args as [Env, string, string, string, string];
     const teamId = process.env.MAC_TEAM_ID ?? '';
     const sevenZip = process.env.SEVENZIP || '7zz';
-    const { loadBundleId } = await import('../src/core/appConfig.ts');
+    const { loadAppConfig, loadBundleId } = await import('../src/core/appConfig.ts');
     const configDir = process.env.MULTISCALE_CONFIG_DIR ?? '';
-    const identity = appIdentity(env, loadBundleId(env, (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null), configDir));
-    const problems = await verifyInbox(inbox, { env, commit, teamId, identity, web, electron, frontend }, {
+    const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : null);
+    const identity = appIdentity(env, loadBundleId(env, read, configDir));
+    // As electron-build.mjs passes it to electron-builder, which writes it into the app's app-update.yml.
+    const { downloadsUrl } = loadAppConfig(env, read, configDir);
+    const problems = await verifyInbox(inbox, { env, commit, teamId, identity, downloadsUrl, web, electron, frontend }, {
       electron: await electronZip(frontend),
       extract: (dmg, into) => execFileSync(sevenZip, ['x', '-snl', '-sns-', '-y', `-o${into}`, dmg], { stdio: ['ignore', 'ignore', 'inherit'] }),
       // Apple's lookup now and then fails to answer, so it's asked three times before the check gives up.

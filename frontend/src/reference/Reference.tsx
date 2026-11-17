@@ -12,7 +12,7 @@ const ROLES = ['ground', 'card', 'raised', 'ink', 'ink-2', 'ink-3', 'line', 'acc
   'project', 'project-tint', 'project-ink', 'practice', 'practice-tint', 'practice-ink', 'oneoff', 'oneoff-tint', 'oneoff-ink', 'on-kind', 'placing',
   'danger', 'warn', 'ok', 'ink-action', 'hairline', 'wash', 'pressed', 'danger-tint', 'warn-tint', 'ok-tint', 'placing-tint'];
 const STYLES = ['display', 'title', 'heading', 'body', 'label', 'meta', 'caption'];
-const KINDS: BlockLook[] = ['project', 'practice', 'oneoff', 'planning', 'event', 'info'];
+const KINDS: BlockLook[] = ['project', 'practice', 'oneoff', 'planning', 'inbox', 'event', 'info'];
 const STATES: BlockState[] = ['planned', 'now', 'done', 'partly', 'notdone', 'goneby', 'placing', 'drop', 'suggested'];
 const RESULT = { done: 'done', partly: 'partly', notdone: 'not' } as const;
 
@@ -30,7 +30,7 @@ function Block(props: { kind: BlockLook; state: BlockState; short?: boolean }) {
   const result = RESULT[state as keyof typeof RESULT] ?? null;
   return (
     <div className={blockClass(kind, state, { short })}>
-      <BlockMarks state={state} short={short} />
+      <BlockMarks state={state} short={short} look={kind} />
       {!short && <OutcomeTag result={result} />}
       <span className="blktitle">
         {kind} {state}

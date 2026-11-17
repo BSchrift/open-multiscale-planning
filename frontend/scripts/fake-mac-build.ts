@@ -389,6 +389,8 @@ export function writeApp(b: FakeBuild) {
 /** The app's build number and version, as electron-build.mjs sets them. */
 export const BUILD = 1700000000;
 export const APP_VERSION = `0.1.${BUILD}`;
+/** The downloads host the app updates from, which its app-update.yml names. */
+export const DOWNLOADS = 'https://downloads.example.test';
 
 /**
  * A good build of commit for env: the pipeline's own build, and an inbox holding a signed disk image and a zip of the
@@ -440,6 +442,9 @@ export function fakeBuild(identity: Identity, teamId: string, commit: string, en
   for (const [p, d] of Object.entries(unpacked)) files_[`Contents/Resources/app.asar.unpacked/node_modules/better-sqlite3/${p}`] = file(d);
   files_['Contents/Resources/app.asar'] = file(archive);
   files_['Contents/Resources/icon.icns'] = file('icns ours');
+  // As electron-builder writes it from the publish setting, with the package's name for the updater's folder.
+  const updateConfig = Buffer.from(`provider: generic\nurl: ${DOWNLOADS}\nupdaterCacheDirName: multiscale-updater\n`);
+  files_['Contents/Resources/app-update.yml'] = file(updateConfig);
   files_['Contents/Resources/LICENSE.electron.txt'] = upstream.files.LICENSE!;
   files_['Contents/Resources/LICENSES.chromium.html'] = upstream.files['LICENSES.chromium.html']!;
   for (const kind of ['', ' (GPU)']) {
@@ -451,7 +456,7 @@ export function fakeBuild(identity: Identity, teamId: string, commit: string, en
   const flipped = Buffer.from(files_[framework]!.data);
   flipped.write(OUR_FUSES, flipped.indexOf(fuseWire(UPSTREAM_FUSES)) + fuseWire(UPSTREAM_FUSES).length - UPSTREAM_FUSES.length, 'latin1');
   files_[framework] = file(signMachO(flipped, identity, teamId), 0o755);
-  const sealed = { 'Resources/app.asar': archive, ...Object.fromEntries(Object.entries(sqlite).map(([p, d]) => [`Resources/app.asar.unpacked/node_modules/better-sqlite3/${p}`, Buffer.from(d)])) };
+  const sealed = { 'Resources/app.asar': archive, 'Resources/app-update.yml': updateConfig, ...Object.fromEntries(Object.entries(sqlite).map(([p, d]) => [`Resources/app.asar.unpacked/node_modules/better-sqlite3/${p}`, Buffer.from(d)])) };
   const resources = Buffer.from(xml(`<dict>\n<key>files2</key>\n<dict>\n${Object.entries(sealed).map(([p, d]) => `<key>${p}</key>\n<dict><key>hash2</key><data>${sha256(d).toString('base64')}</data></dict>`).join('\n')}\n</dict>\n</dict>`));
   const info = Buffer.from(plist(
     {

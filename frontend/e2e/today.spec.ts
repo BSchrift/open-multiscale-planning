@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, overNowLine, saved, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, overNowLine, saved, settled, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -359,13 +359,13 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   // To schedule, above the day, reads the week on its own, and changes height once it has. Measured before that, the
   // block had moved down 80px by the time the mouse pressed, which then missed it.
   await expect(page.getByRole('region', { name: 'To schedule' }).getByText('Everything this week is on the calendar.')).toBeVisible();
+  // So are the other screens' styles, which load after Today and can move the day a few pixels.
+  await settled(page);
   const b = page.getByRole(role, { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
   const x = box.x + box.width / 3;
-  await page.mouse.move(x, box.y + 4);
-  await page.mouse.down();
-  if (phone) await page.waitForTimeout(500);
+  await holdMouse(page, { x, y: box.y + 4 });
   // The first zoom draws 30px an hour, so 15px down is half an hour later.
   await page.mouse.move(x, box.y + 12, { steps: 3 });
   await page.mouse.move(x, box.y + 19, { steps: 3 });
@@ -452,8 +452,7 @@ test('on desktop, a 15-minute block moves from wherever it is pressed, even righ
   // 2px from its bottom, where a handle to change its length used to take most of a block this short.
   const x = box.x + box.width / 3;
   const y = box.y + box.height - 2;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
+  await holdMouse(page, { x, y });
   // 15px is half an hour: start and end both move.
   await page.mouse.move(x, y + 8, { steps: 3 });
   await page.mouse.move(x, y + 15, { steps: 3 });
@@ -491,6 +490,11 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   const card = lane.getByRole('button', { name: /^Paint the fence, One off, 30m/ });
   await expect(card).toBeVisible();
   if (phone) await expectTapTarget(card);
+  // The day is measured once nothing above it is still to come, since the drop goes where 3pm was then. The prompt for
+  // the planning task Today makes once it has drawn lands above To schedule, and the other screens' code, loaded once
+  // Today has drawn, restyles Today's view buttons, moving the day down a few pixels: enough to drop at 2:45pm.
+  await expect(page.getByRole('region', { name: 'Plan your first stretch' })).toBeVisible();
+  await settled(page);
   await lane.evaluate((el) => el.scrollIntoView({ block: 'start' }));
   const day = page.locator('[data-drop-date="2026-11-02"]');
   const [l, d] = [(await lane.boundingBox())!, (await day.boundingBox())!];
@@ -502,8 +506,7 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   if (phone) await touchDrag(page, card, to);
   else {
     const c = (await card.boundingBox())!;
-    await page.mouse.move(c.x + 20, c.y + 10);
-    await page.mouse.down();
+    await holdMouse(page, { x: c.x + 20, y: c.y + 10 });
     await page.mouse.move(to.x, to.y, { steps: 8 });
     await page.mouse.up();
   }
@@ -512,7 +515,7 @@ test('to schedule sits just above the day, and a card dragged onto it is placed 
   expect(errors).toEqual([]);
 });
 
-test("a practice on set days waits in To schedule on its own days only, at that day's time", async ({ page }, info) => {
+test("a practice on set days waits in To schedule on its own days only, at that day's time, and Choose a time places it on Week", async ({ page }, info) => {
   const run: Seed = {
     type: 'practice',
     id: 'run',
@@ -533,8 +536,15 @@ test("a practice on set days waits in To schedule on its own days only, at that 
   await page.reload();
   const card = page.getByRole('region', { name: 'To schedule' }).getByRole('button', { name: 'Morning run, Practice, 30 minutes on Friday around 9:30 AM, to schedule' });
   await card.click();
-  await expect(page.getByRole('group', { name: 'Suggested times for Morning run' }).getByRole('button').first()).toHaveText('1 · Fri 9:30am to 10am');
+  await expect(page.getByRole('group', { name: 'Suggested times for Morning run' }).getByRole('button').first()).toHaveText('Fri 9:30am to 10am');
   await page.screenshot({ path: info.outputPath(`today-practice-${info.project.name}.png`) });
   await expect(page.getByRole('button', { name: 'Skip Friday' })).toBeVisible();
+  // Choose a time opens Week with the session waiting at 9:30, to drag or place there.
+  await page.getByRole('button', { name: 'Choose a time', exact: true }).click();
+  const placeHere = page.getByRole('button', { name: 'Place here' });
+  await expect(placeHere).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`today-practice-choose-${info.project.name}.png`) });
+  await placeHere.click();
+  await expect(page.getByText('Placed Morning run, Fri Nov 6, 9:30am')).toBeVisible();
   expect(errors).toEqual([]);
 });

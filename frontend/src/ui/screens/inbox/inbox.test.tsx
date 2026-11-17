@@ -87,6 +87,7 @@ describe('Inbox on phone', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Add to a project or One offs' }));
     await userEvent.click(await screen.findByRole('option', { name: 'One offs' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add to One offs' }));
     // Process closes itself on the last item, and focus goes to the Inbox's heading, since its button has gone.
     expect(await screen.findByText('Inbox is empty. Anything you capture lands here.')).toBeVisible();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -98,7 +99,7 @@ describe('Inbox on phone', () => {
     const t = await renderApp({ seed: (w) => w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'i1') });
     await userEvent.click(await screen.findByRole('button', { name: /^Inbox/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Process 1 item' }));
-    await userEvent.type(await screen.findByRole('combobox', { name: 'Add to a project or One offs' }), 'One offs{Enter}');
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Add to a project or One offs' }), 'One offs{Enter}{Enter}');
     // That was the last item, so Process closes itself; Esc puts its check away, and the last toast shows.
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await userEvent.keyboard('{Escape}');

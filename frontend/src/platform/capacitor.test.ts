@@ -15,6 +15,7 @@ const native = vi.hoisted(() => {
     shared: [] as { id: string; text: string }[],
     databases: [] as string[],
     appearances: [] as unknown[],
+    sharedFiles: [] as unknown[],
   };
 });
 
@@ -56,7 +57,9 @@ vi.mock('@capacitor/core', () => ({
   registerPlugin: (name: string) =>
     name === 'MultiscaleAppearance'
       ? { set: async (options: unknown) => void native.appearances.push(options) }
-      : {
+      : name === 'MultiscaleDiagnostics'
+        ? { shareFile: async (options: unknown) => void native.sharedFiles.push(options) }
+        : {
           status: async () => ({ enabled: native.shareEnabled }),
           peek: async () => ({ items: [...native.shared] }),
           remove: async ({ ids }: { ids: string[] }) => void (native.shared = native.shared.filter((item) => !ids.includes(item.id))),
@@ -127,6 +130,7 @@ beforeEach(() => {
   native.shared = [];
   native.databases = [];
   native.appearances = [];
+  native.sharedFiles = [];
 });
 
 describe('database driver', () => {
@@ -384,5 +388,14 @@ describe('haptics', () => {
     vi.mocked(Haptics.impact).mockRejectedValueOnce(new Error('not available'));
     const platform = await createCapacitorPlatform();
     await expect(platform.haptic!()).resolves.toBeUndefined();
+  });
+});
+
+describe('saving a file', () => {
+  it('offers it in the share sheet, by name, and says which database the app runs on', async () => {
+    const platform = await createCapacitorPlatform();
+    await platform.saveFile!('multiscale-diagnostics-2026-11-16.json', '{"file":"multiscale-diagnostic-log"}');
+    expect(native.sharedFiles).toEqual([{ name: 'multiscale-diagnostics-2026-11-16.json', text: '{"file":"multiscale-diagnostic-log"}' }]);
+    expect(platform.database).toBe('@capacitor-community/sqlite');
   });
 });

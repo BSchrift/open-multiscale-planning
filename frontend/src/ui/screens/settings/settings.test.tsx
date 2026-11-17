@@ -13,6 +13,7 @@ import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
 import { parsePeriod } from '../../../../../config/retention';
 import { noFiles } from '../../../core/sync-testing';
+import { diagnosticLog } from '../../../core/diagnosticLog';
 
 afterEach(cleanup);
 
@@ -48,7 +49,7 @@ describe('Settings', () => {
     it('shows each section', async () => {
       await renderScreen('settings', { layout });
       expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-      for (const name of ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention']) {
+      for (const name of ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', 'Data retention', 'Diagnostics']) {
         expect(screen.getByRole('heading', { level: 2, name })).toBeVisible();
       }
     });
@@ -686,5 +687,58 @@ describe('Data retention', () => {
     expect(describePeriod(parsePeriod('P1W'))).toBe('7 days');
     expect(describePeriod(parsePeriod('PT1H30M'))).toBe('1 hour and 30 minutes');
     expect(describePeriod(parsePeriod('P1Y2M3DT4H'))).toBe('1 year, 2 months, 3 days and 4 hours');
+  });
+});
+
+describe('Diagnostics', () => {
+  it.each(['desktop', 'phone'] as const)('exports the diagnostic log on %s as a file named for today, holding what the log kept and nothing anyone wrote', async (layout) => {
+    const t = await renderScreen('settings', {
+      layout,
+      seed: async (w) => {
+        await w.create('task', { kind: 'inbox', title: 'Buy milk' });
+      },
+    });
+    diagnosticLog.add('warn', 'sync', 'Sync failed: offline');
+    const row = within(await screen.findByRole('region', { name: 'Diagnostics' }));
+    expect(row.getByText(/Recent errors and syncs on this device/)).toBeVisible();
+    await userEvent.click(row.getByRole('button', { name: 'Export diagnostic log' }));
+
+    await waitFor(() => expect(t.platform.saved).toHaveLength(1));
+    const [{ name, text }] = t.platform.saved as [{ name: string; text: string }];
+    expect(name).toBe('multiscale-diagnostics-2026-11-02.json');
+    const file = JSON.parse(text);
+    expect(file).toMatchObject({ file: 'multiscale-diagnostic-log', records: { task: 1 }, sync: { outbox: { byType: { task: 1 } } } });
+    expect(file.entries.at(-1)).toMatchObject({ level: 'warn', source: 'sync', message: 'Sync failed: offline' });
+    expect(text).not.toContain('milk');
+  });
+
+  it('downloads the file where the platform has no other way to save it, as in a browser or the Mac app', async () => {
+    const t = await renderScreen('settings');
+    delete (t.platform as { saveFile?: unknown }).saveFile;
+    const blobs: Blob[] = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => (blobs.push(blob), 'blob:diagnostics'));
+    URL.revokeObjectURL = vi.fn();
+    const clicked: HTMLAnchorElement[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this);
+    });
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Diagnostics' })).getByRole('button', { name: 'Export diagnostic log' }));
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    click.mockRestore();
+    expect(clicked[0]).toMatchObject({ href: 'blob:diagnostics', download: 'multiscale-diagnostics-2026-11-02.json' });
+    expect(JSON.parse(await blobs[0]!.text())).toMatchObject({ file: 'multiscale-diagnostic-log' });
+  });
+
+  it("says when the file couldn't be saved", async () => {
+    const t = await renderScreen('settings');
+    Object.assign(t.platform, {
+      saveFile: async () => {
+        throw new Error('the share sheet is not there');
+      },
+    });
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await userEvent.click(within(await screen.findByRole('region', { name: 'Diagnostics' })).getByRole('button', { name: 'Export diagnostic log' }));
+    expect(await screen.findByText("Couldn't export the diagnostic log. Try again.")).toBeVisible();
+    quiet.mockRestore();
   });
 });

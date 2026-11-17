@@ -47,7 +47,7 @@ test("the browser's Settings has each section in order, Keyboard on desktop alon
   const phone = info.project.name === 'phone';
   const errors = await open(page, phone);
   // Capture shortcut and Updates are the apps'.
-  const sections = ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', ...(phone ? [] : ['Keyboard']), 'Data retention'];
+  const sections = ['Account', 'Unavailable hours', 'Planning cadence', 'Google Calendar', 'Away dates', 'Reminders', 'Appearance', ...(phone ? [] : ['Keyboard']), 'Data retention', 'Diagnostics'];
   await expect(settings(page).getByRole('heading', { level: 2 })).toHaveText(sections);
   const source = settings(page).getByRole('link', { name: 'Source code' });
   await expect(source).toHaveAttribute('href', 'https://github.com/BSchrift/open-multiscale-planning');

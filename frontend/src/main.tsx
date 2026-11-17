@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AppConfig } from './core/appConfig';
 import { systemClock } from './core/clock';
+import { diagnosticLog, watchErrors } from './core/diagnosticLog';
 import { applyRemote, getRecord, transact } from './core/records';
 import { configureRetention } from './core/retention';
 import type { Fields, RecordChange, RecordType } from './core/types';
@@ -13,6 +14,10 @@ import { AppProvider } from './ui/app/store';
 import './ui/styles/index.css';
 
 declare const __APP_CONFIG__: AppConfig;
+
+// First, so startup's own errors are kept for Settings > Export diagnostic log.
+watchErrors(diagnosticLog, window, console);
+diagnosticLog.add('info', 'app', `Started version ${__APP_CONFIG__.version ?? 'unknown'}`);
 
 const root = createRoot(document.getElementById('root')!);
 // Before anything writes: every write works out the record's expiry from it.
@@ -56,6 +61,18 @@ createPlatform(__APP_CONFIG__.env).then(
             ...(kind === 'electron' && downloadsUrl ? { download: `${downloadsUrl}/Multiscale.dmg` } : {}),
           })
         : undefined;
+    // What the exported diagnostic log says about this build and device.
+    diagnosticLog.describe({
+      app: { version, build, env: __APP_CONFIG__.env },
+      platform: platform.kind,
+      database: platform.database,
+      features: {
+        overTheAirUpdates: !!updates,
+        attachments: !platform.filesBlocked,
+        shareImport: !!platform.shareImport,
+        retention: Object.fromEntries(Object.entries(__APP_CONFIG__.retention ?? {}).map(([name, period]) => [name, period.iso])),
+      },
+    });
     root.render(
       <StrictMode>
         <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, updates ? { updates } : {})} updates={updates}>

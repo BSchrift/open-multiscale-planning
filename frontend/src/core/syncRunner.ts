@@ -13,6 +13,8 @@
 
 import type { AppConfig } from './appConfig';
 import { createAuth, tokenSubject } from './auth';
+import { diagnosticLog } from './diagnosticLog';
+import type { DiagnosticLog } from './diagnosticLog';
 import type { Clock } from './clock';
 import { nowInstant } from './dates';
 import { getMeta, META, setMeta } from './db';
@@ -58,8 +60,10 @@ export function createSyncRunner(deps: {
   afterSync?(): Promise<void>;
   /** Calls back when the computer wakes from sleep or its screen unlocks. Only on the Mac. */
   onWake?(listener: () => void): () => void;
+  /** Where each sync's result goes, for Settings > Export diagnostic log. The app's own log unless a test gives one. */
+  log?: DiagnosticLog;
 }) {
-  const { db, clock, lifecycle, send } = deps;
+  const { db, clock, lifecycle, send, log = diagnosticLog } = deps;
   let running: Promise<void> | null = null;
   let again = false;
   let cleanup: (() => void) | null = null;
@@ -80,15 +84,19 @@ export function createSyncRunner(deps: {
     perf.start('sync.pull');
     try {
       await rebaseClocks(db, clock);
-      if ((await runSync(db, send)) === 0) perf.cancel('sync.pull');
+      const pulled = await runSync(db, send);
+      if (pulled === 0) perf.cancel('sync.pull');
       await db.transaction(async (tx) => {
         await setMeta(tx, META.lastSyncAt, nowInstant(clock));
         await tx.run('DELETE FROM meta WHERE key = :key', { key: META.lastSyncError });
       });
       db.notifyChanged({ source: 'remote' });
+      log.add('info', 'sync', pulled === 0 ? 'Synced, nothing new' : `Synced, ${pulled} ${pulled === 1 ? 'change' : 'changes'} pulled`);
     } catch (err) {
       perf.cancel('sync.pull');
-      if (!(err instanceof SyncError)) console.error('Sync failed', err);
+      // An unexpected failure reaches the diagnostic log through the console, with its stack (watchErrors).
+      if (err instanceof SyncError) log.add('warn', 'sync', `Sync failed: ${err.code}`);
+      else console.error('Sync failed', err);
       await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
       return;
     }

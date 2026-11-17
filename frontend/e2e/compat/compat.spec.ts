@@ -341,6 +341,7 @@ test.describe('one device', () => {
     for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) {
       await expect(card.getByRole('heading', { level: 1, name: title })).toBeVisible();
       await card.getByRole('button', { name: /Save as note$/ }).click();
+      await card.getByRole('option', { name: 'On its own, In Notes, no home' }).click();
       await expect(page.locator('.toast')).toContainText(`Saved ${title} in Notes.`);
     }
     await go(page, 'Notes');

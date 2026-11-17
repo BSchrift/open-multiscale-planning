@@ -14,7 +14,7 @@ import type { PlanChange, RecordWrite } from './plan';
 import { getRecord, noteId } from './records';
 import type { Writer } from './records';
 import { closeTask } from './tasks';
-import type { Fields, Memo } from './types';
+import type { Fields, Memo, MemoHome } from './types';
 
 export { noteId };
 
@@ -30,12 +30,34 @@ export function clampText(text: string, max: number): string {
 
 const clampBody = (body: string | null | undefined) => (body ? clampText(body, MAX_NOTES) : null);
 
-/** A note's title and body, cut to what the server takes. */
-function clamped(fields: { title?: string; body?: string | null }): Fields<'memo'> {
+/** What a note's popup edits. */
+export interface NoteEdit {
+  title?: string;
+  body?: string | null;
+  home?: MemoHome | null;
+  show_on?: string | null;
+}
+
+/** A note's fields as edited, its title and body cut to what the server takes. */
+function clamped(fields: NoteEdit): Fields<'memo'> {
   return {
     ...(fields.title !== undefined ? { title: clampText(fields.title, MAX_TITLE) } : {}),
     ...(fields.body !== undefined ? { body: clampBody(fields.body) } : {}),
+    ...(fields.home !== undefined ? { home: fields.home } : {}),
+    ...(fields.show_on !== undefined ? { show_on: fields.show_on } : {}),
   };
+}
+
+const HOME_TYPES: readonly MemoHome['type'][] = ['objective', 'project', 'practice'];
+
+/**
+ * A note's home, read defensively: one of another type, or naming a record that's gone, as from another device or a
+ * newer app, is no home. live holds the ids of the goals, projects and practices still here.
+ */
+export function homeOf(memo: Pick<Memo, 'home'>, live: Readonly<Record<MemoHome['type'], ReadonlySet<string>>>): MemoHome | null {
+  const home = memo.home as Partial<MemoHome> | null | undefined;
+  if (!home || typeof home !== 'object' || typeof home.id !== 'string' || !HOME_TYPES.includes(home.type as MemoHome['type'])) return null;
+  return live[home.type as MemoHome['type']].has(home.id) ? { type: home.type as MemoHome['type'], id: home.id } : null;
 }
 
 /** Writes a note that may be here already, and returns the write that puts it back: deleted if it's new. */
@@ -57,7 +79,7 @@ async function moveAttachments(w: Writer, from: { task_id: string } | { memo_id:
  * note, and the item deleted as Delete does. Every block it holds that wasn't started comes off the calendar, earlier
  * today's too, since a note is never timed; one worked on stays as time worked. Returns the exact reverse.
  */
-export async function saveAsNote(w: Writer, taskId: string, clock: Clock): Promise<PlanChange> {
+export async function saveAsNote(w: Writer, taskId: string, clock: Clock, home: MemoHome | null = null): Promise<PlanChange> {
   const task = await getRecord(w.sql, 'task', taskId);
   if (!task) throw new Error(`No task ${taskId}`);
   const id = noteId(taskId);
@@ -69,12 +91,12 @@ export async function saveAsNote(w: Writer, taskId: string, clock: Clock): Promi
     { id: taskId },
   );
   const freed = await applyPlanChange(w, { writes: past.map((b): RecordWrite => ({ type: 'time_block', id: b.id, fields: { cancelled: true } })) });
-  const made = await put(w, id, { ...clamped({ title: task.title, body: task.notes ?? null }), saved_on: today(clock), deleted_at: null }, clock);
+  const made = await put(w, id, { ...clamped({ title: task.title, body: task.notes ?? null }), saved_on: today(clock), home, deleted_at: null }, clock);
   return { writes: [made, ...freed.writes, ...closed.writes, ...moved.writes] };
 }
 
-/** Saves a note's title and description as edited, cut to what the server takes. Returns the exact reverse. */
-export async function editNote(w: Writer, id: string, fields: { title?: string; body?: string | null }): Promise<PlanChange> {
+/** Saves a note as edited in its popup, its title and description cut to what the server takes. Returns the exact reverse. */
+export async function editNote(w: Writer, id: string, fields: NoteEdit): Promise<PlanChange> {
   return applyPlanChange(w, { writes: [{ type: 'memo', id, fields: clamped(fields) }] });
 }
 

@@ -41,6 +41,12 @@
   justify-content: center;
 }
 
+/* Attach note to, in place of the picker on desktop: its list under the field, in the card's flow. */
+[data-layout='desktop'] .pxnoting .pkopts {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
 /* No home yet? Make one: a labelled row of two. */
 [data-layout] .pxmake {
   display: flex;

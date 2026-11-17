@@ -17,6 +17,7 @@ import { useToast } from '../Toast';
 import { DAY_NAMES, newSchedule, practiceRule, scheduleFields, ScheduleFields, scheduleOf } from './PracticeSchedule';
 import type { ScheduleDraft } from './PracticeSchedule';
 import { SheetOnPhone } from './SheetOnPhone';
+import { HomeNotes } from '../../screens/notes/NoteList';
 import { useLeave } from './useLeave';
 import { usePlanChange } from './usePlanChange';
 import { Button } from '../ds/Button';
@@ -255,6 +256,7 @@ export function PracticeFields(props: {
           End practice
         </Button>
       </div>
+      <HomeNotes home={{ type: 'practice', id: p.id }} />
     </div>
   );
 }

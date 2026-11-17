@@ -4,6 +4,7 @@
 //   node scripts/perf-data.ts add <perf-data folder> <summary.json>... --kind main --commit <sha> --runner <runner>
 //     [--flagged <file of the A/A's flagged KPIs>]
 //   node scripts/perf-data.ts regressions <perf-data folder> <summary.json>...
+//   node scripts/perf-data.ts track <baseline.json> <summary.json>
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -94,8 +95,25 @@ export function regressions(base: readonly Row[], rows: readonly Row[]): string[
   });
 }
 
+/** The weekly macOS run beside Linux's baseline for the Mac app, as a table: whether xvfb's numbers still track a Mac's. */
+export function track(linux: readonly Row[], mac: readonly Row[]): string[] {
+  return [
+    '| KPI | Scenario | macOS p50 | macOS p95 | Linux p50 | Linux p95 | macOS ÷ Linux, p95 |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+    ...mac.map((r) => {
+      const l = linux.find((x) => x.kpi === r.kpi && x.platform === r.platform && x.scenario === r.scenario);
+      return `| ${r.kpi} | ${r.scenario} | ${r.p50} | ${r.p95} | ${l ? `${l.p50} | ${l.p95} | ${Math.round((r.p95 / l.p95) * 100) / 100}` : '| |'} |`;
+    }),
+  ];
+}
+
 function main(argv: string[]) {
   const [command, dir, ...rest] = argv;
+  if (command === 'track' && dir && rest[0]) {
+    // node scripts/perf-data.ts track <baseline.json> <the Mac's summary.json>
+    console.log(track(JSON.parse(readFileSync(dir, 'utf8')) as Row[], JSON.parse(readFileSync(rest[0], 'utf8')) as Row[]).join('\n'));
+    return 0;
+  }
   if (command === 'regressions' && dir) {
     // node scripts/perf-data.ts regressions <perf-data folder> <summary.json>...: exits 1 if there are any.
     const base = JSON.parse(readFileSync(join(dir, 'baseline.json'), 'utf8')) as Row[];

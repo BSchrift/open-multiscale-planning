@@ -43,7 +43,7 @@ func (w *world) theirBlock(sub, id, title string, start, end time.Time) {
 	w.write(sub, "time_block", id, map[string]any{"task_id": "task-" + id, "start": instant(start), "end": instant(end), "tz": "UTC"})
 }
 
-// One person removing access in Google is theirs alone: their run says so and drops the dead token, without counting
+// One person removing access in Google is theirs alone: their run says so and marks their connection, without counting
 // as the worker failing, and the next person's run goes on as before.
 func TestOnePersonsRevokedTokenLeavesTheOthersSyncing(t *testing.T) {
 	w := newWorld(t)
@@ -62,8 +62,8 @@ func TestOnePersonsRevokedTokenLeavesTheOthersSyncing(t *testing.T) {
 	if line := w.linesFor(testSub)[0]; line["outcome"] != "revoked" || line["CalendarRunFailures"] != float64(0) || line["CalendarRevoked"] != float64(1) {
 		t.Fatalf("%+v", line)
 	}
-	if _, kept := w.conns.conns[testSub]; kept || w.conns.holders[accountID(googleAccount(testSub))] != "" {
-		t.Fatal("kept a token Google refused, or its account")
+	if conn := w.conns.conns[testSub]; !conn.Revoked {
+		t.Fatal("not marked revoked")
 	}
 	theirs := w.calendarRecord(otherSub)
 	if theirs["connected"].V != true || theirs["last_error"].V != nil {

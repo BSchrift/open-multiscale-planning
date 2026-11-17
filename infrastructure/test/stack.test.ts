@@ -289,7 +289,7 @@ describe('calendar triggers', () => {
   it("runs each person's run from the queue, ten at a time, at bounded concurrency, handing back only failures", () => {
     const queueId = ofType('AWS::SQS::Queue').find(([id]) => id.startsWith('CalendarQueue'))![0];
     const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => JSON.stringify(m.Properties.EventSourceArn).includes(queueId))!;
-    assert.equal(mappedTo(mapping), aliasOf('Calendar'));
+    assert.deepEqual(mapping.Properties.FunctionName, { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] });
     assert.equal(mapping.Properties.BatchSize, 10);
     assert.deepEqual(mapping.Properties.FunctionResponseTypes, ['ReportBatchItemFailures']);
     assert.ok(mapping.Properties.ScalingConfig.MaximumConcurrency <= 5, 'the bound keeps Google under 10,000 calls a minute');
@@ -300,9 +300,25 @@ describe('calendar triggers', () => {
     assert.equal(queue.SqsManagedSseEnabled, true);
   });
 
-  it('alarms on a run that ended in the dead-letter queue, outside the release alarms', () => {
+  // By the alias's ARN, not the alias resource: a resource that refers to the alias waits for its CodeDeploy update, so
+  // the mapping would first appear after the canary, and the per-person runs would first run where no alarm rolls them
+  // back. It waits on the schedule instead, which refers to the alias but doesn't change, so a new stack still makes the
+  // alias first.
+  it('names the alias by ARN, so it exists through the canary', () => {
+    const queueId = ofType('AWS::SQS::Queue').find(([id]) => id.startsWith('CalendarQueue'))![0];
+    const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => JSON.stringify(m.Properties.EventSourceArn).includes(queueId))!;
+    assert.doesNotMatch(JSON.stringify(mapping), new RegExp(`"${aliasOf('Calendar')}"`));
+    const schedule = ofType('AWS::Scheduler::Schedule').find(([id]) => id.startsWith('CalendarSchedule'))![0];
+    const dependsOn = (mapping as Resource & { DependsOn?: string | string[] }).DependsOn;
+    assert.ok([dependsOn].flat().includes(schedule), JSON.stringify(dependsOn));
+  });
+
+  // On arrivals, not on what's there: a message stays up to 14 days, and an alarm on the count would stay in alarm.
+  it('alarms when a run lands in the dead-letter queue, outside the release alarms', () => {
     const dead = ofType('AWS::CloudWatch::Alarm').find(([id]) => id.startsWith('CalendarDeadLetterAlarm'))![1].Properties;
-    assert.equal(dead.MetricName, 'ApproximateNumberOfMessagesVisible');
+    const [expression] = dead.Metrics.filter((m: any) => m.Expression);
+    assert.match(expression.Expression, /DIFF/);
+    assert.equal(dead.Metrics.find((m: any) => m.MetricStat).MetricStat.Metric.MetricName, 'ApproximateNumberOfMessagesVisible');
     assert.equal(dead.Threshold, 1);
   });
 });
@@ -315,18 +331,32 @@ describe("people's Google tokens", () => {
     assert.equal(key.DeletionPolicy, 'Retain');
   });
 
-  // A decrypt may use any key in the account, so tokens sealed by a key a reverted release left behind still open, but
-  // only this environment's tokens, sealed for this purpose.
-  it('may be encrypted only by the API with its key, decrypted by both, only for this environment and purpose', () => {
+  const condition = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': 'staging' } };
+
+  it('may be encrypted only by the API, decrypted by both, with this key alone, only for this environment and purpose', () => {
     const kms = (fn: string) => policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('kms:')));
     assert.deepEqual(kms('Api').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
     assert.deepEqual(kms('Calendar').flatMap((s) => s.Action), ['kms:Decrypt']);
-    const condition = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': 'staging' } };
     for (const s of [...kms('Api'), ...kms('Calendar')]) {
       assert.deepEqual(s.Condition, condition);
-      if (s.Action.includes('kms:Encrypt')) assert.deepEqual(s.Resource, { 'Fn::GetAtt': [ofType('AWS::KMS::Key')[0][0], 'Arn'] });
-      else assert.match(JSON.stringify(s.Resource), /:kms:.*:key\/\*"/);
+      assert.deepEqual(s.Resource, { 'Fn::GetAtt': [ofType('AWS::KMS::Key')[0][0], 'Arn'] });
     }
+  });
+
+  // The key's own policy lets the account administer it, never use it, so only the two roles can, whatever IAM says.
+  it("lets only the two functions' roles use the key, by its own policy", () => {
+    const [[, key]] = ofType('AWS::KMS::Key');
+    const statements = key.Properties.KeyPolicy.Statement as any[];
+    const role = (fn: string) => (all[logicalId(fn)].Properties.Role as any)['Fn::GetAtt'][0];
+    const uses = statements.filter((s) => [s.Action].flat().some((a: string) => a === 'kms:Decrypt' || a === 'kms:Encrypt' || a === 'kms:*'));
+    for (const s of uses) {
+      assert.deepEqual(s.Condition, condition);
+      for (const principal of [s.Principal.AWS].flat()) assert.ok([role('Api'), role('Calendar')].includes(principal['Fn::GetAtt']?.[0]), JSON.stringify(principal));
+    }
+    const decrypt = uses.filter((s) => [s.Action].flat().includes('kms:Decrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
+    assert.deepEqual(decrypt.sort(), [role('Api'), role('Calendar')].sort());
+    const encrypt = uses.filter((s) => [s.Action].flat().includes('kms:Encrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
+    assert.deepEqual(encrypt, [role('Api')]);
   });
 });
 
@@ -470,8 +500,10 @@ describe('the backend canary', () => {
     for (const [id, schedule] of ofType('AWS::Scheduler::Schedule').filter(([id]) => !id.startsWith('CanarySchedule'))) {
       assert.ok([aliasOf('Calendar'), aliasOf('Retention')].includes(schedule.Properties.Target.Arn.Ref), `${id}: ${JSON.stringify(schedule.Properties.Target)}`);
     }
-    const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m)).sort();
-    assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Calendar'), aliasOf('Retention')].sort());
+    // The streams' by the alias resource; the queue's by the alias's ARN (calendar triggers, above).
+    const calendarLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] };
+    const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m) ?? JSON.stringify(m.Properties.FunctionName)).sort();
+    assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention'), JSON.stringify(calendarLive)].sort());
   });
 
   it('keeps the stream mappings where they are, so they move to the alias in place rather than start over', () => {
@@ -674,9 +706,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly eleven alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly thirteen alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 11);
+    assert.equal(alarms.length, 13);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -712,13 +744,15 @@ describe('observability', () => {
     for (const m of metrics.filter((x) => x.MetricStat)) assert.ok(expression.Expression.includes(`FILL(${m.Id}, 0)`), expression.Expression);
   });
 
-  // A rate, so one person's failure among many runs can't roll back a release, while with one person a single failed run
-  // still fires it. Their removed tokens and quota aren't failures at all (internal/gcal).
-  it("worker failure alarm fires on a tenth of the runs failing, from the custom metric's sum over its count", () => {
+  // A count floor and a rate under the smallest canary share: one person's lasting failure, a run every 30 minutes, never
+  // reaches three in five minutes, and a new version failing all its runs at a 10% canary is still over 2% of them all.
+  // A person's removed token, quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
+  it('worker failure alarm fires on three failed runs that are also 2% of them', () => {
     const a = alarm('CalendarFailures');
-    assert.equal(a.Threshold, 10);
+    assert.equal(a.Threshold, 1);
     const [expression] = a.Metrics.filter((m: any) => m.Expression);
-    assert.match(expression.Expression, /100 \* failures \/ runs/);
+    assert.match(expression.Expression, /FILL\(failures, 0\) >= 3/);
+    assert.match(expression.Expression, /100 \* FILL\(failures, 0\) \/ runs >= 2/);
     const stats = Object.fromEntries(a.Metrics.filter((m: any) => m.MetricStat).map((m: any) => [m.Id, m.MetricStat]));
     for (const [id, stat] of [['failures', 'Sum'], ['runs', 'SampleCount']]) {
       assert.equal(stats[id].Metric.MetricName, 'CalendarRunFailures');
@@ -726,6 +760,26 @@ describe('observability', () => {
       assert.equal(stats[id].Metric.Dimensions, undefined, 'each dimension combination is billed as a metric');
       assert.equal(stats[id].Stat, stat);
     }
+  });
+
+  // Not a release alarm: the migration reports each half hour, and two hours of it unfinished means someone looks.
+  it('alarms when the legacy connection stays unmigrated for two hours', () => {
+    const a = alarm('CalendarLegacyNotMigrated');
+    assert.equal(a.MetricName, 'CalendarLegacyUnmigrated');
+    assert.equal(a.Statistic, 'Minimum');
+    assert.equal(a.Period * a.EvaluationPeriods, 2 * 3600);
+    assert.equal(a.Threshold, 1);
+    assert.equal(a.TreatMissingData, 'notBreaching');
+  });
+
+  // Not a release alarm: a wave of people's tokens refused at once is more likely Google than a release, but someone looks.
+  it('alarms when at least half the runs, and at least three, find their token refused', () => {
+    const a = alarm('CalendarRevocations');
+    assert.equal(a.Threshold, 1);
+    const [expression] = a.Metrics.filter((m: any) => m.Expression);
+    assert.match(expression.Expression, /FILL\(revoked, 0\) >= 3/);
+    assert.match(expression.Expression, /100 \* FILL\(revoked, 0\) \/ runs >= 50/);
+    assert.equal(a.Metrics.find((m: any) => m.Id === 'revoked').MetricStat.Metric.MetricName, 'CalendarRevoked');
   });
 
   it('worker silence alarm fires after 2 hours with no success, and missing data breaches', () => {
@@ -796,10 +850,10 @@ describe('observability', () => {
   });
 
   // The two per-person outcomes count apart from the worker's failures, so neither can roll a release back.
-  it('uses only the seven allowed custom metrics', () => {
+  it('uses only the eight allowed custom metrics', () => {
     const text = JSON.stringify(t.toJSON());
-    const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events|Revoked|RateLimited)\w*)\b/g)].map((m) => m[1]));
-    assert.deepEqual([...used].sort(), ['CalendarEventsChanged', 'CalendarRateLimited', 'CalendarRevoked', 'CalendarRunFailures', 'SyncConflictRetries', 'SyncRecordsMerged', 'SyncRequestsRejected']);
+    const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events|Revoked|RateLimited|LegacyUnmigrated)\w*)\b/g)].map((m) => m[1]));
+    assert.deepEqual([...used].sort(), ['CalendarEventsChanged', 'CalendarLegacyUnmigrated', 'CalendarRateLimited', 'CalendarRevoked', 'CalendarRunFailures', 'SyncConflictRetries', 'SyncRecordsMerged', 'SyncRequestsRejected']);
   });
 
   it('has a budget that alerts at $5 a month', () => {

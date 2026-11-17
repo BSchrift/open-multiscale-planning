@@ -657,3 +657,35 @@ func TestGoogleTestControlsTakeAnAccount(t *testing.T) {
 		t.Fatal("revoke by control left b working")
 	}
 }
+
+// A token names the scopes granted: those asked for, less any the person unticked at consent.
+func TestGoogleTokenNamesTheScopesGranted(t *testing.T) {
+	g := NewGoogle("cid", "secret", time.Now)
+	srv := httptest.NewServer(g)
+	defer srv.Close()
+	cfg := googleConfig(srv)
+	cfg.Scopes = []string{"one", "two"}
+	exchange := func() string {
+		t.Helper()
+		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		res, err := client.Get(cfg.AuthCodeURL("s", oauth2.AccessTypeOffline))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		loc, _ := url.Parse(res.Header.Get("Location"))
+		token, err := cfg.Exchange(context.Background(), loc.Query().Get("code"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope, _ := token.Extra("scope").(string)
+		return scope
+	}
+	if got := exchange(); got != "one two" {
+		t.Fatalf("%q", got)
+	}
+	g.Account(DefaultGoogleAccount).Withhold("one")
+	if got := exchange(); got != "two" {
+		t.Fatalf("%q", got)
+	}
+}

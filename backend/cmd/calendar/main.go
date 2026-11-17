@@ -90,18 +90,25 @@ func handle(ctx context.Context, w worker, payload json.RawMessage, requestID st
 
 // runQueued runs each person in a batch at once, so one person's slow Google holds up no one else, and hands back to the
 // queue only the runs that failed in a way they couldn't record. A body that isn't a job is dropped: no retry fixes it.
+// A person queued twice runs once, under the first job's trigger.
 func runQueued(ctx context.Context, w worker, e event, requestID string) events.SQSEventResponse {
 	var (
 		mu       gosync.Mutex
 		wg       gosync.WaitGroup
 		response = events.SQSEventResponse{BatchItemFailures: []events.SQSBatchItemFailure{}}
 	)
+	seen := map[string]bool{}
 	for _, record := range e.Records {
 		var job gcal.Job
 		if err := json.Unmarshal([]byte(record.Body), &job); err != nil || job.Sub == "" {
 			log.Printf("calendar: dropped a queued message that isn't a job")
 			continue
 		}
+		// One run does what any of a person's jobs in the batch would, and two at once would race each other.
+		if seen[job.Sub] {
+			continue
+		}
+		seen[job.Sub] = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

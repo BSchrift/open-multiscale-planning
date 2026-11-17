@@ -156,8 +156,15 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 		return nil
 	}
 	if err != nil {
-		finish(failed(ErrorFailed)...)
+		finish(append(failed(ErrorFailed), awsError(err)...)...)
 		return err
+	}
+	if conn.Revoked {
+		// Already said: Google refused their token, and they've yet to connect again or disconnect. Google isn't asked.
+		finish(append([]any{"outcome", "revoked"}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarEventsChanged": 0, "CalendarRunFailures": 0,
+		})...)...)
+		return nil
 	}
 
 	counts, err := g.pass(ctx, conn)
@@ -177,27 +184,32 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 		})...)...)
 		return nil
 	}
-	// Google refusing one person, for their token or their quota, is theirs: counted in a metric of its own, and as a run
-	// that didn't fail, so that one person's choice or quota can't roll back a release. Only a removed token counts as
-	// the worker running, since that's the person's choice; a run held back by quota doesn't, so quota trouble for
+	// Google refusing one person, for their token, their quota, a permission or their organisation's policy, is theirs:
+	// counted apart, and as a run that didn't fail, so that one person can't roll back a release. Only a removed token
+	// counts as the worker running, since that's the person's choice; a run held back otherwise doesn't, so trouble for
 	// everyone shows as the worker going quiet.
 	code := errorCode(err)
-	switch code {
-	case ErrorRevoked:
+	revoked := tokenRefused(err)
+	switch {
+	case revoked:
 		finish(append([]any{"outcome", "revoked"}, obs.Metrics(g.Env, g.Now(), map[string]int{
 			"CalendarEventsChanged": counts.changed(), "CalendarRunFailures": 0, "CalendarRevoked": 1,
 		})...)...)
-	case ErrorRateLimited:
+	case code == ErrorRateLimited:
 		finish(append([]any{"outcome", "rate_limited", "error_type", code}, obs.Metrics(g.Env, g.Now(), map[string]int{
 			"CalendarRunFailures": 0, "CalendarRateLimited": 1,
 		})...)...)
+	case refusedForGood(err):
+		finish(append([]any{"outcome", "refused", "error_type", code}, obs.Metrics(g.Env, g.Now(), map[string]int{
+			"CalendarRunFailures": 0,
+		})...)...)
 	default:
-		finish(failed(code)...)
+		finish(append(failed(code), awsError(err)...)...)
 	}
 	// On a context of its own, with a call's limit, so a run whose context ended still says why it failed.
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
 	defer cancel()
-	if err := g.recordFailure(recordCtx, conn, code); err != nil {
+	if err := g.recordFailure(recordCtx, conn, code, revoked); err != nil {
 		return err
 	}
 	if trigger == TriggerRetry || !unreachable(err) {
@@ -237,7 +249,7 @@ func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error 
 func (g *Google) Wake(ctx context.Context, subs []string, requestID string) error {
 	var jobs []Job
 	for _, sub := range subs {
-		connected, err := g.Connections.Has(ctx, sub)
+		connected, err := g.connected(ctx, sub)
 		if err != nil {
 			return err
 		}
@@ -265,22 +277,24 @@ func (g *Google) retireLegacy(ctx context.Context, requestID string) {
 	}
 	outcome := "retired"
 	if err == nil {
-		var own bool
-		if own, err = g.Connections.Has(ctx, legacy.Sub); err == nil && !own {
-			outcome = "kept_unmigrated"
+		// Their own, refused by Google or not: it was made from the legacy one, or since.
+		if _, err = g.Connections.Peek(ctx, legacy.Sub); errors.Is(err, ErrNotConnected) {
+			outcome, err = "kept_unmigrated", nil
 		}
 	}
 	if err == nil && outcome == "retired" {
 		err = g.Secrets.Delete(ctx, SecretRefreshToken)
 	}
+	attrs := []any{"request_id", requestID}
 	if err != nil {
 		outcome = "failed"
+		attrs = append(attrs, awsError(err)...)
 	}
 	unmigrated := 0
 	if outcome != "retired" {
 		unmigrated = 1
 	}
-	g.Log.Info("calendar_legacy_retirement", append([]any{"request_id", requestID, "outcome", outcome},
+	g.Log.Info("calendar_legacy_retirement", append(append(attrs, "outcome", outcome),
 		obs.Metrics(g.Env, g.Now(), map[string]int{"CalendarLegacyUnmigrated": unmigrated})...)...)
 }
 
@@ -789,9 +803,10 @@ func (g *Google) change(recordType, id string, stored sync.Fields, values map[st
 	return sync.Change{Type: recordType, ID: id, Fields: fields}
 }
 
-// recordFailure tells the app why a run failed. For a token Google refused, it then deletes the token, which is no use to
-// anyone, and frees the Google account, unless the person connected again meanwhile.
-func (g *Google) recordFailure(ctx context.Context, conn connection, code string) error {
+// recordFailure tells the app why a run failed. For a token Google refused, it then marks the connection, unless the
+// person connected again meanwhile, so their runs stop until they connect again or disconnect; the sealed token stays
+// for a disconnect to revoke.
+func (g *Google) recordFailure(ctx context.Context, conn connection, code string, revoked bool) error {
 	if still, err := g.stillConnected(ctx, conn); err != nil || !still {
 		return err
 	}
@@ -806,18 +821,41 @@ func (g *Google) recordFailure(ctx context.Context, conn connection, code string
 	if err := g.writeCalendar(ctx, conn.Sub, stored, values); err != nil {
 		return err
 	}
-	if code != ErrorRevoked {
+	if !revoked {
 		return nil
 	}
-	if err := g.Connections.Delete(ctx, conn); err != nil && !errors.Is(err, errConnectionChanged) {
-		return err
+	return g.Connections.MarkRevoked(ctx, conn)
+}
+
+// tokenRefused reports Google refusing the token itself: invalid_grant from the token endpoint, which is the person
+// removing access, or the token expiring. Not a 401 from the Calendar API just after Google honoured it.
+func tokenRefused(err error) bool {
+	var retrieve *oauth2.RetrieveError
+	return errors.As(err, &retrieve) && retrieve.ErrorCode == "invalid_grant"
+}
+
+// refusedForGood reports Google refusing one person in a way that lasts until they or their organisation change it: a
+// permission unticked, their quota, or their organisation's policy.
+func refusedForGood(err error) bool {
+	var retrieve *oauth2.RetrieveError
+	if errors.As(err, &retrieve) {
+		return retrieve.ErrorCode == "admin_policy_enforced"
 	}
-	return nil
+	var apiErr *googleapi.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != http.StatusForbidden {
+		return false
+	}
+	for _, item := range apiErr.Errors {
+		if item.Reason == "insufficientPermissions" || item.Reason == "quotaExceeded" {
+			return true
+		}
+	}
+	return false
 }
 
 func errorCode(err error) string {
 	var retrieve *oauth2.RetrieveError
-	if errors.As(err, &retrieve) && retrieve.ErrorCode == "invalid_grant" {
+	if errors.As(err, &retrieve) && (retrieve.ErrorCode == "invalid_grant" || retrieve.ErrorCode == "admin_policy_enforced") {
 		return ErrorRevoked
 	}
 	var apiErr *googleapi.Error
@@ -831,8 +869,12 @@ func errorCode(err error) string {
 		return ErrorRateLimited
 	case http.StatusForbidden:
 		for _, item := range apiErr.Errors {
-			if item.Reason == "rateLimitExceeded" || item.Reason == "userRateLimitExceeded" {
+			switch item.Reason {
+			case "rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded":
 				return ErrorRateLimited
+			case "insufficientPermissions":
+				// Connecting again, with every permission ticked, is the fix, which is what the app says for this.
+				return ErrorRevoked
 			}
 		}
 	}

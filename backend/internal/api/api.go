@@ -47,6 +47,9 @@ var ErrInvalidState = errors.New("api: invalid state")
 // ErrAccountTaken is what Calendar.Callback returns for a Google account another person has connected.
 var ErrAccountTaken = errors.New("api: Google account connected to someone else")
 
+// ErrScopesMissing is what Calendar.Callback returns for a consent with a permission unticked.
+var ErrScopesMissing = errors.New("api: consent left out a permission")
+
 // Server is every route of the API. A nil Calendar or Files answers its routes with 501.
 type Server struct {
 	Sync     Syncer
@@ -219,6 +222,9 @@ func (s *Server) calendarCallback(w http.ResponseWriter, r *http.Request, _ stri
 	switch {
 	case errors.Is(err, ErrInvalidState):
 		return callbackPage(w, http.StatusBadRequest, "invalid_state", "Calendar not connected.")
+	case errors.Is(err, ErrScopesMissing):
+		return callbackPage(w, http.StatusBadRequest, "google_scopes_missing",
+			"Calendar not connected. Leave every permission Google asks for ticked, then connect again.")
 	case errors.Is(err, ErrAccountTaken):
 		return callbackPage(w, http.StatusConflict, "google_account_taken",
 			"Calendar not connected. This Google account is connected to another Multiscale account. Disconnect it there, or connect a different Google account.")

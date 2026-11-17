@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	stdsync "sync"
 	"time"
 
@@ -39,6 +40,8 @@ type grant struct {
 	account string
 	offline bool
 	expires time.Time
+	// scope is what the person granted: what was asked, less what they unticked.
+	scope string
 }
 
 // Google is a stand-in for Google's OAuth and Calendar APIs, with the behaviour the worker depends on: a deleted event
@@ -61,6 +64,7 @@ type Google struct {
 	calendars   map[string]*googleCalendar
 	rateLimited map[string]int
 	slow        map[string]time.Duration
+	withheld    map[string][]string
 	writes      map[string]int
 	ids         int
 	// The Calendar API and the OAuth endpoints are reached separately, so each has its own outage.
@@ -71,7 +75,7 @@ func NewGoogle(clientID, clientSecret string, now func() time.Time) *Google {
 	g := &Google{
 		clientID: clientID, clientSecret: clientSecret, now: now, PageSize: 250,
 		codes: map[string]grant{}, refresh: map[string]grant{}, access: map[string]grant{}, calendars: map[string]*googleCalendar{},
-		rateLimited: map[string]int{}, slow: map[string]time.Duration{}, writes: map[string]int{},
+		rateLimited: map[string]int{}, slow: map[string]time.Duration{}, writes: map[string]int{}, withheld: map[string][]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /o/oauth2/auth", g.authorize)
@@ -167,6 +171,13 @@ func (a *GoogleAccount) RateLimit(calls int) {
 	a.g.mu.Lock()
 	defer a.g.mu.Unlock()
 	a.g.rateLimited[a.email] = calls
+}
+
+// Withhold has the person untick a scope at their next consents, as Google's consent screen lets them.
+func (a *GoogleAccount) Withhold(scope string) {
+	a.g.mu.Lock()
+	defer a.g.mu.Unlock()
+	a.g.withheld[a.email] = append(a.g.withheld[a.email], scope)
 }
 
 // Slow makes each of this account's calls to Google wait this long before Google answers, without holding up anyone
@@ -403,7 +414,8 @@ func (g *Google) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	code := randomGoogleToken()
 	g.mu.Lock()
-	g.codes[code] = grant{account: account, offline: q.Get("access_type") == "offline"}
+	granted := slices.DeleteFunc(strings.Fields(q.Get("scope")), func(s string) bool { return slices.Contains(g.withheld[account], s) })
+	g.codes[code] = grant{account: account, offline: q.Get("access_type") == "offline", scope: strings.Join(granted, " ")}
 	g.mu.Unlock()
 	back := redirect.Query()
 	back.Set("code", code)
@@ -452,6 +464,7 @@ func (g *Google) token(w http.ResponseWriter, r *http.Request) {
 	access := randomGoogleToken()
 	g.access[access] = grant{account: held.account, expires: g.now().Add(googleAccessTokenTTL)}
 	body["access_token"] = access
+	body["scope"] = held.scope
 	writeGoogleJSON(w, http.StatusOK, body)
 }
 

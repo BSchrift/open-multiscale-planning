@@ -21,9 +21,9 @@ import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnDeploymentGroup, LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
-import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { AccountPrincipal, AccountRootPrincipal, PolicyDocument, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
-import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
+import { Alias, Architecture, CfnEventSourceMapping, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { FilterPattern, LogGroup, MetricFilter, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
@@ -188,6 +188,16 @@ export class MultiscaleStack extends Stack {
       description: `Multiscale ${envName}: people's Google refresh tokens`,
       enableKeyRotation: true,
       removalPolicy: RemovalPolicy.RETAIN,
+      // The account administers it, and never uses it: only the two functions' roles may, below, whatever IAM allows.
+      policy: new PolicyDocument({
+        statements: [new PolicyStatement({
+          sid: 'Administer',
+          principals: [new AccountRootPrincipal()],
+          actions: ['kms:Create*', 'kms:Describe*', 'kms:Enable*', 'kms:List*', 'kms:Put*', 'kms:Update*', 'kms:Revoke*', 'kms:Disable*',
+            'kms:Get*', 'kms:Delete*', 'kms:TagResource', 'kms:UntagResource', 'kms:ScheduleKeyDeletion', 'kms:CancelKeyDeletion', 'kms:RotateKeyOnDemand'],
+          resources: ['*'],
+        })],
+      }),
     });
     const tokenPurpose = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': envName } };
 
@@ -277,6 +287,8 @@ export class MultiscaleStack extends Stack {
     const google = { GOOGLE_TOKEN_KEY: tokenKey.keyArn, CALENDAR_QUEUE_URL: calendarQueue.queueUrl };
     const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, calendarTimeout, google);
     const calendarAlias = live(calendarFunction);
+    // The queue's mapping names the worker's alias by ARN rather than by the alias resource, below.
+    const calendarLiveArn = `${calendarFunction.functionArn}:${calendarAlias.aliasName}`;
     const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
     const retentionAlias = live(retentionFunction);
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
@@ -325,8 +337,7 @@ export class MultiscaleStack extends Stack {
     for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(deleteLegacy);
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
     // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
-    // consent, with this key; both open them, only this environment's and for that purpose, with whichever key in the
-    // account sealed them, so tokens sealed before a reverted release made a new key still open.
+    // consent; both open them, only this environment's and for that purpose, with this key alone.
     const connectionItems = new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
       resources: [table.tableArn],
@@ -337,8 +348,13 @@ export class MultiscaleStack extends Stack {
       calendarQueue.grantSendMessages(fn);
     }
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
-    const anyKey = this.formatArn({ service: 'kms', resource: 'key', resourceName: '*' });
-    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [anyKey], conditions: tokenPurpose }));
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    tokenKey.addToResourcePolicy(new PolicyStatement({
+      sid: 'Seal', principals: [apiFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
+    }));
+    tokenKey.addToResourcePolicy(new PolicyStatement({
+      sid: 'Open', principals: [apiFunction.role!, calendarFunction.role!], actions: ['kms:Decrypt'], resources: ['*'], conditions: tokenPurpose,
+    }));
 
     // What runs the worker
 
@@ -365,7 +381,7 @@ export class MultiscaleStack extends Stack {
         { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
       ] } } } })],
     });
-    new Schedule(this, 'CalendarSchedule', {
+    const calendarSchedule = new Schedule(this, 'CalendarSchedule', {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),
       target: new LambdaInvoke(calendarAlias),
     });
@@ -373,15 +389,23 @@ export class MultiscaleStack extends Stack {
     // and on Lambda, however many people there are: four invocations of ten runs, each of about eight calls in two
     // seconds, is at most about 9,600 calls a minute, under Google's 10,000 a project. The schedule spreads its runs
     // over 15 minutes, which at 10,000 people is about 670 a minute, within that.
+    //
+    // The alias by its ARN, not the alias resource: anything that refers to the alias waits for the alias's CodeDeploy
+    // update, so the mapping, new in this release, would appear only after the canary, and the per-person runs would
+    // first run where no alarm rolls them back. Made now, both versions take batches by the alias's weights through the
+    // canary; the old one runs only the legacy person for one, which is harmless. It waits on the schedule instead, which
+    // refers to the alias but doesn't change in an update, so a new stack still makes the alias before it.
     calendarQueue.grantConsumeMessages(calendarAlias);
-    new EventSourceMapping(calendarFunction, 'CalendarQueueSource', {
-      target: calendarAlias,
+    const queueSource = new EventSourceMapping(calendarFunction, 'CalendarQueueSource', {
+      target: calendarFunction,
       eventSourceArn: calendarQueue.queueArn,
       batchSize: 10,
       maxBatchingWindow: Duration.seconds(5),
       reportBatchItemFailures: true,
       maxConcurrency: 4,
     });
+    (queueSource.node.defaultChild as CfnEventSourceMapping).functionName = calendarLiveArn;
+    queueSource.node.addDependency(calendarSchedule);
 
     // What keeps the expiry mark: TTL's removals only. A delete from anyone else, staging's cleanup included, isn't
     // expiry, and cleanup raises the mark itself before it removes anything.
@@ -502,14 +526,16 @@ export class MultiscaleStack extends Stack {
       anyFailure('ApiLatency', 'API p99 latency was 10 seconds or more for 10 minutes', httpApi.metricLatency({ statistic: 'p99', period: fiveMinutes }), 10_000, 2),
       anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors),
       ...(settings.throttleReleaseAlarm ? [throttleAlarm] : []),
-      // A rate of the runs, so one person's failure among thousands can't roll a release back, while with one person a
-      // single failed run still does. A person's removed token or quota isn't a failure (internal/gcal).
-      anyFailure('CalendarFailures', 'At least 10% of calendar worker runs failed', new MathExpression({
-        label: 'Failed runs %',
-        expression: 'IF(runs > 0, 100 * failures / runs, 0)',
+      // At least three failed runs in five minutes that are also at least 2% of them all. The floor: one person's lasting
+      // failure, a run every 30 minutes, never gets there, nor a few people's at once. The rate: under the smallest canary
+      // share, so a new version failing every run of its 10% still fires it however many people there are. A person's
+      // removed token, quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
+      anyFailure('CalendarFailures', 'At least 3 calendar worker runs, and 2% of them, failed in 5 minutes', new MathExpression({
+        label: 'Failed runs over the floor and rate',
+        expression: 'IF(FILL(failures, 0) >= 3 AND 100 * FILL(failures, 0) / runs >= 2, 1, 0)',
         usingMetrics: { failures: custom('CalendarRunFailures'), runs: custom('CalendarRunFailures', 'SampleCount') },
         period: fiveMinutes,
-      }), 10),
+      })),
       // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
       anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
       // One failed run is enough: a new version gets about 1 run in 20, so two in a row would almost never come.
@@ -517,7 +543,24 @@ export class MultiscaleStack extends Stack {
         namespace: 'AWS/Lambda', metricName: 'Errors', dimensionsMap: { FunctionName: canaryName }, statistic: 'Sum', period: fiveMinutes,
       })),
     ];
-    anyFailure('CalendarDeadLetterAlarm', "A person's calendar run failed three times without recording why", calendarDeadLetters.metricApproximateNumberOfMessagesVisible({ period: fiveMinutes, statistic: 'Maximum' }));
+    // On a message arriving, not on one being there, which it is for 14 days.
+    anyFailure('CalendarDeadLetterAlarm', "A person's calendar run failed three times without recording why", new MathExpression({
+      label: 'Dead letters arrived',
+      expression: 'DIFF(FILL(visible, 0))',
+      usingMetrics: { visible: calendarDeadLetters.metricApproximateNumberOfMessagesVisible({ period: fiveMinutes, statistic: 'Maximum' }) },
+      period: fiveMinutes,
+    }));
+    // The migration reports every half hour whether the legacy connection is safely in its person's own; every report for
+    // two hours saying not means someone looks. Not a release alarm: the fallback keeps them syncing meanwhile.
+    anyFailure('CalendarLegacyNotMigrated', 'The legacy Google connection has not been migrated for 2 hours',
+      custom('CalendarLegacyUnmigrated', 'Minimum', Duration.hours(1)), 1, 2);
+    // A wave of people's tokens refused at once, more likely Google's doing than a release's, so not a release alarm.
+    anyFailure('CalendarRevocations', "At least half the calendar runs, and 3, found the person's Google access removed", new MathExpression({
+      label: 'Runs refused their token',
+      expression: 'IF(FILL(revoked, 0) >= 3 AND 100 * FILL(revoked, 0) / runs >= 50, 1, 0)',
+      usingMetrics: { revoked: custom('CalendarRevoked'), runs: custom('CalendarRunFailures', 'SampleCount') },
+      period: fiveMinutes,
+    }));
     // The worker emits CalendarEventsChanged once per successful run, including runs that change nothing, so the
     // sample count is the number of successes.
     new Alarm(this, 'CalendarSilent', {

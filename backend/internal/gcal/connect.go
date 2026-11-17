@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/aws/smithy-go"
 	"golang.org/x/oauth2"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
@@ -77,6 +79,8 @@ type connection struct {
 	// Account names the Google account, by accountID, so that one Google account connects to one person. Empty in the
 	// legacy secret.
 	Account string `json:"-"`
+	// Revoked is set once Google refused the token: their runs stop until they connect again or disconnect.
+	Revoked bool `json:"-"`
 	// sealed is the stored, encrypted token as read, so a change can be made only to the connection that was read.
 	sealed []byte
 	// legacy marks the deployment's one connection from before, read from SecretRefreshToken.
@@ -86,19 +90,25 @@ type connection struct {
 // Connections keeps each person's connection, with its refresh token encrypted for them alone. DynamoConnections is the
 // deployed one.
 type Connections interface {
-	// Get returns sub's own connection, or ErrNotConnected.
+	// Peek returns sub's own connection without opening its token: its account, whether Google refused it, and what's
+	// stored, for a change to that connection alone. It returns ErrNotConnected for none.
+	Peek(ctx context.Context, sub string) (connection, error)
+	// Get returns sub's own connection with its token, or ErrNotConnected.
 	Get(ctx context.Context, sub string) (connection, error)
 	// Holder returns who holds a Google account's connection, or "" for no one.
 	Holder(ctx context.Context, account string) (string, error)
-	// Put stores conn as its person's connection and claims its Google account, releasing previous, the account they held
-	// before, if it's another. It returns api.ErrAccountTaken when someone else holds the account.
-	Put(ctx context.Context, conn connection, previous string) error
+	// Put stores conn as its person's connection, claiming its Google account and releasing previous's, only if what's
+	// stored is still previous, as Peek read it, or nothing for a zero previous. It returns errConnectionChanged if not,
+	// and api.ErrAccountTaken when someone else holds the account.
+	Put(ctx context.Context, conn connection, previous connection) error
+	// MarkRevoked records that Google refused conn's token, if conn is still what's stored.
+	MarkRevoked(ctx context.Context, conn connection) error
 	// Delete removes conn and releases its account. It succeeds when there's nothing to remove, and returns
 	// errConnectionChanged when conn was replaced since it was read, leaving the new one.
 	Delete(ctx context.Context, conn connection) error
-	// Has reports whether sub has a connection of their own, without decrypting it.
+	// Has reports whether sub has a connection of their own that Google hasn't refused, without opening it.
 	Has(ctx context.Context, sub string) (bool, error)
-	// Each calls fn with the sub of every person who has a connection of their own.
+	// Each calls fn with the sub of every person with a connection of their own that Google hasn't refused.
 	Each(ctx context.Context, fn func(sub string) error) error
 }
 
@@ -127,6 +137,36 @@ func (g *Google) legacyConnection(ctx context.Context) (connection, error) {
 	}
 	conn.legacy = true
 	return conn, nil
+}
+
+// connected reports whether sub has a connection to run, without opening a token.
+func (g *Google) connected(ctx context.Context, sub string) (bool, error) {
+	return g.Connections.Has(ctx, sub)
+}
+
+// awsError names an AWS failure by its code, such as AccessDeniedException, for a log line: never its message.
+func awsError(err error) []any {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return []any{"aws_error", apiErr.ErrorCode()}
+	}
+	return nil
+}
+
+// grantedAll reports whether a consent's token carries every scope asked for. Google lists the granted ones; someone
+// can untick any of them on its consent screen.
+func grantedAll(token *oauth2.Token) bool {
+	granted, ok := token.Extra("scope").(string)
+	if !ok {
+		return true
+	}
+	have := strings.Fields(granted)
+	for _, scope := range Scopes {
+		if !slices.Contains(have, scope) {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Google) oauthConfig(ctx context.Context) (*oauth2.Config, error) {
@@ -234,6 +274,10 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if token.RefreshToken == "" {
 		return errors.New("gcal: consent returned no refresh token")
 	}
+	if !grantedAll(token) {
+		g.Log.Info("calendar_connect_refused", "user", obs.HashSub(sub), "reason", "scopes_missing")
+		return api.ErrScopesMissing
+	}
 	svc, err := g.serviceFor(ctx, cfg, token)
 	if err != nil {
 		return err
@@ -249,10 +293,6 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 		g.Log.Info("calendar_connect_refused", "user", obs.HashSub(sub), "reason", "account_taken")
 		return api.ErrAccountTaken
 	}
-	previous, err := g.Connections.Get(ctx, sub)
-	if err != nil && !errors.Is(err, ErrNotConnected) {
-		return err
-	}
 	stored, err := g.calendarRecord(ctx, sub)
 	if err != nil {
 		return err
@@ -262,7 +302,19 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 	if err != nil {
 		return err
 	}
-	err = g.Connections.Put(ctx, connection{RefreshToken: token.RefreshToken, Sub: sub, Account: account}, previous.Account)
+	// Over the connection as read, without opening it, so one that won't open never stops a new consent. Another consent
+	// of theirs landing meanwhile is older than this one, so it goes round and replaces it.
+	for attempt := 0; ; attempt++ {
+		var previous connection
+		previous, err = g.Connections.Peek(ctx, sub)
+		if err != nil && !errors.Is(err, ErrNotConnected) {
+			return err
+		}
+		err = g.Connections.Put(ctx, connection{RefreshToken: token.RefreshToken, Sub: sub, Account: account}, previous)
+		if !errors.Is(err, errConnectionChanged) || attempt == 2 {
+			break
+		}
+	}
 	if errors.Is(err, api.ErrAccountTaken) && calendarID != existing {
 		// Someone else connected the same account a moment ago, so the calendar just made there is a second one.
 		_ = svc.Calendars.Delete(calendarID).Context(ctx).Do()
@@ -280,11 +332,8 @@ func (g *Google) Callback(ctx context.Context, state, code string) error {
 
 // Refresh starts a run for this person, if they are connected.
 func (g *Google) Refresh(ctx context.Context, sub string) error {
-	connected, err := g.Connections.Has(ctx, sub)
-	if err == nil && !connected {
-		return nil
-	}
-	if err != nil {
+	connected, err := g.connected(ctx, sub)
+	if err != nil || !connected {
 		return err
 	}
 	return g.Trigger(ctx, sub)
@@ -317,22 +366,32 @@ func (g *Google) DeleteConnection(ctx context.Context, sub string) error {
 }
 
 func (g *Google) deleteConnection(ctx context.Context, sub string) error {
-	own, err := g.Connections.Get(ctx, sub)
+	// Read as stored, then opened: one that won't open is still deleted, without the revoke it can't make.
+	own, err := g.Connections.Peek(ctx, sub)
 	if err != nil && !errors.Is(err, ErrNotConnected) {
 		return err
+	}
+	failed := []string{}
+	if own.Sub != "" {
+		opened, err := g.Connections.Get(ctx, sub)
+		if err == nil && string(opened.sealed) == string(own.sealed) {
+			own = opened
+		} else {
+			failed = append(failed, "unreadable")
+		}
 	}
 	legacy, err := g.legacyConnection(ctx)
 	if err != nil && !errors.Is(err, ErrNoSecret) {
 		return err
 	}
 	var tokens []string
-	if own.Sub != "" {
+	if own.RefreshToken != "" {
 		tokens = append(tokens, own.RefreshToken)
 	}
 	if legacy.Sub == sub && legacy.RefreshToken != own.RefreshToken {
 		tokens = append(tokens, legacy.RefreshToken)
 	}
-	if len(tokens) == 0 {
+	if len(tokens) == 0 && own.Sub == "" {
 		return nil
 	}
 	stored, err := g.calendarRecord(ctx, sub)
@@ -340,8 +399,7 @@ func (g *Google) deleteConnection(ctx context.Context, sub string) error {
 		return err
 	}
 	// Best effort with Google: access already removed there, or Time blocks already deleted, still disconnects here.
-	failed := []string{}
-	if id := fieldString(stored, "calendar_id"); id != "" {
+	if id := fieldString(stored, "calendar_id"); id != "" && len(tokens) > 0 {
 		svc, err := g.service(ctx, tokens[0])
 		if err == nil {
 			err = svc.Calendars.Delete(id).Context(ctx).Do()
@@ -362,7 +420,16 @@ func (g *Google) deleteConnection(ctx context.Context, sub string) error {
 		}
 	}
 	if legacy.Sub == sub {
-		return g.Secrets.Delete(ctx, SecretRefreshToken)
+		if err := g.Secrets.Delete(ctx, SecretRefreshToken); err != nil {
+			return err
+		}
+	}
+	// A connection made meanwhile, by a consent, goes round again.
+	if _, err := g.Connections.Peek(ctx, sub); !errors.Is(err, ErrNotConnected) {
+		if err == nil {
+			return errConnectionChanged
+		}
+		return err
 	}
 	return nil
 }

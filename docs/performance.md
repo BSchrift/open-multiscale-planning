@@ -153,6 +153,17 @@ comment on the PR, updated on each push, says what's slower, faster and unchange
 samples are the run's artifacts. A fork's PR can't comment, so its numbers are in the run's summary. The perf check
 fails only when the timing couldn't run. No iPhone or Mac app run on a PR: the macOS runners are few and shared.
 
+**Each merge to main** (`.github/workflows/perf-main.yml`): the fuller set on Linux, timed beside the previous main
+commit, in nine jobs at once, a platform and a scenario each: desktop, phone and the Mac app under xvfb, on a year of
+data (500 samples, 30 cold and warm starts, 10 on the phone, whose cold start over slow 4G takes 15 to 30 seconds), a
+new account and five years (100 samples, 10 starts each). A run still going when main moves again finishes, and only
+the newest commit waiting runs after it. Each run's comparison is in its summary.
+
+**Results** go to the `perf-data` branch, which only the main and nightly workflows write (`scripts/perf-data.sh`):
+one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
+`baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The
+targets stay here, in `config/perf.ts` and this file.
+
 **Accepting a slowdown on purpose:** the `perf-accepted` label, which only maintainers can add, and a "Performance"
 section in the PR description naming the KPI, the cost and why it's worth it. The comment then says it's accepted.
 While everything is report-only that's all it does; once a KPI blocks, it lets that KPI's check pass. If an absolute

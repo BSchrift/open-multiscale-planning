@@ -70,6 +70,23 @@ export async function saved(page: Page, text: string): Promise<void> {
 }
 
 /**
+ * Waits until the browser build has loaded every screen's code and the app's font, so a page measured next keeps its
+ * layout. Once it has drawn, the app loads each screen's code in turn (preloadScreens in app/screenLoad.tsx), and each
+ * brings its stylesheet, which can restyle the page already drawn: one moves Today's timeline down a few pixels. This
+ * loads them all now, through the app's own registry, which the dev server shares with the page.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    // A variable, so TypeScript leaves the dev server's path alone.
+    const registry = '/src/ui/app/registry.tsx';
+    const { AREAS } = (await import(registry)) as { AREAS: Record<string, { Screen: { preload?(): Promise<boolean> } }> };
+    const loaded = await Promise.all(Object.values(AREAS).map((a) => a.Screen.preload?.() ?? true));
+    if (loaded.includes(false)) throw new Error("A screen's code didn't load");
+    await document.fonts.ready;
+  });
+}
+
+/**
  * Checks nothing, such as a sticky bar, draws over an element: at points across it, near its edges and in its middle, the
  * browser's hit is it or inside it. Scrolled into view first, as in a popover taller than its room.
  */

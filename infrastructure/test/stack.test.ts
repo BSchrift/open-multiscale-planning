@@ -17,8 +17,8 @@ const config: Config = {
 };
 const control: ControlConfig = { aws: { account: '333333333333', region: 'us-west-2', profile: 'control' }, dns: { domain: 'example.net', hostedZoneId: 'Z0PARENTZONE' } };
 
-function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip', alarms?: 'off') {
-  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary, alarms });
+function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip', alarms?: 'off', firstDeploy?: boolean) {
+  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary, alarms, firstDeploy });
 }
 
 type Resource = { Type: string; Properties: Record<string, any>; DeletionPolicy?: string };
@@ -300,17 +300,31 @@ describe('calendar triggers', () => {
     assert.equal(queue.SqsManagedSseEnabled, true);
   });
 
-  // By the alias's ARN, not the alias resource: a resource that refers to the alias waits for its CodeDeploy update, so
-  // the mapping would first appear after the canary, and the per-person runs would first run where no alarm rolls them
-  // back. It waits on the schedule instead, which refers to the alias but doesn't change, so a new stack still makes the
-  // alias first.
-  it('names the alias by ARN, so it exists through the canary', () => {
-    const queueId = ofType('AWS::SQS::Queue').find(([id]) => id.startsWith('CalendarQueue'))![0];
-    const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => JSON.stringify(m.Properties.EventSourceArn).includes(queueId))!;
+  // By the alias's ARN, with nothing that waits on the alias: anything that refers to the alias, even through another
+  // resource, waits for its CodeDeploy update, so the mapping would first appear after the canary, and the per-person
+  // runs would first run where no alarm rolls them back. Only a stack's first deploy, which has no alias yet, makes the
+  // mapping wait for it.
+  it('names the alias by ARN and waits on nothing that waits on it, so it exists through the canary', () => {
+    const queueMapping = (template: Template) => {
+      const resources = template.toJSON().Resources as Record<string, Resource & { DependsOn?: string | string[] }>;
+      const queueId = Object.keys(resources).find((id) => id.startsWith('CalendarQueue') && resources[id].Type === 'AWS::SQS::Queue')!;
+      return { resources, mapping: Object.values(resources).find((r) => r.Type === 'AWS::Lambda::EventSourceMapping' && JSON.stringify(r.Properties.EventSourceArn).includes(queueId))! };
+    };
+    const { resources, mapping } = queueMapping(t);
     assert.doesNotMatch(JSON.stringify(mapping), new RegExp(`"${aliasOf('Calendar')}"`));
-    const schedule = ofType('AWS::Scheduler::Schedule').find(([id]) => id.startsWith('CalendarSchedule'))![0];
-    const dependsOn = (mapping as Resource & { DependsOn?: string | string[] }).DependsOn;
-    assert.ok([dependsOn].flat().includes(schedule), JSON.stringify(dependsOn));
+    // Nothing it depends on refers to the alias, directly or through its own dependencies.
+    const refersToAlias = (id: string, seen = new Set<string>()): boolean => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const r = resources[id];
+      if (id === aliasOf('Calendar') || JSON.stringify(r.Properties ?? {}).includes(`"${aliasOf('Calendar')}"`)) return true;
+      return [r.DependsOn ?? []].flat().some((d) => refersToAlias(d, seen));
+    };
+    for (const d of [mapping.DependsOn ?? []].flat()) assert.ok(!refersToAlias(d), `depends on ${d}`);
+    // A first deploy waits for the alias, which an update already has.
+    const first = queueMapping(Template.fromStack(build('staging', '/nonexistent', false, config, undefined, undefined, true)));
+    const alias = Object.keys(first.resources).find((id) => id.startsWith('CalendarLive') && first.resources[id].Type === 'AWS::Lambda::Alias')!;
+    assert.ok([first.mapping.DependsOn ?? []].flat().includes(alias), JSON.stringify(first.mapping.DependsOn));
   });
 
   // On arrivals, not on what's there: a message stays up to 14 days, and an alarm on the count would stay in alarm.
@@ -747,12 +761,13 @@ describe('observability', () => {
   // A count floor and a rate under the smallest canary share: one person's lasting failure, a run every 30 minutes, never
   // reaches three in five minutes, and a new version failing all its runs at a 10% canary is still over 2% of them all.
   // A person's removed token, quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
-  it('worker failure alarm fires on three failed runs that are also 2% of them', () => {
+  // While runs are few, any failure fires it, so one person's deployment still rolls back a broken worker.
+  it('worker failure alarm fires on any failed run while runs are few, else on three that are also 2% of them', () => {
     const a = alarm('CalendarFailures');
     assert.equal(a.Threshold, 1);
     const [expression] = a.Metrics.filter((m: any) => m.Expression);
-    assert.match(expression.Expression, /FILL\(failures, 0\) >= 3/);
-    assert.match(expression.Expression, /100 \* FILL\(failures, 0\) \/ runs >= 2/);
+    assert.match(expression.Expression, /runs < 10 AND FILL\(failures, 0\) >= 1/);
+    assert.match(expression.Expression, /FILL\(failures, 0\) >= 3 AND 100 \* FILL\(failures, 0\) \/ runs >= 2/);
     const stats = Object.fromEntries(a.Metrics.filter((m: any) => m.MetricStat).map((m: any) => [m.Id, m.MetricStat]));
     for (const [id, stat] of [['failures', 'Sum'], ['runs', 'SampleCount']]) {
       assert.equal(stats[id].Metric.MetricName, 'CalendarRunFailures');

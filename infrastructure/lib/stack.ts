@@ -61,11 +61,17 @@ export interface MultiscaleStackProps {
   alarms?: 'off';
   /** The control account, when control.yaml sets up the release pipeline there: it tests and publishes as this stack's release role. */
   pipelineAccount?: string;
+  /**
+   * Set by scripts/deploy.sh when the stack doesn't exist yet. Only then does the worker's queue mapping wait for its
+   * alias, which a stack being updated already has: waiting in an update would hold the mapping back until the canary
+   * ended.
+   */
+  firstDeploy?: boolean;
 }
 
 export class MultiscaleStack extends Stack {
   constructor(scope: Construct, id: string, props: MultiscaleStackProps) {
-    const { envName, config, control, backendDist, requireBinaries, canary, alarms, pipelineAccount } = props;
+    const { envName, config, control, backendDist, requireBinaries, canary, alarms, pipelineAccount, firstDeploy } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
       terminationProtection: forEnv(envName).stack.terminationProtection,
@@ -349,6 +355,8 @@ export class MultiscaleStack extends Stack {
     }
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    // By role, not by function version: every version of a function shares its role, so the old and the new alike may use the
+    // key through a canary, and a rollback.
     tokenKey.addToResourcePolicy(new PolicyStatement({
       sid: 'Seal', principals: [apiFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
     }));
@@ -381,7 +389,7 @@ export class MultiscaleStack extends Stack {
         { prefix: 'rec#time_block#' }, { prefix: 'rec#task#' }, { prefix: 'rec#practice#' }, { prefix: 'rec#calendar_source#' },
       ] } } } })],
     });
-    const calendarSchedule = new Schedule(this, 'CalendarSchedule', {
+    new Schedule(this, 'CalendarSchedule', {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),
       target: new LambdaInvoke(calendarAlias),
     });
@@ -393,8 +401,8 @@ export class MultiscaleStack extends Stack {
     // The alias by its ARN, not the alias resource: anything that refers to the alias waits for the alias's CodeDeploy
     // update, so the mapping, new in this release, would appear only after the canary, and the per-person runs would
     // first run where no alarm rolls them back. Made now, both versions take batches by the alias's weights through the
-    // canary; the old one runs only the legacy person for one, which is harmless. It waits on the schedule instead, which
-    // refers to the alias but doesn't change in an update, so a new stack still makes the alias before it.
+    // canary; the old one runs only the legacy person for one, which is harmless. Nothing it waits on refers to the alias,
+    // even through its own dependencies, except on a stack's first deploy, which has no alias yet.
     calendarQueue.grantConsumeMessages(calendarAlias);
     const queueSource = new EventSourceMapping(calendarFunction, 'CalendarQueueSource', {
       target: calendarFunction,
@@ -405,7 +413,7 @@ export class MultiscaleStack extends Stack {
       maxConcurrency: 4,
     });
     (queueSource.node.defaultChild as CfnEventSourceMapping).functionName = calendarLiveArn;
-    queueSource.node.addDependency(calendarSchedule);
+    if (firstDeploy) queueSource.node.addDependency(calendarAlias);
 
     // What keeps the expiry mark: TTL's removals only. A delete from anyone else, staging's cleanup included, isn't
     // expiry, and cleanup raises the mark itself before it removes anything.
@@ -526,13 +534,14 @@ export class MultiscaleStack extends Stack {
       anyFailure('ApiLatency', 'API p99 latency was 10 seconds or more for 10 minutes', httpApi.metricLatency({ statistic: 'p99', period: fiveMinutes }), 10_000, 2),
       anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors),
       ...(settings.throttleReleaseAlarm ? [throttleAlarm] : []),
-      // At least three failed runs in five minutes that are also at least 2% of them all. The floor: one person's lasting
-      // failure, a run every 30 minutes, never gets there, nor a few people's at once. The rate: under the smallest canary
-      // share, so a new version failing every run of its 10% still fires it however many people there are. A person's
-      // removed token, quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
-      anyFailure('CalendarFailures', 'At least 3 calendar worker runs, and 2% of them, failed in 5 minutes', new MathExpression({
+      // While there are fewer than 10 runs in five minutes, any failed run, so a deployment with a few people still rolls
+      // back a broken worker. Beyond that, at least three that are also at least 2% of them all: one person's lasting
+      // failure, a run every 30 minutes, never gets there, and the rate is under the smallest canary share, so a new
+      // version failing every run of its 10% still fires it however many people there are. A person's removed token,
+      // quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
+      anyFailure('CalendarFailures', 'A calendar worker run failed while runs were few, or at least 3 and 2% of them did, in 5 minutes', new MathExpression({
         label: 'Failed runs over the floor and rate',
-        expression: 'IF(FILL(failures, 0) >= 3 AND 100 * FILL(failures, 0) / runs >= 2, 1, 0)',
+        expression: 'IF((runs < 10 AND FILL(failures, 0) >= 1) OR (FILL(failures, 0) >= 3 AND 100 * FILL(failures, 0) / runs >= 2), 1, 0)',
         usingMetrics: { failures: custom('CalendarRunFailures'), runs: custom('CalendarRunFailures', 'SampleCount') },
         period: fiveMinutes,
       })),

@@ -153,7 +153,7 @@ func (m *memConnections) Get(ctx context.Context, sub string) (connection, error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.unreadable[sub] {
-		return connection{}, errors.New("gcal: connection doesn't decrypt for this person")
+		return connection{}, errUnreadable
 	}
 	return m.conns[sub], nil
 }
@@ -228,6 +228,10 @@ func (m *memConnections) Delete(_ context.Context, conn connection) error {
 
 func (m *memConnections) Each(_ context.Context, fn func(sub string) error) error {
 	m.mu.Lock()
+	if m.failing != nil {
+		m.mu.Unlock()
+		return m.failing
+	}
 	var subs []string
 	for _, sub := range slices.Sorted(maps.Keys(m.conns)) {
 		if !m.conns[sub].Revoked {

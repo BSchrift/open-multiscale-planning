@@ -450,6 +450,7 @@ describe('Process on desktop', () => {
     expect((await task(t.db, 'i5'))?.done_at).toBeUndefined();
     expect((await task(t.db, 'i4'))?.kind).toBe('inbox');
     fireEvent.pointerDown(document.querySelector('.clearveil')!);
+    fireEvent.click(document.querySelector('.clearveil')!, { detail: 1 });
     await waitFor(() => expect(toast()).toHaveTextContent('Deleted Return the books.'));
     await userEvent.click(toastUndo());
     await waitFor(async () => expect((await task(t.db, 'i5'))?.deleted_at).toBeNull());
@@ -663,6 +664,7 @@ describe('When the last item is handled', () => {
     // The last item's toast waits until the check has gone; a tap puts the check away sooner.
     expect(toast()).toBeNull();
     fireEvent.pointerDown(check()!);
+    fireEvent.click(check()!, { detail: 1 });
     await waitFor(() => expect(check()).toBeNull());
     expect(toast()).toHaveTextContent('Added Call the bank to One offs.');
   });

@@ -12,7 +12,8 @@ import type { ActionPerformed, ActionType } from '@capacitor/local-notifications
 import type { AppEnv } from '../core/appConfig';
 import { openDb } from '../core/db';
 import type { SqlDriver } from '../core/db';
-import type { DiagnosticsSnapshot } from '../core/telemetry';
+import type { MetricReports } from '../core/metrickit';
+import type { DiagnosticsSnapshot, Power } from '../core/telemetry';
 import type { Reminder, ReminderAction } from '../core/types';
 import { indexedDbFiles } from './attachment-files';
 import type { Appearance, Notifications, Platform, ReminderResponse, SecureTokens } from './types';
@@ -32,6 +33,8 @@ const NativeDiagnostics = registerPlugin<{
   snapshot(): Promise<DiagnosticsSnapshot>;
   addListener(event: 'memoryWarning', listener: () => void): Promise<PluginListenerHandle>;
 }>('MultiscaleDiagnostics');
+/** Implemented in the app target. The battery's state, and MetricKit's reports kept until the page takes them. */
+const NativeEnergy = registerPlugin<{ sample(): Promise<{ power: Power }>; reports(): Promise<MetricReports> }>('MultiscaleEnergy');
 /** Implemented in the app target. Checks and installs a downloaded web bundle, and picks when to switch to it. */
 const NativeUpdates = registerPlugin<{
   install(options: { manifest: string; signature: string; files: Record<string, string> }): Promise<void>;
@@ -191,6 +194,7 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
         return () => void handle.then((h) => h.remove());
       },
     },
+    energy: { sample: () => NativeEnergy.sample(), reports: () => NativeEnergy.reports() },
     updates: {
       install: ({ manifest, signature, files }) =>
         NativeUpdates.install({ manifest, signature, files: Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, base64(bytes)])) }),

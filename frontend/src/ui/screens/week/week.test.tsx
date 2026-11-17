@@ -162,6 +162,45 @@ const morning = async (w: Writer) => {
   }
 };
 
+describe.each(['desktop', 'phone'] as const)('a block landing on another while editing, on %s', (layout) => {
+  // Draft the summary is Tuesday 6pm to 7pm, beside Quiz night, a calendar event; Paint the fence follows at 7pm.
+  const seed = async (w: Writer) => {
+    await planned(w);
+    await w.create('time_block', { task_id: 't2', start: at('19:00', TUE), end: at('20:00', TUE), tz: ZONE }, 'b4');
+  };
+  const step = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    if (layout === 'phone') await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[1]!);
+    const el = layout === 'phone' ? await screen.findByRole('slider', { name: /^Draft the summary\./ }) : await screen.findByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+    el.focus();
+    // A quarter hour later it runs into Paint the fence. Quiz night, another calendar's, never asks.
+    await userEvent.keyboard('{ArrowDown}');
+    return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+  };
+
+  it('asks, and Replace sends the block landed on back to To schedule', async () => {
+    const t = await open({ layout, seed });
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Replace' }));
+    await waitFor(async () => expect((await block('b1')(t))?.start).toBe(at('18:15', TUE)));
+    await waitFor(async () => expect((await block('b4')(t))?.cancelled).toBe(true));
+    expect(await screen.findByText('Took Paint the fence off the calendar')).toBeVisible();
+  });
+
+  it('Keep both, with Enter, keeps both; Cancel leaves it where it was', async () => {
+    const t = await open({ layout, seed });
+    await step();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(async () => expect((await block('b1')(t))?.start).toBe(at('18:15', TUE)));
+    expect((await block('b4')(t))?.cancelled).toBeFalsy();
+    cleanup();
+
+    const again = await open({ layout, seed });
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Schedule both at the same time?' })).toBeNull());
+    expect((await block('b1')(again))?.start).toBe(at('18:00', TUE));
+  });
+});
+
 describe('Week on desktop', () => {
   it('shows this week: blocks in their colours, calendar events behind, a conflict named, and the time left', async () => {
     await open();

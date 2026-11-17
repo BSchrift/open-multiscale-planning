@@ -35,6 +35,7 @@ import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { useLanding } from './landing';
 import { useWeekActions } from './useWeekActions';
 import { TaskPopupFor } from '../task';
 import { Button } from '../../components/ds/Button';
@@ -73,6 +74,8 @@ export function PhoneWeek(props: WeekProps) {
   const [at, setAt] = useState<Slot | null>(null);
   const [edSel, setEdSel] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // Landing on placed blocks asks first: keep both, replace them, or leave it.
+  const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
   const workOf = (p: Placing): Work => (p.mode === 'move' ? { kind: p.block.kind === 'one_off' ? 'one_off' : 'project' } : p.mode === 'planning' ? { kind: 'project' } : p.item.work);
@@ -128,11 +131,20 @@ export function PhoneWeek(props: WeekProps) {
     if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
-  const changeBlock = (b: PlacedBlock, slot: Slot) => {
-    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return;
-    void act.move(b.id, slot);
+  /** Saves a block's new time. Cancelled on another block, it resolves to nothing, and the day puts it back. */
+  const changeBlock = async (b: PlacedBlock, slot: Slot) => {
+    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return undefined;
+    const { go, off } = await landing(b.title, slot, b.id, b);
+    if (!go) return undefined;
+    const saved = await act.move(b.id, slot);
     setEdSel(b.id);
     setAsk(b.practice_id ? { blockId: b.id, wasMin: ask?.blockId === b.id ? ask.wasMin : b.end - b.start } : null);
+    takeOff(off);
+    return saved;
+  };
+  const dropCard = async (item: LaneItem, slot: Slot) => {
+    const { go, off } = await landing(item.title, slot);
+    if (go && (await act.place(item, slot))) takeOff(off);
   };
 
   const cancelPlacing = () => {
@@ -152,6 +164,11 @@ export function PhoneWeek(props: WeekProps) {
   const locked = gone || late;
   const finishPlacing = async () => {
     if (!placing || !at || locked) return;
+    const moving = placing.mode === 'move' ? placing.block : null;
+    // A day with another of a practice's sessions refuses it before anything asks.
+    const refused = !!moving?.practice_id && at.date !== moving.date && model.blocks.some((x) => x.id !== moving.id && x.practice_id === moving.practice_id && x.date === at.date);
+    const { go, off } = refused ? { go: true, off: [] } : await landing(drawnOf(placing).title, at, moving?.id ?? null, moving);
+    if (!go) return;
     if (placing.mode === 'move') {
       const b = placing.block;
       // A session moved to another day is for this week only, so nothing asks about future weeks.
@@ -164,6 +181,7 @@ export function PhoneWeek(props: WeekProps) {
     } else if (placing.mode === 'planning') {
       if (!(await planning.place(placing.plan, at))) return;
     } else if (!(await act.place(placing.item, at))) return;
+    takeOff(off);
     setPlacing(null);
     setAt(null);
     props.donePlacing();
@@ -196,7 +214,7 @@ export function PhoneWeek(props: WeekProps) {
       draggable={isThis && !placing}
       onToggle={() => (planningWeekOf(x.id) ? setPlanningFor(planningWeekOf(x.id)) : setOpen({ kind: 'item', id: x.id }))}
       onPreview={(slot) => setDropAt(slot && { item: x, slot })}
-      onDrop={(slot) => void act.place(x, slot)}
+      onDrop={(slot) => void dropCard(x, slot)}
     />
   );
   const dayIndex = diffDays(data.week, selDay);
@@ -451,6 +469,7 @@ export function PhoneWeek(props: WeekProps) {
         </button>
       ) : null}
 
+      {asking}
       {opened && (
         <BlockSheet
           block={opened}
@@ -722,7 +741,8 @@ export function DragDay(props: {
   selected?: string | null;
   onMoving(slot: Slot): void;
   onDone(): void;
-  onChange(b: PlacedBlock, slot: Slot): void;
+  /** A save that resolves to nothing has been called off, and the block goes back to where it was. */
+  onChange(b: PlacedBlock, slot: Slot): unknown;
   /** A block let go over To schedule, which takes it off the calendar. */
   onUnschedule?(b: PlacedBlock): void;
   onOpen(id: string): void;
@@ -789,7 +809,7 @@ export function DragDay(props: {
     kind: PlacedBlock['kind'],
     slot: Slot,
     calm: boolean,
-    on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
+    on: { change(s: Slot): unknown; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
     /** Its column among blocks at the same time, and those it overlaps. */
     column?: { style: CSSProperties; others: readonly PlacedBlock[] },
   ) => {
@@ -818,8 +838,9 @@ export function DragDay(props: {
           else on.change(latest);
         },
         () => {
-          if (on.commit && (latest.start !== slot.start || latest.end !== slot.end)) on.change(latest);
-          else setPreview(null);
+          if (!on.commit || (latest.start === slot.start && latest.end === slot.end)) return setPreview(null);
+          const saved = on.change(latest);
+          if (saved instanceof Promise) void saved.then((ok) => ok === undefined && setPreview(null));
         },
         mode === 'move' ? on.open : undefined,
         mode === 'move' ? on.unschedule : undefined,

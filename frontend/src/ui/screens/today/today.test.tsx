@@ -1284,6 +1284,41 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the tim
   });
 });
 
+describe('a block landing on another on the timeline', () => {
+  const day = async (w: Writer) => {
+    await task(w, 't1', 'Write the report');
+    await block(w, 'b1', 't1', '16:00', '17:00');
+    await task(w, 't2', 'Paint the fence');
+    await block(w, 'b2', 't2', '17:00', '17:30');
+  };
+  const step = async () => {
+    const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+    el.focus();
+    // A quarter hour later it runs into Paint the fence.
+    await userEvent.keyboard('{ArrowDown}');
+    return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+  };
+
+  it('asks, and Replace sends the block landed on back to To schedule, with one Undo for both', async () => {
+    const t = await open(day);
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText(/^Write the report is now 4:15pm to 5:15pm\. Took Paint the fence off the calendar\./)).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+  });
+
+  it('Keep both keeps both, and Cancel leaves it where it was', async () => {
+    const t = await open(day);
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Cancel' }));
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Keep both' }));
+    await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:15') }));
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy();
+  });
+});
+
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const day = async (w: Writer) => {

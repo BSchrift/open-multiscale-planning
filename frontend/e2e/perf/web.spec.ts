@@ -9,8 +9,7 @@ import { join } from 'node:path';
 import { test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { Platform } from '../../../config/perf';
-import { openWithHistory } from '../seed';
-import { capture, CPU, heapMb, interleave, LAUNCHES, purgeFileCache, Results, scenarioData, SCENARIOS, screens, settled, slowCpu, targets } from './harness';
+import { capture, CPU, heapMb, interleave, LAUNCHES, openLaunched, purgeFileCache, Results, scenarioData, SCENARIOS, screens, settled, slowCpu, targets } from './harness';
 
 test.describe.configure({ timeout: 3_600_000 });
 
@@ -30,8 +29,9 @@ for (const scenario of SCENARIOS) {
       targets().map(async (target) => {
         const context = await browser.newContext({ ...device, baseURL: target.url });
         const page = await context.newPage();
+        await openLaunched(page, data);
+        // Slowed only now: the seed and its first launch are setup, not timed.
         if (phone) await slowCpu(page, cpu);
-        await openWithHistory(page, data);
         await page.reload();
         await settled(page);
         if (condition === 'offline') await context.setOffline(true);
@@ -46,14 +46,14 @@ for (const scenario of SCENARIOS) {
       await page.context().close();
     }
 
-    // Starts: a profile per build that holds the data, copied without its HTTP cache for each cold launch, then
-    // reloaded warm. Launches take turns between the builds, as the actions do.
+    // Starts: a profile per build that holds the data as its first launch left it, copied without its HTTP cache for
+    // each cold launch, then reloaded warm. Launches take turns between the builds, as the actions do.
     const launch = (dir: string, url: string) => playwright.chromium.launchPersistentContext(dir, { ...device, baseURL: url, args: launchOptions?.args ?? [] });
     const profiles = new Map<string, string>();
     for (const { target } of LAUNCHES > 0 ? builds : []) {
       const profile = mkdtempSync(join(tmpdir(), 'multiscale-perf-'));
       const setup = await launch(profile, target.url);
-      await openWithHistory(setup.pages()[0] ?? (await setup.newPage()), data);
+      await openLaunched(setup.pages()[0] ?? (await setup.newPage()), data);
       await setup.close();
       profiles.set(target.name, profile);
     }

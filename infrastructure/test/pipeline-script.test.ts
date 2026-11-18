@@ -37,9 +37,14 @@ case "$*" in
   *describe-stacks*) [ -n "$OLD_STACK" ] && echo '${stackOutputs.replace(/,\s*\{[^}]*ReleaseAlarms[^}]*\}/, '')}' || echo '${stackOutputs}';;
   *"cloudwatch describe-alarms"*) cat "$PARAMS/alarming" 2>/dev/null || true;;
   *"s3api head-object"*) [ -f "$PARAMS/s3/$(echo "$*" | sed -E 's|.*--bucket ([^ ]+) --key ([^ ]+).*|\\1/\\2|')" ] || exit 254;;
+  *"s3api list-objects-v2"*) (cd "$PARAMS/s3/$(echo "$*" | sed -E 's|.*--bucket ([^ ]+).*|\\1|')" 2>/dev/null && find "$(echo "$*" | sed -E 's|.*--prefix ([^ ]+).*|\\1|')" -type f 2>/dev/null) || true;;
   "s3 "*) exec node ${fakeS3} "$@";;
 esac`);
-  for (const name of ['go', 'npx', 'npm', 'sleep', 'apt-get']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
+  for (const name of ['go', 'npm', 'sleep', 'apt-get']) s.stub(name, `echo "${name} $*" >> "$LOG"`);
+  // A web build of a checkout that holds a version.json, as a commit the MacApp step builds again does, carries it.
+  s.stub('npx', `echo "npx $*" >> "$LOG"
+case "$*" in "vite build"*) [ -f version.json ] && out="$(echo "$*" | sed -E 's/.*--outDir ([^ ]+).*/\\1/')" && mkdir -p "$out" && cp version.json "$out/";; esac
+exit 0`);
   s.stub('xvfb-run', 'shift; exec "$@"');
   // The hosts serve what the bucket holds: web/ on the web host and release/ on the release host, or $STALE_HOST's old copy.
   s.stub('curl', `echo "curl $*" >> "$LOG"
@@ -50,13 +55,16 @@ case "$url" in
 esac
 [ -n "$STALE_HOST" ] && case "$url" in "$STALE_HOST"*) echo '{"version":"stale"}'; exit 0;; esac
 cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
-  s.stub('git', `echo "git $*" >> "$LOG"; case "$*" in *rev-parse*) echo abc123;; esac`);
+  // A worktree of a commit is its checkout under $PARAMS/checkouts.
+  s.stub('git', `echo "git $*" >> "$LOG"; case "$*" in *rev-parse*) echo abc123;; *"worktree add"*) for a in "$@"; do dir="$commit"; commit="$a"; done; cp -R "$PARAMS/checkouts/$commit" "$dir";; esac`);
   for (const env of ['staging', 'prod']) {
     writeFileSync(join(s.config, `${env}.release-key.pem`), generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }));
   }
   // What the steps call beyond this script.
   mkdirSync(join(s.root, 'frontend/scripts'), { recursive: true });
   writeFileSync(join(s.root, 'frontend/scripts/sign-release.mjs'), '// the signer\n');
+  // The real one, which needs nothing installed: latest-mac.yml must come out as electron-updater reads it.
+  writeFileSync(join(s.root, 'frontend/scripts/latest-mac.mjs'), readFileSync(join(import.meta.dirname, '../../frontend/scripts/latest-mac.mjs')));
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   // record and live-record write the app record as mac-inbox.ts does: from the inbox, or from the live mac/manifest.json.
@@ -69,9 +77,17 @@ if (command === 'record') {
 } else if (command === 'live-record') {
   const live = existsSync(from) ? readFileSync(from, 'utf8') : '';
   if (live.includes('"record"')) write(JSON.parse(live).record);
+} else if (command === 'pick') {
+  // The commit itself once its build is in the inbox, or else the first of SAME_NATIVE, the commits before it inboxBuildFor
+  // finds with its Mac native code, newest first, whose build is.
+  const [, , commit, keys, , ...skip] = process.argv.slice(2);
+  const listed = readFileSync(keys, 'utf8');
+  const pick = [commit, ...(process.env.SAME_NATIVE ?? '').split(' ')].find((c) => c && listed.includes('inbox/' + c + '/' + env + '/manifest.json') && !skip.includes(c));
+  if (pick) console.log(pick);
 } else process.exit(process.env.VERIFY_FAILS ? 1 : 0);
 \n`);
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
+  // DEPLOYED_FAILS makes the suites fail, as they do when a deployment is wrong.
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n[ -z "$DEPLOYED_FAILS" ]\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
   chmodSync(join(s.root, 'scripts/perf-publish.sh'), 0o755);
@@ -369,7 +385,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     const r = s.run(['build'], { RUN: 'hand', EXECUTION_ID: 'exec-9' });
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
-    for (const name of ['api', 'calendar', 'retention', 'canary']) assert.match(s.log(), new RegExp(`go build .* \\./cmd/${name}`));
+    for (const name of ['api', 'calendar', 'retention', 'canary', 'account']) assert.match(s.log(), new RegExp(`go build .* \\./cmd/${name}`));
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=staging -o cdk.out\/staging Multiscale-staging/);
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=prod -o cdk.out\/prod Multiscale-prod/);
     // Each environment's web build, from its stack's outputs and its key's public half.
@@ -585,9 +601,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(plain.log(), /--name \/multiscale\/pipeline\/released --type String --overwrite --value abc123\n/);
   });
 
-  // The Build output for both environments, as the MacApp step reads it, and GitHub Actions' upload in the inbox.
+  // The Build output for both environments, as the MacApp step reads it, and GitHub Actions' upload in the inbox, of this
+  // commit or of the one given.
   const COMMIT = 'c0ffee'.padEnd(40, '0');
-  const macStep = (s: ReturnType<typeof sandbox>, { built = { electron: 'e2', ios: 'i1' }, inbox = true } = {}) => {
+  const macStep = (s: ReturnType<typeof sandbox>, { built = { electron: 'e2', ios: 'i1' }, inbox = true, from = COMMIT } = {}) => {
     const builtDir = join(s.root, 'built');
     for (const env of ['staging', 'prod']) {
       mkdirSync(join(builtDir, `web/${env}`), { recursive: true });
@@ -595,10 +612,10 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     }
     if (inbox) {
       for (const env of ['staging', 'prod']) {
-        s.put(`s3://inbox-bucket/inbox/${COMMIT}/${env}/manifest.json`, JSON.stringify({ files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
-        s.put(`s3://inbox-bucket/inbox/${COMMIT}/${env}/Multiscale.dmg`, 'disk image');
-        s.put(`s3://inbox-bucket/inbox/${COMMIT}/${env}/Multiscale.zip`, 'zip of app');
-        s.put(`s3://inbox-bucket/inbox/${COMMIT}/${env}/Multiscale.zip.blockmap`, 'blockmap');
+        s.put(`s3://inbox-bucket/inbox/${from}/${env}/manifest.json`, JSON.stringify({ files: { 'Multiscale.dmg': { sha256: 'f'.repeat(64) } } }));
+        s.put(`s3://inbox-bucket/inbox/${from}/${env}/Multiscale.dmg`, 'disk image');
+        s.put(`s3://inbox-bucket/inbox/${from}/${env}/Multiscale.zip`, 'zip of app');
+        s.put(`s3://inbox-bucket/inbox/${from}/${env}/Multiscale.zip.blockmap`, 'blockmap');
       }
     }
     return { CODEBUILD_SRC_DIR_Built: builtDir, COMMIT, MAC_INBOX_BUCKET: 'inbox-bucket', MAC_TEAM_ID: 'ABCDE12345', MAC_WAIT_SECONDS: '600', SEVENZIP: '/bin/true' };
@@ -611,7 +628,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     const r = s.run(['mac'], macStep(s, { built: shell, inbox: false }));
     assert.equal(r.status, 0, r.stderr);
     assert.match(s.log(), /aws AWS_PROFILE=ms-staging s3api head-object --bucket bucket --key mac\/manifest\.json/);
-    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox (verify|record)/);
+    assert.doesNotMatch(s.log(), /--bucket inbox-bucket|mac-inbox (pick|verify|record)/);
     assert.equal(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), 'staging: no new Mac app needed\nprod: no new Mac app needed\n');
   });
 
@@ -621,7 +638,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     s.put('s3://bucket/mac/manifest.json', '{}');
     const r = s.run(['mac'], macStep(s, { inbox: false }));
     assert.equal(r.status, 0, r.stderr);
-    assert.doesNotMatch(s.log(), /head-object --bucket inbox-bucket|mac-inbox (verify|record)/);
+    assert.doesNotMatch(s.log(), /--bucket inbox-bucket|mac-inbox (pick|verify|record)/);
   });
 
   it("waits for GitHub Actions' Mac app of this commit, checks it against the Build output, and hands on what passed", () => {
@@ -631,8 +648,9 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.equal(r.status, 0, r.stderr);
     for (const env of ['staging', 'prod']) {
       // As the pipeline's own role, which may only read the inbox.
-      assert.match(s.log(), new RegExp(`aws AWS_PROFILE= s3api head-object --bucket inbox-bucket --key inbox/${COMMIT}/${env}/manifest\\.json`));
-      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} \\S+ ${s.root}/built/web/${env} ${s.root}/built/mac/${env}/dist-electron ENV=undefined SEVENZIP=/bin/true MAC_TEAM_ID=ABCDE12345`));
+      assert.match(s.log(), /aws AWS_PROFILE= s3api list-objects-v2 --bucket inbox-bucket --prefix inbox\/ /);
+      assert.match(s.log(), new RegExp(`mac-inbox pick ${env} ${COMMIT} \\S+ `));
+      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${COMMIT} \\S+ ${s.root}/built/web/${env} ${s.root}/built/mac/${env}/dist-electron ${s.root}/frontend ENV=undefined SEVENZIP=/bin/true MAC_TEAM_ID=ABCDE12345`));
       // The disk image, the zip and its blockmap, then the record of the app, which signing names in the manifest.
       assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
       assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.zip`), 'utf8'), 'zip of app');
@@ -640,6 +658,63 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
       assert.match(s.log(), new RegExp(`mac-inbox record ${env} \\S+ ${s.root}/mac-checked `));
       assert.deepEqual(JSON.parse(readFileSync(join(s.root, `mac-checked/app-record/${env}.json`), 'utf8')), APP_RECORD);
     }
+    assert.doesNotMatch(s.log(), /worktree add/);
+  });
+
+  // A commit before this one, which the MacApp step checks out and builds again to check its Mac app against: its
+  // checkout, whose web build names the native code given.
+  const OLDER = 'beef'.padEnd(40, '0');
+  const olderCheckout = (s: ReturnType<typeof sandbox>, builtShell: object) => {
+    const frontend = join(s.params, 'checkouts', OLDER, 'frontend');
+    mkdirSync(join(frontend, 'scripts'), { recursive: true });
+    writeFileSync(join(frontend, 'version.json'), JSON.stringify({ version: '0.1.0-beef', build: 0, shell: builtShell }));
+    writeFileSync(join(frontend, 'scripts/electron-compile.mjs'), readFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs')));
+  };
+
+  it('takes the build of a commit before this one with the same Mac native code, checked against its own build again', () => {
+    const s = configured();
+    live(s);
+    olderCheckout(s, { electron: 'e2', ios: 'i0' });
+    const r = s.run(['mac'], { ...macStep(s, { from: OLDER }), SAME_NATIVE: OLDER });
+    assert.equal(r.status, 0, r.stderr);
+    // Checked out and its packages installed once, for both environments, then each one's web app and main process.
+    assert.equal(s.log().match(/worktree add/g)?.length, 1);
+    const made = new RegExp(`git -C ${s.root} worktree add --quiet --detach (\\S+)/checkout ${OLDER}`).exec(s.log())![1]!;
+    assert.match(s.log(), new RegExp(`npm ci --ignore-scripts`));
+    for (const env of ['staging', 'prod']) {
+      assert.match(s.log(), new RegExp(`npx vite build --outDir ${made}/web/${env} --emptyOutDir`));
+      assert.match(s.log(), new RegExp(`electron-compile  ENV=${env}`));
+      assert.match(s.log(), new RegExp(`mac-inbox verify ${env} ${OLDER} \\S+ ${made}/web/${env} ${made}/mac/${env}/dist-electron ${made}/checkout/frontend `));
+      assert.equal(readFileSync(join(s.root, `mac-checked/${env}/Multiscale.dmg`), 'utf8'), 'disk image');
+      assert.deepEqual(JSON.parse(readFileSync(join(s.root, `mac-checked/app-record/${env}.json`), 'utf8')), APP_RECORD);
+    }
+    // Prod first takes the build of the commit staging's app came from, the build in staging's record.
+    assert.match(s.log(), new RegExp(`mac-inbox pick staging ${COMMIT} \\S+  ENV`));
+    assert.match(s.log(), new RegExp(`mac-inbox pick prod ${COMMIT} \\S+ ${APP_RECORD.build} ENV`));
+    assert.match(r.stdout, new RegExp(`${OLDER}, a commit before this one, has this build's Mac native code, so staging takes its Mac app`));
+    assert.match(readFileSync(join(s.root, 'mac-checked/checked.txt'), 'utf8'), new RegExp(`^staging: checked f+, of ${OLDER}\nprod: checked f+, of ${OLDER}\n$`));
+  });
+
+  it("waits for this commit's own build when the builds before it have other Mac native code", () => {
+    const s = configured();
+    live(s);
+    olderCheckout(s, { electron: 'e2', ios: 'i1' });
+    const r = s.run(['mac'], { ...macStep(s, { from: OLDER }), MAC_WAIT_SECONDS: '0' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, new RegExp(`No Mac app for staging at ${COMMIT}, or at a commit before it with the same Mac native code, reached the inbox in time`));
+    assert.doesNotMatch(s.log(), /worktree add|mac-inbox (verify|record)/);
+  });
+
+  it("takes no build whose commit the pipeline's own build finds with other Mac native code, and waits on", () => {
+    const s = configured();
+    live(s);
+    olderCheckout(s, { electron: 'e9', ios: 'i1' });
+    const r = s.run(['mac'], { ...macStep(s, { from: OLDER }), SAME_NATIVE: OLDER, MAC_WAIT_SECONDS: '0' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, new RegExp(`The pipeline's build of ${OLDER} has other Mac native code than this build's, so staging doesn't take its Mac app`));
+    assert.match(r.stderr, /reached the inbox in time/);
+    assert.doesNotMatch(s.log(), /mac-inbox (verify|record)/);
+    assert.throws(() => readFileSync(join(s.root, 'mac-checked/staging/Multiscale.dmg')));
   });
 
   it("hands on the live app's record when no new app is needed, so a release still names the app that runs it", () => {
@@ -669,9 +744,9 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     live(s);
     const r = s.run(['mac'], { ...macStep(s, { inbox: false }), MAC_WAIT_SECONDS: '0' });
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, new RegExp(`No Mac app for staging at ${COMMIT} reached the inbox in time`));
+    assert.match(r.stderr, new RegExp(`No Mac app for staging at ${COMMIT}, or at a commit before it with the same Mac native code, reached the inbox in time`));
     assert.match(r.stderr, new RegExp(`gh workflow run mac-release\\.yml -f commit=${COMMIT}`));
-    assert.doesNotMatch(s.log(), /mac-inbox/);
+    assert.doesNotMatch(s.log(), /mac-inbox (verify|record)/);
   });
 
   it("stops waiting before CodeBuild's own limit, however long the wait, and says how to retry the stage", () => {
@@ -944,6 +1019,35 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     s.put('s3://bucket/state/history.json', JSON.stringify(h));
     return env;
   };
+
+  // Prod's Test step runs the suites against prod before each release publishes. A release that published and then
+  // failed them, as 2ea48ea's did when its desktop feed named a Mac app the downloads host didn't have, left prod
+  // failing every later run's Test step, so no run could publish the fix.
+  it('switches every surface a prod release switched back to what it served before when its tests then fail, and fails the run', () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['release-prod'], { ...artifacts(s, shell, 'prod'), COMMIT: 'abc123', DEPLOYED_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop iphone/);
+    // Back to what the Test step passed against this backend, so the next run's Test step can pass and publish.
+    for (const key of ['web/version.json', 'release/desktop/release.json', 'release/iphone/release.json']) assert.equal(served(s, key), '0.1.0-ccc', key);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>0.1.0-ccc</html>');
+    for (const surface of ['web', 'desktop', 'iphone']) assert.match(r.stdout, new RegExp(`Switched prod's ${surface} back from 0\\.1\\.0-abc to 0\\.1\\.0-ccc`));
+    assert.match(r.stderr, /prod's suites failed after this release published, so each surface it switched went back to what it served before/);
+    // Never recorded as released, so make release-tag doesn't tag it.
+    assert.doesNotMatch(s.log(), /\/released/);
+  });
+
+  it("leaves a surface the release didn't switch when its tests fail", () => {
+    const s = configured();
+    kept(s);
+    // The iPhone feed waits for an iPhone app with the new native code, so the release switches the rest.
+    const r = s.run(['release-prod'], { ...artifacts(s, { electron: 'e1', ios: 'i2' }, 'prod'), COMMIT: 'abc123', DEPLOYED_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    assert.equal(served(s, 'release/iphone/release.json'), '0.1.0-ccc');
+    assert.doesNotMatch(r.stdout, /Switched prod's iphone/);
+    assert.equal(served(s, 'release/desktop/release.json'), '0.1.0-ccc');
+  });
 
   it("passes a surface's bake when no release alarm is in ALARM, reading prod's alarms as its release role", () => {
     const s = configured();

@@ -1,0 +1,87 @@
+name: Performance on iPhone
+# The iPhone's performance KPIs (docs/performance.md, "In CI"): nightly when frontend/ changed since the last run, and
+# on a PR when someone adds the perf-ios label, never on every PR, since the macOS runners are few and shared. One
+# runner for about 45 minutes, at most 60, at 05:00 UTC, away from midnight UTC when the iPhone tests' seed waits.
+# Report-only. The nightly's results go to the perf-data branch.
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-ios-${{ github.event.pull_request.number || 'nightly' }}
+  cancel-in-progress: false
+
+jobs:
+  changed:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'perf-ios'
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The newest iPhone run on perf-data names its commit; nothing changed in frontend/ since means nothing to time.
+      - id: check
+        run: |
+          last="$(git ls-tree -r --name-only origin/perf-data -- runs 2>/dev/null | grep -- '-ios-' | sort | tail -n 1 | sed 's/.*-ios-\(.*\)\.json/\1/')"
+          if [ "${{ github.event_name }}" = schedule ] && [ -n "$last" ] && git diff --quiet "$last" HEAD -- frontend/ 2>/dev/null; then
+            echo "Nothing in frontend/ changed since the last iPhone run, at $last."
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          fi
+
+  time:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      # As CI's iPhone job: the Swift packages cached by Package.resolved, and resolved with retries.
+      - id: spm
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            frontend/ios/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('frontend/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Resolve Swift packages
+        run: |
+          for attempt in 1 2 3; do
+            xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -derivedDataPath ios/DerivedData && exit 0
+            sleep $((attempt * 20))
+          done
+          exit 1
+        working-directory: frontend
+      - name: Time the iPhone
+        run: scripts/test-perf-ios.sh
+      - if: github.event_name == 'schedule'
+        name: Add the run to perf-data
+        env:
+          COMMIT: ${{ github.sha }}
+          RUNNER: macos-15
+        run: scripts/perf-data.sh ios frontend/test-results/perf-ios/summary/this.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-ios
+          path: frontend/test-results/perf-ios
+          retention-days: 30
+          if-no-files-found: ignore

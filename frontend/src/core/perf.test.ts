@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { inputTime, MEASURE_LIMIT, perf, watchPointers } from './perf';
+import { inputTime, KEEP, KEPT, MEASURE_LIMIT, perf, watchPointers } from './perf';
 
 const measures = (name?: string) => performance.getEntriesByType('measure').filter((m) => !name || m.name === name);
 
@@ -94,6 +94,30 @@ describe('perf', () => {
       perf.stop('drag.frame');
     }
     expect(measures().length).toBeLessThanOrEqual(MEASURE_LIMIT);
+  });
+});
+
+describe('keeping measures for the iPhone runner', () => {
+  it('keeps each measure, and when Today was interactive, where the test page reads them, once asked to', async () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => void stored.set(k, v) });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 0));
+    perf.start('nav.week');
+    perf.stop('nav.week');
+    expect(stored.get(KEPT)).toBeUndefined();
+    stored.set(KEEP, '1');
+    perf.reset();
+    perf.start('nav.week', performance.now() - 12);
+    perf.stop('nav.week');
+    perf.markAfterPaint('today:interactive');
+    await vi.waitFor(() => expect(JSON.parse(stored.get(KEPT)!)).toHaveLength(2));
+    const [week, interactive] = JSON.parse(stored.get(KEPT)!) as [string, number][];
+    expect(week![0]).toBe('nav.week');
+    expect(week![1]).toBeGreaterThanOrEqual(12);
+    // The mark as a wall-clock time, since the test measures the launch from its own clock.
+    expect(interactive![0]).toBe('today:interactive@');
+    expect(Math.abs(interactive![1] - Date.now())).toBeLessThan(5000);
+    performance.clearMarks('today:interactive');
   });
 });
 

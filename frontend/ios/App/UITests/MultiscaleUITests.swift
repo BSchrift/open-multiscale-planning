@@ -441,6 +441,29 @@ final class ShellUITests: XCTestCase {
         allowNotificationsIfAsked()
     }
 
+    func testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+        // The seeded app's clock reads 10am, so the afternoon and evening are still to come.
+        let app = launchApp(seed: "Seed plan")
+        let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
+        onToday(day, in: app)
+        // The day runs from 7am to 10pm down the card. Brought up the screen, then held low on it, in the afternoon or
+        // evening, above the tab bar, and let go after the hold.
+        app.swipeUp()
+        let screen = app.windows.firstMatch.frame
+        let y = min(day.frame.maxY - 40, screen.maxY - 160)
+        XCTAssertGreaterThan(y, day.frame.midY, "the lower half of the day isn't on screen. On screen:\n\(app.debugDescription)")
+        let at = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: day.frame.midX, dy: y))
+        at.press(forDuration: 0.8)
+
+        // Capture opens on the draft, saying its day and time.
+        let when = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch
+        exists(when)
+        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.tapWeb("Save")
+        // Saved there as an Inbox item, its block drawn as one: a slider, since it's still to come.
+        exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
+    }
+
     func testABlockHeldOnWeeksDayThenDraggedDownMovesLater() throws {
         let app = launchApp(seed: "Seed later")
         // Asked before the drag, so the question can't land in the middle of it.
@@ -1004,5 +1027,77 @@ final class HistoryUITests: XCTestCase {
         numbers["first_sync_ms"] = firstSync
         let json = try JSONSerialization.data(withJSONObject: numbers, options: [.sortedKeys])
         print("HISTORY iphone \(String(decoding: json, as: UTF8.self))")
+    }
+}
+
+/**
+ * The iPhone's performance KPIs (docs/performance.md), for scripts/test-perf-ios.sh only: a year of history loaded as a
+ * sync would, then launches, capture, the screens and coming back to the app, timed by the app's own marks, which it
+ * keeps for the test page to hand back as one line, PERF iphone {…}. Nothing here is checked against a target.
+ */
+final class PerfUITests: XCTestCase {
+    private let environment = ProcessInfo.processInfo.environment
+    override func setUp() { continueAfterFailure = false }
+
+    func testLaunchesCaptureScreensAndResumeOnAYearOfHistory() throws {
+        guard environment["MULTISCALE_PERF"] == "YES" else { throw XCTSkip("needs: scripts/test-perf-ios.sh, which reads the numbers this prints.") }
+        let rounds = Int(environment["MULTISCALE_PERF_ROUNDS"] ?? "") ?? 30
+        let launches = Int(environment["MULTISCALE_PERF_LAUNCHES"] ?? "") ?? 5
+        let checks = XCUIApplication()
+        checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
+        checks.launchLoaded()
+        exists(checks.webText("ready"), timeout: launchPatience)
+        checks.tapWeb("Erase", until: checks.webText("erased"))
+        checks.tapWeb("Seed year", until: checks.webText("seeded"))
+        checks.tapWeb("Keep measures", until: checks.webText("keeping"))
+        checks.terminate()
+
+        // Each launch from the test's clock, which the page's wall clock shares, to Today interactive.
+        let app = XCUIApplication()
+        var launched: [Double] = []
+        for _ in 0..<launches {
+            launched.append(Date().timeIntervalSince1970 * 1000)
+            app.launchLoaded()
+            exists(app.webButton("Today"), timeout: launchPatience)
+            app.terminate()
+        }
+        launched.append(Date().timeIntervalSince1970 * 1000)
+        app.launchLoaded()
+        exists(app.webButton("Today"), timeout: launchPatience)
+
+        for _ in 0..<rounds {
+            let field = app.page.textFields["Capture to Inbox"]
+            app.tapWeb("Capture a task", until: field)
+            app.type("Buy\n", into: field)
+            XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
+        }
+        for _ in 0..<rounds {
+            app.tapWeb("Week")
+            app.tapWeb("Today")
+            for screen in ["Done", "Analytics"] {
+                app.tapWeb("More")
+                let back = app.webButton("Back to More")
+                if back.exists { back.tap() }
+                app.tapWeb(anyStartingWith: screen)
+                exists(back)
+            }
+            app.tapWeb("Today")
+        }
+        for _ in 0..<5 {
+            XCUIDevice.shared.press(.home)
+            app.activate()
+            exists(app.webButton("Today"))
+        }
+        app.terminate()
+
+        checks.launchLoaded()
+        exists(checks.webText("ready"), timeout: launchPatience)
+        checks.tapWeb("Measures")
+        let line = checks.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'measures:'")).firstMatch
+        exists(line, timeout: 120)
+        var numbers = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.label.dropFirst("measures:".count).utf8)) as? [String: Any])
+        numbers["launched"] = launched
+        let json = try JSONSerialization.data(withJSONObject: numbers, options: [.sortedKeys])
+        print("PERF iphone \(String(decoding: json, as: UTF8.self))")
     }
 }

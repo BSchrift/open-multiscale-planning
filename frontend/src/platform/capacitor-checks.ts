@@ -11,7 +11,9 @@ import { META, openDb, refreshStatistics } from '../core/db';
 import type { Db } from '../core/db';
 import { planProblems, seedLarge } from '../core/queries-testing';
 import { nextStretch } from '../core/plan';
-import { getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
+import { historyChanges } from '../core/history-testing';
+import { KEEP, KEPT } from '../core/perf';
+import { applyRemote, getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
@@ -249,6 +251,25 @@ button('Seed today', () =>
 button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
 // A block half an hour out, still to come with free time after it, for Week's day to move.
 button('Seed later', () => seed(platform.db, [{ title: 'Shape the loaf', from: 30, to: 90 }]));
+// The performance runner's data and numbers (PerfUITests, scripts/test-perf-ios.sh): a year of history ending now, as a
+// sync would apply it; the app's measures kept from now on; and then what it kept, by name, with the app's peak memory
+// in the run before this page's, the session that was timed.
+button('Seed year', async () => {
+  await applyRemote(platform.db, historyChanges({ weeks: 52, now: Date.now() }));
+  return 'seeded';
+});
+button('Keep measures', async () => {
+  localStorage.setItem(KEEP, '1');
+  localStorage.removeItem(KEPT);
+  return 'keeping';
+});
+button('Measures', async () => {
+  const kept = JSON.parse(localStorage.getItem(KEPT) ?? '[]') as [string, number][];
+  const byName: Record<string, number[]> = {};
+  for (const [name, value] of kept) (byName[name] ??= []).push(value);
+  const previous = (await platform.diagnostics?.snapshot())?.previous;
+  return `measures:${JSON.stringify({ measures: byName, peakMb: previous ? Math.round(previous.peak / 1048576) : null, warnings: previous?.warnings ?? null })}`;
+});
 // Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
 button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');

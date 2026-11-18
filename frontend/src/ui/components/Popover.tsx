@@ -1,7 +1,7 @@
 // Small in-place editor. On desktop it hangs below its anchor: put it inside an element with position: relative,
 // such as .editrow. On phone there's no room for that, so it's a sheet.
 
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useApp } from '../app/store';
 import { Sheet } from './Sheet';
@@ -17,6 +17,14 @@ function Anchored(props: { label: string; onClose(): void; children: ReactNode }
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [ref, onClose]);
+  // The room left below it in the window, for one that must fit there, such as Pick's in the sticky This week column,
+  // which the page can't scroll into view.
+  // shortcut: measured once, as it opens, so resizing the window while it's open keeps the old room; measure on resize
+  // if someone hits that.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) el.style.setProperty('--room', `${Math.max(0, window.innerHeight - el.getBoundingClientRect().top - 16)}px`);
+  }, [ref]);
   return (
     <div ref={ref} className="panel stack8 qpop popover" role="dialog" aria-label={props.label} tabIndex={-1}>
       {props.children}

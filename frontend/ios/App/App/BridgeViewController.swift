@@ -413,6 +413,7 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "MultiscaleChecks"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "share", returnType: CAPPluginReturnPromise),
     ]
 
     /// The Control Center button's intent, which iOS runs in the app's process when the button is tapped.
@@ -425,6 +426,16 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
             } catch {
                 call.reject(String(describing: error))
             }
+        }
+    }
+
+    /// What the share extension does with text shared to it: queues it for the app.
+    @objc func share(_ call: CAPPluginCall) {
+        do {
+            try ShareQueue.add(call.getString("text") ?? "")
+            call.resolve()
+        } catch {
+            call.reject(String(describing: error))
         }
     }
 }

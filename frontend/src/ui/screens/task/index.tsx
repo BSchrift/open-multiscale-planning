@@ -118,13 +118,58 @@ export function TaskPopupFor(props: { id: string; note?: string | undefined; clo
   return <TaskPopup key={id} task={data.task} places={data.places} note={props.note} close={close} block={props.block} />;
 }
 
+/**
+ * Delete task: it goes, and its blocks still to come come off the calendar, with Undo. `then` runs before the toast,
+ * such as closing what it was pressed in, whose focus would otherwise return over Undo's. Resolves to whether it did.
+ */
+export function useDeleteTask() {
+  const { clock } = useApp();
+  const toast = useToast();
+  const remove = useMutation((w, id: string) => closeTask(w, id, 'deleted', clock));
+  const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
+  return {
+    pending: remove.pending,
+    run: async (task: Pick<Task, 'id' | 'title'>, then?: () => void) => {
+      const reverse = await remove.run(task.id);
+      if (!reverse) return false;
+      then?.();
+      // The rows it was in lose it, so focus moves to Undo rather than the page.
+      toast.show(`Deleted ${task.title}.`, { undo: () => undo.run(reverse), focusUndo: true });
+      return true;
+    },
+  };
+}
+
+/** Delete task, asked first where the popup's Save and Cancel aren't there to show what goes, as from a block's menu. */
+export function DeleteTask(props: { task: Pick<Task, 'id' | 'title'>; onClose(): void }) {
+  const { task, onClose } = props;
+  const { layout } = useApp();
+  const remove = useDeleteTask();
+  const id = useId();
+  const btn = { className: layout === 'phone' ? 'grow' : undefined };
+  return (
+    <Sheet label={`Delete ${task.title}?`} describedBy={id} onClose={onClose}>
+      <h2>Delete {task.title}?</h2>
+      <p id={id}>Its blocks come off the calendar. You can undo this.</p>
+      <div className="row">
+        <Button {...btn} variant="destructive" filled icon="bin" type="button" disabled={remove.pending} onClick={() => void remove.run(task, onClose)}>
+          Delete task
+        </Button>
+        <Button {...btn} type="button" onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
 function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string | undefined; close(): void; block?: ReactNode }) {
   const { task, places, close } = props;
   const { layout, clock } = useApp();
   const today = useToday();
   const toast = useToast();
   const apply = usePlanChange();
-  const remove = useMutation((w) => closeTask(w, task.id, 'deleted', clock));
+  const remove = useDeleteTask();
   // Into a backlog, made if it's new, with any other edits in the same change.
   const file = useMutation(async (w, goalId: string, edits: Fields<'task'>) => {
     const edited = Object.keys(edits).length ? await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields: edits }] }) : { writes: [] };
@@ -177,13 +222,7 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; note?: string 
     if (saved) close();
   };
 
-  const deleteTask = async () => {
-    const reverse = await remove.run();
-    if (!reverse) return;
-    close();
-    // The rows it was in lose it, so focus moves to Undo rather than the page.
-    toast.show(`Deleted ${task.title}.`, { undo: () => undo.run(reverse), focusUndo: true });
-  };
+  const deleteTask = () => void remove.run(task, close);
 
   const choices = places.some((p) => p.value === place) ? places : [{ value: place, label: 'Where it is now' }, ...places];
   return (

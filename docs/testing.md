@@ -18,6 +18,12 @@ feature gets a row, and a test that covers a cell gets named in it.
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
 | Performance KPIs | `frontend/e2e/perf/` | Web desktop, web phone and the Mac app | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`) |
 
+**The deployed journey, on the release before.** Prod's Test step runs the deployed web suite against the web app prod
+still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
+journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
+bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
+there, before prod's Test step meets it.
+
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
 on a data folder of its own, with the test's time zone and colour scheme. The journeys do this. A spec that seeds
@@ -143,7 +149,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | The block's details beside the week | covered (week-blocks: "desktop: a block clicked on the grid shows its details beside the week…") | n/a | missing | n/a |
 | Phone: pinching the day zooms its hours, around the fingers, from the whole day to three times, kept on the device | n/a | covered (week-pinch, in Chromium: WebKit here can't put down a second finger; pinch.test: the zoom's sums) | n/a | covered (testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem) |
 | Phone: the day strip, a block's sheet, Move to another day, Length, Remove | n/a | covered (week: "phone: the day strip, a block sheet, and Move to another day", "phone: a day with no slot stays readable"; week-blocks: "phone: a block's sheet changes its length on a slider…") | n/a | partly (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek: it draws) |
-| To schedule above the week: a suggestion places it, Undo, drag both ways | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
+| To schedule above the week: a suggestion places it, Undo, drag both ways, rows shared across days | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…", "desktop: what waits above the week shares rows across days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
 | Add a task at its suggested time; Edit this week's plan | covered (week: "desktop: add a task at its suggested time") | covered (week: "phone: Edit this week's plan and add a task from the drawer") | missing | missing |
 | Week arrows and This week | covered (week: "week arrows reach any week and This week comes back") | covered (same) | partly (journeys/answered-weeks) | missing |
 | Past weeks: read only, linked to their analytics | covered (week-blocks: "a past week can be read but not changed…") | covered (same) | missing | missing |

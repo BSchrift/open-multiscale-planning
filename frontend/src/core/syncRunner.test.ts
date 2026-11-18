@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock, parseClock } from './clock';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
-import { CALENDAR_ID, getRecord, transact } from './records';
+import { applyRemote, CALENDAR_ID, getRecord, transact } from './records';
 import { configureRetention } from './retention';
 import { parsePeriod } from '../../../config/retention';
 import { SyncError, syncStatus, unsyncedChanges } from './sync';
@@ -210,6 +210,23 @@ describe('what it measures', () => {
     await createSyncRunner({ db: other, clock: t.clock, lifecycle: memoryLifecycle(), send: (req) => t.server.send(req) }).syncNow();
     await t.runner.syncNow();
     expect(perf.pending('sync.pull')).toBeDefined();
+  });
+});
+
+describe("a note's leftover attachments", () => {
+  it('are swept after a sync that pulled to the end, and never at launch or after one that failed', async () => {
+    const t = await setup();
+    const by = (iso: string) => `${Date.parse(iso)}-000000-other`;
+    // Pulled from another device: a note deleted there, and a photo added to it offline before.
+    await applyRemote(t.db, [
+      { type: 'memo', id: 'note:a', fields: { title: { v: 'Hall paint', c: by(NOW) }, deleted_at: { v: NOW, c: by(NOW) } } },
+      { type: 'attachment', id: 'photo', fields: { memo_id: { v: 'note:a', c: by('2026-11-02T14:00:00Z') }, kind: { v: 'photo', c: by('2026-11-02T14:00:00Z') } } },
+    ]);
+    t.send.mockRejectedValueOnce(new SyncError('offline'));
+    await t.runner.syncNow();
+    expect((await getRecord(t.db, 'attachment', 'photo'))!.deleted_at ?? null).toBeNull();
+    await t.runner.syncNow();
+    expect((await getRecord(t.db, 'attachment', 'photo'))!.deleted_at).toBe(NOW);
   });
 });
 

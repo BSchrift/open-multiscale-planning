@@ -77,11 +77,12 @@ interface OutboxRow {
 const byteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
 /**
- * The next records to send, in id order, up to 99 or BATCH_BYTES. A record too large for the server stays in the
- * outbox, set aside and counted in `held`, so it can't hold up the rest. One transaction, so a record and its outbox
- * rows can't be read mid-edit.
+ * The next records to send, in id order, up to 99 or BATCH_BYTES. A record too large for the server, or one it has
+ * refused this sync, stays in the outbox, set aside and counted in `held`, so it can't hold up the rest. Each record
+ * up to `oneByOne` goes alone, to find the one the server refused in a batch. One transaction, so a record and its
+ * outbox rows can't be read mid-edit.
  */
-function readBatch(db: Db) {
+function readBatch(db: Db, refused: ReadonlySet<string>, oneByOne: string) {
   return db.transaction(async (tx) => {
     const rows: OutboxRow[] = [];
     const changes: RecordChange[] = [];
@@ -109,7 +110,7 @@ function readBatch(db: Db) {
         }
         // The server merges into what it holds, which is all of this, so the whole record has to fit, with its room.
         const whole = byteLength(Object.fromEntries(Object.keys(data).map((f) => [f, { v: data[f], c: clocks[f] }])));
-        if (byteLength(change.fields) > RECORD_BYTES || whole > RECORD_BYTES + MERGED_ROOM) {
+        if (refused.has(record_id) || byteLength(change.fields) > RECORD_BYTES || whole > RECORD_BYTES + MERGED_ROOM) {
           // A deleted record can't be shortened, so its delete goes alone, which the server has room for on what it
           // holds. The rest waits without counting, and is held again if the record comes back.
           const deleted = own.filter((r) => r.field === 'deleted_at');
@@ -123,7 +124,7 @@ function readBatch(db: Db) {
         changes.push(change);
         rows.push(...own);
         bytes += size;
-        if (changes.length === BATCH_RECORDS) return { rows, changes, held, more: true };
+        if (changes.length === BATCH_RECORDS || record_id <= oneByOne) return { rows, changes, held, more: true };
       }
     }
   });
@@ -193,12 +194,17 @@ function assertResponse(res: SyncResponse): void {
 
 /**
  * One full sync. Throws on failure, leaving the outbox and cursor as they were before the failed request. A record too
- * large to send waits in the outbox while the rest syncs, and then the sync throws too_large. Resolves to how many
- * changes it brought down.
+ * large to send waits in the outbox while the rest syncs, and then the sync throws too_large. So does one the server
+ * refuses as too long, which send reports as too_large: its batch goes again one record at a time to find it. Resolves
+ * to how many changes it brought down.
  * shortcut: a batch the server refuses for any other reason fails whole every time until edited; send its records one
  * by one on a refusal if that ever happens in practice.
+ * shortcut: what the server refused isn't kept between syncs, so each sync finds a held record again with a refused
+ * request and its batch one by one. Keep the refused records' clocks if that ever costs too much.
  */
 export async function runSync(db: Db, send: SyncSend): Promise<number> {
+  const refused = new Set<string>();
+  let oneByOne = '';
   let cursor = Number((await getMeta(db, META.cursor)) ?? 0);
   let seen = (await getMeta(db, META.generation)) ?? '';
   // Starting from 0, nothing here can be an older copy of the server's: every id it sends goes in here, and a reset
@@ -209,8 +215,19 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
   let resets = 0;
   let applied = 0;
   for (;;) {
-    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db);
-    const res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db, refused, oneByOne);
+    let res: SyncResponse;
+    try {
+      res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+    } catch (err) {
+      // The server refuses a whole request for one record too long, without saying which, so the batch goes again one
+      // record at a time, and the one it refuses alone is held. Refused again once held, it can't be held any further.
+      const alone = changes.length === 1 ? changes[0]!.id : null;
+      if (!(err instanceof SyncError && err.code === 'too_large') || changes.length === 0 || (alone && refused.has(alone))) throw err;
+      if (alone) refused.add(alone);
+      else oneByOne = changes.at(-1)!.id;
+      continue;
+    }
     assertResponse(res);
     // A restore shows as a new generation. The cursor check also catches one whose generation was never written, but
     // only until other devices move the counter past this cursor.
@@ -325,13 +342,16 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
   return res;
 }
 
-/** The real network behind runSync. */
+/** The server's codes for a request refused because one record's text is too long. */
+const TOO_LONG: unknown[] = ['notes_too_long', 'memo_too_long'];
+
+/** The real network behind runSync. A record refused as too long is reported as too_large, which runSync holds. */
 export function createHttpSend(deps: ApiDeps): SyncSend {
   return async (request) => {
     const res = await apiPost(deps, '/sync', request);
     if (res.ok) return (await res.json()) as SyncResponse;
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-    throw new SyncError(body?.error === 'clock_ahead' ? 'clock_ahead' : 'error');
+    throw new SyncError(body?.error === 'clock_ahead' ? 'clock_ahead' : TOO_LONG.includes(body?.error) ? 'too_large' : 'error');
   };
 }
 

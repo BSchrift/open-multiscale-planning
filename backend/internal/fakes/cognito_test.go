@@ -403,6 +403,23 @@ func TestGatewayAcceptsBothCognitoTokenKinds(t *testing.T) {
 	}
 }
 
+// The access token says when its sign-in was, and a refresh keeps it, so deleting an account can ask for a recent one.
+func TestGatewayPassesOnWhenTheSignInWas(t *testing.T) {
+	c, srv, clock := newCognito(t)
+	gw := &Gateway{Issuer: "http://issuer.test", Audience: testClient, Keys: c.PublicKeys, Now: clock.Now}
+	h := gw.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(api.AuthTimeFrom(r.Context()).UTC().Format(time.RFC3339)))
+	}))
+	_, tokens := token(t, srv, codeForm(signIn(t, srv, nil), testVerifier))
+	clock.Set(time.Unix(1800003000, 0))
+	_, refreshed := token(t, srv, url.Values{"grant_type": {"refresh_token"}, "client_id": {testClient}, "refresh_token": {tokens["refresh_token"].(string)}})
+	for _, jwt := range []any{tokens["access_token"], refreshed["access_token"]} {
+		if rec := call(h, "Bearer "+jwt.(string)); rec.Code != 200 || rec.Body.String() != "2027-01-15T08:00:00Z" {
+			t.Fatalf("%d %q", rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestGatewayRefuses(t *testing.T) {
 	c, srv, clock := newCognito(t)
 	h := gatewayFor(t, c, clock)

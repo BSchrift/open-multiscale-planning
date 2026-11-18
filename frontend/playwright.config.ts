@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertInstalled } from './scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(import.meta.dirname);
 
 // Screens run against the browser build: its database is on OPFS in desktop Chromium, and in memory and IndexedDB in
 // phone WebKit, whose ephemeral contexts have no OPFS. storage.spec.ts opens a profile on disk to reach OPFS in both.

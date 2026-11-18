@@ -7,7 +7,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { partlyLeft, spentLine, workMinutes } from '../../../core/blocks';
+import { halfOfPractice, partlyLeft, spentLine, workMinutes } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
 import { formatMinutes, formatTime, formatWeekday, localDate } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
@@ -123,7 +123,7 @@ function MissedRows(props: { blocks: readonly BlockRow[]; onClose(): void }) {
 
   /** Where Partly starts: what was left before, or for a practice half its length. */
   const startOf = (b: BlockRow): Minutes => {
-    if (b.practice_id) return Math.max(5, Math.round(workMinutes(b) / 10) * 5);
+    if (b.practice_id) return halfOfPractice(b);
     const task = tasks?.find((t) => t?.id === b.task_id);
     return task ? partlyLeft(task, b) : workMinutes(b);
   };

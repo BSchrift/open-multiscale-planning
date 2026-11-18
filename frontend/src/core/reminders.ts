@@ -156,7 +156,7 @@ function remindersFor(block: BlockRow, settings: ReminderSettings, snoozedTo: In
       at: block.end,
       title: 'Block ended',
       body: practice ? name : [spent, `Did you finish ${name}?`].filter(Boolean).join(' '),
-      // Practice time is logged rather than judged. Tapping the notification opens the slider for a part of it.
+      // Practice time is logged rather than judged. Tapping the notification opens the prompt, whose Partly logs a part.
       actions: practice
         ? [
             { id: A.logAll, title: `All ${formatMinutes(workMinutes(block))}` },

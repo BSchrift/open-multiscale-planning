@@ -23,7 +23,8 @@ import { planningWeekOf } from '../../../core/planning';
 import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
-import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
+import { dayName, dragCard, slotRange } from '../../components/weekgrid';
+import { HoldWeekGrid } from '../../components/weekgrid/HoldWeekGrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
 import type { LaneItem, Placeable } from './data';
@@ -32,6 +33,7 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { TaskPopupFor } from '../task';
@@ -66,6 +68,8 @@ export function DesktopWeek(props: WeekProps) {
   const [selected, setSelected] = useState<string | null>(props.place);
   const [draft, setDraft] = useState<Slot | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // Landing on placed blocks asks first: keep both, replace them, or leave it.
+  const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   // A task's block made shorter asks what about the rest, until answered or another block is chosen.
   const [split, setSplit] = useState<Shortened | null>(null);
   const [moved, setMoved] = useState<string | null>(null);
@@ -138,31 +142,42 @@ export function DesktopWeek(props: WeekProps) {
     props.setEditing(false);
   };
 
-  const onChange = (id: string, slot: Slot) => {
+  const onChange = async (id: string, slot: Slot) => {
     if (id === 'draft') return setDraft(slot);
     if (id === PLANNING) return setPlanAt(slot);
     const b = model.blocks.find((x) => x.id === id);
     if (!b) return;
+    // A day with another of a practice's sessions refuses it before anything asks. Cancelled, the save resolves to
+    // nothing, and the grid puts the block back.
+    const refused = !!b.practice_id && slot.date !== b.date && model.blocks.some((x) => x.id !== b.id && x.practice_id === b.practice_id && x.date === slot.date);
+    const { go, off } = refused ? { go: true, off: [] } : await landing(b.title, slot, id, b);
+    if (!go) return undefined;
     // A session moved to another day is for this week only, so nothing asks about future weeks.
     if (b.practice_id && slot.date !== b.date) {
       setAsk(null);
-      return act.moveSessionDay(b, slot, model.blocks);
+      const moved = await act.moveSessionDay(b, slot, model.blocks);
+      if (moved) takeOff(off);
+      return moved;
     }
-    const saved = act.move(id, slot);
+    const saved = await act.move(id, slot);
     setMoved(id);
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
+    takeOff(off);
     setSplit(shortened(b, slot, { task: isTaskBlock(b.kind), underWay: !!b.now, week: data.week, title: b.title, open: split }));
     return saved;
   };
   const place = async (what: Placeable, slot: Slot) => {
-    if (await act.place(what, slot)) {
+    const { go, off } = await landing(what.title, slot);
+    if (go && (await act.place(what, slot))) {
+      takeOff(off);
       choose(null);
       props.donePlacing();
     }
   };
-  const placeItem = (item: LaneItem, slot: Slot) => {
+  const placeItem = async (item: LaneItem, slot: Slot) => {
     setOpenItem(null);
-    void act.place(item, slot);
+    const { go, off } = await landing(item.title, slot);
+    if (go && (await act.place(item, slot))) takeOff(off);
   };
   const toggleItem = (id: string) => {
     // Planning opens its times, as it does on Today.
@@ -434,7 +449,7 @@ export function DesktopWeek(props: WeekProps) {
                 )}
               </section>
             )}
-            <WeekGrid
+            <HoldWeekGrid
               ctx={model.ctx}
               blocks={gridBlocks}
               info={model.info}
@@ -444,6 +459,8 @@ export function DesktopWeek(props: WeekProps) {
               ghosts={ghosts}
               editing={editing || !!plan}
               lockPast={editing || !!plan}
+              // Hold to create: never while a block is open or being placed, or a card's suggested times are showing.
+              holdOff={!!plan || !!drafted || !!openBlock || !!openItem}
               lane={model.unscheduled.flatMap((x) =>
                 // The planning being placed is the block, not a card waiting above its days.
                 x.dates && x.id !== props.place
@@ -482,6 +499,7 @@ export function DesktopWeek(props: WeekProps) {
                 else if (!editing) setOpenBlock(openBlock === id ? null : id);
               }}
             />
+            {asking}
             {pop && <TaskPopupFor id={pop.task} close={() => setPop(null)} block={popRow && <BlockSection block={popRow} {...popActions} />} />}
             {!editing && (
               <div className="legend wklegend">

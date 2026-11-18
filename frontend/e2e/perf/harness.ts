@@ -11,13 +11,16 @@
 //   PERF_OUT       where the results go (test-results/perf/raw)
 
 import { execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { parse } from 'yaml';
 import type { Platform } from '../../../config/perf';
-import { emptyAccount, historyChanges } from '../../src/core/history-testing';
+import { loadRetention } from '../../../config/retention';
+import { emptyAccount, historyChanges, keptHistory } from '../../src/core/history-testing';
 import type { RecordChange } from '../../src/core/types';
+import { openWithHistory, readRecord } from '../seed';
 
 const num = (name: string, fallback: number) => (process.env[name] ? Number(process.env[name]) : fallback);
 export const SAMPLES = num('PERF_SAMPLES', 100);
@@ -46,6 +49,23 @@ export function scenarioData(scenario: string): RecordChange[] {
   if (scenario === 'one-year') return historyChanges({ weeks: 52, now });
   if (scenario === 'five-year') return historyChanges({ weeks: 260, now });
   throw new Error(`No data for the scenario ${scenario}: use empty, one-year or five-year.`);
+}
+
+/**
+ * Opens the app on the account as its first launch leaves it. The records carry no expiry, as those from before retention
+ * don't, so that launch works out each one's and then removes what has expired (core/expiry.ts): over half of five
+ * years, with Today empty until it's done, which takes minutes on the slowed phone. A device does that once, so no KPI
+ * times it: this launches once more and waits for a record that launch removes to be gone.
+ */
+export async function openLaunched(page: Page, changes: readonly RecordChange[]): Promise<void> {
+  await openWithHistory(page, changes);
+  // The runner's builds are local's (scripts/test-perf.sh), whose deleted period says what that launch removes.
+  const { deleted } = loadRetention('local', { read: (path) => readFileSync(path, 'utf8'), parse });
+  const kept = new Set(keptHistory(deleted, Date.now(), [...changes]));
+  const gone = changes.find((change) => !kept.has(change));
+  if (!gone) return;
+  await page.reload();
+  await expect.poll(() => readRecord(page, gone.type, gone.id), { timeout: 120_000 }).toBeUndefined();
 }
 
 /** Samples by KPI, for one build, platform and scenario. */

@@ -201,9 +201,11 @@ test('the Time slider saves the estimate as it moves, even for an item skipped, 
   const slider = card(page).getByRole('slider', { name: 'Time' });
   await expect(slider).toHaveAttribute('aria-valuetext', 'No estimate');
   await slider.focus();
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  // Five minutes a step, each checked before the next, as each one saves.
+  for (const text of ['5m', '10m', '15m', '20m', '25m', '30m']) {
+    await page.keyboard.press('ArrowRight');
+    await expect(slider).toHaveAttribute('aria-valuetext', text);
+  }
   await processTo(page, phone, 'One offs');
   await expect(toast(page)).toContainText('Added Call the bank to One offs.');
 
@@ -287,6 +289,35 @@ test('desktop: W, E and G do what their buttons do, D asks and Enter or a second
   expect(errors).toEqual([]);
 });
 
+test('a new project from Process needs a goal: Add project says so with focus on Goal, then makes it under the one chosen', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [{ type: 'objective', id: 'g1', fields: { title: 'Keep the house', state: 'active' } }, ...records]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 3 to sort' : 'Inbox' }).click();
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  if (phone) await card(page).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await picker.fill('Fix up the shed');
+  if (phone) await page.getByRole('option', { name: '+ New project “Fix up the shed”' }).click();
+  else await picker.press('Enter');
+  const form = phone ? page.getByRole('dialog', { name: 'New project' }) : card(page).getByRole('form', { name: 'New project' });
+  const goal = form.getByRole('combobox', { name: 'Goal' });
+  await expect(goal).toHaveValue('');
+  await expect(form.getByText('Every project sits under a goal.')).toBeVisible();
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(form.getByRole('alert')).toHaveText('Choose a goal for Fix up the shed, or make a new one.');
+  await expect(goal).toBeFocused();
+  await page.screenshot({ path: info.outputPath('process-project-needs-goal.png') });
+  await goal.selectOption({ label: 'Keep the house' });
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(toast(page)).toContainText('Created Fix up the shed, under Keep the house.');
+  await card(page).getByRole('button', { name: 'Add to Fix up the shed', exact: true }).click();
+  await expect(toast(page)).toContainText('Added Call the bank to Fix up the shed.');
+  expect(errors).toEqual([]);
+});
+
 test('desktop: a click outside the card closes Process, as Exit does, and what was changed on the card stays', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'On phone Process fills the screen, so there is no outside to click.');
   const errors = await open(page, false);
@@ -295,14 +326,14 @@ test('desktop: a click outside the card closes Process, as Exit does, and what w
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  await expect(slider).toHaveAttribute('aria-valuetext', '10m');
   // A click on the card itself leaves it open.
   await card(page).getByText('1 of 3').click();
   await expect(card(page)).toBeVisible();
   await page.mouse.click(20, 980);
   await expect(card(page)).toHaveCount(0);
   await expect(rows(page)).toHaveText([/Call the bank/, /Fix the gate/, /Buy stamps/]);
-  await expect(rows(page).filter({ hasText: 'Call the bank' })).toContainText('30m estimate');
+  await expect(rows(page).filter({ hasText: 'Call the bank' })).toContainText('10m estimate');
   expect(errors).toEqual([]);
 });
 
@@ -318,7 +349,12 @@ test('Add details sends a task with its time straight to One offs, past the Inbo
   if (!phone) await expect(capture.getByText('Saves to One offs')).toBeVisible();
   const slider = capture.getByRole('slider', { name: 'Time' });
   await slider.focus();
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  // Five minutes a step, each checked before the next.
+  for (let m = 5; m < 60; m += 5) {
+    await page.keyboard.press('ArrowRight');
+    await expect(slider).toHaveAttribute('aria-valuetext', `${m}m`);
+  }
+  await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', '1h');
   if (phone) await capture.getByRole('button', { name: 'Save' }).click();
   else await field.press('Enter');
@@ -355,5 +391,24 @@ test('Esc and Cancel drop what was typed, and on desktop a click outside keeps i
     await page.mouse.click(20, 980);
     await expect(capture).toHaveCount(0);
   }
+  expect(errors).toEqual([]);
+});
+
+test('a shared description that was cut to fit says so under it', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // As share import leaves it on this device, for the item whose description it cut.
+  await page.addInitScript(() => localStorage.setItem('multiscale.cutShares', '["shared"]'));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [{ type: 'task', id: 'shared', fields: { kind: 'inbox', title: 'Notes from the talk', notes: 'word '.repeat(4000).trim() } }]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 1 to sort' : 'Inbox' }).click();
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 1 item' }).click();
+  await expect(title(page, 'Notes from the talk')).toBeVisible();
+  const said = card(page).getByText('The description was cut to 20,000 characters.');
+  await expect(said).toBeVisible();
+  // Under the description's first lines, not over them.
+  const lines = (await card(page).locator('.pxnotes .notes').boundingBox())!;
+  expect((await said.boundingBox())!.y).toBeGreaterThanOrEqual(lines.y + lines.height);
   expect(errors).toEqual([]);
 });

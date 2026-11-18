@@ -84,7 +84,7 @@ export interface StoredRecord {
 /**
  * When a record expires, or null for never. Deleted beats everything: deleted_at plus the deleted period. A milestone
  * goes with its project, an attachment with its task, and an answer is counted from its block's end, so those take the
- * related record as parent.
+ * related record as parent. A note, and an attachment on one, expire only once deleted.
  */
 export function expiryFor(type: string, record: StoredRecord, policy: Retention, parent?: StoredRecord | null): Instant | null {
   const { data, clocks } = record;
@@ -115,6 +115,10 @@ export function expiryFor(type: string, record: StoredRecord, policy: Retention,
       return parent ? expiryFor('task', parent, policy) : null;
     case 'objective':
       return data.state === 'archived' ? after(writtenMs(clocks.state), policy.closed) : null;
+    // A note is kept until it's deleted, as every app from before notes keeps a type it doesn't know. Its attachments
+    // name no task, so they have no parent here: they're kept with it, and deleted with it.
+    case 'memo':
+      return null;
     default:
       return null;
   }

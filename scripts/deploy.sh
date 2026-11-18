@@ -58,7 +58,7 @@ if [ "$env_name" = staging ] || [ "$env_name" = prod ]; then
   # The integration suite reads this file with the strict Go loader, so stop on a file it would refuse.
   (cd "$root/config" && go run ./cmd/check "$env_name")
   echo "Building Lambdas"
-  for name in api calendar retention canary; do
+  for name in api calendar retention canary account; do
     # Each folder is the Lambda's whole package, so only the binary may be in it: an earlier deploy put config.yaml here.
     rm -rf "$root/backend/dist/$name"
     # -trimpath and an empty build id keep the binary identical when the code is, so an unchanged Lambda doesn't redeploy.
@@ -69,6 +69,11 @@ fi
 
 outputs="$(mktemp)"
 trap 'rm -f "$outputs"' EXIT
+
+# A stack's first deploy has no Lambda aliases yet, so what refers to one by ARN must wait for it then (lib/stack.ts).
+if [ "$env_name" = staging ] || [ "$env_name" = prod ]; then
+  aws cloudformation describe-stacks --stack-name "Multiscale-$env_name" >/dev/null 2>&1 || switches+=(-c firstDeploy=true)
+fi
 
 echo "Deploying Multiscale-$env_name"
 npx cdk deploy "Multiscale-$env_name" -c "deploy=$env_name" ${switches[@]+"${switches[@]}"} --outputs-file "$outputs"

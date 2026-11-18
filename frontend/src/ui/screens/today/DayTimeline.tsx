@@ -3,17 +3,17 @@
 // blocks at the same time sit side by side.
 // On the calendar, blocks still to start drag and resize as on Week, once held, so a click stays a click and a swipe
 // still scrolls, and the one under way changes its end. A click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
-// session or a planning block in its details.
+// session or a planning block in its details. A press held on empty time drafts an hour there and opens Capture on it.
 // A task's block or a practice's session also has a quick menu of what can be done to it now, the popup's own actions:
 // a right-click, or Shift-F10 or the menu key on desktop, and on phone a hold let go without moving. The Mac app has
 // macOS draw it.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
-import { currentBlock, isPaused, moveBlock, nextBlock } from '../../../core/blocks';
+import { currentBlock, isPaused, moveBlock, nextBlock, unscheduleBlock } from '../../../core/blocks';
 import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
-import type { PlanChange } from '../../../core/plan';
+import type { PlanChange, RecordWrite } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
 import type { Writer } from '../../../core/records';
 import { dayOffer, dragResult, DRAWN_DAY, GRID, slotContext, slotInstants, slotNotes } from '../../../core/slots';
@@ -30,6 +30,7 @@ import { describeBlock, formatRange, isTaskBlock, KIND_WORD, OUTCOME_WORD } from
 import type { BlockKind } from '../../components/blocks/describe';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
+import { landsOn, useBothAsk } from '../../components/blocks/BothAsk';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useOpenTask } from '../../components/task/TaskName';
@@ -39,6 +40,8 @@ import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
 import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
+import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from '../../components/weekgrid/holdCreate';
+import { Capture } from '../capture';
 import { DeleteTask, TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 import { Icon } from '../../components/ds/Icon';
@@ -92,6 +95,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number }; from: HTMLElement } | null>(null);
   /** Delete task from a block's menu, asking first. */
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
+  // Landing on another block asks first: keep both, replace it, or leave it.
+  const both = useBothAsk();
   // A task's block made shorter asks what about the rest, under the timeline, until answered.
   const [split, setSplit] = useState<Shortened | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
@@ -106,6 +111,15 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   // A dropped block stays where it landed until the saved position comes back.
   const positions = data.blocks.map((b) => `${b.id} ${b.start} ${b.end}`).join();
   useEffect(() => setDrag(null), [positions]);
+  // A hold on empty time drafts an hour there, never while a block is open, moving or just dropped. Its day and minutes
+  // come from the drawn day, which grows to fit the draft.
+  const holdNew = useHoldToCreate({
+    at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
+    move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
+    earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
+    off: !!drag || !!pop || open.size > 0,
+  });
+  const held = holdNew.draft?.slot;
 
   // Minutes after today's midnight, kept within the day, so an event over midnight still draws.
   const minutesOf = (at: string, edge: number) => (localDate(at, zone) === data.date ? localMinutes(at, zone) : edge);
@@ -155,8 +169,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     ...blockItems,
   ].sort((a, b) => a.from - b.from || (a.block ? 1 : 0) - (b.block ? 1 : 0) || (laneOf.get(a.id)?.col ?? 0) - (laneOf.get(b.id)?.col ?? 0));
 
-  const from = Math.min(DAY_FROM, ...items.map((i) => Math.floor(i.from / 60) * 60));
-  const to = Math.max(DAY_TO, ...items.map((i) => Math.ceil(i.to / 60) * 60));
+  const drawn = held ? [...items, { from: held.start, to: held.end }] : items;
+  const from = Math.min(DAY_FROM, ...drawn.map((i) => Math.floor(i.from / 60) * 60));
+  const to = Math.max(DAY_TO, ...drawn.map((i) => Math.ceil(i.to / 60) * 60));
   const y = (m: number) => ((m - from) * ph) / 60;
   const nowMin = localMinutes(clock.now(), zone);
   const hours: number[] = [];
@@ -203,7 +218,21 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const workOf = (i: Item) => ({ kind: i.kind === 'one_off' ? ('one_off' as const) : ('project' as const) });
 
   const save = async (i: Item, from: Slot, to: Slot, key = false) => {
-    const reverse = await run((w) => moveBlock(w, i.id, slotInstants(to, zone)));
+    // The day's blocks where they're saved; one under way or answered can only be kept.
+    const saved = data.blocks.map((b) => ({ id: b.id, title: b.title ?? 'Time block', date: data.date, start: minutesOf(b.start, 0), end: minutesOf(b.end, 1440), fixed: ended(b) || !!b.started_at }));
+    const on = landsOn(saved, i.id, to, from);
+    const answer = on.length ? await both.ask(i.title, on) : 'keep';
+    if (answer === 'cancel') {
+      steps.current = null;
+      return setDrag(null);
+    }
+    const off = answer === 'replace' ? on.filter((x) => !x.fixed) : [];
+    const reverse = await run(async (w) => {
+      const moved = await moveBlock(w, i.id, slotInstants(to, zone));
+      const back: RecordWrite[] = [];
+      for (const x of off) back.unshift(...(await unscheduleBlock(w, x.id, weekStart(data.date), clock)).writes);
+      return { writes: [...back, ...moved.writes] };
+    });
     if (!reverse) return setDrag(null);
     // Arrow steps in a row are one change, so Undo takes the block back to before the first.
     const prev = steps.current;
@@ -215,7 +244,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       setDrag(null);
       return run((w) => applyPlanChange(w, first));
     };
-    toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo });
+    const tookOff = off.length ? [`Took ${new Intl.ListFormat('en-GB').format(off.map((x) => x.title))} off the calendar.`] : [];
+    toast.show([`${i.title} is now ${range(to)}.`, ...tookOff, ...notes].join(' '), { undo });
     const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
     setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
@@ -409,6 +439,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         data-drop-date={data.date}
         data-drop-from={from}
         data-drop-to={to}
+        onPointerDown={(e) => !(e.target as Element).closest('.cev') && holdNew.press(e)}
       >
         {hours.map((h) => (
           <span key={h} className="dayhr" style={{ top: y(h * 60) }} aria-hidden="true">
@@ -456,8 +487,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const state = blockState({ result: i.block.result, ended: ended(i.block), now: i.cur });
           const look = LOOK[i.kind!];
           const cls = blockClass(look, state, { short: !!compact });
-          // An Inbox item's block says so in words, on both layouts, since no kind's colour marks it.
-          const said = look === 'inbox' ? !compact && <span className="time">Inbox, {i.time}</span> : time;
+          // An Inbox item's block says so in words, where there's room, since no kind's colour marks it.
+          const said = look === 'inbox' ? height >= SECOND_LINE[layout] && <span className="time">Inbox, {i.time}</span> : time;
           const move = movable(i.block);
           const resize = resizable(i.block);
           const lifted = drag?.id === i.id && !!drag.held;
@@ -512,6 +543,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           );
           return more ? [drawn, more] : drawn;
         })}
+        {held && <DraftBlock hold={holdNew} top={y(held.start)} height={y(held.end) - y(held.start) - 1} beside={items.some((i) => i.from < held.end && held.start < i.to)} />}
+        <HoldRing ring={holdNew.ring} />
         {drag?.ghost && (
           <div className={`cev ${phone ? 'ghost' : 'ev-ghost'} ${blockClass('project', 'suggested')}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">
             Suggested {formatTimeOfDay(drag.ghost.start)}
@@ -609,8 +642,16 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
+      {both.asking}
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
+      {holdNew.draft?.open && (
+        <Capture
+          layout={layout}
+          close={holdNew.close}
+          slot={holdNew.slot(overlapWords(holdNew.draft.slot, items.map((i) => ({ title: i.title, start: i.from, end: i.to }))))}
+        />
+      )}
       {pop && (
         <TaskPopupFor
           id={pop.task}

@@ -32,12 +32,13 @@ async function inApp(ui: ReactNode, layout: Layout = 'desktop') {
 }
 
 describe('EstimateSlider', () => {
-  it('has 15-minute steps to 2h, coarser to 16h, and starts from none', () => {
+  it('has 5-minute steps to 2h, coarser to 16h, and starts from none', () => {
     expect(EST_STEPS[0]).toBe(0);
-    expect(EST_STEPS.slice(1, 9).every((s, i) => s === (i + 1) * 15)).toBe(true);
+    expect(EST_STEPS.slice(1, 25).every((s, i) => s === (i + 1) * 5)).toBe(true);
+    expect(EST_STEPS[25]).toBe(150);
     expect(EST_STEPS[EST_STEPS.length - 1]).toBe(960);
     expect(estIndex(0)).toBe(0);
-    expect(estIndex(50)).toBe(EST_STEPS.indexOf(45));
+    expect(estIndex(52)).toBe(EST_STEPS.indexOf(50));
     expect(estIndex(5000)).toBe(EST_STEPS.length - 1);
   });
 
@@ -115,16 +116,39 @@ describe('Toast', () => {
     }
   });
 
-  it('goes away when tapped, or on a tap anywhere else, but not on Undo', async () => {
-    await inApp(<Host undo={vi.fn()} />);
+  it('goes away when a tap on it or anywhere else finishes, but not on Undo', async () => {
+    const undo = vi.fn();
+    await inApp(<Host undo={undo} />);
     fireEvent.click(screen.getByText('go'));
+    // Undo keeps the toast for its own click.
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Undo' }));
-    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }), { detail: 1 });
+    expect(undo).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByText('go'));
+    // Not as the finger goes down: on phone the toast holds space, and the page moving then would put the release on
+    // something else. Once the tap finishes, on its click.
     fireEvent.pointerDown(screen.getByText('Moved'));
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Moved'), { detail: 1 });
     expect(screen.queryByText('Moved')).toBeNull();
     fireEvent.click(screen.getByText('go'));
     fireEvent.pointerDown(document.body);
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(document.body, { detail: 1 });
     expect(screen.queryByText('Moved')).toBeNull();
+  });
+
+  it("stays for a click with no press while it showed: a drag's drop that showed it, or Enter on a button", async () => {
+    await inApp(<Host undo={vi.fn()} />);
+    // A drag pressed before the toast, and its drop showed it; the click that ends the drag comes after.
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(screen.getByText('go'));
+    fireEvent.click(document.body, { detail: 1 });
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    // Enter or Space on a button clicks it with no press.
+    fireEvent.click(screen.getByText('go'));
+    fireEvent.click(document.body);
+    expect(screen.getByText('Moved')).toBeInTheDocument();
   });
 });
 

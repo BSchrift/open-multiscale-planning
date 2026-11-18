@@ -3,7 +3,9 @@
 // release before, since that publishes only once the checks pass. So each step keeps to what both releases do. The
 // cross-version suite (e2e/compat) takes it on the last release's bundle as well as this checkout's, so a step only
 // this checkout's web app can take fails there, on CI against main's bundle and on staging against prod's, before
-// prod's Test step meets it.
+// prod's Test step meets it. What neither can show is how slowly prod's shared test user's history reads a change
+// back: CI starts empty and staging deletes its records within minutes. So no step waits for a screen to catch up while
+// something that goes by itself, such as a toast, holds the control it presses next.
 
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
@@ -74,8 +76,14 @@ export async function workJourney(page: Page, title: string): Promise<void> {
   await expect(card).toBeVisible();
   await card.click();
   await page.getByRole('group', { name: title }).getByRole('group', { name: 'Suggested times' }).getByRole('button').first().click();
+  // The toast with Undo shows once the change is saved, and goes after 5 seconds. Week takes the card away only once it
+  // has read the change back, which on prod's shared test user's history can take longer than that (see the expect
+  // timeout in playwright.config.ts), so waiting for the card first can leave no Undo to press. The mouse rests on Undo
+  // as soon as it shows, which holds the toast, as it does for a person reaching for it, until the card has gone.
+  const undo = page.getByRole('button', { name: 'Undo' });
+  await undo.hover();
   await expect(card).toHaveCount(0);
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await undo.click();
   await expect(card).toBeVisible();
 
   // Dragged by the mouse onto the last day, at 7pm, 13 hours down a 26px-an-hour day from 6am, it's placed there.

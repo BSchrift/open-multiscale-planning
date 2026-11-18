@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, holdMouse, openSeeded, pressOn, release, startPlanningThenUndo } from './seed';
+import { expectOnTop, expectTapTarget, holdMouse, openSeeded, pressOn, release, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -299,6 +299,8 @@ test('desktop: in a long list the one being placed stays at the top under Now, a
   const ask = page.getByRole('dialog', { name: 'Remove Email the team from this week' });
   await expect(ask).toContainText("Remove Email the team from this week's plan? It stays in its project.");
   await expect(ask.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  // Scrolled up to Now, it's still drawn over it.
+  for (const button of await ask.getByRole('button').all()) await expectOnTop(button);
   await page.screenshot({ path: info.outputPath('schedule-remove-desktop.png') });
   await page.keyboard.press('Escape');
   await expect(ask).toHaveCount(0);

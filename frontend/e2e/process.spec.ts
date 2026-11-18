@@ -326,14 +326,14 @@ test('desktop: a click outside the card closes Process, as Exit does, and what w
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  await expect(slider).toHaveAttribute('aria-valuetext', '10m');
   // A click on the card itself leaves it open.
   await card(page).getByText('1 of 3').click();
   await expect(card(page)).toBeVisible();
   await page.mouse.click(20, 980);
   await expect(card(page)).toHaveCount(0);
   await expect(rows(page)).toHaveText([/Call the bank/, /Fix the gate/, /Buy stamps/]);
-  await expect(rows(page).filter({ hasText: 'Call the bank' })).toContainText('30m estimate');
+  await expect(rows(page).filter({ hasText: 'Call the bank' })).toContainText('10m estimate');
   expect(errors).toEqual([]);
 });
 

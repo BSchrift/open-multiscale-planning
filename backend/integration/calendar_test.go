@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -38,17 +39,26 @@ type googleCalendar struct {
 	Events     []googleEvent `json:"events"`
 }
 
-func googleControl(t *testing.T, path string, body any) {
+// googleControl acts on the stand-in as a person in their Google account, which is a's.
+func googleControl(t *testing.T, a *account, path string, body any) {
 	t.Helper()
-	res := request(t, "POST", "/google/_test/"+path, "", mustJSON(t, body))
+	res := request(t, "POST", "/google/_test/"+path+"?account="+url.QueryEscape(a.googleAccount()), "", mustJSON(t, body))
 	if res.status != 204 {
 		t.Fatalf("google %s: %d %s", path, res.status, res.body)
 	}
 }
 
-func googleCalendars(t *testing.T) []googleCalendar {
+// googleAccount is the stand-in's Google account that a signs in to.
+func (a *account) googleAccount() string {
+	if a.google == "" {
+		a.google = a.username + "@example.test"
+	}
+	return a.google
+}
+
+func googleCalendars(t *testing.T, a *account) []googleCalendar {
 	t.Helper()
-	res := request(t, "GET", "/google/_test/calendars", "", nil)
+	res := request(t, "GET", "/google/_test/calendars?account="+url.QueryEscape(a.googleAccount()), "", nil)
 	var state struct {
 		Calendars []googleCalendar `json:"calendars"`
 	}
@@ -58,22 +68,29 @@ func googleCalendars(t *testing.T) []googleCalendar {
 	return state.Calendars
 }
 
-// connectCalendar goes through consent as a person does, following Google's redirect back to the API.
+// connectCalendar goes through consent as a person does, signing in to their own Google account and following Google's
+// redirect back to the API. Disconnecting afterwards leaves no one connected for a later test's schedule to run.
 func connectCalendar(t *testing.T, a *account) {
 	t.Helper()
-	res, err := http.Get(consentURL(t, a))
+	if res := consentAs(t, a, a.googleAccount()); res.status != 200 {
+		t.Fatalf("consent: %d %s", res.status, res.body)
+	}
+	t.Cleanup(func() {
+		a.reSignIn()
+		request(t, "POST", "/calendar/disconnect", a.tokens.access, nil)
+	})
+}
+
+// consentAs goes through consent as a, signing in to Google as the given account, and returns the callback's page.
+func consentAs(t *testing.T, a *account, google string) response {
+	t.Helper()
+	res, err := http.Get(consentURL(t, a) + "&login_hint=" + url.QueryEscape(google))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		t.Fatalf("consent: %d", res.StatusCode)
-	}
-	t.Cleanup(func() {
-		if id, ok := calendarID(a); ok {
-			request(t, "POST", "/google/_test/calendars/"+url.PathEscape(id)+"/delete", "", nil)
-		}
-	})
+	body, _ := io.ReadAll(res.Body)
+	return response{status: res.StatusCode, body: body}
 }
 
 func consentURL(t *testing.T, a *account) string {
@@ -134,7 +151,7 @@ func calendarID(a *account) (string, bool) {
 func timeBlocks(t *testing.T, a *account) googleCalendar {
 	t.Helper()
 	id, _ := calendarFields(t, a)["calendar_id"].(string)
-	for _, c := range googleCalendars(t) {
+	for _, c := range googleCalendars(t, a) {
 		if c.ID == id {
 			return c
 		}
@@ -334,7 +351,7 @@ func TestEditsInGoogleAreOverwritten(t *testing.T) {
 		})
 	}
 	t.Run("deleted", func(t *testing.T) {
-		googleControl(t, path+event.ID+"/delete", nil)
+		googleControl(t, a, path+event.ID+"/delete", nil)
 		if len(timeBlocks(t, a).Events) != 0 {
 			t.Fatal("control didn't delete")
 		}
@@ -342,7 +359,7 @@ func TestEditsInGoogleAreOverwritten(t *testing.T) {
 		oneEvent(t, a)
 	})
 	t.Run("added by hand", func(t *testing.T) {
-		googleControl(t, "calendars/"+url.PathEscape(c.ID)+"/events", googleEvent{
+		googleControl(t, a, "calendars/"+url.PathEscape(c.ID)+"/events", googleEvent{
 			Summary: "Added by hand", Start: googleTime{DateTime: other}, End: googleTime{DateTime: instantOf(start.Add(4 * time.Hour))},
 		})
 		if len(timeBlocks(t, a).Events) != 2 {
@@ -479,7 +496,7 @@ func TestAFailedRunIsRecordedAndTheNextOneFixesIt(t *testing.T) {
 	clock := holdClock(t)
 	a := connectedUser(t)
 	start := clock.now.Add(2 * time.Hour)
-	googleControl(t, "rate_limit", map[string]int{"calls": 1})
+	googleControl(t, a, "rate_limit", map[string]int{"calls": 1})
 	a.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
 	runWorker(t, a)
 	if got := calendarFields(t, a)["last_error"]; got != "calendar_rate_limited" {
@@ -504,7 +521,7 @@ func TestRevokedTokenIsReportedAndReconnectingKeepsTheCalendar(t *testing.T) {
 	runWorker(t, a)
 	before, _ := oneEvent(t, a)
 
-	googleControl(t, "revoke", nil)
+	googleControl(t, a, "revoke", nil)
 	runWorker(t, a)
 	values := calendarFields(t, a)
 	if values["last_error"] != "calendar_revoked" || values["connected"] != false {
@@ -532,7 +549,7 @@ func TestDisconnectRemovesTimeBlocksAndReconnectingStartsAfresh(t *testing.T) {
 	if values := calendarFields(t, a); values["connected"] != false || values["calendar_id"] != nil {
 		t.Fatalf("%+v", values)
 	}
-	for _, c := range googleCalendars(t) {
+	for _, c := range googleCalendars(t, a) {
 		if c.ID == before.ID {
 			t.Fatal("Time blocks is still in Google")
 		}
@@ -552,7 +569,7 @@ func TestDeletedTimeBlocksCalendarIsMadeAgain(t *testing.T) {
 	a.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
 	runWorker(t, a)
 	before, _ := oneEvent(t, a)
-	googleControl(t, "calendars/"+url.PathEscape(before.ID)+"/delete", nil)
+	googleControl(t, a, "calendars/"+url.PathEscape(before.ID)+"/delete", nil)
 	runWorker(t, a)
 	after, event := oneEvent(t, a)
 	if after.ID == before.ID || event.Summary != "Write the report" {
@@ -560,17 +577,17 @@ func TestDeletedTimeBlocksCalendarIsMadeAgain(t *testing.T) {
 	}
 }
 
-func addGoogleCalendar(t *testing.T, name string) string {
+func addGoogleCalendar(t *testing.T, a *account, name string) string {
 	t.Helper()
 	id := fresh(strings.ToLower(name)) + "@example.test"
-	googleControl(t, "calendars", map[string]string{"id": id, "summary": name})
+	googleControl(t, a, "calendars", map[string]string{"id": id, "summary": name})
 	t.Cleanup(func() { request(t, "POST", "/google/_test/calendars/"+url.PathEscape(id)+"/delete", "", nil) })
 	return id
 }
 
-func addGoogleEvent(t *testing.T, calendar, title string, start, end time.Time) {
+func addGoogleEvent(t *testing.T, a *account, calendar, title string, start, end time.Time) {
 	t.Helper()
-	googleControl(t, "calendars/"+url.PathEscape(calendar)+"/events", googleEvent{
+	googleControl(t, a, "calendars/"+url.PathEscape(calendar)+"/events", googleEvent{
 		Summary: title, Start: googleTime{DateTime: start.Format(time.RFC3339)}, End: googleTime{DateTime: end.Format(time.RFC3339)},
 	})
 }
@@ -602,9 +619,9 @@ func mirrored(t *testing.T, a *account, googleID string) []map[string]any {
 func TestModesDecideWhatIsMirrored(t *testing.T) {
 	needs(t, fakeGoogle)
 	a := connectedUser(t)
-	home := addGoogleCalendar(t, "Home")
+	home := addGoogleCalendar(t, a, "Home")
 	start := time.Now().Add(3 * time.Hour).Truncate(time.Minute)
-	addGoogleEvent(t, home, "Team lunch", start, start.Add(time.Hour))
+	addGoogleEvent(t, a, home, "Team lunch", start, start.Add(time.Hour))
 	setMode := func(mode string) {
 		t.Helper()
 		source := sourceOf(t, a, home)
@@ -632,8 +649,8 @@ func TestModesDecideWhatIsMirrored(t *testing.T) {
 		t.Fatalf("ignore isn't read: %+v", got)
 	}
 	// The worker owns the name and the device the mode, so a rename keeps the choice.
-	googleControl(t, "calendars", map[string]string{"id": home, "summary": "Family"})
-	addGoogleEvent(t, home, "Team lunch", start, start.Add(time.Hour))
+	googleControl(t, a, "calendars", map[string]string{"id": home, "summary": "Family"})
+	addGoogleEvent(t, a, home, "Team lunch", start, start.Add(time.Hour))
 	runWorker(t, a)
 	source = sourceOf(t, a, home)
 	if source.Fields["name"].V != "Family" || source.Fields["mode"].V != "ignore" {
@@ -654,7 +671,7 @@ func TestModesDecideWhatIsMirrored(t *testing.T) {
 	}
 
 	// A calendar gone from Google is marked so, and comes back if it returns.
-	googleControl(t, "calendars/"+url.PathEscape(home)+"/delete", nil)
+	googleControl(t, a, "calendars/"+url.PathEscape(home)+"/delete", nil)
 	runWorker(t, a)
 	if source := sourceOf(t, a, home); source.Fields["deleted_at"].V == nil {
 		t.Fatalf("%+v", source)
@@ -662,7 +679,7 @@ func TestModesDecideWhatIsMirrored(t *testing.T) {
 	if got := mirrored(t, a, home); len(got) != 0 {
 		t.Fatalf("%+v", got)
 	}
-	googleControl(t, "calendars", map[string]string{"id": home, "summary": "Family"})
+	googleControl(t, a, "calendars", map[string]string{"id": home, "summary": "Family"})
 	runWorker(t, a)
 	if source := sourceOf(t, a, home); source.Fields["deleted_at"].V != nil {
 		t.Fatalf("%+v", source)
@@ -672,10 +689,10 @@ func TestModesDecideWhatIsMirrored(t *testing.T) {
 func TestAllDayEventsAreMirrored(t *testing.T) {
 	needs(t, fakeGoogle)
 	a := connectedUser(t)
-	home := addGoogleCalendar(t, "Home")
+	home := addGoogleCalendar(t, a, "Home")
 	day := time.Now().UTC().Add(48 * time.Hour)
 	next := day.Add(24 * time.Hour)
-	googleControl(t, "calendars/"+url.PathEscape(home)+"/events", googleEvent{
+	googleControl(t, a, "calendars/"+url.PathEscape(home)+"/events", googleEvent{
 		Summary: "Day off", Start: googleTime{Date: day.Format(time.DateOnly)}, End: googleTime{Date: next.Format(time.DateOnly)},
 	})
 	runWorker(t, a)
@@ -688,12 +705,12 @@ func TestAllDayEventsAreMirrored(t *testing.T) {
 func TestTooManyEventsKeepsTheSoonestAndSaysSo(t *testing.T) {
 	needs(t, fakeGoogle)
 	a := connectedUser(t)
-	busy := addGoogleCalendar(t, "Busy")
+	busy := addGoogleCalendar(t, a, "Busy")
 	start := time.Now().Add(time.Hour).Truncate(time.Minute)
 	const total = 1200
 	for i := total; i > 0; i-- {
 		at := start.Add(time.Duration(i) * time.Minute)
-		addGoogleEvent(t, busy, "Standing meeting", at, at.Add(time.Minute))
+		addGoogleEvent(t, a, busy, "Standing meeting", at, at.Add(time.Minute))
 	}
 	block := start.Add(24 * time.Hour)
 	a.pushBlock(fresh("b"), "Write the report", block, block.Add(time.Hour))
@@ -778,8 +795,8 @@ func TestWorkerWakesOnBlocksAfterItsWindowAndOnSchedule(t *testing.T) {
 	}
 
 	// The schedule picks up what wakes nothing, such as an event added in Google.
-	home := addGoogleCalendar(t, "Home")
-	addGoogleEvent(t, home, "Team lunch", start, start.Add(time.Hour))
+	home := addGoogleCalendar(t, a, "Home")
+	addGoogleEvent(t, a, home, "Team lunch", start, start.Add(time.Hour))
 	move(30 * time.Minute)
 	if ran := tick(t); ran != "" && ran != "schedule" {
 		t.Fatalf("ran %q", ran)
@@ -859,7 +876,7 @@ func TestConsentStateIsSingleUseAndExpires(t *testing.T) {
 	})
 }
 
-func TestOnlyTheConnectedUsersRefreshRunsTheWorker(t *testing.T) {
+func TestOnlyAConnectedPersonsRefreshRunsTheirWorker(t *testing.T) {
 	needs(t, fakeGoogle, fakeClock, secondUser)
 	clock := holdClock(t)
 	a := connectedUser(t)
@@ -886,19 +903,148 @@ func TestOnlyTheConnectedUsersRefreshRunsTheWorker(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 
-	// Finishing it hands the one connection over. The first user's app shows it unconnected, keeping the id of their
-	// Time blocks for a later consent of theirs, and from then on only the new user's refresh runs the worker.
-	theirs, _ := calendarID(a)
+	// Finishing it connects them to their own Google account, and the first stays connected to theirs. Each refresh runs
+	// its own person: their blocks go to their own Time blocks.
 	connectCalendar(t, other)
-	values := calendarFields(t, a)
-	if events, _ := values["events"].([]any); values["connected"] != false || values["calendar_id"] != theirs || len(events) != 0 || values["last_error"] != nil {
-		t.Fatalf("the first user's app still shows a connection: %+v", values)
+	if values := calendarFields(t, a); values["connected"] != true || values["last_error"] != nil {
+		t.Fatalf("the first person lost their connection: %+v", values)
 	}
-	other.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
+	other.pushBlock(fresh("b"), "Their report", start, start.Add(time.Hour))
 	runWorker(t, a)
 	if events := timeBlocks(t, other).Events; len(events) != 0 {
-		t.Fatalf("the first user's refresh still ran the worker: %+v", events)
+		t.Fatalf("the first person's refresh ran the other's worker: %+v", events)
 	}
 	runWorker(t, other)
-	oneEvent(t, other)
+	if _, event := oneEvent(t, other); event.Summary != "Their report" {
+		t.Fatalf("%+v", event)
+	}
+	oneEvent(t, a)
+}
+
+// Two people connected at once each sync their own plan to their own Google account, on every trigger: a refresh, the
+// stream and the schedule. Neither's calendars reach the other's record.
+func TestTwoPeopleConnectedAtOnceEachSyncTheirOwn(t *testing.T) {
+	needs(t, fakeGoogle, fakeClock, secondUser)
+	clock := holdClock(t)
+	a := connectedUser(t)
+	b := signInOther(t)
+	connectCalendar(t, b)
+	homeA, homeB := addGoogleCalendar(t, a, "Home"), addGoogleCalendar(t, b, "Work")
+	start := clock.now.Add(2 * time.Hour)
+	a.pushBlock(fresh("a"), "A's block", start, start.Add(time.Hour))
+	b.pushBlock(fresh("b"), "B's block", start, start.Add(time.Hour))
+	addGoogleEvent(t, a, homeA, "A's lunch", start, start.Add(time.Hour))
+	addGoogleEvent(t, b, homeB, "B's lunch", start, start.Add(time.Hour))
+
+	// The stream wakes both, each for their own blocks, once its window has passed.
+	if ran := tick(t); ran != "" {
+		t.Fatalf("ran %q inside the window", ran)
+	}
+	clock.advance(61 * time.Second)
+	a.reSignIn()
+	b.reSignIn()
+	if ran := tick(t); ran != "" && ran != "stream" {
+		t.Fatalf("ran %q", ran)
+	}
+	for who, want := range map[*account]string{a: "A's block", b: "B's block"} {
+		if _, event := oneEvent(t, who); event.Summary != want {
+			t.Fatalf("%s: %+v", who.username, event)
+		}
+	}
+	// The schedule reads each one's own calendars into their own record.
+	clock.advance(31 * time.Minute)
+	a.reSignIn()
+	b.reSignIn()
+	if ran := tick(t); ran != "" && ran != "schedule" {
+		t.Fatalf("ran %q", ran)
+	}
+	if len(mirrored(t, a, homeA)) != 1 || len(mirrored(t, b, homeB)) != 1 {
+		t.Fatalf("own calendars not mirrored: %v %v", mirrored(t, a, homeA), mirrored(t, b, homeB))
+	}
+	for _, e := range calendarFields(t, a)["events"].([]any) {
+		if e.(map[string]any)["calendar"] == homeB {
+			t.Fatal("B's calendar reached A's record")
+		}
+	}
+	if timeBlocks(t, a).ID == timeBlocks(t, b).ID {
+		t.Fatal("one Time blocks for two people")
+	}
+}
+
+// One person's Google removing access, or failing, or refusing for quota, is theirs: their app says so and the other
+// person's runs go on as before.
+func TestOnePersonsGoogleTroubleLeavesTheOtherSyncing(t *testing.T) {
+	needs(t, fakeGoogle, fakeClock, secondUser)
+	clock := holdClock(t)
+	a := connectedUser(t)
+	b := signInOther(t)
+	connectCalendar(t, b)
+	start := clock.now.Add(2 * time.Hour)
+	step := func(name string) {
+		t.Helper()
+		clock.advance(time.Minute)
+		a.reSignIn()
+		b.reSignIn()
+		block := fresh(name)
+		b.pushBlock(block, name, start, start.Add(time.Hour))
+		runWorker(t, a)
+		runWorker(t, b)
+		found := false
+		for _, e := range timeBlocks(t, b).Events {
+			found = found || e.Summary == name
+		}
+		if !found || calendarFields(t, b)["last_error"] != nil || calendarFields(t, b)["connected"] != true {
+			t.Fatalf("%s reached the other person: %+v", name, calendarFields(t, b))
+		}
+	}
+
+	googleControl(t, a, "rate_limit", map[string]int{"calls": 100})
+	step("rate-limited")
+	if got := calendarFields(t, a)["last_error"]; got != "calendar_rate_limited" {
+		t.Fatalf("%v", got)
+	}
+	googleControl(t, a, "rate_limit", map[string]int{"calls": 0})
+
+	cutGoogle(t, outage{Account: a.googleAccount(), Calls: -1, Status: 503})
+	step("outage")
+	if got := calendarFields(t, a)["last_error"]; got != "calendar_failed" {
+		t.Fatalf("%v", got)
+	}
+	liftOutage(t)
+
+	googleControl(t, a, "slow", map[string]int{"ms": 300})
+	step("slow")
+	googleControl(t, a, "slow", map[string]int{"ms": 0})
+
+	googleControl(t, a, "revoke", nil)
+	step("revoked")
+	if values := calendarFields(t, a); values["last_error"] != "calendar_revoked" || values["connected"] != false {
+		t.Fatalf("%+v", values)
+	}
+}
+
+// A Google account connects to one person. A second is told so, in words, and the first keeps their connection; once the
+// first disconnects, the second can connect it.
+func TestAGoogleAccountConnectsToOnePersonAtATime(t *testing.T) {
+	needs(t, fakeGoogle, secondUser)
+	a := connectedUser(t)
+	b := signInOther(t)
+	res := consentAs(t, b, a.googleAccount())
+	if res.status != 409 || !strings.Contains(string(res.body), "This Google account is connected to another Multiscale account.") {
+		t.Fatalf("%d %s", res.status, res.body)
+	}
+	if values := calendarFields(t, a); values["connected"] != true {
+		t.Fatalf("%+v", values)
+	}
+	if _, ok := b.get("calendar", "calendar"); ok {
+		t.Fatal("the refused person got a calendar record")
+	}
+	if res := request(t, "POST", "/calendar/disconnect", a.tokens.access, nil); res.status != 204 {
+		t.Fatalf("disconnect: %d", res.status)
+	}
+	b.google = a.googleAccount()
+	connectCalendar(t, b)
+	if values := calendarFields(t, b); values["connected"] != true {
+		t.Fatalf("%+v", values)
+	}
 }

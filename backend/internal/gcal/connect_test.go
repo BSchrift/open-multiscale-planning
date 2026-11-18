@@ -7,13 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"google.golang.org/api/calendar/v3"
-
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/fakes"
 )
 
 func TestConsentURLAsksForOfflineAccessAndTheThreeScopes(t *testing.T) {
@@ -62,11 +62,15 @@ func TestCallbackStoresTheTokenAndCreatesTheCalendar(t *testing.T) {
 	if rec["connected"].V != true || rec["calendar_id"].V != cal || rec["last_error"].V != nil {
 		t.Fatalf("%+v", rec)
 	}
-	if w.triggers != 1 {
-		t.Fatalf("%d runs started", w.triggers)
+	if !slices.Equal(w.triggered, []string{testSub}) {
+		t.Fatalf("runs started for %v", w.triggered)
 	}
-	if stored := w.secrets.values[SecretRefreshToken]; stored == "" || !strings.Contains(stored, testSub) {
-		t.Fatalf("stored %q", stored)
+	conn := w.conns.conns[testSub]
+	if conn.RefreshToken == "" || conn.Account != accountID(fakes.DefaultGoogleAccount) {
+		t.Fatalf("stored %+v", conn)
+	}
+	if _, legacy := w.secrets.values[SecretRefreshToken]; legacy {
+		t.Fatal("stored as the deployment's one connection")
 	}
 }
 
@@ -81,54 +85,114 @@ func TestReconnectingKeepsTheCalendar(t *testing.T) {
 	}
 }
 
-// A deployment holds one connection, so another user's consent takes it over. The first user's app shows it unconnected,
-// and their Google is left as it is: the account is theirs, not this user's, to revoke access or remove Time blocks from.
-func TestAnotherUsersConsentDisconnectsTheFirst(t *testing.T) {
+// Each person connects their own Google account and keeps it: a second person's consent leaves the first connected, and
+// each person's blocks and calendars stay in their own account and record.
+func TestEachPersonConnectsTheirOwnGoogleAccount(t *testing.T) {
 	w := newWorld(t)
+	const other = "someone-else"
 	w.connect(testSub)
+	w.connect(other)
+	mine, theirs := w.fake.Account(googleAccount(testSub)), w.fake.Account(googleAccount(other))
+	mine.AddCalendar("home-mine", "Home")
+	theirs.AddCalendar("work-theirs", "Work")
 	w.block("b1", "Paint the fence", at(1), at(2))
-	w.fake.AddCalendar("home@example.test", "Home")
-	w.fake.AddEvent("home@example.test", &calendar.Event{
-		Summary: "Team lunch",
-		Start:   &calendar.EventDateTime{DateTime: at(1).Format(time.RFC3339)},
-		End:     &calendar.EventDateTime{DateTime: at(2).Format(time.RFC3339)},
-	})
-	w.run()
-	first := w.secrets.values[SecretRefreshToken]
-	timeBlocks := w.calendarRecord(testSub)["calendar_id"].V
+	w.write(other, "task", "task-b2", map[string]any{"title": "Their block"})
+	w.write(other, "time_block", "b2", map[string]any{"task_id": "task-b2", "start": instant(at(3)), "end": instant(at(4)), "tz": "UTC"})
+	w.runFor(testSub)
+	w.runFor(other)
 
-	w.connect("someone-else")
-	rec := w.calendarRecord(testSub)
-	// Time blocks is still in their Google, so its id stays for when they connect again.
-	if rec["connected"].V != false || rec["calendar_id"].V != timeBlocks || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
-		t.Fatalf("%+v", rec)
-	}
-	if !w.refreshWorks(first) {
-		t.Fatal("the first user's access was revoked")
-	}
-	if theirs := w.calendarRecord("someone-else"); theirs["connected"].V != true {
-		t.Fatalf("%+v", theirs)
-	}
-
-	// Connecting again as the user already connected leaves them connected.
-	w.connect("someone-else")
-	if theirs := w.calendarRecord("someone-else"); theirs["connected"].V != true {
-		t.Fatalf("%+v", theirs)
-	}
-
-	// Taking it back finds the same Time blocks, not a second one whose events would come back as busy time. The other
-	// user's Time blocks belongs in their own Google account, which this fake of one account can't show, so it goes.
-	w.fake.DeleteCalendar(w.calendarRecord("someone-else")["calendar_id"].V.(string))
-	w.connect(testSub)
-	w.run()
-	if got := w.calendarRecord(testSub)["calendar_id"].V; got != timeBlocks || w.eventFor("b1") == nil {
-		t.Fatalf("Time blocks %v, was %v", got, timeBlocks)
-	}
-	for id := range w.sources() {
-		if id != "home@example.test" {
-			t.Fatalf("%s is mirrored as busy time", id)
+	for sub, account := range map[string]*fakes.GoogleAccount{testSub: mine, other: theirs} {
+		rec := w.calendarRecord(sub)
+		if rec["connected"].V != true || rec["calendar_id"].V != account.CalendarNamed(CalendarName) || rec["last_error"].V != nil {
+			t.Fatalf("%s: %+v", sub, rec)
+		}
+		if !w.refreshWorks(w.storedToken(sub)) {
+			t.Fatalf("%s's access was revoked", sub)
 		}
 	}
+	if events := w.fake.Events(mine.CalendarNamed(CalendarName)); len(events) != 1 || events[0].Summary != "Paint the fence" {
+		t.Fatalf("mine: %+v", events)
+	}
+	if events := w.fake.Events(theirs.CalendarNamed(CalendarName)); len(events) != 1 || events[0].Summary != "Their block" {
+		t.Fatalf("theirs: %+v", events)
+	}
+	if _, ok := w.sources()["home-mine"]; !ok || len(w.sources()) != 1 {
+		t.Fatalf("my sources: %v", w.sources())
+	}
+	if w.storedToken(testSub) == w.storedToken(other) {
+		t.Fatal("one token for two people")
+	}
+}
+
+// A Google account connects to one person: revoking it, by either, would end both, and each would make a Time blocks of
+// their own in it. A second person is refused before anything is made there, and the first stays connected.
+func TestASecondPersonCannotConnectAGoogleAccountSomeoneElseHas(t *testing.T) {
+	w := newWorld(t)
+	const other = "someone-else"
+	w.connect(testSub)
+	writes := w.fake.Writes()
+	state, code := w.consentAs(other, googleAccount(testSub))
+	if err := w.g.Callback(context.Background(), state, code); !errors.Is(err, api.ErrAccountTaken) {
+		t.Fatalf("%v", err)
+	}
+	if w.fake.Writes() != writes {
+		t.Fatal("made something in their Google")
+	}
+	if w.storedToken(other) != "" || w.calendarRecord(other)["connected"].V == true {
+		t.Fatalf("connected: %+v", w.calendarRecord(other))
+	}
+	if !w.refreshWorks(w.storedToken(testSub)) || w.calendarRecord(testSub)["connected"].V != true {
+		t.Fatal("the first person lost their connection")
+	}
+	if len(w.triggered) != 1 {
+		t.Fatalf("runs started for %v", w.triggered)
+	}
+
+	// Once the first disconnects, it's free.
+	if err := w.g.Disconnect(context.Background(), testSub); err != nil {
+		t.Fatal(err)
+	}
+	w.connectAs(other, googleAccount(testSub))
+	if w.calendarRecord(other)["connected"].V != true {
+		t.Fatalf("%+v", w.calendarRecord(other))
+	}
+}
+
+// Connecting again with another Google account frees the first for someone else.
+func TestReconnectingToAnotherGoogleAccountFreesTheFirst(t *testing.T) {
+	w := newWorld(t)
+	w.connect(testSub)
+	w.connectAs(testSub, "second@example.test")
+	if got := w.conns.conns[testSub].Account; got != accountID("second@example.test") {
+		t.Fatalf("account %s", got)
+	}
+	w.connectAs("someone-else", googleAccount(testSub))
+}
+
+// A consent racing another person's for the same Google account loses at the store, and takes back the calendar it made.
+func TestALostRaceForAGoogleAccountTakesBackItsCalendar(t *testing.T) {
+	w := newWorld(t)
+	state, code := w.consent(testSub)
+	// Someone else's consent lands between the check and the store.
+	w.g.Connections = racingConnections{w.conns, func() {
+		w.conns.holders[accountID(googleAccount(testSub))] = "someone-else"
+	}}
+	if err := w.g.Callback(context.Background(), state, code); !errors.Is(err, api.ErrAccountTaken) {
+		t.Fatalf("%v", err)
+	}
+	if w.timeBlocks() != "" {
+		t.Fatal("left a second Time blocks")
+	}
+}
+
+type racingConnections struct {
+	*memConnections
+	before func()
+}
+
+func (r racingConnections) Put(ctx context.Context, conn connection, previous connection) error {
+	r.before()
+	return r.memConnections.Put(ctx, conn, previous)
 }
 
 func TestCallbackRefusesBadStates(t *testing.T) {
@@ -197,7 +261,7 @@ func TestCallbackReportsAFailedExchangeWithoutStoringAnything(t *testing.T) {
 	if err == nil || errors.Is(err, api.ErrInvalidState) {
 		t.Fatalf("%v", err)
 	}
-	if _, stored := w.secrets.values[SecretRefreshToken]; stored {
+	if w.storedToken(testSub) != "" {
 		t.Fatal("stored a token")
 	}
 }
@@ -227,7 +291,7 @@ func TestCallbackRefusesAGrantWithNoRefreshToken(t *testing.T) {
 	if err := w.g.Callback(context.Background(), state, loc.Query().Get("code")); err == nil {
 		t.Fatal("no error")
 	}
-	if _, stored := w.secrets.values[SecretRefreshToken]; stored {
+	if _, stored := w.conns.conns[testSub]; stored {
 		t.Fatal("stored an empty token")
 	}
 }
@@ -236,24 +300,24 @@ func TestACallbackStillSucceedsWhenTheFirstRunCannotStart(t *testing.T) {
 	w := newWorld(t)
 	w.trigger = errors.New("invoke failed")
 	w.connect(testSub)
-	if w.secrets.values[SecretRefreshToken] == "" {
+	if w.storedToken(testSub) == "" {
 		t.Fatal("not connected")
 	}
 }
 
-func TestRefreshOnlyRunsForTheConnectedUser(t *testing.T) {
+func TestRefreshOnlyRunsForAConnectedPerson(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	if err := w.g.Refresh(ctx, testSub); err != nil || w.triggers != 0 {
 		t.Fatalf("nobody connected: %v %d", err, w.triggers)
 	}
 	w.connect(testSub)
-	w.triggers = 0
+	w.triggers, w.triggered = 0, nil
 	if err := w.g.Refresh(ctx, "someone-else"); err != nil || w.triggers != 0 {
 		t.Fatalf("another user: %v %d", err, w.triggers)
 	}
-	if err := w.g.Refresh(ctx, testSub); err != nil || w.triggers != 1 {
-		t.Fatalf("connected user: %v %d", err, w.triggers)
+	if err := w.g.Refresh(ctx, testSub); err != nil || !slices.Equal(w.triggered, []string{testSub}) {
+		t.Fatalf("connected user: %v %v", err, w.triggered)
 	}
 	w.trigger = errors.New("invoke failed")
 	if err := w.g.Refresh(ctx, testSub); err == nil {
@@ -261,15 +325,11 @@ func TestRefreshOnlyRunsForTheConnectedUser(t *testing.T) {
 	}
 }
 
-// refreshWorks reports whether Google still honours the stored refresh token.
-func (w *world) refreshWorks(stored string) bool {
+// refreshWorks reports whether Google still honours a refresh token.
+func (w *world) refreshWorks(token string) bool {
 	w.t.Helper()
-	var conn connection
-	if err := json.Unmarshal([]byte(stored), &conn); err != nil {
-		w.t.Fatal(err)
-	}
 	res, err := http.PostForm(w.srv.URL+"/token", url.Values{
-		"grant_type": {"refresh_token"}, "refresh_token": {conn.RefreshToken}, "client_id": {"cid"}, "client_secret": {"secret"},
+		"grant_type": {"refresh_token"}, "refresh_token": {token}, "client_id": {"cid"}, "client_secret": {"secret"},
 	})
 	if err != nil {
 		w.t.Fatal(err)
@@ -283,7 +343,7 @@ func TestDisconnectRevokesAccessRemovesTimeBlocksAndShowsItUnconnected(t *testin
 	w.connect(testSub)
 	w.block("b1", "Write the report", at(1), at(2))
 	w.run()
-	stored := w.secrets.values[SecretRefreshToken]
+	stored := w.storedToken(testSub)
 	if err := w.g.Disconnect(context.Background(), testSub); err != nil {
 		t.Fatal(err)
 	}
@@ -293,8 +353,8 @@ func TestDisconnectRevokesAccessRemovesTimeBlocksAndShowsItUnconnected(t *testin
 	if w.refreshWorks(stored) {
 		t.Fatal("Google still honours the token")
 	}
-	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
-		t.Fatal("token kept")
+	if _, ok := w.conns.conns[testSub]; ok || len(w.conns.holders) != 0 {
+		t.Fatal("token or account claim kept")
 	}
 	rec := w.calendarRecord(testSub)
 	if rec["connected"].V != false || rec["calendar_id"].V != nil || len(rec["events"].V.([]any)) != 0 || rec["last_error"].V != nil {
@@ -307,15 +367,54 @@ func TestDisconnectRevokesAccessRemovesTimeBlocksAndShowsItUnconnected(t *testin
 	}
 }
 
-func TestDisconnectLeavesAnotherUsersConnectionAlone(t *testing.T) {
+func TestDisconnectLeavesAnotherPersonsConnectionAlone(t *testing.T) {
 	w := newWorld(t)
 	w.connect(testSub)
-	stored := w.secrets.values[SecretRefreshToken]
+	w.connect("someone-else")
+	stored := w.storedToken(testSub)
 	if err := w.g.Disconnect(context.Background(), "someone-else"); err != nil {
 		t.Fatal(err)
 	}
-	if w.secrets.values[SecretRefreshToken] != stored || w.timeBlocks() == "" || !w.refreshWorks(stored) {
-		t.Fatal("another user's disconnect reached the connection")
+	if w.storedToken(testSub) != stored || w.timeBlocks() == "" || !w.refreshWorks(stored) {
+		t.Fatal("another person's disconnect reached the connection")
+	}
+	if w.storedToken("someone-else") != "" || w.fake.Account(googleAccount("someone-else")).CalendarNamed(CalendarName) != "" {
+		t.Fatal("their own connection stayed")
+	}
+}
+
+// DeleteConnection is what deleting an account calls: it revokes, then deletes, and can run again.
+func TestDeleteConnectionRevokesThenDeletesAndCanRunAgain(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	if err := w.g.DeleteConnection(ctx, testSub); err != nil {
+		t.Fatalf("with no connection: %v", err)
+	}
+	w.connect(testSub)
+	stored := w.storedToken(testSub)
+	if err := w.g.DeleteConnection(ctx, testSub); err != nil {
+		t.Fatal(err)
+	}
+	if w.refreshWorks(stored) || w.storedToken(testSub) != "" || w.timeBlocks() != "" {
+		t.Fatal("token still honoured, kept, or Time blocks left")
+	}
+	if err := w.g.DeleteConnection(ctx, testSub); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+}
+
+// A failure to delete leaves the token stored, so a second try still has it to revoke and delete.
+func TestDeleteConnectionThatFailsCanBeTriedAgain(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	w.connect(testSub)
+	w.conns.failing = errors.New("store down")
+	if err := w.g.DeleteConnection(ctx, testSub); err == nil {
+		t.Fatal("swallowed")
+	}
+	w.conns.failing = nil
+	if err := w.g.DeleteConnection(ctx, testSub); err != nil || w.storedToken(testSub) != "" {
+		t.Fatalf("second try: %v", err)
 	}
 }
 
@@ -326,64 +425,50 @@ func TestDisconnectStillDisconnectsWhenGoogleAccessIsAlreadyGone(t *testing.T) {
 	if err := w.g.Disconnect(context.Background(), testSub); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := w.secrets.values[SecretRefreshToken]; ok || w.calendarRecord(testSub)["connected"].V != false {
+	if w.storedToken(testSub) != "" || w.calendarRecord(testSub)["connected"].V != false {
 		t.Fatalf("%+v", w.calendarRecord(testSub))
 	}
 }
 
-// Forget is what deleting an account does with Google: the same as disconnecting there, but it writes no record, since
-// the deletion removes every record the person has and refuses their devices' writes.
-func TestForgetRevokesAccessRemovesTimeBlocksAndDeletesTheConnection(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	stored := w.secrets.values[SecretRefreshToken]
-	before := w.calendarRecord(testSub)
-	if err := w.g.Forget(context.Background(), testSub); err != nil {
-		t.Fatal(err)
-	}
-	if w.timeBlocks() != "" {
-		t.Fatal("Time blocks is still in Google")
-	}
-	if w.refreshWorks(stored) {
-		t.Fatal("Google still honours the token")
-	}
-	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
-		t.Fatal("token kept")
-	}
-	if after := w.calendarRecord(testSub); after["connected"] != before["connected"] {
-		t.Fatalf("wrote the calendar record: %+v", after)
-	}
-}
-
-func TestForgetLeavesAnotherUsersConnectionAlone(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	stored := w.secrets.values[SecretRefreshToken]
-	if err := w.g.Forget(context.Background(), "someone-else"); err != nil {
-		t.Fatal(err)
-	}
-	if w.secrets.values[SecretRefreshToken] != stored || w.timeBlocks() == "" || !w.refreshWorks(stored) {
-		t.Fatal("another user's deletion reached the connection")
-	}
-}
-
-func TestForgetWithNoConnectionDoesNothing(t *testing.T) {
-	w := newWorld(t)
-	if err := w.g.Forget(context.Background(), testSub); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestForgetStillForgetsWhenGoogleAccessIsAlreadyGone(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	w.fake.Revoke()
-	if err := w.g.Forget(context.Background(), testSub); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := w.secrets.values[SecretRefreshToken]; ok {
-		t.Fatal("token kept")
-	}
-}
-
 var _ api.Calendar = (*Google)(nil)
+
+// Forget is what deleting an account calls (account.Google): DeleteConnection's revoke and delete, the account's claim
+// released, and no record written, since the deletion removes them all. Its log line counts, and never says who.
+func TestForgetEndsTheConnectionWithoutWritingOrNamingAnyone(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	if err := w.g.Forget(ctx, testSub); err != nil {
+		t.Fatalf("with nothing to forget: %v", err)
+	}
+	w.connect(testSub)
+	w.connect("someone-else")
+	stored := w.storedToken(testSub)
+	before := w.calendarRecord(testSub)["connected"]
+	if err := w.g.Forget(ctx, testSub); err != nil {
+		t.Fatal(err)
+	}
+	if w.refreshWorks(stored) || w.storedToken(testSub) != "" || w.timeBlocks() != "" {
+		t.Fatal("token still honoured, kept, or Time blocks left")
+	}
+	if w.conns.holders[accountID(googleAccount(testSub))] != "" {
+		t.Fatal("the Google account is still claimed")
+	}
+	if w.calendarRecord(testSub)["connected"] != before {
+		t.Fatal("wrote the calendar record")
+	}
+	if w.storedToken("someone-else") == "" {
+		t.Fatal("forgot someone else")
+	}
+	lines := w.logLines("calendar_forget")
+	if len(lines) != 1 || lines[0]["user"] != nil {
+		t.Fatalf("%s", w.logs)
+	}
+	if err := w.g.Forget(ctx, testSub); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+}
+
+// The deletion's interface, which *gcal.Google is passed as.
+var _ interface {
+	Forget(ctx context.Context, sub string) error
+} = (*Google)(nil)

@@ -17,8 +17,8 @@ const config: Config = {
 };
 const control: ControlConfig = { aws: { account: '333333333333', region: 'us-west-2', profile: 'control' }, dns: { domain: 'example.net', hostedZoneId: 'Z0PARENTZONE' } };
 
-function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip', alarms?: 'off') {
-  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary, alarms });
+function build(envName: 'staging' | 'prod' = 'staging', backendDist = '/nonexistent', requireBinaries = false, withConfig = config, canary?: 'skip', alarms?: 'off', firstDeploy?: boolean) {
+  return new MultiscaleStack(new App(), `Multiscale-${envName}`, { envName, config: withConfig, control, backendDist, requireBinaries, canary, alarms, firstDeploy });
 }
 
 type Resource = { Type: string; Properties: Record<string, any>; DeletionPolicy?: string };
@@ -230,7 +230,8 @@ describe('Lambdas', () => {
     assert.equal(env.SSM_PREFIX, '/multiscale/staging');
     // Exactly what the Go code reads: the metric namespace comes from ENV_NAME there, so it isn't passed twice.
     assert.deepEqual(Object.keys(env).sort(), [
-      'ACCOUNT_FUNCTION_NAME', 'API_URL', 'CALENDAR_FUNCTION_NAME', 'ENV_NAME', 'SSM_PREFIX', 'TABLE_NAME', 'USER_POOL_CLIENT_IDS', 'USER_POOL_ID',
+      'ACCOUNT_FUNCTION_NAME', 'API_URL', 'CALENDAR_FUNCTION_NAME', 'CALENDAR_QUEUE_URL', 'ENV_NAME', 'GOOGLE_TOKEN_KEY', 'SSM_PREFIX', 'TABLE_NAME',
+      'USER_POOL_CLIENT_IDS', 'USER_POOL_ID',
     ]);
     // The app's client and the integration suite's, which a lapsed token may be from.
     assert.equal(env.USER_POOL_CLIENT_IDS['Fn::Join'][1].length, 3);
@@ -239,12 +240,18 @@ describe('Lambdas', () => {
     const worker = all[logicalId('Calendar')].Properties.Environment.Variables;
     assert.ok(worker.TABLE_NAME);
     assert.equal(worker.SSM_PREFIX, '/multiscale/staging');
+    // Both start runs through the queue and read people's tokens with the key.
+    for (const vars of [env, worker]) {
+      assert.deepEqual(vars.CALENDAR_QUEUE_URL, { Ref: ofType('AWS::SQS::Queue').find(([id]) => id.startsWith('CalendarQueue'))![0] });
+      assert.deepEqual(vars.GOOGLE_TOKEN_KEY, { 'Fn::GetAtt': [ofType('AWS::KMS::Key')[0][0], 'Arn'] });
+    }
     // The retention periods are built into the binaries, picked by ENV_NAME, so they aren't passed here.
     const retention = all[logicalId('Retention')].Properties.Environment.Variables;
     assert.ok(retention.TABLE_NAME);
     assert.equal(retention.ENV_NAME, 'staging');
     const accounts = all[logicalId('Account')].Properties;
-    assert.deepEqual(Object.keys(accounts.Environment.Variables).sort(), ['ENV_NAME', 'SSM_PREFIX', 'TABLE_NAME', 'USER_POOL_ID']);
+    // The Google key and queue, which ending a deleted account's Google connection reads, as the API's and the worker's do.
+    assert.deepEqual(Object.keys(accounts.Environment.Variables).sort(), ['CALENDAR_QUEUE_URL', 'ENV_NAME', 'GOOGLE_TOKEN_KEY', 'SSM_PREFIX', 'TABLE_NAME', 'USER_POOL_ID']);
     // Lambda's most: an export of a five-year history with its photos takes a while.
     assert.equal(accounts.Timeout, 900);
   });
@@ -328,6 +335,97 @@ describe('calendar triggers', () => {
     ]);
     assert.ok(mapping.Properties.MaximumRetryAttempts <= 3, 'the next run fixes anything a failed one missed');
   });
+
+  // Every person's run goes through one queue, the API's refresh included, so its concurrency bounds Google's load and
+  // the worker's however many people there are.
+  it("runs each person's run from the queue, ten at a time, at bounded concurrency, handing back only failures", () => {
+    const queueId = ofType('AWS::SQS::Queue').find(([id]) => id.startsWith('CalendarQueue'))![0];
+    const [, mapping] = ofType('AWS::Lambda::EventSourceMapping').find(([, m]) => JSON.stringify(m.Properties.EventSourceArn).includes(queueId))!;
+    assert.deepEqual(mapping.Properties.FunctionName, { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] });
+    assert.equal(mapping.Properties.BatchSize, 10);
+    assert.deepEqual(mapping.Properties.FunctionResponseTypes, ['ReportBatchItemFailures']);
+    assert.ok(mapping.Properties.ScalingConfig.MaximumConcurrency <= 5, 'the bound keeps Google under 10,000 calls a minute');
+    const queue = all[queueId].Properties;
+    // Long enough that a run still going is never handed out again: six times the worker's timeout, as Lambda advises.
+    assert.ok(queue.VisibilityTimeout >= 6 * all[logicalId('Calendar')].Properties.Timeout);
+    assert.equal(queue.RedrivePolicy.maxReceiveCount, 3);
+    assert.equal(queue.SqsManagedSseEnabled, true);
+  });
+
+  // By the alias's ARN, with nothing that waits on the alias: anything that refers to the alias, even through another
+  // resource, waits for its CodeDeploy update, so the mapping would first appear after the canary, and the per-person
+  // runs would first run where no alarm rolls them back. Only a stack's first deploy, which has no alias yet, makes the
+  // mapping wait for it.
+  it('names the alias by ARN and waits on nothing that waits on it, so it exists through the canary', () => {
+    const queueMapping = (template: Template) => {
+      const resources = template.toJSON().Resources as Record<string, Resource & { DependsOn?: string | string[] }>;
+      const queueId = Object.keys(resources).find((id) => id.startsWith('CalendarQueue') && resources[id].Type === 'AWS::SQS::Queue')!;
+      return { resources, mapping: Object.values(resources).find((r) => r.Type === 'AWS::Lambda::EventSourceMapping' && JSON.stringify(r.Properties.EventSourceArn).includes(queueId))! };
+    };
+    const { resources, mapping } = queueMapping(t);
+    assert.doesNotMatch(JSON.stringify(mapping), new RegExp(`"${aliasOf('Calendar')}"`));
+    // Nothing it depends on refers to the alias, directly or through its own dependencies.
+    const refersToAlias = (id: string, seen = new Set<string>()): boolean => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const r = resources[id];
+      if (id === aliasOf('Calendar') || JSON.stringify(r.Properties ?? {}).includes(`"${aliasOf('Calendar')}"`)) return true;
+      return [r.DependsOn ?? []].flat().some((d) => refersToAlias(d, seen));
+    };
+    for (const d of [mapping.DependsOn ?? []].flat()) assert.ok(!refersToAlias(d), `depends on ${d}`);
+    // A first deploy waits for the alias, which an update already has.
+    const first = queueMapping(Template.fromStack(build('staging', '/nonexistent', false, config, undefined, undefined, true)));
+    const alias = Object.keys(first.resources).find((id) => id.startsWith('CalendarLive') && first.resources[id].Type === 'AWS::Lambda::Alias')!;
+    assert.ok([first.mapping.DependsOn ?? []].flat().includes(alias), JSON.stringify(first.mapping.DependsOn));
+  });
+
+  // On arrivals, not on what's there: a message stays up to 14 days, and an alarm on the count would stay in alarm.
+  it('alarms when a run lands in the dead-letter queue, outside the release alarms', () => {
+    const dead = ofType('AWS::CloudWatch::Alarm').find(([id]) => id.startsWith('CalendarDeadLetterAlarm'))![1].Properties;
+    const [expression] = dead.Metrics.filter((m: any) => m.Expression);
+    assert.match(expression.Expression, /DIFF/);
+    assert.equal(dead.Metrics.find((m: any) => m.MetricStat).MetricStat.Metric.MetricName, 'ApproximateNumberOfMessagesVisible');
+    assert.equal(dead.Threshold, 1);
+  });
+});
+
+describe("people's Google tokens", () => {
+  it('are encrypted with a key of their own, rotated, and kept if the stack goes', () => {
+    const [[, key], ...others] = ofType('AWS::KMS::Key');
+    assert.equal(others.length, 0);
+    assert.equal(key.Properties.EnableKeyRotation, true);
+    assert.equal(key.DeletionPolicy, 'Retain');
+  });
+
+  const condition = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': 'staging' } };
+
+  it('may be encrypted only by the API, decrypted by it, the worker and the account function, with this key alone, only for this environment and purpose', () => {
+    const kms = (fn: string) => policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('kms:')));
+    assert.deepEqual(kms('Api').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
+    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action), ['kms:Decrypt']);
+    // Deleting an account ends its Google connection, which opens the token to revoke it at Google.
+    assert.deepEqual(kms('Account').flatMap((s) => s.Action), ['kms:Decrypt']);
+    for (const s of [...kms('Api'), ...kms('Calendar'), ...kms('Account')]) {
+      assert.deepEqual(s.Condition, condition);
+      assert.deepEqual(s.Resource, { 'Fn::GetAtt': [ofType('AWS::KMS::Key')[0][0], 'Arn'] });
+    }
+  });
+
+  // The key's own policy lets the account administer it, never use it, so only the two roles can, whatever IAM says.
+  it("lets only the three functions' roles use the key, by its own policy", () => {
+    const [[, key]] = ofType('AWS::KMS::Key');
+    const statements = key.Properties.KeyPolicy.Statement as any[];
+    const role = (fn: string) => (all[logicalId(fn)].Properties.Role as any)['Fn::GetAtt'][0];
+    const uses = statements.filter((s) => [s.Action].flat().some((a: string) => a === 'kms:Decrypt' || a === 'kms:Encrypt' || a === 'kms:*'));
+    for (const s of uses) {
+      assert.deepEqual(s.Condition, condition);
+      for (const principal of [s.Principal.AWS].flat()) assert.ok([role('Api'), role('Calendar'), role('Account')].includes(principal['Fn::GetAtt']?.[0]), JSON.stringify(principal));
+    }
+    const decrypt = uses.filter((s) => [s.Action].flat().includes('kms:Decrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
+    assert.deepEqual(decrypt.sort(), [role('Api'), role('Calendar'), role('Account')].sort());
+    const encrypt = uses.filter((s) => [s.Action].flat().includes('kms:Encrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
+    assert.deepEqual(encrypt, [role('Api')]);
+  });
 });
 
 describe('retention', () => {
@@ -373,15 +471,25 @@ describe('retention', () => {
 
 describe('least privilege', () => {
   const data = ['dynamodb:BatchGetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem'];
+  const connections = ['dynamodb:DeleteItem', 'dynamodb:GetItem'];
 
   for (const fn of ['Api', 'Calendar']) {
-    it(`${fn} has only the data actions a sync transaction uses, on this table`, () => {
+    it(`${fn} has only the data actions a sync transaction uses, on this table, and reads or deletes only connections`, () => {
       const isStream = (a: string) => /Stream|Shard|GetRecords/.test(a);
       const dynamo = policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('dynamodb:') && !isStream(a)));
+      const [general, connection] = [dynamo.filter((s) => !s.Condition), dynamo.filter((s) => s.Condition)];
       // The API also reads single items: an account's deletion mark and its export.
       const expected = fn === 'Api' ? [...data, 'dynamodb:GetItem'].sort() : data;
-      assert.deepEqual(dynamo.flatMap((s) => s.Action).filter((a: string) => !isStream(a)).sort(), expected);
+      assert.deepEqual(general.flatMap((s) => s.Action).filter((a: string) => !isStream(a)).sort(), expected);
+      assert.deepEqual(connection.flatMap((s) => s.Action).sort(), connections);
+      assert.deepEqual(connection[0].Condition, { 'ForAllValues:StringEquals': { 'dynamodb:LeadingKeys': ['google#connection', 'google#account'] } });
       for (const s of dynamo) assert.notEqual(s.Resource, '*');
+    });
+
+    it(`${fn} may only send to the worker's queue`, () => {
+      const send = policyFor(fn).filter((s) => s.Action.includes('sqs:SendMessage'));
+      assert.equal(send.length, 1);
+      assert.match(JSON.stringify(send[0].Resource), /CalendarQueue/);
     });
 
     it(`${fn} has no wildcard actions or a wildcard resource, except what the stream API needs`, () => {
@@ -437,9 +545,13 @@ describe('least privilege', () => {
       assert.notEqual(s.Resource, '*');
     }
     const dynamo = policyFor('Account').filter((s) => s.Action.some((a: string) => a.startsWith('dynamodb:')));
-    assert.deepEqual(dynamo.flatMap((s) => s.Action).sort(), [
+    const [general, connection] = [dynamo.filter((s) => !s.Condition), dynamo.filter((s) => s.Condition)];
+    assert.deepEqual(general.flatMap((s) => s.Action).sort(), [
       'dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem',
     ]);
+    // A person's Google connection, as the API and the worker read and delete it.
+    assert.deepEqual(connection.flatMap((s) => s.Action).sort(), ['dynamodb:DeleteItem', 'dynamodb:GetItem']);
+    assert.deepEqual(connection[0].Condition, { 'ForAllValues:StringEquals': { 'dynamodb:LeadingKeys': ['google#connection', 'google#account'] } });
     for (const s of dynamo) assert.doesNotMatch(JSON.stringify(s.Resource), /index/);
     const get = policyFor('Account').find((s) => s.Action.includes('ssm:GetParameter'))!;
     const names = [get.Resource].flat().map((r: unknown) => JSON.stringify(r).match(/google\/([a-z-]+)"/)?.[1]);
@@ -489,11 +601,12 @@ describe('the backend canary', () => {
     for (const [id, schedule] of ofType('AWS::Scheduler::Schedule').filter(([id]) => !id.startsWith('CanarySchedule'))) {
       assert.ok([aliasOf('Calendar'), aliasOf('Retention'), aliasOf('Account')].includes(schedule.Properties.Target.Arn.Ref), `${id}: ${JSON.stringify(schedule.Properties.Target)}`);
     }
-    const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m)).sort();
-    assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention')].sort());
+    // The streams' by the alias resource; the queue's by the alias's ARN (calendar triggers, above).
+    const calendarLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] };
+    const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m) ?? JSON.stringify(m.Properties.FunctionName)).sort();
+    assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention'), JSON.stringify(calendarLive)].sort());
     // The API starts the worker by this name, and may invoke only the alias.
     // By ARN, not the alias resource, which would make a loop through the alias's deployment group (cycles.test.ts).
-    const calendarLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] };
     assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, calendarLive);
     const accountLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Account'), 'Arn'] }, ':live']] };
     assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.ACCOUNT_FUNCTION_NAME, accountLive);
@@ -504,7 +617,7 @@ describe('the backend canary', () => {
   it('keeps the stream mappings where they are, so they move to the alias in place rather than start over', () => {
     // A new mapping would read retention's stream from its start again, and both would run while the old one went.
     // Their ids from before the aliases.
-    const ids = ofType('AWS::Lambda::EventSourceMapping').map(([id]) => id).sort();
+    const ids = ofType('AWS::Lambda::EventSourceMapping').filter(([, m]) => m.Properties.StartingPosition).map(([id]) => id).sort();
     assert.deepEqual(ids, ['CalendarFunctionDynamoDBEventSourceMultiscalestagingTable7176ACF0553642AA', 'RetentionFunctionDynamoDBEventSourceMultiscalestagingTable7176ACF049B960A6']);
   });
 
@@ -701,9 +814,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly twelve alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly fourteen alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 12);
+    assert.equal(alarms.length, 14);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -751,16 +864,38 @@ describe('observability', () => {
       return m.MetricStat.Metric.Dimensions.find((d: any) => d.Name === 'Operation').Value;
     });
     // What the API and the worker call, through the store: the sync's reads and its transaction, and the consent state.
-    assert.deepEqual(operations.sort(), ['BatchGetItem', 'PutItem', 'Query', 'TransactWriteItems', 'UpdateItem']);
+    assert.deepEqual(operations.sort(), ['BatchGetItem', 'GetItem', 'PutItem', 'Query', 'TransactWriteItems', 'UpdateItem']);
     const [expression] = metrics.filter((m) => m.Expression);
     for (const m of metrics.filter((x) => x.MetricStat)) assert.ok(expression.Expression.includes(`FILL(${m.Id}, 0)`), expression.Expression);
   });
 
-  it('worker failure alarm reads the custom metric', () => {
+  // A count floor and a rate under the smallest canary share: one person's lasting failure, a run every 30 minutes, never
+  // reaches three in five minutes, and a new version failing all its runs at a 10% canary is still over 2% of them all.
+  // A person's removed token, quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
+  // While runs are few, any failure fires it, so one person's deployment still rolls back a broken worker.
+  it('worker failure alarm fires on any failed run while runs are few, else on three that are also 2% of them', () => {
     const a = alarm('CalendarFailures');
-    assert.equal(a.MetricName, 'CalendarRunFailures');
-    assert.equal(a.Namespace, 'Multiscale/staging');
-    assert.equal(a.Dimensions, undefined, 'each dimension combination is billed as a metric');
+    assert.equal(a.Threshold, 1);
+    const [expression] = a.Metrics.filter((m: any) => m.Expression);
+    assert.match(expression.Expression, /runs < 10 AND FILL\(failures, 0\) >= 1/);
+    assert.match(expression.Expression, /FILL\(failures, 0\) >= 3 AND 100 \* FILL\(failures, 0\) \/ runs >= 2/);
+    const stats = Object.fromEntries(a.Metrics.filter((m: any) => m.MetricStat).map((m: any) => [m.Id, m.MetricStat]));
+    for (const [id, stat] of [['failures', 'Sum'], ['runs', 'SampleCount']]) {
+      assert.equal(stats[id].Metric.MetricName, 'CalendarRunFailures');
+      assert.equal(stats[id].Metric.Namespace, 'Multiscale/staging');
+      assert.equal(stats[id].Metric.Dimensions, undefined, 'each dimension combination is billed as a metric');
+      assert.equal(stats[id].Stat, stat);
+    }
+  });
+
+  // Not a release alarm: a wave of people's tokens refused at once is more likely Google than a release, but someone looks.
+  it('alarms when at least half the runs, and at least three, find their token refused', () => {
+    const a = alarm('CalendarRevocations');
+    assert.equal(a.Threshold, 1);
+    const [expression] = a.Metrics.filter((m: any) => m.Expression);
+    assert.match(expression.Expression, /FILL\(revoked, 0\) >= 3/);
+    assert.match(expression.Expression, /100 \* FILL\(revoked, 0\) \/ runs >= 50/);
+    assert.equal(a.Metrics.find((m: any) => m.Id === 'revoked').MetricStat.Metric.MetricName, 'CalendarRevoked');
   });
 
   it('worker silence alarm fires after 2 hours with no success, and missing data breaches', () => {
@@ -830,10 +965,11 @@ describe('observability', () => {
     assert.ok(body.includes('ApiLogs'));
   });
 
-  it('uses only the five allowed custom metrics', () => {
+  // The two per-person outcomes count apart from the worker's failures, so neither can roll a release back.
+  it('uses only the seven allowed custom metrics', () => {
     const text = JSON.stringify(t.toJSON());
-    const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events)\w+)\b/g)].map((m) => m[1]));
-    assert.deepEqual([...used].sort(), ['CalendarEventsChanged', 'CalendarRunFailures', 'SyncConflictRetries', 'SyncRecordsMerged', 'SyncRequestsRejected']);
+    const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events|Revoked|RateLimited)\w*)\b/g)].map((m) => m[1]));
+    assert.deepEqual([...used].sort(), ['CalendarEventsChanged', 'CalendarRateLimited', 'CalendarRevoked', 'CalendarRunFailures', 'SyncConflictRetries', 'SyncRecordsMerged', 'SyncRequestsRejected']);
   });
 
   it('has a budget that alerts at $5 a month', () => {

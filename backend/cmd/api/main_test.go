@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"io"
 	"net/http"
 	"testing"
@@ -127,22 +126,5 @@ func TestAnAccountJobStartsWithoutWaitingForIt(t *testing.T) {
 	}
 	if string(invoker.in.Payload) != `{"job":"export","sub":"user-1"}` {
 		t.Fatalf("payload %s", invoker.in.Payload)
-	}
-}
-
-func TestWorkerStartsWithoutWaitingForIt(t *testing.T) {
-	invoker := &fakeInvoker{}
-	if err := startWorker(invoker, "the-worker")(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if aws.ToString(invoker.in.FunctionName) != "the-worker" || invoker.in.InvocationType != lambdatypes.InvocationTypeEvent {
-		t.Fatalf("%+v", invoker.in)
-	}
-	if string(invoker.in.Payload) != `{"trigger":"refresh"}` {
-		t.Fatalf("payload %s", invoker.in.Payload)
-	}
-	invoker.err = errors.New("no")
-	if err := startWorker(invoker, "the-worker")(context.Background()); err == nil {
-		t.Fatal("failure swallowed")
 	}
 }

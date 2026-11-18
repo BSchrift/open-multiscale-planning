@@ -49,7 +49,7 @@ func main() {
 	logger := obs.NewLogger(os.Stdout)
 	server := &api.Server{
 		Sync:     store,
-		Calendar: gcal.FromEnvironment(cfg, store.Expiry, startWorker(invoker, os.Getenv("CALENDAR_FUNCTION_NAME"))),
+		Calendar: gcal.FromEnvironment(cfg, store.Expiry),
 		Tokens:   account.TokensFromEnvironment(cfg),
 		Log:      logger,
 		Env:      os.Getenv("ENV_NAME"),
@@ -70,18 +70,6 @@ func main() {
 	}
 	server.Account = accounts
 	lambda.Start(adapter(server.Handler()))
-}
-
-// startWorker runs the calendar worker without waiting, since a run can far outlast this function's timeout.
-func startWorker(client invoker, name string) func(context.Context) error {
-	return func(ctx context.Context) error {
-		_, err := client.Invoke(ctx, &lambdasdk.InvokeInput{
-			FunctionName:   aws.String(name),
-			InvocationType: lambdatypes.InvocationTypeEvent,
-			Payload:        []byte(`{"trigger":"refresh"}`),
-		})
-		return err
-	}
 }
 
 // startJob runs an export or a deletion in the account function without waiting, since either can far outlast this

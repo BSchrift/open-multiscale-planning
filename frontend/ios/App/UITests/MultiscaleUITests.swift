@@ -689,6 +689,13 @@ final class NativeUITests: XCTestCase {
         run("Shared", expect: "shared:")
     }
 
+    /// A 21,000-character share reaches the app whole through the extension's queue, and the app cuts its description on
+    /// a word to the 20,000 characters the server takes, and says so, so the share can't stop sync.
+    func testALongShareReachesTheAppWholeAndItsDescriptionIsCut() throws {
+        try XCTSkipUnless(extensionsEnabled, "extensions are off")
+        run("Share long", expect: "shared-long:21000:19999:cut")
+    }
+
     /// The Control Center button's intent, run in the app's process as iOS runs it when the button is tapped, opens
     /// Capture. The script checks the button's extension is in the app.
     // shortcut: Control Center itself isn't driven. On CI's Simulator a tapped control now and then never opened the app,

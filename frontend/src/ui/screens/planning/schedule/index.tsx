@@ -29,7 +29,8 @@ import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
 import { TaskName } from '../../../components/task/TaskName';
 import { useFocusLanding } from '../../../components/useFocusLanding';
-import { dayName, slotRange, WeekGrid } from '../../../components/weekgrid';
+import { dayName, slotRange } from '../../../components/weekgrid';
+import { HoldWeekGrid } from '../../../components/weekgrid/HoldWeekGrid';
 import type { GridBlock, GridGhost, PlacedBlock } from '../../../components/weekgrid';
 import { DayStrip, PackedDay, weekFree } from '../../../components/week/DayStrip';
 import { DragDay } from '../../week/Phone';
@@ -510,7 +511,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           )}
         </div>
         <div className="planright card">
-          <WeekGrid
+          <HoldWeekGrid
             ctx={ctx}
             blocks={gridBlocks}
             // The context's earliest time is now, read on each of the screen's ticks.
@@ -518,6 +519,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
             ghosts={ghosts}
             editing
             lockPast
+            // Hold to create: never while the step's task is being placed or a placed block is chosen.
+            holdOff={!!b}
             onChange={(id, slot) => {
               const x = blockOf(id);
               if (id === 'draft') setDraft({ key: draftKey, slot });
@@ -615,6 +618,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 .filter((o) => o.date === day)
                 .map((o) => ({ ...o, end: o.start + len, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => moveTo(o) }))}
               selected={editB?.id ?? null}
+              // Never while the step's task is being placed or a placed block is chosen.
+              holdToCreate={!b}
               onMoving={(slot) => setDraft({ key: draftKey, slot })}
               onDone={() => void place()}
               onChange={changeBlock}

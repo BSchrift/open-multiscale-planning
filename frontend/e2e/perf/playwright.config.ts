@@ -17,5 +17,7 @@ export default defineConfig({
     // Chromium, since only it can slow the CPU.
     { name: 'web-phone', testMatch: 'web.spec.ts', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 }, launchOptions: { args: quiet } } },
     { name: 'mac', testMatch: 'mac.spec.ts' },
+    // Two signed-in browsers through the local stack behind Toxiproxy: PERF_SYNC=1 in scripts/test-perf.sh.
+    { name: 'sync', testMatch: 'sync.spec.ts', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 1000 }, launchOptions: { args: quiet } } },
   ],
 });

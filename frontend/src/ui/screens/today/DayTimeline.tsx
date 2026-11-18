@@ -1,9 +1,8 @@
 // The day's timeline: a calendar column that zooms (buttons, or pinching on phone), or a list. Blocks are coloured
 // by kind; calendar events are grey stripes. A block that clashes with an event is drawn beside it and says so, and
 // blocks at the same time sit side by side.
-// On the calendar, blocks still to start drag and resize as on Week, held first on phone so a swipe still scrolls, and
-// the one under way changes its end. A mouse drags only once it has moved a few pixels, so a click stays a click. A
-// click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
+// On the calendar, blocks still to start drag and resize as on Week, once held, so a click stays a click and a swipe
+// still scrolls, and the one under way changes its end. A click or tap opens a task's block in the task's popup, with the block's own section at its top, and a practice's
 // session or a planning block in its details. A press held on empty time drafts an hour there and opens Capture on it.
 
 import { useEffect, useId, useRef, useState } from 'react';
@@ -25,10 +24,12 @@ import { describeBlock, formatRange, isTaskBlock, KIND_WORD, OUTCOME_WORD } from
 import type { BlockKind } from '../../components/blocks/describe';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
+import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
+import type { Shortened } from '../../components/editors/SplitAsk';
 import { useOpenTask } from '../../components/task/TaskName';
 import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
-import { columnStyle, DRAG_PX, HOLD_MS, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, SLOP_PX, swallowClick, useWidth } from '../../components/weekgrid';
+import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
 import { Capture } from '../capture';
@@ -79,10 +80,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const actions = useBlockActions();
   /** A task's block opened in the task's popup. */
   const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
+  // A task's block made shorter asks what about the rest, under the timeline, until answered.
+  const [split, setSplit] = useState<Shortened | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const helpId = useId();
   // Where a block being dragged, or just dropped, is drawn, and the suggested time it snaps to.
-  const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null } | null>(null);
+  // held: still under the pointer, drawn lifted; one let go is put down where it landed while it saves.
+  const [drag, setDrag] = useState<{ id: string; slot: Slot; ghost: Slot | null; held?: boolean } | null>(null);
   const steps = useRef<{ id: string; at: Slot; reverse: PlanChange } | null>(null);
   // Arrow steps save one after another, each from where the last one put the block, since the day can redraw from a
   // step's save while the next is still saving and show the block a step behind.
@@ -92,13 +96,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   useEffect(() => setDrag(null), [positions]);
   // A hold on empty time drafts an hour there, never while a block is open, moving or just dropped. Its day and minutes
   // come from the drawn day, which grows to fit the draft.
-  const hold = useHoldToCreate({
+  const holdNew = useHoldToCreate({
     at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
     move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
     earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
     off: !!drag || !!pop || open.size > 0,
   });
-  const held = hold.draft?.slot;
+  const held = holdNew.draft?.slot;
 
   // Minutes after today's midnight, kept within the day, so an event over midnight still draws.
   const minutesOf = (at: string, edge: number) => (localDate(at, zone) === data.date ? localMinutes(at, zone) : edge);
@@ -210,6 +214,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       return run((w) => applyPlanChange(w, first));
     };
     toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo });
+    const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
+    setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
 
   const press = (i: Item, mode: 'move' | 'resize') => (e: ReactPointerEvent) => {
@@ -219,63 +225,23 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const len = slot.end - slot.start;
     const start = mode === 'move' ? dayOffer(data.date, len, workOf(i), { ...ctx, placed: ctx.placed.filter((s) => s.id !== i.id) }) : null;
     const ghost = start === null ? null : { date: data.date, start, end: start + len };
-    const [x0, y0, perPx] = [e.clientX, e.clientY, 60 / ph];
-    // A press on the length handle drags the block it's in, and the click after a drag lands on the block.
-    const target = (e.currentTarget as Element).closest('.cev') ?? e.currentTarget;
-    let lifted = false;
-    let moved = false;
+    const perPx = 60 / ph;
     let last = slot;
-    const lift = () => {
-      lifted = true;
-      setDrag({ id: i.id, slot, ghost });
-    };
-    const hold = (ev: Event) => {
-      if (lifted) ev.preventDefault();
-    };
-    const on: Record<string, (ev: Event) => void> = {
-      pointermove: (ev) => {
-        const m = ev as PointerEvent;
-        if (!lifted) {
-          // A finger that moves before the hold is scrolling. A mouse lifts the block once moved past a click's wobble.
-          if (phone) {
-            if (Math.abs(m.clientX - x0) > SLOP_PX || Math.abs(m.clientY - y0) > SLOP_PX) stop();
-            return;
-          }
-          if (Math.hypot(m.clientX - x0, m.clientY - y0) < DRAG_PX) return;
-          lift();
-        }
-        last = dragResult(slot, mode, 0, (m.clientY - y0) * perPx, ghost ? [ghost] : [], bounds(slot));
-        moved ||= !same(last, slot);
-        if (moved) setDrag({ id: i.id, slot: last, ghost });
+    // A click, or a tap let go without dragging, opens the block by its own click.
+    holdToDrag(e, {
+      lift: () => setDrag({ id: i.id, slot, ghost, held: true }),
+      drag: (_dx, dy) => {
+        last = dragResult(slot, mode, 0, dy * perPx, ghost ? [ghost] : [], bounds(slot));
+        setDrag({ id: i.id, slot: last, ghost, held: true });
       },
-      pointerup: () => {
-        stop();
-        // A click, or a tap let go before the hold: it opens the block.
-        if (!lifted) return;
-        swallowClick(target);
+      drop: () => {
         if (same(last, slot)) return setDrag(null);
         setDrag({ id: i.id, slot: last, ghost: null });
         void save(i, slot, last);
       },
-      pointercancel: () => {
-        stop();
-        setDrag(null);
-      },
-      // While held, the page stays still and the long-press menu stays away.
-      touchmove: hold,
-      contextmenu: hold,
-    };
-    const stop = () => {
-      clearTimeout(timer);
-      for (const [k, f] of Object.entries(on)) window.removeEventListener(k, f);
-    };
-    for (const [k, f] of Object.entries(on)) window.addEventListener(k, f, k === 'touchmove' ? { passive: false } : undefined);
-    const timer = phone
-      ? setTimeout(() => {
-          void platform.haptic?.();
-          lift();
-        }, HOLD_MS)
-      : undefined;
+      cancel: () => setDrag(null),
+      ...(platform.haptic ? { haptic: platform.haptic } : {}),
+    });
   };
 
   const step = (i: Item, move: boolean) => (e: KeyboardEvent) => {
@@ -308,9 +274,9 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         end: 'Hold its handle and drag to change its length.',
       }
     : {
-        move: 'Drag to move it, or drag its bottom edge to change its length. Up and down arrow keys move it, and Shift and arrows change its length.',
-        'move-short': 'Drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.',
-        end: 'Drag its bottom edge, or use Shift and the up and down arrow keys, to change its length.',
+        move: 'Hold it, then drag to move it, or hold its bottom edge and drag to change its length. Up and down arrow keys move it, and Shift and arrows change its length.',
+        'move-short': 'Hold it, then drag to move it. Up and down arrow keys move it, and Shift and arrows change its length.',
+        end: 'Hold its bottom edge and drag, or use Shift and the up and down arrow keys, to change its length.',
         'end-short': 'Use Shift and the up and down arrow keys to change its length.',
       };
   const helpOf = (move: boolean, resize: boolean, short: boolean) => {
@@ -325,8 +291,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const draftLines = draftHeight >= SECOND_LINE[layout];
   const heldDraft = held && (
     <div
-      ref={hold.draftRef}
-      className={`cev holddraft ${blockClass('project', 'placing', { short: draftHeight < 24 })}${draftHeight < 24 ? ' compact' : ''}${hold.draft!.fresh ? ' pop' : ''}`}
+      ref={holdNew.draftRef}
+      className={`cev holddraft ${blockClass('project', 'placing', { short: draftHeight < 24 })}${draftHeight < 24 ? ' compact' : ''}${holdNew.draft!.fresh ? ' pop' : ''}`}
       style={{ top: y(held.start), height: draftHeight, left: items.some((i) => i.from < held.end && held.start < i.to) ? '50%' : '4px', right: '4px' }}
       title={range(held)}
       aria-hidden="true"
@@ -334,7 +300,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       <span className="cevt">
         <span className="blktitle">
           {draftLines ? '' : `${formatTimeOfDay(held.start)} `}
-          {hold.draft!.name.trim() || 'New task'}
+          {holdNew.draft!.name.trim() || 'New task'}
         </span>
       </span>
       {draftLines && <span className="time">{range(held)}</span>}
@@ -366,7 +332,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         data-drop-date={data.date}
         data-drop-from={from}
         data-drop-to={to}
-        onPointerDown={(e) => !(e.target as Element).closest('.cev') && hold.press(e)}
+        onPointerDown={(e) => !(e.target as Element).closest('.cev') && holdNew.press(e)}
       >
         {hours.map((h) => (
           <span key={h} className="dayhr" style={{ top: y(h * 60) }} aria-hidden="true">
@@ -418,7 +384,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           const said = look === 'inbox' ? height >= SECOND_LINE[layout] && <span className="time">Inbox, {i.time}</span> : time;
           const move = movable(i.block);
           const resize = resizable(i.block);
-          const lifted = drag?.id === i.id;
+          const lifted = drag?.id === i.id && !!drag.held;
           // On phone a block that moves is a slider, as on Week, so VoiceOver's swipe up and down move it.
           const slider = phone && move;
           const Tag = slider ? 'div' : 'button';
@@ -468,7 +434,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           return more ? [drawn, more] : drawn;
         })}
         {heldDraft}
-        <HoldRing ring={hold.ring} />
+        <HoldRing ring={holdNew.ring} />
         {drag?.ghost && (
           <div className={`cev ${phone ? 'ghost' : 'ev-ghost'} ${blockClass('project', 'suggested')}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">
             Suggested {formatTimeOfDay(drag.ghost.start)}
@@ -566,12 +532,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
+      {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
-      {hold.draft?.open && (
+      {holdNew.draft?.open && (
         <Capture
           layout={layout}
-          close={hold.close}
-          slot={hold.slot(overlapWords(hold.draft.slot, items.map((i) => ({ title: i.title, start: i.from, end: i.to }))))}
+          close={holdNew.close}
+          slot={holdNew.slot(overlapWords(holdNew.draft.slot, items.map((i) => ({ title: i.title, start: i.from, end: i.to }))))}
         />
       )}
       {pop && (

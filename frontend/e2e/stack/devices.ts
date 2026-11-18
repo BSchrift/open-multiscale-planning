@@ -67,6 +67,37 @@ function asksToSignIn(popup: Page): Promise<boolean> {
   return popup.locator('input[name=username]:visible').waitFor(NETWORK).then(() => true, () => false);
 }
 
+/**
+ * Deletes the signed-in account from Settings, as the person does: the page that says what goes, a sign-in again, and
+ * DELETE typed. Ends on first-run setup, which says the account was deleted.
+ */
+export async function deleteAccount(page: Page, options: { signInAgain?: boolean; screenshot?: string } = {}) {
+  await account(page).getByRole('button', { name: 'Delete my account and data' }).click();
+  const p = pane(page, 'Settings');
+  await expect(p.getByRole('heading', { name: 'Delete my account and data', level: 1 })).toBeVisible();
+  // It names the account it deletes: the one this device's data belongs to.
+  await expect(p.getByText(/^This deletes the account \S+ and everything in it/)).toBeVisible(NETWORK);
+  if (options.signInAgain) {
+    const field = p.getByRole('textbox', { name: 'Type DELETE to confirm' });
+    await expect(field).toBeDisabled();
+    // The sign-in page asks again, even while the browser is still signed in to it.
+    const asked = page.context().waitForEvent('request', (r) => r.url().includes('/oauth2/authorize?') && new URL(r.url()).searchParams.get('prompt') === 'login');
+    const opened = page.waitForEvent('popup');
+    await p.getByRole('button', { name: 'Sign in again' }).click();
+    await asked;
+    const popup = await opened;
+    await expect.poll(() => popup.isClosed(), NETWORK).toBe(true);
+  }
+  await expect(p.getByText(/signed in recently enough to delete/)).toBeVisible(NETWORK);
+  await p.getByRole('textbox', { name: 'Type DELETE to confirm' }).fill('DELETE');
+  if (options.screenshot) await page.screenshot({ path: options.screenshot, fullPage: true });
+  await p.getByRole('button', { name: 'Delete my account and data' }).click();
+  await expect(page.getByText(DELETED)).toBeVisible(NETWORK);
+}
+
+/** What first-run setup says on a device whose account was deleted. */
+export const DELETED = 'Your account and its data were deleted, from Multiscale and from this device.';
+
 /** Signs in, and a sync follows. */
 export async function signIn(page: Page) {
   await startSignIn(page);

@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -150,8 +150,7 @@ test('a block still to come changes its length from its bottom edge, held first 
   } else {
     const edge = (await b.locator('.evh').boundingBox())!;
     const x = edge.x + edge.width / 2;
-    await page.mouse.move(x, edge.y + edge.height / 2);
-    await page.mouse.down();
+    await holdMouse(page, { x, y: edge.y + edge.height / 2 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 8, { steps: 3 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 15, { steps: 3 });
     await page.mouse.up();
@@ -204,8 +203,7 @@ test('the block under way keeps its start and changes only its end, from its edg
     await expect(page.getByText(/^Paint the fence is now/)).toHaveCount(0);
     const edge = (await b.locator('.evh').boundingBox())!;
     const x = edge.x + edge.width / 2;
-    await page.mouse.move(x, edge.y + edge.height / 2);
-    await page.mouse.down();
+    await holdMouse(page, { x, y: edge.y + edge.height / 2 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 8, { steps: 3 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 15, { steps: 3 });
     await page.mouse.up();
@@ -255,19 +253,23 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
   });
   const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
   await settled(page);
+  await countRings(page);
   const b = page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
   // The first zoom draws 30px an hour, so 15px down is half an hour later.
   if (phone) await touchDrag(page, b, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 15 });
   else {
-    await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 3, y: box.y + box.height / 2 });
     await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 + 15, { steps: 4 });
     await page.mouse.up();
   }
   await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { taps: unknown[] }).taps)).toEqual(phone ? [10] : []);
+  // A hold on a block moves it: hold to create, which starts only on empty time, drafted nothing.
+  expect(await rings(page)).toBe(0);
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

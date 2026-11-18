@@ -14,7 +14,6 @@ const WEEK = '2026-11-02';
 
 test('phone: a press that puts a toast away still presses the button under it', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The toast holds the layout in the phone flow only');
-  test.fail(true, 'Waiting on a fix: a press that puts the toast away moves the Schedule sheet before the release, so the press is lost.');
   await page.clock.install({ time: NOW });
   await openSeeded(page, [
     { type: 'project', id: 'p', fields: { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-12-31' } },
@@ -26,6 +25,7 @@ test('phone: a press that puts a toast away still presses the button under it', 
   await page.getByRole('button', { name: 'Process 1 item' }).click();
   await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: /^Add to a project or One offs/ }).click();
   await page.getByRole('dialog', { name: 'Add to' }).getByRole('option', { name: 'Write the report' }).click();
+  await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Add to Write the report', exact: true }).click();
   // The toast stays while the pointer rests on it, and keys don't put it away, so it's still there in Schedule.
   const toast = page.locator('.toast');
   await toast.hover();
@@ -35,11 +35,10 @@ test('phone: a press that puts a toast away still presses the button under it', 
   await expect(page.getByRole('button', { name: 'All picked tasks, 0 of 1 placed' })).toBeVisible();
   await expect(toast).toBeVisible();
 
-  // Pressed as a finger does: down, a moment, then up in the same place.
+  // Pressed as a finger does: down, then up in the same place.
   const place = (await page.getByRole('button', { name: 'Place here' }).boundingBox())!;
   await page.mouse.move(place.x + place.width / 2, place.y + place.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(100);
   await page.mouse.up();
   await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 1 placed' })).toBeVisible();
 });

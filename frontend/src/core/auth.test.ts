@@ -250,6 +250,60 @@ describe('access tokens', () => {
   });
 });
 
+describe('a deleted account', () => {
+  const jwt = (claims: object) => `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
+
+  it('asks with the lapsed token when its refresh is refused, and says the account was deleted only when it was', async () => {
+    for (const gone of [true, false]) {
+      const access = jwt({ sub: 'user-a', auth_time: 1793631600 });
+      const t = setup((form) => (form.get('grant_type') === 'refresh_token' ? json(400, { error: 'invalid_grant' }) : json(200, tokens(access, { refresh_token: 'refresh-1' }))));
+      const asked: string[] = [];
+      const auth = createAuth({
+        authUrl: 'https://auth.example.test', clientId: 'client-1', redirectUri: REDIRECT, clock: t.clock, tokens: t.store,
+        openExternal: async (url) => void t.opened.push(url), fetch: t.fetchFn,
+        accountGone: async (token) => (asked.push(token), gone),
+      });
+      await auth.signIn();
+      await auth.handleRedirect(`${REDIRECT}?code=c&state=${new URL(t.opened.at(-1)!).searchParams.get('state')}`);
+      t.clock.set(NOW + 4000 * 1000);
+      await expect(auth.accessToken()).rejects.toMatchObject({ code: gone ? 'account_deleted' : 'sign_in_expired' });
+      expect(asked).toEqual([access]);
+      await expect(auth.accessToken()).rejects.toMatchObject({ code: 'sign_in_expired' });
+    }
+  });
+
+  it('never asks when the refresh fails for being offline', async () => {
+    const accountGone = vi.fn(async () => true);
+    const t = setup((form) => {
+      if (form.get('grant_type') === 'refresh_token') throw new TypeError('fetch failed');
+      return json(200, tokens('access-1', { refresh_token: 'refresh-1' }));
+    });
+    const auth = createAuth({
+      authUrl: 'https://auth.example.test', clientId: 'client-1', redirectUri: REDIRECT, clock: t.clock, tokens: t.store,
+      openExternal: async (url) => void t.opened.push(url), fetch: t.fetchFn, accountGone,
+    });
+    await auth.signIn();
+    await auth.handleRedirect(`${REDIRECT}?code=c&state=${new URL(t.opened.at(-1)!).searchParams.get('state')}`);
+    t.clock.set(NOW + 4000 * 1000);
+    await expect(auth.accessToken()).rejects.toMatchObject({ code: 'offline' });
+    expect(accountGone).not.toHaveBeenCalled();
+  });
+
+  it('knows when the person last signed in, through a refresh, and asks them to sign in again when asked to', async () => {
+    const t = setup((form) =>
+      json(200, tokens(jwt({ sub: 'user-a', auth_time: 1793631600, n: form.get('grant_type') }), form.get('grant_type') === 'refresh_token' ? {} : { refresh_token: 'refresh-1' })),
+    );
+    expect(await t.auth.signedInAt()).toBeNull();
+    await signedIn(t);
+    expect(await t.auth.signedInAt()).toBe(1793631600_000);
+    await t.auth.accessToken({ refresh: true });
+    expect(await t.auth.signedInAt()).toBe(1793631600_000);
+    expect(new URL(t.opened.at(-1)!).searchParams.get('prompt')).toBeNull();
+    await t.auth.signIn({ again: true });
+    expect(new URL(t.opened.at(-1)!).searchParams.get('prompt')).toBe('login');
+  });
+});
+
 describe('signing out', () => {
   it('forgets the tokens, revokes the refresh token, and ends the sign-in page session so the next sign-in asks again', async () => {
     const t = setup();

@@ -269,10 +269,6 @@ export function dragResult(
   return { date: toDate, start: toStart, end: toStart + length };
 }
 
-/**
- * Where work dropped at a minute of a day lands: the 15-minute grid within the drawn day, snapping to a suggested time
- * within 20 minutes. Null on a day gone by, or when no time is left in it.
- */
 /** How long a block a hold to create drafts: an hour, which Capture's Time can change. */
 export const DRAFT_MIN = 60;
 
@@ -304,6 +300,10 @@ export function holdSlot(date: LocalDate, minute: number, earliest: SlotContext[
   return { date, start, end: start + DRAFT_MIN, moved };
 }
 
+/**
+ * Where work dropped at a minute of a day lands: the 15-minute grid within the drawn day, snapping to a suggested time
+ * within 20 minutes. Null on a day gone by, or when no time is left in it.
+ */
 export function dropSlot(date: LocalDate, minute: number, length: Minutes, ctx: SlotContext, targets: readonly { date: LocalDate; start: TimeOfDay }[] = []): Slot | null {
   if (date < ctx.earliest.date) return null;
   const floor = Math.max(DRAWN_DAY.from, date === ctx.earliest.date ? Math.ceil(ctx.earliest.minutes / GRID) * GRID : 0);

@@ -7,6 +7,7 @@
 import { useId, useState } from 'react';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { MAX_TITLE } from '../../../core/captureTitle';
+import { MAX_NOTES } from '../../../core/notes';
 import { onceWhen, setOnceDates } from '../../../core/schedule';
 import type { RecordWrite } from '../../../core/plan';
 import { taskAttachments } from '../../../core/queries';
@@ -34,8 +35,12 @@ export function Item(props: {
   dateRef: RefObject<HTMLButtonElement | null>;
   /** Whether its date came with it, rather than being set here. */
   dated: boolean;
+  /** Whether its description came from a share that was cut to fit. */
+  cut?: boolean;
   /** Saves fields on the item. True once saved. */
   save(fields: Fields<'task'>): Promise<boolean>;
+  /** Set to save what's typed in the open title, date or description, for the card to call as the item moves on. */
+  pending: { current: (() => Promise<boolean>) | null };
   /** An attachment added or removed, by its exact reverse. */
   onAttachment(reverse: RecordWrite): void;
   /** A key's cap, on desktop. */
@@ -65,6 +70,8 @@ export function Item(props: {
   const saveNotes = async () => {
     if (await props.save({ notes: notes.trim() ? notes : null })) setEditing(null);
   };
+  // The open title or date form sets its own once it draws, after this.
+  props.pending.current = editing === 'notes' && notes !== (task.notes ?? '') ? () => props.save({ notes: notes.trim() ? notes : null }) : null;
 
   const once = task.schedule?.type === 'once' && task.schedule.from ? task.schedule : null;
   const when = once ? onceWhen(once) : '';
@@ -92,7 +99,7 @@ export function Item(props: {
   );
   const dateForm = editing === 'date' && (
     <div className="pxdateform">
-      <OneOffDateForm task={task} commit={(from, to) => props.save(setOnceDates(from, to))} onClose={() => setEditing(null)} />
+      <OneOffDateForm task={task} commit={(from, to) => props.save(setOnceDates(from, to))} pending={props.pending} onClose={() => setEditing(null)} />
     </div>
   );
   const dateNote = once && props.dated && <span className="pxdatenote">It came with this date.</span>;
@@ -113,7 +120,7 @@ export function Item(props: {
       {props.cap('E')}
     </div>
   );
-  const title = editing === 'title' ? <TitleForm title={task.title} phone={phone} cap={plainCap} onSave={(title) => props.save({ title })} onClose={() => setEditing(null)} /> : heading;
+  const title = editing === 'title' ? <TitleForm title={task.title} phone={phone} cap={plainCap} pending={props.pending} onSave={(title) => props.save({ title })} onClose={() => setEditing(null)} /> : heading;
   const adds = (
     <>
       {!task.notes && editing !== 'notes' && (
@@ -128,6 +135,7 @@ export function Item(props: {
   const description = (task.notes || editing === 'notes') && (
     <div className="pxnotes stack8">
       <NotesField value={editing === 'notes' ? notes : (task.notes ?? '')} editing={editing === 'notes'} onEdit={openNotes} onChange={setNotes} onSubmit={() => void saveNotes()} />
+      {props.cut && <p className="pxcutnote">{`The description was cut to ${number.format(MAX_NOTES)} characters.`}</p>}
       {editing === 'notes' && (
         <div className="row">
           <Button variant="primary" size="compact" className={phone ? 'grow' : undefined} type="button" onClick={() => void saveNotes()}>
@@ -191,10 +199,19 @@ export function Item(props: {
 }
 
 /** The title as a field of its own size: Enter or Save keeps it, Esc or Cancel puts the old one back. */
-function TitleForm(props: { title: string; phone: boolean; cap(key: string): ReactNode; onSave(title: string): Promise<boolean>; onClose(): void }) {
+function TitleForm(props: {
+  title: string;
+  phone: boolean;
+  cap(key: string): ReactNode;
+  pending: { current: (() => Promise<boolean>) | null };
+  onSave(title: string): Promise<boolean>;
+  onClose(): void;
+}) {
   const { phone } = props;
   const [title, setTitle] = useState(props.title);
   const [error, setError] = useState('');
+  const typed = title.trim();
+  props.pending.current = typed && typed !== props.title ? () => props.onSave(typed) : null;
   const save = async (event: FormEvent) => {
     event.preventDefault();
     const name = title.trim();

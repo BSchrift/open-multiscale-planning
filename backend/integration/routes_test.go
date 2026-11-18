@@ -120,6 +120,8 @@ func TestSyncRefusesBadRequests(t *testing.T) {
 		{"record too large", changeBody("task", fresh("r"), titled(`"`+strings.Repeat("x", maxRecordBytes)+`"`)), 413, "record_too_large"},
 		{"notes too long", changeBody("task", fresh("r"), fmt.Sprintf(`{"notes":{"v":%q,"c":%q}}`, strings.Repeat("x", maxNotesChars+1), nowClock())), 400, "notes_too_long"},
 		{"notes not text", changeBody("task", fresh("r"), fmt.Sprintf(`{"notes":{"v":1,"c":%q}}`, nowClock())), 400, "invalid_value"},
+		{"memo title too long", changeBody("memo", fresh("r"), fmt.Sprintf(`{"title":{"v":%q,"c":%q}}`, strings.Repeat("x", maxTitleChars+1), nowClock())), 400, "memo_too_long"},
+		{"memo body too long", changeBody("memo", fresh("r"), fmt.Sprintf(`{"body":{"v":%q,"c":%q}}`, strings.Repeat("x", maxNotesChars+1), nowClock())), 400, "memo_too_long"},
 	}
 	before := a.startCursor()
 	for _, c := range cases {

@@ -186,6 +186,17 @@ rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more 
 baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
 in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
 
+**The iPhone** (`.github/workflows/perf-ios.yml`, `scripts/test-perf-ios.sh`): nightly at 05:00 UTC when `frontend/`
+changed since the last run, and on a PR when someone adds the `perf-ios` label, never on every PR. `PerfUITests`
+loads a year of history from the test page as a sync would, launches the app 5 times (the first after install cold,
+the rest warm, each from the test's clock to Today interactive on the page's), then captures and goes through the
+screens 30 times each and comes back to the app 5 times. The app keeps its measures where the test page reads them
+back, since XCUITest can't read the app's page: a debug switch the test page sets, which nothing else does. The app's
+peak memory and memory warnings come from the diagnostics plugin's report of that session, and the web view's peak from
+the Mac's side, where the Simulator's processes run (its resident size, near enough its footprint). Then the same on
+an iPhone SE (3rd generation) Simulator, for its small screen and older WebKit; a Simulator runs at the Mac's speed,
+so it's not a slow phone. The nightly's results go to `perf-data`.
+
 **Once a week** (`.github/workflows/perf-mac.yml`, Sunday at 06:00 UTC): the Mac app's KPIs on a macOS runner, 200
 samples and 20 cold and warm starts after emptying the file cache, set beside the Linux numbers in main's baseline in
 the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25

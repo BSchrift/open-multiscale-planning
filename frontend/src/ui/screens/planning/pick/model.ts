@@ -28,6 +28,7 @@ import type { ProjectStatus } from '../../../../core/status';
 import { backlogId } from '../../../../core/backlog';
 import { ONE_OFFS_BUCKET } from '../../../../core/types';
 import type { LocalDate, Milestone, Minutes, Task } from '../../../../core/types';
+import { SLIDER_STEP } from '../../../components/EstimateSlider';
 import type { DiamondState } from '../../../components/MilestoneDiamond';
 import type { PlanningData, WeekModel } from '../model';
 
@@ -405,12 +406,12 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
 
 
 /**
- * The stops a week's time for a task can take: each quarter hour under its time, then all of it, so a 20 minute task
- * reaches 20m rather than stopping at 15m.
+ * The stops a week's time for a task can take: each slider step under its time, then all of it, so a 22 minute task
+ * reaches 22m rather than stopping at 20m.
  */
 export function weekStops(left: Minutes): Minutes[] {
   const stops: Minutes[] = [];
-  for (let m = 15; m < left; m += 15) stops.push(m);
+  for (let m = SLIDER_STEP; m < left; m += SLIDER_STEP) stops.push(m);
   return [...stops, left];
 }
 

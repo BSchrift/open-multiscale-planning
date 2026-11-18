@@ -14,6 +14,7 @@ import { weekPractices } from '../../../../core/queries';
 import { sessionDay } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
+import { SLIDER_STEP } from '../../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
@@ -689,7 +690,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                     type="range"
                     min={GRID}
                     max={lenMax}
-                    step={GRID}
+                    step={SLIDER_STEP}
                     value={len}
                     aria-valuetext={formatMinutes(len)}
                     onChange={(e) => setLength(Number(e.target.value))}

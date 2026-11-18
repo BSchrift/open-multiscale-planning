@@ -1,0 +1,78 @@
+/* Hold to create (holdCreate.tsx): the draft pops in once, in the look of the block being placed, and a ring spreads from
+   the finger as the phone taps. With reduced motion the draft fades in and the ring shows still. */
+@keyframes holdpop {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.3;
+  }
+
+  60% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes holdring {
+  from {
+    transform: translate(-50%, -50%) scale(0.25);
+    opacity: 1;
+  }
+
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes holdfade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+[data-layout] .holddraft {
+  z-index: calc(var(--z-raised) + 2);
+  pointer-events: none;
+}
+
+[data-layout] .holddraft.pop {
+  animation: holdpop var(--dur-slow) var(--ease);
+}
+
+[data-layout] .holdring {
+  position: fixed;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-circle);
+  box-shadow: 0 0 0 var(--border-emphasis) var(--placing);
+  pointer-events: none;
+  z-index: var(--z-overlay);
+  animation: holdring calc(var(--dur-slow) * 2) var(--ease) forwards;
+}
+
+/* A press held on the day selects nothing and brings up no menu, on iPhone too. */
+[data-layout='phone'] .day {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-layout] .holddraft.pop {
+    animation: holdfade var(--dur-medium);
+  }
+
+  [data-layout] .holdring {
+    animation: none;
+    opacity: 0.6;
+    transform: translate(-50%, -50%);
+  }
+}

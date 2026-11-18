@@ -419,6 +419,29 @@ final class ShellUITests: XCTestCase {
         allowNotificationsIfAsked()
     }
 
+    func testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+        // The seeded app's clock reads 10am, so the afternoon and evening are still to come.
+        let app = launchApp(seed: "Seed plan")
+        let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
+        onToday(day, in: app)
+        // The day runs from 7am to 10pm down the card. Brought up the screen, then held low on it, in the afternoon or
+        // evening, above the tab bar, and let go after the hold.
+        app.swipeUp()
+        let screen = app.windows.firstMatch.frame
+        let y = min(day.frame.maxY - 40, screen.maxY - 160)
+        XCTAssertGreaterThan(y, day.frame.midY, "the lower half of the day isn't on screen. On screen:\n\(app.debugDescription)")
+        let at = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: day.frame.midX, dy: y))
+        at.press(forDuration: 0.8)
+
+        // Capture opens on the draft, saying its day and time.
+        let when = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch
+        exists(when)
+        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.tapWeb("Save")
+        // Saved there as an Inbox item, its block drawn as one: a slider, since it's still to come.
+        exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
+    }
+
     func testABlockHeldOnWeeksDayThenDraggedDownMovesLater() throws {
         let app = launchApp(seed: "Seed later")
         // Asked before the drag, so the question can't land in the middle of it.
@@ -429,13 +452,32 @@ final class ShellUITests: XCTestCase {
         onTab("Week", block, in: app)
         let before = block.label
 
-        // The day runs on below the screen's bottom, where the tab bar would take the touch, so the page scrolls up
-        // first, by the margin left of the day, where nothing is held.
+        // The day runs on below the screen's bottom, under the Capture button and the tab bar, so the page scrolls up
+        // first. The week's top, down to its day strip, stays over the day as it scrolls, and the tree still places a
+        // block that's gone under it, so a press on the block there lands on the strip instead. A fixed flick scrolled
+        // as far as iOS flung it, which on CI was sometimes that far. So the block is scrolled to where its middle,
+        // which is pressed, and the time `drop` below it, where it's let go, are both clear of the strip and the
+        // Capture button.
+        let drop: CGFloat = 120
+        let strip = app.webElement("Choose a day")
+        let capture = app.webButton("Capture a task")
+        exists(strip)
+        exists(capture)
+        let top = strip.frame.maxY + 44
+        let bottom = capture.frame.minY - 22
+        let clear = { block.frame.midY >= top && block.frame.midY + drop <= bottom }
+        // By the margin left of the day, where nothing is held, and stopped before letting go, so the page doesn't fly
+        // on. The distance is measured from where the block is each time, so a scroll that a busy Simulator flung anyway
+        // is brought back by the next.
         let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
-        margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -260)))
+        for _ in 0..<3 where !clear() {
+            let by = (top + bottom - drop) / 2 - block.frame.midY
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: by)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
         // Held past the lift, then let go two rows down, over the free time after it.
         let from = block.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 120)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: drop)), withVelocity: .slow, thenHoldForDuration: 0.5)
         let moved = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, ' AND label != %@", before)).firstMatch
         exists(moved)
         exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
@@ -668,6 +710,13 @@ final class NativeUITests: XCTestCase {
         exists(app.webButton("Shared"))
         run("Shared", expect: "shared:\(url)")
         run("Shared", expect: "shared:")
+    }
+
+    /// A 21,000-character share reaches the app whole through the extension's queue, and the app cuts its description on
+    /// a word to the 20,000 characters the server takes, and says so, so the share can't stop sync.
+    func testALongShareReachesTheAppWholeAndItsDescriptionIsCut() throws {
+        try XCTSkipUnless(extensionsEnabled, "extensions are off")
+        run("Share long", expect: "shared-long:21000:19999:cut")
     }
 
     /// The Control Center button's intent, run in the app's process as iOS runs it when the button is tapped, opens

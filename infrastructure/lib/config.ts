@@ -80,8 +80,9 @@ export interface Config {
   /**
    * The integration suite's test users and what the environment offers it. With secondUser in capabilities, the deploy
    * makes the user secondTestUser names, its password the SSM SecureString /multiscale/<env>/second-test-user-password.
+   * The API never deletes either account, whatever the suite's requests say.
    */
-  integration?: { secondTestUser?: string; capabilities?: string[] };
+  integration?: { testUser?: string; secondTestUser?: string; capabilities?: string[] };
 }
 
 // Holds the committed examples, and is the config folder unless MULTISCALE_CONFIG_DIR names another.

@@ -18,6 +18,12 @@ feature gets a row, and a test that covers a cell gets named in it.
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
 | Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`); the server's routes and sync against staging each night, from the release pipeline |
 
+**The deployed journey, on the release before.** Prod's Test step runs the deployed web suite against the web app prod
+still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
+journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
+bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
+there, before prod's Test step meets it.
+
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
 on a data folder of its own, with the test's time zone and colour scheme. The journeys do this. A spec that seeds
@@ -39,6 +45,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture from the button | covered (inbox: "captures to the Inbox from the button and the keyboard") | covered (same) | covered (journeys/capture-and-process; desktop: "closing the window keeps the edits not yet saved…") | covered (testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff) |
 | Capture from the keyboard, in the app | covered (inbox: "captures to the Inbox…"; journeys/capture-and-process) | n/a | covered (journeys/capture-and-process) | n/a |
 | Capture from anywhere: global shortcut, Control Center, share sheet | n/a | n/a | covered (desktop: "the shortcut opens a one-field window that saves to the Inbox…", "a save that fails keeps the text and says so") | covered (testControlCenterWidgetOpensCapture, testShareExtensionQueuesForTheApp, testShareImportIsOffWithoutTheExtensions, testCaptureSitsAboveTheKeyboard…) |
+| Share sheet: the first line the title and the rest the description, a link on its own attached, a long share cut and Process saying so | n/a (Process's notice: process "a shared description that was cut to fit says so under it") | n/a (same) | n/a | partly (testALongShareReachesTheAppWholeAndItsDescriptionIsCut: the queue keeps it whole and the app cuts it; the item a share makes is checked in shareImport.test.tsx only) |
 | Capture's Add details: time, and a place that skips the Inbox | covered (details: "Capture's Add details opens with Time first…"; process: "Add details sends a task with its time straight to One offs…") | covered (same) | missing (seeded specs run in the browser only) | missing |
 | Capture: Esc and Cancel drop the text; a click outside keeps it | covered (process: "Esc and Cancel drop what was typed…") | partly (Esc only; a tap on the backdrop untested) | missing | missing |
 | Inbox: count, rows, rename, popup | covered (inbox: "shows the Inbox's count in a circle", "an Inbox row opens its popup…"; details: "an Inbox item opens in its popup…") | covered (same) | partly (journeys/capture-and-process: rows and popup) | missing |
@@ -74,6 +81,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture shortcut | n/a (apps only) | n/a | covered (desktop: "a new capture shortcut from Settings replaces the old one…") | n/a |
 | Updates | n/a (apps only) | n/a | partly (unit tests only; the section shows only in builds with a release feed) | partly (unit tests only) |
 | Data retention | covered (settings: "Data retention says what's kept and for how long…") | covered (same) | missing | missing |
+| Account: Export my data, a zip of every record, its settings and a README | covered (stack/account: "desktop: Export my data downloads a zip of everything the account has") | covered (stack/account: "phone: …", at phone size) | missing (the Mac app hands the link to the default browser; settings.test.tsx checks it goes through the platform) | missing (Safari saves it; settings.test.tsx checks the platform is asked) |
+| Account: Delete my account and data, with a fresh sign-in and DELETE typed | covered (stack/account: "desktop: Delete my account and data takes a fresh sign-in and DELETE…"; settings.test.tsx: the page's safeguards) | covered (stack/account: "phone: …", at phone size) | missing | missing |
 
 ### Stretch planning (Plan)
 
@@ -140,7 +149,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | The block's details beside the week | covered (week-blocks: "desktop: a block clicked on the grid shows its details beside the week…") | n/a | missing | n/a |
 | Phone: pinching the day zooms its hours, around the fingers, from the whole day to three times, kept on the device | n/a | covered (week-pinch, in Chromium: WebKit here can't put down a second finger; pinch.test: the zoom's sums) | n/a | covered (testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem) |
 | Phone: the day strip, a block's sheet, Move to another day, Length, Remove | n/a | covered (week: "phone: the day strip, a block sheet, and Move to another day", "phone: a day with no slot stays readable"; week-blocks: "phone: a block's sheet changes its length on a slider…") | n/a | partly (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek: it draws) |
-| To schedule above the week: a suggestion places it, Undo, drag both ways | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
+| To schedule above the week: a suggestion places it, Undo, drag both ways, rows shared across days | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…", "desktop: what waits above the week shares rows across days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
 | Add a task at its suggested time; Edit this week's plan | covered (week: "desktop: add a task at its suggested time") | covered (week: "phone: Edit this week's plan and add a task from the drawer") | missing | missing |
 | Week arrows and This week | covered (week: "week arrows reach any week and This week comes back") | covered (same) | partly (journeys/answered-weeks) | missing |
 | Past weeks: read only, linked to their analytics | covered (week-blocks: "a past week can be read but not changed…") | covered (same) | missing | missing |
@@ -200,6 +209,9 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Expired sign-in, and signing in as another account | covered (stack/sync: "an expired sign-in shows in Settings…", "signing in as another account asks first…") | missing (desktop only) | partly (sync: "…a restart keeps data and sign-in") | missing |
 | Sign-in tokens kept safely | n/a | n/a | covered (desktop: "tokens are stored encrypted and survive a restart") | covered (testTokensRoundTripThroughTheKeychain) |
 | Attachments' photos sync and open on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (desktop only) | missing (the file picker is the browser's; not run on the Mac app) | missing |
+| A deleted account: every signed-in device erases its copy on its next sync, and one whose token lapsed asks | covered (stack/account: "…a second device erases its copy", at its next launch; syncRunner.test.ts for a sync and a lapsed token; account.stack.test.ts) | missing (desktop only) | missing | missing |
+| A released app after its account is deleted shows it's signed out | covered (compat: "an old device whose account a new device deleted shows it's signed out") | n/a | n/a | n/a |
+| Export and account deletion, server side: every record type and note in the export, a deletion removing everything from DynamoDB, the bucket and the user pool, other people untouched, an interrupted deletion carried on, devices refused, a lapsed token's status | n/a: server side, in backend/internal/account, backend/internal/api/account_test.go and backend/integration/account_test.go | | | |
 
 ### Google Calendar
 
@@ -209,6 +221,16 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Calendar modes and busy time with seeded calendars | covered (settings: "edits settings in place") | covered (settings: "edits settings in place") | missing | missing |
 | A clash with the calendar shifts the rest of today | covered (today: "a clash with the calendar shifts the rest of today") | covered (same) | missing | missing |
 | Blocks mirrored to Google, edits there overwritten, errors | n/a: server side, in backend/integration/calendar_test.go and backend/cmd/local/calendar_test.go | | | |
+| Each person connects their own Google account: two at once each sync their own, one's removed access, outage, quota or slowness leaves the other syncing, a Google account connects to one person at a time | n/a: server side, in backend/integration/calendar_test.go ("TestTwoPeopleConnectedAtOnceEachSyncTheirOwn", "TestOnePersonsGoogleTroubleLeavesTheOtherSyncing", "TestAGoogleAccountConnectsToOnePersonAtATime") and backend/internal/gcal/people_test.go | | | |
+| A person's token is stored encrypted for them alone, never in the clear, and goes on disconnect and account deletion | n/a: server side, in backend/internal/gcal/aws_test.go ("TestConnectionsThroughDynamoDBAndKMS", against DynamoDB Local and Moto's KMS) and connect_test.go | | | |
+| The deployment's one connection from before keeps working until it's copied to its person's own | n/a: server side, in backend/internal/gcal/people_test.go ("TestTheLegacyConnectionKeepsRunningForItsPersonOnly") | | | |
+| The schedule copies that connection to its person's own, verified with Google, twice or at once or cut off partway, never over a newer consent or undoing a disconnect, with their sync uninterrupted | n/a: server side, in backend/internal/gcal/migrate_test.go and backend/integration/calendar_migration_test.go ("TestTheLegacyConnectionMovesToItsPersonWithoutInterruption") | | | |
+| The schedule and the stream start each connected person's run through the queue, spread and bounded | n/a: server side, in backend/internal/gcal/people_test.go, backend/cmd/calendar/main_test.go and infrastructure/test/stack.test.ts | | | |
+| Google refusing a token marks the connection and keeps it until they connect again or disconnect; a 401 from the Calendar API, a lasting 403 or an organisation's policy isn't a worker failure; a consent with a permission unticked is refused | n/a: server side, in backend/internal/gcal/review_test.go | | | |
+| A connection that won't open never locks its person out, and falls back to the legacy one naming them; a disconnect goes round for a connection made while it ran; a consent stores over only the connection it read | n/a: server side, in backend/internal/gcal/review_test.go | | | |
+| A run's failure names its AWS error code, never a value | n/a: server side, in backend/internal/gcal/review_test.go ("TestARunsFailureNamesTheAWSErrorCode") | | | |
+| The queue mapping exists through the canary, the failure and revocation alarms, the dead-letter alarm on arrivals, and the token key used only by the two functions | n/a: infrastructure/test/stack.test.ts | | | |
+| A real Google account per person on staging | missing: needs a dedicated test Google account for the test user (`testCalendar`), and a second for the second test user | | | |
 
 ### Reminders and notifications
 

@@ -450,6 +450,7 @@ describe('Process on desktop', () => {
     expect((await task(t.db, 'i5'))?.done_at).toBeUndefined();
     expect((await task(t.db, 'i4'))?.kind).toBe('inbox');
     fireEvent.pointerDown(document.querySelector('.clearveil')!);
+    fireEvent.click(document.querySelector('.clearveil')!, { detail: 1 });
     await waitFor(() => expect(toast()).toHaveTextContent('Deleted Return the books.'));
     await userEvent.click(toastUndo());
     await waitFor(async () => expect((await task(t.db, 'i5'))?.deleted_at).toBeNull());
@@ -574,12 +575,12 @@ describe('Process on desktop', () => {
     const caps = () => [...card().querySelectorAll('.keycap')].map((k) => k.textContent).filter((c) => c !== '↩');
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['⌥B', '⌥D', '⌥E', '⌥F', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
+    expect(caps().sort()).toEqual(['⌥B', '⌥D', '⌥E', '⌥F', '⌥G', '⌥K', '⌥P', '⌥S', '⌥W', '⌥Z']);
     cleanup();
     keysOn();
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['B', 'D', 'E', 'F', 'G', 'P', 'S', 'W', 'Z']);
+    expect(caps().sort()).toEqual(['B', 'D', 'E', 'F', 'G', 'K', 'P', 'S', 'W', 'Z']);
   });
 
   it('labels the held key Alt away from a Mac', async () => {
@@ -663,6 +664,7 @@ describe('When the last item is handled', () => {
     // The last item's toast waits until the check has gone; a tap puts the check away sooner.
     expect(toast()).toBeNull();
     fireEvent.pointerDown(check()!);
+    fireEvent.click(check()!, { detail: 1 });
     await waitFor(() => expect(check()).toBeNull());
     expect(toast()).toHaveTextContent('Added Call the bank to One offs.');
   });
@@ -1104,6 +1106,28 @@ describe('Editing the item on the card', () => {
     await waitFor(async () => expect((await task(t.db, 'i1'))?.notes).toBe('Ask about **rates** today'));
   });
 
+  it('says when a shared description was cut, under it, on that item only, on desktop and phone', async () => {
+    const cutNote = 'The description was cut to 20,000 characters.';
+    for (const layout of ['desktop', 'phone'] as const) {
+      // As share import leaves it for the item whose description it cut.
+      localStorage.setItem('multiscale.cutShares', JSON.stringify(['i1']));
+      await open({
+        layout,
+        seed: async (w) => {
+          await seed(w);
+          await w.set('task', 'i1', { notes: 'Notes from the talk' });
+          await w.set('task', 'i2', { notes: 'Hinges' });
+        },
+      });
+      await screen.findByRole('heading', { name: 'Call the bank' });
+      expect(within(card()).getByText(cutNote).closest('.pxnotes')).toHaveTextContent('Notes from the talk');
+      await userEvent.click(btn('Skip'));
+      await screen.findByRole('heading', { name: 'Fix the gate' });
+      expect(within(card()).queryByText(cutNote)).toBeNull();
+      cleanup();
+    }
+  });
+
   it('adds a link on the card at once, with Add link beside the others, and removes it with its own Undo', async () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
@@ -1216,7 +1240,7 @@ describe('Editing the item on the card', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
   });
 
-  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, Goal backlog, New practice and goal, Skip, Done, Delete', async () => {
+  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, Goal backlog, Save as note, New practice and goal, Skip, Done, Delete', async () => {
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     const stops = Array.from(card().querySelectorAll<HTMLElement>('button, input, textarea, select'))
@@ -1231,6 +1255,7 @@ describe('Editing the item on the card', () => {
       'Add to a project or One offs',
       'Add to this weekAlt W',
       'Alt BGoal backlog',
+      'Alt KSave as note',
       'New practice from this item',
       'New goal from this item',
       'SkipAlt S',
@@ -1427,7 +1452,7 @@ describe('Process for planning a stretch', () => {
 });
 
 describe('Process on phone', () => {
-  it('puts the item on top, then Add to low in thumb reach, then Goal backlog, New practice and goal, then Undo, Skip, Done and Delete', async () => {
+  it('puts the item on top, then Add to low in thumb reach, then Goal backlog and Save as note, New practice and goal, then Undo, Skip, Done and Delete', async () => {
     await open({ layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
     const order = Array.from(card().querySelectorAll('h1, button, input')).map((e) =>
@@ -1444,6 +1469,7 @@ describe('Process on phone', () => {
       'Add to this week',
       'Add to a project or One offs',
       'Goal backlog',
+      'Save as note',
       'New practice from this item',
       'New goal from this item',
       'Undo',

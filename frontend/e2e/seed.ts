@@ -233,3 +233,32 @@ export async function touchDrag(page: Page, target: Locator, to: { x: number; y:
   if (end !== to) await fire('pointermove', end);
   await fire('pointerup', end);
 }
+
+/**
+ * Puts a pointer down at a time on an element that draws part of a day, as hold to create is started: a finger on
+ * phone, a mouse on desktop. The element covers `range` in minutes, or what its data-drop-from and data-drop-to say.
+ * It's measured as it's pressed, since what loads above it can still move it down the page. Returns where it pressed,
+ * for `release`.
+ */
+export async function pressOn(target: Locator, minute: number, phone: boolean, range?: { from: number; to: number }): Promise<{ x: number; y: number }> {
+  await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  return target.evaluate(
+    (el, { minute, range, pointerType }) => {
+      const box = el.getBoundingClientRect();
+      const [from, to] = range ? [range.from, range.to] : [Number((el as HTMLElement).dataset.dropFrom), Number((el as HTMLElement).dataset.dropTo)];
+      const at = { x: box.x + box.width * 0.6, y: box.y + ((minute - from) / (to - from)) * box.height };
+      const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType, isPrimary: true, button: 0, buttons: 1, clientX: at.x, clientY: at.y };
+      document.elementFromPoint(at.x, at.y)!.dispatchEvent(new PointerEvent('pointerdown', init));
+      return at;
+    },
+    { minute, range, pointerType: phone ? 'touch' : 'mouse' },
+  );
+}
+
+/** Lets go of a pointer `pressOn` put down. */
+export async function release(page: Page, at: { x: number; y: number }, phone: boolean): Promise<void> {
+  await page.evaluate(
+    ({ x, y, pointerType }) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType, isPrimary: true, button: 0, clientX: x, clientY: y })),
+    { ...at, pointerType: phone ? 'touch' : 'mouse' },
+  );
+}

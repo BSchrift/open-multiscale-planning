@@ -32,6 +32,9 @@ records:
   # included. The server counts Unicode code points, and the apps stop at the same number of UTF-16 units, which is
   # never fewer, so no app sends more than the server takes. At 4 bytes a character, a full one fits in maxRecordBytes.
   maxNotesChars: 20000
+  # The longest a note's title may be, in characters, as the server counts them for a memo record. The apps cut every
+  # title at the same number of UTF-16 units (MAX_TITLE in frontend/src/core/captureTitle.ts), which is never fewer.
+  maxTitleChars: 2000
 
 clock:
   # A field's clock: its wall time in milliseconds, in 13 digits, a counter in 6, then the device's id. Clocks compare
@@ -76,3 +79,8 @@ attachments:
     - application/vnd.oasis.opendocument.text
     - application/vnd.oasis.opendocument.spreadsheet
     - application/vnd.oasis.opendocument.presentation
+
+account:
+  # Deleting an account takes a sign-in this recent, in minutes: the app has the person sign in again first, and the API
+  # checks the access token's auth_time, which a refresh keeps.
+  maxSignInAgeMinutes: 10

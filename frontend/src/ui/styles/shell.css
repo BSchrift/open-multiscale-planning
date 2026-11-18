@@ -430,6 +430,13 @@ p {
   z-index: calc(var(--z-raised) + 7);
 }
 
+/* "Schedule both at the same time?", fixed under the block let go or the button pressed (BothAsk.tsx). */
+.bothask {
+  width: 320px;
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+}
+
 /* Shared widgets that need the same frame on both layouts. */
 .pillbtn {
   display: inline-flex;

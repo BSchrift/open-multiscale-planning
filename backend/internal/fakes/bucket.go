@@ -176,6 +176,56 @@ func (b *Bucket) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+// Get reads an object, as the account function's GetObject does, or returns nil for one that isn't there.
+func (b *Bucket) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	found, ok := b.objects[key]
+	if !ok {
+		return nil, nil
+	}
+	return io.NopCloser(bytes.NewReader(found.body)), nil
+}
+
+// Put stores an object with the headers it's served with, as the account function's upload of an export does.
+func (b *Bucket) Put(_ context.Context, key string, body io.Reader, contentType, disposition string) error {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.objects == nil {
+		b.objects = map[string]object{}
+	}
+	b.objects[key] = object{data, contentType, disposition}
+	return nil
+}
+
+// List returns every key under prefix, in order, as ListObjectsV2 pages through them.
+func (b *Bucket) List(_ context.Context, prefix string) ([]string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var keys []string
+	for key := range b.objects {
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	return keys, nil
+}
+
+// DeleteAll removes objects, as DeleteObjects does. Missing keys are no error.
+func (b *Bucket) DeleteAll(_ context.Context, keys []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, key := range keys {
+		delete(b.objects, key)
+	}
+	return nil
+}
+
 // Object returns an object's bytes, for tests to check what landed and what's gone.
 func (b *Bucket) Object(key string) ([]byte, bool) {
 	b.mu.Lock()

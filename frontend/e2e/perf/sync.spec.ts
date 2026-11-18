@@ -1,5 +1,6 @@
 // The sync KPIs (docs/performance.md) between two browsers of one user, through the local stack behind Toxiproxy, on
-// the network PERF_NETWORK names (good, slow-3g or flaky), which scripts/test-perf.sh sets up: sync.send and sync.push
+// the network PERF_NETWORK names (good, slow-3g or flaky), which scripts/test-perf.sh sets up, or against staging as its
+// test user (staging), from the release pipeline's nightly: sync.send and sync.push
 // on the device that captures, sync.pull on the other. With a good network it also times capture and the screens while
 // a third device's 5,000 records come down, against the same device idle, and has both devices edit at once for a
 // minute and checks they end up equal. Nightly only, with PERF_SYNC=1.
@@ -7,6 +8,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 import { pane } from '../seed';
+import { device as stackDevice, signIn } from '../stack/devices';
 import { percentile } from '../../scripts/perf-stats';
 import { capture, collect, keep, Results, screens, waitForMeasure } from './harness';
 import type { Action } from './harness';
@@ -25,6 +27,8 @@ const wait = { timeout: 120_000 };
  * 10-second outage every 2 minutes. Shaped once the devices are signed in, so only the timed part is slowed.
  */
 async function shape(network: string): Promise<() => Promise<void>> {
+  // A good network is the proxy as it is, and staging's is the real one.
+  if (network === 'good' || network === 'staging') return async () => undefined;
   const toxi = process.env.PERF_TOXIPROXY!;
   const post = (path: string, body: unknown) => fetch(`${toxi}${path}`, { method: 'POST', body: JSON.stringify(body) }).then((r) => expect(r.ok, path).toBe(true));
   const toxics: { name: string; type: string; stream?: string; toxicity?: number; attributes: Record<string, number> }[] =
@@ -58,6 +62,14 @@ async function shape(network: string): Promise<() => Promise<void>> {
 
 /** A device of the user, past setup and signed in, with its first sync done. Each test has a user of its own. */
 async function device(browser: Browser, user: string, seed: { type: string; fields: Record<string, unknown> }[] = []): Promise<Page> {
+  if (NETWORK === 'staging') {
+    // The deployment's test user, through its hosted sign-in page, as the stack specs sign in.
+    const { page } = await stackDevice(browser, user, { baseURL: url(), viewport: { width: 1360, height: 1000 } });
+    await signIn(page);
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /^Today/ }).click();
+    await keep(page);
+    return page;
+  }
   const context = await browser.newContext({ baseURL: url(), viewport: { width: 1360, height: 1000 } });
   // The local sign-in lets anyone in, as the username in the query.
   await context.route((u) => u.href.startsWith(`${api}/cognito/oauth2/authorize?`), (route) => route.continue({ url: `${route.request().url()}&username=${user}` }));

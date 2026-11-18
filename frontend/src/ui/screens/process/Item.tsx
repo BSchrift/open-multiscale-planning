@@ -7,6 +7,7 @@
 import { useId, useState } from 'react';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { MAX_TITLE } from '../../../core/captureTitle';
+import { MAX_NOTES } from '../../../core/notes';
 import { onceWhen, setOnceDates } from '../../../core/schedule';
 import type { RecordWrite } from '../../../core/plan';
 import { taskAttachments } from '../../../core/queries';
@@ -34,6 +35,8 @@ export function Item(props: {
   dateRef: RefObject<HTMLButtonElement | null>;
   /** Whether its date came with it, rather than being set here. */
   dated: boolean;
+  /** Whether its description came from a share that was cut to fit. */
+  cut?: boolean;
   /** Saves fields on the item. True once saved. */
   save(fields: Fields<'task'>): Promise<boolean>;
   /** Set to save what's typed in the open title, date or description, for the card to call as the item moves on. */
@@ -132,6 +135,7 @@ export function Item(props: {
   const description = (task.notes || editing === 'notes') && (
     <div className="pxnotes stack8">
       <NotesField value={editing === 'notes' ? notes : (task.notes ?? '')} editing={editing === 'notes'} onEdit={openNotes} onChange={setNotes} onSubmit={() => void saveNotes()} />
+      {props.cut && <p className="pxcutnote">{`The description was cut to ${number.format(MAX_NOTES)} characters.`}</p>}
       {editing === 'notes' && (
         <div className="row">
           <Button variant="primary" size="compact" className={phone ? 'grow' : undefined} type="button" onClick={() => void saveNotes()}>

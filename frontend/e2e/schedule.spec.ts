@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectOnTop, expectTapTarget, holdMouse, openSeeded, startPlanningThenUndo } from './seed';
+import { expectOnTop, expectTapTarget, holdMouse, openSeeded, pressOn, release, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -90,7 +90,7 @@ test('desktop: moving a practice session asks whether to use the new time in fut
   expect(errors).toEqual([]);
 });
 
-test('desktop: the draft floats over a placed block, which stays put, and Place here takes it off to place again', async ({ page }, info) => {
+test('desktop: the draft floats over a placed block, which stays put, and Place here asks, then Replace takes it off to place again', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openSchedule(page, false);
   const session = page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ });
@@ -105,11 +105,15 @@ test('desktop: the draft floats over a placed block, which stays put, and Place 
   await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y - 272, { steps: 4 });
   await page.mouse.up();
   await expect(page.getByRole('group', { name: /^Collect the sources, Tue Nov 3, 7am to 9am, Project\. Being placed\./ })).toBeVisible();
-  await expect(page.getByText('Placing here takes Morning stretch off the calendar to place again.')).toBeVisible();
+  await expect(page.getByText(/^Overlaps Morning stretch, /)).toBeVisible();
   expect(await session.boundingBox()).toEqual(was);
   await page.screenshot({ path: info.outputPath('schedule-overlap-desktop.png') });
 
   await page.getByRole('button', { name: 'Place here' }).click();
+  const ask = page.getByRole('dialog', { name: 'Schedule both at the same time?' });
+  await expect(ask.getByRole('button', { name: 'Keep both' })).toBeFocused();
+  await page.screenshot({ path: info.outputPath(`schedule-both-ask-${info.project.name}.png`) });
+  await ask.getByRole('button', { name: 'Replace' }).click();
   await expect(session).toHaveCount(0);
   await expect(page.getByText('Took Morning stretch off the calendar to place again')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Morning stretch/ }).locator('.schedmark [data-icon="done"]')).toHaveCount(0);
@@ -119,7 +123,7 @@ test('desktop: the draft floats over a placed block, which stays put, and Place 
   expect(errors).toEqual([]);
 });
 
-test('phone: the draft floats beside a placed block, which stays put, and Place here takes it off to place again', async ({ page }, info) => {
+test('phone: the draft floats beside a placed block, which stays put, and Place here asks, then Replace takes it off to place again', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip and dock are the phone layout');
   const errors = await openSchedule(page, true);
   await page.getByRole('group', { name: 'Compare days' }).getByRole('button', { name: /^Tue Nov 3,/ }).click();
@@ -136,11 +140,15 @@ test('phone: the draft floats beside a placed block, which stays put, and Place 
   await page.mouse.move(box.x + box.width / 2, box.y - 12, { steps: 3 });
   await page.mouse.up();
   await expect(handle).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 7am to 9am');
-  await expect(page.getByText('Placing here takes Morning stretch off the calendar to place again.')).toBeVisible();
+  await expect(page.getByText(/^Overlaps Morning stretch, /)).toBeVisible();
   expect(await session.boundingBox()).toEqual(was);
   await page.screenshot({ path: info.outputPath('schedule-overlap-phone.png') });
 
   await page.getByRole('button', { name: 'Place here' }).click();
+  const ask = page.getByRole('dialog', { name: 'Schedule both at the same time?' });
+  await expect(ask.getByRole('button', { name: 'Keep both' })).toBeFocused();
+  await page.screenshot({ path: info.outputPath(`schedule-both-ask-${info.project.name}.png`) });
+  await ask.getByRole('button', { name: 'Replace' }).click();
   await expect(session).toHaveCount(0);
   const said = page.locator('.pktoast', { hasText: 'Took Morning stretch off the calendar to place again' });
   await said.getByRole('button', { name: 'Undo' }).click();
@@ -344,5 +352,39 @@ test('phone: All tasks lists practices first, and a task comes out of this week 
   await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 19 placed' })).toBeVisible();
   await said.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 20 placed' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+const holdTarget = (page: Page, phone: boolean) => (phone ? page.locator('.day.dragday') : page.locator('.colbody[data-drop-date="2026-11-04"]'));
+
+test('a press held on empty time in the Schedule step drafts nothing while a task is being placed', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openSchedule(page, phone);
+  // Desktop: Wednesday on the editing grid. Phone: the day shown, today. Both drawn from 6am to 11pm.
+  const at = await pressOn(holdTarget(page, phone), 17 * 60 + 50, phone, { from: 360, to: 1380 });
+  await page.waitForTimeout(600);
+  await release(page, at, phone);
+  await page.waitForTimeout(300);
+  await expect(page.locator('.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('with nothing left to place in the Schedule step, a press held on empty time drafts an hour there, and Capture saves it there', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  // Only the practice, already placed: nothing waits to be placed, not even the one off dated in the week.
+  const errors = await openSchedule(page, phone, records.filter((r) => r.type !== 'week_pick' && r.id !== 'o1'));
+  const draft = page.locator('.holddraft');
+  const at = await pressOn(holdTarget(page, phone), 17 * 60 + 50, phone, { from: 360, to: 1380 });
+  await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+  await release(page, at, phone);
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText(phone ? 'Today, 5:45pm to 6:45pm' : 'Wed Nov 4, 5:45pm to 6:45pm')).toBeVisible();
+  await page.keyboard.type('Book dentist');
+  await page.screenshot({ path: info.outputPath('schedule-hold-capture.png') });
+  await page.keyboard.press('Enter');
+  await expect(draft).toHaveCount(0);
+  await expect(page.locator('.cev, .ev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
+  await page.screenshot({ path: info.outputPath('schedule-hold-saved.png') });
   expect(errors).toEqual([]);
 });

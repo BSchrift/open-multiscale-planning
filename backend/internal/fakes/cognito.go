@@ -46,8 +46,9 @@ func (c *Clock) Set(at time.Time) {
 }
 
 // Cognito stands in for a user pool's hosted endpoints: authorization code with PKCE, refresh, revoke, sign-out and signing keys. Sign-up
-// is off in the real pool, so any username here is an existing user; authorize signs them straight in, with no page.
-// Of the pool's own API it has ListUsers by email, which make storage-quota uses to find a person's sub.
+// is off in the real pool, so any username here is an existing user, until it's deleted; authorize signs them straight
+// in, with no page. Of the pool's own API it has ListUsers by email, which make storage-quota uses to find a person's
+// sub, ListUsers by sub and AdminDeleteUser, which deleting an account uses.
 type Cognito struct {
 	issuer, clientID string
 	now              func() time.Time
@@ -57,6 +58,10 @@ type Cognito struct {
 	mu      stdsync.Mutex
 	codes   map[string]authCode
 	refresh map[string]refreshGrant
+	// deleted are the usernames AdminDeleteUser removed, which can't sign in or refresh again.
+	deleted map[string]bool
+	// signedIn maps each sub tokens were issued for to its username, for ListUsers by sub.
+	signedIn map[string]string
 }
 
 type authCode struct {
@@ -64,9 +69,11 @@ type authCode struct {
 	expires                       time.Time
 }
 
+// refreshGrant keeps when its sign-in happened, which every token it refreshes carries as auth_time, as Cognito's do.
 type refreshGrant struct {
 	username string
 	expires  time.Time
+	authTime time.Time
 }
 
 // NewCognito makes a stand-in with a fresh signing key. issuer is the URL it is served at.
@@ -77,7 +84,7 @@ func NewCognito(issuer, clientID string, now func() time.Time) (*Cognito, error)
 	}
 	return &Cognito{
 		issuer: issuer, clientID: clientID, now: now, key: key, kid: randomToken()[:16],
-		codes: map[string]authCode{}, refresh: map[string]refreshGrant{},
+		codes: map[string]authCode{}, refresh: map[string]refreshGrant{}, deleted: map[string]bool{}, signedIn: map[string]string{},
 	}, nil
 }
 
@@ -89,7 +96,7 @@ func (c *Cognito) PublicKeys() map[string]*rsa.PublicKey {
 func (c *Cognito) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method + " " + r.URL.Path {
 	case "POST /":
-		c.listUsers(w, r)
+		c.adminAPI(w, r)
 	case "GET /oauth2/authorize":
 		c.authorize(w, r)
 	case "POST /oauth2/token":
@@ -134,6 +141,14 @@ func (c *Cognito) authorize(w http.ResponseWriter, r *http.Request) {
 	username := q.Get("username")
 	if username == "" {
 		username = defaultUsername
+	}
+	c.mu.Lock()
+	gone := c.deleted[username]
+	c.mu.Unlock()
+	// The real pool's page refuses the sign-in and never comes back to the app.
+	if gone {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access_denied"})
+		return
 	}
 	code := randomToken()
 	c.mu.Lock()
@@ -190,43 +205,87 @@ func (c *Cognito) exchangeCode(w http.ResponseWriter, form url.Values) {
 		return
 	}
 	refresh := randomToken()
+	now := c.now()
 	c.mu.Lock()
-	c.refresh[refresh] = refreshGrant{grant.username, c.now().Add(refreshTokenTTL)}
+	c.refresh[refresh] = refreshGrant{grant.username, now.Add(refreshTokenTTL), now}
 	c.mu.Unlock()
-	c.writeTokens(w, grant.username, refresh)
+	c.writeTokens(w, grant.username, refresh, now)
 }
 
 func (c *Cognito) useRefreshToken(w http.ResponseWriter, form url.Values) {
 	c.mu.Lock()
 	grant, found := c.refresh[form.Get("refresh_token")]
+	gone := c.deleted[grant.username]
 	c.mu.Unlock()
-	if !found || c.now().After(grant.expires) {
+	if !found || gone || c.now().After(grant.expires) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 		return
 	}
-	c.writeTokens(w, grant.username, "")
+	c.writeTokens(w, grant.username, "", grant.authTime)
 }
 
-// emailFilter is the one ListUsers filter the stand-in takes: an exact email.
-var emailFilter = regexp.MustCompile(`^email\s*=\s*"([^"]+)"$`)
+// The ListUsers filters the stand-in takes: an exact email, or an exact sub.
+var (
+	emailFilter = regexp.MustCompile(`^email\s*=\s*"([^"]+)"$`)
+	subFilter   = regexp.MustCompile(`^sub\s*=\s*"([^"]+)"$`)
+)
 
-// listUsers answers ListUsers for one email with the user it stands for, as the AWS CLI calls it.
-func (c *Cognito) listUsers(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Filter string }
-	if r.Header.Get("X-Amz-Target") != "AWSCognitoIdentityProviderService.ListUsers" || json.NewDecoder(r.Body).Decode(&body) != nil {
+// adminAPI answers the pool's own API, as the AWS CLI and SDK call it.
+func (c *Cognito) adminAPI(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Filter, Username string }
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"__type": "InvalidParameterException"})
 		return
 	}
-	match := emailFilter.FindStringSubmatch(body.Filter)
+	switch r.Header.Get("X-Amz-Target") {
+	case "AWSCognitoIdentityProviderService.ListUsers":
+		c.listUsers(w, body.Filter)
+	case "AWSCognitoIdentityProviderService.AdminDeleteUser":
+		c.mu.Lock()
+		gone := c.deleted[body.Username]
+		c.deleted[body.Username] = true
+		for token, grant := range c.refresh {
+			if grant.username == body.Username {
+				delete(c.refresh, token)
+			}
+		}
+		c.mu.Unlock()
+		if gone || body.Username == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"__type": "UserNotFoundException"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{})
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"__type": "InvalidParameterException"})
+	}
+}
+
+// listUsers answers ListUsers for one email, with the user it stands for, or for one sub, with the user it was issued
+// to once one has signed in and until they're deleted. The username is the user's sub-shaped id in the real pool; here
+// it's the name signed in with, which the sub is made from.
+func (c *Cognito) listUsers(w http.ResponseWriter, filter string) {
+	user := func(username, email string) map[string]any {
+		return map[string]any{
+			"Username": username, "Enabled": true, "UserStatus": "CONFIRMED",
+			"Attributes": []any{map[string]string{"Name": "sub", "Value": subOf(username)}, map[string]string{"Name": "email", "Value": email}},
+		}
+	}
+	if match := emailFilter.FindStringSubmatch(filter); match != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"Users": []any{user(match[1], match[1])}})
+		return
+	}
+	match := subFilter.FindStringSubmatch(filter)
 	if match == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"__type": "InvalidParameterException"})
 		return
 	}
-	email := match[1]
-	writeJSON(w, http.StatusOK, map[string]any{"Users": []any{map[string]any{
-		"Username": email, "Enabled": true, "UserStatus": "CONFIRMED",
-		"Attributes": []any{map[string]string{"Name": "sub", "Value": subOf(email)}, map[string]string{"Name": "email", "Value": email}},
-	}}})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	users := []any{}
+	if username, ok := c.signedIn[match[1]]; ok && !c.deleted[username] {
+		users = append(users, user(username, username))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"Users": users})
 }
 
 // subOf is the sub a username's tokens carry.
@@ -235,12 +294,16 @@ func subOf(username string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// writeTokens sends a new pair. A refresh response carries no refresh token, like a pool without rotation.
-func (c *Cognito) writeTokens(w http.ResponseWriter, username, refresh string) {
+// writeTokens sends a new pair. A refresh response carries no refresh token, like a pool without rotation. Both carry
+// auth_time, when the sign-in they come from happened.
+func (c *Cognito) writeTokens(w http.ResponseWriter, username, refresh string, authTime time.Time) {
 	now := c.now()
+	c.mu.Lock()
+	c.signedIn[subOf(username)] = username
+	c.mu.Unlock()
 	common := map[string]any{
 		"iss": c.issuer, "sub": subOf(username), "iat": now.Unix(), "exp": now.Add(accessTokenTTL).Unix(),
-		"jti": randomToken(), "username": username,
+		"jti": randomToken(), "username": username, "auth_time": authTime.Unix(),
 	}
 	access, err := c.sign(common, map[string]any{"token_use": "access", "client_id": c.clientID, "scope": "openid"})
 	if err != nil {

@@ -269,15 +269,19 @@ describe('Lambdas', () => {
     assert.equal(api.Properties.Environment.Variables.PROTECTED_EMAILS, 'integration-test@example.com,second-test@example.com');
   });
 
-  it("keeps the app's tokens to an hour, which the account function's mark outlasts", () => {
-    // The mark stays for Settle after the sign-in goes, which only works while no token lives longer.
+  it("keeps the app's and the integration suite's tokens to an hour, which the account function's mark outlasts", () => {
+    // The mark stays for Settle after the sign-in goes, which only works while no token either client can be issued
+    // lives longer: the API takes both.
     const source = readFileSync(join(import.meta.dirname, '../../backend/internal/account/account.go'), 'utf8');
     const settle = Number(source.match(/Settle = (\d+) \* time\.Minute/)?.[1]);
     assert.ok(settle > 60, `Settle is ${settle} minutes`);
-    const client = ofType('AWS::Cognito::UserPoolClient').find(([id]) => id.startsWith('UserPoolAppClient'))![1].Properties;
-    for (const field of ['AccessTokenValidity', 'IdTokenValidity']) {
-      const minutes = client[field] === undefined ? 60 : client.TokenValidityUnits?.[field === 'AccessTokenValidity' ? 'AccessToken' : 'IdToken'] === 'minutes' ? client[field] : client[field] * 60;
-      assert.ok(minutes <= 60 && minutes < settle, `${field}: ${minutes} minutes`);
+    const clients = ofType('AWS::Cognito::UserPoolClient').filter(([id]) => id.startsWith('UserPoolAppClient') || id.startsWith('UserPoolTestClient'));
+    assert.equal(clients.length, 2);
+    for (const [id, { Properties: client }] of clients) {
+      for (const field of ['AccessTokenValidity', 'IdTokenValidity']) {
+        const minutes = client[field] === undefined ? 60 : client.TokenValidityUnits?.[field === 'AccessTokenValidity' ? 'AccessToken' : 'IdToken'] === 'minutes' ? client[field] : client[field] * 60;
+        assert.ok(minutes <= 60 && minutes < settle, `${id} ${field}: ${minutes} minutes`);
+      }
     }
   });
 });

@@ -12,6 +12,7 @@ import { getMeta, META, setMeta } from './db';
 import { perf } from './perf';
 import type { Db, Sql } from './db';
 import { applyRemote } from './records';
+import { tokenSubject } from './tokenClaims';
 import type { Instant, RecordChange } from './types';
 
 // The server's limits, from config/protocol.yaml.
@@ -24,11 +25,24 @@ const MERGED_ROOM = protocol.sync.mergedRoomBytes;
 const BATCH_BYTES = protocol.sync.clientBatchBytes;
 const REQUEST_TIMEOUT_MS = 30_000;
 
-export type SyncErrorCode = 'offline' | 'sign_in_expired' | 'sign_in_failed' | 'clock_ahead' | 'other_account' | 'too_large' | 'error';
+export type SyncErrorCode =
+  | 'offline'
+  | 'sign_in_expired'
+  | 'sign_in_failed'
+  | 'clock_ahead'
+  | 'other_account'
+  | 'too_large'
+  /** The account was deleted, here or on another device: this device's copy is erased and it's signed out. */
+  | 'account_deleted'
+  | 'error';
 
 /** A failed sync, by what the user can be told about it. Stored as last_sync_error. */
 export class SyncError extends Error {
-  constructor(readonly code: SyncErrorCode) {
+  constructor(
+    readonly code: SyncErrorCode,
+    /** For account_deleted, the account that was deleted, from the token that found it, when the token said. */
+    readonly account: string | null = null,
+  ) {
     super(code);
     this.name = 'SyncError';
   }
@@ -290,7 +304,11 @@ export interface ApiDeps {
   fetch: FetchFn;
 }
 
-/** POSTs to the API signed in, refreshing the token once on a 401. Throws SyncError: offline or sign_in_expired. */
+/** Whether the API refused a request because the account was deleted, which no refresh can mend. */
+const accountDeleted = async (res: Response) =>
+  res.status === 401 && ((await res.clone().json().catch(() => null)) as { error?: unknown } | null)?.error === 'account_deleted';
+
+/** POSTs to the API signed in, refreshing the token once on a 401. Throws SyncError: offline, sign_in_expired or account_deleted. */
 export function apiPost(deps: ApiDeps, path: string, body?: unknown): Promise<Response> {
   return apiRequest(deps, 'POST', path, body);
 }
@@ -309,9 +327,13 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
       throw new SyncError('offline');
     }
   };
-  let res = await post(await deps.auth.accessToken());
+  let token = await deps.auth.accessToken();
+  let res = await post(token);
+  if (await accountDeleted(res)) throw new SyncError('account_deleted', tokenSubject(token));
   if (res.status === 401) {
-    res = await post(await deps.auth.accessToken({ refresh: true }));
+    token = await deps.auth.accessToken({ refresh: true });
+    res = await post(token);
+    if (await accountDeleted(res)) throw new SyncError('account_deleted', tokenSubject(token));
     if (res.status === 401) {
       await deps.auth.expire();
       throw new SyncError('sign_in_expired');
@@ -338,9 +360,13 @@ export interface SyncStatus {
   lastError: SyncErrorCode | null;
 }
 
+/** Whether the last sync found no one signed in: a sign-in that lapsed or failed, or an account deleted. */
+export const isSignedOut = (status: SyncStatus): boolean =>
+  status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed' || status.lastError === 'account_deleted';
+
 /** Signed in once it has synced, or tried to, and the last try wasn't refused for sign-in. */
 export function isSignedIn(status: SyncStatus): boolean {
-  const signedOut = status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed';
+  const signedOut = isSignedOut(status);
   return !signedOut && !!(status.lastSyncAt || status.lastError);
 }
 

@@ -75,6 +75,11 @@ export interface Platform {
   readonly filesBlocked?: true;
   /** Opens a URL in the system browser. Sign-in starts here and returns through onDeepLink. */
   openExternal(url: string): Promise<void>;
+  /**
+   * Only where the page can't download a file itself: the Mac app, whose default browser downloads it, and the iPhone,
+   * whose Safari saves it to Files. Elsewhere screens download it (openDownload.ts).
+   */
+  openDownload?(url: string): Promise<void>;
   /** The URL the identity provider sends the browser back to. */
   readonly signInRedirectUri: string;
   /** A deep link opened the app, such as the sign-in callback. Returns an unsubscribe function. */

@@ -16,7 +16,7 @@ feature gets a row, and a test that covers a cell gets named in it.
 | iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main. Its signed-in tests (`SignedInUITests`) need a backend, and GitHub's Macs have no Docker for the local stack, so CI's ios skips them; `.github/workflows/ios-staging.yml` runs them against staging every night |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
-| Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`) |
+| Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`); the server's routes and sync against staging each night, from the release pipeline |
 
 **The deployed journey, on the release before.** Prod's Test step runs the deployed web suite against the web app prod
 still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
@@ -61,6 +61,17 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Process: Esc exits and reopening continues | covered (process: "Skip keeps an item for later… leaving part way, Process starts again on what's left") | covered (same, by Exit) | missing | missing |
 | Process: keys, with Option or alone | covered (inbox: "keyboard shortcuts on the desktop card…"; process: "desktop: W, E and G do what their buttons do…") | n/a | missing | n/a |
 | Process: edit the item on its card (title, description, link, date) | covered (inbox: "edits the item on the card…", "a date set on the card goes with the item to a project…") | covered (same) | missing | missing |
+
+### Notes
+
+| Feature | Web desktop | Web phone | Mac app | iPhone |
+| --- | --- | --- | --- | --- |
+| Process: Save as note, one tap, with the item's description and attachments, its block off the calendar | covered (notes-list: "an Inbox item saved as a note in one tap…") | covered (same) | missing (seeded specs run in the browser only) | covered (testSaveAsNoteFromProcessThenFindItInNotesUnderMore) |
+| Notes: on the sidebar after One offs, under More on phone, with no count | covered (notes-list) | covered (same) | missing | covered (same test) |
+| Notes: search over titles and descriptions, ignoring case and accents, underlined, and its count spoken | covered (notes-list) | covered (same) | missing | missing |
+| A note's popup: Delete note, Recently deleted and Restore, Belongs to Inbox to make it a task | covered (notes-list) | covered (same) | missing | missing |
+| A note's title with nowhere to break, in its row, its popup and the Process card | covered (long-titles: "a 200-character title with nowhere to break…") | covered (same) | missing | missing |
+| Notes on the last release: the item leaves its Inbox unfinished, and its launch writes nothing to them | covered (compat: "Inbox items the update saved as notes…") | missing | missing | missing |
 
 ### Settings and first run
 
@@ -273,6 +284,7 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
 | One offs | oneoffs-repeats: dates in place, Change repeat's delete | missing | missing |
 | The task popup | details: Save; popup: Delete task; attachments: link removed | missing | missing |
+| Notes | notes-list: Delete note's Undo takes focus; unit tests: Save as note's Undo (process/note.test.tsx), Save and Belongs to: Inbox (notes/notes.test.tsx) | missing | missing |
 | Done and Analytics | done: marked finished; analytics: a pattern; analytics-estimates: Raise estimates | missing | missing |
 | Settings | settings-sections: away dates removed | missing | missing |
 

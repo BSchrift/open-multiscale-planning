@@ -293,13 +293,17 @@ describe('Schedule on desktop', () => {
     fireEvent.keyDown(screen.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ }), { key: 'ArrowRight' });
     const cur = now();
     expect(within(cur).getByText('Tue Nov 3, 2pm to 4pm (2h)')).toBeInTheDocument();
-    expect(within(cur).getByText('Placing here takes Paint the fence off the calendar to place again.')).toBeInTheDocument();
+    expect(within(cur).getByText('Overlaps Paint the fence, 3pm to 4:30pm.')).toBeInTheDocument();
     expect(within(cur).queryByText('That overlaps Paint the fence.')).toBeNull();
     // The draft sits beside the block, which keeps its place and size.
     expect(screen.getByRole('group', { name: /^Collect the sources, Tue Nov 3, 2pm to 4pm, Project\. Being placed\./ })).toHaveClass('evdraft', 'beside');
     expect(under().getAttribute('style')).toBe(was);
 
+    // Place here asks first, with Keep both ready for Enter.
     await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
+    const ask = await screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    expect(within(ask).getByRole('button', { name: 'Keep both' })).toHaveFocus();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Replace' }));
     await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at('2026-11-03', 14), at('2026-11-03', 16)]]));
     expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
     expect(await screen.findByText('Took Paint the fence off the calendar to place again')).toBeInTheDocument();
@@ -311,7 +315,27 @@ describe('Schedule on desktop', () => {
     expect(await within(row('Paint the fence')).findByText('Tue 3pm')).toBeInTheDocument();
   });
 
-  it('a block under way stays where it is under the draft, and Place here leaves it', async () => {
+  it('Place here over a placed block: Keep both, with Enter, places beside it, and Cancel places nothing', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 15), end: at('2026-11-03', 16, 30), tz: ZONE }, 'b1');
+      },
+    });
+    fireEvent.keyDown(await screen.findByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm/ }), { key: 'ArrowRight' });
+    await userEvent.click(within(now()).getByRole('button', { name: 'Place here' }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'Schedule both at the same time?' })).getByRole('button', { name: 'Cancel' }));
+    expect(await blocks(t, 't1')).toEqual([]);
+    expect(within(now()).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
+
+    await userEvent.click(within(now()).getByRole('button', { name: 'Place here' }));
+    await screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    await userEvent.keyboard('{Enter}');
+    await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at('2026-11-03', 14), at('2026-11-03', 16)]]));
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy();
+  });
+
+  it('a block under way stays where it is under the draft, and Place here can only keep both', async () => {
     const t = await open({
       seed: async (w) => {
         await picked(w);
@@ -322,8 +346,10 @@ describe('Schedule on desktop', () => {
     const cur = now();
     expect(within(cur).getByText('Mon Nov 2, 2:15pm to 4:15pm (2h)')).toBeInTheDocument();
     expect(within(cur).getByText('That overlaps Write chapter one.')).toBeInTheDocument();
-    expect(within(cur).queryByText(/^Placing here takes/)).toBeNull();
     await userEvent.click(within(cur).getByRole('button', { name: 'Place here' }));
+    const ask = await screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    expect(within(ask).queryByRole('button', { name: 'Replace' })).toBeNull();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Keep both' }));
     await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at(WEEK, 14, 15), at(WEEK, 16, 15)]]));
     expect(await blocks(t, 't2')).toEqual([[at(WEEK, 13, 30), at(WEEK, 14, 30)]]);
   });
@@ -653,7 +679,7 @@ describe('Schedule on phone', () => {
     await w.create('time_block', { task_id: 'o1', start: at('2026-11-03', 8), end: at('2026-11-03', 9, 30), tz: ZONE }, 'b1');
   };
 
-  it('Place here over a placed block takes it off to place again, says so first, and Undo puts it all back', async () => {
+  it('Place here over a placed block asks in a sheet, Replace takes it off to place again, and Undo puts it all back', async () => {
     const t = await phone({ seed: fenceTue });
     await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Move to Tue Nov 3' }));
@@ -664,13 +690,14 @@ describe('Schedule on phone', () => {
     fireEvent.keyDown(handle, { key: 'ArrowUp' });
     fireEvent.keyDown(handle, { key: 'ArrowUp' });
     expect(screen.getByText('Tue Nov 3, 9am to 11am (2h)')).toBeInTheDocument();
-    expect(screen.getByText('Placing here takes Paint the fence off the calendar to place again.')).toBeInTheDocument();
+    expect(screen.getByText('Overlaps Paint the fence, 8am to 9:30am.')).toBeInTheDocument();
     // The draft sits beside the block, which keeps its place and size.
     expect(handle).toHaveClass('draft', 'beside');
     expect(under().getAttribute('style')).toBe(was);
     expect(under()).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 8am to 9:30am');
 
     await userEvent.click(screen.getByRole('button', { name: 'Place here' }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'Schedule both at the same time?' })).getByRole('button', { name: 'Replace' }));
     await waitFor(async () => expect(await blocks(t, 't1')).toEqual([[at('2026-11-03', 9), at('2026-11-03', 11)]]));
     expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
     expect(screen.queryByRole('slider', { name: /^Paint the fence\./ })).toBeNull();
@@ -744,5 +771,56 @@ describe('Schedule on phone', () => {
     expect(screen.getByRole('button', { name: 'All picked tasks, 0 of 2 placed' })).toBeInTheDocument();
     await userEvent.click(within(said.closest('.pktoast')!).getByRole('button', { name: 'Undo' }));
     expect(await screen.findByRole('button', { name: 'All picked tasks, 0 of 3 placed' })).toBeInTheDocument();
+  });
+});
+
+describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s', (layout) => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const draft = () => document.querySelector<HTMLElement>('.holddraft');
+  const pointerType = layout === 'phone' ? 'touch' : 'mouse';
+  // jsdom has no layout. Desktop: Thursday's column on the editing grid, from 6am at 40px an hour. Phone: the day shown,
+  // today, from 6am at 48px an hour.
+  const target = () => (layout === 'phone' ? document.querySelector<HTMLElement>('.day.dragday')! : document.querySelector<HTMLElement>('.colbody[data-drop-date="2026-11-05"]')!);
+  const y = (minutes: number) => ((minutes - 360) * (layout === 'phone' ? 48 : 40)) / 60 + 1;
+  const hold = async (minutes: number) => {
+    fireEvent.pointerDown(target(), { clientX: 20, clientY: y(minutes), button: 0, pointerType, pointerId: 1 });
+    await wait(450);
+  };
+  const letGo = (minutes: number) => fireEvent.pointerUp(window, { clientX: 20, clientY: y(minutes), pointerType, pointerId: 1 });
+  // One task, its hour already on Tuesday morning: nothing waits to be placed.
+  const allPlaced = async (w: Writer) => {
+    await w.create('project', { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-12-15' }, 'report');
+    await w.create('task', { kind: 'project', project_id: 'report', title: 'Collect the sources', estimate_min: 60 }, 't1');
+    await setWeekPick(w, WEEK, 't1', 60);
+    await w.create('time_block', { task_id: 't1', start: at('2026-11-03', 9), end: at('2026-11-03', 10), tz: ZONE }, 'b1');
+  };
+
+  it('a hold on empty time drafts nothing while the step’s task is being placed', async () => {
+    const t = await open({ layout });
+    // The step's first task, waiting at its best time to be placed.
+    await waitFor(() => expect(document.querySelector('.evdraft, .dragblock.draft')).toHaveTextContent(/^Collect the sources/));
+    await hold(18 * 60);
+    letGo(18 * 60);
+    expect(draft()).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+    expect(t.platform.haptics).toEqual([]);
+  });
+
+  it('with nothing left to place, a hold on empty time drafts an hour there, and Capture saves it as an Inbox item with its block', async () => {
+    const t = await open({ layout, seed: allPlaced });
+    await waitFor(() => expect(target()).not.toBeNull());
+    const minutes = layout === 'phone' ? 18 * 60 : 16 * 60;
+    await hold(minutes);
+    expect(draft()).toHaveAttribute('title', layout === 'phone' ? '6pm to 7pm' : '4pm to 5pm');
+    expect(t.platform.haptics).toEqual(['light']);
+    letGo(minutes);
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    expect(within(capture).getByText(layout === 'phone' ? 'Today, 6pm to 7pm' : 'Thu Nov 5, 4pm to 5pm')).toBeVisible();
+    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(draft()).toBeNull());
+    const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox');
+    expect(item).toMatchObject({ title: 'Book dentist', estimate_min: 60 });
+    expect(await blocks(t, item!.id as string)).toEqual([layout === 'phone' ? [at(WEEK, 18), at(WEEK, 19)] : [at('2026-11-05', 16), at('2026-11-05', 17)]]);
   });
 });

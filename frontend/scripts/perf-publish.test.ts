@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { batches, metricData } from './perf-publish';
+import { batches, metricData, summaryRun } from './perf-publish';
 import type { Run } from './perf-data';
 
 const run = (kind: Run['kind'], at: string): Run => ({
@@ -33,4 +33,12 @@ describe('publishing to CloudWatch', () => {
     const many = Array.from({ length: 400 }, (_, i) => run('main', `2026-11-14T09:00:${String(i % 60).padStart(2, '0')}.000Z`));
     expect(batches(metricData(many)).map((b) => b.length)).toEqual([1000, 1000, 400]);
   });
+
+  it("sends a run measured right here, such as staging's sync timing, as a staging run at the time given", () => {
+    const rows = run('main', '2026-11-14T09:00:00.000Z').rows;
+    const staged = summaryRun(rows, '2026-11-15T10:00:00.000Z');
+    expect(staged).toMatchObject({ kind: 'staging', at: '2026-11-15T10:00:00.000Z' });
+    expect(metricData([staged])[0]).toMatchObject({ Timestamp: '2026-11-15T10:00:00.000Z' });
+  });
 });
+

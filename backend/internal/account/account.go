@@ -308,8 +308,14 @@ func (s *Service) deleteAll(ctx context.Context, sub string, started, gone time.
 			TableName:                 aws.String(s.Table),
 			Key:                       key(pendingPK, sub),
 			UpdateExpression:          aws.String("SET signin_deleted_at = if_not_exists(signin_deleted_at, :now)"),
+			ConditionExpression:       aws.String("attribute_exists(pk)"),
 			ExpressionAttributeValues: map[string]types.AttributeValue{":now": str(gone.UTC().Format(time.RFC3339))},
 		})
+		// Another run finished the deletion meanwhile, entry and all: there's nothing left to do, nor to bring back.
+		var finished *types.ConditionalCheckFailedException
+		if errors.As(err, &finished) {
+			return "", nil
+		}
 		if err != nil {
 			return "sign_in", err
 		}

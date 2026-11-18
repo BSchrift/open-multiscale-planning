@@ -544,3 +544,29 @@ func TestAProtectedAccountIsNeverDeleted(t *testing.T) {
 		t.Fatalf("under way: %v", pending)
 	}
 }
+
+// The run that records when the sign-in went never brings back an entry another run finished meanwhile.
+func TestRecordingTheSignInsEndNeverBringsBackAFinishedEntry(t *testing.T) {
+	w := newWorld(t)
+	w.seed("alice", 1)
+	w.mustDelete("alice")
+	w.svc.DB = &finishedMeanwhile{DB: w.client, table: w.table}
+	w.run(account.Job{Kind: account.JobDelete, Sub: "alice"})
+	if pending := w.partition("account#deleting"); len(pending) != 0 {
+		t.Fatalf("the entry came back: %v", pending)
+	}
+}
+
+// finishedMeanwhile removes the deletion's entry just before the run records the sign-in's end, as another run that
+// finished in that moment would.
+type finishedMeanwhile struct {
+	account.DB
+	table string
+}
+
+func (d *finishedMeanwhile) UpdateItem(ctx context.Context, in *dynamodb.UpdateItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	if strings.Contains(aws.ToString(in.UpdateExpression), "signin_deleted_at") {
+		d.DB.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: aws.String(d.table), Key: in.Key})
+	}
+	return d.DB.UpdateItem(ctx, in, opts...)
+}

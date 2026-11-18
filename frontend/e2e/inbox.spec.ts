@@ -210,12 +210,12 @@ test('edits the item on the card: its title, a description and a link, and Undo 
   await expect(field).toBeFocused();
   await field.press('End');
   await field.pressSequentially(' about the loan');
-  await card(page).getByRole('button', { name: 'Save' }).click();
+  await card(page).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(card(page).getByRole('heading', { name: 'Call the bank about the loan', level: 1 })).toBeVisible();
 
   await card(page).getByRole('button', { name: 'Add description' }).click();
   await card(page).getByRole('textbox', { name: 'Description' }).fill('Ask about the **rate**');
-  await card(page).getByRole('button', { name: 'Save' }).click();
+  await card(page).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(card(page).locator('.pxnotes strong')).toHaveText('rate');
 
   await card(page).getByRole('button', { name: 'Add link' }).click();

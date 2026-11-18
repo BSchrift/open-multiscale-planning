@@ -21,6 +21,7 @@ export type AreaId =
   | 'plan'
   | 'goals'
   | 'oneoffs'
+  | 'notes'
   | 'analytics'
   | 'done'
   | 'settings'
@@ -57,6 +58,7 @@ export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<Screen
   plan: { label: 'Plan', Screen: lazyScreen(() => import('../screens/plan')) },
   goals: { label: 'Goals', Screen: lazyScreen(() => import('../screens/goals')) },
   oneoffs: { label: 'One offs', Screen: lazyScreen(() => import('../screens/oneoffs')) },
+  notes: { label: 'Notes', Screen: lazyScreen(() => import('../screens/notes')) },
   analytics: { label: 'Analytics', Screen: lazyScreen(() => import('../screens/analytics')) },
   done: { label: 'Done', Screen: lazyScreen(() => import('../screens/done')) },
   settings: { label: 'Settings', Screen: lazyScreen(() => import('../screens/settings')) },
@@ -66,12 +68,12 @@ export const AREAS: Record<AreaId, { label: string; Screen: ComponentType<Screen
 export type TabId = AreaId | 'more';
 
 /** Side navigation on desktop, in order. */
-export const DESKTOP_TABS: readonly TabId[] = ['today', 'inbox', 'week', 'plan', 'goals', 'oneoffs', 'analytics', 'done', 'settings'];
+export const DESKTOP_TABS: readonly TabId[] = ['today', 'inbox', 'week', 'plan', 'goals', 'oneoffs', 'notes', 'analytics', 'done', 'settings'];
 
 /** The fixed tab bar on phone. Anything else is a row under More. */
 export const PHONE_TABS: readonly TabId[] = ['today', 'week', 'inbox', 'goals', 'more'];
 
-export const MORE_ROWS: readonly AreaId[] = ['plan', 'oneoffs', 'analytics', 'done', 'settings'];
+export const MORE_ROWS: readonly AreaId[] = ['plan', 'oneoffs', 'notes', 'analytics', 'done', 'settings'];
 
 /** On desktop a flow covers the main area and lights the tab it belongs to. */
 export const FLOW_TABS: Partial<Record<AreaId, TabId>> = { planning: 'week', plan: 'plan' };

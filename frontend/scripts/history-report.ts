@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 type Surface = 'web' | 'mac' | 'iphone';
-type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'estimate_drag_ms' | 'done_query_ms';
+type Measure = 'first_sync_ms' | 'edit_save_ms' | 'today_query_ms' | 'week_query_ms' | 'estimate_drag_ms' | 'done_query_ms' | 'notes_list_ms' | 'notes_search_ms';
 type Results = Partial<Record<Surface, Partial<Record<Measure | 'records', number>>>>;
 
 const LABELS: Record<Measure, string> = {
@@ -20,6 +20,8 @@ const LABELS: Record<Measure, string> = {
   week_query_ms: 'Week query',
   estimate_drag_ms: 'Pick estimate drag, slowest step',
   done_query_ms: 'Done query',
+  notes_list_ms: 'Notes list',
+  notes_search_ms: 'Notes search',
 };
 
 const SURFACES = ['web', 'mac', 'iphone'] as const;
@@ -36,7 +38,7 @@ export const BUDGETS: { measure: Measure; surface: Surface; budget: number; repo
   ...(['today_query_ms', 'week_query_ms'] as const).flatMap((measure) => SURFACES.map((surface) => ({ measure, surface, budget: 100 }))),
   // A step of a drag drawn within three frames.
   ...(['web', 'mac'] as const).map((surface) => ({ measure: 'estimate_drag_ms' as const, surface, budget: 50, reportOnly: true as const })),
-  ...SURFACES.map((surface) => ({ measure: 'done_query_ms' as const, surface, budget: 100, reportOnly: true as const })),
+  ...(['done_query_ms', 'notes_list_ms', 'notes_search_ms'] as const).flatMap((measure) => SURFACES.map((surface) => ({ measure, surface, budget: 100, reportOnly: true as const }))),
 ];
 
 /** Seconds for a first sync, milliseconds for the rest. */

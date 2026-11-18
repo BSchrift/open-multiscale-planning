@@ -176,16 +176,12 @@ final class SeedTimeTests: XCTestCase {
  * screen recordings show Today drawn, its countdown ticking, as the tree reports Today's region empty for a minute, and
  * Goals did the same. Waiting longer, tapping, swiping, rotating, backgrounding the app and the app posting layout or
  * screen changes didn't bring the content in reliably. Hiding the page and showing it again did, every time: so the
- * test goes to another tab and back. A page first read only once the app says it's drawn never stayed empty, which is
- * how openWeek opens Week.
+ * test goes to Week and back. A page first read only once the app says it's drawn never stayed empty, which is how
+ * openWeek opens Week, so this is for the other tabs.
  */
 private func onTab(_ tab: String, _ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
     if element.waitForExistence(timeout: 10) { return }
-    if tab == "Week" {
-        app.tapWeb("Today", file: file, line: line)
-    } else {
-        app.openWeek(file: file, line: line)
-    }
+    app.openWeek(file: file, line: line)
     app.tapWeb(tab, file: file, line: line)
     exists(element, file: file, line: line)
 }
@@ -506,10 +502,10 @@ final class ShellUITests: XCTestCase {
     func testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
         let app = launchApp(seed: "Seed later")
         allowNotificationsIfAsked()
-        app.tapWeb("Week", until: app.webButton("Previous week"))
+        app.openWeek()
         // Today's first stretch of free time still to come, a row that says so.
         let free = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Free, '")).firstMatch
-        onTab("Week", free, in: app)
+        exists(free)
 
         // As for a block held on the day: the row is scrolled to where its middle is clear of the week's top, which
         // stays over the day, and of the Capture button, by the margin left of the day, where nothing is held.

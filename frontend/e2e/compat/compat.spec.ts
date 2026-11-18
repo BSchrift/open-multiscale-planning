@@ -364,6 +364,10 @@ test.describe('one device', () => {
       await card.getByRole('button', { name: /Save as note$/ }).click();
       await expect(page.locator('.toast')).toContainText(`Saved ${title} in Notes.`);
     }
+    // A one off finished now, so the bundle before has a finished task to list beside the notes' items. The week's
+    // ladder, finished the day before, won't do: built for staging, both bundles keep a closed task 35 minutes
+    // (config/retention.yaml), so the relaunch's expiry pass removes it, and One offs then hides Finished tasks.
+    await tick(page, 'Renew the library card', errors);
     await go(page, 'Notes');
     await pane(page, 'Notes').getByRole('button', { name: /^Order more coffee beans/ }).click();
     await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Delete note' }).click();
@@ -386,7 +390,7 @@ test.describe('one device', () => {
     await go(page, 'One offs');
     await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
     const finished = pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
-    await expect(finished.getByText('Return the borrowed ladder')).toBeVisible();
+    await expect(finished.getByText('Renew the library card')).toBeVisible();
     for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) await expect(finished.getByText(title)).toHaveCount(0);
     expect(await Promise.all(ids.map(([type, id]) => readRecord(page, type, id)))).toEqual(before);
     expect(errors).toEqual([]);

@@ -47,6 +47,8 @@ export async function createElectronPlatform(): Promise<Platform> {
     openDownload: bridge.openExternal,
     signInRedirectUri: bridge.signInRedirectUri,
     setAppearance: bridge.setAppearance,
+    // Missing in a Mac app from before it, where the page draws a block's menu itself.
+    ...(bridge.showMenu ? { showMenu: bridge.showMenu } : {}),
     updates: bridge.updates,
     captureShortcut: bridge.captureShortcut,
     // Missing in a Mac app from before it, which a downloaded web bundle can run in: that one syncs on focus as before.

@@ -6,12 +6,13 @@
 // without any network traffic, and the next sync after signing in again carries on from the outbox.
 //
 // Before the first sync it fills in missing expiries and removes what has expired here, and after each sync it removes
-// what has expired again (expiry.ts).
+// what has expired again (expiry.ts), after deleting what's left on notes that are gone (attachments.ts).
 //
 // On the Mac it also syncs when the computer wakes from sleep or its screen unlocks, so a laptop opened in the morning
 // shows what changed overnight without waiting for a click on the window or the 5-minute timer.
 
 import type { AppConfig } from './appConfig';
+import { sweepOrphans } from './attachments';
 import { createAuth, tokenSubject } from './auth';
 import type { Clock } from './clock';
 import { nowInstant } from './dates';
@@ -92,6 +93,8 @@ export function createSyncRunner(deps: {
       await recordFailure(db, err instanceof SyncError ? err.code : 'error').catch((e: unknown) => console.error('Could not record sync failure', e));
       return;
     }
+    // Only once a pull has reached the end, so no note it brings can still be on its way.
+    await expire(() => sweepOrphans(db, clock));
     await expire(() => expireLocal(db, clock));
     await deps.afterSync?.().catch((err: unknown) => console.error('After sync failed', err));
   }

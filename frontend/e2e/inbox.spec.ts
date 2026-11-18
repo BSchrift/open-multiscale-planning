@@ -174,18 +174,24 @@ test('a new project from the picker: the form, a Created toast, then a second En
   if (phone) await page.getByRole('option', { name: '+ New project “Fix up the shed”' }).click();
   else await picker.press('Enter');
   const form = page.getByRole('form', { name: 'New project' });
-  await expect(form.getByRole('textbox', { name: 'Name' })).toHaveValue('Fix up the shed');
-  await form.getByRole('textbox', { name: 'Milestone to put it under, if any' }).fill('Roof watertight');
+  await expect(form.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Fix up the shed');
+  // Every project sits under a goal, and with none yet, the form opens on a new one's name.
+  const goal = form.getByRole('textbox', { name: 'New goal name' });
+  await expect(goal).toHaveValue('');
+  await expect(form.getByRole('textbox', { name: /Milestone/ })).toHaveCount(0);
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(form.getByRole('alert')).toHaveText('Give the new goal a name.');
+  await goal.fill('Home');
   await page.screenshot({ path: info.outputPath('process-new-project.png') });
   await form.getByRole('button', { name: 'Add project' }).click();
-  await expect(page.locator('.toast')).toContainText('Created Fix up the shed, with the milestone Roof watertight.');
+  await expect(page.locator('.toast')).toContainText('Created Fix up the shed, under Home.');
   await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
   const add = card(page).getByRole('button', { name: 'Add to Fix up the shed' });
   if (!phone) await expect(add).toBeFocused();
   await page.screenshot({ path: info.outputPath('process-created.png') });
   await (phone ? add.click() : page.keyboard.press('Enter'));
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
-  await expect(page.locator('.toast')).toContainText('Added Call the bank to Fix up the shed, under Roof watertight.');
+  await expect(page.locator('.toast')).toContainText('Added Call the bank to Fix up the shed.');
 });
 
 // The owner's request for a long Inbox: select many items and give them a home at once, each action with one Undo.
@@ -458,8 +464,8 @@ test('makes a project under a new goal, a practice and a goal from cards, each o
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('Sort out the bank');
   await page.getByRole('option', { name: '+ New project “Sort out the bank”' }).click();
   const project = form('New project');
-  await expect(project.getByRole('textbox', { name: 'Name' })).toHaveValue('Sort out the bank');
-  await project.getByRole('button', { name: '+ New goal' }).click();
+  await expect(project.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Sort out the bank');
+  // With no goals yet, it opens on a new goal's name.
   await project.getByRole('textbox', { name: 'New goal name' }).fill('Money in order');
   await expect(project.getByText('Today to Dec 31')).toBeVisible();
   await page.screenshot({ path: info.outputPath('home-form.png') });
@@ -518,7 +524,7 @@ test('phone: the form for a new home rises above the keyboard with its button in
   const add = sheet.getByRole('button', { name: 'Add project' });
   await expect(add).toBeInViewport();
   expect((await add.boundingBox())!.y + (await add.boundingBox())!.height).toBeLessThanOrEqual(height - 336);
-  for (const name of ['Clear name', '+ New goal', 'Cancel']) {
+  for (const name of ['Clear name', 'Cancel new goal', 'Cancel']) {
     const box = await sheet.getByRole('button', { name, exact: true }).boundingBox();
     expect(box!.height, name).toBeGreaterThanOrEqual(44);
   }

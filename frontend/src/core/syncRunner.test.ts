@@ -90,6 +90,46 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('not again for an edit a sync since has already sent', async () => {
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    t.send.mockClear();
+
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    await vi.advanceTimersByTimeAsync(500);
+    // Sync now in Settings, or a return to the foreground, sends the edit before its 2 seconds are up.
+    await t.runner.syncNow();
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.send.mock.calls[0]![0].changes).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10 * SECOND);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.runner.stop();
+  });
+
+  it('for an edit made while a sync was under way', async () => {
+    let release = () => {};
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    t.send.mockClear();
+    t.send.mockImplementationOnce(async (req) => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return t.server.send(req);
+    });
+
+    const running = t.runner.syncNow();
+    await flush();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    release();
+    await running;
+    expect(t.send).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.send.mock.calls[1]![0].changes).toHaveLength(1);
+    t.runner.stop();
+  });
+
   it('on the computer waking from sleep or its screen unlocking', async () => {
     const t = await setup();
     const wake = memoryLifecycle();

@@ -74,6 +74,9 @@ export function createSyncRunner(deps: {
   let again = false;
   let cleanup: (() => void) | null = null;
   let launched = false;
+  // The sync 2 seconds after the last edit. Any sync that starts sends what was edited before it, so it takes this one's
+  // place; an edit made during it sets another.
+  let editTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Expiry never stops a sync: what it misses now, it does next time. */
   const expire = (work: () => Promise<unknown>) => work().catch((err: unknown) => console.error('Expiry failed', err));
@@ -125,6 +128,7 @@ export function createSyncRunner(deps: {
     running = (async () => {
       do {
         again = false;
+        clearTimeout(editTimer);
         await syncOnce();
       } while (again);
       running = null;
@@ -136,7 +140,6 @@ export function createSyncRunner(deps: {
     syncNow,
     start(): void {
       void syncNow();
-      let editTimer: ReturnType<typeof setTimeout> | undefined;
       const period = setInterval(() => void syncNow(), PERIOD_MS);
       const stopForeground = lifecycle.onForeground(() => void syncNow());
       const stopOnline = deps.onOnline?.(() => void syncNow()) ?? (() => {});

@@ -503,8 +503,9 @@ final class ShellUITests: XCTestCase {
         let app = launchApp(seed: "Seed later")
         allowNotificationsIfAsked()
         app.openWeek()
-        // Today's first stretch of free time still to come, a row that says so.
-        let free = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Free, '")).firstMatch
+        // Today's first stretch of free time still to come, a row that says so. WebKit gives each of the row's text nodes
+        // its own static text, with the label trimmed, so the row reads "Free," and then its times.
+        let free = app.page.staticTexts.matching(NSPredicate(format: "label == 'Free,'")).firstMatch
         exists(free)
 
         // As for a block held on the day: the row is scrolled to where its middle is clear of the week's top, which

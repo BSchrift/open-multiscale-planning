@@ -175,6 +175,31 @@ test("a task's block opens the task's popup, with the block's own section at its
   expect(errors).toEqual([]);
 });
 
+test("desktop: what waits above the week shares rows across days, so the strip is as tall as its busiest day", async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
+  // A session every day still to place, as the owner's Gym is, and a one off for Thursday. Piano practice waits on
+  // every day but Wednesday, which has its session.
+  const errors = await openWeek(page, [
+    ...records,
+    { type: 'practice', id: 'gym', fields: { title: 'Gym', target_min: 60, per: 'day', days: [0, 1, 2, 3, 4, 5, 6], state: 'active' } },
+    { type: 'task', id: 't3', fields: { kind: 'one_off', title: 'Do some cleaning', estimate_min: 30, schedule: { type: 'once', from: '2026-11-05' } } },
+  ]);
+  const lane = page.locator('.collane');
+  const tops = (title: RegExp) => lane.locator('.oochip', { hasText: title }).evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+  await expect(lane.locator('.oochip', { hasText: /^Gym$/ })).toHaveCount(7);
+  // Each practice keeps one row across the week, and the one off goes under them on its day.
+  const [gym, piano, cleaning] = [await tops(/^Gym$/), await tops(/^Piano practice$/), await tops(/^Do some cleaning$/)];
+  expect(new Set(gym).size).toBe(1);
+  expect(new Set(piano).size).toBe(1);
+  expect(piano[0]).toBeGreaterThan(gym[0]!);
+  expect(cleaning[0]).toBeGreaterThan(piano[0]!);
+  // Three rows, for Thursday's three, rather than one for each of the 14 items.
+  const heights = await lane.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
+  expect(Math.max(...heights)).toBe(3 * 28 + 4);
+  await page.screenshot({ path: info.outputPath('week-lane-rows.png') });
+  expect(errors).toEqual([]);
+});
+
 test('desktop: add a task at its suggested time', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openWeek(page);

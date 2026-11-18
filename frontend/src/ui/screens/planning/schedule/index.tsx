@@ -20,6 +20,7 @@ import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
 import { isTaskBlock } from '../../../components/blocks/describe';
 import { KeepAsk } from '../../../components/editors/KeepAsk';
+import { useBothAsk } from '../../../components/blocks/BothAsk';
 import { shortened, SplitAsk } from '../../../components/editors/SplitAsk';
 import type { Shortened } from '../../../components/editors/SplitAsk';
 import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
@@ -73,6 +74,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   // Forgotten on leaving the step, so the guided list starts fresh.
   const [skipped, setSkipped] = useState<readonly string[]>([]);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  const both = useBothAsk();
   // A task's block made shorter asks what about the rest, until answered or another block is chosen.
   const [split, setSplit] = useState<Shortened | null>(null);
   /** Phone: the day looked at, while it differs from the current block's. */
@@ -126,7 +128,6 @@ export function ScheduleStep(props: ScheduleStepProps) {
   // Placing takes what the draft overlaps off the calendar, to place again. Until then it only floats over them, and
   // what's under way or done with stays.
   const bumped = !draftSlot ? [] : s.blocks.filter((x) => !x.past && x.date === draftSlot.date && x.start < draftSlot.end && draftSlot.start < x.end);
-  const bumpedNames = listed([...new Set(bumped.map((x) => x.title))]);
   const len = b ? b.end - b.start : 0;
   const found = !b ? [] : usual ? usual.map((x) => ({ ...x, end: x.start + len })) : offers(len, work, ctxOut);
   const others = !b ? [] : usual ? found.filter((x) => !same(x, b)).slice(0, 4) : otherOffers(b, work, ctxOut);
@@ -175,6 +176,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   const place = async () => {
     if (!cur || !draftSlot) return;
+    // Landing on placed blocks asks first: keep both, send them back to place again, or leave it.
+    const under = s.blocks.filter((x) => x.now && x.date === draftSlot.date && x.start < draftSlot.end && draftSlot.start < x.end);
+    const on = [...bumped, ...under];
+    const answer = on.length ? await both.ask(cur.title, on.map((x) => ({ id: x.id, title: x.title, fixed: !!x.now }))) : 'keep';
+    if (answer === 'cancel') return;
+    const off = answer === 'replace' ? bumped.filter((x) => !x.now) : [];
+    const offNames = listed([...new Set(off.map((x) => x.title))]);
     landOnCurrent();
     const times = slotInstants(draftSlot, zone);
     let refused = false;
@@ -186,12 +194,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
         return { writes: [] };
       }
       const writes: RecordWrite[] = [];
-      for (const x of bumped) writes.unshift(...(await unscheduleBlock(w, x.id, week, clock)).writes);
+      for (const x of off) writes.unshift(...(await unscheduleBlock(w, x.id, week, clock)).writes);
       return { writes: [...placed.writes, ...writes] };
     });
     if (refused) return notify(`${cur.title} is already on ${DAY_NAMES[weekday(draftSlot.date)]}.`);
     if (!reverse) return;
-    if (bumped.length) notify(`Took ${bumpedNames} off the calendar to place again`, () => run((w) => applyPlanChange(w, reverse)));
+    if (off.length) notify(`Took ${offNames} off the calendar to place again`, () => run((w) => applyPlanChange(w, reverse)));
     reset();
     setEditId(null);
     setSelected(cur.toPlace - len > 0 ? cur.id : null);
@@ -306,7 +314,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           ? `${formatMinutes(cur.toPlace - len)} more of this ${cur.practice ? 'practice' : 'task'} stays to place`
           : '';
   const notes = b ? slotNotes({ ...b, id: editB?.id ?? 'draft' }, work, { ...ctx, placed: ctx.placed.filter((p) => !bumped.some((x) => x.id === p.id)) }) : [];
-  if (bumped.length) notes.push(`Placing here takes ${bumpedNames} off the calendar to place again.`);
+  if (bumped.length) notes.push(`Overlaps ${listed(bumped.map((x) => `${x.title}, ${formatTimeOfDay(x.start)} to ${formatTimeOfDay(x.end)}`))}.`);
   const skipLabel = cur?.blocks.length ? 'Leave the rest for later' : 'Skip for now';
   const none = !b && !(cur && !draftSlot);
   const noneTitle = s.rows.length ? 'All tasks are placed' : 'Nothing is picked yet';
@@ -410,6 +418,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
       <div className="planlay">
         <div className="planleft stack">
           {keepAsk}
+          {both.asking}
           {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
           {none && (
             <div className="stack8">
@@ -772,6 +781,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
       )}
       {/* Beside All tasks rather than in it, so the two sheets don't share focus or Esc. */}
       {listOpen && confirm}
+      {both.asking}
       {keepAsk && (
         <Sheet label="Use this in future weeks too?" onClose={() => setAsk(null)}>
           {keepAsk}

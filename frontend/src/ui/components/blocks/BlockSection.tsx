@@ -2,8 +2,8 @@
 // what it belongs to, as its details panel said, then what can be done to it. Start, or Start now for one later today,
 // for one not yet started today; Done for one later today or under way, and Pause or Resume once that one's started;
 // How did it go for one gone by with no answer, as the missed blocks sheet asks it; and
-// what the calendar it opened from can do, such as Move and Remove from calendar. Each saves at once with Undo, as the
-// popup's attachments do, rather than on Save.
+// what the calendar it opened from can do: Move…, a new time from the choices Today's quick menu has under Move to, and
+// Remove from calendar. Each saves at once with Undo, as the popup's attachments do, rather than on Save.
 
 import { createContext, useContext, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -13,8 +13,10 @@ import { dayRange, instantMs, localDate } from '../../../core/dates';
 import { blocksInRange } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
+import type { SlotContext } from '../../../core/slots';
 import type { Minutes } from '../../../core/types';
 import { useApp, useQuery } from '../../app/store';
+import { Menu } from '../Menu';
 import { useFocusLanding } from '../useFocusLanding';
 import { dayName } from '../weekgrid';
 import { BlockDetailBody } from './BlockDetail';
@@ -24,13 +26,22 @@ import { useBlockCommands } from './useBlockCommands';
 import { Button } from '../ds/Button';
 import { Icon } from '../ds/Icon';
 
+/** Where Move…'s choices open: this far below the button. */
+const MENU_GAP = 8;
+
 /**
- * The popup's own way out, for an action that leaves it for the calendar, such as Move: with changes not yet saved it
- * stays open and says so. Returns whether it closed.
+ * The popup's own way out, for an action that leaves it for the calendar, such as Choose a time: with changes not yet
+ * saved it stays open and says so. Returns whether it closed.
  */
 export const LeavePopup = createContext<(() => boolean) | null>(null);
 
-export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove?(): void; children?: ReactNode }) {
+export function BlockSection(props: {
+  block: BlockRow;
+  /** Where the calendar it opened from can move it: the week's time, for the next free time, and Choose a time…. */
+  move?: { ctx: SlotContext; choose(): void };
+  onRemove?(): void;
+  children?: ReactNode;
+}) {
   const { block } = props;
   const { clock } = useApp();
   const actions = useBlockCommands();
@@ -42,6 +53,9 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
   const task = useQuery((sql) => (block.task_id ? getRecord(sql, 'task', block.task_id) : Promise.resolve(undefined)), [block.task_id]).data;
   /** The time left while Partly asks for it. */
   const [left, setLeft] = useState<Minutes | null>(null);
+  /** Move…'s choices, open below it. */
+  const [moveAt, setMoveAt] = useState<{ x: number; y: number } | null>(null);
+  const moveButton = useRef<HTMLButtonElement>(null);
 
   const zone = clock.zone();
   const now = clock.now();
@@ -71,8 +85,20 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
     void actions.done(block, day && nextBlock(day.filter((b) => b.id !== block.id), clock));
   };
   const paused = isPaused(block);
-  const move = () => {
-    if (leave?.() ?? true) props.onMove?.();
+  const moves = props.move ? actions.moveChoices(block, props.move.ctx) : [];
+  const openMoves = () => {
+    const r = moveButton.current!.getBoundingClientRect();
+    setMoveAt({ x: r.left, y: r.bottom + MENU_GAP });
+  };
+  const closeMoves = () => {
+    setMoveAt(null);
+    moveButton.current?.focus();
+  };
+  const moveTo = (id: string) => {
+    closeMoves();
+    void actions.moveTo(block, id, props.move!.ctx, () => {
+      if (leave?.() ?? true) props.move!.choose();
+    });
   };
 
   return (
@@ -117,7 +143,7 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
           )}
         </div>
       )}
-      {(doable || props.onMove || props.onRemove) && (
+      {(doable || moves.length > 0 || props.onRemove) && (
         <div className="row blocksecacts">
           {startable && (
             <Button variant="primary" size="compact" type="button" disabled={actions.pending} onClick={start}>
@@ -135,9 +161,9 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
               {paused ? 'Resume' : 'Pause'}
             </Button>
           )}
-          {props.onMove && (
-            <Button size="compact" type="button" onClick={move}>
-              Move
+          {moves.length > 0 && (
+            <Button ref={moveButton} size="compact" type="button" aria-haspopup="menu" aria-expanded={!!moveAt} disabled={actions.pending} onClick={openMoves}>
+              Move…
             </Button>
           )}
           {props.onRemove && (
@@ -147,6 +173,7 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
           )}
         </div>
       )}
+      {moveAt && moves.length > 0 && <Menu label="Move to" entries={moves} at={moveAt} onChoose={moveTo} onClose={closeMoves} />}
     </section>
   );
 }

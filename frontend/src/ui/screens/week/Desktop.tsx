@@ -197,16 +197,20 @@ export function DesktopWeek(props: WeekProps) {
   const opened = openBlock ? data.blocks.find((b) => b.id === openBlock) : undefined;
   const popRow = pop && data.blocks.find((b) => b.id === pop.block);
   const popPlaced = pop && model.blocks.find((b) => b.id === pop.block);
-  // As on phone: from now on, this week or later, it can come off; this week, it moves while editing.
+  // As on phone: from now on, this week or later, it can come off; this week, it moves, and Choose a time places it while
+  // editing.
   const popActions =
     popPlaced && offset >= 0 && !popPlaced.past
       ? {
           onRemove: () => void act.remove(popPlaced.id, popPlaced.title),
           ...(isThis
             ? {
-                onMove: () => {
-                  moving.current = popPlaced.id;
-                  props.setEditing(true);
+                move: {
+                  ctx: model.ctx,
+                  choose: () => {
+                    moving.current = popPlaced.id;
+                    props.setEditing(true);
+                  },
                 },
               }
             : {}),

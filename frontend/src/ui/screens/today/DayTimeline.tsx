@@ -11,12 +11,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
 import { currentBlock, isPaused, moveBlock, nextBlock } from '../../../core/blocks';
-import { addDays, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
+import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
 import type { Writer } from '../../../core/records';
-import { dayOffer, dragResult, DRAWN_DAY, fits, GRID, slotContext, slotInstants, slotNotes } from '../../../core/slots';
+import { dayOffer, dragResult, DRAWN_DAY, GRID, slotContext, slotInstants, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
 import type { CalendarEvent } from '../../../core/types';
 import { useNav } from '../../app/nav';
@@ -280,28 +280,12 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     });
   };
 
-  // The first time after a block, today, that it fits as it is, as a drag would land without a note.
-  const nextFree = (i: Item) => {
-    const len = i.to - i.from;
-    const others = { ...ctx, placed: ctx.placed.filter((x) => x.id !== i.id) };
-    for (let start = Math.max(i.to, floor); start + len <= bounds(slotOf(i)).to; start += GRID) if (fits(data.date, start, len, workOf(i).kind, others)) return start;
-    return null;
+  // The popup's Move… choices, so both move it alike; Choose a time opens Week ready to edit.
+  const moveTo = (b: BlockRow): MenuChoice[] => {
+    const entries = actions.moveChoices(b, ctx);
+    return entries.length ? [{ id: 'move', label: 'Move to', icon: 'calendar', submenu: entries }] : [];
   };
-  // Tomorrow at the same time, within this week, whose picks and To schedule it's part of.
-  const tomorrow = addDays(data.date, 1);
-  const thisWeekStill = weekStart(tomorrow) === weekStart(data.date);
-  const moveTo = (i: Item): MenuChoice => {
-    const next = nextFree(i);
-    const entries: MenuEntry[] = [
-      ...(next === null ? [] : [{ id: 'move:next', label: `Next free time, ${formatTimeOfDay(next)}`, icon: 'clock' as const }]),
-      ...(thisWeekStill ? [{ id: 'move:tomorrow', label: `Tomorrow, ${formatTimeOfDay(i.from)}`, icon: 'calendar' as const }] : []),
-      // A practice's session comes off with Skip this session.
-      ...(i.block?.task_id ? [{ id: 'move:back', label: 'Back to To schedule', icon: 'inbox' as const }] : []),
-      'separator',
-      { id: 'move:choose', label: 'Choose a time…', icon: 'week' },
-    ];
-    return { id: 'move', label: 'Move to', icon: 'calendar', submenu: entries };
-  };
+  const chooseOnWeek = () => nav.go('week', { edit: 'this' });
   // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Skip this session"
   // for a practice. None for a planning block, which has its own flow, nor for another calendar's event.
   const menuOf = (i: Item): MenuEntry[] | null => {
@@ -316,10 +300,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const after = (rest: MenuChoice[]): MenuEntry[] => (rest.length ? ['separator', ...rest] : []);
     switch (stageOf(b, clock.now())) {
       case 'later':
-        return [done, { id: 'start', label: 'Start now', icon: 'clock' }, ...(movable(b) ? [moveTo(i)] : []), open, ...after([...remove, ...del])];
+        return [done, { id: 'start', label: 'Start now', icon: 'clock' }, ...moveTo(b), open, ...after([...remove, ...del])];
       case 'now': {
         const timer: MenuChoice = !b.started_at ? { id: 'start', label: 'Start', icon: 'clock' } : isPaused(b) ? { id: 'resume', label: 'Resume', icon: 'clock' } : { id: 'pause', label: 'Pause', icon: 'clock' };
-        return [done, timer, open, ...after([...remove, ...del])];
+        return [done, timer, ...moveTo(b), open, ...after([...remove, ...del])];
       }
       case 'gone':
         return [done, { id: 'partly', label: `${words.partly}…`, icon: 'partly' }, { id: 'not', label: words.not, icon: 'not-done' }, ...after([open, ...del])];
@@ -329,7 +313,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   };
   const act = (i: Item, id: string) => {
     const b = i.block!;
-    const at = (date: string, start: number): Slot => ({ date, start, end: start + i.to - i.from });
+    if (id.startsWith('move:')) return void actions.moveTo(b, id, ctx, chooseOnWeek);
     switch (id) {
       case 'done':
         return void actions.done(b, nextBlock(data.blocks.filter((x) => x.id !== b.id), clock));
@@ -347,23 +331,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       case 'open':
         return openItem(i);
       case 'remove':
-      case 'move:back':
         return void actions.skip(b);
       case 'delete':
         return setDeleting({ id: b.task_id!, title: records.tasks.get(b.task_id!)?.title ?? i.title });
-      case 'move:next': {
-        const next = nextFree(i);
-        return void (next !== null && save(i, slotOf(i), at(data.date, next)));
-      }
-      case 'move:tomorrow':
-        return void moveTomorrow(i, at(tomorrow, i.from));
-      case 'move:choose':
-        return nav.go('week', { edit: 'this' });
     }
-  };
-  const moveTomorrow = async (i: Item, to: Slot) => {
-    const reverse = await run((w) => moveBlock(w, i.id, slotInstants(to, zone)));
-    if (reverse) toast.show(`${i.title} is now tomorrow, ${range(to)}.`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
   };
   const below = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
@@ -644,7 +615,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         <TaskPopupFor
           id={pop.task}
           close={() => setPop(null)}
-          block={popBlock && <BlockSection block={popBlock} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+          block={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: chooseOnWeek }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
         />
       )}
       {menu && menuItem && (

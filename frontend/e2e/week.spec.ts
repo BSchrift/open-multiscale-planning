@@ -152,7 +152,7 @@ test("a task's block opens the task's popup, with the block's own section at its
   if (phone) expect(Math.round(box.y + box.height)).toBe(view.height);
   else expect(Math.abs(box.x + box.width / 2 - view.width / 2)).toBeLessThan(2);
   if (phone) {
-    for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+    for (const name of ['Move…', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
     await expectTapTarget(section.getByRole('slider', { name: 'Length' }));
   }
   await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}.png`) });
@@ -212,7 +212,8 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   const sheet = page.getByRole('dialog', { name: 'Draft the summary' });
   await expect(sheet.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
   await expectTapTarget(sheet.getByRole('slider', { name: 'Length' }));
-  await sheet.getByRole('button', { name: 'Move', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Move…', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Choose a time…' }).click();
   await expect(page.getByText('Moving Draft the summary, 1h, from Tue 6pm')).toBeVisible();
   const handle = page.getByRole('slider', { name: /^Time for Draft the summary/ });
   await handle.focus();
@@ -258,7 +259,8 @@ test('phone: a day with no slot stays readable', async ({ page }, info) => {
   const strip = page.getByRole('group', { name: 'Choose a day' });
   await strip.getByRole('button').nth(1).click();
   await page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm/ }).click();
-  await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move…', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Choose a time…' }).click();
   const thursday = strip.getByRole('button', { name: /^Thu.*no slot for this task/ });
   await expect(thursday).toContainText('No slot');
   const contrast = await thursday.locator('.wfree').evaluate((el) => {

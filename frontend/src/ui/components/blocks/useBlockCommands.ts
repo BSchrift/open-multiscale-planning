@@ -1,14 +1,18 @@
 // What a block's popup section and Today's quick menu both do to a block, so each says and undoes the same: Done as
-// fits where the block is in its day, an answer for one gone by, and Start with where it now runs.
+// fits where the block is in its day, an answer for one gone by, Start with where it now runs, and Move to's new times.
 
 import type { BlockAnswer } from '../../../core/blocks';
-import { formatTime, instantMs } from '../../../core/dates';
+import { addDays, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
+import { DRAWN_DAY, fits, GRID } from '../../../core/slots';
+import type { Slot, SlotContext } from '../../../core/slots';
 import type { Minutes } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
+import type { MenuEntry } from '../Menu';
 import { useToast } from '../Toast';
+import { dayName } from '../weekgrid';
 import { answerFor, saidOf } from './MissedSheet';
 import { useBlockActions } from './useBlockActions';
 
@@ -28,10 +32,35 @@ export function useBlockCommands() {
   const toast = useToast();
   const actions = useBlockActions();
   const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
+  const zone = clock.zone();
+  const tomorrow = addDays(localDate(clock.now(), zone), 1);
 
   /** One block's answer, as the missed blocks sheet saves a row. Resolves to whether it saved. */
   const answer = (block: BlockRow, choice: BlockAnswer['result'], minutes: Minutes = 0) =>
     actions.answerAll([{ blockId: block.id, answer: answerFor(block, choice, minutes) }], (freed) => saidOf(block, choice, minutes, freed));
+
+  /** Where a block sits on its day, in minutes. */
+  const slotOf = (block: BlockRow): Slot => {
+    const start = localMinutes(block.start, zone);
+    return { date: localDate(block.start, zone), start, end: start + (instantMs(block.end) - instantMs(block.start)) / MINUTE_MS };
+  };
+  /** The first time after it, that day, that it fits as it is, as a drag would land without a note. */
+  const nextFree = (block: BlockRow, ctx: SlotContext): Slot | null => {
+    const { date, start, end } = slotOf(block);
+    const length = end - start;
+    const kind = block.task_kind === 'one_off' ? 'one_off' : 'project';
+    const others = { ...ctx, placed: ctx.placed.filter((s) => s.id !== block.id) };
+    for (let at = end; at + length <= Math.max(DRAWN_DAY.to, end); at += GRID) if (fits(date, at, length, kind, others)) return { date, start: at, end: at + length };
+    return null;
+  };
+  /** The next day at the same time, while that's still in its week, whose picks and To schedule it's part of. */
+  const nextDay = (block: BlockRow): Slot | null => {
+    const slot = slotOf(block);
+    const date = addDays(slot.date, 1);
+    return weekStart(date) === weekStart(slot.date) ? { ...slot, date } : null;
+  };
+  /** A day as Move to says it: tomorrow by name, and another by its date. */
+  const dayOf = (date: string) => (date === tomorrow ? 'Tomorrow' : dayName(date));
 
   return {
     ...actions,
@@ -56,6 +85,34 @@ export function useBlockCommands() {
       const from = Math.floor(now / MINUTE_MS) * MINUTE_MS;
       const runs = early ? ` It now runs ${formatTime(from, zone)} to ${formatTime(from + instantMs(block.end) - instantMs(block.start), zone)}.` : '';
       toast.show(`Started ${block.title ?? 'the block'}.${runs}`, { undo: () => undo.run(reverse) });
+    },
+    /**
+     * Move to's choices, none for a block that stays where it is: one started, answered or gone by, or one running past
+     * midnight. The next free time that day, the next day at the same time, back to To schedule for a task's block, and
+     * Choose a time… to place it by hand, which Week can't do once its time has come.
+     */
+    moveChoices: (block: BlockRow, ctx: SlotContext): MenuEntry[] => {
+      const stage = stageOf(block, clock.now());
+      if (block.started_at || (stage !== 'later' && stage !== 'now') || slotOf(block).end > 1440) return [];
+      const next = nextFree(block, ctx);
+      const day = nextDay(block);
+      return [
+        ...(next ? [{ id: 'move:next', label: `Next free time, ${formatTimeOfDay(next.start)}`, icon: 'clock' as const }] : []),
+        ...(day ? [{ id: 'move:tomorrow', label: `${dayOf(day.date)}, ${formatTimeOfDay(day.start)}`, icon: 'calendar' as const }] : []),
+        // A practice's session comes off with Skip this session.
+        ...(block.task_id ? [{ id: 'move:back', label: 'Back to To schedule', icon: 'inbox' as const }] : []),
+        ...(stage === 'later' ? (['separator', { id: 'move:choose', label: 'Choose a time…', icon: 'week' }] as const) : []),
+      ];
+    },
+    /** One of Move to's choices, saved at once with Undo. Choose a time is the screen's own: Today opens Week for it. */
+    moveTo: (block: BlockRow, id: string, ctx: SlotContext, choose: () => void): Promise<unknown> | void => {
+      const to = id === 'move:next' ? nextFree(block, ctx) : id === 'move:tomorrow' ? nextDay(block) : null;
+      if (to) {
+        const when = to.date === localDate(clock.now(), zone) ? '' : `${to.date === tomorrow ? 'tomorrow' : dayName(to.date)}, `;
+        return actions.move(block, to, `Moved ${block.title ?? 'the block'} to ${when}${formatTimeOfDay(to.start)}.`);
+      }
+      if (id === 'move:back') return actions.skip(block);
+      if (id === 'move:choose') choose();
     },
   };
 }

@@ -138,7 +138,7 @@ test("phone: a task's block changes its length on a slider in the task's popup, 
   const section = popup.getByRole('region', { name: 'Time block' });
   const length = section.getByRole('slider', { name: 'Length' });
   await expect(length).toHaveAttribute('aria-valuetext', '1h');
-  for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+  for (const name of ['Move…', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
   await expectTapTarget(length);
   await length.focus();
   await page.keyboard.press('ArrowRight');

@@ -194,7 +194,7 @@ describe('the missed blocks sheet', () => {
     expect(within(dialog).getByText('2h left')).toBeVisible();
     expect(within(dialog).getByText('30m left')).toBeVisible();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Less time left: Email the editor' }));
-    expect(within(dialog).getByText('15m left')).toBeVisible();
+    expect(within(dialog).getByText('25m left')).toBeVisible();
 
     // Back keeps the selection.
     await userEvent.click(within(dialog).getByRole('button', { name: 'Back' }));

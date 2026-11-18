@@ -73,7 +73,8 @@ export interface Offer extends Slot {
   note: string;
 }
 
-/** Every drag and time slider moves in steps of this many minutes. */
+/** Every drag, and the suggested times, move in steps of this many minutes. It's also the shortest block. Sliders move
+ * in finer steps, SLIDER_STEP. */
 export const GRID = 15;
 const SNAP = 20;
 const LONGEST_BLOCK = 120;

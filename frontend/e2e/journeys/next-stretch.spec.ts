@@ -33,8 +33,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
     { name: 'First good loaf', due: '2027-02-12' },
     { name: 'Share a loaf', due: '2027-05-01' },
   ]);
-  await addTasks(project, 'A starter that rises', [{ title: 'Mix the starter', step: 2, estimate: '30m' }]);
-  await addTasks(project, 'First good loaf', [{ title: 'Bake a test loaf', step: 8, estimate: '2h' }]);
+  await addTasks(project, 'A starter that rises', [{ title: 'Mix the starter', step: 6, estimate: '30m' }]);
+  await addTasks(project, 'First good loaf', [{ title: 'Bake a test loaf', step: 24, estimate: '2h' }]);
 
   await goals(page, phone);
   await page.getByRole('button', { name: phone ? '+ Practice' : 'Add practice' }).first().click();
@@ -158,7 +158,7 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await expect(page.getByText(/2h planned, about \dh at your recent pace\.$/)).toBeVisible();
   await page.getByRole('button', { name: 'Set weekly aims' }).click();
   const aim = page.getByRole('slider', { name: 'Weekly aim for Bake a sourdough loaf' });
-  await aim.fill('8');
+  await aim.fill('24');
   await expect(aim).toHaveAttribute('aria-valuetext', '2h');
   await expect(page.getByRole('region', { name: 'The plan' })).toContainText('Bake a sourdough loaf: First good loaf, Feb 19; Share a loaf, by Mar 31');
   const changed = page.getByRole('region', { name: 'What changed' });

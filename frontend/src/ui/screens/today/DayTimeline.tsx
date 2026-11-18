@@ -31,7 +31,7 @@ import { useToast } from '../../components/Toast';
 import { NowLine } from '../../components/NowLine';
 import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
-import { HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
+import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from '../../components/weekgrid/holdCreate';
 import { Capture } from '../capture';
 import { TaskPopupFor } from '../task';
 import type { TodayData } from './data';
@@ -39,8 +39,6 @@ import { Icon } from '../../components/ds/Icon';
 import { Segmented } from '../../components/ds/Controls';
 
 const ZOOM = [30, 48, 72, 96];
-/** How tall a block is drawn before a second line fits under its title: on phone the line sits under it, on desktop beside. */
-const SECOND_LINE = { phone: 40, desktop: 24 };
 const DAY_FROM = 7 * 60;
 const DAY_TO = 22 * 60;
 
@@ -285,27 +283,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     return key && full in help ? `${helpId}-${full}` : undefined;
   };
 
-  // A hold's draft, as a block being placed, beside what it overlaps, as a block that clashes is drawn. Its time goes on a
-  // second line where there's room, and before its name where there isn't.
-  const draftHeight = held ? Math.max(13, y(held.end) - y(held.start) - 1) : 0;
-  const draftLines = draftHeight >= SECOND_LINE[layout];
-  const heldDraft = held && (
-    <div
-      ref={holdNew.draftRef}
-      className={`cev holddraft ${blockClass('project', 'placing', { short: draftHeight < 24 })}${draftHeight < 24 ? ' compact' : ''}${holdNew.draft!.fresh ? ' pop' : ''}`}
-      style={{ top: y(held.start), height: draftHeight, left: items.some((i) => i.from < held.end && held.start < i.to) ? '50%' : '4px', right: '4px' }}
-      title={range(held)}
-      aria-hidden="true"
-    >
-      <span className="cevt">
-        <span className="blktitle">
-          {draftLines ? '' : `${formatTimeOfDay(held.start)} `}
-          {holdNew.draft!.name.trim() || 'New task'}
-        </span>
-      </span>
-      {draftLines && <span className="time">{range(held)}</span>}
-    </div>
-  );
   const calendar = (
     <div
       className="daywrap"
@@ -433,7 +410,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
           );
           return more ? [drawn, more] : drawn;
         })}
-        {heldDraft}
+        {held && <DraftBlock hold={holdNew} top={y(held.start)} height={y(held.end) - y(held.start) - 1} beside={items.some((i) => i.from < held.end && held.start < i.to)} />}
         <HoldRing ring={holdNew.ring} />
         {drag?.ghost && (
           <div className={`cev ${phone ? 'ghost' : 'ev-ghost'} ${blockClass('project', 'suggested')}`} style={{ top: y(drag.ghost.start), height: y(drag.ghost.end) - y(drag.ghost.start), left: '4px', right: '4px' }} aria-hidden="true">

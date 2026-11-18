@@ -8,7 +8,7 @@
 //   {hold.draft?.open && <Capture layout={layout} close={hold.close} slot={hold.slot(overlap)} />}
 
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
 import { DRAWN_DAY, holdSlot } from '../../../core/slots';
@@ -16,6 +16,7 @@ import type { HeldSlot, Slot } from '../../../core/slots';
 import type { LocalDate, Minutes, TimeOfDay } from '../../../core/types';
 import { useApp } from '../../app/store';
 import type { CaptureSlot } from '../../screens/capture';
+import { blockClass } from '../ds/Block';
 import { useToast } from '../Toast';
 import { DRAG_PX, HOLD_MS, SLOP_PX, swallowClick } from './drop';
 import './hold.css';
@@ -57,6 +58,42 @@ export function HoldRing(props: { ring: HeldRing | null }) {
   return root ? createPortal(drawn, root) : drawn;
 }
 
+/** How tall a block is drawn before a second line fits under its title: on phone the line sits under it, on desktop beside. */
+export const SECOND_LINE = { phone: 40, desktop: 24 };
+
+/**
+ * The draft on a day drawn as a column of blocks, Today's timeline and Week's phone day: a block being placed, beside
+ * what it overlaps, as a block that clashes is drawn. Its time goes on a second line where there's room, and before its
+ * name where there isn't.
+ */
+export function DraftBlock(props: { hold: { draft: HeldDraft | null; draftRef: RefObject<HTMLDivElement | null> }; top: number; height: number; beside: boolean }) {
+  const { layout } = useApp();
+  const { draft, draftRef } = props.hold;
+  if (!draft) return null;
+  const { start, end } = draft.slot;
+  const height = Math.max(13, props.height);
+  const short = height < 24;
+  const lines = height >= SECOND_LINE[layout];
+  const time = `${formatTimeOfDay(start)} to ${formatTimeOfDay(end)}`;
+  return (
+    <div
+      ref={draftRef}
+      className={`cev holddraft ${blockClass('project', 'placing', { short })}${short ? ' compact' : ''}${draft.fresh ? ' pop' : ''}`}
+      style={{ top: props.top, height, left: props.beside ? '50%' : '4px', right: '4px' }}
+      title={time}
+      aria-hidden="true"
+    >
+      <span className="cevt">
+        <span className="blktitle">
+          {lines ? '' : `${formatTimeOfDay(start)} `}
+          {draft.name.trim() || 'New task'}
+        </span>
+      </span>
+      {lines && <span className="time">{time}</span>}
+    </div>
+  );
+}
+
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
 
 /** Why the draft isn't quite where it was held, in Capture's words. */
@@ -77,8 +114,8 @@ export function overlapWords(slot: Slot, others: readonly { title: string; start
 export function useHoldToCreate(opts: {
   /** The day and minute at a point in the pressed element, measured from its top left, or null for none. */
   at(x: number, y: number, el: HTMLElement): { date: LocalDate; minute: number } | null;
-  /** Where a draft held at `from` goes once the pointer has moved by dx and dy, as a held block would. */
-  move(from: Slot, dx: number, dy: number, el: HTMLElement): Slot;
+  /** Where a draft held at `from` goes once the pointer has moved by dx and dy, as a held block would; null stays put. */
+  move(from: Slot, dx: number, dy: number, el: HTMLElement): Slot | null;
   /** Now: nothing is drafted before it. */
   earliest: { date: LocalDate; minutes: TimeOfDay };
   /** Where the calendar's day ends. */
@@ -105,10 +142,15 @@ export function useHoldToCreate(opts: {
     const timer = setTimeout(() => setRing(null), RING_MS);
     return () => clearTimeout(timer);
   }, [ring]);
-  // On phone, Capture's sheet rises from the bottom, so the draft goes up the page, above it.
+  // On phone, Capture's sheet rises from the bottom, so the draft goes up the page, above it, and below the week's top,
+  // which stays stuck over Week's day and the Schedule step's.
   const open = !!draft?.open;
   useEffect(() => {
-    if (open && layout === 'phone') draftRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    const el = draftRef.current;
+    if (!open || layout !== 'phone' || !el) return;
+    const stuck = document.querySelector('.weektop')?.getBoundingClientRect().bottom ?? 0;
+    el.style.scrollMarginTop = `${Math.max(0, stuck) + 8}px`;
+    el.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
   }, [open, layout]);
 
   const press = (event: ReactPointerEvent<HTMLElement>) => {
@@ -153,7 +195,7 @@ export function useHoldToCreate(opts: {
           if (!held) return;
         }
         const next = live.current.move(held, m.clientX - x0, m.clientY - y0, el);
-        setDraft((d) => d && (same(d.slot, next) ? d : { ...d, slot: next, moved: null, fresh: false }));
+        if (next) setDraft((d) => d && (same(d.slot, next) ? d : { ...d, slot: next, moved: null, fresh: false }));
       },
       pointerup: (ev) => {
         if (!own(ev)) return;

@@ -3,8 +3,9 @@
 // sends the last 13 days of the perf-data branch each night: CloudWatch takes points up to two weeks old, and a point
 // sent again changes no average, so a missed night loses nothing.
 //   node scripts/perf-publish.ts <perf-data folder> <out folder>   writes one file of up to 1,000 points per request
+//   node scripts/perf-publish.ts --summary <summary.json> <out folder>   the same for a run measured on staging just now
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { kpi } from '../../config/perf.ts';
@@ -39,6 +40,11 @@ export function metricData(runs: readonly Run[]): MetricDatum[] {
     );
 }
 
+/** A summary the nightly measured itself, against staging, which never goes through perf-data. */
+export function summaryRun(rows: Run['rows'], at = new Date().toISOString()): Run {
+  return { kind: 'staging', commit: process.env.COMMIT ?? 'unknown', runner: 'codebuild', at, rows };
+}
+
 export function batches<T>(items: readonly T[]): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += PER_REQUEST) out.push(items.slice(i, i + PER_REQUEST));
@@ -46,13 +52,14 @@ export function batches<T>(items: readonly T[]): T[][] {
 }
 
 function main(argv: string[]) {
-  const [dir, out] = argv;
-  if (!dir || !out) throw new Error('Usage: node scripts/perf-publish.ts <perf-data folder> <out folder>');
+  const summary = argv[0] === '--summary' ? argv[1] : undefined;
+  const [dir, out] = summary ? [undefined, argv[2]] : argv;
+  if ((!dir && !summary) || !out) throw new Error('Usage: node scripts/perf-publish.ts <perf-data folder> <out folder>, or --summary <summary.json> <out folder>');
   const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
-  const data = metricData(readRuns(dir, since));
+  const data = metricData(summary ? [summaryRun(JSON.parse(readFileSync(summary, 'utf8')) as Run['rows'])] : readRuns(dir!, since));
   mkdirSync(out, { recursive: true });
   batches(data).forEach((batch, i) => writeFileSync(join(out, `${String(i).padStart(4, '0')}.json`), JSON.stringify(batch)));
-  console.log(`${data.length} points from the runs since ${since.slice(0, 10)}, in ${Math.ceil(data.length / PER_REQUEST)} requests.`);
+  console.log(`${data.length} points from ${summary ? summary : `the runs since ${since.slice(0, 10)}`}, in ${Math.ceil(data.length / PER_REQUEST)} requests.`);
   return 0;
 }
 

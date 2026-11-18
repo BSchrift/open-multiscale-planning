@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, holdMouse, openSeeded, startPlanningThenUndo } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, pressOn, release, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -342,5 +342,39 @@ test('phone: All tasks lists practices first, and a task comes out of this week 
   await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 19 placed' })).toBeVisible();
   await said.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 20 placed' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+const holdTarget = (page: Page, phone: boolean) => (phone ? page.locator('.day.dragday') : page.locator('.colbody[data-drop-date="2026-11-04"]'));
+
+test('a press held on empty time in the Schedule step drafts nothing while a task is being placed', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openSchedule(page, phone);
+  // Desktop: Wednesday on the editing grid. Phone: the day shown, today. Both drawn from 6am to 11pm.
+  const at = await pressOn(holdTarget(page, phone), 17 * 60 + 50, phone, { from: 360, to: 1380 });
+  await page.waitForTimeout(600);
+  await release(page, at, phone);
+  await page.waitForTimeout(300);
+  await expect(page.locator('.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('with nothing left to place in the Schedule step, a press held on empty time drafts an hour there, and Capture saves it there', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  // Only the practice, already placed: nothing waits to be placed, not even the one off dated in the week.
+  const errors = await openSchedule(page, phone, records.filter((r) => r.type !== 'week_pick' && r.id !== 'o1'));
+  const draft = page.locator('.holddraft');
+  const at = await pressOn(holdTarget(page, phone), 17 * 60 + 50, phone, { from: 360, to: 1380 });
+  await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+  await release(page, at, phone);
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText(phone ? 'Today, 5:45pm to 6:45pm' : 'Wed Nov 4, 5:45pm to 6:45pm')).toBeVisible();
+  await page.keyboard.type('Book dentist');
+  await page.screenshot({ path: info.outputPath('schedule-hold-capture.png') });
+  await page.keyboard.press('Enter');
+  await expect(draft).toHaveCount(0);
+  await expect(page.locator('.cev, .ev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
+  await page.screenshot({ path: info.outputPath('schedule-hold-saved.png') });
   expect(errors).toEqual([]);
 });

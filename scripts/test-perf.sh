@@ -9,7 +9,9 @@
 #   PERF_PLATFORMS: web-desktop,web-phone,mac (all three). PERF_SAMPLES, PERF_WARMUP, PERF_LAUNCHES, PERF_CPU and
 #     PERF_SCENARIOS: as frontend/e2e/perf/harness.ts says.
 #   PERF_SYNC=1 also times sync between two signed-in browsers through a local stack behind Toxiproxy, on a good, a slow
-#     3G and a flaky network, with Docker and Go as make test-integration needs them. Nightly.
+#     3G and a flaky network, with Docker and Go as make test-integration needs them. Nightly. PERF_SYNC=staging times
+#     it against staging instead, as its test user, from the release pipeline's nightly, which has the config folder.
+#   PERF_PLATFORMS=none leaves out the browser and the Mac app, for a sync run alone.
 #   PERF_OUT: where the raw samples, the summaries and the comparison go (frontend/test-results/perf).
 set -euo pipefail
 
@@ -49,6 +51,13 @@ checkouts=("this=$root")
 [ -z "${BASE:-}" ] || checkouts=("base=$work/base" "${checkouts[@]}")
 
 free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+if [ "${PERF_SYNC:-}" = staging ]; then
+  # Built for staging, served where its sign-in returns to (e2e/stack/target.ts), and signed in as its test user.
+  export ENV=staging
+  MULTISCALE_TARGET="${MULTISCALE_TARGET:-$(cd "$root/frontend" && node scripts/test-target.mjs)}"
+  export MULTISCALE_TARGET
+  web_port=5199
+fi
 if [ "${PERF_SYNC:-}" = 1 ]; then
   # The local stack, and Toxiproxy in front of its API, which the builds talk to so the network can be shaped.
   "$root/scripts/local-stack.sh" "$work/api-url" >"$work/stack.log" 2>&1 &
@@ -76,7 +85,7 @@ for checkout in "${checkouts[@]}"; do
   dir="${checkout#*=}"
   echo "Building $name ($(git -C "$dir" rev-parse --short HEAD))"
   (cd "$dir/frontend" && npx vite build --mode perf --outDir "$work/$name-web" --emptyOutDir --logLevel warn)
-  serve+=("$name=$work/$name-web")
+  serve+=("$name=$work/$name-web${web_port:+@$web_port}")
   if [[ ",$platforms," == *,mac,* ]]; then
     (cd "$dir/frontend" && npx vite build --logLevel warn && node scripts/electron-compile.mjs)
     mac+=("$name=$dir/frontend")
@@ -96,8 +105,11 @@ for platform in ${platforms//,/ }; do projects+=("--project=$platform"); done
 run=(npx playwright test -c e2e/perf/playwright.config.ts "${projects[@]}")
 # The Mac app needs a display: a virtual one on Linux without one.
 if [[ ",$platforms," == *,mac,* ]] && [ "$(uname)" = Linux ] && [ -z "${DISPLAY:-}" ]; then run=(xvfb-run -a "${run[@]}"); fi
-"${run[@]}"
+[ "$platforms" = none ] || "${run[@]}"
 
+if [ "${PERF_SYNC:-}" = staging ]; then
+  PERF_NETWORK=staging npx playwright test -c e2e/perf/playwright.config.ts --project=sync
+fi
 if [ "${PERF_SYNC:-}" = 1 ]; then
   for shape in good slow-3g flaky; do
     echo "Sync on a $shape network"

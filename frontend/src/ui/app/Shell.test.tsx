@@ -39,7 +39,7 @@ describe('shell on desktop', () => {
     await renderApp();
     await showsPane('Today');
     const labels = within(main()).getAllByRole('button').map((b) => b.textContent);
-    expect(labels.slice(2)).toEqual(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']);
+    expect(labels.slice(2)).toEqual(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Notes', 'Analytics', 'Done', 'Settings']);
     expect(tab('Today')).toHaveAttribute('aria-current', 'page');
   });
 
@@ -238,7 +238,7 @@ describe('shell on phone', () => {
     await renderApp({ layout: 'phone' });
     await userEvent.click(await screen.findByRole('button', { name: 'More' }));
     // A row's name starts with its label and goes on with its live line.
-    for (const name of ['Plan', 'One offs', 'Analytics', 'Done', 'Settings']) expect(await screen.findByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    for (const name of ['Plan', 'One offs', 'Notes', 'Analytics', 'Done', 'Settings']) expect(await screen.findByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Settings/ }));
     await showsPane('Settings');
     expect(tab('More')).toHaveAttribute('aria-current', 'page');

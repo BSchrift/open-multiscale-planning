@@ -25,6 +25,7 @@ import type { Home, Made } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes, Task } from '../../../core/types';
 import { useProcessKeys } from '../../app/processKeys';
 import type { ScreenProps } from '../../app/registry';
+import { useCutShares } from '../../app/shareImport';
 import { useApp, useMutation, useQuery, useStickyState, useToday } from '../../app/store';
 import { HomeForm } from '../../components/editors';
 import type { HomeKind } from '../../components/editors';
@@ -131,6 +132,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const today = useToday();
   const toast = useToast();
   const [keysOn] = useProcessKeys();
+  const [cutShares] = useCutShares();
   const [lastKey, setLastKey] = useStickyState(LAST_KEY, '');
   const [queue] = useState<InboxRow[]>(() => {
     const first = data.inbox.find((i) => i.id === props.params.item);
@@ -646,6 +648,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         titleRef={titleRef}
         dateRef={dateRef}
         dated={dated}
+        cut={cutShares.includes(current.id)}
         save={save}
         pending={pending}
         onAttachment={(reverse) => keepReverse(current.id, reverse)}

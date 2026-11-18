@@ -100,6 +100,6 @@ if [ "$env_name" = local ] && [ -z "${SMOKE:-}" ]; then
   # since both move the stack's clock.
   echo
   echo "TypeScript client against cmd/local"
-  (cd "$root/frontend" && npx vitest run --maxWorkers=1 --project node src/core/sync.stack.test.ts src/core/retention.stack.test.ts) || status=1
+  (cd "$root/frontend" && npx vitest run --maxWorkers=1 --project node src/core/sync.stack.test.ts src/core/retention.stack.test.ts src/core/account.stack.test.ts) || status=1
 fi
 exit "$status"

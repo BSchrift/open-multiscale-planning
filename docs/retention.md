@@ -26,7 +26,7 @@ includes a removed attachment, and a deleted task's, which takes the task's dele
 so Undo brings back both, and counts against its owner's quota until it goes.
 
 Never removed: open tasks and Inbox items, active and paused projects and their milestones, goals that aren't archived,
-practices, settings, and the calendar records. A time block, pick or finish that expires never takes its task with it.
+practices, notes (`memo`) and the attachments on them with their files, settings, and the calendar records. A time block, pick or finish that expires never takes its task with it.
 
 A person's Google connection is kept while it's connected and no longer: the refresh token the calendar worker uses for
 them, encrypted with KMS for them alone, and a hash of the Google account's address that keeps that account connected to
@@ -40,6 +40,12 @@ sits outside the person's records (`google#connection` and `google#account` in t
 A week's planning task that was neither done nor deleted is an open task too: hidden once its week has passed, and kept.
 A deleted one goes after the deleted period, on prod long after the three days the app makes it in, so no device makes it
 again; on staging, whose period is minutes, a device can make it again within those three days.
+
+Notes are kept until you delete them, as apps from before notes already keep a type they don't know. A note outlives
+its home, and an attachment on one names no task, so it takes no expiry from a parent: it's kept with the note, counting
+against its owner's quota, and deleted with it, with the note's `deleted_at`, so both go 30 days later on every app and a
+restore brings both back. A note has no archive that expires: a released app's launch would find no parent for its
+attachments and write "never" over their expiry.
 
 Dates count from the end of the day in UTC, so every device works out the same expiry wherever it is. A project's and a
 goal's close time is when their `state` was last written, from that field's clock, since neither has a closed date of
@@ -83,6 +89,10 @@ few minutes across a change that then expires is reset when it next syncs, which
 - **Filling in at launch.** Before its first sync, the app gives `expires_at` to records that lack it, and to any whose
   source an app from before changed since. It writes through the automatic writer, so a field filled for the first time
   gets the lowest clock and any real edit from any device wins.
+- **Sweeping what's left on a note that's gone.** After each sync that pulled to the end, `sweepOrphans`
+  ([attachments.ts](../frontend/src/core/attachments.ts)) deletes a live attachment whose note was deleted, or is gone
+  and was put there over a day ago, giving it the note's `deleted_at`, or now: a photo another device added offline to
+  a note this one deleted. It's an ordinary write, so released apps work out the same expiry.
 - **Removing what has expired.** At launch and after each sync, the app deletes records whose `expires_at` has passed,
   with their outbox rows. One whose filled-in expiry hasn't reached the server yet waits for the next sync, so the
   server's copy gets it and goes too.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl } from './security';
+import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl, menuItems } from './security';
 
 describe('appFilePath', () => {
   it('maps paths inside the root, with / as the page', () => {
@@ -83,6 +83,27 @@ describe('isSqlValues', () => {
     expect(isSqlValues('a')).toBe(false);
     expect(isSqlValues([{}])).toBe(false);
     expect(isSqlValues([undefined])).toBe(false);
+  });
+});
+
+describe('menuItems', () => {
+  it('accepts a list of named choices, separators and one level of submenu', () => {
+    const items = [{ id: 'done', label: 'Done' }, { type: 'separator' }, { id: 'move', label: 'Move to', submenu: [{ id: 'move:next', label: 'Next free time, 5pm' }] }];
+    expect(menuItems(items)).toEqual(items);
+  });
+
+  it('refuses anything else the page could send', () => {
+    expect(menuItems('Done')).toBeNull();
+    expect(menuItems([])).toBeNull();
+    expect(menuItems([{ id: 'done' }])).toBeNull();
+    expect(menuItems([{ id: '', label: 'Done' }])).toBeNull();
+    expect(menuItems([{ id: 'done', label: 'Done', click: 'x' }])).toBeNull();
+    expect(menuItems([{ id: 'done', label: 'Done', role: 'quit' }])).toBeNull();
+    expect(menuItems([{ type: 'checkbox', id: 'done', label: 'Done' }])).toBeNull();
+    expect(menuItems([{ id: 'done', label: 'x'.repeat(201) }])).toBeNull();
+    expect(menuItems(Array.from({ length: 41 }, (_, i) => ({ id: `i${i}`, label: 'Item' })))).toBeNull();
+    // A submenu inside a submenu.
+    expect(menuItems([{ id: 'a', label: 'A', submenu: [{ id: 'b', label: 'B', submenu: [{ id: 'c', label: 'C' }] }] }])).toBeNull();
   });
 });
 

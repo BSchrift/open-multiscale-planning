@@ -12,6 +12,9 @@ export type PlatformKind = 'electron' | 'ios' | 'web' | 'test';
 /** Settings > Appearance on this device. System follows the OS. */
 export type Appearance = 'system' | 'light' | 'dark';
 
+/** A choice in a menu the platform draws, or a line between groups of them. A choice holds one level of submenu at most. */
+export type NativeMenuItem = { id: string; label: string; submenu?: readonly NativeMenuItem[] } | { type: 'separator' };
+
 export interface ReminderResponse {
   reminder_id: string;
   block_id: string;
@@ -98,6 +101,11 @@ export interface Platform {
    * has one. Absent on the Mac, which can't. Never fails.
    */
   haptic?(): Promise<void>;
+  /**
+   * Only in the Mac app: a menu macOS draws at the pointer, as for a right-click. Resolves to the chosen item's id, or
+   * null when it closes without a choice. Missing in a Mac app from before it, where the page draws its own.
+   */
+  showMenu?(items: readonly NativeMenuItem[]): Promise<string | null>;
   /** Only where native code can measure the app: memory, and memory warnings. */
   readonly diagnostics?: Diagnostics;
   /** Only in the apps, whose native code checks and installs a downloaded web bundle. */

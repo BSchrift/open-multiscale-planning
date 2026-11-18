@@ -104,6 +104,14 @@ device's database, as a sync would apply it, so no sync is timed but `sync.first
 The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
 perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
 
+Their records carry no expiry, as an account's from before retention don't. So the first launch on them works out
+every record's expiry and removes what retention no longer keeps (`core/expiry.ts`): a fifth of a year's records, and
+over half of five years', which leaves about 18,500. Today stays empty until that's done: about 35 seconds in CI's
+desktop Chromium on five years, and over two minutes with the phone's CPU slowed. A device does that once, the first
+time it launches with records from before retention, so it isn't a KPI. The runner launches each build once on the data
+at full speed and waits for a record that launch removes to be gone (`openLaunched` in `e2e/perf/harness.ts`), and the
+KPIs time the actions and launches after it, as the Mac app's do.
+
 ### The runner
 
 `make test-perf` runs [scripts/test-perf.sh](../scripts/test-perf.sh): it builds this checkout as it's timed, runs
@@ -178,7 +186,12 @@ rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more 
 baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
 in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
 
-**Results** go to the `perf-data` branch, which only the main and nightly workflows write (`scripts/perf-data.sh`):
+**Once a week** (`.github/workflows/perf-mac.yml`, Sunday at 06:00 UTC): the Mac app's KPIs on a macOS runner, 200
+samples and 20 cold and warm starts after emptying the file cache, set beside the Linux numbers in main's baseline in
+the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25
+minutes, 60 at most.
+
+**Results** go to the `perf-data` branch, which only the scheduled and main performance workflows write (`scripts/perf-data.sh`):
 one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and
 `baseline.json`, each KPI's median over main's last 10 runs, which trends and the nightly comparisons read. The
 targets stay here, in `config/perf.ts` and this file.

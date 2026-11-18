@@ -287,6 +287,35 @@ test('desktop: W, E and G do what their buttons do, D asks and Enter or a second
   expect(errors).toEqual([]);
 });
 
+test('a new project from Process needs a goal: Add project says so with focus on Goal, then makes it under the one chosen', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [{ type: 'objective', id: 'g1', fields: { title: 'Keep the house', state: 'active' } }, ...records]);
+  await nav(page).getByRole('button', { name: phone ? 'Inbox, 3 to sort' : 'Inbox' }).click();
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  if (phone) await card(page).getByRole('button', { name: /^Add to a project or One offs/ }).click();
+  const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
+  await picker.fill('Fix up the shed');
+  if (phone) await page.getByRole('option', { name: '+ New project “Fix up the shed”' }).click();
+  else await picker.press('Enter');
+  const form = phone ? page.getByRole('dialog', { name: 'New project' }) : card(page).getByRole('form', { name: 'New project' });
+  const goal = form.getByRole('combobox', { name: 'Goal' });
+  await expect(goal).toHaveValue('');
+  await expect(form.getByText('Every project sits under a goal.')).toBeVisible();
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(form.getByRole('alert')).toHaveText('Choose a goal for Fix up the shed, or make a new one.');
+  await expect(goal).toBeFocused();
+  await page.screenshot({ path: info.outputPath('process-project-needs-goal.png') });
+  await goal.selectOption({ label: 'Keep the house' });
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(toast(page)).toContainText('Created Fix up the shed, under Keep the house.');
+  await card(page).getByRole('button', { name: 'Add to Fix up the shed', exact: true }).click();
+  await expect(toast(page)).toContainText('Added Call the bank to Fix up the shed.');
+  expect(errors).toEqual([]);
+});
+
 test('desktop: a click outside the card closes Process, as Exit does, and what was changed on the card stays', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'On phone Process fills the screen, so there is no outside to click.');
   const errors = await open(page, false);

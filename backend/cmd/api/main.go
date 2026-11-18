@@ -13,11 +13,8 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
-	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
@@ -47,7 +44,7 @@ func main() {
 	}
 	server := &api.Server{
 		Sync:     store,
-		Calendar: gcal.FromEnvironment(cfg, store.Expiry, startWorker(lambdasdk.NewFromConfig(cfg), os.Getenv("CALENDAR_FUNCTION_NAME"))),
+		Calendar: gcal.FromEnvironment(cfg, store.Expiry),
 		Log:      obs.NewLogger(os.Stdout),
 		Env:      os.Getenv("ENV_NAME"),
 		Now:      time.Now,
@@ -57,22 +54,6 @@ func main() {
 		server.Files = service
 	}
 	lambda.Start(adapter(server.Handler()))
-}
-
-// startWorker runs the calendar worker without waiting, since a run can far outlast this function's timeout.
-func startWorker(client invoker, name string) func(context.Context) error {
-	return func(ctx context.Context) error {
-		_, err := client.Invoke(ctx, &lambdasdk.InvokeInput{
-			FunctionName:   aws.String(name),
-			InvocationType: lambdatypes.InvocationTypeEvent,
-			Payload:        []byte(`{"trigger":"refresh"}`),
-		})
-		return err
-	}
-}
-
-type invoker interface {
-	Invoke(context.Context, *lambdasdk.InvokeInput, ...func(*lambdasdk.Options)) (*lambdasdk.InvokeOutput, error)
 }
 
 type lambdaHandler func(context.Context, events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error)

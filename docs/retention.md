@@ -26,6 +26,16 @@ so Undo brings back both, and counts against its owner's quota until it goes.
 
 Never removed: open tasks and Inbox items, active and paused projects and their milestones, goals that aren't archived,
 practices, settings, and the calendar records. A time block, pick or finish that expires never takes its task with it.
+
+A person's Google connection is kept while it's connected and no longer: the refresh token the calendar worker uses for
+them, encrypted with KMS for them alone, and a hash of the Google account's address that keeps that account connected to
+one person. Both go when they disconnect, and when they connect again in place of a connection Google refused. When
+Google refuses the token (they removed access there, or it expired) the worker stops using it and marks it, and it stays,
+unusable, until they connect again or disconnect. Deleting an account must remove them too, by calling
+`gcal.Google.Forget`, which is `DeleteConnection` with no record written, before the account's records go; the in-app
+account deletion being built does. Disconnecting and
+deleting also revoke the token at Google. The connection is never synced to a device, never in an export, and never logged. It
+sits outside the person's records (`google#connection` and `google#account` in the table), so no period here applies to it.
 A week's planning task that was neither done nor deleted is an open task too: hidden once its week has passed, and kept.
 A deleted one goes after the deleted period, on prod long after the three days the app makes it in, so no device makes it
 again; on staging, whose period is minutes, a device can make it again within those three days.

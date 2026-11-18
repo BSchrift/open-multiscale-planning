@@ -1,0 +1,71 @@
+name: Performance on macOS
+# Once a week (docs/performance.md, "In CI"): the Mac app's performance KPIs on a real Mac, beside the numbers CI takes
+# under xvfb on Linux each merge, to check that Linux's still track them. Report-only. One macOS runner for about 25
+# minutes, on Sunday morning, away from midnight UTC and from the week's PRs; 60 minutes at most, so a stuck run can't
+# hold one of the few macOS runners.
+on:
+  schedule:
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-mac
+  cancel-in-progress: false
+
+jobs:
+  time:
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: electron-version
+        run: echo "version=$(node -p "require('electron/package.json').version")" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ steps.electron-version.outputs.version }}
+      - name: Download Electron
+        run: |
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep $((attempt * 20))
+          done
+          exit 1
+        working-directory: frontend
+      - name: Time the Mac app
+        run: scripts/test-perf.sh
+        env:
+          PERF_PLATFORMS: mac
+          PERF_SCENARIOS: one-year
+          PERF_SAMPLES: "200"
+          PERF_LAUNCHES: "20"
+          PERF_PURGE: "1"
+      - name: Beside Linux's numbers
+        run: |
+          git fetch --quiet origin perf-data && git show FETCH_HEAD:baseline.json >"$RUNNER_TEMP/baseline.json" || echo '[]' >"$RUNNER_TEMP/baseline.json"
+          node frontend/scripts/perf-data.ts track "$RUNNER_TEMP/baseline.json" frontend/test-results/perf/summary/this.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Add the run to perf-data
+        env:
+          COMMIT: ${{ github.sha }}
+          RUNNER: macos-15
+        run: scripts/perf-data.sh mac frontend/test-results/perf/summary/this.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-mac
+          path: frontend/test-results/perf
+          retention-days: 30
+          if-no-files-found: ignore

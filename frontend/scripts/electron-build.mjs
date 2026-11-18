@@ -13,7 +13,7 @@ import { keychainIdentities, signedConfig, signingIdentity } from './mac-signing
 
 const { config, identity } = await compile();
 // Checked before the slow part, so a key without a Developer ID fails at once.
-const signing = signedConfig(builderConfig(config.env, identity), signingIdentity(keychainIdentities()), process.env);
+const signing = signedConfig(builderConfig(config.env, identity, config.downloadsUrl), signingIdentity(keychainIdentities()), process.env);
 console.log(signing.note);
 execFileSync('npx', ['vite', 'build'], { stdio: 'inherit', env: { ...process.env, ENV: config.env } });
 // The app's version is 0.1.<build>, so app versions only go up, as builds do: the app's package.json in app.asar says
@@ -23,8 +23,9 @@ const { build: buildNumber } = JSON.parse(readFileSync('dist/version.json', 'utf
 const version = appVersion(JSON.parse(readFileSync('package.json', 'utf8')).version, buildNumber);
 const versioned = { ...signing.config, extraMetadata: { version }, buildVersion: String(buildNumber) };
 // electron-builder notarizes the app and staples its ticket before putting it in the disk image and the zip. The zip,
-// of the same app, is what the app updates itself from.
-const paths = await build({ config: versioned, mac: process.argv.includes('--dir') ? ['dir'] : ['dmg', 'zip'] });
+// of the same app, is what the app updates itself from. Publish never: the config names the downloads host only so the
+// app gets its app-update.yml, and electron-builder would otherwise publish on its own when it detects CI.
+const paths = await build({ config: versioned, mac: process.argv.includes('--dir') ? ['dir'] : ['dmg', 'zip'], publish: 'never' });
 const dmg = paths.find((path) => path.endsWith('.dmg'));
 if (signing.notarize && dmg) {
   // Then the disk image, which electron-builder only signs. This staples it too.

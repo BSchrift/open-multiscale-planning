@@ -68,11 +68,9 @@ interface Step {
   closed: number;
   /** A project just made from the card, which the picker holds until the item is added. */
   made: { id: string } | null;
-  /** The exact reverse of what's been changed on this item, latest first, which puts it back as it arrived. */
-  edits: RecordWrite[];
 }
 
-const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, closed: 0, made: null, edits: [] };
+const START: Step = { idx: 0, est: null, planOn: false, sorted: 0, closed: 0, made: null };
 
 /** A home made from the card, for its Undo and the toast that reports it. */
 interface HomeUndo {
@@ -97,6 +95,9 @@ interface Entry {
 
 /** Where Process remembers the place last added to, on this device. */
 const LAST_KEY = 'processLast';
+
+/** The date the item has, if it's set for a day or days. */
+const onceOf = (task: Task | undefined) => (task?.schedule?.type === 'once' && task.schedule.from ? task.schedule : null);
 
 const isField = (el: Element | null) =>
   !!el && (/^(TEXTAREA|SELECT)$/.test(el.tagName) || (el.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'range'));
@@ -135,6 +136,9 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     return first ? [first, ...data.inbox.filter((i) => i !== first)] : data.inbox;
   });
   const [s, setS] = useState<Step>(START);
+  // The exact reverse of what's been changed on each item, latest first, which puts it back as it arrived. Kept by item,
+  // since a change can finish saving after its card has moved on.
+  const [edits, setEdits] = useState<Record<string, RecordWrite[]>>({});
   const [history, setHistory] = useState<Entry[]>([]);
   const [delAsk, setDelAsk] = useState(false);
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
@@ -188,7 +192,10 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   };
   const cameOff = () => (freed ? ` Its block${blockAt} came off the calendar.` : '');
   const est = s.est ?? current?.estimate_min ?? item?.estimate_min ?? 0;
+  const itemEdits = (item && edits[item.id]) || [];
   const [editing, setEditing] = useState<Editing>(null);
+  // What's typed in the card's open title, date or description and not yet saved, which goes with its item as it moves on.
+  const pending = useRef<(() => Promise<boolean>) | null>(null);
   const focusTitle = () => titleRef.current?.focus();
   const focusPicker = () => pickRef.current?.focus();
   const dests = data.groups.flatMap((g) => g.dests);
@@ -243,20 +250,25 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     return false;
   });
 
-  /** Changes to the item on the card, each saved as it's made. Its reverse joins the item's, for one Undo. */
-  const edit = useMutation((w, fields: Fields<'task'>) => w.set('task', item!.id, fields));
-  const keepReverse = (reverse: RecordWrite) =>
-    setS((now) => {
+  /**
+   * Changes to the item on the card, each saved as it's made. Its reverse joins the item's, for one Undo. Both go to the
+   * item the change was made on, by its id: the card may have moved on by the time the change saves.
+   */
+  const edit = useMutation((w, id: string, fields: Fields<'task'>) => w.set('task', id, fields));
+  const keepReverse = (itemId: string, reverse: RecordWrite) =>
+    setEdits((all) => {
+      const now = all[itemId] ?? [];
       // Only the first change to a field matters: its reverse is what the item arrived with.
-      const known = new Set(now.edits.filter((r) => r.id === reverse.id).flatMap((r) => Object.keys(r.fields)));
+      const known = new Set(now.filter((r) => r.id === reverse.id).flatMap((r) => Object.keys(r.fields)));
       const fields = Object.fromEntries(Object.entries(reverse.fields).filter(([f]) => !known.has(f)));
-      return Object.keys(fields).length ? { ...now, edits: [{ ...reverse, fields }, ...now.edits] } : now;
+      return Object.keys(fields).length ? { ...all, [itemId]: [{ ...reverse, fields }, ...now] } : all;
     });
   const save = async (fields: Fields<'task'>) => {
     if (!item) return false;
-    const previous = await edit.run(fields);
+    const { id } = item;
+    const previous = await edit.run(id, fields);
     if (!previous) return false;
-    keepReverse({ type: 'task', id: item.id, fields: previous });
+    keepReverse(id, { type: 'task', id, fields: previous });
     return true;
   };
   const revertEdits = useMutation((w, writes: RecordWrite[]) => applyPlanChange(w, { writes }));
@@ -265,12 +277,13 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const undo = async () => {
     if (busy.current) return;
     // First the item goes back as it arrived, then the step before.
-    if (s.edits.length) {
+    if (item && itemEdits.length) {
       busy.current = true;
-      const done = await revertEdits.run(s.edits);
+      const done = await revertEdits.run(itemEdits);
       busy.current = false;
       if (!done) return;
-      setS({ ...s, est: null, edits: [] });
+      setS({ ...s, est: null });
+      setEdits((all) => ({ ...all, [item.id]: [] }));
       setEditing(null);
       refocus.current = 'pick';
       return toast.show(`${item?.title} is back as it arrived.`);
@@ -311,14 +324,18 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     if (busy.current) return false;
     busy.current = true;
     const from = document.activeElement;
-    const reverse = run ? await write.run(run) : null;
+    // Anything typed on the card and not yet saved is saved to this item first.
+    const kept = !pending.current || (await pending.current());
+    const reverse = !kept ? undefined : run ? await write.run(run) : null;
     busy.current = false;
     if (reverse === undefined) return false;
     // Focus moved on the card while it saved, as by Esc, stays where it was put.
     const moved = document.activeElement !== from && !!ref.current?.contains(document.activeElement);
-    const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, edits: [], ...next() };
+    const step: Step = { ...s, idx: s.idx + 1, est: null, planOn: false, made: null, ...next() };
     if (step.idx !== s.idx) {
       swipeAway(ref.current);
+      // The next card opens with nothing being edited.
+      setEditing(null);
       setNaming(false);
     }
     const prev = history[history.length - 1];
@@ -378,7 +395,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     return late && lateText(late);
   };
   // A date the item came with, rather than one set on the card this time.
-  const dated = !s.edits.some((r) => r.id === item?.id && 'schedule' in r.fields);
+  const dated = !itemEdits.some((r) => r.id === item?.id && 'schedule' in r.fields);
 
   /** Adds the item to a project, under the milestone chosen there, or to One offs as null. A new milestone is made with it. */
   const send = (dest: Place) => {
@@ -388,23 +405,29 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     const made = dest && s.made?.id === dest.plan.project.id ? s.made : null;
     const ms = dest ? msFor(dest) : null;
     let madeMs: string | null = null;
-    const once = current?.schedule?.type === 'once' && current.schedule.from ? current.schedule : null;
+    // The item as it stands, read in the same change: a title or date saved on the card a moment ago may not show yet.
+    let latest = current;
     const run = async (w: Writer): Promise<PlanChange> => {
+      latest = (await getRecord(w.sql, 'task', item.id)) ?? current;
+      const once = onceOf(latest);
       // Undated, as any milestone named without a date: it goes by the stretch, or the project's end, until given one.
       if (dest && ms && 'name' in ms) madeMs = await w.create('milestone', { project_id: dest.plan.project.id, title: ms.name, stretch: stretch?.start ?? null, added_on: today });
       const milestone_id = madeMs ?? (ms && 'id' in ms ? ms.id : null);
       // Fields merge one by one, so each kind clears the other's: another device may have sent this item the other way.
       const fields: Fields<'task'> = dest
-        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id, ...projectDates(current ?? {}), estimate_min: est || null }
-        : oneOffFields({ ...emptyDraft(today), title: name, estimate: est, ...(once ? { from: once.from ?? '', to: once.to ?? '', ranged: !!once.to } : {}) }, today);
+        ? { kind: 'project', project_id: dest.plan.project.id, milestone_id, ...projectDates(latest ?? {}), estimate_min: est || null }
+        : oneOffFields({ ...emptyDraft(today), title: latest?.title ?? name, estimate: est, ...(once ? { from: once.from ?? '', to: once.to ?? '', ranged: !!once.to } : {}) }, today);
       const filed = await applyPlanChange(w, { writes: [{ type: 'task', id: item.id, fields }] });
       const reverse = madeMs ? { writes: [...filed.writes, { type: 'milestone' as const, id: madeMs, fields: { deleted_at: nowInstant(clock) } }] } : filed;
       return s.planOn ? addToWeek(w, minutes, reverse) : reverse;
     };
     const under = !dest || !ms ? '' : 'name' in ms ? `, under the new milestone ${ms.name}` : `, under ${dest.plan.milestones.find((m) => m.id === ms.id)?.title}`;
-    const where = `${placeName(dest)}${under}${once ? `, for ${onceWhen(once)}` : ''}`;
-    const repeatGoes = dest && current && isRepeating(current) ? " Repeats stay with One offs, so it won't repeat." : '';
-    const says = () => `Added ${name} to ${where}${s.planOn ? ` ${weekWords}` : ''}.${repeatGoes}${stays}`;
+    const says = () => {
+      const once = onceOf(latest);
+      const where = `${placeName(dest)}${under}${once ? `, for ${onceWhen(once)}` : ''}`;
+      const repeatGoes = dest && latest && isRepeating(latest) ? " Repeats stay with One offs, so it won't repeat." : '';
+      return `Added ${latest?.title ?? name} to ${where}${s.planOn ? ` ${weekWords}` : ''}.${repeatGoes}${stays}`;
+    };
     return commit(run, () => ({ sorted: s.sorted + 1 }), says, { merge: !!made }).then((done) => {
       if (!done) return done;
       setLastKey(placeKey(dest));
@@ -435,7 +458,6 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               idx: s.idx,
               est: s.est,
               planOn: s.planOn,
-              edits: s.edits,
               made: made!.type === 'project' ? { id: made!.id } : null,
             }
           : { sorted: s.sorted + 1 },
@@ -657,7 +679,8 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         dateRef={dateRef}
         dated={dated}
         save={save}
-        onAttachment={keepReverse}
+        pending={pending}
+        onAttachment={(reverse) => keepReverse(current.id, reverse)}
         cap={cap}
         slider={slider}
         when={onCalendar}
@@ -699,7 +722,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               deleteAsk
             ) : (
               <div className="pxacts">
-                <Button type="button" disabled={!back && !s.edits.length} onClick={() => void undo()} icon="undo">
+                <Button type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo">
                   Undo
                 </Button>
                 <Button type="button" onClick={skip}>
@@ -720,10 +743,11 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   }
 
   return (
-    <div className="pxwrap">
+    // A press on the veil around the card closes Process, as Exit does.
+    <div className="pxwrap" onMouseDown={(event) => event.target === event.currentTarget && close()}>
       <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="pxtop">
-          <Button size="compact" type="button" disabled={!back && !s.edits.length} onClick={() => void undo()} icon="undo">
+          <Button size="compact" type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo">
             Undo and go back
             {cap('Z')}
           </Button>

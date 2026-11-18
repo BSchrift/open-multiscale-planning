@@ -317,6 +317,21 @@ describe('Process on desktop', () => {
     expect(within(card()).queryByRole('button', { name: /^Add to (?!this week)/ })).toBeNull();
   });
 
+  it('closes Process on a click outside the card, as Exit does, keeping what was saved on it', async () => {
+    const close = vi.fn();
+    const t = await open({ close });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    slide(90);
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.estimate_min).toBe(90));
+    // A press on the card, or one that starts there and ends outside, leaves it open.
+    fireEvent.mouseDown(title());
+    fireEvent.mouseDown(card());
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.mouseDown(card().parentElement!);
+    expect(close).toHaveBeenCalledOnce();
+    expect((await task(t.db, 'i1'))?.estimate_min).toBe(90);
+  });
+
   it('closes the list on Esc, then clears what was typed, then leaves the field, and only then Process', async () => {
     const close = vi.fn();
     await open({ close });
@@ -435,6 +450,7 @@ describe('Process on desktop', () => {
     expect((await task(t.db, 'i5'))?.done_at).toBeUndefined();
     expect((await task(t.db, 'i4'))?.kind).toBe('inbox');
     fireEvent.pointerDown(document.querySelector('.clearveil')!);
+    fireEvent.click(document.querySelector('.clearveil')!, { detail: 1 });
     await waitFor(() => expect(toast()).toHaveTextContent('Deleted Return the books.'));
     await userEvent.click(toastUndo());
     await waitFor(async () => expect((await task(t.db, 'i5'))?.deleted_at).toBeNull());
@@ -648,6 +664,7 @@ describe('When the last item is handled', () => {
     // The last item's toast waits until the check has gone; a tap puts the check away sooner.
     expect(toast()).toBeNull();
     fireEvent.pointerDown(check()!);
+    fireEvent.click(check()!, { detail: 1 });
     await waitFor(() => expect(check()).toBeNull());
     expect(toast()).toHaveTextContent('Added Call the bank to One offs.');
   });
@@ -1117,6 +1134,57 @@ describe('Editing the item on the card', () => {
     expect((await task(t.db, 'i1'))?.estimate_min).toBe(90);
   });
 
+  it('saves a change made just before Skip to its own item, never the next, and its Undo stays with it', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    // Skipped in the same moment, before the change has started to save.
+    slide(90);
+    fireEvent.click(btn('Skip'));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.estimate_min).toBe(90));
+    expect((await task(t.db, 'i2'))?.estimate_min).toBe(120);
+    expect(screen.getByRole('slider', { name: 'Time' })).toHaveAttribute('aria-valuetext', '2h');
+
+    // The first Undo steps back to it, and the second puts it back as it arrived.
+    await userEvent.click(btn('Undo and go back'));
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect(toast()).toHaveTextContent('Call the bank is back.');
+    await userEvent.click(btn('Undo and go back'));
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.estimate_min).toBeNull());
+    expect(toast()).toHaveTextContent('Call the bank is back as it arrived.');
+    expect((await task(t.db, 'i2'))?.estimate_min).toBe(120);
+  });
+
+  it('saves a title being edited to its own item as it moves on, and the next card shows its own title', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(pen());
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), ' about the loan');
+    // Not saved yet: Add to is where the item goes next.
+    await addTo('One offs');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(within(card()).queryByRole('textbox', { name: 'Title' })).toBeNull();
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'one_off', title: 'Call the bank about the loan' });
+    expect((await task(t.db, 'i2'))?.title).toBe('Fix the gate');
+    expect(toast()).toHaveTextContent('Added Call the bank about the loan to One offs.');
+
+    // So does a description being written, and a date picked but not yet set.
+    await userEvent.click(btn('Add description'));
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Description' }), 'Hinges');
+    await userEvent.click(btn('Skip'));
+    await screen.findByRole('heading', { name: 'Read the article' });
+    expect(within(card()).queryByRole('textbox', { name: 'Description' })).toBeNull();
+    expect((await task(t.db, 'i2'))?.notes).toBe('Hinges');
+    expect((await task(t.db, 'i3'))?.notes ?? null).toBeNull();
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(within(card()).getByLabelText('Date'), { target: { value: '2026-11-13' } });
+    await userEvent.click(btn('Skip'));
+    await screen.findByRole('heading', { name: 'Buy stamps' });
+    expect(within(card()).queryByRole('form', { name: /^Dates for/ })).toBeNull();
+    expect((await task(t.db, 'i3'))?.schedule).toEqual({ type: 'once', from: '2026-11-13', to: null });
+    expect((await task(t.db, 'i4'))?.schedule ?? null).toBeNull();
+  });
+
   it("puts the item back as it arrived with one Undo before stepping back, and the toast's Undo after adding takes back only the add", async () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
@@ -1255,6 +1323,20 @@ describe('Dates on the card', () => {
     // No line under the card for the item before: its date went with it.
     expect(within(card()).queryByRole('button', { name: /date for Fix the gate/ })).toBeNull();
     expect(within(card()).queryByRole('combobox', { name: /^Milestone for/ })).toBeNull();
+  });
+
+  it('keeps a date set the moment before the item is added, though the card has yet to show it', async () => {
+    localStorage.setItem('multiscale.processLast', JSON.stringify('one_offs'));
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(dateField(), { target: { value: '2026-11-13' } });
+    fireEvent.click(btn('Set date'));
+    fireEvent.click(btn('Add to One offs'));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    await waitFor(async () => expect((await task(t.db, 'i1'))?.kind).toBe('one_off'));
+    expect((await task(t.db, 'i1'))?.schedule).toEqual({ type: 'once', from: '2026-11-13', to: null });
+    expect(toast()).toHaveTextContent('Added Call the bank to One offs, for Nov 13.');
   });
 
   it('shows a date the item came with from the start', async () => {

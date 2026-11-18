@@ -1,0 +1,182 @@
+name: Performance nightly
+# The full matrix of performance KPIs (docs/performance.md, "In CI"), each night main moved: every scenario on Linux,
+# each timed beside the same commit built again (A/A), whose flags are the false alarms that decide in phase 3 whether
+# a KPI may ever block, and sync through a local stack behind Toxiproxy. The results go to the perf-data branch, and a
+# KPI slower than main's baseline fails the run, which emails it. Report-only otherwise. Away from midnight UTC, when
+# the iPhone tests' seed waits for its blocks to fit in one day.
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-nightly
+  cancel-in-progress: false
+
+jobs:
+  moved:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The newest nightly run on perf-data names its commit; the same commit again means main hasn't moved.
+      - id: check
+        run: |
+          last="$(git ls-tree -r --name-only origin/perf-data -- runs 2>/dev/null | grep -- '-nightly-' | sort | tail -n 1 | sed 's/.*-nightly-\(.*\)\.json/\1/')"
+          if [ -n "$last" ] && [ "$last" = "$(git rev-parse --short=7 HEAD)" ] && [ "${{ github.event_name }}" != workflow_dispatch ]; then
+            echo "Nothing new on main since the last nightly run, at $last."
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          fi
+
+  time:
+    needs: moved
+    if: needs.moved.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: web-desktop, scenario: one-year, samples: "500", launches: "30" }
+          - { platform: web-desktop, scenario: empty, samples: "100", launches: "10" }
+          - { platform: web-desktop, scenario: five-year, samples: "100", launches: "10" }
+          - { platform: web-desktop, scenario: one-year+offline, samples: "100", launches: "0" }
+          - { platform: web-phone, scenario: one-year, samples: "500", launches: "10" }
+          - { platform: web-phone, scenario: one-year+cpu6x, samples: "100", launches: "0" }
+          - { platform: web-phone, scenario: one-year+offline, samples: "100", launches: "0" }
+          - { platform: web-phone, scenario: five-year, samples: "100", launches: "5" }
+          - { platform: mac, scenario: one-year, samples: "500", launches: "30" }
+          - { platform: mac, scenario: empty, samples: "100", launches: "10" }
+          - { platform: mac, scenario: five-year, samples: "100", launches: "10" }
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: versions
+        run: |
+          echo "playwright=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+          echo "electron=$(node -p "require('electron/package.json').version")" >>"$GITHUB_OUTPUT"
+          . /etc/os-release && echo "os=$ID-$VERSION_ID" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.versions.outputs.os }}-${{ steps.versions.outputs.playwright }}-chromium
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - if: matrix.platform == 'mac'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
+      - if: matrix.platform == 'mac'
+        name: Download Electron
+        run: |
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep $((attempt * 20))
+          done
+          exit 1
+        working-directory: frontend
+      - name: Time main beside itself
+        run: scripts/test-perf.sh
+        env:
+          BASE: ${{ github.sha }}
+          PERF_PLATFORMS: ${{ matrix.platform }}
+          PERF_SCENARIOS: ${{ matrix.scenario }}
+          PERF_SAMPLES: ${{ matrix.samples }}
+          PERF_LAUNCHES: ${{ matrix.launches }}
+          PERF_CONFIRM: "1"
+          PERF_PURGE: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-nightly-${{ matrix.platform }}-${{ strategy.job-index }}
+          path: frontend/test-results/perf
+          retention-days: 30
+          if-no-files-found: ignore
+
+  sync:
+    needs: moved
+    if: needs.moved.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            backend/go.sum
+            config/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Time sync on a good, a slow 3G and a flaky network
+        run: scripts/test-perf.sh
+        env:
+          PERF_SYNC: "1"
+          PERF_PLATFORMS: web-desktop
+          PERF_SAMPLES: "10"
+          PERF_WARMUP: "2"
+          PERF_LAUNCHES: "0"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-nightly-sync
+          path: frontend/test-results/perf
+          retention-days: 30
+          if-no-files-found: ignore
+
+  record:
+    needs: [moved, time, sync]
+    if: always() && needs.moved.outputs.run == 'true' && needs.time.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: perf-nightly-*
+          path: results
+      - name: Add the run and its A/A flags to perf-data
+        env:
+          COMMIT: ${{ github.sha }}
+          RUNNER: ubuntu-latest
+        run: |
+          mapfile -t summaries < <(find results -path '*/summary/this.json')
+          if [ "${#summaries[@]}" -eq 0 ]; then echo "No results to add." >&2; exit 1; fi
+          find results -name flagged.txt -exec cat {} + >"$RUNNER_TEMP/flagged.txt"
+          echo "A/A false alarms: $(wc -l <"$RUNNER_TEMP/flagged.txt")" >>"$GITHUB_STEP_SUMMARY"
+          FLAGGED="$RUNNER_TEMP/flagged.txt" scripts/perf-data.sh nightly "${summaries[@]}"
+      - name: Compare with main's baseline
+        run: |
+          git fetch --quiet origin perf-data
+          mkdir -p data && git show FETCH_HEAD:baseline.json >data/baseline.json
+          mapfile -t summaries < <(find results -path '*/summary/this.json')
+          node frontend/scripts/perf-data.ts regressions data "${summaries[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

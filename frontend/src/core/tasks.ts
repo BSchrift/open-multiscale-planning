@@ -9,7 +9,8 @@ import type { Params, Sql } from './db';
 import { applyPlanChange, undoLastChange } from './plan';
 import type { PlanChange, ProjectPlan, RecordWrite, ScheduledWork } from './plan';
 import { futureBlocks, futurePicks } from './queries';
-import { getRecord } from './records';
+import { getRecord, weekPickId } from './records';
+import { GRID } from './slots';
 import type { Writer } from './records';
 import { blocksToRelease, isRepeating, retick, tick, untick } from './schedule';
 import type { Fields, Instant, LocalDate, Minutes, Practice, Project, SlipEntry, Task, TaskCompletion, TimeBlock, WeekPick } from './types';
@@ -36,6 +37,20 @@ export async function closeTask(w: Writer, taskId: string, how: TaskClose, clock
     ...blocks.map(({ id }): RecordWrite => ({ type: 'time_block', id, fields: { cancelled: true } })),
     ...picks.map(({ id }): RecordWrite => ({ type: 'week_pick', id, fields: { deleted_at: now } })),
   ];
+  return applyPlanChange(w, { writes });
+}
+
+/**
+ * Change the estimate, after a block of a task was made shorter: the task's estimate, and its minutes in that week's
+ * plan if it was picked for it, each `by` shorter, never under a quarter hour. Returns the exact reverse, for Undo.
+ */
+export async function shortenEstimate(w: Writer, taskId: string, by: Minutes, week: LocalDate): Promise<PlanChange> {
+  const task = await getRecord(w.sql, 'task', taskId);
+  const pick = await getRecord(w.sql, 'week_pick', weekPickId(week, taskId));
+  const less = (m: Minutes) => Math.max(GRID, m - by);
+  const writes: RecordWrite[] = [];
+  if (task?.estimate_min) writes.push({ type: 'task', id: taskId, fields: { estimate_min: less(task.estimate_min) } });
+  if (pick && !pick.deleted_at) writes.push({ type: 'week_pick', id: pick.id, fields: { minutes: less(pick.minutes) } });
   return applyPlanChange(w, { writes });
 }
 

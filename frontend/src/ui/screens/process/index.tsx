@@ -528,6 +528,24 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
     if (fn) run(fn);
   };
 
+  // Enter adds the item, as Add to does, from wherever focus is on the desktop card: Time, the card itself, or the title
+  // or date field, what's typed there saved first; in the description, where Enter makes a new line, Cmd or Ctrl Enter.
+  // Caught on its way down, before the field's own Enter. A button keeps Enter, as do Add to and any other field. With no
+  // place shown to add to, a field keeps its own Enter, and Time or the card goes on to Add to.
+  const onEnter = (event: ReactKeyboardEvent) => {
+    if (event.key !== 'Enter' || event.altKey || event.shiftKey || form || phone || delAsk || choosing || !item) return;
+    const target = event.target as HTMLElement;
+    const command = event.metaKey || event.ctrlKey;
+    const field = target.tagName === 'INPUT' && !!target.closest('.pxtitleform, .pxdateform');
+    const plain = target === ref.current || (target as HTMLInputElement).type === 'range';
+    const takes = target.tagName === 'TEXTAREA' ? command && !!target.closest('.pxnotes') : !command && (field || plain);
+    if (!takes || (!addRef.current && !plain)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (addRef.current) addRef.current.click();
+    else focusPicker();
+  };
+
   const total = queue.length;
   // The bar and the count say the same: on the third of four it's three quarters full.
   const at = item ? s.idx + 1 : total;
@@ -723,7 +741,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   return (
     // A press on the veil around the card closes Process, as Exit does.
     <div className="pxwrap" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
+      <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDownCapture={onEnter} onKeyDown={onKeyDown}>
         <div className="pxtop">
           <Button size="compact" type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo">
             Undo and go back

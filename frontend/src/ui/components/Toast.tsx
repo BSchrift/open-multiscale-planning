@@ -34,6 +34,26 @@ interface ToastApi {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
+/**
+ * Listens for taps that begin while it listens, and calls back as each finishes, on its click. Not the click that ends a
+ * press begun before, such as the drag whose drop showed a toast, nor one from Enter or Space, which comes with no press:
+ * keys never put a toast away. Returns what stops it.
+ */
+function onTaps(tap: (target: Element) => void): () => void {
+  let pressed = false;
+  const down = () => void (pressed = true);
+  const click = (event: MouseEvent) => {
+    if (pressed) tap(event.target as Element);
+    pressed = false;
+  };
+  document.addEventListener('pointerdown', down, true);
+  document.addEventListener('click', click, true);
+  return () => {
+    document.removeEventListener('pointerdown', down, true);
+    document.removeEventListener('click', click, true);
+  };
+}
+
 export function useToast(): ToastApi {
   const toast = useContext(ToastContext);
   if (!toast) throw new Error('useToast needs a ToastProvider');
@@ -72,7 +92,9 @@ export function ToastProvider(props: { children: ReactNode }) {
     [],
   );
 
-  // The check holds, then fades. A tap or Esc puts it away sooner; it never takes focus.
+  // The check holds, then fades. A tap or Esc puts it away sooner; it never takes focus. A tap counts once it finishes,
+  // its click: put away as the finger went down, the toast waiting behind the check came in and moved the page, so the
+  // release landed on something else.
   useEffect(() => {
     if (!check) return;
     if (check.leaving) {
@@ -83,11 +105,11 @@ export function ToastProvider(props: { children: ReactNode }) {
     const leave = () => setCheck((c) => c && { ...c, leaving: true });
     const timer = setTimeout(leave, CHECK_MS);
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && leave();
-    document.addEventListener('pointerdown', leave, true);
+    const stopTaps = onTaps(leave);
     document.addEventListener('keydown', onKey, true);
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('pointerdown', leave, true);
+      stopTaps();
       document.removeEventListener('keydown', onKey, true);
     };
   }, [check]);
@@ -95,12 +117,12 @@ export function ToastProvider(props: { children: ReactNode }) {
   useEffect(() => {
     // A toast waiting for the check isn't showing yet, so nothing puts it away.
     if (!current || check) return;
-    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click.
-    const away = (event: PointerEvent) => {
-      if (!(event.target as Element).closest?.('.toastact')) setCurrent(null);
-    };
-    document.addEventListener('pointerdown', away, true);
-    return () => document.removeEventListener('pointerdown', away, true);
+    // A tap on the message or anywhere else puts it away; only Undo keeps it for its own click. Once the tap finishes,
+    // on its click: on phone the toast holds space above the bottom bar, and put away as the finger went down, the page
+    // moved under it, so the release pressed whatever had moved there.
+    return onTaps((target) => {
+      if (!target.closest?.('.toastact')) setCurrent(null);
+    });
   }, [current, !!check]);
 
   const paused = held.focus || held.hover;

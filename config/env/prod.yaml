@@ -18,6 +18,9 @@ stack:
   # canary and the release's own tests use the API, and the tests pace their full batches under a partition's write
   # rate (backend/integration), so a throttle there is real.
   throttleReleaseAlarm: true
+  # Whether the stack has the performance KPIs' dashboard (docs/performance.md). Only staging's: CI's results are
+  # published there.
+  performanceDashboard: false
 
 attachments:
   # What one person may store, unless make storage-quota raised theirs in meta#quota: 1 GiB.

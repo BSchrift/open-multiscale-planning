@@ -110,6 +110,24 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   expect(errors).toEqual([]);
 });
 
+test("a task's block made shorter while editing asks what about the rest, and Change the estimate takes it off the task", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openWeek(page);
+  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  // Shift and the up arrow take a quarter hour off, on both layouts.
+  const block = phone ? page.getByRole('slider', { name: /^Draft the summary\./ }) : page.getByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+  await block.focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  const ask = page.getByRole('group', { name: 'What about the other 15m?' });
+  await expect(ask.getByRole('button', { name: 'Split it' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`week-split-ask-${info.project.name}.png`) });
+  await ask.getByRole('button', { name: 'Change the estimate' }).click();
+  await expect(page.getByText('Draft the summary is now 1h 45m. Its estimate was 2h.')).toBeVisible();
+  await expect(ask).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("phone: a task's block changes its length on a slider in the task's popup, and Remove from calendar takes it off with Undo", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip is the phone layout');
   const errors = await openWeek(page);

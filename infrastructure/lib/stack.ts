@@ -23,7 +23,7 @@ import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIde
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { AccountPrincipal, AccountRootPrincipal, PolicyDocument, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
-import { Alias, Architecture, CfnEventSourceMapping, CfnFunction, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
+import { Alias, Architecture, CfnEventSourceMapping, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { FilterPattern, LogGroup, MetricFilter, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
@@ -303,13 +303,14 @@ export class MultiscaleStack extends Stack {
     const retentionAlias = live(retentionFunction);
     // Exports and account deletions (internal/account): an export of a five-year history with its photos, or a large
     // account's deletion, outlasts any request, so the API starts them here. Its 15 minutes are Lambda's most.
-    // 1 GB, for the zip's upload and the CPU that comes with it. At most 10 at once, so a burst of exports can't take the
-    // account's concurrency from the API, and no retries: the app asks for an export again and the schedule carries a
-    // deletion on.
+    // 1 GB, for the zip's upload and the CPU that comes with it, and no retries: the app asks for an export again and the
+    // schedule carries a deletion on. No reserved concurrency: AWS keeps 100 unreserved, and an account whose limit is
+    // lower, as staging's is, refuses any reservation. Each person builds one export at a time, which bounds it instead.
+    // shortcut: a burst of exports from many people shares the account's concurrency with the API; raise the account's
+    // Lambda quota before the beta, then reserve some here.
     const protectedEmails = [config.integration?.testUser, secondUser(config) ? config.integration?.secondTestUser : undefined].filter((e): e is string => !!e);
     // The Google key and queue, since deleting an account ends its Google connection through the same code.
     const accountFunction = goFunction('AccountFunction', 'account', accountLogs, Duration.minutes(15), { USER_POOL_ID: userPool.userPoolId, ...google }, undefined, 1024);
-    (accountFunction.node.defaultChild as CfnFunction).reservedConcurrentExecutions = 10;
     const accountAlias = live(accountFunction);
     accountAlias.configureAsyncInvoke({ retryAttempts: 0 });
     // By ARN, as the worker is, so the API's grant doesn't make a loop through the alias's deployment group.

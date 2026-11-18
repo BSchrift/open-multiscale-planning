@@ -256,10 +256,13 @@ describe('Lambdas', () => {
     assert.equal(accounts.Timeout, 900);
   });
 
-  it("gives the account function the memory a zip's upload needs, and bounds how many run at once, with no retries", () => {
+  it("gives the account function the memory a zip's upload needs, no reserved concurrency, and no retries", () => {
     const accounts = all[logicalId('Account')].Properties;
     assert.ok(accounts.MemorySize >= 1024, String(accounts.MemorySize));
-    assert.ok(accounts.ReservedConcurrentExecutions >= 10 && accounts.ReservedConcurrentExecutions <= 20, String(accounts.ReservedConcurrentExecutions));
+    // Reserving any would fail the deploy while an account's concurrency limit is under 100 more than what's reserved,
+    // as staging's 10 is. One export at a time per person, and the delete gate, bound it instead.
+    assert.equal(accounts.ReservedConcurrentExecutions, undefined);
+    for (const [, fn] of ofType('AWS::Lambda::Function')) assert.equal(fn.Properties.ReservedConcurrentExecutions, undefined);
     // The API starts jobs on the alias, so that's where retries are turned off: a retried export or deletion only adds
     // to what the app's next request or the schedule does anyway.
     const configs = ofType('AWS::Lambda::EventInvokeConfig').filter(([, r]) => JSON.stringify(r.Properties.FunctionName).includes(logicalId('Account')));

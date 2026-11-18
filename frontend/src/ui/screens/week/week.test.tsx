@@ -1060,17 +1060,19 @@ describe('Week on phone', () => {
     const section = within(popup).getByRole('region', { name: 'Time block' });
     expect(within(section).getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
     expect(within(section).getByText('That overlaps busy time on your calendar.')).toBeVisible();
-    fireEvent.change(within(section).getByRole('slider', { name: 'Length' }), { target: { value: '90' } });
-    await waitFor(async () => expect((await block('b1')(t))?.end).toBe(at('19:30', TUE)));
+    const length = within(section).getByRole('slider', { name: 'Length' });
+    expect(length).toHaveAttribute('step', '5');
+    fireEvent.change(length, { target: { value: '95' } });
+    await waitFor(async () => expect((await block('b1')(t))?.end).toBe(at('19:35', TUE)));
 
     await userEvent.click(within(section).getByRole('button', { name: 'Move' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(await screen.findByText('Moving Draft the summary, 1h 30m, from Tue 6pm')).toBeVisible();
+    expect(await screen.findByText('Moving Draft the summary, 1h 35m, from Tue 6pm')).toBeVisible();
     await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[5]!);
     await userEvent.click(screen.getByRole('button', { name: 'Move here' }));
     await waitFor(async () => expect((await block('b1')(t))?.start).toBe(at('18:00', '2026-11-07')));
 
-    await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary, 6pm to 7:30pm/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary, 6pm to 7:35pm/ }));
     await userEvent.click(within(await screen.findByRole('dialog', { name: 'Draft the summary' })).getByRole('button', { name: 'Remove from calendar' }));
     expect(await screen.findByText('Removed Draft the summary')).toBeVisible();
     await waitFor(async () => expect((await block('b1')(t))?.cancelled).toBe(true));

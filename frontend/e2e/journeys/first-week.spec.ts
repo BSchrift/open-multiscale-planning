@@ -22,10 +22,10 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
     { name: 'Half the chapters', due: '2026-11-27' },
   ]);
   await addTasks(page, 'Outline done', [
-    { title: 'Sketch the chapter list', step: 4, estimate: '1h' },
-    { title: 'Write the opening scene', step: 6, estimate: '1h 30m' },
+    { title: 'Sketch the chapter list', step: 12, estimate: '1h' },
+    { title: 'Write the opening scene', step: 18, estimate: '1h 30m' },
   ]);
-  await addTasks(page, 'Half the chapters', [{ title: 'Draft chapter one', step: 8, estimate: '2h' }]);
+  await addTasks(page, 'Half the chapters', [{ title: 'Draft chapter one', step: 24, estimate: '2h' }]);
 
   // Something to sort before planning.
   await page.getByRole('button', { name: phone ? 'Capture a task' : /^Capture/ }).first().click();
@@ -131,7 +131,7 @@ test('first run, a project, a planned week, and its Monday', async ({ page }, in
   await expect(ended.getByText('Write the opening scene')).toBeVisible();
   await ended.getByRole('button', { name: 'Partly' }).click();
   const left = page.getByRole('dialog', { name: 'How much is left?' }).getByRole('slider', { name: 'Time left' });
-  await slide(left, 3, '45m');
+  await slide(left, 9, '45m');
   await page.getByRole('dialog', { name: 'How much is left?' }).getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
 

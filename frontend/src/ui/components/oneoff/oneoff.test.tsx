@@ -10,6 +10,7 @@ import type { Task } from '../../../core/types';
 import { createTestPlatform } from '../../../platform/testing';
 import type { Layout } from '../../app/registry';
 import { AppProvider } from '../../app/store';
+import { EST_STEPS } from '../EstimateSlider';
 import { ToastProvider } from '../Toast';
 import { draftSchedule, emptyDraft, oneOffFields, OneOffDateForm, OneOffDates, OneOffForm } from '.';
 
@@ -107,7 +108,7 @@ describe('OneOffForm', () => {
     expect(onSave).not.toHaveBeenCalled();
 
     fireEvent.change(field('End date'), { target: { value: '2026-11-05' } });
-    fireEvent.change(field('Time'), { target: { value: '3' } });
+    fireEvent.change(field('Time'), { target: { value: String(EST_STEPS.indexOf(45)) } });
     await userEvent.click(screen.getByRole('button', { name: 'Add one off' }));
     expect(onSave).toHaveBeenCalledWith({
       kind: 'one_off',

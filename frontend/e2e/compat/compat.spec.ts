@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
+import { timezoneWithRoom, workJourney } from '../deployed/journey';
 import { goals, openProject } from '../journeys/journey';
 import { account, go, oneOffRow, openSeeded, pane, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
@@ -127,6 +128,19 @@ async function pauseShed(page: Page, h: House, action: 'Pause' | 'Resume', end?:
   if (end) await expect(dialog.getByLabel('Ends')).toHaveValue(end);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+}
+
+// The deployed web suite's journey, on a device of its own, signed out. The prod Test step takes it against the web app
+// prod still serves, the release before, which here is the old bundle: main's on CI, and on staging prod's web app's.
+// When one of prod's app feeds serves an older bundle than its web app, staging's old bundle is that one, and the
+// journey's steps need only work back as far as the web app.
+for (const name of ['old', 'new'] as const) {
+  test(`the deployed suite's journey, from Capture to the calendar and back, works on the ${name} bundle`, async ({ browser }) => {
+    const from = process.env.COMPAT_OLD_SURFACE;
+    test.skip(name === 'old' && !!from && from !== 'web', `The old bundle is the one prod's ${from} feed serves, older than the web app prod's Test step takes the journey on`);
+    const d = await device(browser, `e2e-${randomUUID()}`, { ...on(name), timezoneId: timezoneWithRoom() });
+    await workJourney(d.page, `Compat check ${new Date().toISOString().slice(11, 19)}`);
+  });
 }
 
 test.describe('one device', () => {

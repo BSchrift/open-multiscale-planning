@@ -11,11 +11,16 @@
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
 #   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh),
 #                reporting its numbers: it fails only when a device holds fewer records than were seeded
+#   history journey
+#                on staging, the web app suite's desktop journey as that user, once its account is seeded
+#                (frontend/e2e/deployed/history-journey.spec.ts), so a long history's slow reads meet it before prod's
+#                shared test user does. Reported only for now: its result never fails the run
 # Each runs even when one before it fails, and the summary names the ones that failed.
 #   ENV=staging (default), or ENV=prod with CONFIRM_PROD=yes. EXPECT_VERSION is the version the web app must serve, and
 #   EXPECT_FEEDS the feeds that must serve it too: desktop and iphone, as a release switched them.
 #   SKIP_IOS=1 leaves out the iPhone tests, much the slowest. SKIP_HISTORY=1 leaves out the history-scale test, the next
 #   slowest, and SKIP_RETENTION=1 the retention suite's 50 minutes: the release pipeline leaves both to its nightly run.
+#   SKIP_HISTORY_JOURNEY=1 leaves out the history journey, about 5 minutes.
 #   The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 set -uo pipefail
 
@@ -66,6 +71,19 @@ run() {
     failed+=("$name")
   fi
 }
+# A suite on probation: its result is shown and kept, but never fails the run. To make one gate, run it with run.
+reported=()
+report() {
+  local name="$1" log="$logs/${1// /-}.log"
+  shift
+  echo "== $name (reported only)"
+  if "$@" 2>&1 | tee "$log"; then
+    echo "== $name passed"
+  else
+    echo "== $name FAILED, which is reported only; its output is in $log"
+    reported+=("$name")
+  fi
+}
 run "web app" npx playwright test -c e2e/deployed/playwright.config.ts
 # Off local, e2e.sh runs only the signed-in specs, against this deployment.
 if [ "$env_name" = prod ]; then
@@ -86,7 +104,17 @@ elif [ "${SKIP_RETENTION:-}" != 1 ]; then run "retention" "$root/scripts/test-re
 # Its numbers against their budgets, on staging only: prod has no history user, and none of its data is made up. Only
 # reported, so a release isn't held up by speed; a device missing records still fails it.
 if [ "$env_name" = staging ] && [ "${SKIP_HISTORY:-}" != 1 ]; then run "history" env HISTORY_REPORT_ONLY=1 "$root/scripts/test-history.sh"; fi
+# On staging only: prod has no history user. Its own user, as scripts/test-history.sh reads it.
+if [ "$env_name" = staging ] && [ "${SKIP_HISTORY_JOURNEY:-}" != 1 ]; then
+  if history_target="$(MULTISCALE_TEST_USER=history node scripts/test-target.mjs)"; then
+    report "history journey" env MULTISCALE_HISTORY_TARGET="$history_target" npx playwright test -c e2e/deployed/playwright.config.ts --project=history-journey
+  else
+    echo "== history journey FAILED: couldn't read the staging history user. See \"The history-scale test\" in docs/setup.md."
+    reported+=("history journey")
+  fi
+fi
 
+[ ${#reported[@]} -eq 0 ] || echo "$env_name: failed, reported only: ${reported[*]}"
 if [ ${#failed[@]} -gt 0 ]; then
   echo "$env_name: failed: ${failed[*]}" >&2
   exit 1

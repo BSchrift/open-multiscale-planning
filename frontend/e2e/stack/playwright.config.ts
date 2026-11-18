@@ -14,6 +14,11 @@ export default defineConfig({
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
   timeout: 90_000,
   use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 1000 }, trace: 'retain-on-failure' },
+  projects: [
+    { name: 'stack', testIgnore: 'history-journey.spec.ts' },
+    // The deployed suite's journey on a five-year account waits as the deployed suite does, since its reads take seconds.
+    { name: 'history', testMatch: 'history-journey.spec.ts', expect: { timeout: 15_000 } },
+  ],
   webServer: {
     command: `npx vite --port ${webPort} --strictPort`,
     cwd: '../..',

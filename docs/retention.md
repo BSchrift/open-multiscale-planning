@@ -224,8 +224,10 @@ the person's earlier requests keep the hash of their sub, never anything they wr
 the table's stream holds its changes, deletions included, for 24 hours.
 
 A deletion that fails three runs in a row raises the `AccountDeletionFailing` alarm, and keeps trying. The account
-function crashing or timing out raises `AccountFunctionErrors`. Neither is a release alarm. It runs with 1 GB, at most
-10 at once, and without Lambda's retries: the app asks for an export again, and the schedule carries a deletion on.
+function crashing or timing out raises `AccountFunctionErrors`. Neither is a release alarm. It runs with 1 GB and
+without Lambda's retries: the app asks for an export again, and the schedule carries a deletion on. It reserves no
+concurrency, since AWS keeps 100 of an account's unreserved and the deployments' accounts allow 10 in all; each person
+builds one export at a time. The accounts' Lambda quota needs raising before the beta, and then some reserving here.
 
 ### Devices
 

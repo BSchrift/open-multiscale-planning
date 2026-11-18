@@ -25,7 +25,7 @@ no long-lived key.
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
 | **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
-| **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
+| **Nightly** | Staging | CI's performance results published to staging's performance dashboard ([docs/performance.md](performance.md)). Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
@@ -353,6 +353,22 @@ fails the build when it bundles a package `ELECTRON_PACKAGES` in `scripts/shell-
 and translocation, once per major macOS version; the administrator's password dialog, once before shipping; VoiceOver
 on macOS's dialogs and the menu bar menu, once.
 
+**How it's tested**, layer by layer:
+
+| Layer | Where | What it shows |
+| --- | --- | --- |
+| Unit | `src/core/updates.test.ts`, the Settings and sidebar tests | The page: which feed it reads, when a release needs the app, every state and failure it shows |
+| Unit | `electron/appUpdates.test.ts` | The main process, with electron-updater stood in for: the signature, the record, where the app runs, and each refusal's code |
+| Unit | `scripts/latest-mac.test.ts`, `scripts/sign-release.test.ts` | `latest-mac.yml` and the signed feed as the pipeline writes them, and electron-updater's own parser reading the yml back as the signed record |
+| Unit | `scripts/mac-inbox.test.ts`, `electron/identity.test.ts` | The pipeline's check of each Mac app, `app-update.yml` included |
+| Integration | `electron/appUpdates.integration.test.ts` | electron-updater's own MacUpdater over HTTP: it reads the pipeline's `latest-mac.yml`, downloads and checks the zip, and hands it to a stand-in for Squirrel.Mac, which fetches it as Squirrel does; a missing folder, a wrong yml, a wrong zip and a missing `app-update.yml` each fail as the app reports them |
+| Pipeline | `infrastructure/test/pipeline-script.test.ts`, `mac-update-check.test.ts` | What each release publishes and in what order, when the desktop feed waits, and the update check's choice of app to update from |
+| Deployed | `e2e/deployed/feed.spec.ts`, on every release | Each feed checks out with the release key, the root feed names no native code, and the desktop feed's app is on the downloads host as `latest-mac.yml` says |
+| macOS | `scripts/mac-update-check.sh`, every half hour | The real thing on staging: the app passed before updates itself, Squirrel checks the signature and installs at quit, and the new app opens |
+
+Only the macOS check proves Squirrel's signature check, ShipIt's install, and that a signed app opens. It runs only when
+staging's desktop feed names an app it hasn't passed, and on staging alone.
+
 ### The staging update check
 
 Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.
@@ -440,12 +456,20 @@ only from `main`, may need the owner's approval, and holds the only copies of th
 | `ASC_KEY_ID` | Secret or variable | That key's id |
 | `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
 | `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, attachment hosts, sign-in client, bundle id and release key's public half |
+| `STAGING_TEST_TARGET` | Secret | Staging's API, test client and test user, password included, as `ENV=staging node frontend/scripts/test-target.mjs` prints it, for the nightly iPhone tests against staging (`ios-staging.yml`). Set it again if the test user's password in SSM changes |
 | `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
 | `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
 | `AWS_REGION` | Variable | The control account's region |
 
 The key id, issuer id and role ARN work as either, but a variable's value is printed in the run's log, which anyone can
 read on a public repository, and the role's ARN names the control account. Secrets are masked.
+
+`STAGING_TEST_TARGET` comes from SSM, so set it from the Mac, signed in to AWS for staging and to `gh` as the owner, with
+`MULTISCALE_CONFIG_DIR` set:
+
+```sh
+(cd frontend && ENV=staging node scripts/test-target.mjs) | gh secret set STAGING_TEST_TARGET --env release
+```
 
 The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
 `repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included, or the

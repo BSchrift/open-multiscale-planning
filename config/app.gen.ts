@@ -12,7 +12,8 @@ export const protocol = {
   },
   "records": {
     "idPattern": "^[\\x21-\\x7e]{1,200}$",
-    "maxNotesChars": 20000
+    "maxNotesChars": 20000,
+    "maxTitleChars": 2000
   },
   "clock": {
     "pattern": "^(\\d{13})-(\\d{6})-([\\x21-\\x7e]+)$",
@@ -55,7 +56,8 @@ export const envs = {
       "terminationProtection": false,
       "canaryPercent": 5,
       "canaryMinutes": 10,
-      "throttleReleaseAlarm": false
+      "throttleReleaseAlarm": false,
+      "performanceDashboard": false
     },
     "attachments": {
       "defaultQuotaBytes": 20971520,
@@ -68,7 +70,8 @@ export const envs = {
       "terminationProtection": false,
       "canaryPercent": 5,
       "canaryMinutes": 10,
-      "throttleReleaseAlarm": false
+      "throttleReleaseAlarm": false,
+      "performanceDashboard": true
     },
     "attachments": {
       "defaultQuotaBytes": 20971520,
@@ -81,7 +84,8 @@ export const envs = {
       "terminationProtection": true,
       "canaryPercent": 10,
       "canaryMinutes": 90,
-      "throttleReleaseAlarm": true
+      "throttleReleaseAlarm": true,
+      "performanceDashboard": false
     },
     "attachments": {
       "defaultQuotaBytes": 1073741824,

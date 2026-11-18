@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changes, markdown, summaries, table } from './perf-report';
+import { changes, confirm, markdown, summaries, table } from './perf-report';
 import type { Raw } from './perf-report';
 
 const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
@@ -21,9 +21,9 @@ describe('the report', () => {
     expect(lines[2]).toMatch(/nav\.week .* 250 ms +ok$/);
   });
 
-  it('compares two builds, never sync.push, and writes the PR comment with slower and faster first', () => {
-    const base = raw('main', { 'capture.save': range(40, 139), 'nav.week': range(60, 159), 'capture.open': range(20, 119), 'sync.push': range(1, 100) });
-    const head = raw('pr', { 'capture.save': range(40, 139).map((x) => x * 1.5), 'nav.week': range(60, 159).map((x) => x * 0.7), 'capture.open': range(20, 119), 'sync.push': range(1, 100).map((x) => x * 3) });
+  it('compares two builds, never sync.push or a one-a-run number, and writes the PR comment with slower and faster first', () => {
+    const base = raw('main', { 'capture.save': range(40, 139), 'nav.week': range(60, 159), 'capture.open': range(20, 119), 'sync.push': range(1, 100), 'mem.heap': [30] });
+    const head = raw('pr', { 'capture.save': range(40, 139).map((x) => x * 1.5), 'nav.week': range(60, 159).map((x) => x * 0.7), 'capture.open': range(20, 119), 'sync.push': range(1, 100).map((x) => x * 3), 'mem.heap': [60] });
     const found = changes([base], [head]);
     expect(found.map((c) => [c.kpi, c.verdict])).toEqual([['capture.open', 'unchanged'], ['capture.save', 'slower'], ['nav.week', 'faster']]);
     const text = markdown(found, 'On the same runner.');
@@ -32,4 +32,16 @@ describe('the report', () => {
     expect(text.indexOf('capture.save')).toBeLessThan(text.indexOf('<details>'));
     expect(text).toContain('`perf-accepted`');
   });
+
+  it('calls a KPI slower or faster only when a second round of fresh samples agrees', () => {
+    const base = raw('main', { 'capture.save': range(40, 139), 'nav.week': range(60, 159) });
+    const first = changes([base], [raw('pr', { 'capture.save': range(40, 139).map((x) => x * 1.5), 'nav.week': range(60, 159).map((x) => x * 0.7) })]);
+    const again = changes([base], [raw('pr', { 'capture.save': range(40, 139).map((x) => x * 1.5), 'nav.week': range(60, 159) })]);
+    expect(confirm(first, again).map((c) => [c.kpi, c.verdict])).toEqual([['capture.save', 'slower'], ['nav.week', 'unchanged']]);
+  });
+
+  it('says when there was no base to compare with', () => {
+    expect(markdown([], 'Web desktop.', { noBase: true })).toMatch(/^\*\*Performance: no comparison\.\*\* The base is from before the performance runner/);
+  });
 });
+

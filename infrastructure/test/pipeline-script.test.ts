@@ -57,6 +57,8 @@ cat "$PARAMS/s3/bucket/$key" 2>/dev/null || exit 22`);
   // What the steps call beyond this script.
   mkdirSync(join(s.root, 'frontend/scripts'), { recursive: true });
   writeFileSync(join(s.root, 'frontend/scripts/sign-release.mjs'), '// the signer\n');
+  // The real one, which needs nothing installed: latest-mac.yml must come out as electron-updater reads it.
+  writeFileSync(join(s.root, 'frontend/scripts/latest-mac.mjs'), readFileSync(join(import.meta.dirname, '../../frontend/scripts/latest-mac.mjs')));
   const logArgs = (name: string) => `import { appendFileSync } from 'node:fs';\nappendFileSync(process.env.LOG, '${name} ' + process.argv.slice(2).join(' ') + ' ENV=' + process.env.ENV + ' SEVENZIP=' + process.env.SEVENZIP + ' MAC_TEAM_ID=' + process.env.MAC_TEAM_ID + '\\n');\n`;
   writeFileSync(join(s.root, 'frontend/scripts/electron-compile.mjs'), `${logArgs('electron-compile')}import { mkdirSync, writeFileSync } from 'node:fs';\nmkdirSync('dist-electron', { recursive: true });\nwriteFileSync('dist-electron/main.cjs', process.env.ENV);\n`);
   // record and live-record write the app record as mac-inbox.ts does: from the inbox, or from the live mac/manifest.json.
@@ -73,6 +75,8 @@ if (command === 'record') {
 \n`);
   writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
+  writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
+  chmodSync(join(s.root, 'scripts/perf-publish.sh'), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
@@ -1018,6 +1022,17 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(r.stdout, /iphone has no version before 0\.1\.0-ccc to go back to/);
     // Then the suites, against what it serves again.
     assert.match(s.log(), /test-deployed ENV=staging/);
+  });
+
+  it("publishes CI's performance results to staging's dashboard each night, as staging's release role, and goes on if that fails", () => {
+    for (const fails of ['', '1']) {
+      const s = configured();
+      kept(s);
+      const r = s.run(['nightly'], { PUBLISH_FAILS: fails });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(s.log(), /perf-publish AWS_PROFILE=ms-staging\n(.*\n)*test-deployed ENV=staging/);
+      if (fails) assert.match(r.stderr, /Publishing the performance results failed, above\. The suites go on\./);
+    }
   });
 
   it("goes back across native code each night when the desktop feed's version before names an app, and forward again", () => {

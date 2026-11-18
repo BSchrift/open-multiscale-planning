@@ -9,11 +9,15 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/account"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/sync"
+	appconfig "github.com/BSchrift/open-multiscale-planning/config"
 )
 
 // Syncer is what POST /sync needs. *sync.Store implements it.
@@ -41,14 +45,36 @@ type Files interface {
 	Usage(ctx context.Context, sub string) (files.Usage, error)
 }
 
+// Account is the caller's own account behind the /account routes. *account.Service implements it.
+type Account interface {
+	StartExport(ctx context.Context, sub string) (account.ExportState, error)
+	Export(ctx context.Context, sub string) (account.ExportState, error)
+	Delete(ctx context.Context, sub string) error
+	Deleted(ctx context.Context, sub string) (bool, error)
+	Gone(ctx context.Context, sub string) (bool, error)
+}
+
+// Tokens reads who a sign-in token was issued to, whether or not it has lapsed. *account.Tokens implements it.
+type Tokens interface {
+	Subject(ctx context.Context, token string) (string, bool)
+}
+
 // ErrInvalidState is what Calendar.Callback returns for a state it won't honour.
 var ErrInvalidState = errors.New("api: invalid state")
 
-// Server is every route of the API. A nil Calendar or Files answers its routes with 501.
+// ErrAccountTaken is what Calendar.Callback returns for a Google account another person has connected.
+var ErrAccountTaken = errors.New("api: Google account connected to someone else")
+
+// ErrScopesMissing is what Calendar.Callback returns for a consent with a permission unticked.
+var ErrScopesMissing = errors.New("api: consent left out a permission")
+
+// Server is every route of the API. A nil Calendar, Files or Account answers its routes with 501.
 type Server struct {
 	Sync     Syncer
 	Calendar Calendar
 	Files    Files
+	Account  Account
+	Tokens   Tokens
 	Log      *slog.Logger
 	Env      string
 	Now      func() time.Time
@@ -59,6 +85,7 @@ type contextKey int
 const (
 	subKey contextKey = iota
 	requestIDKey
+	authTimeKey
 )
 
 // WithSub marks a request as coming from the user the gateway verified.
@@ -70,6 +97,26 @@ func WithSub(ctx context.Context, sub string) context.Context {
 func SubFrom(ctx context.Context) string {
 	sub, _ := ctx.Value(subKey).(string)
 	return sub
+}
+
+// WithAuthTime marks when the verified user last signed in, from the token's auth_time claim, which a refresh keeps.
+func WithAuthTime(ctx context.Context, at time.Time) context.Context {
+	return context.WithValue(ctx, authTimeKey, at)
+}
+
+// AuthTimeFrom is when the verified user last signed in, or zero if the token didn't say.
+func AuthTimeFrom(ctx context.Context) time.Time {
+	at, _ := ctx.Value(authTimeKey).(time.Time)
+	return at
+}
+
+// AuthTimeClaim reads a token's auth_time claim as the gateway passes it on: seconds since the epoch, as text.
+func AuthTimeClaim(claim string) (time.Time, bool) {
+	seconds, err := strconv.ParseInt(claim, 10, 64)
+	if err != nil || seconds <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(seconds, 0), true
 }
 
 // WithRequestID sets the id logged with a request.
@@ -86,34 +133,74 @@ type outcome struct {
 
 type handler func(w http.ResponseWriter, r *http.Request, sub string) outcome
 
+// access is who may use a route, and whether its log line names them.
+type access int
+
+const (
+	// public routes prove who they're for some other way, or not at all.
+	public access = iota
+	// signedIn routes need the user the gateway verified, and their log lines carry its hash.
+	signedIn
+	// unnamed routes are signedIn ones whose log lines carry a count, never who: the account routes.
+	unnamed
+)
+
 // Handler returns the routes. A route that needs a user refuses a request with none, so a front end that forgets to
 // verify tokens fails closed.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	route := func(pattern string, protected bool, h handler) {
+	route := func(pattern string, who access, h handler) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			start := s.Now()
 			sub := SubFrom(r.Context())
 			var out outcome
-			if protected && sub == "" {
+			if who != public && sub == "" {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
 				out = outcome{status: http.StatusUnauthorized, errorType: "unauthorized"}
 			} else {
 				out = h(w, r, sub)
 			}
-			s.logRequest(r.Context(), pattern, sub, start, out)
+			named := sub
+			if who == unnamed {
+				named = ""
+			}
+			s.logRequest(r.Context(), pattern, named, start, out)
 		})
 	}
-	route("POST /sync", true, s.sync)
-	route("POST /calendar/connect", true, s.calendarConnect)
-	route("GET /calendar/callback", false, s.calendarCallback)
-	route("POST /calendar/refresh", true, s.calendarRefresh)
-	route("POST /calendar/disconnect", true, s.calendarDisconnect)
-	route("POST /v1/logs", true, s.telemetry)
-	route("POST /files/upload", true, s.filesUpload)
-	route("POST /files/download", true, s.filesDownload)
-	route("GET /files/usage", true, s.filesUsage)
+	route("POST /sync", signedIn, s.sync)
+	route("POST /calendar/connect", signedIn, s.live(s.calendarConnect))
+	route("GET /calendar/callback", public, s.calendarCallback)
+	route("POST /calendar/refresh", signedIn, s.live(s.calendarRefresh))
+	route("POST /calendar/disconnect", signedIn, s.live(s.calendarDisconnect))
+	route("POST /v1/logs", signedIn, s.live(s.telemetry))
+	route("POST /files/upload", signedIn, s.live(s.filesUpload))
+	route("POST /files/download", signedIn, s.live(s.filesDownload))
+	route("GET /files/usage", signedIn, s.live(s.filesUsage))
+	route("POST /account/export", unnamed, s.live(s.exportStart))
+	route("GET /account/export", unnamed, s.live(s.exportState))
+	route("POST /account/delete", unnamed, s.accountDelete)
+	// A device whose token has lapsed asks whether its account was deleted: the token's signature says who's asking.
+	route("POST /account/status", public, s.accountStatus)
 	return mux
+}
+
+// live refuses an account being deleted, so a device that still holds a good token can't write anything back, such as
+// a calendar consent or a file. /sync refuses it in the store, from the read it makes anyway.
+func (s *Server) live(h handler) handler {
+	return func(w http.ResponseWriter, r *http.Request, sub string) outcome {
+		if s.Account == nil {
+			return h(w, r, sub)
+		}
+		deleted, err := s.Account.Deleted(r.Context(), sub)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+			return outcome{status: http.StatusInternalServerError, errorType: "internal", attrs: sync.ErrorAttrs(err)}
+		}
+		if deleted {
+			return accountDeleted(w)
+		}
+		return h(w, r, sub)
+	}
 }
 
 func (s *Server) logRequest(ctx context.Context, route, sub string, start time.Time, out outcome) {
@@ -162,6 +249,8 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 		case errors.As(err, &rejection):
 			writeJSON(w, rejection.Status, map[string]string{"error": rejection.Code})
 			return finish(rejection.Status, rejection.Code)
+		case errors.Is(err, sync.ErrAccountDeleted):
+			return finish(accountDeleted(w).status, "account_deleted")
 		case errors.Is(err, sync.ErrConflict):
 			// 409, not 503: a designed "send it again" (devices resend on their next sync) must stay out of the 5xx alarm.
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "conflict"})
@@ -216,6 +305,12 @@ func (s *Server) calendarCallback(w http.ResponseWriter, r *http.Request, _ stri
 	switch {
 	case errors.Is(err, ErrInvalidState):
 		return callbackPage(w, http.StatusBadRequest, "invalid_state", "Calendar not connected.")
+	case errors.Is(err, ErrScopesMissing):
+		return callbackPage(w, http.StatusBadRequest, "google_scopes_missing",
+			"Calendar not connected. Leave every permission Google asks for ticked, then connect again.")
+	case errors.Is(err, ErrAccountTaken):
+		return callbackPage(w, http.StatusConflict, "google_account_taken",
+			"Calendar not connected. This Google account is connected to another Multiscale account. Disconnect it there, or connect a different Google account.")
 	case err != nil:
 		return callbackPage(w, http.StatusBadGateway, "calendar_failed", "Calendar not connected.")
 	}
@@ -329,6 +424,122 @@ func filesFailed(w http.ResponseWriter, err error) outcome {
 func filesNotConfigured(w http.ResponseWriter) outcome {
 	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "files_not_configured"})
 	return outcome{status: http.StatusNotImplemented, errorType: "files_not_configured"}
+}
+
+// accountDeleted answers a deleted account's device. 401, so an app from before this signs out as for any refused token:
+// its refresh then fails too, since the sign-in is gone. An app that knows the code wipes its copy.
+func accountDeleted(w http.ResponseWriter) outcome {
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "account_deleted"})
+	return outcome{status: http.StatusUnauthorized, errorType: "account_deleted"}
+}
+
+func (s *Server) exportStart(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Account == nil {
+		return accountNotConfigured(w)
+	}
+	state, err := s.Account.StartExport(r.Context(), sub)
+	return exportAnswer(w, http.StatusAccepted, state, err)
+}
+
+func (s *Server) exportState(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Account == nil {
+		return accountNotConfigured(w)
+	}
+	state, err := s.Account.Export(r.Context(), sub)
+	return exportAnswer(w, http.StatusOK, state, err)
+}
+
+func exportAnswer(w http.ResponseWriter, status int, state account.ExportState, err error) outcome {
+	switch {
+	case errors.Is(err, account.ErrNoFiles):
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "export_not_configured"})
+		return outcome{status: http.StatusNotImplemented, errorType: "export_not_configured"}
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return outcome{status: http.StatusInternalServerError, errorType: "internal", attrs: sync.ErrorAttrs(err)}
+	}
+	writeJSON(w, status, state)
+	return outcome{status: status, attrs: []any{"export", state.State}}
+}
+
+// maxSignInAge is how recent a sign-in deleting an account takes.
+var maxSignInAge = time.Duration(appconfig.Protocol.Account.MaxSignInAgeMinutes) * time.Minute
+
+// deleteConfirmation is what the app sends once the person has typed it, so a stray request deletes nothing.
+const deleteConfirmation = "DELETE"
+
+// accountDelete starts deleting the caller's account, after a sign-in of the last few minutes. Asking again while it's
+// under way answers the same and starts nothing more, so a lost answer can be asked for again.
+func (s *Server) accountDelete(w http.ResponseWriter, r *http.Request, sub string) outcome {
+	if s.Account == nil {
+		return accountNotConfigured(w)
+	}
+	var body struct {
+		Confirm string `json:"confirm"`
+		// Sub is the account the app means to delete: the one its data belongs to.
+		Sub string `json:"sub"`
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFilesBodyBytes))
+	if err != nil || json.Unmarshal(raw, &body) != nil || body.Confirm != deleteConfirmation {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return outcome{status: http.StatusBadRequest, errorType: "invalid_request"}
+	}
+	// Signed in again as another account than the one the app holds: that one isn't the person's to delete here.
+	if body.Sub != sub {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "wrong_account"})
+		return outcome{status: http.StatusConflict, errorType: "wrong_account"}
+	}
+	signedInAt := AuthTimeFrom(r.Context())
+	if signedInAt.IsZero() || s.Now().Sub(signedInAt) > maxSignInAge {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "sign_in_again"})
+		return outcome{status: http.StatusForbidden, errorType: "sign_in_again"}
+	}
+	deleted, err := s.Account.Deleted(r.Context(), sub)
+	if err == nil && !deleted {
+		err = s.Account.Delete(r.Context(), sub)
+	}
+	if errors.Is(err, account.ErrProtected) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "protected_account"})
+		return outcome{status: http.StatusForbidden, errorType: "protected_account"}
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return outcome{status: http.StatusInternalServerError, errorType: "internal", attrs: sync.ErrorAttrs(err)}
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"state": "deleting"})
+	if deleted {
+		return outcome{status: http.StatusAccepted}
+	}
+	return outcome{status: http.StatusAccepted, attrs: obs.Metrics(s.Env, s.Now(), map[string]int{"AccountDeletionsStarted": 1})}
+}
+
+// accountStatus tells a device whose token has lapsed whether its account was deleted, so it wipes its copy rather than
+// waiting to sign in again. The token's signature proves it was issued to the account asked about.
+func (s *Server) accountStatus(w http.ResponseWriter, r *http.Request, _ string) outcome {
+	if s.Account == nil || s.Tokens == nil {
+		return accountNotConfigured(w)
+	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	var sub string
+	if ok {
+		sub, ok = s.Tokens.Subject(r.Context(), token)
+	}
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_token"})
+		return outcome{status: http.StatusUnauthorized, errorType: "invalid_token"}
+	}
+	gone, err := s.Account.Gone(r.Context(), sub)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return outcome{status: http.StatusInternalServerError, errorType: "internal", attrs: sync.ErrorAttrs(err)}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": gone})
+	return outcome{status: http.StatusOK}
+}
+
+func accountNotConfigured(w http.ResponseWriter) outcome {
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "account_not_configured"})
+	return outcome{status: http.StatusNotImplemented, errorType: "account_not_configured"}
 }
 
 func callbackPage(w http.ResponseWriter, status int, errorType, text string) outcome {

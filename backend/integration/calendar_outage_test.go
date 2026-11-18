@@ -15,19 +15,29 @@ type outage struct {
 	Calls   int  `json:"calls"`
 	Status  int  `json:"status,omitempty"`
 	Applied bool `json:"applied,omitempty"`
+	// Account limits it to one Google account's calls.
+	Account string `json:"account,omitempty"`
+}
+
+// googleOutage sets the stand-in's outage, which cuts every account off unless it names one.
+func googleOutage(t *testing.T, o outage) {
+	t.Helper()
+	if res := request(t, "POST", "/google/_test/outage", "", mustJSON(t, o)); res.status != 204 {
+		t.Fatalf("outage: %d %s", res.status, res.body)
+	}
 }
 
 // cutGoogle drops calls to Google as the outage says, until liftOutage or the end of the test.
 func cutGoogle(t *testing.T, o outage) {
 	t.Helper()
 	t.Cleanup(func() { liftOutage(t) })
-	googleControl(t, "outage", o)
+	googleOutage(t, o)
 }
 
 func liftOutage(t *testing.T) {
 	t.Helper()
-	googleControl(t, "outage", outage{})
-	googleControl(t, "outage", outage{Token: true})
+	googleOutage(t, outage{})
+	googleOutage(t, outage{Token: true})
 }
 
 // eventTimes is what Time blocks should hold, by title.
@@ -67,9 +77,9 @@ func failedRunChangesNothing(t *testing.T, cut outage) {
 	t.Helper()
 	clock := holdClock(t)
 	a := connectedUser(t)
-	home := addGoogleCalendar(t, "Home")
+	home := addGoogleCalendar(t, a, "Home")
 	start := clock.now.Add(2 * time.Hour)
-	addGoogleEvent(t, home, "Team lunch", start, start.Add(time.Hour))
+	addGoogleEvent(t, a, home, "Team lunch", start, start.Add(time.Hour))
 	a.pushBlock(fresh("b"), "Write the report", start, start.Add(time.Hour))
 	runWorker(t, a)
 	before := calendarFields(t, a)
@@ -80,7 +90,7 @@ func failedRunChangesNothing(t *testing.T, cut outage) {
 
 	later := start.Add(2 * time.Hour)
 	a.pushBlock(fresh("b"), "Paint the fence", later, later.Add(time.Hour))
-	addGoogleEvent(t, home, "Dentist", later, later.Add(time.Hour))
+	addGoogleEvent(t, a, home, "Dentist", later, later.Add(time.Hour))
 	cutGoogle(t, cut)
 	// A second on, so that a run that wrote anything would move synced_at.
 	clock.advance(time.Second)
@@ -219,12 +229,12 @@ func TestAFailedLookUpOfTimeBlocksMakesNoSecondCalendar(t *testing.T) {
 	runWorker(t, a)
 	before, _ := oneEvent(t, a)
 	others := map[string]bool{}
-	for _, c := range googleCalendars(t) {
+	for _, c := range googleCalendars(t, a) {
 		others[c.ID] = c.ID != before.ID
 	}
 	made := func() []string {
 		var ids []string
-		for _, c := range googleCalendars(t) {
+		for _, c := range googleCalendars(t, a) {
 			if c.Summary == "Time blocks" && !others[c.ID] {
 				ids = append(ids, c.ID)
 			}

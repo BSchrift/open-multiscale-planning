@@ -1,5 +1,6 @@
-// Everything one environment runs on AWS. Cost is meant to stay under $1 a month, so secrets are SSM SecureString
-// parameters under the AWS-managed key rather than Secrets Manager or a customer-managed key.
+// Everything one environment runs on AWS. Cost is meant to stay under $1 a month with no one using it, so secrets are SSM
+// SecureString parameters under the AWS-managed key rather than Secrets Manager. The one customer-managed key is for
+// people's Google tokens, which KMS encrypts for each person: an AWS-managed key can't be called directly.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,8 +21,9 @@ import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnDeploymentGroup, LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from 'aws-cdk-lib/aws-dynamodb';
-import { AccountPrincipal, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
-import { Alias, Architecture, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
+import { AccountPrincipal, AccountRootPrincipal, PolicyDocument, PolicyStatement, Role } from 'aws-cdk-lib/aws-iam';
+import { Key } from 'aws-cdk-lib/aws-kms';
+import { Alias, Architecture, CfnEventSourceMapping, Code, EventSourceMapping, FilterCriteria, FilterRule, Function as LambdaFunction, Runtime, StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import type { EventSourceMappingOptions } from 'aws-cdk-lib/aws-lambda';
 import { FilterPattern, LogGroup, MetricFilter, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { ARecord, CrossAccountZoneDelegationRecord, PublicHostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
@@ -30,6 +32,7 @@ import { BlockPublicAccess, Bucket, BucketEncryption, HttpMethods } from 'aws-cd
 import { Schedule, ScheduleExpression } from 'aws-cdk-lib/aws-scheduler';
 import { LambdaInvoke } from 'aws-cdk-lib/aws-scheduler-targets';
 import { Topic } from 'aws-cdk-lib/aws-sns';
+import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { loadRetention } from '../../config/retention.ts';
@@ -58,11 +61,17 @@ export interface MultiscaleStackProps {
   alarms?: 'off';
   /** The control account, when control.yaml sets up the release pipeline there: it tests and publishes as this stack's release role. */
   pipelineAccount?: string;
+  /**
+   * Set by scripts/deploy.sh when the stack doesn't exist yet. Only then does the worker's queue mapping wait for its
+   * alias, which a stack being updated already has: waiting in an update would hold the mapping back until the canary
+   * ended.
+   */
+  firstDeploy?: boolean;
 }
 
 export class MultiscaleStack extends Stack {
   constructor(scope: Construct, id: string, props: MultiscaleStackProps) {
-    const { envName, config, control, backendDist, requireBinaries, canary, alarms, pipelineAccount } = props;
+    const { envName, config, control, backendDist, requireBinaries, canary, alarms, pipelineAccount, firstDeploy } = props;
     super(scope, id, {
       env: { account: config.aws.account, region: config.aws.region },
       terminationProtection: forEnv(envName).stack.terminationProtection,
@@ -166,7 +175,8 @@ export class MultiscaleStack extends Stack {
       billingMode: BillingMode.PAY_PER_REQUEST,
       stream: StreamViewType.OLD_IMAGE,
       timeToLiveAttribute: 'expires_at',
-      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      // 35 days, as the privacy policy and the deletion screen say a deleted account stays in backups.
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true, recoveryPeriodInDays: 35 },
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
@@ -177,6 +187,44 @@ export class MultiscaleStack extends Stack {
       projectionType: ProjectionType.ALL,
     });
 
+    // People's Google connections: each one's refresh token, encrypted by this key under a context naming them, in the
+    // table (internal/gcal/aws.go). Not a Secrets Manager secret each, which at $0.40 a month would cost $4,000 a month for
+    // 10,000 people; the key is $1 a month and $0.03 per 10,000 decrypts, one a run. Kept if the stack goes, since every
+    // stored token is unreadable without it.
+    const tokenKey = new Key(this, 'GoogleTokenKey', {
+      description: `Multiscale ${envName}: people's Google refresh tokens`,
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+      // The account administers it, and never uses it: only the two functions' roles may, below, whatever IAM allows.
+      policy: new PolicyDocument({
+        statements: [new PolicyStatement({
+          sid: 'Administer',
+          principals: [new AccountRootPrincipal()],
+          actions: ['kms:Create*', 'kms:Describe*', 'kms:Enable*', 'kms:List*', 'kms:Put*', 'kms:Update*', 'kms:Revoke*', 'kms:Disable*',
+            'kms:Get*', 'kms:Delete*', 'kms:TagResource', 'kms:UntagResource', 'kms:ScheduleKeyDeletion', 'kms:CancelKeyDeletion', 'kms:RotateKeyOnDemand'],
+          resources: ['*'],
+        })],
+      }),
+    });
+    const tokenPurpose = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': envName } };
+
+    // The worker's queue: one message a person's run, from the schedule, the stream, the API's refresh and the one retry.
+    // Visible again only after six times the worker's timeout, as Lambda advises, so a run still going isn't handed out
+    // twice. A run that couldn't record its failure three times goes to the dead letters, where an alarm says so; the
+    // schedule runs that person again anyway.
+    const calendarTimeout = Duration.minutes(5);
+    const calendarDeadLetters = new Queue(this, 'CalendarDeadLetters', {
+      retentionPeriod: Duration.days(14),
+      encryption: QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+    });
+    const calendarQueue = new Queue(this, 'CalendarQueue', {
+      visibilityTimeout: Duration.minutes(calendarTimeout.toMinutes() * 6),
+      encryption: QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      deadLetterQueue: { queue: calendarDeadLetters, maxReceiveCount: 3 },
+    });
+
     // Functions
 
     const functionLogs = (logId: string) => new LogGroup(this, logId, { retention: RetentionDays.ONE_MONTH });
@@ -184,6 +232,7 @@ export class MultiscaleStack extends Stack {
     const calendarLogs = functionLogs('CalendarLogs');
     const retentionLogs = functionLogs('RetentionLogs');
     const canaryLogs = functionLogs('CanaryLogs');
+    const accountLogs = functionLogs('AccountLogs');
     const accessLogs = functionLogs('AccessLogs');
 
     const httpApi = new HttpApi(this, 'HttpApi', {
@@ -226,14 +275,14 @@ export class MultiscaleStack extends Stack {
       },
     });
 
-    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string) =>
+    const goFunction = (functionId: string, name: string, logGroup: LogGroup, timeout: Duration, environment: Record<string, string>, functionName?: string, memorySize = 256) =>
       new LambdaFunction(this, functionId, {
         functionName,
         runtime: Runtime.PROVIDED_AL2023,
         architecture: Architecture.ARM_64,
         handler: 'bootstrap',
         code: goCode(name),
-        memorySize: 256,
+        memorySize,
         timeout,
         logGroup,
         environment: { TABLE_NAME: table.tableName, ENV_NAME: envName, SSM_PREFIX: ssmPrefix, ...environment },
@@ -243,7 +292,8 @@ export class MultiscaleStack extends Stack {
     // steps (Deployments, below). A deploy that changes a function publishes a new version.
     const live = (fn: LambdaFunction) => new Alias(this, `${fn.node.id.replace(/Function$/, '')}Live`, { aliasName: 'live', version: fn.currentVersion });
 
-    const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, Duration.minutes(5), {});
+    const google = { GOOGLE_TOKEN_KEY: tokenKey.keyArn, CALENDAR_QUEUE_URL: calendarQueue.queueUrl };
+    const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, calendarTimeout, google);
     const calendarAlias = live(calendarFunction);
     // The API starts the worker through its alias, named by ARN rather than by the alias resource: CloudFormation counts
     // the alias's UpdatePolicy, so the alias waits on its deployment group, whose alarms watch the API. Referring to the
@@ -251,9 +301,32 @@ export class MultiscaleStack extends Stack {
     const calendarLiveArn = `${calendarFunction.functionArn}:${calendarAlias.aliasName}`;
     const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
     const retentionAlias = live(retentionFunction);
+    // Exports and account deletions (internal/account): an export of a five-year history with its photos, or a large
+    // account's deletion, outlasts any request, so the API starts them here. Its 15 minutes are Lambda's most.
+    // 1 GB, for the zip's upload and the CPU that comes with it, and no retries: the app asks for an export again and the
+    // schedule carries a deletion on. No reserved concurrency: AWS keeps 100 unreserved, and an account whose limit is
+    // lower, as staging's is, refuses any reservation. Each person builds one export at a time, which bounds it instead.
+    // shortcut: a burst of exports from many people shares the account's concurrency with the API; raise the account's
+    // Lambda quota before the beta, then reserve some here.
+    const protectedEmails = [config.integration?.testUser, secondUser(config) ? config.integration?.secondTestUser : undefined].filter((e): e is string => !!e);
+    // The Google key and queue, since deleting an account ends its Google connection through the same code.
+    const accountFunction = goFunction('AccountFunction', 'account', accountLogs, Duration.minutes(15), { USER_POOL_ID: userPool.userPoolId, ...google }, undefined, 1024);
+    const accountAlias = live(accountFunction);
+    accountAlias.configureAsyncInvoke({ retryAttempts: 0 });
+    // By ARN, as the worker is, so the API's grant doesn't make a loop through the alias's deployment group.
+    const accountLiveArn = `${accountFunction.functionArn}:${accountAlias.aliasName}`;
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
+      // Read only by the API from before per-person connections, which invoked the worker itself; this one queues the run.
+      // shortcut: goes, with the invoke grant below, in the release that removes the legacy connection.
       CALENDAR_FUNCTION_NAME: calendarLiveArn,
+      ACCOUNT_FUNCTION_NAME: accountLiveArn,
+      // For a lapsed token's question whether its account was deleted: the pool's keys and the clients it may be from.
+      USER_POOL_ID: userPool.userPoolId,
+      USER_POOL_CLIENT_IDS: [appClient.userPoolClientId, testClient.userPoolClientId].join(','),
+      // The integration suite's users, which no request deletes.
+      ...(protectedEmails.length ? { PROTECTED_EMAILS: protectedEmails.join(',') } : {}),
+      ...google,
     });
     const apiAlias = live(apiFunction);
 
@@ -269,8 +342,14 @@ export class MultiscaleStack extends Stack {
     httpApi.addRoutes({ path: '/files/upload', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/files/download', methods: [HttpMethod.POST], integration });
     httpApi.addRoutes({ path: '/files/usage', methods: [HttpMethod.GET], integration });
+    // Export my data, and Delete my account and data.
+    httpApi.addRoutes({ path: '/account/export', methods: [HttpMethod.GET, HttpMethod.POST], integration });
+    httpApi.addRoutes({ path: '/account/delete', methods: [HttpMethod.POST], integration });
     // Its signed state proves who it is for: Google's redirect can't carry a token.
     httpApi.addRoutes({ path: '/calendar/callback', methods: [HttpMethod.GET], integration, authorizer: new HttpNoneAuthorizer() });
+    // A device whose token has lapsed asks whether its account was deleted. The gateway refuses a lapsed token, so the
+    // API checks its signature itself.
+    httpApi.addRoutes({ path: '/account/status', methods: [HttpMethod.POST], integration, authorizer: new HttpNoneAuthorizer() });
 
     // Permissions. TransactWriteItems is not an IAM action: a sync transaction needs Put and Update, the actions inside it.
     // The consent state is a PutItem and a conditional UpdateItem.
@@ -292,7 +371,56 @@ export class MultiscaleStack extends Stack {
       actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
     }));
-    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn, accountLiveArn] }));
+    // Whether an account is being deleted, and its export, are single items.
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['dynamodb:GetItem'], resources: [table.tableArn] }));
+    // Whether a lapsed token's sign-in still exists. The account function deletes it; the API never can.
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['cognito-idp:ListUsers'], resources: [userPool.userPoolArn] }));
+
+    // The account function works in one person's partition at a time: it reads their records for an export, ends their
+    // Google connection, deletes their sign-in and everything in their partition, and keeps the list of deletions under
+    // way. Their files are below.
+    accountFunction.addToRolePolicy(new PolicyStatement({
+      actions: ['dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+      resources: [table.tableArn],
+    }));
+    accountFunction.addToRolePolicy(readSecrets(['client-id', 'client-secret', 'refresh-token']));
+    accountFunction.addToRolePolicy(new PolicyStatement({
+      actions: ['ssm:DeleteParameter'],
+      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
+    }));
+    accountFunction.addToRolePolicy(new PolicyStatement({ actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminDeleteUser'], resources: [userPool.userPoolArn] }));
+    // Every few minutes it carries on each deletion under way, and finishes those whose tokens have all lapsed.
+    new Schedule(this, 'AccountSchedule', {
+      schedule: ScheduleExpression.rate(Duration.minutes(5)),
+      target: new LambdaInvoke(accountAlias),
+    });
+
+    // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
+    // claim on a Google account is a Put, which the data actions above already allow. The API seals tokens at consent, and
+    // the worker when it copies the legacy connection; they and the account function, which ends a deleted account's
+    // connection, open them, only this environment's and for that purpose, with this key alone.
+    const connectionItems = new PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
+      resources: [table.tableArn],
+      conditions: { 'ForAllValues:StringEquals': { 'dynamodb:LeadingKeys': ['google#connection', 'google#account'] } },
+    });
+    for (const fn of [apiFunction, calendarFunction]) {
+      fn.addToRolePolicy(connectionItems);
+      calendarQueue.grantSendMessages(fn);
+    }
+    accountFunction.addToRolePolicy(connectionItems);
+    // shortcut: the worker's Encrypt is for the migration alone; it goes with the migration, in the contract release.
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    for (const fn of [apiFunction, calendarFunction, accountFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    // By role, not by function version: every version of a function shares its role, so the old and the new alike may use the
+    // key through a canary, and a rollback.
+    tokenKey.addToResourcePolicy(new PolicyStatement({
+      sid: 'Seal', principals: [apiFunction.role!, calendarFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
+    }));
+    tokenKey.addToResourcePolicy(new PolicyStatement({
+      sid: 'Open', principals: [apiFunction.role!, calendarFunction.role!, accountFunction.role!], actions: ['kms:Decrypt'], resources: ['*'], conditions: tokenPurpose,
+    }));
 
     // What runs the worker
 
@@ -323,6 +451,27 @@ export class MultiscaleStack extends Stack {
       schedule: ScheduleExpression.rate(Duration.minutes(30)),
       target: new LambdaInvoke(calendarAlias),
     });
+    // Each person's run, ten to an invocation and run at once there. The concurrency is the bound on the load on Google
+    // and on Lambda, however many people there are: four invocations of ten runs, each of about eight calls in two
+    // seconds, is at most about 9,600 calls a minute, under Google's 10,000 a project. The schedule spreads its runs
+    // over 15 minutes, which at 10,000 people is about 670 a minute, within that.
+    //
+    // The alias by its ARN, not the alias resource: anything that refers to the alias waits for the alias's CodeDeploy
+    // update, so the mapping, new in this release, would appear only after the canary, and the per-person runs would
+    // first run where no alarm rolls them back. Made now, both versions take batches by the alias's weights through the
+    // canary; the old one runs only the legacy person for one, which is harmless. Nothing it waits on refers to the alias,
+    // even through its own dependencies, except on a stack's first deploy, which has no alias yet.
+    calendarQueue.grantConsumeMessages(calendarAlias);
+    const queueSource = new EventSourceMapping(calendarFunction, 'CalendarQueueSource', {
+      target: calendarFunction,
+      eventSourceArn: calendarQueue.queueArn,
+      batchSize: 10,
+      maxBatchingWindow: Duration.seconds(5),
+      reportBatchItemFailures: true,
+      maxConcurrency: 4,
+    });
+    (queueSource.node.defaultChild as CfnEventSourceMapping).functionName = calendarLiveArn;
+    if (firstDeploy) queueSource.node.addDependency(calendarAlias);
 
     // What keeps the expiry mark: TTL's removals only. A delete from anyone else, staging's cleanup included, isn't
     // expiry, and cleanup raises the mark itself before it removes anything.
@@ -395,7 +544,7 @@ export class MultiscaleStack extends Stack {
       statistic: 'Sum',
       period: fiveMinutes,
     });
-    const apiOperations = { query: 'Query', batchGet: 'BatchGetItem', transact: 'TransactWriteItems', put: 'PutItem', update: 'UpdateItem' };
+    const apiOperations = { query: 'Query', batchGet: 'BatchGetItem', get: 'GetItem', transact: 'TransactWriteItems', put: 'PutItem', update: 'UpdateItem' };
 
     const apiErrorRate = new MathExpression({
       label: '5xx %',
@@ -443,7 +592,17 @@ export class MultiscaleStack extends Stack {
       anyFailure('ApiLatency', 'API p99 latency was 10 seconds or more for 10 minutes', httpApi.metricLatency({ statistic: 'p99', period: fiveMinutes }), 10_000, 2),
       anyFailure('LambdaErrors', 'A Lambda crashed or timed out', lambdaErrors),
       ...(settings.throttleReleaseAlarm ? [throttleAlarm] : []),
-      anyFailure('CalendarFailures', 'A calendar worker run failed', custom('CalendarRunFailures')),
+      // While there are fewer than 10 runs in five minutes, any failed run, so a deployment with a few people still rolls
+      // back a broken worker. Beyond that, at least three that are also at least 2% of them all: one person's lasting
+      // failure, a run every 30 minutes, never gets there, and the rate is under the smallest canary share, so a new
+      // version failing every run of its 10% still fires it however many people there are. A person's removed token,
+      // quota, unticked permission or organisation's policy isn't a failure at all (internal/gcal).
+      anyFailure('CalendarFailures', 'A calendar worker run failed while runs were few, or at least 3 and 2% of them did, in 5 minutes', new MathExpression({
+        label: 'Failed runs over the floor and rate',
+        expression: 'IF((runs < 10 AND FILL(failures, 0) >= 1) OR (FILL(failures, 0) >= 3 AND 100 * FILL(failures, 0) / runs >= 2), 1, 0)',
+        usingMetrics: { failures: custom('CalendarRunFailures'), runs: custom('CalendarRunFailures', 'SampleCount') },
+        period: fiveMinutes,
+      })),
       // Its mapping retries a failing batch until the stream drops it, a day later, so a stuck consumer shows as age.
       anyFailure('RetentionBehind', 'The retention consumer is an hour or more behind the stream', retentionFunction.metric('IteratorAge', { statistic: 'Maximum', period: fiveMinutes }), Duration.hours(1).toMilliseconds()),
       // One failed run is enough: a new version gets about 1 run in 20, so two in a row would almost never come.
@@ -451,6 +610,24 @@ export class MultiscaleStack extends Stack {
         namespace: 'AWS/Lambda', metricName: 'Errors', dimensionsMap: { FunctionName: canaryName }, statistic: 'Sum', period: fiveMinutes,
       })),
     ];
+    // On a message arriving, not on one being there, which it is for 14 days.
+    anyFailure('CalendarDeadLetterAlarm', "A person's calendar run failed three times without recording why", new MathExpression({
+      label: 'Dead letters arrived',
+      expression: 'DIFF(FILL(visible, 0))',
+      usingMetrics: { visible: calendarDeadLetters.metricApproximateNumberOfMessagesVisible({ period: fiveMinutes, statistic: 'Maximum' }) },
+      period: fiveMinutes,
+    }));
+    // The migration reports every half hour whether the legacy connection is safely in its person's own; every report for
+    // two hours saying not means someone looks. Not a release alarm: the fallback keeps them syncing meanwhile.
+    anyFailure('CalendarLegacyNotMigrated', 'The legacy Google connection has not been migrated for 2 hours',
+      custom('CalendarLegacyUnmigrated', 'Minimum', Duration.hours(1)), 1, 2);
+    // A wave of people's tokens refused at once, more likely Google's doing than a release's, so not a release alarm.
+    anyFailure('CalendarRevocations', "At least half the calendar runs, and 3, found the person's Google access removed", new MathExpression({
+      label: 'Runs refused their token',
+      expression: 'IF(FILL(revoked, 0) >= 3 AND 100 * FILL(revoked, 0) / runs >= 50, 1, 0)',
+      usingMetrics: { revoked: custom('CalendarRevoked'), runs: custom('CalendarRunFailures', 'SampleCount') },
+      period: fiveMinutes,
+    }));
     // The worker emits CalendarEventsChanged once per successful run, including runs that change nothing, so the
     // sample count is the number of successes.
     new Alarm(this, 'CalendarSilent', {
@@ -471,6 +648,26 @@ export class MultiscaleStack extends Stack {
       evaluationPeriods: 1,
       comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: TreatMissingData.IGNORE,
+    }).addAlarmAction(alarmAction);
+    // The account function crashing or timing out, as an export too large for its 15 minutes would. Not a release alarm:
+    // one person's export says little about the backend a deploy would roll back.
+    new Alarm(this, 'AccountFunctionErrors', {
+      alarmDescription: 'The account function crashed or timed out on an export or a deletion. Its log lines say which.',
+      metric: accountFunction.metricErrors({ period: fiveMinutes }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
+    // A deletion that keeps failing: the schedule tries again every 5 minutes, so three runs in a row mean someone looks.
+    // Not a release alarm: one person's deletion says little about the backend a deploy would roll back.
+    new Alarm(this, 'AccountDeletionFailing', {
+      alarmDescription: "An account's deletion failed on three runs in a row. It keeps trying; its log lines say which step. See docs/retention.md.",
+      metric: custom('AccountDeletionFailures'),
+      threshold: 1,
+      evaluationPeriods: 3,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(alarmAction);
     // A Mac app reports app-signature when Squirrel refused an app whose zip matched its signed SHA-512: the published app
     // is bad, so someone looks at once. Not a release alarm: it says nothing about the backend a deploy would roll back.
@@ -523,6 +720,7 @@ export class MultiscaleStack extends Stack {
     apiAlias.node.addDependency(canaryFunction);
     deployment('Calendar', calendarAlias);
     deployment('Retention', retentionAlias);
+    deployment('Account', accountAlias);
 
     // Dashboard
 
@@ -542,8 +740,18 @@ export class MultiscaleStack extends Stack {
           new GraphWidget({ title: 'Sync volume', width, left: [custom('SyncRecordsMerged'), custom('SyncConflictRetries'), custom('SyncRequestsRejected')] }),
         ],
         [
-          new GraphWidget({ title: 'Worker health', width, left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount')], right: [calendarFunction.metricDuration({ period: fiveMinutes })] }),
+          new GraphWidget({
+            title: 'Worker health',
+            width,
+            left: [custom('CalendarRunFailures'), custom('CalendarEventsChanged'), custom('CalendarEventsChanged', 'SampleCount'), custom('CalendarRevoked'), custom('CalendarRateLimited')],
+            right: [calendarFunction.metricDuration({ period: fiveMinutes }), calendarQueue.metricApproximateAgeOfOldestMessage({ period: fiveMinutes })],
+          }),
           new GraphWidget({ title: 'Largest user (GB of the 10 GB cap)', width, left: [largestUser] }),
+        ],
+        [
+          // Counts only: the account function's lines never say whose.
+          new GraphWidget({ title: 'Exports', width, left: [custom('AccountExports'), custom('AccountExportFailures')] }),
+          new GraphWidget({ title: 'Account deletions', width, left: [custom('AccountDeletionsStarted'), custom('AccountsDeleted'), custom('AccountDeletionFailures')] }),
         ],
         [
           appEvents('App memory (MB), by platform and version', LogQueryVisualizationType.LINE,
@@ -622,9 +830,13 @@ export class MultiscaleStack extends Stack {
       enforceSSL: true,
       // So a delete is final: a file goes when its record does (docs/retention.md).
       versioned: false,
-      // A guard only, since an upload is one PUT. No expiry, since the record decides when its file goes, and no move to
-      // Infrequent Access, whose 128 KB minimum and retrieval fees cost more than they save at these sizes.
-      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(1) }],
+      // A guard against unfinished uploads, which an export's streamed upload can leave. No expiry for attachments' files,
+      // since the record decides when one goes, and no move to Infrequent Access, whose 128 KB minimum and retrieval fees
+      // cost more than they save at these sizes. An export goes a day after it's built: its link lasts minutes.
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: Duration.days(1) },
+        { prefix: 'exports/', expiration: Duration.days(1) },
+      ],
       // PUT for the presigned uploads, which go straight from the apps. GET and HEAD for downloads: CloudFront forwards
       // Origin, which is in its cache key, and S3 answers CORS, as for the release feed, since CloudFront's own CORS
       // headers turned out to be missing from some cached copies.
@@ -797,6 +1009,25 @@ export class MultiscaleStack extends Stack {
       }));
       // A file goes when its record does.
       retentionFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:DeleteObject'], resources: [filesBucket.arnForObjects('u/*')] }));
+      // An export reads a person's files and puts its zip under exports/; a deletion lists and deletes both. Each
+      // person's are under their own prefix, which the function names from their sub.
+      accountFunction.addEnvironment('FILES_BUCKET', filesBucket.bucketName);
+      accountFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [filesBucket.bucketArn],
+        // IfExists: a GetObject of a key that isn't there checks ListBucket with no prefix, and only then answers 404
+        // rather than 403, as an export of a file whose upload never finished needs.
+        conditions: { StringLikeIfExists: { 's3:prefix': ['u/*', 'exports/*'] } },
+      }));
+      accountFunction.addToRolePolicy(new PolicyStatement({ actions: ['s3:GetObject'], resources: [filesBucket.arnForObjects('u/*')] }));
+      accountFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['s3:PutObject', 's3:AbortMultipartUpload'],
+        resources: [filesBucket.arnForObjects('exports/*')],
+      }));
+      accountFunction.addToRolePolicy(new PolicyStatement({
+        actions: ['s3:DeleteObject'],
+        resources: [filesBucket.arnForObjects('u/*'), filesBucket.arnForObjects('exports/*')],
+      }));
     }
 
     // What the release pipeline (lib/pipeline-stack.ts) signs in as to test this environment and publish to it: the

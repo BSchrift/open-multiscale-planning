@@ -73,7 +73,8 @@ export interface Offer extends Slot {
   note: string;
 }
 
-/** Every drag and time slider moves in steps of this many minutes. */
+/** Every drag, and the suggested times, move in steps of this many minutes. It's also the shortest block. Sliders move
+ * in finer steps, SLIDER_STEP. */
 export const GRID = 15;
 const SNAP = 20;
 const LONGEST_BLOCK = 120;
@@ -267,6 +268,37 @@ export function dragResult(
   const hit = targets.find((t) => t.date === toDate && Math.abs(t.start - moved) <= SNAP);
   const toStart = hit ? hit.start : moved;
   return { date: toDate, start: toStart, end: toStart + length };
+}
+
+/** How long a block a hold to create drafts: an hour, which Capture's Time can change. */
+export const DRAFT_MIN = 60;
+
+/** A hold's draft, and where it was moved from the quarter hour held: past the time gone by, or back within the day. */
+export interface HeldSlot extends Slot {
+  moved: 'next' | 'end' | 'short' | null;
+}
+
+/**
+ * Where a hold to create drafts its hour: from the quarter hour under the finger. None in a quarter hour that has gone
+ * by; in the one now falls in, from the next, the earliest a block can be dragged to. Near the end of the day it starts
+ * earlier to keep its hour, and in the day's last hour, where that would start it in time gone by, it runs to the end.
+ */
+export function holdSlot(date: LocalDate, minute: number, earliest: SlotContext['earliest'], to: TimeOfDay = DRAWN_DAY.to): HeldSlot | null {
+  const held = Math.floor(minute / GRID) * GRID;
+  const today = date === earliest.date;
+  if (date < earliest.date || (today && held + GRID <= earliest.minutes)) return null;
+  const next = today ? Math.ceil(earliest.minutes / GRID) * GRID : 0;
+  let start = Math.max(held, next);
+  let moved: HeldSlot['moved'] = start === held ? null : 'next';
+  if (start + DRAFT_MIN > to) {
+    if (to - DRAFT_MIN < next) {
+      if (to - next < GRID) return null;
+      return { date, start: next, end: to, moved: 'short' };
+    }
+    start = to - DRAFT_MIN;
+    moved = 'end';
+  }
+  return { date, start, end: start + DRAFT_MIN, moved };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { openSeeded, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
@@ -33,15 +33,18 @@ const records: Seed[] = [
   { type: 'block_outcome', id: 'outcome:b1', fields: { result: 'done', answered_at: '2026-11-02T16:00:00Z' } },
   block('b2', { practice_id: 'pr' }, '2026-11-02T13:00:00Z', '2026-11-02T13:15:00Z'),
   { type: 'block_outcome', id: 'outcome:b2', fields: { result: 'done', logged_min: 15, answered_at: '2026-11-02T16:00:00Z' } },
+  // A saved link's title as a note, and one waiting in the Inbox for Process.
+  { type: 'memo', id: 'note:i0', fields: { title: long('Note'), body: long('Body'), saved_on: '2026-11-02' } },
+  { type: 'task', id: 'i1', fields: { kind: 'inbox', title: long('Inbox') } },
 ];
 
 /**
  * The box holding each title is as wide as what's in it, the title stays inside every box around it up to the screen,
  * and neither the screen nor the page scrolls sideways.
  */
-async function expectContained(page: Page, screen: string) {
-  // The page showing, or a flow over the pages.
-  const shown = page.locator('.flowpane, .pane[aria-hidden="false"]').first();
+async function expectContained(page: Page, screen: string, root?: Locator) {
+  // The page showing, or a flow over the pages, or a dialog over them.
+  const shown = root ?? page.locator('.flowpane, .pane[aria-hidden="false"]').first();
   await expect(shown.getByText(/Supercalifragilistic/).first()).toBeVisible();
   const spills = await shown.evaluate((root) => {
     const out = new Set<string>();
@@ -76,6 +79,8 @@ async function expectContained(page: Page, screen: string) {
 }
 
 test('a 200-character title with nowhere to break stays inside its card', async ({ page }, info) => {
+  // Every screen that shows a title, so longer than most.
+  test.setTimeout(90_000);
   const phone = info.project.name === 'phone';
   if (!phone) await page.setViewportSize({ width: 1280, height: 860 });
   const errors: string[] = [];
@@ -88,7 +93,8 @@ test('a 200-character title with nowhere to break stays inside its card', async 
       await nav.getByRole('button', { name: 'More' }).click();
       await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
     } else {
-      await nav.getByRole('button', { name: new RegExp(`^${name}( \\d+)?$`) }).click();
+      // With a count beside it, as the Inbox has: "Inbox 1" on the sidebar, "Inbox, 1 to sort" on the tab bar.
+      await nav.getByRole('button', { name: new RegExp(`^${name}(,? \\d+( to sort)?)?$`) }).click();
     }
   };
 
@@ -102,6 +108,21 @@ test('a 200-character title with nowhere to break stays inside its card', async 
   await expect(page.locator('.pane[aria-hidden="false"]').getByText(/^TaskSuper/).first()).toBeVisible();
   await expectContained(page, 'a project');
   await page.screenshot({ path: info.outputPath('project.png'), fullPage: true });
+
+  // Notes, a note's popup, and the Process card.
+  await tab('Notes');
+  await expectContained(page, 'Notes');
+  await page.getByRole('button', { name: /^NoteSuper/ }).click();
+  await expectContained(page, 'a note', page.getByRole('dialog', { name: /^Note: / }));
+  await page.screenshot({ path: info.outputPath('note.png'), fullPage: true });
+  await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Cancel' }).click();
+  // More opens on the page it was left at, so back to its list for the rows below.
+  if (phone) await page.getByRole('button', { name: 'Back to More' }).click();
+  await tab('Inbox');
+  await page.locator('.pane[aria-hidden="false"]').getByRole('button', { name: 'Process 1 item' }).click();
+  await expectContained(page, 'the Process card', page.getByRole('dialog', { name: 'Process Inbox' }));
+  await page.screenshot({ path: info.outputPath('process.png'), fullPage: true });
+  await page.getByRole('dialog', { name: 'Process Inbox' }).getByRole('button', { name: 'Exit' }).click();
 
   await tab('Plan');
   await expectContained(page, 'Plan');

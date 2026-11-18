@@ -748,9 +748,10 @@ func TestRequestShapes(t *testing.T) {
 	mustSync(t, s, "abc", 0, task("r1", title("x", clock(1, "a"))))
 	mustSync(t, s, "abc", 1, task("r2", title("y", clock(2, "a"))))
 
-	// The counter's read also takes the user's expiry mark and the table's generation, and the record's read comes after it.
+	// The counter's read also takes the user's expiry mark, their account's deletion mark and the table's generation, and
+	// the record's read comes after it.
 	for i, in := range spy.Reads[:2] {
-		if read := in.RequestItems[s.Table]; !aws.ToBool(read.ConsistentRead) || len(read.Keys) != []int{3, 1}[i] {
+		if read := in.RequestItems[s.Table]; !aws.ToBool(read.ConsistentRead) || len(read.Keys) != []int{4, 1}[i] {
 			t.Fatalf("read %+v", read)
 		}
 	}
@@ -761,7 +762,11 @@ func TestRequestShapes(t *testing.T) {
 		key["sk"].(*types.AttributeValueMemberS).Value != "meta#expired" {
 		t.Fatalf("mark key %+v", key)
 	}
-	if key := spy.Reads[0].RequestItems[s.Table].Keys[2]; key["pk"].(*types.AttributeValueMemberS).Value != "meta" ||
+	if key := spy.Reads[0].RequestItems[s.Table].Keys[2]; key["pk"].(*types.AttributeValueMemberS).Value != "user#abc" ||
+		key["sk"].(*types.AttributeValueMemberS).Value != "meta#deleted" {
+		t.Fatalf("deletion key %+v", key)
+	}
+	if key := spy.Reads[0].RequestItems[s.Table].Keys[3]; key["pk"].(*types.AttributeValueMemberS).Value != "meta" ||
 		key["sk"].(*types.AttributeValueMemberS).Value != "generation" {
 		t.Fatalf("generation key %+v", key)
 	}

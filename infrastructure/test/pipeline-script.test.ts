@@ -86,7 +86,8 @@ if (command === 'record') {
   if (pick) console.log(pick);
 } else process.exit(process.env.VERIFY_FAILS ? 1 : 0);
 \n`);
-  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n');
+  // DEPLOYED_FAILS makes the suites fail, as they do when a deployment is wrong.
+  writeFileSync(join(s.root, 'scripts/test-deployed.sh'), '#!/bin/sh\necho "test-deployed ENV=$ENV EXPECT_VERSION=$EXPECT_VERSION EXPECT_FEEDS=$EXPECT_FEEDS SKIP_IOS=$SKIP_IOS SKIP_HISTORY=$SKIP_HISTORY SKIP_RETENTION=$SKIP_RETENTION DEPLOYED_BEFORE_PUBLISH=$DEPLOYED_BEFORE_PUBLISH" >> "$LOG"\n[ -z "$DEPLOYED_FAILS" ]\n');
   chmodSync(join(s.root, 'scripts/test-deployed.sh'), 0o755);
   writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
   chmodSync(join(s.root, 'scripts/perf-publish.sh'), 0o755);
@@ -1018,6 +1019,35 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     s.put('s3://bucket/state/history.json', JSON.stringify(h));
     return env;
   };
+
+  // Prod's Test step runs the suites against prod before each release publishes. A release that published and then
+  // failed them, as 2ea48ea's did when its desktop feed named a Mac app the downloads host didn't have, left prod
+  // failing every later run's Test step, so no run could publish the fix.
+  it('switches every surface a prod release switched back to what it served before when its tests then fail, and fails the run', () => {
+    const s = configured();
+    kept(s);
+    const r = s.run(['release-prod'], { ...artifacts(s, shell, 'prod'), COMMIT: 'abc123', DEPLOYED_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    assert.match(s.log(), /test-deployed ENV=prod EXPECT_VERSION=0\.1\.0-abc EXPECT_FEEDS=desktop iphone/);
+    // Back to what the Test step passed against this backend, so the next run's Test step can pass and publish.
+    for (const key of ['web/version.json', 'release/desktop/release.json', 'release/iphone/release.json']) assert.equal(served(s, key), '0.1.0-ccc', key);
+    assert.equal(s.get('s3://bucket/web/index.html'), '<html>0.1.0-ccc</html>');
+    for (const surface of ['web', 'desktop', 'iphone']) assert.match(r.stdout, new RegExp(`Switched prod's ${surface} back from 0\\.1\\.0-abc to 0\\.1\\.0-ccc`));
+    assert.match(r.stderr, /prod's suites failed after this release published, so each surface it switched went back to what it served before/);
+    // Never recorded as released, so make release-tag doesn't tag it.
+    assert.doesNotMatch(s.log(), /\/released/);
+  });
+
+  it("leaves a surface the release didn't switch when its tests fail", () => {
+    const s = configured();
+    kept(s);
+    // The iPhone feed waits for an iPhone app with the new native code, so the release switches the rest.
+    const r = s.run(['release-prod'], { ...artifacts(s, { electron: 'e1', ios: 'i2' }, 'prod'), COMMIT: 'abc123', DEPLOYED_FAILS: '1' });
+    assert.notEqual(r.status, 0);
+    assert.equal(served(s, 'release/iphone/release.json'), '0.1.0-ccc');
+    assert.doesNotMatch(r.stdout, /Switched prod's iphone/);
+    assert.equal(served(s, 'release/desktop/release.json'), '0.1.0-ccc');
+  });
 
   it("passes a surface's bake when no release alarm is in ALARM, reading prod's alarms as its release role", () => {
     const s = configured();

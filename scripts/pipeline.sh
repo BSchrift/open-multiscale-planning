@@ -249,6 +249,24 @@ served_before() {
     node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const [surface, now] = process.argv.slice(1); let h = {}; try { h = JSON.parse(s); } catch {} const lines = (h[surface] ?? []).map((l) => l.version); while (lines.length > 0 && lines.at(-1) === now) lines.pop(); console.log(lines.at(-1) ?? ""); });' "$2" "$3" || true
 }
 
+# Switches each surface named back to the version it served before a run's version: a release that failed after it
+# switched them. A surface no longer on that version, switched since by hand, or with none before, stays. Signed in:
+# AWS_PROFILE.
+switch_back() {
+  local env_name="$1" surfaces="$2" version="$3" bucket surface now before
+  bucket="$(release_bucket "$env_name")"
+  for surface in $surfaces; do
+    now="$(serves "$bucket" "$surface")"
+    before="$(served_before "$bucket" "$surface" "$version")"
+    if [ "$now" = "$version" ] && [ -n "$before" ]; then
+      switch "$env_name" "$surface" "$before"
+      echo "Switched $env_name's $surface back from $version to $before."
+    else
+      echo "$env_name's $surface serves ${now:-nothing}, not this run's $version, so it stays as it is."
+    fi
+  done
+}
+
 # Whether a feed's apps couldn't take a version, given its version.json: one built for other native code than the feed
 # serves now. Says why. The desktop feed may cross native code to a version whose manifest names a Mac app the
 # downloads host has: Macs then update to that app, forward or back.
@@ -727,7 +745,14 @@ case "$command" in
     frontend_deps
     browsers
     publish prod "${CODEBUILD_SRC_DIR_SignedProd:?}"
-    ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    # Prod's Test step runs these suites against prod before each release publishes. A release left live after failing
+    # them would fail every later run there, the fix's too, so what it switched goes back to what that step passed.
+    if ! ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 "$root/scripts/test-deployed.sh"; then
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts prod)"
+      AWS_PROFILE="$profile" switch_back prod "web $feeds" "$version"
+      echo "prod's suites failed after this release published, so each surface it switched went back to what it served before, which prod's Test step passed against this backend. The run stops here: fix what failed, and the next run releases it." >&2
+      exit 1
+    fi
     # For make release-tag, and the signed apps built from that tag.
     # With the release's notes: whether it skipped the canary or ran without the release alarms.
     notes=""
@@ -757,18 +782,7 @@ case "$command" in
       echo "$firing in ALARM after $2's bake, but this run has the release alarms off, so it goes on."
       exit 0
     fi
-    version="$(version_of "$(built)/web/prod")"
-    bucket="$(release_bucket prod)"
-    for surface in $surfaces; do
-      now="$(serves "$bucket" "$surface")"
-      before="$(served_before "$bucket" "$surface" "$version")"
-      if [ "$now" = "$version" ] && [ -n "$before" ]; then
-        switch prod "$surface" "$before"
-        echo "Switched prod's $surface back from $version to $before."
-      else
-        echo "prod's $surface serves ${now:-nothing}, not this run's $version, so it stays as it is."
-      fi
-    done
+    switch_back prod "$surfaces" "$(version_of "$(built)/web/prod")"
     echo "$firing in ALARM after $2's bake, so the run stops here. Look at the alarms in prod's account; make release-surface ENV=prod lists what each surface serves." >&2
     exit 1
     ;;

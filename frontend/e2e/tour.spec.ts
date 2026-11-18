@@ -182,7 +182,7 @@ test('every screen of a lived-in week renders cleanly', async ({ page }, info) =
   await toast.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('region', { name: 'Current block' }).getByRole('button', { name: 'Mark done now' })).toBeVisible();
 
-  for (const name of ['Week', 'Inbox', 'Goals', 'Plan', 'One offs', 'Analytics', 'Settings']) {
+  for (const name of ['Week', 'Inbox', 'Goals', 'Plan', 'One offs', 'Notes', 'Analytics', 'Settings']) {
     await tab(page, phone, name);
     await look(page, info, name.toLowerCase().replace(' ', ''));
   }

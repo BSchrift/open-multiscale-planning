@@ -7,10 +7,10 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
-import { currentBlock, moveBlock } from '../../../core/blocks';
+import { currentBlock, moveBlock, unscheduleBlock } from '../../../core/blocks';
 import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
-import type { PlanChange } from '../../../core/plan';
+import type { PlanChange, RecordWrite } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
 import type { Writer } from '../../../core/records';
 import { dayOffer, dragResult, DRAWN_DAY, GRID, slotContext, slotInstants, slotNotes } from '../../../core/slots';
@@ -24,6 +24,7 @@ import { describeBlock, formatRange, isTaskBlock, KIND_WORD, OUTCOME_WORD } from
 import type { BlockKind } from '../../components/blocks/describe';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
+import { landsOn, useBothAsk } from '../../components/blocks/BothAsk';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useOpenTask } from '../../components/task/TaskName';
@@ -78,6 +79,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const actions = useBlockActions();
   /** A task's block opened in the task's popup. */
   const [pop, setPop] = useState<{ block: string; task: string } | null>(null);
+  // Landing on another block asks first: keep both, replace it, or leave it.
+  const both = useBothAsk();
   // A task's block made shorter asks what about the rest, under the timeline, until answered.
   const [split, setSplit] = useState<Shortened | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
@@ -199,7 +202,21 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const workOf = (i: Item) => ({ kind: i.kind === 'one_off' ? ('one_off' as const) : ('project' as const) });
 
   const save = async (i: Item, from: Slot, to: Slot, key = false) => {
-    const reverse = await run((w) => moveBlock(w, i.id, slotInstants(to, zone)));
+    // The day's blocks where they're saved; one under way or answered can only be kept.
+    const saved = data.blocks.map((b) => ({ id: b.id, title: b.title ?? 'Time block', date: data.date, start: minutesOf(b.start, 0), end: minutesOf(b.end, 1440), fixed: ended(b) || !!b.started_at }));
+    const on = landsOn(saved, i.id, to, from);
+    const answer = on.length ? await both.ask(i.title, on) : 'keep';
+    if (answer === 'cancel') {
+      steps.current = null;
+      return setDrag(null);
+    }
+    const off = answer === 'replace' ? on.filter((x) => !x.fixed) : [];
+    const reverse = await run(async (w) => {
+      const moved = await moveBlock(w, i.id, slotInstants(to, zone));
+      const back: RecordWrite[] = [];
+      for (const x of off) back.unshift(...(await unscheduleBlock(w, x.id, weekStart(data.date), clock)).writes);
+      return { writes: [...back, ...moved.writes] };
+    });
     if (!reverse) return setDrag(null);
     // Arrow steps in a row are one change, so Undo takes the block back to before the first.
     const prev = steps.current;
@@ -211,7 +228,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       setDrag(null);
       return run((w) => applyPlanChange(w, first));
     };
-    toast.show([`${i.title} is now ${range(to)}.`, ...notes].join(' '), { undo });
+    const tookOff = off.length ? [`Took ${new Intl.ListFormat('en-GB').format(off.map((x) => x.title))} off the calendar.`] : [];
+    toast.show([`${i.title} is now ${range(to)}.`, ...tookOff, ...notes].join(' '), { undo });
     const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
     setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
@@ -509,6 +527,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
+      {both.asking}
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
       {holdNew.draft?.open && (

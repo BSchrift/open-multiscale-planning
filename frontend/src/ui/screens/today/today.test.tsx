@@ -502,12 +502,29 @@ describe('the end-of-block prompt', () => {
       await w.create('time_block', { practice_id: 'pr', start: at('13:00'), end: at('13:30'), tz: ZONE }, 'pb');
     });
     const prompt = await dialog('Block finished');
+    // Three answers first, as the missed blocks sheet and the notification give: no slider until Partly.
+    expect(within(prompt).getAllByRole('button').map((b) => b.textContent)).toEqual(['All 30m', 'Partly', 'Skipped']);
+    expect(within(prompt).queryByRole('slider')).toBeNull();
+    await userEvent.click(within(prompt).getByRole('button', { name: 'Partly' }));
+    // From half the block, on the 5-minute steps.
     const slider = within(prompt).getByRole('slider', { name: 'How much did you do?' });
-    expect(within(prompt).getByRole('button', { name: 'All 30m' })).toBeVisible();
+    expect(slider).toHaveFocus();
+    expect(slider).toHaveAttribute('aria-valuetext', '15m');
     fireEvent.change(slider, { target: { value: '20' } });
     await userEvent.click(within(prompt).getByRole('button', { name: 'Log 20m' }));
     expect(await screen.findByText('Logged 20m')).toBeVisible();
     expect(await getRecord(t.db, 'block_outcome', outcomeId('pb'))).toMatchObject({ result: 'done', logged_min: 20 });
+  });
+
+  it('a practice logs all of its time from the first view, in one tap', async () => {
+    const t = await open(async (w) => {
+      await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr');
+      await w.create('time_block', { practice_id: 'pr', start: at('13:00'), end: at('13:30'), tz: ZONE }, 'pb');
+    });
+    const prompt = await dialog('Block finished');
+    await userEvent.click(within(prompt).getByRole('button', { name: 'All 30m' }));
+    expect(await screen.findByText('Logged 30m')).toBeVisible();
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('pb'))).toMatchObject({ result: 'done', logged_min: 30 });
   });
 
   it('on phone it is a sheet', async () => {
@@ -824,6 +841,10 @@ describe('Google Calendar', () => {
       stop: vi.fn(),
       email: vi.fn(async () => null),
       eraseAndSignIn: vi.fn(async () => undefined),
+      signedInAt: vi.fn(async (): Promise<number | null> => null),
+      exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
+      deletionTarget: vi.fn(async () => ({ sameAccount: true, email: 'reader@example.com' as string | null })),
+      deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> => 'deleted'),
       files: noFiles(),
     }) satisfies AppSync;
   const signIn = (t: Harness) =>

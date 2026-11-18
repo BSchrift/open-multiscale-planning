@@ -21,6 +21,8 @@ import { addPeriod, configureRetention } from './retention';
 import type { Period, Retention } from './retention';
 import { createHttpSend, runSync } from './sync';
 import type { SyncSend } from './sync';
+import { sweepOrphans } from './attachments';
+import { deleteNote, noteId, saveAsNote } from './memos';
 import { closeProject } from './tasks';
 import type { RecordChange, RecordType } from './types';
 import { memoryTokens } from '../platform/memory';
@@ -180,6 +182,8 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
       await w.create('task', { kind: 'inbox', title: 'Buy brushes' }, id('open'));
       await w.create('project', { title: 'Learn to bake bread', state: 'active', start: day(-30), end: day(30) }, id('active'));
       await w.create('practice', { title: 'Practise piano', target_min: 30, per: 'day', state: 'active' }, id('practice'));
+      await w.create('task', { kind: 'inbox', title: 'Paint for the hall: Pale Oat' }, id('paint'));
+      await w.create('task', { kind: 'inbox', title: 'Gate code at the allotment' }, id('gate'));
     });
     await writer.sync();
     await behind.sync();
@@ -198,12 +202,22 @@ describe.skipIf(!LOCAL && !DEPLOYED)('retention end to end', () => {
       await w.create('week_pick', { week_start: day(-8), task_id: id('open'), minutes: 30 }, id('pick'));
       await w.create('week_plan', { week_start: day(-8), finished_at: now }, id('week'));
       await w.create('away_period', { start: day(-3), end: day(-2) }, id('away'));
+      // Two Inbox items saved as notes: one kept, one deleted, with a photo another device added to it offline.
+      await saveAsNote(w, id('paint'), clock);
+      await saveAsNote(w, id('gate'), clock);
+      await deleteNote(w, noteId(id('gate')), clock);
+      await w.create('attachment', { memo_id: noteId(id('gate')), kind: 'photo', name: 'Gate.jpg' }, id('photo'));
     });
+    // The sweep after a sync gives the photo the note's delete, as every app works it out.
+    expect(await sweepOrphans(writer.db, clock)).toBe(1);
     add('deleted', 'task', 'deleted');
     for (const [key, type] of [['block', 'time_block'], ['finish', 'task_completion'], ['pick', 'week_pick'], ['week', 'week_plan'], ['away', 'away_period']] as const) add(key, type, 'scheduling');
     kinds.set(outcomeId(id('block')), { type: 'block_outcome', stage: 'scheduling' });
     for (const [key, type] of [['done', 'task'], ['project', 'project'], ['milestone', 'milestone'], ['goal', 'objective']] as const) add(key, type, 'closed');
     for (const [key, type] of [['open', 'task'], ['active', 'project'], ['practice', 'practice']] as const) add(key, type, 'never');
+    for (const [key, type] of [['paint', 'task'], ['gate', 'task'], ['photo', 'attachment']] as const) add(key, type, 'deleted');
+    kinds.set(noteId(id('gate')), { type: 'memo', stage: 'deleted' });
+    kinds.set(noteId(id('paint')), { type: 'memo', stage: 'never' });
 
     // Each record's expiry, as the write path worked it out, before anything removed it here.
     const expiry = new Map<string, number | null>();

@@ -1106,6 +1106,28 @@ describe('Editing the item on the card', () => {
     await waitFor(async () => expect((await task(t.db, 'i1'))?.notes).toBe('Ask about **rates** today'));
   });
 
+  it('says when a shared description was cut, under it, on that item only, on desktop and phone', async () => {
+    const cutNote = 'The description was cut to 20,000 characters.';
+    for (const layout of ['desktop', 'phone'] as const) {
+      // As share import leaves it for the item whose description it cut.
+      localStorage.setItem('multiscale.cutShares', JSON.stringify(['i1']));
+      await open({
+        layout,
+        seed: async (w) => {
+          await seed(w);
+          await w.set('task', 'i1', { notes: 'Notes from the talk' });
+          await w.set('task', 'i2', { notes: 'Hinges' });
+        },
+      });
+      await screen.findByRole('heading', { name: 'Call the bank' });
+      expect(within(card()).getByText(cutNote).closest('.pxnotes')).toHaveTextContent('Notes from the talk');
+      await userEvent.click(btn('Skip'));
+      await screen.findByRole('heading', { name: 'Fix the gate' });
+      expect(within(card()).queryByText(cutNote)).toBeNull();
+      cleanup();
+    }
+  });
+
   it('adds a link on the card at once, with Add link beside the others, and removes it with its own Undo', async () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'Call the bank' });

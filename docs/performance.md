@@ -106,6 +106,14 @@ device's database, as a sync would apply it, so no sync is timed but `sync.first
 The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
 perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
 
+Their records carry no expiry, as an account's from before retention don't. So the first launch on them works out
+every record's expiry and removes what retention no longer keeps (`core/expiry.ts`): a fifth of a year's records, and
+over half of five years', which leaves about 18,500. Today stays empty until that's done: about 35 seconds in CI's
+desktop Chromium on five years, and over two minutes with the phone's CPU slowed. A device does that once, the first
+time it launches with records from before retention, so it isn't a KPI. The runner launches each build once on the data
+at full speed and waits for a record that launch removes to be gone (`openLaunched` in `e2e/perf/harness.ts`), and the
+KPIs time the actions and launches after it, as the Mac app's do.
+
 ### The runner
 
 `make test-perf` runs [scripts/test-perf.sh](../scripts/test-perf.sh): it builds this checkout as it's timed, runs

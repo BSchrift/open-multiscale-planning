@@ -39,6 +39,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture from the button | covered (inbox: "captures to the Inbox from the button and the keyboard") | covered (same) | covered (journeys/capture-and-process; desktop: "closing the window keeps the edits not yet saved…") | covered (testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff) |
 | Capture from the keyboard, in the app | covered (inbox: "captures to the Inbox…"; journeys/capture-and-process) | n/a | covered (journeys/capture-and-process) | n/a |
 | Capture from anywhere: global shortcut, Control Center, share sheet | n/a | n/a | covered (desktop: "the shortcut opens a one-field window that saves to the Inbox…", "a save that fails keeps the text and says so") | covered (testControlCenterWidgetOpensCapture, testShareExtensionQueuesForTheApp, testShareImportIsOffWithoutTheExtensions, testCaptureSitsAboveTheKeyboard…) |
+| Share sheet: the first line the title and the rest the description, a link on its own attached, a long share cut and Process saying so | n/a (Process's notice: process "a shared description that was cut to fit says so under it") | n/a (same) | n/a | partly (testALongShareReachesTheAppWholeAndItsDescriptionIsCut: the queue keeps it whole and the app cuts it; the item a share makes is checked in shareImport.test.tsx only) |
 | Capture's Add details: time, and a place that skips the Inbox | covered (details: "Capture's Add details opens with Time first…"; process: "Add details sends a task with its time straight to One offs…") | covered (same) | missing (seeded specs run in the browser only) | missing |
 | Capture: Esc and Cancel drop the text; a click outside keeps it | covered (process: "Esc and Cancel drop what was typed…") | partly (Esc only; a tap on the backdrop untested) | missing | missing |
 | Inbox: count, rows, rename, popup | covered (inbox: "shows the Inbox's count in a circle", "an Inbox row opens its popup…"; details: "an Inbox item opens in its popup…") | covered (same) | partly (journeys/capture-and-process: rows and popup) | missing |
@@ -85,6 +86,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture shortcut | n/a (apps only) | n/a | covered (desktop: "a new capture shortcut from Settings replaces the old one…") | n/a |
 | Updates | n/a (apps only) | n/a | partly (unit tests only; the section shows only in builds with a release feed) | partly (unit tests only) |
 | Data retention | covered (settings: "Data retention says what's kept and for how long…") | covered (same) | missing | missing |
+| Account: Export my data, a zip of every record, its settings and a README | covered (stack/account: "desktop: Export my data downloads a zip of everything the account has") | covered (stack/account: "phone: …", at phone size) | missing (the Mac app hands the link to the default browser; settings.test.tsx checks it goes through the platform) | missing (Safari saves it; settings.test.tsx checks the platform is asked) |
+| Account: Delete my account and data, with a fresh sign-in and DELETE typed | covered (stack/account: "desktop: Delete my account and data takes a fresh sign-in and DELETE…"; settings.test.tsx: the page's safeguards) | covered (stack/account: "phone: …", at phone size) | missing | missing |
 
 ### Stretch planning (Plan)
 
@@ -211,6 +214,9 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Expired sign-in, and signing in as another account | covered (stack/sync: "an expired sign-in shows in Settings…", "signing in as another account asks first…") | missing (desktop only) | partly (sync: "…a restart keeps data and sign-in") | missing |
 | Sign-in tokens kept safely | n/a | n/a | covered (desktop: "tokens are stored encrypted and survive a restart") | covered (testTokensRoundTripThroughTheKeychain) |
 | Attachments' photos sync and open on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (desktop only) | missing (the file picker is the browser's; not run on the Mac app) | missing |
+| A deleted account: every signed-in device erases its copy on its next sync, and one whose token lapsed asks | covered (stack/account: "…a second device erases its copy", at its next launch; syncRunner.test.ts for a sync and a lapsed token; account.stack.test.ts) | missing (desktop only) | missing | missing |
+| A released app after its account is deleted shows it's signed out | covered (compat: "an old device whose account a new device deleted shows it's signed out") | n/a | n/a | n/a |
+| Export and account deletion, server side: every record type and note in the export, a deletion removing everything from DynamoDB, the bucket and the user pool, other people untouched, an interrupted deletion carried on, devices refused, a lapsed token's status | n/a: server side, in backend/internal/account, backend/internal/api/account_test.go and backend/integration/account_test.go | | | |
 
 ### Google Calendar
 

@@ -246,6 +246,14 @@
   font-size: var(--fs-meta);
 }
 
+/* Under a shared description that was cut to fit. */
+[data-layout] .pxcutnote {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+
 /* When its block is on the calendar, as hold to create leaves one. */
 [data-layout] .pxwhen {
   display: flex;

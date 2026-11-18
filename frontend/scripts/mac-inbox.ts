@@ -2,14 +2,19 @@
 // (.github/workflows/mac-release.yml, docs/releasing.md). GitHub Actions signs and notarizes each environment's app and
 // uploads its disk image with a manifest to the pipeline's inbox. The pipeline checks both on Linux, and publishes the
 // disk image only if the app inside is signed by the configured team, notarized, and holds the very code the pipeline
-// built from the same commit.
+// built from the same commit. That's the release's own commit, or one before it with the same Mac native code, which
+// the pipeline builds again to check the app against.
 //   node scripts/mac-inbox.ts build-config <config folder>    the config the Mac build reads, for MAC_BUILD_CONFIG
 //   node scripts/mac-inbox.ts unpack-config <folder>          writes MAC_BUILD_CONFIG's files into a config folder
 //   node scripts/mac-inbox.ts manifest <env> <commit> <since> <notarytool history> <out>
 //                                                             the inbox's files for release/<env>'s build
-//   node scripts/mac-inbox.ts verify <env> <commit> <inbox> <web build> <main process build>
+//   node scripts/mac-inbox.ts pick <env> <commit> <inbox keys> <build to prefer> [<commit to skip>...]
+//                                                             the commit whose inbox build a release takes (inboxBuildFor)
+//   node scripts/mac-inbox.ts verify <env> <commit> <inbox> <web build> <main process build> [<frontend checkout>]
 //                                                             checks an inbox build: MAC_TEAM_ID, SEVENZIP for 7zz, and
-//                                                             MULTISCALE_CONFIG_DIR for the app's bundle id
+//                                                             MULTISCALE_CONFIG_DIR for the app's bundle id. The checkout
+//                                                             the build was made in, for its package.json and packages,
+//                                                             is this one unless given
 //   node scripts/mac-inbox.ts record <env> <inbox> <out>      a checked build's app record: out/app-record/<env>.json,
 //                                                             and in out/<env>/manifest.json, which publishing keeps
 //   node scripts/mac-inbox.ts live-record <env> <mac/manifest.json> <out>
@@ -31,6 +36,7 @@ import { FuseV1Options } from '@electron/fuses';
 import { parse as parseYaml } from 'yaml';
 import { appIdentity, builderConfig } from '../electron/identity.ts';
 import type { AppIdentity } from '../electron/identity.ts';
+import { isHashed, SHELL_SOURCES } from './shell-hash.ts';
 
 type Env = 'staging' | 'prod';
 const ENVS: Env[] = ['staging', 'prod'];
@@ -692,6 +698,9 @@ export async function verifyInbox(inbox: string, want: { env: Env; commit: strin
   const problems: string[] = [];
   const { version, build } = versionOf(want);
   if (manifest.appVersion !== version) problems.push(`The inbox manifest says the app is version ${manifest.appVersion}, not ${version}`);
+  // The app's record takes its native code from here, and the release's signed manifest names it.
+  const { shell } = JSON.parse(readFileSync(join(want.web, 'version.json'), 'utf8')) as { shell?: { electron?: string } };
+  if (manifest.shell !== shell?.electron) problems.push(`The inbox manifest says the app's native code is ${manifest.shell}, not ${String(shell?.electron)}`);
   try {
     // The disk image, which is what's published: its signature covers every byte of it, the app included.
     const { signature, trailer } = dmgSignature(dmg);
@@ -780,6 +789,44 @@ export function liveRecord(text: string): AppRecord | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether two commits have the same Mac native code: no file the Mac app's shell hash covers differs between them, and no
+ * package it counts has another version (shell-hash.ts). From git alone, by this checkout's SHELL_SOURCES, so it needs no
+ * checkout. False when git can't tell, as for a commit the clone lacks.
+ */
+export function sameMacNativeCode(repo: string, a: string, b: string): boolean {
+  const git = (args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+  try {
+    const changed = git(['diff', '-z', '--name-only', '--no-renames', a, b, '--', 'frontend']).split('\0').filter(Boolean).map((path) => path.slice('frontend/'.length));
+    if (changed.some((path) => isHashed('electron', path))) return false;
+    if (!changed.includes('package-lock.json')) return true;
+    const versions = (commit: string) => {
+      const lock = (JSON.parse(git(['show', `${commit}:frontend/package-lock.json`])) as { packages: Record<string, { version?: string }> }).packages;
+      return JSON.stringify(Object.entries(lock).filter(([key]) => key.startsWith('node_modules/') && SHELL_SOURCES.electron.packages(key.slice('node_modules/'.length))).map(([key, value]) => [key, value.version]).sort());
+    };
+    return versions(a) === versions(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The commit whose inbox build a release of <commit> takes for <env>, given the inbox's keys: the newest of <commit> and
+ * the commits before it with a finished build there, its manifest uploaded last, and the same Mac native code. The
+ * Mac release workflow runs one build at a time and drops the one queued when a newer push comes, so with steady merges
+ * few commits get their own. Builds of commits whose time is <prefer>, the build of staging's app, come first, so prod
+ * takes the app the staging update check passes. <skip> names builds found wanting. Undefined while there's none.
+ */
+export function inboxBuildFor(repo: string, commit: string, env: Env, keys: string[], prefer?: number, skip: string[] = []): string | undefined {
+  const finished = new Set(keys.flatMap((key) => new RegExp(`^inbox/([0-9a-f]{40})/${env}/manifest\\.json$`).exec(key)?.[1] ?? []));
+  const builds = execFileSync('git', ['log', '--format=%H %ct', commit], { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    .split('\n')
+    .map((line) => line.split(' ') as [string, string])
+    .filter(([hash]) => finished.has(hash) && !skip.includes(hash));
+  const first = builds.filter(([, time]) => Number(time) === prefer);
+  return [...first, ...builds.filter((build) => !first.includes(build))].map(([hash]) => hash).find((hash) => sameMacNativeCode(repo, hash, commit));
 }
 
 /**
@@ -881,8 +928,12 @@ async function main([command, ...args]: string[]) {
     copyFileSync(join(release, `${zips[0]!}.blockmap`), join(out, BLOCKMAP));
     writeFileSync(join(out, 'manifest.json'), writeManifest(manifest));
     console.log(`${env}: ${manifest.version}, app ${manifest.appVersion}, shell ${manifest.shell}, ${DMG} ${manifest.files[DMG].sha256}`);
+  } else if (command === 'pick') {
+    const [env, commit, keys, prefer, ...skip] = args as [Env, string, string, string, ...string[]];
+    const from = inboxBuildFor(join(frontend, '..'), commit, env, readFileSync(keys, 'utf8').split(/\s+/), Number(prefer) || undefined, skip);
+    if (from) console.log(from);
   } else if (command === 'verify') {
-    const [env, commit, inbox, web, electron] = args as [Env, string, string, string, string];
+    const [env, commit, inbox, web, electron, checkout = frontend] = args as [Env, string, string, string, string, string?];
     const teamId = process.env.MAC_TEAM_ID ?? '';
     const sevenZip = process.env.SEVENZIP || '7zz';
     const { loadAppConfig, loadBundleId } = await import('../src/core/appConfig.ts');
@@ -891,8 +942,8 @@ async function main([command, ...args]: string[]) {
     const identity = appIdentity(env, loadBundleId(env, read, configDir));
     // As electron-build.mjs passes it to electron-builder, which writes it into the app's app-update.yml.
     const { downloadsUrl } = loadAppConfig(env, read, configDir);
-    const problems = await verifyInbox(inbox, { env, commit, teamId, identity, downloadsUrl, web, electron, frontend }, {
-      electron: await electronZip(frontend),
+    const problems = await verifyInbox(inbox, { env, commit, teamId, identity, downloadsUrl, web, electron, frontend: checkout }, {
+      electron: await electronZip(checkout),
       extract: (dmg, into) => execFileSync(sevenZip, ['x', '-snl', '-sns-', '-y', `-o${into}`, dmg], { stdio: ['ignore', 'ignore', 'inherit'] }),
       // Apple's lookup now and then fails to answer, so it's asked three times before the check gives up.
       hasTicket: async (hash) => {
@@ -931,7 +982,7 @@ async function main([command, ...args]: string[]) {
     writeFileSync(join(out, 'app-record', `${env}.json`), `${JSON.stringify(record)}\n`);
     console.log(`${env}: the live app ${record.version} runs this release.`);
   } else {
-    throw new Error('Use: mac-inbox.ts build-config | unpack-config | manifest | verify | record | live-record. See the comment at its top.');
+    throw new Error('Use: mac-inbox.ts build-config | unpack-config | manifest | pick | verify | record | live-record. See the comment at its top.');
   }
 }
 

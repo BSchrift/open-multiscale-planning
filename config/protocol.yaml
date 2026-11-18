@@ -79,3 +79,8 @@ attachments:
     - application/vnd.oasis.opendocument.text
     - application/vnd.oasis.opendocument.spreadsheet
     - application/vnd.oasis.opendocument.presentation
+
+account:
+  # Deleting an account takes a sign-in this recent, in minutes: the app has the person sign in again first, and the API
+  # checks the access token's auth_time, which a refresh keeps.
+  maxSignInAgeMinutes: 10

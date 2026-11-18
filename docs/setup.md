@@ -157,7 +157,7 @@ make deploy
 
 To turn attachments on for an environment that's already deployed, run `make files-key` for it, then `make pipeline-config` if the release pipeline is set up, then deploy. The pipeline deploys from its own copy of `<env>.yaml`, and a copy without `files` takes the files host away again; the bucket stays, with what's in it.
 
-`make deploy` checks `staging.yaml`, builds the four Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
+`make deploy` checks `staging.yaml`, builds the five Lambdas for arm64, deploys `Multiscale-staging`, and writes `staging.outputs.json` and `staging.deployed` to your config folder. CDK asks you to approve the new IAM roles the first time: answer `y`.
 
 Then:
 

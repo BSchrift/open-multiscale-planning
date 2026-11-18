@@ -201,6 +201,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Expired sign-in, and signing in as another account | covered (stack/sync: "an expired sign-in shows in Settings…", "signing in as another account asks first…") | missing (desktop only) | partly (sync: "…a restart keeps data and sign-in") | missing |
 | Sign-in tokens kept safely | n/a | n/a | covered (desktop: "tokens are stored encrypted and survive a restart") | covered (testTokensRoundTripThroughTheKeychain) |
 | Attachments' photos sync and open on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (desktop only) | missing (the file picker is the browser's; not run on the Mac app) | missing |
+| Export and account deletion, server side: every record type and note in the export, a deletion removing everything from DynamoDB, the bucket and the user pool, other people untouched, an interrupted deletion carried on, devices refused, a lapsed token's status | n/a: server side, in backend/internal/account, backend/internal/api/account_test.go and backend/integration/account_test.go | | | |
 
 ### Google Calendar
 

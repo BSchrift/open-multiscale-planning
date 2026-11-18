@@ -48,6 +48,9 @@ const (
 	capturedLogs   = "capturedLogs"
 	moto           = "moto"
 	localTables    = "localTables" // the local stack's DynamoDB, which make storage-quota writes to directly
+	// disposableUser is a user the test may delete, account and all: the local stack signs anyone in. A deployment's
+	// test users are the only ones it has.
+	disposableUser = "disposableUser"
 
 	secondUser   = "secondUser"   // a second test user to prove isolation
 	googleClient = "googleClient" // the deployment has its Google client secrets
@@ -55,7 +58,7 @@ const (
 )
 
 var (
-	emulatorOnly = []string{fakeClock, faultInjection, fakeGoogle, capturedLogs, moto, localTables}
+	emulatorOnly = []string{fakeClock, faultInjection, fakeGoogle, capturedLogs, moto, localTables, disposableUser}
 	capabilities = append([]string{secondUser, googleClient, testCalendar}, emulatorOnly...)
 )
 

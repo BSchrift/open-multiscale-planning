@@ -47,6 +47,9 @@ export const protocol = {
       "application/vnd.oasis.opendocument.spreadsheet",
       "application/vnd.oasis.opendocument.presentation"
     ]
+  },
+  "account": {
+    "maxSignInAgeMinutes": 10
   }
 } as const;
 

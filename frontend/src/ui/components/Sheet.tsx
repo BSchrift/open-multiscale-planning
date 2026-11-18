@@ -4,7 +4,7 @@
 import { useContext, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { PaneShown } from '../app/nav';
+import { FlowFrame, PaneShown } from '../app/nav';
 import { useApp } from '../app/store';
 import { useDialogFocus } from './useDialogFocus';
 
@@ -20,10 +20,15 @@ export function Sheet(props: {
   const { layout } = useApp();
   const ref = useDialogFocus<HTMLDivElement>(props.onClose);
   const shown = useContext(PaneShown);
+  const flow = useContext(FlowFrame);
   // Opened from a page, it's drawn at the layout's root, so no sticky header or other stacking context there can hold
-  // it under the tab bar or the + button, and the layout's styles still reach it. In a flow or an overlay, it's drawn in
-  // place, above what opened it. Found once: one open as the app first draws, before the root is there, stays in place.
-  const [root] = useState(() => (shown === null ? null : document.querySelector<HTMLElement>('[data-layout]')));
+  // it under the tab bar or the + button, and the layout's styles still reach it. In a flow, it's drawn at the top of
+  // the flow's screen, for the same reason: opened from a sticky column, such as Pick's This week, it was held under
+  // the sticky Does it fit? bar. The screen's styles still reach it there. In an overlay, it's drawn in place, above
+  // what opened it. Found once: one open as the app first draws, before the root is there, stays in place.
+  const [root] = useState(() =>
+    shown !== null ? document.querySelector<HTMLElement>('[data-layout]') : ((flow?.current?.firstElementChild as HTMLElement | null | undefined) ?? null),
+  );
   // Out of sight with the pane it opened from, as it was when it was drawn inside it.
   const hide = shown === false ? { visibility: 'hidden' as const } : undefined;
   const sheet = (

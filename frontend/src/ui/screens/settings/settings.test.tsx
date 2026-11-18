@@ -793,6 +793,8 @@ describe('Data retention', () => {
     expect(page.getByText('5 years after they\'re closed')).toBeVisible();
     expect(page.getByText('30 days after you delete them')).toBeVisible();
     expect(page.getByRole('heading', { level: 2, name: 'Kept until you delete it' })).toBeVisible();
+    expect(page.getByText('Notes: kept until you delete them, even once what they belong to is finished or gone.')).toBeVisible();
+    expect(page.getByText('Photos and files on notes: kept with the note, and counted in your storage while kept.')).toBeVisible();
     expect(page.queryAllByRole('button').filter((b) => !/^Back/.test(b.getAttribute('aria-label') ?? ''))).toEqual([]);
     expect(page.queryAllByRole('textbox')).toEqual([]);
     expect(screen.getByRole('button', { name: 'Back to Settings' })).toBeVisible();

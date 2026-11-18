@@ -604,9 +604,11 @@ describe('Schedule on phone', () => {
 
   it('the Length slider changes the block, and says what stays to place', async () => {
     await phone();
-    fireEvent.change(await screen.findByRole('slider', { name: 'Length' }), { target: { value: '60' } });
-    expect(screen.getByText('Mon Nov 2, 2pm to 3pm (1h)')).toBeInTheDocument();
-    expect(screen.getByText('1h more of this task stays to place')).toBeInTheDocument();
+    const length = await screen.findByRole('slider', { name: 'Length' });
+    expect(length).toHaveAttribute('step', '5');
+    fireEvent.change(length, { target: { value: '65' } });
+    expect(screen.getByText('Mon Nov 2, 2pm to 3:05pm (1h 5m)')).toBeInTheDocument();
+    expect(screen.getByText('55m more of this task stays to place')).toBeInTheDocument();
   });
 
   it('All tasks lists every practice first, then every picked task, with Place the rest and Skip a practice', async () => {

@@ -53,7 +53,7 @@ test('weeks of answered blocks add up in Analytics, and a pattern changes Schedu
   for (const n of ORDINALS) {
     for (const title of [`Draft chapter ${n}`, `Notes for chapter ${n}`]) {
       await editor.getByLabel('Title').fill(title);
-      await slide(editor.getByRole('slider', { name: 'Time estimate' }), 4, '1h');
+      await slide(editor.getByRole('slider', { name: 'Time estimate' }), 12, '1h');
       await editor.getByRole('button', { name: 'Add', exact: true }).click();
       await expect(editor.getByRole('status')).toHaveText(`Added ${title}.`);
     }

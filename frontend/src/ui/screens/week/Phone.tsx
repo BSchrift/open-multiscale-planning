@@ -11,6 +11,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, R
 import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
+import { SLIDER_STEP } from '../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
@@ -1105,7 +1106,7 @@ function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: b
             type="range"
             min={GRID}
             max={max}
-            step={GRID}
+            step={SLIDER_STEP}
             value={len}
             aria-valuetext={formatMinutes(len)}
             onChange={(e) => props.onLength(block.start + Number(e.target.value))}
@@ -1211,7 +1212,7 @@ function AddChoice(props: { row: AddRow; len: Minutes; model: WeekModel; onLengt
             </label>
             <span className="strong">{formatMinutes(len)}</span>
           </div>
-          <input id={id} className="wkrange" type="range" min={GRID} max={most} step={GRID} value={len} aria-valuetext={formatMinutes(len)} onChange={(e) => props.onLength(Number(e.target.value))} />
+          <input id={id} className="wkrange" type="range" min={GRID} max={most} step={SLIDER_STEP} value={len} aria-valuetext={formatMinutes(len)} onChange={(e) => props.onLength(Number(e.target.value))} />
         </div>
       )}
       {found.map((o, i) => (

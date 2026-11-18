@@ -502,12 +502,29 @@ describe('the end-of-block prompt', () => {
       await w.create('time_block', { practice_id: 'pr', start: at('13:00'), end: at('13:30'), tz: ZONE }, 'pb');
     });
     const prompt = await dialog('Block finished');
+    // Three answers first, as the missed blocks sheet and the notification give: no slider until Partly.
+    expect(within(prompt).getAllByRole('button').map((b) => b.textContent)).toEqual(['All 30m', 'Partly', 'Skipped']);
+    expect(within(prompt).queryByRole('slider')).toBeNull();
+    await userEvent.click(within(prompt).getByRole('button', { name: 'Partly' }));
+    // From half the block, on the 5-minute steps.
     const slider = within(prompt).getByRole('slider', { name: 'How much did you do?' });
-    expect(within(prompt).getByRole('button', { name: 'All 30m' })).toBeVisible();
+    expect(slider).toHaveFocus();
+    expect(slider).toHaveAttribute('aria-valuetext', '15m');
     fireEvent.change(slider, { target: { value: '20' } });
     await userEvent.click(within(prompt).getByRole('button', { name: 'Log 20m' }));
     expect(await screen.findByText('Logged 20m')).toBeVisible();
     expect(await getRecord(t.db, 'block_outcome', outcomeId('pb'))).toMatchObject({ result: 'done', logged_min: 20 });
+  });
+
+  it('a practice logs all of its time from the first view, in one tap', async () => {
+    const t = await open(async (w) => {
+      await w.create('practice', { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' }, 'pr');
+      await w.create('time_block', { practice_id: 'pr', start: at('13:00'), end: at('13:30'), tz: ZONE }, 'pb');
+    });
+    const prompt = await dialog('Block finished');
+    await userEvent.click(within(prompt).getByRole('button', { name: 'All 30m' }));
+    expect(await screen.findByText('Logged 30m')).toBeVisible();
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('pb'))).toMatchObject({ result: 'done', logged_min: 30 });
   });
 
   it('on phone it is a sheet', async () => {
@@ -1281,6 +1298,30 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the tim
     expect(el).toHaveTextContent('Inbox, 5:45pm to 6:45pm');
     await userEvent.click(el);
     await taskPopup('Book dentist');
+  });
+});
+
+describe("a task's block made shorter on the timeline", () => {
+  it('asks what about the rest under the timeline; Change the estimate takes it off the task, and the block under way never asks', async () => {
+    const t = await open(async (w) => {
+      await task(w, 't1', 'Write the report');
+      await block(w, 'b1', 't1', '16:00', '17:00');
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '13:30', '15:00', { started_at: at('13:30') });
+    });
+    const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+    el.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    const ask = await screen.findByRole('group', { name: 'What about the other 15m?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Change the estimate' }));
+    expect(await screen.findByText('Write the report is now 2h 45m. Its estimate was 3h.')).toBeVisible();
+    await waitFor(async () => expect(await getRecord(t.db, 'task', 't1')).toMatchObject({ estimate_min: 165 }));
+
+    const now = await screen.findByRole('button', { name: /^Paint the fence, 1:30pm to 3pm/ });
+    now.focus();
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    expect(await screen.findByText(/^Paint the fence is now 1:30pm to 2:45pm/)).toBeVisible();
+    expect(screen.queryByRole('group', { name: /^What about the other/ })).toBeNull();
   });
 });
 

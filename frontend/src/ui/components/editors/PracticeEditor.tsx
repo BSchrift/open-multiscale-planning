@@ -3,7 +3,7 @@
 // still to place follow the schedule.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { FormEvent, ReactNode, Ref } from 'react';
 import { formatMinutes, instantMs, localDate, thisWeek, weekday, weekRange } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -31,12 +31,34 @@ const NO_DAYS = 'Choose at least one day.';
 const linkable = (goals: readonly Objective[]) => goals.filter((g) => g.state !== 'archived' && !g.deleted_at);
 
 /** With onNew, a + New goal button follows the select, rather than being one of its options. */
-export function GoalSelect(props: { goals: readonly Objective[]; value: string; onChange(id: string): void; onNew?(): void }) {
+export function GoalSelect(props: {
+  goals: readonly Objective[];
+  value: string;
+  onChange(id: string): void;
+  onNew?(): void;
+  /** One must be chosen, as for a new project from Process: no "No goal", and empty until one is. */
+  required?: boolean;
+  selectRef?: Ref<HTMLSelectElement>;
+  describedBy?: string;
+}) {
   const select = (
     <label className={props.onNew ? 'popfield grow' : 'popfield'}>
       Goal
-      <select className="field" aria-label="Goal" value={props.value} onChange={(event) => props.onChange(event.target.value)}>
-        <option value="">No goal</option>
+      <select
+        ref={props.selectRef}
+        className="field"
+        aria-label="Goal"
+        aria-describedby={props.describedBy}
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      >
+        {props.required ? (
+          <option value="" disabled>
+            Choose a goal
+          </option>
+        ) : (
+          <option value="">No goal</option>
+        )}
         {linkable(props.goals).map((g) => (
           <option key={g.id} value={g.id}>
             {g.title}

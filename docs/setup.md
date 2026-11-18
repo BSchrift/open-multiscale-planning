@@ -103,7 +103,7 @@ Your config lives in a folder of its own, kept in a private Git repository of yo
    | `dns.zone` | This environment's zone under your domain, such as `staging.example.com` and `app.example.com`. Without a domain, delete the `dns` section. |
    | `integration.testUser` | The email of a dedicated test user, created in step 8. No email is ever sent to it. |
    | `integration.historyUser` | Optional, staging only: the email of the history-scale test's own user, created in step 8. Only `make test-history ENV=staging` reads it. |
-   | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging: a deployment holds one Google connection, so connecting the test user replaces yours. |
+   | `integration.capabilities` | Keep `googleClient`, set up in step 9. Add `secondUser` to also prove one user can't read another's records; it needs `integration.secondTestUser`, a second test user's email, and the deploy creates that user. Add `testCalendar` only if the test user is connected to a dedicated Google account, and only on staging. Each person connects their own Google account, so the test user's leaves yours alone, but a Google account connects to one person at a time: use one only the test user connects. |
    | `app.bundleId` | Optional. The Mac app's id, if you want your own, such as `com.yourname.multiscale`. Add it as `app:` with `bundleId:` below it. |
    | `files` | Leave it out: `make files-key` writes it in step 7. It holds the public keys CloudFront checks attachments' download links against, and `signWith`, the one the API signs with. |
 
@@ -201,7 +201,9 @@ aws ssm put-parameter --type SecureString --name /multiscale/staging/test-user-p
 unset TEST_PASSWORD
 ```
 
-With `secondUser` in `integration.capabilities`, make the user in `integration.secondTestUser` the same way, and store its password as `/multiscale/staging/second-test-user-password`. To change a stored password later, add `--overwrite`.
+To change a stored password later, add `--overwrite`.
+
+With `secondUser` in `integration.capabilities`, the deploy creates the user in `integration.secondTestUser` itself, verified and sent no email like the test user above, with a new password it stores as `/multiscale/staging/second-test-user-password` and never prints. Each deploy leaves a user that's already there alone. If that email already belongs to a user in the pool and no password is stored for it, the deploy stops and says so, rather than reset someone's password: name another user. Taking `secondUser` out leaves the user and its password where they are.
 
 For `make test-history ENV=staging`, make one more user. The history-scale test seeds a made-up five-year account into it, about 40,000 records that stay there, so it has a user of its own rather than sharing the test user. Put its email in `integration.historyUser` in `staging.yaml`, then:
 
@@ -237,7 +239,7 @@ Staging and prod each get their own client. Use a Google account you are happy t
 
    Copy the client id and client secret.
 6. **Move it to In production.** Under **Audience**, choose **Publish app** and confirm. Don't skip this: refresh tokens on a project in Testing expire after 7 days. You don't need to submit for verification.
-7. Store the secrets. The API creates `refresh-token` itself when you connect.
+7. Store the secrets. Each person's connection is stored when they connect, in the table, encrypted with the stack's own KMS key, so there's no token to store here.
 
    ```sh
    read -r "CLIENT_ID?Client id: "
@@ -263,7 +265,7 @@ unset PASSWORD TOKEN
 
 `$EMAIL` and `$PASSWORD` are your own from step 8.
 
-It prints the consent URL, decoded from the JSON response so its `&`s are intact, or the error if there's no URL. Open the URL within a few minutes. Google warns that it hasn't verified the app, which is expected for your own client: choose **Advanced**, then **Go to (app name)**, and allow the three scopes. Afterwards a **Time blocks** calendar appears in that Google account, and the worker keeps its token alive by running every 30 minutes.
+It prints the consent URL, decoded from the JSON response so its `&`s are intact, or the error if there's no URL. Open the URL within a few minutes. Google warns that it hasn't verified the app, which is expected for your own client: choose **Advanced**, then **Go to (app name)**, and allow the three scopes. Afterwards a **Time blocks** calendar appears in that Google account, and the worker keeps it matching your plan, running for each connected person every 30 minutes.
 
 ## 11. Run the integration suite against staging
 

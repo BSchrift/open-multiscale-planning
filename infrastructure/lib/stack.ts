@@ -345,8 +345,9 @@ export class MultiscaleStack extends Stack {
     }));
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn] }));
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
-    // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
-    // consent; both open them, only this environment's and for that purpose, with this key alone.
+    // claim on a Google account is a Put, which the data actions above already allow. Both seal tokens, the API at consent
+    // and the worker when it copies the legacy connection, and open them, only this environment's and for that purpose,
+    // with this key alone.
     const connectionItems = new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
       resources: [table.tableArn],
@@ -356,12 +357,13 @@ export class MultiscaleStack extends Stack {
       fn.addToRolePolicy(connectionItems);
       calendarQueue.grantSendMessages(fn);
     }
-    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    // shortcut: the worker's Encrypt is for the migration alone; it goes with the migration, in the contract release.
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     // By role, not by function version: every version of a function shares its role, so the old and the new alike may use the
     // key through a canary, and a rollback.
     tokenKey.addToResourcePolicy(new PolicyStatement({
-      sid: 'Seal', principals: [apiFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
+      sid: 'Seal', principals: [apiFunction.role!, calendarFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
     }));
     tokenKey.addToResourcePolicy(new PolicyStatement({
       sid: 'Open', principals: [apiFunction.role!, calendarFunction.role!], actions: ['kms:Decrypt'], resources: ['*'], conditions: tokenPurpose,
@@ -562,6 +564,10 @@ export class MultiscaleStack extends Stack {
       usingMetrics: { visible: calendarDeadLetters.metricApproximateNumberOfMessagesVisible({ period: fiveMinutes, statistic: 'Maximum' }) },
       period: fiveMinutes,
     }));
+    // The migration reports every half hour whether the legacy connection is safely in its person's own; every report for
+    // two hours saying not means someone looks. Not a release alarm: the fallback keeps them syncing meanwhile.
+    anyFailure('CalendarLegacyNotMigrated', 'The legacy Google connection has not been migrated for 2 hours',
+      custom('CalendarLegacyUnmigrated', 'Minimum', Duration.hours(1)), 1, 2);
     // A wave of people's tokens refused at once, more likely Google's doing than a release's, so not a release alarm.
     anyFailure('CalendarRevocations', "At least half the calendar runs, and 3, found the person's Google access removed", new MathExpression({
       label: 'Runs refused their token',

@@ -241,10 +241,19 @@ func (c *DynamoConnections) Holder(ctx context.Context, account string) (string,
 }
 
 func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous connection) error {
+	_, err := c.put(ctx, conn, previous)
+	return err
+}
+
+func (c *DynamoConnections) PutNew(ctx context.Context, conn connection) ([]byte, error) {
+	return c.put(ctx, conn, connection{})
+}
+
+func (c *DynamoConnections) put(ctx context.Context, conn connection, previous connection) ([]byte, error) {
 	sealed, err := c.KMS.Encrypt(ctx, &kms.EncryptInput{KeyId: aws.String(c.KeyID), Plaintext: []byte(conn.RefreshToken), EncryptionContext: c.tokenContext(conn.Sub)})
 	if err != nil {
 		// Only the error's type: its request held the token.
-		return fmt.Errorf("gcal: seal connection: %T", err)
+		return nil, fmt.Errorf("gcal: seal connection: %T", err)
 	}
 	item := connectionKey(conn.Sub)
 	item["token"] = &dynamotypes.AttributeValueMemberB{Value: sealed.CiphertextBlob}
@@ -273,14 +282,14 @@ func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous c
 	_, err = c.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: writes})
 	switch failed, _ := cancelledAt(err); failed {
 	case 0:
-		return errConnectionChanged
+		return nil, errConnectionChanged
 	case 1:
-		return api.ErrAccountTaken
+		return nil, api.ErrAccountTaken
 	}
 	if err != nil {
-		return fmt.Errorf("gcal: store connection: %w", err)
+		return nil, fmt.Errorf("gcal: store connection: %w", err)
 	}
-	return nil
+	return sealed.CiphertextBlob, nil
 }
 
 func (c *DynamoConnections) Delete(ctx context.Context, conn connection) error {

@@ -233,7 +233,8 @@ function crashing or timing out raises `AccountFunctionErrors`. Neither is a rel
   account its data belongs to: Settings names that account's email, offers Delete only while the sign-in is that
   account's, and sends its sub, which the server checks against the token's.
 - An app from before this gets the same `401` from sync, and its refresh is refused, so it shows the signed-out state.
-  It keeps its copy until it's updated or someone signs in on it, which a deleted account can't.
+  It keeps its copy until someone signs in on it, which a deleted account can't. Updating it doesn't change that: it no
+  longer holds a token to ask with.
 - A device that was signed out by hand before the deletion keeps its copy: it holds no token to ask with.
 
 ### Backups

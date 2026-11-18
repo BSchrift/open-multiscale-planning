@@ -421,13 +421,14 @@ export function startAppSync(
     /** The link to an export of everything the account has, once the server has built it. Throws ExportError or SyncError. */
     exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), isFilesLink }),
     /**
-     * The account Delete would delete: whether the sign-in is the account this device's data belongs to, and its email.
-     * Signed in again as another, it's not, and nothing may be deleted here.
+     * The account Delete would delete: whether the sign-in is the account this device's data belongs to, and then its
+     * email. Signed in again as another, it's not, nothing may be deleted here, and the other account isn't named.
      */
     async deletionTarget(): Promise<{ sameAccount: boolean; email: string | null }> {
       const account = await getMeta(platform.db, META.account);
       const signedIn = await auth.accessToken().then(tokenSubject, () => null);
-      return { sameAccount: !!account && signedIn === account, email: await auth.email() };
+      const sameAccount = !!account && signedIn === account;
+      return { sameAccount, email: sameAccount ? await auth.email() : null };
     },
     /**
      * Deletes the account this device's data belongs to, once the person has typed DELETE, then erases this device's copy

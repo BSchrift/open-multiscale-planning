@@ -870,7 +870,7 @@ describe('a deleted account', () => {
         if (new URLSearchParams(init.body as string).get('grant_type') === 'refresh_token' && state.refuseRefresh) {
           return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
         }
-        return new Response(JSON.stringify({ access_token: token(), refresh_token: 'refresh-1', expires_in: 3600 }));
+        return new Response(JSON.stringify({ access_token: token(), id_token: jwt({ sub: `user-${state.who}`, email: `${state.who}@example.com` }), refresh_token: 'refresh-1', expires_in: 3600 }));
       }
       if (url === `${API}/account/status`) return new Response(JSON.stringify({ deleted: state.deleted }));
       if (authorization !== `Bearer ${token()}`) return new Response('{}', { status: 401 });
@@ -965,7 +965,7 @@ describe('a deleted account', () => {
   it("Delete my account asks the server once DELETE is typed, then erases this device's copy", async () => {
     const t = await device();
     expect(await t.sync.signedInAt()).toBe(Date.parse(NOW));
-    expect(await t.sync.deletionTarget()).toEqual({ sameAccount: true, email: null });
+    expect(await t.sync.deletionTarget()).toEqual({ sameAccount: true, email: 'a@example.com' });
     expect(await t.sync.deleteAccount()).toBe('deleted');
     expect(t.requests.find((r) => r.url === `${API}/account/delete`)?.body).toEqual({ confirm: 'DELETE', sub: 'user-a' });
     await expectErased(t);
@@ -985,7 +985,8 @@ describe('a deleted account', () => {
   it("Delete my account signed in again as another account deletes nothing, and erases nothing", async () => {
     const t = await device();
     await signInAsB(t);
-    expect(await t.sync.deletionTarget()).toMatchObject({ sameAccount: false });
+    // The other account's email isn't this device's account's, so it isn't named.
+    expect(await t.sync.deletionTarget()).toEqual({ sameAccount: false, email: null });
     expect(await t.sync.deleteAccount()).toBe('wrong_account');
     expect(t.requests.some((r) => r.url === `${API}/account/delete`)).toBe(false);
     expect(t.state.deleted).toBe(false);

@@ -204,6 +204,7 @@ describe('Settings', () => {
       it("signed in again as another account than this device's, deletes nothing", async () => {
         const { sync } = await open(NOW - 60_000, { sameAccount: false, email: 'someone@example.com' });
         expect(await screen.findByText(/You're signed in to another account than the one whose data is on this device/)).toBeVisible();
+        expect(screen.queryByText(/someone@example\.com/)).toBeNull();
         expect(screen.getByRole('textbox', { name: 'Type DELETE to confirm' })).toBeDisabled();
         expect(remove()).toBeDisabled();
         expect(sync.deleteAccount).not.toHaveBeenCalled();

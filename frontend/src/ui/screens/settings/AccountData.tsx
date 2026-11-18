@@ -115,7 +115,7 @@ export function DeleteAccountPage(props: { layout: Layout }) {
         Delete my account and data
       </h1>
       <p className={text}>
-        {target?.email ? `This deletes the account ${target.email}` : 'This deletes your account'} and everything in it, from Multiscale's servers and
+        {target?.sameAccount && target.email ? `This deletes the account ${target.email}` : 'This deletes your account'} and everything in it, from Multiscale's servers and
         from every device you're signed in on. It can't be undone.
       </p>
       <section className="stack8" aria-labelledby={`${id}what`}>

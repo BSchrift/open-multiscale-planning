@@ -282,8 +282,11 @@ final class ShellUITests: XCTestCase {
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "One offs")
         app.tapWeb("Add to One offs")
-        // Process closes itself on the last item; its check fades, then the last item's toast shows.
-        exists(app.webText("Added Return the library books to One offs."))
+        // Process closes itself on the last item. The toast after its check lasts five seconds, and on CI's simulator it
+        // once never reached the test's view of the page in a minute of looking; the browser and component tests check
+        // it (e2e/process.spec.ts, process.test.tsx). What lasts is the Inbox it leaves, so the test waits for that, and
+        // checks below where each item landed.
+        exists(app.webText("Inbox is empty. Anything you capture lands here."))
 
         // Each landed where it was sent: the project's task under its Done, which opens folded behind its milestone.
         app.tapWeb("Goals")

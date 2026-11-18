@@ -11,14 +11,15 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
 import { currentBlock, isPaused, moveBlock, nextBlock, unscheduleBlock } from '../../../core/blocks';
-import { addDays, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
+import { addDays, dayRange, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../core/plan';
+import { blocksInRange } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
 import type { Writer } from '../../../core/records';
 import { dayOffer, dragResult, DRAWN_DAY, fits, GRID, slotContext, slotInstants, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
-import type { CalendarEvent } from '../../../core/types';
+import type { CalendarEvent, LocalDate } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { requestPrompt } from '../../app/reminders';
 import { useApp, useMutation, useStickyState } from '../../app/store';
@@ -77,7 +78,7 @@ const touchGap = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches
 
 export function DayTimeline(props: { data: TodayData; events: readonly CalendarEvent[] }) {
   const { data, events } = props;
-  const { clock, layout, platform } = useApp();
+  const { clock, db, layout, platform } = useApp();
   const zone = clock.zone();
   const phone = layout === 'phone';
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
@@ -121,8 +122,8 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   });
   const held = holdNew.draft?.slot;
 
-  // Minutes after today's midnight, kept within the day, so an event over midnight still draws.
-  const minutesOf = (at: string, edge: number) => (localDate(at, zone) === data.date ? localMinutes(at, zone) : edge);
+  // Minutes after the day's midnight, kept within the day, so an event over midnight still draws.
+  const minutesOf = (at: string, edge: number, date: LocalDate = data.date) => (localDate(at, zone) === date ? localMinutes(at, zone) : edge);
   const cur = currentBlock(data.blocks, clock);
   const records = {
     tasks: new Map(data.tasks.map((t) => [t.id, t])),
@@ -217,22 +218,33 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const slotOf = (i: Item): Slot => ({ date: data.date, start: i.from, end: i.to });
   const workOf = (i: Item) => ({ kind: i.kind === 'one_off' ? ('one_off' as const) : ('project' as const) });
 
-  const save = async (i: Item, from: Slot, to: Slot, key = false) => {
-    // The day's blocks where they're saved; one under way or answered can only be kept.
-    const saved = data.blocks.map((b) => ({ id: b.id, title: b.title ?? 'Time block', date: data.date, start: minutesOf(b.start, 0), end: minutesOf(b.end, 1440), fixed: ended(b) || !!b.started_at }));
+  /**
+   * Asks first when a block lands on others on its new time's day, from that day's blocks where they're saved; one under
+   * way or answered can only be kept. Resolves to the blocks to take off as it moves, or null when cancelled.
+   */
+  const landing = async (i: Item, blocks: readonly BlockRow[], from: Slot | null, to: Slot) => {
+    const saved = blocks.map((b) => ({ id: b.id, title: b.title ?? 'Time block', date: to.date, start: minutesOf(b.start, 0, to.date), end: minutesOf(b.end, 1440, to.date), fixed: ended(b) || !!b.started_at }));
     const on = landsOn(saved, i.id, to, from);
     const answer = on.length ? await both.ask(i.title, on) : 'keep';
-    if (answer === 'cancel') {
+    return answer === 'cancel' ? null : answer === 'replace' ? on.filter((x) => !x.fixed) : [];
+  };
+  /** Moves a block and takes off those it replaces, as one change, so one Undo puts them all back. */
+  const moveOver = (i: Item, to: Slot, off: readonly { id: string }[]) =>
+    run(async (w) => {
+      const moved = await moveBlock(w, i.id, slotInstants(to, zone));
+      const back: RecordWrite[] = [];
+      for (const x of off) back.unshift(...(await unscheduleBlock(w, x.id, weekStart(to.date), clock)).writes);
+      return { writes: [...back, ...moved.writes] };
+    });
+  const tookOff = (off: readonly { title: string }[]) => (off.length ? [`Took ${new Intl.ListFormat('en-GB').format(off.map((x) => x.title))} off the calendar.`] : []);
+
+  const save = async (i: Item, from: Slot, to: Slot, key = false) => {
+    const off = await landing(i, data.blocks, from, to);
+    if (!off) {
       steps.current = null;
       return setDrag(null);
     }
-    const off = answer === 'replace' ? on.filter((x) => !x.fixed) : [];
-    const reverse = await run(async (w) => {
-      const moved = await moveBlock(w, i.id, slotInstants(to, zone));
-      const back: RecordWrite[] = [];
-      for (const x of off) back.unshift(...(await unscheduleBlock(w, x.id, weekStart(data.date), clock)).writes);
-      return { writes: [...back, ...moved.writes] };
-    });
+    const reverse = await moveOver(i, to, off);
     if (!reverse) return setDrag(null);
     // Arrow steps in a row are one change, so Undo takes the block back to before the first.
     const prev = steps.current;
@@ -244,8 +256,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       setDrag(null);
       return run((w) => applyPlanChange(w, first));
     };
-    const tookOff = off.length ? [`Took ${new Intl.ListFormat('en-GB').format(off.map((x) => x.title))} off the calendar.`] : [];
-    toast.show([`${i.title} is now ${range(to)}.`, ...tookOff, ...notes].join(' '), { undo });
+    toast.show([`${i.title} is now ${range(to)}.`, ...tookOff(off), ...notes].join(' '), { undo });
     const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
     setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
@@ -391,9 +402,16 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         return nav.go('week', { edit: 'this' });
     }
   };
+  // Today draws only today, so tomorrow's blocks are read here for the ask.
   const moveTomorrow = async (i: Item, to: Slot) => {
-    const reverse = await run((w) => moveBlock(w, i.id, slotInstants(to, zone)));
-    if (reverse) toast.show(`${i.title} is now tomorrow, ${range(to)}.`, { undo: () => run((w) => applyPlanChange(w, reverse)) });
+    const there = await blocksInRange(db, dayRange(to.date, zone)).catch((error: unknown) => {
+      console.error('Read failed', error);
+      toast.show("Couldn't move that. Try again.");
+      return null;
+    });
+    const off = there && (await landing(i, there, null, to));
+    const reverse = off && (await moveOver(i, to, off));
+    if (reverse) toast.show([`${i.title} is now tomorrow, ${range(to)}.`, ...tookOff(off)].join(' '), { undo: () => run((w) => applyPlanChange(w, reverse)) });
   };
   const below = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();

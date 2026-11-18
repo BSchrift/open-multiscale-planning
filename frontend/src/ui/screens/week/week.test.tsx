@@ -162,6 +162,45 @@ const morning = async (w: Writer) => {
   }
 };
 
+describe.each(['desktop', 'phone'] as const)('a block landing on another while editing, on %s', (layout) => {
+  // Draft the summary is Tuesday 6pm to 7pm, beside Quiz night, a calendar event; Paint the fence follows at 7pm.
+  const seed = async (w: Writer) => {
+    await planned(w);
+    await w.create('time_block', { task_id: 't2', start: at('19:00', TUE), end: at('20:00', TUE), tz: ZONE }, 'b4');
+  };
+  const step = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    if (layout === 'phone') await userEvent.click(within(screen.getByRole('group', { name: 'Choose a day' })).getAllByRole('button')[1]!);
+    const el = layout === 'phone' ? await screen.findByRole('slider', { name: /^Draft the summary\./ }) : await screen.findByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+    el.focus();
+    // A quarter hour later it runs into Paint the fence. Quiz night, another calendar's, never asks.
+    await userEvent.keyboard('{ArrowDown}');
+    return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+  };
+
+  it('asks, and Replace sends the block landed on back to To schedule', async () => {
+    const t = await open({ layout, seed });
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Replace' }));
+    await waitFor(async () => expect((await block('b1')(t))?.start).toBe(at('18:15', TUE)));
+    await waitFor(async () => expect((await block('b4')(t))?.cancelled).toBe(true));
+    expect(await screen.findByText('Took Paint the fence off the calendar')).toBeVisible();
+  });
+
+  it('Keep both, with Enter, keeps both; Cancel leaves it where it was', async () => {
+    const t = await open({ layout, seed });
+    await step();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(async () => expect((await block('b1')(t))?.start).toBe(at('18:15', TUE)));
+    expect((await block('b4')(t))?.cancelled).toBeFalsy();
+    cleanup();
+
+    const again = await open({ layout, seed });
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Schedule both at the same time?' })).toBeNull());
+    expect((await block('b1')(again))?.start).toBe(at('18:00', TUE));
+  });
+});
+
 describe.each(['desktop', 'phone'] as const)('a task\'s block made shorter while editing, on %s', (layout) => {
   // Paint the fence, estimated at an hour, picked for 1h this week and placed Monday 5pm to 6pm.
   const fence = async (w: Writer) => {
@@ -1099,6 +1138,38 @@ describe('Week on phone', () => {
     expect(await screen.findByRole('button', { name: /^Paint the fence, 8pm to 9pm/ })).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('17:00')));
+  });
+
+  it('a block held on the day and let go over another asks first: Cancel leaves it, Replace takes the other off', async () => {
+    const t = await phone({
+      seed: async (w) => {
+        await planned(w);
+        await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4');
+        await w.create('time_block', { task_id: 't1', start: at('20:00'), end: at('21:00'), tz: ZONE }, 'b6');
+      },
+    });
+    // jsdom has no layout: the free row from 6pm to 8pm is drawn 240px tall, so y 180 is 7:30pm, which runs into 8pm.
+    const drop = async () => {
+      const el = await screen.findByRole('button', { name: /^Paint the fence, 5pm to 6pm/ });
+      const free = document.querySelector('.tlrow[data-drop-from="1080"]')!;
+      expect(free).toHaveTextContent('Free, 6pm to 8pm');
+      vi.spyOn(free, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 240, top: 0, left: 0, right: 300, bottom: 240, x: 0, y: 0, toJSON: () => ({}) });
+      Object.defineProperty(document, 'elementFromPoint', { value: () => free, configurable: true });
+      try {
+        holdDown(el, { clientX: 10, clientY: 10, pointerType: 'touch' });
+        fireEvent.pointerMove(window, { clientX: 50, clientY: 180, pointerType: 'touch' });
+        fireEvent.pointerUp(window, { clientX: 50, clientY: 180, pointerType: 'touch' });
+      } finally {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+      return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    };
+    await userEvent.click(within(await drop()).getByRole('button', { name: 'Cancel' }));
+    expect((await block('b4')(t))?.start).toBe(at('17:00'));
+
+    await userEvent.click(within(await drop()).getByRole('button', { name: 'Replace' }));
+    await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('19:30')));
+    await waitFor(async () => expect((await block('b6')(t))?.cancelled).toBe(true));
   });
 
   describe('blocks at the same time', () => {

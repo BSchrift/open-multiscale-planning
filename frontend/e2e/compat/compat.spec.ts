@@ -6,9 +6,9 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
 import { timezoneWithRoom, workJourney } from '../deployed/journey';
 import { goals, openProject } from '../journeys/journey';
-import { account, go, oneOffRow, openSeeded, pane, seed, setDate, syncNow } from '../seed';
+import { account, go, oneOffRow, openSeeded, pane, readRecord, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
-import { capture, closeDevices, daysAhead, deleteAccount, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
+import { capture, closeDevices, daysAhead, DELETED, deleteAccount, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
 import { target } from '../stack/target';
 
 // The last release's bundle, old, and this checkout's, new, as scripts/test-compat.sh built them. serve.mjs serves each
@@ -56,6 +56,12 @@ const oldPlansToInbox = () => {
   return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('Give each item a home'));
 };
 const noOlderThanInboxStep = 'The bundle before already plans a stretch through the Inbox, so there is no older one to run against.';
+// Whether the bundle before already erases a deleted account's copy, as every bundle since account deletion does: on CI,
+// origin/main once that's merged.
+const oldErasesDeletedAccounts = () => {
+  const assets = join(process.env.COMPAT_OLD ?? '', 'assets');
+  return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes(DELETED));
+};
 
 /** Notes what the page logs as an error, such as a query the database refused. */
 function consoleErrors(page: Page, errors: string[], name: Bundle) {
@@ -855,7 +861,7 @@ test('an old and a new device of one user: planning begun on the new one is no t
   expect(newDevice.errors).toEqual([]);
 });
 
-test("an old device whose account a new device deleted shows it's signed out", async ({ browser }) => {
+test("an old device whose account a new device deleted shows it's signed out, or erases its copy if it knows how", async ({ browser }) => {
   test.skip(!target().localApi, 'Deleting an account needs a user only the local stack can make');
   const run = randomUUID().slice(0, 8);
   const paint = { id: `e2e-${run}-paint`, title: `Paint the fence ${run}` };
@@ -865,10 +871,17 @@ test("an old device whose account a new device deleted shows it's signed out", a
   const fresh = await device(browser, `e2e-${run}`, on('new'));
   await signIn(fresh.page);
   await deleteAccount(fresh.page);
-  // At its next launch the released app's sync is refused, and so is its refresh, since the sign-in is gone: it shows
-  // it's signed out. A launch rather than Sync now, since a sync of its own may have signed it out already.
+  // At its next launch the bundle before's sync is refused, and so is its refresh, since the sign-in is gone. A launch
+  // rather than Sync now, since a sync of its own may have reached that already.
   await old.page.reload();
-  await go(old.page, 'Settings');
-  await expect(account(old.page).getByText('Signed out', { exact: true })).toBeVisible();
+  if (oldErasesDeletedAccounts()) {
+    // A bundle from since account deletion erases its copy and starts over, saying why.
+    await expect(old.page.getByText(DELETED)).toBeVisible();
+    expect(await readRecord(old.page, 'task', paint.id)).toBeUndefined();
+  } else {
+    // One from before shows it's signed out.
+    await go(old.page, 'Settings');
+    await expect(account(old.page).getByText('Signed out', { exact: true })).toBeVisible();
+  }
   expect(old.errors).toEqual([]);
 });

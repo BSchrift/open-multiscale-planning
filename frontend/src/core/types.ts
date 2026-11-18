@@ -354,14 +354,32 @@ export interface Practice extends BaseRecord {
   state: PracticeState;
 }
 
+/**
+ * A note: something to look up or remember, never something to do, so it's never ticked, timed or counted. It's `memo`
+ * in code, since a task's notes field is its description. One comes only from an Inbox item, saved as a note in Process
+ * (memos.ts), and is kept until it's deleted.
+ */
+export interface Memo extends BaseRecord {
+  /** One line, up to MAX_TITLE characters, which the server checks. */
+  title: string;
+  /** Simple Markdown, as a task's description (notes.ts), up to MAX_NOTES characters, which the server checks. */
+  body?: string | null;
+  /** The day it was saved as a note, which the notes list shows and goes by. */
+  saved_on?: LocalDate | null;
+}
+
 export type AttachmentKind = 'link' | 'photo' | 'file';
 
 /**
- * A link, photo or file on a task, as a record of its own. A photo's or file's bytes go to private storage through the
- * API, which checks them against size, type and sha256 here; this device keeps a copy once it has them (files.ts).
+ * A link, photo or file on a task or a note, as a record of its own. A photo's or file's bytes go to private storage
+ * through the API, which checks them against size, type and sha256 here; this device keeps a copy once it has them
+ * (files.ts).
  */
 export interface Attachment extends BaseRecord {
-  task_id: string;
+  /** The task it's on. A note's attachment has memo_id instead, and apps from before notes never show it. */
+  task_id?: string | null;
+  /** The note it's on. */
+  memo_id?: string | null;
   kind: AttachmentKind;
   /** What it's called: a page's address or a file's name. */
   name: string;
@@ -393,6 +411,7 @@ export interface RecordMap {
   calendar_source: CalendarSource;
   practice: Practice;
   attachment: Attachment;
+  memo: Memo;
 }
 
 export type RecordType = keyof RecordMap;
@@ -416,6 +435,7 @@ export const RECORD_TYPES = [
   'calendar_source',
   'practice',
   'attachment',
+  'memo',
 ] as const satisfies readonly RecordType[];
 
 /** The bucket aims and meters use for all one offs together, beside project ids. */

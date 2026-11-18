@@ -93,6 +93,9 @@ export function workMinutes(b: Timed): Minutes {
   return Math.max(0, Math.round((end - instantMs(b.start) - pausedMs(b, end)) / MINUTE_MS));
 }
 
+/** Where a practice's Partly starts: half its time, to the nearest 5 minutes. */
+export const halfOfPractice = (b: Timed): Minutes => Math.max(5, Math.round(workMinutes(b) / 10) * 5);
+
 export interface BlockAnswer {
   result: BlockResult;
   /** Partly: the time still to do. */

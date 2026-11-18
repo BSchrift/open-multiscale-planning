@@ -65,11 +65,13 @@ export function RetentionPage(props: { layout: Layout }) {
       </section>
       <section className="stack8" aria-labelledby={`${id}always`}>
         <h2 id={`${id}always`}>Kept until you delete it</h2>
-        <div className="card">
+        <div className="card stack8">
           <p className={text}>
             Open tasks and Inbox items, active and paused projects and their milestones, goals you haven't archived, practices, your settings
             and your calendars.
           </p>
+          <p className={text}>Notes: kept until you delete them, even once what they belong to is finished or gone.</p>
+          <p className={text}>Photos and files on notes: kept with the note, and counted in your storage while kept.</p>
         </div>
       </section>
     </div>

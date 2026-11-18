@@ -109,6 +109,13 @@ describe('expiryFor', () => {
     expect(expiry('attachment', { task_id: 't', kind: 'photo', deleted_at: '2026-11-02T15:00:00Z' }, {}, task({}))).toBe('2026-12-02T15:00:00Z');
   });
 
+  it("keeps a note until it's deleted, and its attachments with it, whatever its home or age", () => {
+    expect(expiry('memo', { title: 'Paint for the hall', saved_on: '2020-01-01', end: '2020-01-01T00:00:00Z' })).toBeNull();
+    expect(expiry('memo', { title: 'x', deleted_at: '2026-11-02T15:00:00Z' })).toBe('2026-12-02T15:00:00Z');
+    expect(expiry('attachment', { memo_id: 'note:t', task_id: null, kind: 'photo' })).toBeNull();
+    expect(expiry('attachment', { memo_id: 'note:t', kind: 'photo', deleted_at: '2026-11-02T15:00:00Z' })).toBe('2026-12-02T15:00:00Z');
+  });
+
   it('keeps practices, settings and the calendar records', () => {
     for (const type of ['practice', 'settings', 'calendar', 'calendar_source']) expect(expiry(type, { state: 'ended', end: '2026-11-02T15:00:00Z' })).toBeNull();
   });

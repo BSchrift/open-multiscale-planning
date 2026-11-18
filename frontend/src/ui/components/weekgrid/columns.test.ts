@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { overlapGroups, overlapNote, shownColumns } from './columns';
+import { laneRows, overlapGroups, overlapNote, shownColumns } from './columns';
 
 const b = (title: string, from: string, to: string) => {
   const m = (t: string) => Number(t.split(':')[0]) * 60 + Number(t.split(':')[1] ?? 0);
@@ -57,5 +57,27 @@ describe('overlapNote', () => {
     expect(overlapNote([])).toBe('');
     expect(overlapNote([{ title: 'Plan the week' }])).toBe(' Overlaps Plan the week.');
     expect(overlapNote([{ title: 'A' }, { title: 'B' }, { title: 'C' }])).toBe(' Overlaps A, B and C.');
+  });
+});
+
+describe('rows above the week', () => {
+  it("packs each day's items from the top, so items on different days share a row", () => {
+    // A session every day, then a one off on Thursday: the sessions share the top row, and the one off goes under.
+    const gym = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ from: d, to: d }));
+    expect(laneRows([...gym, { from: 3, to: 3 }])).toEqual({ rows: [0, 0, 0, 0, 0, 0, 0, 1], count: 2 });
+  });
+
+  it("keeps a practice's sessions in one row across the week, though something else on one of its days comes first", () => {
+    const gym = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ from: d, to: d, group: 'gym' }));
+    const yoga = [1, 3].map((d) => ({ from: d, to: d, group: 'yoga' }));
+    expect(laneRows([{ from: 3, to: 3 }, ...yoga, ...gym])).toEqual({ rows: [2, 1, 1, 0, 0, 0, 0, 0, 0, 0], count: 3 });
+  });
+
+  it('keeps an item spanning days in one row, under anything already on any of them', () => {
+    expect(laneRows([{ from: 1, to: 1 }, { from: 0, to: 2 }, { from: 3, to: 4 }, { from: 2, to: 3 }])).toEqual({ rows: [0, 1, 0, 2], count: 3 });
+  });
+
+  it('takes no room with nothing waiting', () => {
+    expect(laneRows([])).toEqual({ rows: [], count: 0 });
   });
 });

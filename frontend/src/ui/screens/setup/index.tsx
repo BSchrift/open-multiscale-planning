@@ -93,6 +93,11 @@ export default function Screen(props: ScreenProps) {
           <h1 ref={heading} tabIndex={-1}>
             Welcome
           </h1>
+          {data.status.lastError === 'account_deleted' && (
+            <p className="small" role="status">
+              Your account and its data were deleted, from Multiscale and from this device.
+            </p>
+          )}
           <p>Sign in to sync your plans between your devices.</p>
           {signedIn && (
             <div>

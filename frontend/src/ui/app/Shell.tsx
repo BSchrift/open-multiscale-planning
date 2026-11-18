@@ -9,7 +9,7 @@ import { HowToUpdate } from '../components/HowToUpdate';
 import { ToastProvider, useToast } from '../components/Toast';
 import { useNativeAppearance } from './appearance';
 import { MorePage } from './MorePage';
-import { NavProvider, PaneShown, useNav, useOverlay } from './nav';
+import { FlowFrame, NavProvider, PaneShown, useNav, useOverlay } from './nav';
 import type { Route } from './nav';
 import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useKeyboardInset } from './keyboard';
@@ -87,6 +87,7 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
 
 function Panes() {
   const nav = useNav();
+  const flowFrame = useRef<HTMLDivElement>(null);
   const visibleTab = nav.flow ? null : nav.tab;
   const tabs = Object.keys(nav.stacks) as TabId[];
   return (
@@ -103,8 +104,10 @@ function Panes() {
         ));
       })}
       {nav.flow && (
-        <div className="flowpane" role="region" tabIndex={-1} aria-label={AREAS[nav.flow.area].label}>
-          <AreaScreen area={nav.flow.area} params={nav.flow.params} presentation="flow" close={nav.closeFlow} />
+        <div ref={flowFrame} className="flowpane" role="region" tabIndex={-1} aria-label={AREAS[nav.flow.area].label}>
+          <FlowFrame.Provider value={flowFrame}>
+            <AreaScreen area={nav.flow.area} params={nav.flow.params} presentation="flow" close={nav.closeFlow} />
+          </FlowFrame.Provider>
         </div>
       )}
     </>

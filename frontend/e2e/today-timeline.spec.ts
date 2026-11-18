@@ -253,6 +253,7 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
   });
   const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
   await settled(page);
+  await countRings(page);
   const b = page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
@@ -265,5 +266,105 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
   }
   await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { taps: unknown[] }).taps)).toEqual(phone ? [10] : []);
+  // A hold on a block moves it: hold to create, which starts only on empty time, drafted nothing.
+  expect(await rings(page)).toBe(0);
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+
+/**
+ * Puts a pointer down on the day at a time: a finger on phone, a mouse on desktop. The day is measured in the same moment,
+ * since what loads above it can still move it down the page. Returns where it pressed.
+ */
+async function pressOnDay(page: Page, time: string, phone: boolean) {
+  await page.locator('.day').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const [h, m] = time.split(':').map(Number);
+  return page.evaluate(
+    ({ minutes, pointerType }) => {
+      // From 7am, 30px an hour at the first zoom.
+      const box = document.querySelector('.day')!.getBoundingClientRect();
+      const at = { x: box.x + box.width * 0.6, y: box.y + ((minutes - 420) / 60) * 30 };
+      const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType, isPrimary: true, button: 0, buttons: 1, clientX: at.x, clientY: at.y };
+      document.elementFromPoint(at.x, at.y)!.dispatchEvent(new PointerEvent('pointerdown', init));
+      return at;
+    },
+    { minutes: h! * 60 + (m ?? 0), pointerType: phone ? 'touch' : 'mouse' },
+  );
+}
+
+async function letGo(page: Page, at: { x: number; y: number }, phone: boolean) {
+  await page.evaluate(
+    ({ x, y, pointerType }) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType, isPrimary: true, button: 0, clientX: x, clientY: y })),
+    { ...at, pointerType: phone ? 'touch' : 'mouse' },
+  );
+}
+
+/** Counts each ring as it's drawn, since it's gone again in moments. */
+const countRings = (page: Page) =>
+  page.evaluate(() => {
+    const seen = window as unknown as { rings: number };
+    seen.rings = 0;
+    new MutationObserver((changes) => {
+      for (const c of changes) for (const n of c.addedNodes) if (n instanceof Element && n.classList.contains('holdring')) seen.rings++;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+const rings = (page: Page) => page.evaluate(() => (window as unknown as { rings: number }).rings);
+
+test('a press held on empty time drafts an hour there with a ring, and Capture opens on it; Save puts it on the calendar as an Inbox item, with Undo', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  await countRings(page);
+  const at = await pressOnDay(page, '17:50', phone);
+  const draft = page.locator('.cev.holddraft');
+  await expect(draft).toBeVisible();
+  await expect(draft).toContainText('New task');
+  await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+  await expect(draft).toHaveClass(/\bs-placing\b/);
+  await expect.poll(() => rings(page)).toBe(1);
+  await page.screenshot({ path: info.outputPath('hold-draft.png') });
+  await letGo(page, at, phone);
+
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+  const field = capture.getByRole('textbox', { name: 'Capture to Inbox' });
+  await expect(field).toBeFocused();
+  await page.keyboard.type('Book dentist');
+  await expect(draft).toContainText('Book dentist');
+  // The draft stays in view beside Capture on desktop, and above its sheet on phone.
+  const sheet = (await capture.boundingBox())!;
+  const drawn = (await draft.boundingBox())!;
+  const apart = drawn.x + drawn.width <= sheet.x || sheet.x + sheet.width <= drawn.x || drawn.y + drawn.height <= sheet.y || sheet.y + sheet.height <= drawn.y;
+  expect(apart, 'Capture covers the draft').toBe(true);
+  if (phone) expect(drawn.y + drawn.height).toBeLessThanOrEqual(sheet.y);
+  await page.screenshot({ path: info.outputPath('hold-capture.png') });
+  await page.keyboard.press('Enter');
+
+  await expect(page.locator('.toast')).toContainText('Saved to Inbox, 5:45pm to 6:45pm');
+  await expect(draft).toHaveCount(0);
+  const saved = page.getByRole(phone ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
+  await expect(saved).toHaveClass(/\bk-inbox\b/);
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(saved).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a press held on time gone by drafts nothing, and a toast says why; a quick press drafts nothing either', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  const past = await pressOnDay(page, '13:00', phone);
+  await page.waitForTimeout(600);
+  await letGo(page, past, phone);
+  await expect(page.locator('.toast')).toContainText('That time has gone by. Hold on a later time.');
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+
+  const later = await pressOnDay(page, '18:00', phone);
+  await letGo(page, later, phone);
+  await page.waitForTimeout(600);
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

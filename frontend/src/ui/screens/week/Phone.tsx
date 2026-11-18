@@ -39,6 +39,7 @@ import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useWeekActions } from './useWeekActions';
@@ -78,6 +79,8 @@ export function PhoneWeek(props: WeekProps) {
   const [at, setAt] = useState<Slot | null>(null);
   const [edSel, setEdSel] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // Landing on placed blocks asks first: keep both, replace them, or leave it.
+  const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   // A task's block made shorter asks what about the rest, until answered or another block is opened.
   const [split, setSplit] = useState<Shortened | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
@@ -139,12 +142,21 @@ export function PhoneWeek(props: WeekProps) {
     if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
-  const changeBlock = (b: PlacedBlock, slot: Slot) => {
-    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return;
-    void act.move(b.id, slot);
+  /** Saves a block's new time. Cancelled on another block, it resolves to nothing, and the day puts it back. */
+  const changeBlock = async (b: PlacedBlock, slot: Slot) => {
+    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return undefined;
+    const { go, off } = await landing(b.title, slot, b.id, b);
+    if (!go) return undefined;
+    const saved = await act.move(b.id, slot);
     setEdSel(b.id);
     setAsk(b.practice_id ? { blockId: b.id, wasMin: ask?.blockId === b.id ? ask.wasMin : b.end - b.start } : null);
     setSplit(shortened(b, slot, { task: isTask(b), underWay: !!b.now, week: data.week, title: b.title, open: split }));
+    takeOff(off);
+    return saved;
+  };
+  const dropCard = async (item: LaneItem, slot: Slot) => {
+    const { go, off } = await landing(item.title, slot);
+    if (go && (await act.place(item, slot))) takeOff(off);
   };
 
   const cancelPlacing = () => {
@@ -174,15 +186,26 @@ export function PhoneWeek(props: WeekProps) {
   };
   const finishPlacing = async () => {
     if (!placing || !at || locked) return;
+    const moving = placing.mode === 'move' ? placing.block : null;
+    // A day with another of a practice's sessions refuses it before anything asks.
+    const refused = !!moving?.practice_id && at.date !== moving.date && model.blocks.some((x) => x.id !== moving.id && x.practice_id === moving.practice_id && x.date === at.date);
+    const { go, off } = refused ? { go: true, off: [] } : await landing(drawnOf(placing).title, at, moving?.id ?? null, moving);
+    if (!go) return;
     if (placing.mode === 'move') {
       if (!(await moveTo(placing.block, at))) return;
     } else if (placing.mode === 'planning') {
       if (!(await planning.place(placing.plan, at))) return;
     } else if (!(await act.place(placing.item, at))) return;
+    takeOff(off);
     setPlacing(null);
     setAt(null);
     props.donePlacing();
     if (placing.mode === 'planning' && placing.plan.flow) props.close();
+  };
+  /** A block held on the day and let go on another asks first, as Move here does. Holds stay on their day. */
+  const holdMove = async (b: PlacedBlock, slot: Slot) => {
+    const { go, off } = await landing(b.title, slot, b.id, b);
+    if (go && (await moveTo(b, slot))) takeOff(off);
   };
   /** Planning carried to another week keeps its day of the week and time. */
   const carryTo = (days: number) => props.goWeek(addDays(props.week, days), plan && at ? { ...at, date: addDays(at.date, days) } : undefined);
@@ -211,7 +234,7 @@ export function PhoneWeek(props: WeekProps) {
       draggable={isThis && !placing}
       onToggle={() => (planningWeekOf(x.id) ? setPlanningFor(planningWeekOf(x.id)) : setOpen({ kind: 'item', id: x.id }))}
       onPreview={(slot) => setDropAt(slot && { item: x, slot })}
-      onDrop={(slot) => void act.place(x, slot)}
+      onDrop={(slot) => void dropCard(x, slot)}
     />
   );
   const dayIndex = diffDays(data.week, selDay);
@@ -399,7 +422,7 @@ export function PhoneWeek(props: WeekProps) {
             <h3 className="wkday">{dayTitle}</h3>
           )}
           <div ref={dayCard} className="card wkdaycard" {...pinch}>
-            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={(b, slot) => void moveTo(b, slot)} />
+            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={(b, slot) => void holdMove(b, slot)} />
           </div>
           {isThis && (
             <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
@@ -471,6 +494,7 @@ export function PhoneWeek(props: WeekProps) {
         </button>
       ) : null}
 
+      {asking}
       {opened && (
         <BlockSheet
           block={opened}
@@ -812,7 +836,8 @@ export function DragDay(props: {
   selected?: string | null;
   onMoving(slot: Slot): void;
   onDone(): void;
-  onChange(b: PlacedBlock, slot: Slot): void;
+  /** A save that resolves to nothing has been called off, and the block goes back to where it was. */
+  onChange(b: PlacedBlock, slot: Slot): unknown;
   /** A block let go over To schedule, which takes it off the calendar. */
   onUnschedule?(b: PlacedBlock): void;
   onOpen(id: string): void;
@@ -895,7 +920,7 @@ export function DragDay(props: {
     kind: PlacedBlock['kind'],
     slot: Slot,
     calm: boolean,
-    on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
+    on: { change(s: Slot): unknown; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
     /** Its column among blocks at the same time, and those it overlaps. */
     column?: { style: CSSProperties; others: readonly PlacedBlock[] },
   ) => {
@@ -925,8 +950,9 @@ export function DragDay(props: {
           else on.change(latest);
         },
         () => {
-          if (on.commit && (latest.start !== slot.start || latest.end !== slot.end)) on.change(latest);
-          else setPreview(null);
+          if (!on.commit || (latest.start === slot.start && latest.end === slot.end)) return setPreview(null);
+          const saved = on.change(latest);
+          if (saved instanceof Promise) void saved.then((ok) => ok === undefined && setPreview(null));
         },
         mode === 'move' ? on.open : undefined,
         mode === 'move' ? on.unschedule : undefined,

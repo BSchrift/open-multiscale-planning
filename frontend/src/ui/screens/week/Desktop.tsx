@@ -32,6 +32,8 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
+import type { Shortened } from '../../components/editors/SplitAsk';
 import { TaskPopupFor } from '../task';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
@@ -64,6 +66,8 @@ export function DesktopWeek(props: WeekProps) {
   const [selected, setSelected] = useState<string | null>(props.place);
   const [draft, setDraft] = useState<Slot | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // A task's block made shorter asks what about the rest, until answered or another block is chosen.
+  const [split, setSplit] = useState<Shortened | null>(null);
   const [moved, setMoved] = useState<string | null>(null);
   // Edit and Done editing each go once pressed, so focus moves to the other one rather than the page.
   const editBtn = useRef<HTMLButtonElement>(null);
@@ -124,6 +128,7 @@ export function DesktopWeek(props: WeekProps) {
     setSelected(id);
     setDraft(null);
     setAsk(null);
+    setSplit(null);
   };
   const stopEditing = () => {
     choose(null);
@@ -146,6 +151,7 @@ export function DesktopWeek(props: WeekProps) {
     const saved = act.move(id, slot);
     setMoved(id);
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
+    setSplit(shortened(b, slot, { task: isTaskBlock(b.kind), underWay: !!b.now, week: data.week, title: b.title, open: split }));
     return saved;
   };
   const place = async (what: Placeable, slot: Slot) => {
@@ -271,6 +277,7 @@ export function DesktopWeek(props: WeekProps) {
               </div>
             </div>
             {ask && <PracticeAsk ask={ask} model={model} onDone={() => setAsk(null)} />}
+            {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
             {lastMoved && !drafted && (
               <div className="stack8" role="status" aria-label="Last change">
                 <div className="small strong">

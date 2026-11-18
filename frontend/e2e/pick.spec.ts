@@ -162,6 +162,32 @@ test('walk case 3: a milestone added here is tagged to this stretch, reads "by D
   await expect(row(page, 'Get a print quote')).toBeVisible();
 });
 
+test('Change aims fits the window, and Save stays in reach while its aims scroll', async ({ page }, info) => {
+  // Both projects' windows already are this tall (playwright.config.ts); set here so the test keeps its window.
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: info.project.name === 'desktop' ? 1000 : 844 });
+  await openPick(page);
+  if (info.project.name === 'phone') {
+    await page.getByRole('button', { name: 'More: change aims, select' }).click();
+    await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: 'Change aims for this week' }).click();
+  } else await page.getByRole('button', { name: 'Change aims for this week' }).click();
+  const aims = page.getByRole('dialog', { name: 'Aims for this week' });
+  await expect(aims.getByRole('slider').first()).toBeVisible();
+  const box = (await aims.boundingBox())!;
+  expect(box.y, 'the popover starts in the window').toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height, 'the popover ends in the window').toBeLessThanOrEqual(page.viewportSize()!.height);
+  // Save is what the browser hits, without scrolling, at the top of the aims and with them scrolled to the end.
+  const save = aims.getByRole('button', { name: 'Save' });
+  const reachable = () => save.evaluate((e) => {
+    const r = e.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!at && (at === e || e.contains(at));
+  });
+  expect(await reachable(), 'Save in reach with the aims at the top').toBe(true);
+  await aims.evaluate((e) => e.scrollTo(0, e.scrollHeight));
+  expect(await reachable(), 'Save in reach with the aims scrolled').toBe(true);
+  await page.screenshot({ path: info.outputPath(`pick-aims-${info.project.name}.png`) });
+});
+
 test('until this stretch is planned, every project shows and one line says why', async ({ page }) => {
   await openPick(page, [...SAMPLE, { type: 'settings', id: 'settings', fields: { plan_stretch: {} } }]);
   await expect(page.getByText("Oct 1 to Dec 31 isn't planned yet, so every project shows.")).toBeVisible();

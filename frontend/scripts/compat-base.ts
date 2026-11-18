@@ -1,7 +1,8 @@
 // The old bundle scripts/test-compat.sh tests this checkout's beside: the oldest version any surface of a deployment
 // serves, by build. With surfaces released apart, one person's devices can run the web app, the Mac's and the iPhone's
 // versions at once, and each rolls back to its own. The compatibility rules only ever widen, so the widest gap is the
-// one to test. Prints the version, such as 0.1.0-85e85c2, whose end is the commit it was built from.
+// one to test. Prints the version, such as 0.1.0-85e85c2, whose end is the commit it was built from, then the surface
+// that serves it: web, desktop or iphone.
 //   node scripts/compat-base.ts <env>.outputs.json
 
 import { readFileSync } from 'node:fs';
@@ -40,7 +41,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]!).href) {
   oldestLive(outputs).then(
     (oldest) => {
       console.error(`The oldest version live is ${oldest.version}, on ${oldest.surface}.`);
-      console.log(oldest.version);
+      console.log(`${oldest.version} ${oldest.surface}`);
     },
     (error: unknown) => {
       console.error(String(error instanceof Error ? error.message : error));

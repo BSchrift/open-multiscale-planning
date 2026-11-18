@@ -18,6 +18,12 @@ feature gets a row, and a test that covers a cell gets named in it.
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
 | Performance KPIs | `frontend/e2e/perf/` | Web desktop, web phone and the Mac app | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`) |
 
+**The deployed journey, on the release before.** Prod's Test step runs the deployed web suite against the web app prod
+still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
+journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
+bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
+there, before prod's Test step meets it.
+
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
 on a data folder of its own, with the test's time zone and colour scheme. The journeys do this. A spec that seeds

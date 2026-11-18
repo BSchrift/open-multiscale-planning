@@ -81,6 +81,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture shortcut | n/a (apps only) | n/a | covered (desktop: "a new capture shortcut from Settings replaces the old one…") | n/a |
 | Updates | n/a (apps only) | n/a | partly (unit tests only; the section shows only in builds with a release feed) | partly (unit tests only) |
 | Data retention | covered (settings: "Data retention says what's kept and for how long…") | covered (same) | missing | missing |
+| Account: Export my data, a zip of every record, its settings and a README | covered (stack/account: "desktop: Export my data downloads a zip of everything the account has") | covered (stack/account: "phone: …", at phone size) | missing (the Mac app hands the link to the default browser; settings.test.tsx checks it goes through the platform) | missing (Safari saves it; settings.test.tsx checks the platform is asked) |
+| Account: Delete my account and data, with a fresh sign-in and DELETE typed | covered (stack/account: "desktop: Delete my account and data takes a fresh sign-in and DELETE…"; settings.test.tsx: the page's safeguards) | covered (stack/account: "phone: …", at phone size) | missing | missing |
 
 ### Stretch planning (Plan)
 
@@ -207,6 +209,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Expired sign-in, and signing in as another account | covered (stack/sync: "an expired sign-in shows in Settings…", "signing in as another account asks first…") | missing (desktop only) | partly (sync: "…a restart keeps data and sign-in") | missing |
 | Sign-in tokens kept safely | n/a | n/a | covered (desktop: "tokens are stored encrypted and survive a restart") | covered (testTokensRoundTripThroughTheKeychain) |
 | Attachments' photos sync and open on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (desktop only) | missing (the file picker is the browser's; not run on the Mac app) | missing |
+| A deleted account: every signed-in device erases its copy on its next sync, and one whose token lapsed asks | covered (stack/account: "…a second device erases its copy", at its next launch; syncRunner.test.ts for a sync and a lapsed token; account.stack.test.ts) | missing (desktop only) | missing | missing |
+| A released app after its account is deleted shows it's signed out | covered (compat: "an old device whose account a new device deleted shows it's signed out") | n/a | n/a | n/a |
 | Export and account deletion, server side: every record type and note in the export, a deletion removing everything from DynamoDB, the bucket and the user pool, other people untouched, an interrupted deletion carried on, devices refused, a lapsed token's status | n/a: server side, in backend/internal/account, backend/internal/api/account_test.go and backend/integration/account_test.go | | | |
 
 ### Google Calendar

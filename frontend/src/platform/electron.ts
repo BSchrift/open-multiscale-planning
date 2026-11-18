@@ -43,6 +43,8 @@ export async function createElectronPlatform(): Promise<Platform> {
     // A Mac app from before attachments keeps a content policy that doesn't reach their storage.
     ...(bridge.attachments ? {} : { filesBlocked: true as const }),
     openExternal: bridge.openExternal,
+    // Its window navigates nowhere, so a download goes to the default browser.
+    openDownload: bridge.openExternal,
     signInRedirectUri: bridge.signInRedirectUri,
     setAppearance: bridge.setAppearance,
     updates: bridge.updates,

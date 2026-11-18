@@ -8,7 +8,8 @@ import { timezoneWithRoom, workJourney } from '../deployed/journey';
 import { goals, openProject } from '../journeys/journey';
 import { account, go, oneOffRow, openSeeded, pane, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
-import { capture, closeDevices, daysAhead, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
+import { capture, closeDevices, daysAhead, deleteAccount, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
+import { target } from '../stack/target';
 
 // The last release's bundle, old, and this checkout's, new, as scripts/test-compat.sh built them. serve.mjs serves each
 // browser context the one its bundle cookie names, from one origin. In one context the two share a database, as an
@@ -852,4 +853,22 @@ test('an old and a new device of one user: planning begun on the new one is no t
   await expect(pane(newDevice.page, 'Plan').getByRole('button', { name: 'Continue planning' })).toHaveCount(0);
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
+});
+
+test("an old device whose account a new device deleted shows it's signed out", async ({ browser }) => {
+  test.skip(!target().localApi, 'Deleting an account needs a user only the local stack can make');
+  const run = randomUUID().slice(0, 8);
+  const paint = { id: `e2e-${run}-paint`, title: `Paint the fence ${run}` };
+  const old = await device(browser, `e2e-${run}`, on('old'));
+  await seed(old.page, [oneOff(paint.id, paint.title)]);
+  await signIn(old.page);
+  const fresh = await device(browser, `e2e-${run}`, on('new'));
+  await signIn(fresh.page);
+  await deleteAccount(fresh.page);
+  // At its next launch the released app's sync is refused, and so is its refresh, since the sign-in is gone: it shows
+  // it's signed out. A launch rather than Sync now, since a sync of its own may have signed it out already.
+  await old.page.reload();
+  await go(old.page, 'Settings');
+  await expect(account(old.page).getByText('Signed out', { exact: true })).toBeVisible();
+  expect(old.errors).toEqual([]);
 });

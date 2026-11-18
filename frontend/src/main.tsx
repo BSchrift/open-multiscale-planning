@@ -8,6 +8,7 @@ import type { Fields, RecordChange, RecordType } from './core/types';
 import { startAppSync } from './core/syncRunner';
 import { createUpdater } from './core/updates';
 import { createPlatform } from './platform';
+import { forgetScreenState } from './ui/app/screenState';
 import { Shell } from './ui/app/Shell';
 import { AppProvider } from './ui/app/store';
 import './ui/styles/index.css';
@@ -58,7 +59,7 @@ createPlatform(__APP_CONFIG__.env).then(
         : undefined;
     root.render(
       <StrictMode>
-        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, updates ? { updates } : {})} updates={updates}>
+        <AppProvider platform={platform} clock={systemClock} sync={startAppSync(platform, systemClock, __APP_CONFIG__, { forget: forgetScreenState, ...(updates ? { updates } : {}) })} updates={updates}>
           <Shell />
         </AppProvider>
       </StrictMode>,

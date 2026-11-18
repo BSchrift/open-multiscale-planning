@@ -2307,6 +2307,39 @@ describe("a block's quick menu", () => {
     expect(t.nav().tab).toBe('week');
   });
 
+  it("Tomorrow asks first when it lands on a block there, though Today doesn't draw tomorrow", async () => {
+    const TOMORROW = '2026-11-03';
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '16:30', '17:30', { start: at('16:30', TOMORROW), end: at('17:30', TOMORROW) });
+    });
+    const tomorrow = async () => {
+      rightClick(await report());
+      for (const name of ['Move to', 'Tomorrow, 4pm']) await userEvent.click(await screen.findByRole('menuitem', { name }));
+      return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    };
+    // Cancel leaves both where they were.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Replace sends the fence back to To schedule, with one Undo for both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText('Write the report is now tomorrow, 4pm to 5pm. Took Paint the fence off the calendar.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Keep both keeps both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Keep both' }));
+    expect(await screen.findByText('Write the report is now tomorrow, 4pm to 5pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy();
+  });
+
   it('Start now, Open, Remove from calendar and Delete task do what the popup does; Delete asks first', async () => {
     const t = await open(day);
     rightClick(await report());

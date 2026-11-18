@@ -631,6 +631,24 @@ describe('createHttpSend', () => {
     expect(a.expire).not.toHaveBeenCalled();
   });
 
+  it("a 401 for a deleted account says so at once: no refresh can mend it", async () => {
+    const a = auth();
+    const fetchFn = vi.fn(async () => json(401, { error: 'account_deleted' }));
+    const send = createHttpSend({ apiUrl: 'https://api.example.test', auth: a, fetch: fetchFn });
+    await expect(send({ cursor: 0, changes: [] })).rejects.toMatchObject({ code: 'account_deleted' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(a.accessToken).not.toHaveBeenCalledWith({ refresh: true });
+    // Found deleted after a refresh, as when the deletion started between the two.
+    const b = auth();
+    b.accessToken.mockImplementation(async (options) => (options?.refresh ? 'token-2' : 'token-1'));
+    const second = vi.fn(async (_url: string, init: RequestInit) =>
+      (init.headers as Record<string, string>).authorization === 'Bearer token-2' ? json(401, { error: 'account_deleted' }) : json(401, {}),
+    );
+    await expect(createHttpSend({ apiUrl: 'https://api.example.test', auth: b, fetch: second })({ cursor: 0, changes: [] })).rejects.toMatchObject({
+      code: 'account_deleted',
+    });
+  });
+
   it('a second 401 means the sign-in has expired', async () => {
     const a = auth();
     const fetchFn = vi.fn(async () => json(401, {}));

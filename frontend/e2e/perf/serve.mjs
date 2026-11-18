@@ -1,7 +1,8 @@
 // Serves each build the performance runner times on its own port, so each is its own origin with its own database, as
 // two devices are. Gzipped, and the hashed assets cached as CloudFront serves them, so a warm start finds them cached
 // and the byte counts are what goes over the network.
-//   node serve.mjs <name>=<build folder> ...   prints "Serving <name> at http://localhost:<port>" for each
+//   node serve.mjs <name>=<build folder>[@<port>] ...   prints "Serving <name> at http://localhost:<port>" for each,
+//   on the port given, which a deployment's sign-in needs, or any free one
 
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -28,7 +29,8 @@ const isFile = (path) => {
 };
 
 for (const arg of process.argv.slice(2)) {
-  const [name, dir] = arg.split('=');
+  const [name, rest] = arg.split('=');
+  const [dir, port] = rest.split('@');
   createServer((request, response) => {
     // The URL's path has no dot segments left. Any path that isn't a file is the app's page.
     const pathname = new URL(request.url, 'http://localhost').pathname;
@@ -43,7 +45,7 @@ for (const arg of process.argv.slice(2)) {
     });
     const body = createReadStream(file);
     (gzip ? body.pipe(createGzip()) : body).pipe(response);
-  }).listen(0, 'localhost', function () {
+  }).listen(Number(port) || 0, 'localhost', function () {
     console.log(`Serving ${name} at http://localhost:${this.address().port}`);
   });
 }

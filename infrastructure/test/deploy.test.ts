@@ -39,6 +39,19 @@ while [ $# -gt 0 ]; do if [ "$1" = --outputs-file ]; then printf '{"%s":%s}' "$s
 }
 
 describe('scripts/deploy.sh', () => {
+  // Only a stack that doesn't exist yet: its queue mapping must wait for the worker's alias, which an update already has.
+  it("says it's the stack's first deploy only when CloudFormation has no such stack", () => {
+    const existing = sandbox();
+    assert.equal(existing.run().status, 0);
+    assert.doesNotMatch(existing.log(), /firstDeploy/);
+    const fresh = sandbox({
+      aws: `echo "aws $*" >> "$LOG"; case "$*" in *describe-stacks*) echo "Stack does not exist" >&2; exit 254;; esac; echo 210987654321`,
+    });
+    const r = fresh.run();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(fresh.log(), /npx cdk deploy Multiscale-staging .*-c firstDeploy=true/);
+  });
+
   it('deploys staging by default', () => {
     const s = sandbox();
     const r = s.run();
@@ -177,7 +190,7 @@ describe('scripts/deploy.sh', () => {
   it('builds every Lambda for arm64 Linux with no cgo, from cmd/api, cmd/calendar, cmd/retention and cmd/canary', () => {
     const s = sandbox();
     s.run();
-    for (const name of ['api', 'calendar', 'retention', 'canary']) {
+    for (const name of ['api', 'calendar', 'retention', 'canary', 'account']) {
       assert.match(s.log(), new RegExp(`go GOOS=linux GOARCH=arm64 CGO=0 build .*-o \\S*backend/dist/${name}/bootstrap \\./cmd/${name}`));
     }
   });

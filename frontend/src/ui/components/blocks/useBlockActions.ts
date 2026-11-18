@@ -22,6 +22,7 @@ import type { BlockRow } from '../../../core/queries';
 import type { Db } from '../../../core/db';
 import type { Writer } from '../../../core/records';
 import { snoozeUntil } from '../../../core/reminders';
+import { closeTask, tickOneOff } from '../../../core/tasks';
 import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useMutation } from '../../app/store';
 import { useToast } from '../Toast';
@@ -73,6 +74,21 @@ export function useBlockActions() {
       });
       if (reverse) toast.show(message(freed), { undo: () => run((w) => applyPlanChange(w, reverse)) });
       return !!reverse;
+    },
+    /**
+     * Done on a block still to come: the task finishes now, as its row's box would, rather than the block being answered,
+     * so this block and any later ones come off the calendar and their time is free.
+     */
+    finish: async (block: BlockRow) => {
+      const taskId = block.task_id;
+      if (!taskId) return;
+      const reverse = await run((w) => (block.task_kind === 'one_off' ? tickOneOff(w, taskId, clock) : closeTask(w, taskId, 'done', clock)));
+      if (!reverse) return;
+      const freed = reverse.writes.filter((r) => r.type === 'time_block').length;
+      const later = freed > 2 ? ` and ${freed - 1} later ones` : freed === 2 ? ' and 1 later one' : '';
+      const off = freed ? ` Its ${formatTime(block.start, clock.zone())} block${later} came off the calendar, so that time is free.` : '';
+      // The block it was pressed on goes, so focus would otherwise fall to the page.
+      toast.show(`Marked ${block.title ?? 'it'} done.${off}`, { undo: () => run((w) => applyPlanChange(w, reverse)), focusUndo: true });
     },
     /** Says the time spent, pauses left out, on a block started a minute or more ago. */
     markDoneNow: (block: BlockRow, next: BlockRow | undefined) => {

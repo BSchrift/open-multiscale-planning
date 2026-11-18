@@ -23,7 +23,8 @@ import { planningWeekOf } from '../../../core/planning';
 import { isTaskBlock, KIND_WORD } from '../../components/blocks/describe';
 import { usePlanningActions } from '../../components/planning/usePlanning';
 import { TimeUse } from '../../components/week/TimeUse';
-import { dayName, dragCard, slotRange, WeekGrid } from '../../components/weekgrid';
+import { dayName, dragCard, slotRange } from '../../components/weekgrid';
+import { HoldWeekGrid } from '../../components/weekgrid/HoldWeekGrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
 import type { LaneItem, Placeable } from './data';
@@ -444,7 +445,7 @@ export function DesktopWeek(props: WeekProps) {
                 )}
               </section>
             )}
-            <WeekGrid
+            <HoldWeekGrid
               ctx={model.ctx}
               blocks={gridBlocks}
               info={model.info}
@@ -454,6 +455,8 @@ export function DesktopWeek(props: WeekProps) {
               ghosts={ghosts}
               editing={editing || !!plan}
               lockPast={editing || !!plan}
+              // Hold to create: never while a block is open or being placed, or a card's suggested times are showing.
+              holdOff={!!plan || !!drafted || !!openBlock || !!openItem}
               lane={model.unscheduled.flatMap((x) =>
                 // The planning being placed is the block, not a card waiting above its days.
                 x.dates && x.id !== props.place

@@ -23,6 +23,24 @@
   min-height: 44px;
 }
 
+/* Goal backlog and Save as note: the choices that aren't a place, side by side. */
+[data-layout] .pxside {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+[data-layout] .pxside .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-layout='phone'] .pxside .btn {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
 /* No home yet? Make one: a labelled row of two. */
 [data-layout] .pxmake {
   display: flex;
@@ -226,6 +244,14 @@
 [data-layout] .pxdatenote {
   color: var(--ink-3);
   font-size: var(--fs-meta);
+}
+
+/* Under a shared description that was cut to fit. */
+[data-layout] .pxcutnote {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
 }
 
 /* When its block is on the calendar, as hold to create leaves one. */

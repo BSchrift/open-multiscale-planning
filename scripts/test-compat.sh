@@ -18,11 +18,15 @@ outputs="${MULTISCALE_CONFIG_DIR:-$root/config}/prod.outputs.json"
 if [ -z "${BASE:-}" ] && [ -f "$outputs" ]; then
   # The oldest bundle a device of prod's may run, which a rollback after a failed trial goes back to too. Its version
   # ends in the commit it was built from.
-  if ! version="$(node "$root/frontend/scripts/compat-base.ts" "$outputs")"; then
+  if ! oldest="$(node "$root/frontend/scripts/compat-base.ts" "$outputs")"; then
     echo "Couldn't read the versions prod serves, from the outputs in $outputs. Set BASE to the commit to test against." >&2
     exit 1
   fi
+  version="${oldest% *}"
   BASE="${version##*-}"
+  # The surface that serves it. The deployed journey's run on the old bundle is prod's Test step's, which meets only the
+  # web app.
+  export COMPAT_OLD_SURFACE="${oldest##* }"
 fi
 export BASE="${BASE:-origin/main}"
 if ! git -C "$root" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then

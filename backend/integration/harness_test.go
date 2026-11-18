@@ -36,6 +36,7 @@ var (
 	maxChanges     = appconfig.Protocol.Sync.MaxChanges
 	maxRecordBytes = appconfig.Protocol.Sync.MaxRecordBytes
 	maxNotesChars  = appconfig.Protocol.Records.MaxNotesChars
+	maxTitleChars  = appconfig.Protocol.Records.MaxTitleChars
 	maxClockAhead  = time.Duration(appconfig.Protocol.Sync.MaxClockAheadHours) * time.Hour
 )
 
@@ -47,6 +48,9 @@ const (
 	capturedLogs   = "capturedLogs"
 	moto           = "moto"
 	localTables    = "localTables" // the local stack's DynamoDB, which make storage-quota writes to directly
+	// disposableUser is a user the test may delete, account and all: the local stack signs anyone in. A deployment's
+	// test users are the only ones it has.
+	disposableUser = "disposableUser"
 
 	secondUser   = "secondUser"   // a second test user to prove isolation
 	googleClient = "googleClient" // the deployment has its Google client secrets
@@ -54,7 +58,7 @@ const (
 )
 
 var (
-	emulatorOnly = []string{fakeClock, faultInjection, fakeGoogle, capturedLogs, moto, localTables}
+	emulatorOnly = []string{fakeClock, faultInjection, fakeGoogle, capturedLogs, moto, localTables, disposableUser}
 	capabilities = append([]string{secondUser, googleClient, testCalendar}, emulatorOnly...)
 )
 
@@ -241,6 +245,8 @@ type account struct {
 	pushed   map[[2]string]bool
 	username string
 	base     int64
+	// google is the Google account this user signs in to at consent, on the local stack's stand-in: one of their own.
+	google string
 }
 
 // signIn returns the test's main user: on the local stack someone new, whose data starts empty; on a deployment the

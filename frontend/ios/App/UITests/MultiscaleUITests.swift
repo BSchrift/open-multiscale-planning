@@ -297,6 +297,28 @@ final class ShellUITests: XCTestCase {
         exists(app.webElement("Return the library books done"))
     }
 
+    func testSaveAsNoteFromProcessThenFindItInNotesUnderMore() {
+        let app = launchApp(seed: "Seed plan")
+        let field = app.page.textFields["Capture to Inbox"]
+        app.tapWeb("Capture a task", until: field)
+        app.type("Gate code at the allotment\n", into: field)
+        XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
+
+        // One tap beside Goal backlog; Process closes itself on the last item, and its toast shows.
+        app.tapWeb(startingWith: "Inbox")
+        app.tapWeb("Process 1 item")
+        exists(app.webButton("Gate code at the allotment"))
+        app.tapWeb("Save as note")
+        exists(app.webText("Saved Gate code at the allotment in Notes."))
+
+        // Notes is a row under More, and the note opens in its popup.
+        app.tapWeb("More")
+        app.tapWeb(startingWith: "Notes")
+        app.tapWeb(startingWith: "Gate code at the allotment")
+        exists(app.webButton("Delete note"))
+        app.tapWeb("Cancel")
+    }
+
     func testAPracticeOnMondayTuesdayAndFridaySavesWithUndo() {
         let app = launchApp(seed: "Seed plan")
         app.tapWeb("Goals")
@@ -419,6 +441,29 @@ final class ShellUITests: XCTestCase {
         allowNotificationsIfAsked()
     }
 
+    func testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+        // The seeded app's clock reads 10am, so the afternoon and evening are still to come.
+        let app = launchApp(seed: "Seed plan")
+        let day = app.page.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Today's timeline")).firstMatch
+        onToday(day, in: app)
+        // The day runs from 7am to 10pm down the card. Brought up the screen, then held low on it, in the afternoon or
+        // evening, above the tab bar, and let go after the hold.
+        app.swipeUp()
+        let screen = app.windows.firstMatch.frame
+        let y = min(day.frame.maxY - 40, screen.maxY - 160)
+        XCTAssertGreaterThan(y, day.frame.midY, "the lower half of the day isn't on screen. On screen:\n\(app.debugDescription)")
+        let at = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: day.frame.midX, dy: y))
+        at.press(forDuration: 0.8)
+
+        // Capture opens on the draft, saying its day and time.
+        let when = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch
+        exists(when)
+        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.tapWeb("Save")
+        // Saved there as an Inbox item, its block drawn as one: a slider, since it's still to come.
+        exists(day.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
+    }
+
     func testABlockHeldOnWeeksDayThenDraggedDownMovesLater() throws {
         let app = launchApp(seed: "Seed later")
         // Asked before the drag, so the question can't land in the middle of it.
@@ -429,16 +474,66 @@ final class ShellUITests: XCTestCase {
         onTab("Week", block, in: app)
         let before = block.label
 
-        // The day runs on below the screen's bottom, where the tab bar would take the touch, so the page scrolls up
-        // first, by the margin left of the day, where nothing is held.
+        // The day runs on below the screen's bottom, under the Capture button and the tab bar, so the page scrolls up
+        // first. The week's top, down to its day strip, stays over the day as it scrolls, and the tree still places a
+        // block that's gone under it, so a press on the block there lands on the strip instead. A fixed flick scrolled
+        // as far as iOS flung it, which on CI was sometimes that far. So the block is scrolled to where its middle,
+        // which is pressed, and the time `drop` below it, where it's let go, are both clear of the strip and the
+        // Capture button.
+        let drop: CGFloat = 120
+        let strip = app.webElement("Choose a day")
+        let capture = app.webButton("Capture a task")
+        exists(strip)
+        exists(capture)
+        let top = strip.frame.maxY + 44
+        let bottom = capture.frame.minY - 22
+        let clear = { block.frame.midY >= top && block.frame.midY + drop <= bottom }
+        // By the margin left of the day, where nothing is held, and stopped before letting go, so the page doesn't fly
+        // on. The distance is measured from where the block is each time, so a scroll that a busy Simulator flung anyway
+        // is brought back by the next.
         let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
-        margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: -260)))
+        for _ in 0..<3 where !clear() {
+            let by = (top + bottom - drop) / 2 - block.frame.midY
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: by)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(clear(), "Shape the loaf at \(block.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
         // Held past the lift, then let go two rows down, over the free time after it.
         let from = block.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 120)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        from.press(forDuration: 0.8, thenDragTo: from.withOffset(CGVector(dx: 0, dy: drop)), withVelocity: .slow, thenHoldForDuration: 0.5)
         let moved = app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Shape the loaf, ' AND label != %@", before)).firstMatch
         exists(moved)
         exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
+    }
+
+    func testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        // Today's first stretch of free time still to come, a row that says so.
+        let free = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Free, '")).firstMatch
+        onTab("Week", free, in: app)
+
+        // As for a block held on the day: the row is scrolled to where its middle is clear of the week's top, which
+        // stays over the day, and of the Capture button, by the margin left of the day, where nothing is held.
+        let strip = app.webElement("Choose a day")
+        let capture = app.webButton("Capture a task")
+        exists(strip)
+        exists(capture)
+        let top = strip.frame.maxY + 44
+        let bottom = capture.frame.minY - 22
+        let clear = { free.frame.midY >= top && free.frame.midY <= bottom }
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        for _ in 0..<3 where !clear() {
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: (top + bottom) / 2 - free.frame.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(clear(), "The free row at \(free.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
+        free.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8)
+
+        // Capture opens on the draft, saying its day and time, and Save puts it there as an Inbox item.
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch)
+        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.tapWeb("Save")
+        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
     }
 
     func testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem() throws {
@@ -668,6 +763,13 @@ final class NativeUITests: XCTestCase {
         exists(app.webButton("Shared"))
         run("Shared", expect: "shared:\(url)")
         run("Shared", expect: "shared:")
+    }
+
+    /// A 21,000-character share reaches the app whole through the extension's queue, and the app cuts its description on
+    /// a word to the 20,000 characters the server takes, and says so, so the share can't stop sync.
+    func testALongShareReachesTheAppWholeAndItsDescriptionIsCut() throws {
+        try XCTSkipUnless(extensionsEnabled, "extensions are off")
+        run("Share long", expect: "shared-long:21000:19999:cut")
     }
 
     /// The Control Center button's intent, run in the app's process as iOS runs it when the button is tapped, opens
@@ -956,5 +1058,77 @@ final class HistoryUITests: XCTestCase {
         numbers["first_sync_ms"] = firstSync
         let json = try JSONSerialization.data(withJSONObject: numbers, options: [.sortedKeys])
         print("HISTORY iphone \(String(decoding: json, as: UTF8.self))")
+    }
+}
+
+/**
+ * The iPhone's performance KPIs (docs/performance.md), for scripts/test-perf-ios.sh only: a year of history loaded as a
+ * sync would, then launches, capture, the screens and coming back to the app, timed by the app's own marks, which it
+ * keeps for the test page to hand back as one line, PERF iphone {…}. Nothing here is checked against a target.
+ */
+final class PerfUITests: XCTestCase {
+    private let environment = ProcessInfo.processInfo.environment
+    override func setUp() { continueAfterFailure = false }
+
+    func testLaunchesCaptureScreensAndResumeOnAYearOfHistory() throws {
+        guard environment["MULTISCALE_PERF"] == "YES" else { throw XCTSkip("needs: scripts/test-perf-ios.sh, which reads the numbers this prints.") }
+        let rounds = Int(environment["MULTISCALE_PERF_ROUNDS"] ?? "") ?? 30
+        let launches = Int(environment["MULTISCALE_PERF_LAUNCHES"] ?? "") ?? 5
+        let checks = XCUIApplication()
+        checks.launchEnvironment["MULTISCALE_START_PAGE"] = "native-checks/index.html"
+        checks.launchLoaded()
+        exists(checks.webText("ready"), timeout: launchPatience)
+        checks.tapWeb("Erase", until: checks.webText("erased"))
+        checks.tapWeb("Seed year", until: checks.webText("seeded"))
+        checks.tapWeb("Keep measures", until: checks.webText("keeping"))
+        checks.terminate()
+
+        // Each launch from the test's clock, which the page's wall clock shares, to Today interactive.
+        let app = XCUIApplication()
+        var launched: [Double] = []
+        for _ in 0..<launches {
+            launched.append(Date().timeIntervalSince1970 * 1000)
+            app.launchLoaded()
+            exists(app.webButton("Today"), timeout: launchPatience)
+            app.terminate()
+        }
+        launched.append(Date().timeIntervalSince1970 * 1000)
+        app.launchLoaded()
+        exists(app.webButton("Today"), timeout: launchPatience)
+
+        for _ in 0..<rounds {
+            let field = app.page.textFields["Capture to Inbox"]
+            app.tapWeb("Capture a task", until: field)
+            app.type("Buy\n", into: field)
+            XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
+        }
+        for _ in 0..<rounds {
+            app.tapWeb("Week")
+            app.tapWeb("Today")
+            for screen in ["Done", "Analytics"] {
+                app.tapWeb("More")
+                let back = app.webButton("Back to More")
+                if back.exists { back.tap() }
+                app.tapWeb(anyStartingWith: screen)
+                exists(back)
+            }
+            app.tapWeb("Today")
+        }
+        for _ in 0..<5 {
+            XCUIDevice.shared.press(.home)
+            app.activate()
+            exists(app.webButton("Today"))
+        }
+        app.terminate()
+
+        checks.launchLoaded()
+        exists(checks.webText("ready"), timeout: launchPatience)
+        checks.tapWeb("Measures")
+        let line = checks.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'measures:'")).firstMatch
+        exists(line, timeout: 120)
+        var numbers = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.label.dropFirst("measures:".count).utf8)) as? [String: Any])
+        numbers["launched"] = launched
+        let json = try JSONSerialization.data(withJSONObject: numbers, options: [.sortedKeys])
+        print("PERF iphone \(String(decoding: json, as: UTF8.self))")
     }
 }

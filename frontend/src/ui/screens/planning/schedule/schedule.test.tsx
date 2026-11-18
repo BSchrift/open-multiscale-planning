@@ -773,3 +773,54 @@ describe('Schedule on phone', () => {
     expect(await screen.findByRole('button', { name: 'All picked tasks, 0 of 3 placed' })).toBeInTheDocument();
   });
 });
+
+describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s', (layout) => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const draft = () => document.querySelector<HTMLElement>('.holddraft');
+  const pointerType = layout === 'phone' ? 'touch' : 'mouse';
+  // jsdom has no layout. Desktop: Thursday's column on the editing grid, from 6am at 40px an hour. Phone: the day shown,
+  // today, from 6am at 48px an hour.
+  const target = () => (layout === 'phone' ? document.querySelector<HTMLElement>('.day.dragday')! : document.querySelector<HTMLElement>('.colbody[data-drop-date="2026-11-05"]')!);
+  const y = (minutes: number) => ((minutes - 360) * (layout === 'phone' ? 48 : 40)) / 60 + 1;
+  const hold = async (minutes: number) => {
+    fireEvent.pointerDown(target(), { clientX: 20, clientY: y(minutes), button: 0, pointerType, pointerId: 1 });
+    await wait(450);
+  };
+  const letGo = (minutes: number) => fireEvent.pointerUp(window, { clientX: 20, clientY: y(minutes), pointerType, pointerId: 1 });
+  // One task, its hour already on Tuesday morning: nothing waits to be placed.
+  const allPlaced = async (w: Writer) => {
+    await w.create('project', { title: 'Write the report', state: 'active', start: '2026-10-01', end: '2026-12-15' }, 'report');
+    await w.create('task', { kind: 'project', project_id: 'report', title: 'Collect the sources', estimate_min: 60 }, 't1');
+    await setWeekPick(w, WEEK, 't1', 60);
+    await w.create('time_block', { task_id: 't1', start: at('2026-11-03', 9), end: at('2026-11-03', 10), tz: ZONE }, 'b1');
+  };
+
+  it('a hold on empty time drafts nothing while the step’s task is being placed', async () => {
+    const t = await open({ layout });
+    // The step's first task, waiting at its best time to be placed.
+    await waitFor(() => expect(document.querySelector('.evdraft, .dragblock.draft')).toHaveTextContent(/^Collect the sources/));
+    await hold(18 * 60);
+    letGo(18 * 60);
+    expect(draft()).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+    expect(t.platform.haptics).toEqual([]);
+  });
+
+  it('with nothing left to place, a hold on empty time drafts an hour there, and Capture saves it as an Inbox item with its block', async () => {
+    const t = await open({ layout, seed: allPlaced });
+    await waitFor(() => expect(target()).not.toBeNull());
+    const minutes = layout === 'phone' ? 18 * 60 : 16 * 60;
+    await hold(minutes);
+    expect(draft()).toHaveAttribute('title', layout === 'phone' ? '6pm to 7pm' : '4pm to 5pm');
+    expect(t.platform.haptics).toEqual(['light']);
+    letGo(minutes);
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    expect(within(capture).getByText(layout === 'phone' ? 'Today, 6pm to 7pm' : 'Thu Nov 5, 4pm to 5pm')).toBeVisible();
+    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(draft()).toBeNull());
+    const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox');
+    expect(item).toMatchObject({ title: 'Book dentist', estimate_min: 60 });
+    expect(await blocks(t, item!.id as string)).toEqual([layout === 'phone' ? [at(WEEK, 18), at(WEEK, 19)] : [at('2026-11-05', 16), at('2026-11-05', 17)]]);
+  });
+});

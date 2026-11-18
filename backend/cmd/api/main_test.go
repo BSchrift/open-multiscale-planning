@@ -3,16 +3,12 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"io"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
-	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/obs"
@@ -90,32 +86,5 @@ func TestAdapterOverTheRealRoutesFailsClosedWithoutASub(t *testing.T) {
 	res, err := adapter(server.Handler())(context.Background(), gatewayEvent("POST", "/sync", "", "{}", nil))
 	if err != nil || res.StatusCode != 401 {
 		t.Fatalf("%+v %v", res, err)
-	}
-}
-
-type fakeInvoker struct {
-	in  *lambdasdk.InvokeInput
-	err error
-}
-
-func (f *fakeInvoker) Invoke(_ context.Context, in *lambdasdk.InvokeInput, _ ...func(*lambdasdk.Options)) (*lambdasdk.InvokeOutput, error) {
-	f.in = in
-	return &lambdasdk.InvokeOutput{}, f.err
-}
-
-func TestWorkerStartsWithoutWaitingForIt(t *testing.T) {
-	invoker := &fakeInvoker{}
-	if err := startWorker(invoker, "the-worker")(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if aws.ToString(invoker.in.FunctionName) != "the-worker" || invoker.in.InvocationType != lambdatypes.InvocationTypeEvent {
-		t.Fatalf("%+v", invoker.in)
-	}
-	if string(invoker.in.Payload) != `{"trigger":"refresh"}` {
-		t.Fatalf("payload %s", invoker.in.Payload)
-	}
-	invoker.err = errors.New("no")
-	if err := startWorker(invoker, "the-worker")(context.Background()); err == nil {
-		t.Fatal("failure swallowed")
 	}
 }

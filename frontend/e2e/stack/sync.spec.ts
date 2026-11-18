@@ -151,6 +151,8 @@ test("two devices change a practice's days and its days' own times at once, and 
 
 test('two devices offline for a week, editing the same records, converge when they reconnect', async ({ browser }) => {
   test.skip(!t.localApi, 'needs: fakeClock');
+  // With staging's retention a done or deleted record expires within the hour, so a week on, there's nothing to converge.
+  test.skip(t.retention !== 'local', "needs: a deleted record kept longer than the week it moves the clock, as local's retention does");
   test.setTimeout(180_000);
   const setServerClock = async (now: string) => {
     const res = await fetch(`${t.localApi}/_local/clock`, { method: 'POST', body: JSON.stringify({ now }) });

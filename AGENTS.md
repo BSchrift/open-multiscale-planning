@@ -72,7 +72,7 @@ For contributors and agents alike. None of this needs a deployment or AWS access
 | You changed | Run |
 | --- | --- |
 | Anything in `frontend/src` | `make test-frontend`; `scripts/e2e.sh browser` (desktop and phone) |
-| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration` |
+| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration`, and `RETENTION=staging scripts/e2e.sh stack compat` for staging's short retention |
 | Storage or platform adapters, Electron main or preload | The above, plus `scripts/e2e.sh electron` |
 | The Go backend | `make test-backend`; `make test-integration` (the Docker stack, with stand-ins for DynamoDB, SSM, sign-in and Google) |
 | Infrastructure | `make test-infra` (tests and `cdk synth`) |

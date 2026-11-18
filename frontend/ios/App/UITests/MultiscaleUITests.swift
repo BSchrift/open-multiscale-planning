@@ -483,6 +483,37 @@ final class ShellUITests: XCTestCase {
         exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Moved Shape the loaf to '")).firstMatch)
     }
 
+    func testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem() throws {
+        let app = launchApp(seed: "Seed later")
+        allowNotificationsIfAsked()
+        app.tapWeb("Week", until: app.webButton("Previous week"))
+        // Today's first stretch of free time still to come, a row that says so.
+        let free = app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Free, '")).firstMatch
+        onTab("Week", free, in: app)
+
+        // As for a block held on the day: the row is scrolled to where its middle is clear of the week's top, which
+        // stays over the day, and of the Capture button, by the margin left of the day, where nothing is held.
+        let strip = app.webElement("Choose a day")
+        let capture = app.webButton("Capture a task")
+        exists(strip)
+        exists(capture)
+        let top = strip.frame.maxY + 44
+        let bottom = capture.frame.minY - 22
+        let clear = { free.frame.midY >= top && free.frame.midY <= bottom }
+        let margin = app.page.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.7))
+        for _ in 0..<3 where !clear() {
+            margin.press(forDuration: 0.05, thenDragTo: margin.withOffset(CGVector(dx: 0, dy: (top + bottom) / 2 - free.frame.midY)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(clear(), "The free row at \(free.frame) didn't scroll clear of the day strip at \(strip.frame) and the Capture button at \(capture.frame)")
+        free.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8)
+
+        // Capture opens on the draft, saying its day and time, and Save puts it there as an Inbox item.
+        exists(app.page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Today, '")).firstMatch)
+        app.type("Book the dentist", into: app.page.textFields["Capture to Inbox"])
+        app.tapWeb("Save")
+        exists(app.page.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Book the dentist, ' AND label CONTAINS ', Inbox.'")).firstMatch)
+    }
+
     func testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem() throws {
         let app = launchApp(seed: "Seed later")
         allowNotificationsIfAsked()

@@ -1,20 +1,31 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EstimateSlider } from './EstimateSlider';
+import { EST_STEPS, EstimateSlider } from './EstimateSlider';
 
 afterEach(cleanup);
 
-/** Moves the thumb step by step, as a drag does: an input event at each step. */
-const move = (slider: HTMLElement, steps: number[]) => {
-  for (const step of steps) fireEvent.input(slider, { target: { value: String(step) } });
+/** Moves the thumb step by step, as a drag does: an input event at each step, named by its minutes. */
+const move = (slider: HTMLElement, minutes: number[]) => {
+  for (const m of minutes) fireEvent.input(slider, { target: { value: String(EST_STEPS.indexOf(m)) } });
 };
 
 describe('EstimateSlider', () => {
+  it('moves in 5-minute steps up to 2h', () => {
+    const onChange = vi.fn();
+    render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
+    const slider = screen.getByRole('slider', { name: 'Time' });
+    // One arrow key to the right, as a browser sends it: the next step's index.
+    fireEvent.input(slider, { target: { value: String(Number((slider as HTMLInputElement).value) + 1) } });
+    expect(slider).toHaveAttribute('aria-valuetext', '1h 5m');
+    fireEvent.change(slider);
+    expect(onChange.mock.calls).toEqual([[65]]);
+  });
+
   it('follows a drag step by step, and passes the value on once, when it is let go', () => {
     const onChange = vi.fn();
     render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     const slider = screen.getByRole('slider', { name: 'Time' });
-    move(slider, [5, 6, 7, 8]);
+    move(slider, [75, 90, 105, 120]);
     expect(onChange).not.toHaveBeenCalled();
     expect(slider).toHaveAttribute('aria-valuetext', '2h');
     expect(screen.getByText('2h')).toBeInTheDocument();
@@ -27,7 +38,7 @@ describe('EstimateSlider', () => {
     const onChange = vi.fn();
     const { rerender } = render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     const slider = screen.getByRole('slider', { name: 'Time' });
-    move(slider, [5, 6, 7, 8]);
+    move(slider, [75, 90, 105, 120]);
     fireEvent.change(slider);
     rerender(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     expect(slider).toHaveAttribute('aria-valuetext', '2h');
@@ -42,21 +53,21 @@ describe('EstimateSlider', () => {
     const onChange = vi.fn();
     const { rerender } = render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     const slider = screen.getByRole('slider', { name: 'Time' });
-    move(slider, [5, 6, 7, 8]);
+    move(slider, [75, 90, 105, 120]);
     fireEvent.change(slider);
     rerender(<EstimateSlider label="Time" value={120} onChange={onChange} />);
     rerender(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     expect(slider).toHaveAttribute('aria-valuetext', '1h');
-    expect(slider).toHaveValue('4');
+    expect(slider).toHaveValue(String(EST_STEPS.indexOf(60)));
   });
 
   it('passes on each arrow key, which browsers send as an input and a change event', () => {
     const onChange = vi.fn();
     render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     const slider = screen.getByRole('slider', { name: 'Time' });
-    move(slider, [5]);
+    move(slider, [75]);
     fireEvent.change(slider);
-    move(slider, [6]);
+    move(slider, [90]);
     fireEvent.change(slider);
     expect(onChange.mock.calls).toEqual([[75], [90]]);
   });
@@ -65,7 +76,7 @@ describe('EstimateSlider', () => {
     const onChange = vi.fn();
     render(<EstimateSlider label="Time" value={60} onChange={onChange} />);
     const slider = screen.getByRole('slider', { name: 'Time' });
-    move(slider, [7, 8]);
+    move(slider, [105, 120]);
     fireEvent.blur(slider);
     fireEvent.change(slider);
     expect(onChange.mock.calls).toEqual([[120]]);
@@ -73,14 +84,14 @@ describe('EstimateSlider', () => {
 
   it('passes nothing on for a drag that ends where it started, and a value between steps reads as it is', () => {
     const onChange = vi.fn();
-    render(<EstimateSlider label="Time left" value={50} onChange={onChange} />);
+    render(<EstimateSlider label="Time left" value={52} onChange={onChange} />);
     const slider = screen.getByRole('slider', { name: 'Time left' });
+    expect(slider).toHaveAttribute('aria-valuetext', '52m');
+    move(slider, [55, 60, 55, 50]);
     expect(slider).toHaveAttribute('aria-valuetext', '50m');
-    move(slider, [4, 5, 4, 3]);
-    expect(slider).toHaveAttribute('aria-valuetext', '45m');
     fireEvent.change(slider);
     fireEvent.blur(slider);
     expect(onChange).not.toHaveBeenCalled();
-    expect(slider).toHaveAttribute('aria-valuetext', '50m');
+    expect(slider).toHaveAttribute('aria-valuetext', '52m');
   });
 });

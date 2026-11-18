@@ -70,6 +70,11 @@ fi
 outputs="$(mktemp)"
 trap 'rm -f "$outputs"' EXIT
 
+# A stack's first deploy has no Lambda aliases yet, so what refers to one by ARN must wait for it then (lib/stack.ts).
+if [ "$env_name" = staging ] || [ "$env_name" = prod ]; then
+  aws cloudformation describe-stacks --stack-name "Multiscale-$env_name" >/dev/null 2>&1 || switches+=(-c firstDeploy=true)
+fi
+
 echo "Deploying Multiscale-$env_name"
 npx cdk deploy "Multiscale-$env_name" -c "deploy=$env_name" ${switches[@]+"${switches[@]}"} --outputs-file "$outputs"
 

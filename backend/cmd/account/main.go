@@ -37,7 +37,7 @@ func main() {
 	store := &sync.Store{DB: db, Table: os.Getenv("TABLE_NAME"), Expiry: &sync.Expiry{Now: time.Now, Deleted: retention.Deleted}}
 	svc := &account.Service{
 		DB: db, Table: store.Table, Records: store, Identity: account.IdentityFromEnvironment(cfg),
-		Google: gcal.FromEnvironment(cfg, store.Expiry, nil), Now: time.Now, Log: obs.NewLogger(os.Stdout), Env: env,
+		Google: gcal.FromEnvironment(cfg, store.Expiry), Now: time.Now, Log: obs.NewLogger(os.Stdout), Env: env,
 	}
 	// Left nil where the environment stores no files, rather than a nil bucket that would look like one.
 	if objects := account.ObjectsFromEnvironment(cfg); objects != nil {

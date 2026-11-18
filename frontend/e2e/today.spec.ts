@@ -376,9 +376,14 @@ test('a block still to come drags to a new time, held first on phone; arrow keys
   await expect(moved).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
-  // Five steps of 15 minutes take it past Paint the fence, and it keeps focus there.
+  // The first of five steps of 15 minutes lands on Paint the fence, which asks; Enter keeps both, and focus comes
+  // back to the block for the rest.
   await moved.focus();
-  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('dialog', { name: 'Schedule both at the same time?' }).getByRole('button', { name: 'Keep both' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole(role, { name: /^Write the report, 4:45pm to 5:45pm/ })).toBeFocused();
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByText('Write the report is now 5:45pm to 6:45pm. That overlaps Paint the fence.')).toBeVisible();
   await expect(page.getByRole(role, { name: /^Write the report, 5:45pm to 6:45pm/ })).toBeFocused();
   await page.getByRole('button', { name: 'Undo' }).click();

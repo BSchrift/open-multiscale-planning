@@ -4,7 +4,7 @@
 // field sits low, in thumb reach, and its list opens in a sheet, as does the form for a new home.
 //
 // A goal's backlog takes an item too: B, or Goal backlog, swaps the picker for the goals on desktop, and opens a sheet of
-// them on phone.
+// them on phone. Beside it, K, or Save as note, makes the item a note in one tap.
 //
 // params.planning is the week being planned, so Add to this week adds to that plan; params.item opens on one item.
 // params.stretchStart and stretchEnd are the stretch being planned: its projects come first, new projects end with it,
@@ -20,11 +20,13 @@ import type { InboxRow } from '../../../core/queries';
 import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { isRepeating, onceWhen, projectDates } from '../../../core/schedule';
+import { saveAsNote } from '../../../core/memos';
 import { closeTask, makeHome, undoHome } from '../../../core/tasks';
 import type { Home, Made } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes, Task } from '../../../core/types';
 import { useProcessKeys } from '../../app/processKeys';
 import type { ScreenProps } from '../../app/registry';
+import { useCutShares } from '../../app/shareImport';
 import { useApp, useMutation, useQuery, useStickyState, useToday } from '../../app/store';
 import { HomeForm } from '../../components/editors';
 import type { HomeKind } from '../../components/editors';
@@ -44,6 +46,7 @@ import type { Place } from './Picker';
 import './process.css';
 import { Button } from '../../components/ds/Button';
 import { Switch } from '../../components/ds/Controls';
+import { Icon } from '../../components/ds/Icon';
 
 export default function Screen(props: ScreenProps) {
   const { stretchStart, stretchEnd } = props.params;
@@ -131,6 +134,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const today = useToday();
   const toast = useToast();
   const [keysOn] = useProcessKeys();
+  const [cutShares] = useCutShares();
   const [lastKey, setLastKey] = useStickyState(LAST_KEY, '');
   const [queue] = useState<InboxRow[]>(() => {
     const first = data.inbox.find((i) => i.id === props.params.item);
@@ -479,6 +483,14 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       () => ({ closed: s.closed + 1 }),
       () => (freed ? `Deleted ${name} and its block${blockAt}.` : `Deleted ${name}.`),
     );
+  // One tap: the item becomes a note in Notes, with what was written and attached. Never on the week.
+  const saveNote = () =>
+    item &&
+    void commit(
+      closing((w) => saveAsNote(w, item.id, clock)),
+      () => ({ sorted: s.sorted + 1 }),
+      () => `Saved ${name} in Notes.${s.planOn ? " Notes aren't added to the week." : ''}${cameOff()}`,
+    );
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
 
   // Single keys need the device setting, since speech input can type them; with Option or Alt they always work, in Add
@@ -508,6 +520,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       d: () => setDelAsk(true),
       p: () => openForm('practice', 'p'),
       g: () => openForm('goal', 'g'),
+      k: saveNote,
       ...(data.backlogs.length ? { b: () => setChoosing(true) } : {}),
       ...(stretch ? {} : { w: togglePlan }),
     };
@@ -577,6 +590,20 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       Goal backlog
     </Button>
   );
+  const noteButton = (
+    <Button size="compact" type="button" onClick={saveNote}>
+      {cap('K')}
+      <Icon name="note" size={16} />
+      Save as note
+    </Button>
+  );
+  // Choices that aren't a place, side by side.
+  const side = (
+    <div className="pxside">
+      {backlogButton}
+      {noteButton}
+    </div>
+  );
   const chooser = !phone && choosing && item && (
     <BacklogChooser key={item.id} goals={data.backlogs} keysOn={keysOn} cap={cap} onAdd={(id) => void file(id)} onBack={closeChooser} />
   );
@@ -628,6 +655,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
         titleRef={titleRef}
         dateRef={dateRef}
         dated={dated}
+        cut={cutShares.includes(current.id)}
         save={save}
         pending={pending}
         onAttachment={(reverse) => keepReverse(current.id, reverse)}
@@ -664,7 +692,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
             {itemCard(weekToggle)}
             <div className="pxspace" />
             {picker}
-            {backlogButton}
+            {side}
             {choosing && <BacklogSheet goals={data.backlogs} last={lastBacklog} onAdd={(id) => void file(id)} onClose={closeChooser} />}
             {makeOne}
             {homeForm}
@@ -715,7 +743,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               <>
                 {picker}
                 <div className="pxopts">
-                  {backlogButton}
+                  {side}
                   {makeOne}
                   <div className="row">
                     <Button size="compact" type="button" onClick={skip}>

@@ -1,7 +1,8 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock } from '../../core/clock';
-import { inboxTasks } from '../../core/queries';
+import { inboxTasks, taskAttachments } from '../../core/queries';
+import { getRecord } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import { useShareImport } from './shareImport';
 import { AppProvider } from './store';
@@ -51,11 +52,37 @@ describe('share import', () => {
     await waitFor(async () => expect(await t.titles()).toEqual(['Write the report']));
   });
 
-  it('tidies what it is given: blank text is skipped, space is collapsed, and very long text is cut', async () => {
-    const t = await mount([['  ', '  Call\n  the bank  ', 'x'.repeat(2500), 'fences '.repeat(400)]]);
+  it('tidies what it is given: blank text is skipped, space is collapsed, and a very long title is cut', async () => {
+    const t = await mount([['  ', '  Call  the\tbank  ', 'x'.repeat(2500), 'fences '.repeat(400)]]);
     // Cut on a whole word: the 286th "fences" would run past 2,000 characters.
     await waitFor(async () => expect(await t.titles()).toEqual(['Call the bank', 'x'.repeat(2000), 'fences '.repeat(285).trim()]));
     await waitFor(() => expect(t.queue).toEqual([]));
+  });
+
+  it('makes the first line the title and the rest the description, and a link shared on its own a link attachment', async () => {
+    const url = 'https://example.com/recipes/lentil-soup';
+    const t = await mount([['Lentil soup\n\n- 200g lentils\n- 1 onion', url]]);
+    await waitFor(async () => expect(await t.titles()).toEqual(['Lentil soup', url]));
+    const [soup, link] = await inboxTasks(t.base.db);
+    expect((await getRecord(t.base.db, 'task', soup!.id))?.notes).toBe('- 200g lentils\n- 1 onion');
+    expect(await taskAttachments(t.base.db, soup!.id)).toEqual([]);
+    expect((await getRecord(t.base.db, 'task', link!.id))?.notes).toBeUndefined();
+    expect(await taskAttachments(t.base.db, link!.id)).toMatchObject([{ kind: 'link', name: url, url }]);
+    // Shares that weren't cut leave nothing for Process to say.
+    expect(localStorage.getItem('multiscale.cutShares')).toBeNull();
+  });
+
+  it('keeps on this device which shares had their description cut, for Process to say so', async () => {
+    const t = await mount([[`Notes from the talk\n${'word '.repeat(4196)}`, 'Fix the gate'], [`Slides\n${'x'.repeat(20_001)}`]]);
+    await waitFor(async () => expect(await t.titles()).toEqual(['Notes from the talk', 'Fix the gate']));
+    const [talk] = await inboxTasks(t.base.db);
+    expect((await getRecord(t.base.db, 'task', talk!.id))?.notes).toHaveLength(19_999);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('multiscale.cutShares') ?? '[]')).toEqual([talk!.id]));
+
+    act(() => t.base.lifecycle.foreground());
+    await waitFor(async () => expect(await t.titles()).toHaveLength(3));
+    const slides = (await inboxTasks(t.base.db)).find((r) => r.title === 'Slides')!;
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('multiscale.cutShares') ?? '[]')).toEqual([talk!.id, slides.id]));
   });
 
   it('leaves what was shared in the queue when the save fails, so a quit before the next try loses nothing', async () => {

@@ -501,3 +501,191 @@ func TestGoogleEditsAndHTTPControls(t *testing.T) {
 		t.Fatal("still authorised after revoke")
 	}
 }
+
+// connectAs consents as one Google account, picked as the person signing in to Google would, and returns its service
+// and refresh token.
+func connectAs(t *testing.T, srv *httptest.Server, account string) (*calendar.Service, string) {
+	t.Helper()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	consentURL := googleConfig(srv).AuthCodeURL("s", oauth2.AccessTypeOffline, oauth2.ApprovalForce, oauth2.SetAuthURLParam("login_hint", account))
+	res, err := client.Get(consentURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	loc, _ := url.Parse(res.Header.Get("Location"))
+	token, err := googleConfig(srv).Exchange(context.Background(), loc.Query().Get("code"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return serviceFor(t, srv, token.RefreshToken), token.RefreshToken
+}
+
+func TestGoogleAccountsAreSeparate(t *testing.T) {
+	g := NewGoogle("cid", "secret", time.Now)
+	srv := httptest.NewServer(g)
+	defer srv.Close()
+	ctx := context.Background()
+	a, aToken := connectAs(t, srv, "a@example.test")
+	b, _ := connectAs(t, srv, "b@example.test")
+
+	// Each account names itself by its primary calendar, and sees only its own calendars.
+	for svc, want := range map[*calendar.Service]string{a: "a@example.test", b: "b@example.test"} {
+		primary, err := svc.CalendarList.Get("primary").Do()
+		if err != nil || primary.Id != want || !primary.Primary {
+			t.Fatalf("primary %+v %v", primary, err)
+		}
+	}
+	g.Account("a@example.test").AddCalendar("home-a", "Home")
+	mine, err := a.Calendars.Insert(&calendar.Calendar{Summary: "Time blocks"}).Do()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := b.CalendarList.List().Do()
+	if err != nil || len(listed.Items) != 0 {
+		t.Fatalf("b sees %+v %v", listed, err)
+	}
+	if _, err := b.Calendars.Get(mine.Id).Do(); googleCode(err) != 404 {
+		t.Fatalf("b reads a's calendar: %v", err)
+	}
+	if got := g.Account("a@example.test").CalendarNamed("Time blocks"); got != mine.Id {
+		t.Fatalf("a's Time blocks %q", got)
+	}
+	if got := g.Account("b@example.test").CalendarNamed("Time blocks"); got != "" {
+		t.Fatalf("b's Time blocks %q", got)
+	}
+	if g.Account("a@example.test").Writes() != 1 || g.Account("b@example.test").Writes() != 0 {
+		t.Fatal("writes counted against the wrong account")
+	}
+
+	// One account's rate limit, outage and slowness leave the other alone.
+	g.Account("a@example.test").RateLimit(1)
+	if _, err := b.CalendarList.List().Do(); err != nil {
+		t.Fatalf("b limited by a's rate limit: %v", err)
+	}
+	if _, err := a.CalendarList.List().Do(); googleCode(err) != 403 {
+		t.Fatalf("a not limited: %v", err)
+	}
+	g.Outage(GoogleOutage{Account: "a@example.test", Calls: -1, Status: http.StatusServiceUnavailable})
+	if _, err := b.CalendarList.List().Do(); err != nil {
+		t.Fatalf("b cut off by a's outage: %v", err)
+	}
+	if _, err := a.CalendarList.List().Do(); googleCode(err) != 503 {
+		t.Fatalf("a not cut off: %v", err)
+	}
+	g.Outage(GoogleOutage{})
+	g.Account("a@example.test").Slow(time.Second)
+	slowDone := make(chan struct{})
+	go func() {
+		a.CalendarList.List().Do()
+		close(slowDone)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	start := time.Now()
+	if _, err := b.CalendarList.List().Do(); err != nil || time.Since(start) > 500*time.Millisecond {
+		t.Fatalf("b held up by a's slowness: %v after %s", err, time.Since(start))
+	}
+	<-slowDone
+	g.Account("a@example.test").Slow(0)
+
+	// Revoking one of a's tokens ends a's grant, every token of it, as Google's revoke does, and leaves b's.
+	_, aSecond := connectAs(t, srv, "a@example.test")
+	res, err := http.PostForm(srv.URL+"/revoke", url.Values{"token": {aSecond}})
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("revoke: %v %v", res, err)
+	}
+	var retrieve *oauth2.RetrieveError
+	if _, err := serviceFor(t, srv, aToken).CalendarList.List().Do(); !errors.As(err, &retrieve) || retrieve.ErrorCode != "invalid_grant" {
+		t.Fatalf("a's first token after revoke: %v", err)
+	}
+	if _, err := b.CalendarList.List().Context(ctx).Do(); err != nil {
+		t.Fatalf("b revoked with a: %v", err)
+	}
+	g.Account("b@example.test").Revoke()
+	if _, err := b.CalendarList.List().Do(); err == nil {
+		t.Fatal("b still works after its access was removed")
+	}
+}
+
+func TestGoogleTestControlsTakeAnAccount(t *testing.T) {
+	g := NewGoogle("cid", "secret", time.Now)
+	srv := httptest.NewServer(g)
+	defer srv.Close()
+	post := func(path, body string) {
+		t.Helper()
+		res, err := http.Post(srv.URL+path, "application/json", strings.NewReader(body))
+		if err != nil || res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: %v %v", path, res, err)
+		}
+	}
+	post("/_test/calendars?account=b@example.test", `{"id":"work-b","summary":"Work"}`)
+	post("/_test/calendars", `{"id":"home","summary":"Home"}`)
+	state := func(account string) []string {
+		t.Helper()
+		path := "/_test/calendars"
+		if account != "" {
+			path += "?account=" + url.QueryEscape(account)
+		}
+		res, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var body struct{ Calendars []struct{ ID string } }
+		json.NewDecoder(res.Body).Decode(&body)
+		var ids []string
+		for _, c := range body.Calendars {
+			ids = append(ids, c.ID)
+		}
+		return ids
+	}
+	if got := state("b@example.test"); !slices.Equal(got, []string{"work-b"}) {
+		t.Fatalf("b: %v", got)
+	}
+	if got := state(""); !slices.Equal(got, []string{"home"}) {
+		t.Fatalf("default: %v", got)
+	}
+
+	b, _ := connectAs(t, srv, "b@example.test")
+	post("/_test/rate_limit?account=b@example.test", `{"calls":1}`)
+	if _, err := b.CalendarList.List().Do(); googleCode(err) != 403 {
+		t.Fatalf("rate limit: %v", err)
+	}
+	post("/_test/slow?account=b@example.test", `{"ms":1}`)
+	post("/_test/revoke?account=b@example.test", `{}`)
+	if _, err := b.CalendarList.List().Do(); err == nil {
+		t.Fatal("revoke by control left b working")
+	}
+}
+
+// A token names the scopes granted: those asked for, less any the person unticked at consent.
+func TestGoogleTokenNamesTheScopesGranted(t *testing.T) {
+	g := NewGoogle("cid", "secret", time.Now)
+	srv := httptest.NewServer(g)
+	defer srv.Close()
+	cfg := googleConfig(srv)
+	cfg.Scopes = []string{"one", "two"}
+	exchange := func() string {
+		t.Helper()
+		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		res, err := client.Get(cfg.AuthCodeURL("s", oauth2.AccessTypeOffline))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		loc, _ := url.Parse(res.Header.Get("Location"))
+		token, err := cfg.Exchange(context.Background(), loc.Query().Get("code"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope, _ := token.Extra("scope").(string)
+		return scope
+	}
+	if got := exchange(); got != "one two" {
+		t.Fatalf("%q", got)
+	}
+	g.Account(DefaultGoogleAccount).Withhold("one")
+	if got := exchange(); got != "two" {
+		t.Fatalf("%q", got)
+	}
+}

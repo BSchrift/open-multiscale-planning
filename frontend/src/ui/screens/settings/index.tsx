@@ -8,7 +8,7 @@ import { cadenceLabel } from '../../../core/plan';
 import { CALENDAR_ID, getRecord, getSettings, listRecords, updateSettings } from '../../../core/records';
 import { PAUSE_REMINDER_MIN } from '../../../core/reminders';
 import { slotContext } from '../../../core/slots';
-import { syncStatus } from '../../../core/sync';
+import { isSignedOut, syncStatus } from '../../../core/sync';
 import type { SyncErrorCode } from '../../../core/sync';
 import type { AppPlace, UpdateStatus, Updater } from '../../../core/updates';
 import type { CalendarMode, Fields, Instant, ReminderSettings } from '../../../core/types';
@@ -24,6 +24,7 @@ import { HowToUpdate } from '../../components/HowToUpdate';
 import { Pill } from '../../components/Pill';
 import type { PillTone } from '../../components/Pill';
 import { useToast } from '../../components/Toast';
+import { DeleteAccountPage, ExportButton } from './AccountData';
 import { UnavailableList } from './Availability';
 import { RetentionPage } from './Retention';
 import { useCalendarCall } from './useCalendarCall';
@@ -54,11 +55,13 @@ const SYNC_STATE: Record<SyncErrorCode, { pill: string; tone: PillTone; line: st
   clock_ahead: { pill: 'Not synced', tone: 'red', line: "This device's clock is ahead. Set the right time to sync." },
   other_account: { pill: 'Not synced', tone: 'red', line: 'This device has data from another account. Erase it to sign in, or sign out to keep it.' },
   too_large: { pill: 'Partly synced', tone: 'amber', line: 'One item is too long to sync. Everything else syncs, and it will too once shortened.' },
+  account_deleted: { pill: 'Account deleted', tone: 'grey', line: 'Your account and its data were deleted, and erased from this device.' },
   error: { pill: 'Not synced', tone: 'red', line: "Sync didn't work. It will try again." },
 };
 
 function Account(props: { layout: Layout }) {
   const { sync, clock } = useApp();
+  const nav = useNav();
   const { data: status } = useQuery((sql) => syncStatus(sql), []);
   const [busy, setBusy] = useState(false);
   if (!status) return null;
@@ -67,7 +70,7 @@ function Account(props: { layout: Layout }) {
     : status.lastSyncAt
       ? { pill: 'Synced', tone: 'green' as const, line: null }
       : { pill: 'Not synced yet', tone: 'grey' as const, line: null };
-  const signedOut = status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed';
+  const signedOut = isSignedOut(status);
   const btn = { size: 'compact' as const };
   const syncNow = async () => {
     setBusy(true);
@@ -103,6 +106,23 @@ function Account(props: { layout: Layout }) {
           </div>
         )}
       </div>
+      {sync && !signedOut && status.lastSyncAt && (
+        <div className={props.layout === 'phone' ? 'stack8' : 'setrow'}>
+          <span className="small">Your data, and your account.</span>
+          <div className="row">
+            <ExportButton layout={props.layout} />
+            <Button
+              {...btn}
+              variant="destructive"
+              className={props.layout === 'phone' ? 'grow' : undefined}
+              type="button"
+              onClick={() => nav.go('settings', { page: 'delete-account' })}
+            >
+              Delete my account and data
+            </Button>
+          </div>
+        </div>
+      )}
     </Section>
   );
 }
@@ -667,6 +687,7 @@ export default function Screen(props: ScreenProps) {
   const { layout } = props;
   const { updates } = useApp();
   if (props.params.page === 'retention') return <RetentionPage layout={layout} />;
+  if (props.params.page === 'delete-account') return <DeleteAccountPage layout={layout} />;
   return (
     <div className={layout === 'phone' ? 'stack settings' : 'wrap stack32 settings'}>
       <h1>Settings</h1>

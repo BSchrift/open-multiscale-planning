@@ -1,16 +1,18 @@
 // A task's block, at the top of the task's popup when a calendar opens the popup from it: when it is, how it went and
 // what it belongs to, as its details panel said, then what can be done to it. Start, or Start now for one later today,
-// for one not yet started today; How did it go for one gone by with no answer, as the missed blocks sheet asks it; and
+// for one not yet started today; Done for one later today or under way, and Pause or Resume once that one's started;
+// How did it go for one gone by with no answer, as the missed blocks sheet asks it; and
 // what the calendar it opened from can do, such as Move and Remove from calendar. Each saves at once with Undo, as the
 // popup's attachments do, rather than on Save.
 
 import { createContext, useContext, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { partlyLeft, workMinutes } from '../../../core/blocks';
+import { isPaused, nextBlock, partlyLeft, workMinutes } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
-import { formatTime, instantMs, localDate } from '../../../core/dates';
+import { dayRange, formatTime, instantMs, localDate } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
+import { blocksInRange } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import type { Minutes } from '../../../core/types';
@@ -54,8 +56,14 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
   const date = localDate(block.start, zone);
   const gone = !!block.ended_at || instantMs(block.end) <= now;
   const asking = gone && !block.result;
-  const startable = date === localDate(now, zone) && !block.started_at && !block.result && !gone;
+  const today = date === localDate(now, zone);
+  const startable = today && !block.started_at && !block.result && !gone;
   const early = instantMs(block.start) > now;
+  // Done for a block still to come today, or the one under way, beside Start. One gone by has it in How did it go.
+  const doable = today && !block.result && !gone;
+  const underWay = doable && !early;
+  // Mark done now says when the next block is, as the Now card does.
+  const day = useQuery((sql) => (underWay ? blocksInRange(sql, dayRange(date, zone)) : Promise.resolve(undefined)), [underWay, date, zone]).data;
 
   const start = async () => {
     land(() => ref.current);
@@ -72,6 +80,12 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
       .answerAll([{ blockId: block.id, answer: answerFor(block, choice, minutes) }], (freed) => saidOf(block, choice, minutes, freed))
       .then((saved) => saved && setLeft(null));
   };
+  // Under way, it ends now, as Mark done now does; still to come, the task finishes and its time is freed.
+  const done = () => {
+    land(() => ref.current);
+    void (underWay ? actions.markDoneNow(block, day && nextBlock(day.filter((b) => b.id !== block.id), clock)) : actions.finish(block));
+  };
+  const paused = isPaused(block);
   const move = () => {
     if (leave?.() ?? true) props.onMove?.();
   };
@@ -118,11 +132,22 @@ export function BlockSection(props: { block: BlockRow; onMove?(): void; onRemove
           )}
         </div>
       )}
-      {(startable || props.onMove || props.onRemove) && (
+      {(doable || props.onMove || props.onRemove) && (
         <div className="row blocksecacts">
           {startable && (
             <Button variant="primary" size="compact" type="button" disabled={actions.pending} onClick={() => void start()}>
               {early ? 'Start now' : 'Start'}
+            </Button>
+          )}
+          {doable && (
+            <Button size="compact" type="button" disabled={actions.pending} onClick={done}>
+              <Icon name="done" size={16} />
+              Done
+            </Button>
+          )}
+          {underWay && block.started_at && (
+            <Button size="compact" type="button" disabled={actions.pending} onClick={() => void (paused ? actions.resume(block) : actions.pause(block))}>
+              {paused ? 'Resume' : 'Pause'}
             </Button>
           )}
           {props.onMove && (

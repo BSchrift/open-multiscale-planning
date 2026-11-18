@@ -2,7 +2,9 @@ import Foundation
 
 /// A folder in the App Group: the share extension adds a file per share, and the app imports them when it next opens.
 enum ShareQueue {
-    private static let maxLength = 10_000
+    /// Well past the 2,000-character title and 20,000-character description the app keeps, so the app cuts a long share
+    /// on a word and says so (core/captureShare.ts), and short enough that one share can't fill the App Group.
+    private static let maxLength = 100_000
 
     private static var folder: URL? {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "MultiscaleAppGroup") as? String else { return nil }

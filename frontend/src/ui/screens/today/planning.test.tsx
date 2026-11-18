@@ -108,15 +108,17 @@ describe("next week's planning row", () => {
     expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: FRIDAY, end: at('2026-11-06', '10:30'), started_at: FRIDAY }]);
   });
 
-  it('Change length changes this block only, in 15-minute steps', async () => {
+  it('Change length changes this block only, in 5-minute steps', async () => {
     const t = await open();
     await userEvent.click(within(await row()).getByRole('button', { name: 'Choose a time to plan next week' }));
     const sheet = await screen.findByRole('dialog', { name: 'When will you plan next week?' });
     await userEvent.click(within(sheet).getByRole('button', { name: 'Change length' }));
-    fireEvent.change(within(sheet).getByRole('slider', { name: 'Length' }), { target: { value: '45' } });
+    const length = within(sheet).getByRole('slider', { name: 'Length' });
+    expect(length).toHaveAttribute('step', '5');
+    fireEvent.change(length, { target: { value: '50' } });
     await userEvent.click(within(sheet).getByRole('button', { name: 'Schedule planning for Saturday, Nov 7 at 9am' }));
     expect(await screen.findByText('Planning scheduled for Sat 9am.')).toBeVisible();
-    expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-07', '09:00'), end: at('2026-11-07', '09:45') }]);
+    expect(await blocksOf(t, NEXT_ID)).toMatchObject([{ start: at('2026-11-07', '09:00'), end: at('2026-11-07', '09:50') }]);
   });
 
   it.each(['desktop', 'phone'] as Layout[])('on %s, Choose another time opens Week with the block waiting at its best time, at the length chosen, to place by hand', async (layout) => {

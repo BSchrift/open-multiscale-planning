@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One black-box suite against one target. Local starts its own stand-ins on free ports and removes them afterwards,
 # and also runs the backend's stand-in tests and the app's sync client against them.
-#   ENV=local (default), ENV=staging, or ENV=prod with CONFIRM_PROD=yes. SMOKE=1 runs only the wiring subset.
+#   ENV=local (default), ENV=staging, or ENV=prod with CONFIRM_PROD=yes. SMOKE=1 runs only the wiring subset, and
+#   INTEGRATION_RUN=<pattern> the tests it names.
 # Local uses built-in defaults. A deployment is read from the config folder, $MULTISCALE_CONFIG_DIR or config/: its
 # <env>.yaml, the <env>.outputs.json make deploy wrote, and the test-user passwords in that account's SSM, read with the
 # profile and region the YAML names.
@@ -70,6 +71,8 @@ start_local_stack() {
 
 filter=()
 [ -z "${SMOKE:-}" ] || filter=(-run '^TestSmoke')
+# One test or a few by name, such as the nightly's request mix (docs/performance.md).
+[ -z "${INTEGRATION_RUN:-}" ] || filter=(-run "$INTEGRATION_RUN")
 
 status=0
 (cd "$root/backend" && INTEGRATION_ENV="$env_name" CONFIRM_PROD="${CONFIRM_PROD:-}" \
@@ -91,7 +94,7 @@ if [ "$env_name" = local ] && [ "$status" = 0 ] && [ "$(count SKIP)" != 0 ]; the
   status=1
 fi
 
-if [ "$env_name" = local ] && [ -z "${SMOKE:-}" ]; then
+if [ "$env_name" = local ] && [ -z "${SMOKE:-}${INTEGRATION_RUN:-}" ]; then
   # The store and worker tests skip under plain `go test` because they need these stand-ins.
   echo
   echo "Backend packages against the local stand-ins"
@@ -100,6 +103,6 @@ if [ "$env_name" = local ] && [ -z "${SMOKE:-}" ]; then
   # since both move the stack's clock.
   echo
   echo "TypeScript client against cmd/local"
-  (cd "$root/frontend" && npx vitest run --maxWorkers=1 --project node src/core/sync.stack.test.ts src/core/retention.stack.test.ts) || status=1
+  (cd "$root/frontend" && npx vitest run --maxWorkers=1 --project node src/core/sync.stack.test.ts src/core/retention.stack.test.ts src/core/account.stack.test.ts) || status=1
 fi
 exit "$status"

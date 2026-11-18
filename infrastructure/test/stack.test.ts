@@ -348,10 +348,11 @@ describe("people's Google tokens", () => {
 
   const condition = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': 'staging' } };
 
-  it('may be encrypted only by the API, decrypted by both, with this key alone, only for this environment and purpose', () => {
+  // The worker encrypts too, while it copies the legacy connection into its person's own.
+  it('may be encrypted and decrypted by both, with this key alone, only for this environment and purpose', () => {
     const kms = (fn: string) => policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('kms:')));
     assert.deepEqual(kms('Api').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
-    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action), ['kms:Decrypt']);
+    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
     for (const s of [...kms('Api'), ...kms('Calendar')]) {
       assert.deepEqual(s.Condition, condition);
       assert.deepEqual(s.Resource, { 'Fn::GetAtt': [ofType('AWS::KMS::Key')[0][0], 'Arn'] });
@@ -371,7 +372,7 @@ describe("people's Google tokens", () => {
     const decrypt = uses.filter((s) => [s.Action].flat().includes('kms:Decrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
     assert.deepEqual(decrypt.sort(), [role('Api'), role('Calendar')].sort());
     const encrypt = uses.filter((s) => [s.Action].flat().includes('kms:Encrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
-    assert.deepEqual(encrypt, [role('Api')]);
+    assert.deepEqual(encrypt.sort(), [role('Api'), role('Calendar')].sort());
   });
 });
 
@@ -725,9 +726,9 @@ describe('observability', () => {
     for (const [, f] of ofType('AWS::Lambda::Function')) assert.ok(f.Properties.LoggingConfig.LogGroup);
   });
 
-  it('has exactly twelve alarms, all sent to one topic that emails the configured address', () => {
+  it('has exactly thirteen alarms, all sent to one topic that emails the configured address', () => {
     const alarms = ofType('AWS::CloudWatch::Alarm');
-    assert.equal(alarms.length, 12);
+    assert.equal(alarms.length, 13);
     const [[topicId]] = ofType('AWS::SNS::Topic');
     for (const [, a] of alarms) assert.deepEqual(a.Properties.AlarmActions, [{ Ref: topicId }]);
     t.hasResourceProperties('AWS::SNS::Subscription', { Protocol: 'email', Endpoint: 'alarms@example.com' });
@@ -780,6 +781,16 @@ describe('observability', () => {
       assert.equal(stats[id].Metric.Dimensions, undefined, 'each dimension combination is billed as a metric');
       assert.equal(stats[id].Stat, stat);
     }
+  });
+
+  // Not a release alarm: the migration reports each half hour, and two hours of it unfinished means someone looks.
+  it('alarms when the legacy connection stays unmigrated for two hours', () => {
+    const a = alarm('CalendarLegacyNotMigrated');
+    assert.equal(a.MetricName, 'CalendarLegacyUnmigrated');
+    assert.equal(a.Statistic, 'Minimum');
+    assert.equal(a.Period * a.EvaluationPeriods, 2 * 3600);
+    assert.equal(a.Threshold, 1);
+    assert.equal(a.TreatMissingData, 'notBreaching');
   });
 
   // Not a release alarm: a wave of people's tokens refused at once is more likely Google than a release, but someone looks.
@@ -860,10 +871,10 @@ describe('observability', () => {
   });
 
   // The two per-person outcomes count apart from the worker's failures, so neither can roll a release back.
-  it('uses only the seven allowed custom metrics', () => {
+  it('uses only the eight allowed custom metrics', () => {
     const text = JSON.stringify(t.toJSON());
-    const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events|Revoked|RateLimited)\w*)\b/g)].map((m) => m[1]));
-    assert.deepEqual([...used].sort(), ['CalendarEventsChanged', 'CalendarRateLimited', 'CalendarRevoked', 'CalendarRunFailures', 'SyncConflictRetries', 'SyncRecordsMerged', 'SyncRequestsRejected']);
+    const used = new Set([...text.matchAll(/\b(Sync[A-Z]\w+|Calendar(?:Run|Events|Revoked|RateLimited|LegacyUnmigrated)\w*)\b/g)].map((m) => m[1]));
+    assert.deepEqual([...used].sort(), ['CalendarEventsChanged', 'CalendarLegacyUnmigrated', 'CalendarRateLimited', 'CalendarRevoked', 'CalendarRunFailures', 'SyncConflictRetries', 'SyncRecordsMerged', 'SyncRequestsRejected']);
   });
 
   it('has a budget that alerts at $5 a month', () => {

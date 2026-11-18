@@ -105,6 +105,9 @@ type Connections interface {
 	// stored is still previous, as Peek read it, or nothing for a zero previous. It returns errConnectionChanged if not,
 	// and api.ErrAccountTaken when someone else holds the account.
 	Put(ctx context.Context, conn connection, previous connection) error
+	// PutNew stores conn as Put does, only if its person has no connection of their own, and returns its sealed token as
+	// stored, for a change to that copy alone. It returns errConnectionChanged if they have one.
+	PutNew(ctx context.Context, conn connection) ([]byte, error)
 	// MarkRevoked records that Google refused conn's token, if conn is still what's stored.
 	MarkRevoked(ctx context.Context, conn connection) error
 	// Delete removes conn and releases its account. It succeeds when there's nothing to remove, and returns

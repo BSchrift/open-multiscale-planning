@@ -385,7 +385,7 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     const r = s.run(['build'], { RUN: 'hand', EXECUTION_ID: 'exec-9' });
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(s.log(), /stop-pipeline-execution/);
-    for (const name of ['api', 'calendar', 'retention', 'canary']) assert.match(s.log(), new RegExp(`go build .* \\./cmd/${name}`));
+    for (const name of ['api', 'calendar', 'retention', 'canary', 'account']) assert.match(s.log(), new RegExp(`go build .* \\./cmd/${name}`));
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=staging -o cdk.out\/staging Multiscale-staging/);
     assert.match(s.log(), /npx cdk synth --quiet -c deploy=prod -o cdk.out\/prod Multiscale-prod/);
     // Each environment's web build, from its stack's outputs and its key's public half.

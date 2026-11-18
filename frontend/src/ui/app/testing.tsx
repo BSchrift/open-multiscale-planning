@@ -18,7 +18,7 @@ import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
-import type { CaptureShortcut, PlatformKind } from '../../platform/types';
+import type { CaptureShortcut, Platform, PlatformKind } from '../../platform/types';
 import { HOLD_MS } from '../components/weekgrid';
 import { ToastProvider } from '../components/Toast';
 import { NavProvider, useNav, useOverlay } from './nav';
@@ -51,6 +51,8 @@ export interface HarnessOptions {
   captureShortcut?: CaptureShortcut;
   /** As on a Mac app whose content policy is from before attachments. */
   filesBlocked?: true;
+  /** As in the Mac app, where macOS draws a block's menu. */
+  showMenu?: Platform['showMenu'];
 }
 
 export interface Harness extends RenderResult {
@@ -70,6 +72,7 @@ async function prepare(options: HarnessOptions) {
     options.kind ? { kind: options.kind } : {},
     options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
     options.filesBlocked ? { filesBlocked: true as const } : {},
+    options.showMenu ? { showMenu: options.showMenu } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));

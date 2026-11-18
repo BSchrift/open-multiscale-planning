@@ -3,7 +3,8 @@
 # secrets, the staging app passed before updates itself, as an installed app does, to the app staging's desktop feed
 # names; then it quits, so Squirrel installs the new app, and opens again as that app. A pass, in OUT/pass.json, is what
 # prod's release waits for before it takes a new Mac app (scripts/pipeline.sh, publish). With no app passed before, as
-# for the first app that updates itself, it checks only that the app the feed names installs and starts.
+# for the first app that updates itself, or one passed before that can't update itself, it checks only that the app the
+# feed names installs and starts.
 #   RELEASE_URL=<staging's release host> DOWNLOADS_URL=<staging's downloads host> PREVIOUS=<app version passed before>
 #   OUT=<folder> scripts/mac-update-check.sh
 set -euo pipefail
@@ -65,6 +66,14 @@ started() { [ "$(sqlite3 "$data/multiscale.sqlite" 'select count(*) from sqlite_
 
 if [ -n "$previous" ]; then
   install "$downloads_url/mac/$previous/Multiscale.dmg"
+  # electron-updater reads app-update.yml before it downloads an update. Apps from before electron-builder wrote it
+  # can't download one, so updating from one would fail every run: the check treats it as no app passed before.
+  if [ ! -f "$app/Contents/Resources/app-update.yml" ]; then
+    echo "App $previous can't update itself, as it has no app-update.yml, so this checks only that app $version installs and starts."
+    previous=""
+  fi
+fi
+if [ -n "$previous" ]; then
   echo "Installed app $previous. Opening it, to update itself to $version."
   open "$app"
   # It checks soon after it starts, downloads quietly, and Squirrel stages the new app once its signature checks out.
@@ -76,7 +85,7 @@ if [ -n "$previous" ]; then
   echo "Squirrel installed app $version at quit, and didn't open it again."
   if running; then echo "The app opened again after Quit, which it mustn't." >&2; exit 1; fi
 else
-  echo "No app has passed before, so this checks only that app $version installs and starts."
+  [ -n "${PREVIOUS:-}" ] || echo "No app has passed before, so this checks only that app $version installs and starts."
   install "$downloads_url/${folder}Multiscale.dmg"
 fi
 

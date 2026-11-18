@@ -74,22 +74,6 @@
   gap: var(--space-2);
 }
 
-/* The milestone to put the item under, set in under the box that keeps it as the first task. */
-[data-layout] .homems {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin-left: calc(var(--space-6) + var(--space-1));
-}
-
-[data-layout='phone'] .homems {
-  margin-left: var(--space-8);
-}
-
-[data-layout='desktop'] .homems .field {
-  max-width: 520px;
-}
-
 [data-layout='desktop'] .homeacts .keycap {
   margin-left: var(--space-2);
 }

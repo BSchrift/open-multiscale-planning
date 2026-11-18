@@ -1,11 +1,11 @@
 // The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Done, Partly with the
-// time left, Not done) and a practice's time logged. Several missed blocks share one sheet, MissedSheet. On desktop
+// time left, Not done) and a practice's time logged (All, Partly with the time done, Skipped). Several missed blocks share one sheet, MissedSheet. On desktop
 // these sit in the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they
 // close. One that opens while you're typing or in another dialog waits until you're done.
 
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
-import { isPaused, partlyLeft, spentLine, timeLeftMs, workMinutes } from '../../../core/blocks';
+import { halfOfPractice, isPaused, partlyLeft, spentLine, timeLeftMs, workMinutes } from '../../../core/blocks';
 import { formatMinutes, instantMs, localDate } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
@@ -95,40 +95,56 @@ function PartlyStep(props: { block: BlockRow; onClose(): void }) {
   );
 }
 
+/** A practice's three answers, as the missed blocks sheet and the notification give them; Partly then asks how much. */
 function PracticeLog(props: { block: BlockRow; onClose(): void }) {
   const { block } = props;
   const actions = useBlockActions();
   const id = useId();
   const length = Math.max(5, workMinutes(block));
-  const [minutes, setMinutes] = useState(length);
+  const [minutes, setMinutes] = useState<number | null>(null);
   const answer = (logged: number) =>
     void actions.answer(block, logged ? { result: 'done', logged_min: logged } : { result: 'not', logged_min: 0 }).then(props.onClose);
   return (
     <PromptFrame label="Block finished" onClose={props.onClose}>
       <Heading over="Block ended" title={block.title} />
-      <div className="stack8">
-        <div className="between">
-          <label className="small quiet" htmlFor={id}>
-            How much did you do?
-          </label>
-          <span className="strong">{formatMinutes(minutes)}</span>
+      {minutes !== null && (
+        <div className="stack8">
+          <div className="between">
+            <label className="small quiet" htmlFor={id}>
+              How much did you do?
+            </label>
+            <span className="strong">{formatMinutes(minutes)}</span>
+          </div>
+          <input
+            id={id}
+            className="logrange"
+            type="range"
+            // Partly replaces itself with this, so focus goes where the next move is.
+            autoFocus
+            min={5}
+            max={length}
+            step={5}
+            value={minutes}
+            aria-valuetext={formatMinutes(minutes)}
+            onChange={(event) => setMinutes(Number(event.target.value))}
+          />
         </div>
-        <input
-          id={id}
-          className="logrange"
-          type="range"
-          min={5}
-          max={length}
-          step={5}
-          value={minutes}
-          aria-valuetext={formatMinutes(minutes)}
-          onChange={(event) => setMinutes(Number(event.target.value))}
-        />
-      </div>
+      )}
       <div className="row">
-        <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(minutes)}>
-          {minutes === length ? `All ${formatMinutes(length)}` : `Log ${formatMinutes(minutes)}`}
-        </Button>
+        {minutes === null ? (
+          <>
+            <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(length)}>
+              All {formatMinutes(length)}
+            </Button>
+            <Button type="button" onClick={() => setMinutes(Math.min(length, halfOfPractice(block)))}>
+              Partly
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(minutes)}>
+            Log {formatMinutes(minutes)}
+          </Button>
+        )}
         <Button type="button" disabled={actions.pending} onClick={() => answer(0)}>
           Skipped
         </Button>

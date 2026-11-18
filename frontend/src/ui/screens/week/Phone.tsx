@@ -32,6 +32,8 @@ import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Bl
 import { clearLane, columnStyle, dayName, dragCard, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
 import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
+import { DraftBlock, HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
+import { Capture } from '../capture';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
@@ -367,6 +369,7 @@ export function PhoneWeek(props: WeekProps) {
                     : null
               }
               editing={editing && !placing}
+              holdToCreate={!placing}
               onMoving={setAt}
               onDone={() => void finishPlacing()}
               onChange={changeBlock}
@@ -567,17 +570,34 @@ function leastZoom(root: HTMLElement | null, card: HTMLElement | null, zoom: num
   return fitZoom(bottom - top - fixed, scales / zoom);
 }
 
+/** The id of a hold's draft among a day's rows, drawn as a block until Capture saves or cancels it. */
+const HELD = 'holddraft';
+
 /**
  * One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. Blocks at the
- * same time share a row, side by side.
+ * same time share a row, side by side. A press held on a stretch of time drafts an hour there, in a row of its own that
+ * splits the stretch around it, and opens Capture on it.
  */
 function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's height. */ cell: number; readOnly: boolean; onOpen(id: string): void; onMove(block: PlacedBlock, slot: Slot): void }) {
   const { date, model, cell } = props;
-  const { clock, platform } = useApp();
+  const { clock, layout, platform } = useApp();
   // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
   const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
-  const { availability, busy } = model.ctx;
-  const blocks = model.blocks.filter((b) => b.date === date);
+  const { availability, busy, earliest } = model.ctx;
+  // The minute under the finger, from the time the row covers and the height it's drawn, which for a closed row isn't
+  // its time's. After the hold the draft moves at the rows' scale, a half hour a cell.
+  const holdNew = useHoldToCreate({
+    at: (_x, py, el) => {
+      const [from, to] = [Number(el.dataset.dropFrom), Number(el.dataset.dropTo)];
+      const tall = el.getBoundingClientRect().height || ((to - from) / 30) * cell;
+      return { date, minute: from + (py / tall) * (to - from) };
+    },
+    move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 30) / cell, [], { from: date === earliest.date ? Math.max(DAY_FROM, Math.ceil(earliest.minutes / GRID) * GRID) : DAY_FROM, to: DAY_TO }),
+    earliest,
+  });
+  const held = holdNew.draft?.slot;
+  const draftBlock: PlacedBlock | null = held ? { ...held, id: HELD, title: holdNew.draft!.name.trim() || 'New task', kind: 'project', draft: true, task_id: null, practice_id: null, past: false, ended: false, result: null } : null;
+  const blocks = [...model.blocks.filter((b) => b.date === date), ...(draftBlock?.date === date ? [draftBlock] : [])];
   const groups = overlapGroups(blocks);
   const info = model.info.filter((x) => x.date === date);
   const shown = new Set<unknown>();
@@ -588,9 +608,9 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
   const kindAt = (m: number) => (!isOpen(availability, date, m, 'project') ? 'closed' : isPast(date, m, model.ctx) ? 'gone' : 'free');
   const rows: ReactElement[] = [];
   // Each row says the time it covers, so a card dropped on it lands where it was let go.
-  const row = (key: string, time: number, body: ReactElement, from: number, to: number) =>
+  const row = (key: string, time: number, body: ReactElement, from: number, to: number, holdable = false) =>
     rows.push(
-      <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to}>
+      <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to} onPointerDown={holdable ? holdNew.press : undefined}>
         <span className="tltime">{formatTimeOfDay(time)}</span>
         {body}
         {nowMin !== null && from <= nowMin && nowMin < to && <NowLine top={`${((nowMin - from) / (to - from)) * 100}%`} />}
@@ -612,6 +632,16 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
   };
   /** A block filling its row, or in its column of its group's row, whose time is `from`: one starting later says when. */
   const draw = (block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties) => {
+    if (block.id === HELD) {
+      return (
+        <div key={HELD} ref={holdNew.draftRef} className={`tlblock holddraft ${blockClass('project', 'placing')}${holdNew.draft!.fresh ? ' pop' : ''}`} style={style} title={slotRange(block)} aria-hidden="true">
+          <span className="tlname">
+            <span className="blktitle">{block.title}</span>
+          </span>
+          <span className="tlkind">{slotRange(block)}</span>
+        </div>
+      );
+    }
     const word = KIND_WORD[block.kind];
     const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.start > from ? `, from ${formatTimeOfDay(block.start)}` : ''}${block.note ? `. ${block.note}` : ''}`;
     const state = blockState({ result: block.result, ended: block.ended, now: block.now });
@@ -662,7 +692,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
         group.items.length === 1 ? (
           draw(block, [], block.start, { height: cells * cell - 2 })
         ) : (
-          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => !shut(b)} onOpen={props.onOpen} />
+          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => b.id !== HELD && !shut(b)} onOpen={props.onOpen} />
         ),
         m,
         m + cells * 30,
@@ -709,10 +739,24 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
       ),
       m,
       n,
+      true,
     );
     m = n;
   }
-  return <>{rows}</>;
+  return (
+    // A finger moving the draft sideways isn't a swipe to the next day.
+    <div className="tlrows" onTouchEnd={(e) => holdNew.draft && e.stopPropagation()}>
+      {rows}
+      <HoldRing ring={holdNew.ring} />
+      {holdNew.draft?.open && (
+        <Capture
+          layout={layout}
+          close={holdNew.close}
+          slot={holdNew.slot(overlapWords(holdNew.draft.slot, [...model.blocks, ...busy].filter((o) => o.date === date).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))}
+        />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -774,10 +818,15 @@ export function DragDay(props: {
   onOpen(id: string): void;
   /** An hour's height: Week's pinch zoom, or the usual. */
   hour?: number;
+  /**
+   * A press held on empty time drafts an hour there and opens Capture on it. The caller leaves it off while a block is
+   * selected or being placed; it's off while one is held or being placed here.
+   */
+  holdToCreate?: boolean;
 }) {
   const { date, ctx, floor, moving, ghosts = [], hour = HOUR_PX } = props;
   const y = (m: number) => ((m - DAY_FROM) * hour) / 60;
-  const { clock, platform } = useApp();
+  const { clock, layout, platform } = useApp();
   const nowMin = localMinutes(clock.now(), clock.zone());
   const targets = ghosts.map((g) => ({ date: g.date, start: g.start }));
   const [preview, setPreview] = useState<{ id: string; slot: Slot } | null>(null);
@@ -800,6 +849,15 @@ export function DragDay(props: {
 
   // The block a hold has lifted, drawn raised until it's let go.
   const [lifted, setLifted] = useState<string | null>(null);
+  const holdNew = useHoldToCreate({
+    at: (_x, py) => ({ date, minute: DAY_FROM + (py * 60) / hour }),
+    move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / hour, [], bounds),
+    earliest: ctx.earliest,
+    off: !props.holdToCreate || !!moving || !!lifted || !!preview || !!props.selected,
+  });
+  const held = holdNew.draft?.slot.date === date ? holdNew.draft.slot : undefined;
+  /** What the draft would share its time with: blocks and calendar events on the day. */
+  const sharing = held ? [...props.blocks, ...ctx.busy].filter((o) => o.date === date && o.start < held.end && held.start < o.end) : [];
   // Measured from the drawn track each move, so zoom and scrolling during the drag can't shift the block.
   const track = (key: string, event: ReactPointerEvent, apply: (minutes: number) => void, done?: () => void, tap?: () => void, off?: () => void) => {
     event.preventDefault();
@@ -905,7 +963,14 @@ export function DragDay(props: {
 
   return (
     <div className="daywrap">
-      <div ref={measure} className="day dragday" style={{ height: y(DAY_TO), '--hour': `${hour}px` } as CSSProperties} data-drop-date={date}>
+      <div
+        ref={measure}
+        className="day dragday"
+        style={{ height: y(DAY_TO), '--hour': `${hour}px` } as CSSProperties}
+        data-drop-date={date}
+        // Empty time is the day itself and its closed hours; a block, an event or a suggested time keeps its own press.
+        onPointerDown={(e) => !(e.target as Element).closest('.cev') && holdNew.press(e)}
+      >
         {zones.map((z, i) => (
           <div key={i} className={`dzone${z.lock ? ' lockz' : ''}`} style={{ top: z.top, height: z.h }} aria-hidden="true">
             {z.lock ? 'Time has passed' : ''}
@@ -981,7 +1046,12 @@ export function DragDay(props: {
             </button>
           ))}
         {moving && handle('moving', moving.title, moving.kind, moving.slot, false, { change: props.onMoving, enter: props.onDone })}
+        {held && <DraftBlock hold={holdNew} top={y(held.start)} height={y(held.end) - y(held.start)} beside={sharing.length > 0} />}
+        <HoldRing ring={holdNew.ring} />
       </div>
+      {held && holdNew.draft!.open && (
+        <Capture layout={layout} close={holdNew.close} slot={holdNew.slot(overlapWords(held, sharing.map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
+      )}
     </div>
   );
 }

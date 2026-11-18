@@ -58,8 +58,9 @@
   animation: holdring calc(var(--dur-slow) * 2) var(--ease) forwards;
 }
 
-/* A press held on the day selects nothing and brings up no menu, on iPhone too. */
-[data-layout='phone'] .day {
+/* A press held on the day selects nothing and brings up no menu, on iPhone too: Today's and the Schedule step's drawn
+   day, and Week's day of rows. */
+[data-layout='phone'] :is(.day, .wkdaycard) {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -75,4 +76,12 @@
     opacity: 0.6;
     transform: translate(-50%, -50%);
   }
+}
+
+/* A draft's time, under its name on phone, wherever the day is drawn. */
+[data-layout='phone'] .holddraft .time {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

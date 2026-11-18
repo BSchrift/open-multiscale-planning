@@ -803,6 +803,18 @@ case "$command" in
     ) || echo "Publishing the performance results failed, above. The suites go on." >&2
     frontend_deps
     browsers
+    # The per-route latency targets' fixed request mix, and sync timed between two browsers against staging, published
+    # to its performance dashboard (docs/performance.md). Neither stops the suites.
+    ENV=staging MULTISCALE_REQUEST_MIX=1 INTEGRATION_RUN='^TestNightlyRequestMix$' "$root/scripts/integration.sh" ||
+      echo "The request mix failed, above. The suites go on." >&2
+    if PERF_SYNC=staging PERF_PLATFORMS=none "$root/scripts/test-perf.sh"; then
+      (
+        read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+        AWS_PROFILE="$profile" COMMIT="$commit" "$root/scripts/perf-publish.sh" "$root/frontend/test-results/perf/summary/this.json"
+      ) || echo "Publishing staging's sync timing failed, above. The suites go on." >&2
+    else
+      echo "Timing sync against staging failed, above. The suites go on." >&2
+    fi
     # Each surface back one version and forward again, as make release-surface would, then the suites against it.
     (
       read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"

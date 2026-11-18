@@ -214,6 +214,46 @@ func TestNotesLimit(t *testing.T) {
 	}
 }
 
+// A note, type memo, holds a title and a body. The title stops at MaxTitleChars and the body at MaxNotesChars, since
+// making a note a task copies its body into the task's notes. Released apps never send memos.
+func TestMemoLimits(t *testing.T) {
+	memo := func(name, value string) error {
+		_, err := ParseRequest([]byte(change("memo", "a", field(name, value, goodClock))), testNow)
+		return err
+	}
+	text := func(s string) string { return fmt.Sprintf("%q", s) }
+	for name, c := range map[string]struct{ field, value string }{
+		"title at the limit":       {"title", text(strings.Repeat("x", MaxTitleChars))},
+		"title emoji at the limit": {"title", text(strings.Repeat("🌲", MaxTitleChars))},
+		"empty title":              {"title", `""`},
+		"body at the limit":        {"body", text(strings.Repeat("x", MaxNotesChars))},
+		"body emoji at the limit":  {"body", text(strings.Repeat("🌲", MaxNotesChars))},
+		"body cleared":             {"body", `null`},
+		"another field":            {"home", `{"type":"project","id":"p"}`},
+	} {
+		if err := memo(c.field, c.value); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for name, c := range map[string]struct{ field, value, code string }{
+		"title one over":       {"title", text(strings.Repeat("x", MaxTitleChars+1)), "memo_too_long"},
+		"title one emoji over": {"title", text(strings.Repeat("🌲", MaxTitleChars+1)), "memo_too_long"},
+		"body one over":        {"body", text(strings.Repeat("x", MaxNotesChars+1)), "memo_too_long"},
+		"body one emoji over":  {"body", text(strings.Repeat("🌲", MaxNotesChars+1)), "memo_too_long"},
+		"title a number":       {"title", `1`, "invalid_value"},
+		"body a list":          {"body", `["x"]`, "invalid_value"},
+	} {
+		var rejection *Rejection
+		if err := memo(c.field, c.value); !errors.As(err, &rejection) || rejection.Code != c.code {
+			t.Errorf("%s: got %v, want %s", name, err, c.code)
+		}
+	}
+	// A task's title has no such check: the apps cut it, and the record's size bounds it.
+	if _, err := ParseRequest([]byte(change("task", "a", field("title", text(strings.Repeat("x", MaxTitleChars+1)), goodClock))), testNow); err != nil {
+		t.Errorf("a task's long title: %v", err)
+	}
+}
+
 func TestValidID(t *testing.T) {
 	for id, want := range map[string]bool{"a1": true, "0193b2c4-attachment": true, "": false, "has space": false, strings.Repeat("x", 201): false} {
 		if got := ValidID(id); got != want {

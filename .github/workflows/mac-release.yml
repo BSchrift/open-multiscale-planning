@@ -1,6 +1,7 @@
 # Builds, signs and notarizes the Mac app for a main commit, and hands it to the release pipeline's inbox, which checks it
-# and publishes it when the commit's release needs a new one (docs/releasing.md). It runs for every push to main, so the
-# app is there whenever a release needs it, or by hand for a main commit:
+# and publishes it when the commit's release needs a new one, or a later commit's with the same Mac native code
+# (docs/releasing.md). It runs for every push to main, so the app is there whenever a release needs it, or by hand for a
+# main commit:
 #   gh workflow run mac-release.yml -f commit=<full commit hash>
 # The signing job runs in the release environment, which takes only main and holds the only copies of the signing
 # secrets. Its one AWS permission is writing to the inbox, through GitHub's OIDC token.
@@ -164,7 +165,7 @@ jobs:
             done
             aws s3 cp "$RUNNER_TEMP/inbox/$env_name/manifest.json" "s3://$BUCKET/inbox/$COMMIT/$env_name/manifest.json" --no-progress
           done
-          echo "Uploaded the Mac apps for $COMMIT. The release pipeline checks and publishes them in its run for that commit."
+          echo "Uploaded the Mac apps for $COMMIT. The release pipeline checks and publishes them in its run for that commit, or for a later one with the same Mac native code."
 
       - name: Delete the keychain and the notary key
         if: always()

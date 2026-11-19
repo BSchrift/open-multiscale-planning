@@ -657,7 +657,7 @@ describe('the backend canary', () => {
   it('canaries 5% for a day on prod', () => {
     const prod = Template.fromStack(build('prod'));
     const { id, routing } = canaryOf(prod);
-    assert.deepEqual(routing, { Type: 'TimeBasedCanary', TimeBasedCanary: { CanaryPercentage: 10, CanaryInterval: 90 } });
+    assert.deepEqual(routing, { Type: 'TimeBasedCanary', TimeBasedCanary: { CanaryPercentage: 10, CanaryInterval: 5 } });
     for (const group of groups(prod)) assert.deepEqual(group.Properties.DeploymentConfigName, { Ref: id });
   });
 

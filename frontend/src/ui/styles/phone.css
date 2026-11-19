@@ -38,6 +38,7 @@
 :where([data-layout='phone']) .pxweek.on{background:var(--accent);color:var(--on-accent)}
 :where([data-layout='phone']) .pxacts{display:flex;align-items:center;gap:var(--space-2)}
 :where([data-layout='phone']) .pxacts .btn{flex:1 1 0}
+:where([data-layout='phone']) .pxacts .btn-icon{flex:none}
 :where([data-layout='phone']) .weektop{position:sticky;top:-20px;z-index:calc(var(--z-raised) + 2);margin:calc(-1 * calc(var(--space-4) + var(--space-1))) calc(-1 * var(--space-4)) 0;padding:var(--space-3) var(--space-4) var(--space-2);background:var(--card);border-bottom:1px solid var(--hairline)}
 :where([data-layout='phone']) .wstrip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px}
 :where([data-layout='phone']) .wday{display:flex;flex-direction:column;align-items:center;gap:var(--space-1);width:100%;height:116px;padding:var(--space-1) 0;border:0;border-radius:var(--radius-control);background:transparent;color:var(--ink-2);font-size:var(--fs-caption)}

@@ -30,9 +30,16 @@ export function useWeekActions() {
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
   const zone = clock.zone();
 
-  const withUndo = async (fn: (w: Writer) => Promise<PlanChange>, message: string, focusUndo = false) => {
+  /** `undone` runs as Undo is pressed, before Undo saves. */
+  const withUndo = async (fn: (w: Writer) => Promise<PlanChange>, message: string, focusUndo = false, undone?: () => void) => {
     const reverse = await run(fn);
-    if (reverse) toast.show(message, { undo: () => run((w) => applyPlanChange(w, reverse)), focusUndo });
+    if (reverse) {
+      const undo = () => {
+        undone?.();
+        return run((w) => applyPlanChange(w, reverse));
+      };
+      toast.show(message, { undo, focusUndo });
+    }
     return reverse;
   };
   const at = (slot: Slot) => `${dayName(slot.date)}, ${formatTimeOfDay(slot.start)}`;
@@ -41,7 +48,7 @@ export function useWeekActions() {
   return {
     /** Saves as you go, with no message: the block shows where it landed. */
     move: (id: string, slot: Slot) => run((w) => moveBlock(w, id, slotInstants(slot, zone))),
-    moveWithUndo: (id: string, title: string, slot: Slot) => withUndo((w) => moveBlock(w, id, slotInstants(slot, zone)), `Moved ${title} to ${at(slot)}`),
+    moveWithUndo: (id: string, title: string, slot: Slot, undone?: () => void) => withUndo((w) => moveBlock(w, id, slotInstants(slot, zone)), `Moved ${title} to ${at(slot)}`, false, undone),
     /**
      * A practice session moved to another day: this week only, and it stays the session of the day it's for. A day that
      * has another of its sessions refuses it. Resolves to whether it moved.

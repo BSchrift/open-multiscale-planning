@@ -7,7 +7,7 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Request } from '@playwright/test';
 import { syncNow } from '../seed';
-import { timezoneWithRoom, workJourney } from './journey';
+import { clearLeftChecks, putPromptsAway, timezoneWithRoom, workJourney } from './journey';
 import { deployed } from './target';
 
 const d = deployed();
@@ -59,6 +59,7 @@ test.beforeAll(async ({ browser }, info) => {
     p.on('requestfailed', (r) => void noteSync(r));
   });
   page = await context.newPage();
+  await putPromptsAway(page);
 });
 
 test.afterAll(() => context?.close());
@@ -167,43 +168,12 @@ test('clears the checks this run left on the shared test user', async ({}, info)
 });
 
 /**
- * Takes away the checks the journey leaves on the shared test user: Inbox items are deleted, and a one off still waiting
- * in this week's To schedule is marked done. It runs first as well as last, since a run that fails part way leaves its
- * checks behind, and they change what the next run meets, such as how far down the week the calendar starts. It syncs
- * before, to see what earlier runs sent, and after, or the deployment keeps them for the next suite to trip on.
+ * Takes away the checks earlier runs left on the shared test user, as clearLeftChecks has it. It syncs before, to see
+ * what earlier runs sent, and after, or the deployment keeps them for the next suite to trip on.
  */
 async function clearChecks(page: Page) {
   await syncNow(page);
-  const nav = page.getByRole('navigation', { name: 'Main' });
-  await nav.getByRole('button', { name: /Inbox/ }).click();
-  for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
-    const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
-    await left.first().click();
-    // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
-    // already showing, so answer it if it's there.
-    const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
-    const yes = page.getByRole('button', { name: 'Yes, delete' });
-    // The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no Process open),
-    // so an item that's gone needs nothing more.
-    const asking = () => del.or(yes).first().isVisible();
-    const gone = async () => !(await page.getByRole('button', { name: `Assign ${name}`, exact: true }).count());
-    await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
-    if (!(await asking())) continue;
-    if (await del.isVisible()) await del.click();
-    await yes.click();
-    // The last one closes this release's Process by itself.
-    const process = page.getByRole('dialog', { name: 'Process Inbox' });
-    await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);
-    if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
-  }
-  await nav.getByRole('button', { name: 'Week' }).click();
-  const lane = page.getByRole('region', { name: 'To schedule' });
-  for (let left = lane.getByRole('button', { name: /^(Deployed|Staging) check [^,]*, One off, .*, to schedule$/ }); await left.count(); ) {
-    const name = (await left.first().getAttribute('aria-label'))!;
-    await left.first().click();
-    await page.getByRole('group', { name: name.replace(/, One off, .*$/, '') }).getByRole('button', { name: 'Mark done' }).click();
-    await expect(lane.getByRole('button', { name, exact: true })).toHaveCount(0);
-  }
+  await clearLeftChecks(page);
   await syncNow(page);
 }
 

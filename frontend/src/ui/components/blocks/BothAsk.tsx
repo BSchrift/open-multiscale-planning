@@ -78,7 +78,7 @@ function BothQuestion(props: { title: string; on: readonly Landed[]; answer(a: B
   );
   if (layout === 'phone') {
     return (
-      <Sheet label={label} onClose={() => props.answer('cancel')}>
+      <Sheet label={label} className="bothsheet" onClose={() => props.answer('cancel')}>
         <h2>{label}</h2>
         {body}
       </Sheet>

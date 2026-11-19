@@ -687,7 +687,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   const deleteAsk = (
     <span className={phone ? 'pxacts' : 'row small'} role="alert">
       <span className="strong small grow">Delete this item?</span>
-      <Button variant="primary" size="compact" type="button" onClick={remove}>
+      <Button variant="destructive" filled size="compact" type="button" onClick={remove}>
         Yes, delete
       </Button>
       <Button size="compact" type="button" onClick={() => setDelAsk(false)}>
@@ -718,16 +718,15 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               deleteAsk
             ) : (
               <div className="pxacts">
-                <Button type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo">
-                  Undo
-                </Button>
+                {/* Four with icons don't fit a phone's width, so Undo keeps only its icon. */}
+                <Button variant="icon" label="Undo" type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo" />
                 <Button type="button" onClick={skip}>
                   Skip
                 </Button>
-                <Button type="button" onClick={markDone}>
+                <Button className="ok" icon="done" type="button" onClick={markDone}>
                   Done
                 </Button>
-                <Button type="button" onClick={() => setDelAsk(true)}>
+                <Button variant="destructive" icon="bin" type="button" onClick={() => setDelAsk(true)}>
                   Delete
                 </Button>
               </div>
@@ -772,11 +771,11 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
                       deleteAsk
                     ) : (
                       <>
-                        <Button size="compact" type="button" onClick={markDone}>
+                        <Button size="compact" className="ok" icon="done" type="button" onClick={markDone}>
                           Done
                           {cap('F')}
                         </Button>
-                        <Button size="compact" type="button" onClick={() => setDelAsk(true)}>
+                        <Button variant="destructive" size="compact" icon="bin" type="button" onClick={() => setDelAsk(true)}>
                           Delete
                           {cap('D')}
                         </Button>

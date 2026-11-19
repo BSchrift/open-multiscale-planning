@@ -525,7 +525,7 @@ export function PhoneWeek(props: WeekProps) {
                 block={popRow}
                 {...(popEdit && popPlaced
                   ? {
-                      onMove: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced),
+                      move: { ctx: model.ctx, choose: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced) },
                       onRemove: () => {
                         setEdSel(null);
                         void act.remove(popPlaced.id, popPlaced.title);

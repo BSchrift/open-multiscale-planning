@@ -160,6 +160,8 @@ export function DesktopWeek(props: WeekProps) {
       return moved;
     }
     const saved = await act.move(id, slot);
+    // A failed save resolves to nothing, and the grid puts the block back; nothing else changes.
+    if (!saved) return undefined;
     setMoved(id);
     setAsk(b.practice_id ? { blockId: id, wasMin: ask?.blockId === id ? ask.wasMin : b.end - b.start } : null);
     takeOff(off);

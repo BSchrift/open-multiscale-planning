@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
-import { timezoneWithRoom, workJourney } from '../deployed/journey';
+import { putPromptsAway, timezoneWithRoom, workJourney } from '../deployed/journey';
 import { goals, openProject } from '../journeys/journey';
 import { account, go, oneOffRow, openSeeded, pane, readRecord, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
@@ -146,6 +146,7 @@ for (const name of ['old', 'new'] as const) {
     const from = process.env.COMPAT_OLD_SURFACE;
     test.skip(name === 'old' && !!from && from !== 'web', `The old bundle is the one prod's ${from} feed serves, older than the web app prod's Test step takes the journey on`);
     const d = await device(browser, `e2e-${randomUUID()}`, { ...on(name), timezoneId: timezoneWithRoom() });
+    await putPromptsAway(d.page);
     await workJourney(d.page, `Compat check ${new Date().toISOString().slice(11, 19)}`);
   });
 }

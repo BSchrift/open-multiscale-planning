@@ -4,7 +4,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { NOW, SAMPLE } from './pick-sample';
-import { expectTapTarget, openSeeded } from './seed';
+import { expectOnTop, expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -160,6 +160,41 @@ test('walk case 3: a milestone added here is tagged to this stretch, reads "by D
   // By the stretch's end, or the project's when that's sooner.
   await expect(page.getByRole('heading', { name: phone ? 'Milestone: Print and bind, by Dec 31' : 'Milestone: Print and bind, by Dec 15' })).toBeVisible();
   await expect(row(page, 'Get a print quote')).toBeVisible();
+});
+
+test('on desktop, Need you, Change aims and + Add draw over the sticky Does it fit? bar, header and all', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The bar and these popovers are the desktop layout');
+  await openPick(page);
+  const bar = page.locator('.planpin');
+  await expect(bar).toBeVisible();
+
+  // Need you opens centred near the top, where the bar is: each heading in it is what's drawn at its own place.
+  await page.getByRole('button', { name: 'Show the 6 that need you' }).click();
+  const need = page.getByRole('dialog', { name: 'Need you (6)' });
+  await expectOnTop(need.getByRole('heading', { name: 'Need you (6)' }));
+  await expectOnTop(need.getByRole('button', { name: 'Close' }));
+  for (const heading of await need.getByRole('heading', { level: 3 }).all()) await expectOnTop(heading);
+  await page.screenshot({ path: info.outputPath('pick-need-you-desktop.png') });
+  await need.getByRole('button', { name: 'Close' }).click();
+
+  // The same with the list scrolled, so the bar is stuck at the top.
+  await page.locator('.flowpane').evaluate((el) => el.scrollBy(0, 600));
+  await page.getByRole('button', { name: 'Show the 6 that need you' }).click();
+  await expectOnTop(need.getByRole('heading', { name: 'Need you (6)' }));
+  await need.getByRole('button', { name: 'Close' }).click();
+
+  await page.getByRole('button', { name: 'Change aims for this week' }).click();
+  const aims = page.getByRole('dialog', { name: 'Aims for this week' });
+  await expectOnTop(aims.locator('label').first());
+  await expectOnTop(aims.getByRole('slider').first());
+  await page.keyboard.press('Escape');
+  await expect(aims).toHaveCount(0);
+
+  await page.locator('.flowpane').evaluate((el) => el.scrollTo(0, 0));
+  // The header's, first on the page; a task with no estimate has its own.
+  await page.getByRole('button', { name: '+ Add', exact: true }).first().click();
+  const add = page.getByRole('dialog', { name: 'Add' });
+  for (const item of await add.getByRole('button').all()) await expectOnTop(item);
 });
 
 test('Change aims fits the window, and Save stays in reach while its aims scroll', async ({ page }, info) => {

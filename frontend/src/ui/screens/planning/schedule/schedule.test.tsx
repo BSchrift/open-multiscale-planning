@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../../core/dates';
 import { getRecord, listRecords, setWeekPick, weekPickId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
@@ -530,6 +530,21 @@ describe("a task's placed block made shorter in Schedule", () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'What about the other 15m?' })).toBeNull());
     expect(await getRecord(t.db, 'task', 'o1')).toMatchObject({ estimate_min: 90 });
+  });
+
+  it('on phone, a block dragged shorter goes back where it was when its save fails, and nothing asks', async () => {
+    const t = await open({ layout: 'phone', seed: fence });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue Nov 3,/ }));
+    const placed = await screen.findByRole('slider', { name: /^Paint the fence\./ });
+    vi.spyOn(t.db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+    // jsdom has no layout, so the day is as tall as it's drawn, 48px an hour: its bottom edge 24px up is half an hour.
+    holdDown(placed.querySelector('.rz')!, { clientY: 300 });
+    fireEvent.pointerMove(window, { clientY: 276 });
+    fireEvent.pointerUp(window, { clientY: 276 });
+    await waitFor(() => expect(screen.getByText("Couldn't save that. Try again.")).toBeVisible());
+    await waitFor(() => expect(screen.getByRole('slider', { name: /^Paint the fence\./ })).toHaveAttribute('aria-valuetext', 'Tue Nov 3, 3pm to 4:30pm'));
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ end: at('2026-11-03', 16, 30) });
+    expect(screen.queryByText(/^What about the other/)).toBeNull();
   });
 });
 

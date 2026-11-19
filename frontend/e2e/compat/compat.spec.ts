@@ -373,6 +373,36 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('something the update added to Done, with the time it took, is a finished one off in the bundle before, its block done on Week', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    await go(page, 'Done', 'Wednesday, Nov 4');
+    const done = pane(page, 'Done');
+    await done.getByRole('button', { name: 'Add something you did' }).click();
+    const field = done.getByRole('textbox', { name: 'What you did' });
+    await field.fill('Fixed the garden gate');
+    const slider = done.getByRole('slider', { name: 'Time it took' });
+    await slider.focus();
+    for (let i = 0; i < 6; i++) await slider.press('ArrowRight');
+    await field.press('Enter');
+    await expect(page.locator('.toast')).toContainText('Added Fixed the garden gate to Done on Wednesday, Nov 4.');
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before has no way to add one, and needs none to show it: an ordinary finished one
+    // off, after a block that long answered Done.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'One offs');
+    await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
+    const finished = pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
+    await expect(finished.getByRole('checkbox', { name: 'Fixed the garden gate done' })).toBeChecked();
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Fixed the garden gate, Wed Nov 4, 9:50am to 10:20am/ })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('Inbox items the update saved as notes leave the bundle before\'s Inbox, unfinished, and its launch writes nothing to the notes', async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);

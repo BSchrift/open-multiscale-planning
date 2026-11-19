@@ -684,6 +684,9 @@ describe('createHttpSend', () => {
       createHttpSend({ apiUrl: 'https://api.example.test', auth: auth(), fetch: async () => response })({ cursor: 0, changes: [] });
     await expect(respond(json(400, { error: 'notes_too_long' }))).rejects.toMatchObject({ code: 'too_large' });
     await expect(respond(json(400, { error: 'memo_too_long' }))).rejects.toMatchObject({ code: 'too_large' });
+    // Merged with what another device sent first, which this one hasn't pulled yet, a record this device sized as fitting
+    // can pass the limit on the server. Refused whole, the batch would fail every sync and never pull what would show it.
+    await expect(respond(json(400, { error: 'record_too_large' }))).rejects.toMatchObject({ code: 'too_large' });
   });
 });
 

@@ -74,6 +74,9 @@ export function createSyncRunner(deps: {
   let again = false;
   let cleanup: (() => void) | null = null;
   let launched = false;
+  // The sync 2 seconds after the last edit. Any sync that starts sends what was edited before it, so it takes this one's
+  // place; an edit made during it sets another.
+  let editTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Expiry never stops a sync: what it misses now, it does next time. */
   const expire = (work: () => Promise<unknown>) => work().catch((err: unknown) => console.error('Expiry failed', err));
@@ -125,6 +128,7 @@ export function createSyncRunner(deps: {
     running = (async () => {
       do {
         again = false;
+        clearTimeout(editTimer);
         await syncOnce();
       } while (again);
       running = null;
@@ -136,7 +140,6 @@ export function createSyncRunner(deps: {
     syncNow,
     start(): void {
       void syncNow();
-      let editTimer: ReturnType<typeof setTimeout> | undefined;
       const period = setInterval(() => void syncNow(), PERIOD_MS);
       const stopForeground = lifecycle.onForeground(() => void syncNow());
       const stopOnline = deps.onOnline?.(() => void syncNow()) ?? (() => {});
@@ -270,8 +273,11 @@ export function startAppSync(
     window.addEventListener('online', listener);
     return () => window.removeEventListener('online', listener);
   };
-  /** Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text and reminders. */
-  const eraseLocal = async (account: string | null) => {
+  /**
+   * Erases this device's copy of the account it holds: records, outbox, sync state, files, shared text and reminders.
+   * reason is the sync error to show afterwards, written with the erase so an app closed part way still shows it.
+   */
+  const eraseLocal = async (account: string | null, reason?: SyncErrorCode) => {
     const { db } = platform;
     await db.transaction(async (tx) => {
       await tx.run('DELETE FROM records');
@@ -282,6 +288,7 @@ export function startAppSync(
         device: META.deviceId,
       });
       if (account) await setMeta(tx, META.account, account);
+      if (reason) await setMeta(tx, META.lastSyncError, reason);
     });
     db.notifyChanged({ source: 'remote' });
     await platform.files.clear();
@@ -294,12 +301,18 @@ export function startAppSync(
   /**
    * A deleted account: signed out, and nothing of it left here. Only the account this device's data belongs to is erased;
    * another's, as of a sign-in here that sync refused, leaves the data alone.
+   *
+   * Signed out last: an app closed part way, as by a reload or the phone ending it, still holds the token, so its next
+   * sync is refused again and finishes the erase. Signed out first, it could never ask again, and would keep the copy.
    */
   const eraseDeleted = async (account: string | null): Promise<boolean> => {
-    await auth.expire();
-    if (!account || account !== (await getMeta(platform.db, META.account))) return false;
-    await eraseLocal(null);
+    if (!account || account !== (await getMeta(platform.db, META.account))) {
+      await auth.expire();
+      return false;
+    }
+    await eraseLocal(null, 'account_deleted');
     options.forget?.();
+    await auth.expire();
     return true;
   };
   // An export's link is only ever to the files host: https, except the local stack's stand-in.

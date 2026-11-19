@@ -264,3 +264,50 @@ test('a press held on empty time on Week drafts an hour there, and Capture saves
   }
   expect(errors).toEqual([]);
 });
+
+
+test('desktop: a mouse pressed on empty time on Week and dragged draws the draft at once in that day, down or up, and Capture opens on its time', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
+  const errors = await openWeek(page);
+  const wed = page.locator('.colbody[data-drop-date="2026-11-04"]');
+  await wed.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // Wednesday's column, drawn from 6am to 11pm.
+  const point = async (minute: number, dx = 0) => {
+    const box = (await wed.boundingBox())!;
+    return { x: box.x + box.width / 2 + dx, y: box.y + ((minute - 360) / (1380 - 360)) * box.height };
+  };
+  const draft = page.locator('.holddraft');
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  const from = await point(17 * 60 + 50);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  const down = await point(18 * 60 + 50);
+  await page.mouse.move(down.x, down.y, { steps: 4 });
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  // Over Thursday's column it stays on Wednesday.
+  const over = await point(18 * 60 + 50, 150);
+  await page.mouse.move(over.x, over.y, { steps: 2 });
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  await expect(wed.locator('.holddraft')).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath('week-drag-draft.png') });
+  await page.mouse.up();
+  await expect(capture.getByText('Wed Nov 4, 5:45pm to 7pm')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('week-drag-capture.png') });
+  await page.keyboard.press('Escape');
+  await expect(draft).toHaveCount(0);
+
+  // Up.
+  const a = await point(19 * 60 + 20);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  const up = await point(18 * 60 + 10);
+  await page.mouse.move(up.x, up.y, { steps: 4 });
+  await expect(draft).toHaveAttribute('title', '6pm to 7:30pm');
+  await page.mouse.up();
+  await expect(capture.getByText('Wed Nov 4, 6pm to 7:30pm')).toBeVisible();
+  await page.keyboard.type('Book dentist');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.toast')).toContainText('Saved to Inbox, Wed Nov 4, 6pm to 7:30pm');
+  await expect(page.getByRole('button', { name: 'Book dentist, Wed Nov 4, 6pm to 7:30pm, Inbox.' })).toHaveClass(/\bk-inbox\b/);
+  expect(errors).toEqual([]);
+});

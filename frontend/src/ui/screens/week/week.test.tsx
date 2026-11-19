@@ -1571,6 +1571,39 @@ describe('hold to create on Week', () => {
       expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
     });
 
+    it('a mouse pressed on empty time and dragged draws the draft at once, down or up, in its own day however far it strays, with no ring or tap; letting go opens Capture with that time', async () => {
+      const t = await open({ seed: planned });
+      await screen.findByRole('group', { name: 'Week calendar' });
+      const thu = column('2026-11-05');
+      const moveTo = (minutes: number, x = 20) => fireEvent.pointerMove(window, { clientX: x, clientY: gridY(minutes) + 1, pointerType: 'mouse', pointerId: 1 });
+      press(thu, gridY(16 * 60) + 1, 'desktop');
+      moveTo(17 * 60 + 20);
+      await waitFor(() => expect(draft()).toHaveAttribute('title', '4pm to 5:30pm'));
+      expect(thu.contains(draft())).toBe(true);
+      expect(draft()).not.toHaveClass('pop');
+      expect(document.querySelector('.holdring')).toBeNull();
+      // Up past the press, and over Friday's column: it stays on Thursday.
+      moveTo(14 * 60 + 50, 122);
+      await waitFor(() => expect(draft()).toHaveAttribute('title', '2:45pm to 4:15pm'));
+      expect(thu.contains(draft())).toBe(true);
+      letGo(gridY(14 * 60 + 50) + 1, 'desktop', 122);
+      const capture = await screen.findByRole('dialog', { name: 'Capture' });
+      expect(within(capture).getByText('Thu Nov 5, 2:45pm to 4:15pm')).toBeVisible();
+      expect(t.platform.haptics).toEqual([]);
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(draft()).toBeNull());
+
+      // Esc while dragging takes it away.
+      press(thu, gridY(16 * 60) + 1, 'desktop');
+      moveTo(17 * 60);
+      await waitFor(() => expect(draft()).not.toBeNull());
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(draft()).toBeNull());
+      letGo(gridY(17 * 60) + 1, 'desktop');
+      await wait(100);
+      expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+    });
+
     it('a hold on a calendar event, on time gone by, or while a block is open drafts nothing; a click on empty time does nothing either', async () => {
       const t = await open({ seed: planned });
       await screen.findByRole('group', { name: 'Week calendar' });

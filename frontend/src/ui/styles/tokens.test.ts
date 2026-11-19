@@ -100,6 +100,9 @@ const PAIRS: [string, string, number][] = [
   ...['card', 'ground', 'danger-tint'].map((bg): [string, string, number] => ['danger', bg, BODY]),
   ...['card', 'ground', 'wash', 'warn-tint'].map((bg): [string, string, number] => ['warn', bg, BODY]),
   ...['card', 'ok-tint'].map((bg): [string, string, number] => ['ok', bg, BODY]),
+  // Done and Delete's words, on the wash a button takes on hover.
+  ['ok', 'wash', BODY],
+  ['danger', 'wash', BODY],
   // A confirming Delete is filled; the toast is the reverse of the page, with Undo in its own colour.
   ['card', 'danger', BODY],
   ['card', 'ink', BODY],

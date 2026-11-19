@@ -952,7 +952,7 @@ describe('a deleted account', () => {
     await platform.files.put('photo-1', new Blob(['a photo']));
     await platform.notifications.replaceAll([{ id: 'r1', block_id: 'b1', at: NOW, title: 'Write', body: '' } as never]);
     const device = await getMeta(db, META.deviceId);
-    return { platform, clock, server, state, sync, db, id, shares, requests, forget, device };
+    return { platform, clock, server, state, sync, db, id, shares, requests, forget, device, fetchFn };
   }
 
   async function expectErased(t: Awaited<ReturnType<typeof device>>) {
@@ -985,6 +985,43 @@ describe('a deleted account', () => {
     expect(await syncStatus(t.db)).toEqual({ lastSyncAt: NOW, lastError: null });
     expect(await getMeta(t.db, META.account)).toBe('user-b');
     t.sync.stop();
+  });
+
+  /**
+   * Has obj[name] do its work and then never return, as when the app closes just after it, by a reload or the phone
+   * ending it: nothing after it runs. closed resolves once it has.
+   */
+  function closeAfter<T extends object>(obj: T, name: keyof T) {
+    const target = obj as Record<keyof T, unknown>;
+    const step = target[name] as (...args: unknown[]) => Promise<void>;
+    let reached!: () => void;
+    const closed = new Promise<void>((resolve) => (reached = resolve));
+    target[name] = async (...args: unknown[]) => {
+      await step.apply(obj, args);
+      reached();
+      return new Promise<void>(() => {});
+    };
+    return { closed, restore: () => void (target[name] = step) };
+  }
+
+  it.each([
+    ['as it signs out', (t: Awaited<ReturnType<typeof device>>) => closeAfter(t.platform.tokens, 'remove')],
+    ['while it erases its files', (t: Awaited<ReturnType<typeof device>>) => closeAfter(t.platform.files, 'clear')],
+  ])('an erase the app closes %s still says so, and the next launch finishes it', async (_, close) => {
+    const t = await device();
+    t.state.deleted = true;
+    const app = close(t);
+    void t.sync.syncNow();
+    await app.closed;
+    t.sync.stop();
+    expect((await syncStatus(t.db)).lastError).toBe('account_deleted');
+
+    app.restore();
+    const next = startAppSync(t.platform, t.clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, { fetch: t.fetchFn, forget: t.forget });
+    await next.syncNow();
+    await expectErased(t);
+    expect(await next.signedInAt()).toBeNull();
+    next.stop();
   });
 
   it('a device whose token lapsed asks with it, and erases its copy only when the account is gone', async () => {

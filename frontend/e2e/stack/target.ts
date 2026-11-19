@@ -6,6 +6,8 @@ export interface Target {
   env: string;
   /** The local stack's API, whose test controls a deployment doesn't have. */
   localApi?: string;
+  /** The environment whose retention the apps and the stack keep records by: RETENTION's, else the target's own. */
+  retention: string;
   /** The deployment's test user, who signs in through the hosted sign-in page. */
   user?: { username: string; password: string };
   /** Locally any free port. A deployment's sign-in only returns to the localhost callback registered for it. */
@@ -17,7 +19,7 @@ export function target(): Target {
   if (env === 'local') {
     const localApi = process.env.LOCAL_API_URL;
     if (!localApi) throw new Error('LOCAL_API_URL is not set. Start scripts/local-stack.sh first, or run make test-e2e.');
-    return { env, localApi, webPort: 0 };
+    return { env, localApi, webPort: 0, retention: process.env.RETENTION || env };
   }
   if (env !== 'staging' && env !== 'prod') throw new Error(`ENV must be local, staging or prod, not ${env}`);
   if (env === 'prod' && process.env.CONFIRM_PROD !== 'yes') throw new Error('Running against prod needs CONFIRM_PROD=yes');
@@ -31,5 +33,5 @@ export function target(): Target {
   if (deployed.env !== env || !user?.username || !user.password) {
     throw new Error(`MULTISCALE_TARGET has no ${env} test user. Run make test-e2e ENV=${env}.`);
   }
-  return { env, user, webPort: 5199 };
+  return { env, user, webPort: 5199, retention: env };
 }

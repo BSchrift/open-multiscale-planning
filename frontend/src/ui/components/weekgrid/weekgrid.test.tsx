@@ -217,6 +217,12 @@ describe('the week grid', () => {
     await waitFor(() => expect(block(/^Write the report/)).toHaveAccessibleName(/5pm to 6pm/));
   });
 
+  it('a drop the screen turns down, resolving to false, goes back too', async () => {
+    draw({ editing: true, onChange: vi.fn(async () => false) });
+    drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });
+    await waitFor(() => expect(block(/^Write the report/)).toHaveAccessibleName(/5pm to 6pm/));
+  });
+
   it('keyboard: a block moved to another day keeps focus, so the arrows keep working', async () => {
     function Host() {
       const [blocks, setBlocks] = useState<GridBlock[]>([report, piano]);

@@ -154,3 +154,51 @@ test('Week’s day headings open Done on that day, and Done has its place in the
   await expect(done(page).getByRole('heading', { name: 'Thursday, Nov 12' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('Add something you did writes a finished one off to the day shown, with the time it took, from the keyboard, with Undo', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page);
+  await page.getByRole('button', { name: 'Done today: 4 finished, 4h 30m worked' }).click();
+  const add = done(page).getByRole('button', { name: 'Add something you did' });
+  const field = done(page).getByRole('textbox', { name: 'What you did' });
+  const finished = group(page, 'Finished').getByRole('listitem');
+  const totals = done(page).getByRole('region', { name: 'Totals' });
+
+  // A day gone by, with the time it took: it ends that day, after a block that long.
+  await done(page).getByRole('button', { name: 'Previous day' }).click();
+  await expect(done(page).getByRole('heading', { name: 'Wednesday, Nov 11' })).toBeVisible();
+  if (phone) await expectTapTarget(add);
+  await add.click();
+  await expect(field).toBeFocused();
+  await field.fill('Fixed the garden gate');
+  const slider = done(page).getByRole('slider', { name: 'Time it took' });
+  await slider.focus();
+  for (let i = 0; i < 6; i++) await slider.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuetext', '30m');
+  if (phone) await expectTapTarget(done(page).getByRole('button', { name: 'Add', exact: true }));
+  await field.press('Enter');
+  await expect(page.getByText('Added Fixed the garden gate to Done on Wednesday, Nov 11.')).toBeVisible();
+  await expect(finished).toHaveText([/^11:30amFix the date picker on Safari/, /^11:59pmFixed the garden gateOne off11:29pm to 11:59pm · 30m$/]);
+  await expect(totals).toContainText('2 finished · 2h worked');
+  await expect(field).toHaveCount(0);
+  await expect(add).toBeFocused();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(finished).toHaveText([/^11:30amFix the date picker on Safari/]);
+  await expect(totals).toContainText('1 finished · 1h 30m worked');
+
+  // Today: Esc puts the line away with nothing added, and Enter adds it now, last in the list.
+  await done(page).getByRole('button', { name: 'Today', exact: true }).click();
+  await add.click();
+  await field.fill('Booked the dentist');
+  await field.press('Escape');
+  await expect(field).toHaveCount(0);
+  await expect(add).toBeFocused();
+  await expect(finished).toHaveCount(4);
+  await add.click();
+  await field.fill('Called the plumber');
+  await field.press('Enter');
+  await expect(page.getByText('Added Called the plumber to Done on Thursday, Nov 12.')).toBeVisible();
+  await expect(finished.last()).toHaveText(/^5:40pmCalled the plumberOne off$/);
+  await expect(totals).toContainText('5 finished · 4h 30m worked');
+  expect(errors).toEqual([]);
+});

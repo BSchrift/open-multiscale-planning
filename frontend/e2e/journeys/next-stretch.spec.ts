@@ -149,7 +149,8 @@ test('plans the next stretch from what the last one held', async ({ page }, info
   await processTo(page, phone, 'Bake a sourdough loaf');
   // The only item, so Process closes itself.
   await expect(cards).toHaveCount(0);
-  await expect(page.locator('.toast')).toContainText('to Bake a sourdough loaf.');
+  // Under the project's next milestone, which Process chooses unless another is picked.
+  await expect(page.locator('.toast')).toContainText(/to Bake a sourdough loaf, under [^.]+\./);
   await expect(page.getByText('1 sorted. Your Inbox is clear.')).toBeFocused();
   await next('Continue to Finish');
 

@@ -3,7 +3,7 @@
 Every change reaches prod the same way: green CI before it merges to main, then a pipeline that builds that main
 commit once, deploys it to staging and tests it there, emails that it passed, and after a window in which the owner
 can stop it, promotes the same build to prod. No one needs to approve it. Prod's backend then takes the new version by
-canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. A commit that changes the Mac app's native
+canary: 10% of traffic for 5 minutes, with alarms that move it back on their own. A commit that changes the Mac app's native
 code gets a new Mac app from GitHub Actions, which the pipeline checks and publishes, once
 [set up](#mac-apps-from-github-actions). One that changes the iPhone app's gets a new TestFlight build from GitHub
 Actions, and the pipeline switches the iPhone feed once testers can install it
@@ -18,13 +18,13 @@ no long-lived key.
 
 | Stage | Runs against | What happens | Stops the release when |
 | --- | --- | --- | --- |
-| **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, and iOS when the pull request changes something the iPhone app is built from or runs (`scripts/ci-changes.sh`) | A check fails. Every check must pass before a merge |
+| **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, those two again with staging's retention, and iOS when the pull request changes something the iPhone app is built from or runs (`scripts/ci-changes.sh`) | A check fails. Every check must pass before a merge |
 | **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves if the `release` environment asks | For each main commit, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | An approval the environment asks for doesn't come, or a build or notarization fails. The pipeline then stops at Staging |
 | **TestFlight** | Nothing: GitHub Actions, on macOS to upload and on Linux every hour | For a main commit whose iPhone native code differs from TestFlight's latest build's, uploads the iPhone app to TestFlight for Beta App Review. Every hour, records in the pipeline's inbox the newest build testers can install | Nothing. Until testers can install a build with a release's iPhone native code, the iPhone and shared feeds wait |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
 | **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's, of this commit or an earlier one with the same Mac native code, and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
-| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them, switching them back if a suite fails | A release alarm rolls the canary back, or a suite fails |
+| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 5 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them, switching them back if a suite fails | A release alarm rolls the canary back, or a suite fails |
 | **Nightly** | Staging | CI's performance results published to staging's performance dashboard ([docs/performance.md](performance.md)). Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
@@ -95,7 +95,7 @@ it. A deploy that changes a Lambda publishes a new version, and CodeDeploy moves
 
 1. **Before any traffic,** for the API, the release canary (`cmd/canary`) calls the new version directly. That is a sync
    round trip as a made-up user of its own. If it fails, the deploy stops with nothing shifted.
-2. **A share of traffic for a while:** prod sends 10% of invocations to the new version for 90 minutes, and staging 5%
+2. **A share of traffic for a while:** prod sends 10% of invocations to the new version for 5 minutes (`stack.canaryMinutes`; 5 while the beta's features are built), and staging 5%
    for 10. The shares and times are in `config/env/<env>.yaml`. CloudFormation waits about 2 hours for the alias, then
    rolls the stack back, so a canary can't be much longer than 90 minutes: prod's was a day until every release timed out.
 3. **All of it,** once no release alarm has fired.
@@ -116,7 +116,7 @@ begins, not only during it, and refuses to start while any is in ALARM, however 
 the environment is already unhealthy, and a canary can't judge a new version against it. For the fix to what is firing,
 see [Shipping while a release alarm fires](#shipping-while-a-release-alarm-fires).
 
-With one real user, 10% of 90 minutes' requests is a handful and might miss what breaks. So a schedule also runs the
+With one real user, 10% of 5 minutes' requests is a handful and might miss what breaks. So a schedule also runs the
 release canary every 5 minutes against the alias. That is about 18 runs in a canary, about 2 of them on the new
 version at 10%, after the check before traffic has already run it once. One failed run is enough to roll back.
 
@@ -129,11 +129,11 @@ and each device's 20-second trial and rollback protects it from a bundle that wo
 
 ## Skipping the canary
 
-`make promote CANARY=skip` starts a run that sends prod's new backend all its traffic at once, rather than 10% for 90 minutes.
+`make promote CANARY=skip` starts a run that sends prod's new backend all its traffic at once, rather than 10% for 5 minutes.
 It still deploys and tests staging first, still waits out the window before prod, and keeps prod's check before traffic, the alarms,
 the automatic rollback and the suites. Use it for:
 
-- a fix that can't wait 90 minutes;
+- a fix that can't wait for the canary;
 - a release whose old and new code can't run side by side, which the compatibility rules should make rare.
 
 **An agent may skip the canary only with the owner's explicit go-ahead, for that release, each time.** Say why in the
@@ -165,7 +165,7 @@ The release records it: the email before prod shows the run's canary and alarm s
 - **During a canary:** an alarm moves the alias back by itself. To stop one by hand, choose **Stop and roll back
   deployment** on the deployment in CodeDeploy, in prod's account. The pipeline's run then fails, and nothing after it
   is published.
-- **After promotion:** revert the bad commit on main and let it release. A fix that can't wait 90 minutes can skip
+- **After promotion:** revert the bad commit on main and let it release. A fix that can't wait for the canary can skip
   the canary.
 - **The web app, or one app's feed:** switch it back to a version kept, as below.
 - **When prod's suites fail after its release publishes,** the release switches the web app and each feed it switched

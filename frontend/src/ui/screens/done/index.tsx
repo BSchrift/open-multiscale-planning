@@ -1,8 +1,9 @@
 // Done: one day's list of what was finished and the time worked, any day up to today, stepped a day at a time as Week
 // steps weeks. Totals first, then Finished, Time worked, and the blocks that ended with no answer, each in the order it
 // happened. Mark how it went asks such a block the missed blocks question, whose answer moves it into the list, with
-// Undo. Nothing here is stored: it's all read from the records (core/done.ts). Params: day, to open on that day, as
-// Today's line and Week's day headings do.
+// Undo. Nothing here is stored: it's all read from the records (core/done.ts). Add something you did, under Finished,
+// writes a finished one off to the day shown (AddDone). Params: day, to open on that day, as Today's line and Week's day
+// headings do.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -19,6 +20,7 @@ import { MilestoneDiamond } from '../../components/MilestoneDiamond';
 import { TaskName } from '../../components/task/TaskName';
 import { useFocusLanding } from '../../components/useFocusLanding';
 import { DayArrows } from '../../components/WeekArrows';
+import { AddDone } from './AddDone';
 import { loadDoneDay } from './data';
 import '../week/week.css';
 import './done.css';
@@ -46,12 +48,14 @@ function Name(props: { item: DoneBlock | DoneFinish; title: string; taskId: stri
   );
 }
 
-function Group(props: { title: string; children: ReactNode }) {
+/** Empty, only its foot shows, in the same place, so what the foot holds keeps its state and focus as the list fills. */
+function Group(props: { title: string; children: ReactNode; foot?: ReactNode; empty?: boolean }) {
   const id = useId();
   return (
-    <section className="stack8" aria-labelledby={id}>
-      <h3 id={id}>{props.title}</h3>
-      <ul className="card donelist">{props.children}</ul>
+    <section className="stack8" aria-labelledby={props.empty ? undefined : id}>
+      {!props.empty && <h3 id={id}>{props.title}</h3>}
+      {!props.empty && <ul className="card donelist">{props.children}</ul>}
+      {props.foot}
     </section>
   );
 }
@@ -192,28 +196,27 @@ export default function DoneScreen(props: ScreenProps) {
       ) : (
         <div className="card doneempty">{date === today ? 'Nothing finished yet today' : `Nothing finished on ${title.split(',')[0]}`}</div>
       )}
-      {done.finished.length > 0 && (
-        <Group title="Finished">
-          {done.finished.map((f) => (
-            <li key={f.id} className="donerow" tabIndex={-1}>
-              <span className="donetime">{formatTime(f.at, f.zone)}</span>
-              <span className="donemark" aria-hidden="true">
-                {f.type === 'milestone' ? <MilestoneDiamond state={{ met: true }} /> : <i className="tick" />}
-              </span>
-              <span className="donewhat">
-                <Name item={f} title={f.title} taskId={f.task_id} />
-                <span className="small quiet">{finishedWhere(f)}</span>
-                {f.work.map((w) => (
-                  <span key={w.block.id} className="donesub small quiet" data-block={w.block.id}>
-                    <i className={`sw ${SWATCH[w.kind]}`} aria-hidden="true" />
-                    {range(w)} · {formatMinutes(w.minutes)}
-                  </span>
-                ))}
-              </span>
-            </li>
-          ))}
-        </Group>
-      )}
+      {/* Add something you did sits under the day's finished list, or under the line that says there's none. */}
+      <Group title="Finished" empty={!done.finished.length} foot={<AddDone key={date} day={date} />}>
+        {done.finished.map((f) => (
+          <li key={f.id} className="donerow" tabIndex={-1}>
+            <span className="donetime">{formatTime(f.at, f.zone)}</span>
+            <span className="donemark" aria-hidden="true">
+              {f.type === 'milestone' ? <MilestoneDiamond state={{ met: true }} /> : <i className="tick" />}
+            </span>
+            <span className="donewhat">
+              <Name item={f} title={f.title} taskId={f.task_id} />
+              <span className="small quiet">{finishedWhere(f)}</span>
+              {f.work.map((w) => (
+                <span key={w.block.id} className="donesub small quiet" data-block={w.block.id}>
+                  <i className={`sw ${SWATCH[w.kind]}`} aria-hidden="true" />
+                  {range(w)} · {formatMinutes(w.minutes)}
+                </span>
+              ))}
+            </span>
+          </li>
+        ))}
+      </Group>
       {done.worked.length > 0 && <Group title="Time worked">{done.worked.map(work)}</Group>}
       {done.unmarked.length > 0 && (
         <Group title="Not marked yet">

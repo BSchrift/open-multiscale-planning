@@ -90,6 +90,46 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('not again for an edit a sync since has already sent', async () => {
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    t.send.mockClear();
+
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    await vi.advanceTimersByTimeAsync(500);
+    // Sync now in Settings, or a return to the foreground, sends the edit before its 2 seconds are up.
+    await t.runner.syncNow();
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.send.mock.calls[0]![0].changes).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10 * SECOND);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.runner.stop();
+  });
+
+  it('for an edit made while a sync was under way', async () => {
+    let release = () => {};
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    t.send.mockClear();
+    t.send.mockImplementationOnce(async (req) => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return t.server.send(req);
+    });
+
+    const running = t.runner.syncNow();
+    await flush();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    release();
+    await running;
+    expect(t.send).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.send.mock.calls[1]![0].changes).toHaveLength(1);
+    t.runner.stop();
+  });
+
   it('on the computer waking from sleep or its screen unlocking', async () => {
     const t = await setup();
     const wake = memoryLifecycle();
@@ -912,7 +952,7 @@ describe('a deleted account', () => {
     await platform.files.put('photo-1', new Blob(['a photo']));
     await platform.notifications.replaceAll([{ id: 'r1', block_id: 'b1', at: NOW, title: 'Write', body: '' } as never]);
     const device = await getMeta(db, META.deviceId);
-    return { platform, clock, server, state, sync, db, id, shares, requests, forget, device };
+    return { platform, clock, server, state, sync, db, id, shares, requests, forget, device, fetchFn };
   }
 
   async function expectErased(t: Awaited<ReturnType<typeof device>>) {
@@ -945,6 +985,43 @@ describe('a deleted account', () => {
     expect(await syncStatus(t.db)).toEqual({ lastSyncAt: NOW, lastError: null });
     expect(await getMeta(t.db, META.account)).toBe('user-b');
     t.sync.stop();
+  });
+
+  /**
+   * Has obj[name] do its work and then never return, as when the app closes just after it, by a reload or the phone
+   * ending it: nothing after it runs. closed resolves once it has.
+   */
+  function closeAfter<T extends object>(obj: T, name: keyof T) {
+    const target = obj as Record<keyof T, unknown>;
+    const step = target[name] as (...args: unknown[]) => Promise<void>;
+    let reached!: () => void;
+    const closed = new Promise<void>((resolve) => (reached = resolve));
+    target[name] = async (...args: unknown[]) => {
+      await step.apply(obj, args);
+      reached();
+      return new Promise<void>(() => {});
+    };
+    return { closed, restore: () => void (target[name] = step) };
+  }
+
+  it.each([
+    ['as it signs out', (t: Awaited<ReturnType<typeof device>>) => closeAfter(t.platform.tokens, 'remove')],
+    ['while it erases its files', (t: Awaited<ReturnType<typeof device>>) => closeAfter(t.platform.files, 'clear')],
+  ])('an erase the app closes %s still says so, and the next launch finishes it', async (_, close) => {
+    const t = await device();
+    t.state.deleted = true;
+    const app = close(t);
+    void t.sync.syncNow();
+    await app.closed;
+    t.sync.stop();
+    expect((await syncStatus(t.db)).lastError).toBe('account_deleted');
+
+    app.restore();
+    const next = startAppSync(t.platform, t.clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, { fetch: t.fetchFn, forget: t.forget });
+    await next.syncNow();
+    await expectErased(t);
+    expect(await next.signedInAt()).toBeNull();
+    next.stop();
   });
 
   it('a device whose token lapsed asks with it, and erases its copy only when the account is gone', async () => {

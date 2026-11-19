@@ -72,7 +72,7 @@ For contributors and agents alike. None of this needs a deployment or AWS access
 | You changed | Run |
 | --- | --- |
 | Anything in `frontend/src` | `make test-frontend`; `scripts/e2e.sh browser` (desktop and phone) |
-| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration` |
+| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration`, and `RETENTION=staging scripts/e2e.sh stack compat` for staging's short retention |
 | Storage or platform adapters, Electron main or preload | The above, plus `scripts/e2e.sh electron` |
 | The Go backend | `make test-backend`; `make test-integration` (the Docker stack, with stand-ins for DynamoDB, SSM, sign-in and Google) |
 | Infrastructure | `make test-infra` (tests and `cdk synth`) |
@@ -145,7 +145,7 @@ Then wait for CI. A PR merges only with every check green.
   | Merge to main | Only with every CI check green | Owner |
   | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
   | Window before prod | An email says the commit passed staging and when it goes to prod, with a link to send it sooner. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
-  | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
+  | Prod | The same build, by a canary of 10% for 5 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
   | Signed apps | `make release-tag`, then `make release ENV=prod` from the tag | Owner, on the Mac |
 
   To roll back, revert on main and let it release. `make release-surface` switches the web app or one app's feed back

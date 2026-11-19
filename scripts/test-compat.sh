@@ -49,6 +49,14 @@ trap 'exit 143' TERM
 echo "Old bundle: $BASE ($(git -C "$root" rev-parse --short "$BASE^{commit}")). New bundle: this checkout."
 git -C "$root" worktree add --quiet --detach "$work/base" "$BASE"
 ln -s "$root/frontend/node_modules" "$work/base/frontend/node_modules"
+# A bundle from before RETENTION keeps its own environment's retention, which beside a new one keeping RETENTION's is a
+# pair no deployment has: each would rewrite the other's expiries. So the old build takes RETENTION too, as this
+# checkout's vite.config.ts reads it.
+base_config="$work/base/frontend/vite.config.ts"
+if [ -n "${RETENTION:-}" ] && ! grep -q 'process.env.RETENTION' "$base_config"; then
+  sed -i.orig 's/loadRetention(appConfig\.env,/loadRetention(process.env.RETENTION || appConfig.env,/' "$base_config"
+  grep -q 'process.env.RETENTION' "$base_config" || { echo "The old bundle at $BASE can't take RETENTION. Run without it." >&2; exit 1; }
+fi
 # Development builds, like the stack specs' dev server: only they let a spec seed records. Each built for the backend the
 # specs sign in to, which ENV and LOCAL_API_URL pick.
 build() { (cd "$1/frontend" && NODE_ENV=development npx vite build --outDir "$2" --emptyOutDir --logLevel warn); }

@@ -56,7 +56,9 @@ drops the entries older than the scheduling period.
 
 Done, a day's list of what was finished and the time worked, stores nothing. It reads the records above as they stand,
 so a day's list shrinks as they go: its time worked and repeat finishes after 2 years, its finished tasks after 5, and a
-task deleted since, shown as "deleted", 30 days after the delete, with its blocks' entries.
+task deleted since, shown as "deleted", 30 days after the delete, with its blocks' entries. Add something you did, on
+Done, has no record of its own: it writes a finished one off and its finish, and with the time it took, a block answered
+Done, and they go as those do.
 
 ## The configuration
 

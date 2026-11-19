@@ -39,6 +39,13 @@ async function open(page: Page, extra: Seed[] = []) {
   return errors;
 }
 
+/** A finger held on a block, then let go without moving. */
+async function holdInPlace(page: Page, block: Locator) {
+  await block.scrollIntoViewIfNeeded();
+  const box = (await block.boundingBox())!;
+  await touchDrag(page, block, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+}
+
 /** A click whose mouse shifts 5px, then 8px, before it's let go, as a hand does pressing a trackpad. */
 async function wobblyClick(page: Page, target: Locator) {
   await target.scrollIntoViewIfNeeded();
@@ -154,15 +161,9 @@ test("Today: a block's quick menu opens on a right-click or Shift-F10 on desktop
   const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   const figures = day.getByRole('button', { name: /^Check the figures, 1:30pm to 2:30pm/ });
   const menu = (name: string) => page.getByRole('menu', { name });
-  /** A finger held on the block, then let go without moving. */
-  const holdInPlace = async (block: Locator) => {
-    await block.scrollIntoViewIfNeeded();
-    const box = (await block.boundingBox())!;
-    await touchDrag(page, block, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
-  };
 
   if (phone) {
-    await holdInPlace(report);
+    await holdInPlace(page, report);
     await expect(menu('Write the report').getByRole('menuitem')).toHaveText(['Done', 'Start now', 'Move to', 'Open', 'Remove from calendar', 'Delete task…']);
     // Nothing moved, and the popup stayed shut.
     await expect(page.getByText(/ is now /)).toHaveCount(0);
@@ -203,7 +204,7 @@ test("Today: a block's quick menu opens on a right-click or Shift-F10 on desktop
   await expect(report).toBeVisible();
 
   // The block under way, which doesn't move, has one too: Pause pauses it, as on the Now card.
-  if (phone) await holdInPlace(figures);
+  if (phone) await holdInPlace(page, figures);
   else await figures.click({ button: 'right' });
   await expect(menu('Check the figures').getByRole('menuitem')).toHaveText(['Done', 'Pause', 'Open', 'Delete task…']);
   await (phone ? menu('Check the figures').getByRole('menuitem', { name: 'Pause' }).tap() : menu('Check the figures').getByRole('menuitem', { name: 'Pause' }).click());
@@ -255,5 +256,53 @@ test("Today: Move… in a block's popup offers its quick menu's new times, and t
   await expect(section.getByText('Mon Nov 2, 5pm to 6pm')).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(section.getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Today: Move to, Tomorrow asks first when tomorrow has a block at that time, which Today doesn't draw", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [{ type: 'time_block', id: 'b4', fields: { task_id: 't2', start: at(3, '16:30'), end: at(3, '17:30'), tz: 'America/Chicago' } }]);
+  const report = page.getByRole('region', { name: "Today's timeline" }).getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  const press = (target: Locator) => (phone ? target.tap() : target.click());
+  if (phone) await holdInPlace(page, report);
+  else {
+    await report.scrollIntoViewIfNeeded();
+    await report.click({ button: 'right' });
+  }
+  await press(page.getByRole('menu', { name: 'Write the report' }).getByRole('menuitem', { name: 'Move to' }));
+  await press(page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));
+  const ask = page.getByRole('dialog', { name: 'Schedule both at the same time?' });
+  await expect(ask).toContainText('Write the report overlaps Paint the fence.');
+  await expect(ask.getByRole('button', { name: 'Keep both' })).toBeFocused();
+  await expect(page.getByText(/^Moved /)).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`today-tomorrow-ask-${info.project.name}.png`) });
+  await press(ask.getByRole('button', { name: 'Replace' }));
+  await expect(page.getByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+  await expect(report).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(report).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Today: Move… in a block's popup, Tomorrow asks first when tomorrow has a block at that time, above the popup", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [{ type: 'time_block', id: 'b4', fields: { task_id: 't2', start: at(3, '16:30'), end: at(3, '17:30'), tz: 'America/Chicago' } }]);
+  const report = page.getByRole('region', { name: "Today's timeline" }).getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  const press = (target: Locator) => (phone ? target.tap() : target.click());
+  await report.scrollIntoViewIfNeeded();
+  await press(report);
+  const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
+  await press(section.getByRole('button', { name: 'Move…' }));
+  await press(page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));
+  const ask = page.getByRole('dialog', { name: 'Schedule both at the same time?' });
+  await expect(ask).toContainText('Write the report overlaps Paint the fence.');
+  await expect(ask.getByRole('button', { name: 'Keep both' })).toBeFocused();
+  await expect(page.getByText(/^Moved /)).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`popup-tomorrow-ask-${info.project.name}.png`) });
+  await press(ask.getByRole('button', { name: 'Replace' }));
+  await expect(page.getByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+  await expect(report).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(report).toBeVisible();
   expect(errors).toEqual([]);
 });

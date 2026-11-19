@@ -2,8 +2,9 @@
 // what it belongs to, as its details panel said, then what can be done to it. Start, or Start now for one later today,
 // for one not yet started today; Done for one later today or under way, and Pause or Resume once that one's started;
 // How did it go for one gone by with no answer, as the missed blocks sheet asks it; and
-// what the calendar it opened from can do: Move…, a new time from the choices Today's quick menu has under Move to, and
-// Remove from calendar. Each saves at once with Undo, as the popup's attachments do, rather than on Save.
+// what the calendar it opened from can do: Move…, a new time from the choices Today's quick menu has under Move to, which
+// asks first if it lands on another block, and Remove from calendar. Each saves at once with Undo, as the popup's
+// attachments do, rather than on Save.
 
 import { createContext, useContext, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -174,6 +175,7 @@ export function BlockSection(props: {
         </div>
       )}
       {moveAt && moves.length > 0 && <Menu label="Move to" entries={moves} at={moveAt} onChoose={moveTo} onClose={closeMoves} />}
+      {actions.asking}
     </section>
   );
 }

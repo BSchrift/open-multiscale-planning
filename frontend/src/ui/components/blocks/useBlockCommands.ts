@@ -1,18 +1,22 @@
 // What a block's popup section and Today's quick menu both do to a block, so each says and undoes the same: Done as
 // fits where the block is in its day, an answer for one gone by, Start with where it now runs, and Move to's new times.
+// A new time that lands on other blocks asks first, as a drag does, with the question in `asking` for the caller to draw.
 
+import { moveBlock, unscheduleBlock } from '../../../core/blocks';
 import type { BlockAnswer } from '../../../core/blocks';
-import { addDays, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
+import { addDays, dayRange, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
-import type { PlanChange } from '../../../core/plan';
+import type { PlanChange, RecordWrite } from '../../../core/plan';
+import { blocksInRange } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
-import { DRAWN_DAY, fits, GRID } from '../../../core/slots';
+import { DRAWN_DAY, fits, GRID, slotInstants } from '../../../core/slots';
 import type { Slot, SlotContext } from '../../../core/slots';
 import type { Minutes } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import type { MenuEntry } from '../Menu';
 import { useToast } from '../Toast';
 import { dayName } from '../weekgrid';
+import { landsOn, useBothAsk } from './BothAsk';
 import { answerFor, saidOf } from './MissedSheet';
 import { useBlockActions } from './useBlockActions';
 
@@ -28,10 +32,18 @@ export function stageOf(block: BlockRow, now: number): Stage {
 }
 
 export function useBlockCommands() {
-  const { clock } = useApp();
+  const { clock, db } = useApp();
   const toast = useToast();
   const actions = useBlockActions();
   const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
+  const both = useBothAsk();
+  /** Moves a block and takes off those it replaces, as one change, so one Undo puts them all back. */
+  const moveOver = useMutation(async (w, id: string, to: Slot, off: readonly { id: string }[]): Promise<PlanChange> => {
+    const moved = await moveBlock(w, id, slotInstants(to, clock.zone()));
+    const back: RecordWrite[] = [];
+    for (const x of off) back.unshift(...(await unscheduleBlock(w, x.id, weekStart(to.date), clock)).writes);
+    return { writes: [...back, ...moved.writes] };
+  });
   const zone = clock.zone();
   const tomorrow = addDays(localDate(clock.now(), zone), 1);
 
@@ -61,10 +73,30 @@ export function useBlockCommands() {
   };
   /** A day as Move to says it: tomorrow by name, and another by its date. */
   const dayOf = (date: string) => (date === tomorrow ? 'Tomorrow' : dayName(date));
+  /**
+   * Asks first when a block lands on others on its new time's day, from that day's blocks where they're saved; one under
+   * way or answered can only be kept. Resolves to the blocks to take off as it moves, or null when cancelled.
+   */
+  const landing = async (self: { id: string; title: string }, blocks: readonly BlockRow[], from: Slot | null, to: Slot) => {
+    const now = clock.now();
+    const minutesOn = (at: string, edge: number) => (localDate(at, zone) === to.date ? localMinutes(at, zone) : edge);
+    const saved = blocks.map((b) => {
+      const stage = stageOf(b, now);
+      return { id: b.id, title: b.title ?? 'Time block', date: to.date, start: minutesOn(b.start, 0), end: minutesOn(b.end, 1440), fixed: stage === 'answered' || stage === 'gone' || !!b.started_at };
+    });
+    const on = landsOn(saved, self.id, to, from);
+    const answer = on.length ? await both.ask(self.title, on) : 'keep';
+    return answer === 'cancel' ? null : answer === 'replace' ? on.filter((x) => !x.fixed) : [];
+  };
+  const tookOff = (off: readonly { title: string }[]) => (off.length ? [`Took ${new Intl.ListFormat('en-GB').format(off.map((x) => x.title))} off the calendar.`] : []);
 
   return {
     ...actions,
     answer,
+    asking: both.asking,
+    landing,
+    moveOver: moveOver.run,
+    tookOff,
     /**
      * Done: for one gone by, its answer; for the one under way, Mark done now; for a task's block still to come, the
      * task finishes and frees its time. A practice's session still to come is logged as done, as Did it would be after.
@@ -104,12 +136,24 @@ export function useBlockCommands() {
         ...(stage === 'later' ? (['separator', { id: 'move:choose', label: 'Choose a time…', icon: 'week' }] as const) : []),
       ];
     },
-    /** One of Move to's choices, saved at once with Undo. Choose a time is the screen's own: Today opens Week for it. */
-    moveTo: (block: BlockRow, id: string, ctx: SlotContext, choose: () => void): Promise<unknown> | void => {
+    /**
+     * One of Move to's choices, saved at once with Undo, asking first if it lands on other blocks. Choose a time is the
+     * screen's own: Today opens Week for it.
+     */
+    moveTo: async (block: BlockRow, id: string, ctx: SlotContext, choose: () => void): Promise<unknown> => {
       const to = id === 'move:next' ? nextFree(block, ctx) : id === 'move:tomorrow' ? nextDay(block) : null;
       if (to) {
+        // Today draws only today, so the new time's day is read for the ask.
+        const there = await blocksInRange(db, dayRange(to.date, zone)).catch((error: unknown) => {
+          console.error('Read failed', error);
+          toast.show("Couldn't move that. Try again.");
+          return null;
+        });
+        const off = there && (await landing({ id: block.id, title: block.title ?? 'Time block' }, there, slotOf(block), to));
+        const reverse = off && (await moveOver.run(block.id, to, off));
+        if (!off || !reverse) return;
         const when = to.date === localDate(clock.now(), zone) ? '' : `${to.date === tomorrow ? 'tomorrow' : dayName(to.date)}, `;
-        return actions.move(block, to, `Moved ${block.title ?? 'the block'} to ${when}${formatTimeOfDay(to.start)}.`);
+        return toast.show([`Moved ${block.title ?? 'the block'} to ${when}${formatTimeOfDay(to.start)}.`, ...tookOff(off)].join(' '), { undo: () => undo.run(reverse) });
       }
       if (id === 'move:back') return actions.skip(block);
       if (id === 'move:choose') choose();

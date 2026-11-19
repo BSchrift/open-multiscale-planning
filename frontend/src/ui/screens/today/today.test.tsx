@@ -1119,6 +1119,42 @@ describe('the timeline', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00'));
   });
 
+  it.each(['desktop', 'phone'] as const)("on %s, Move…'s Tomorrow asks first when it lands on a block there, as the quick menu's does, and the popup stays", async (layout) => {
+    const TOMORROW = '2026-11-03';
+    const t = await open(
+      async (w) => {
+        await day(w);
+        await task(w, 't2', 'Paint the fence');
+        await block(w, 'b2', 't2', '16:30', '17:30', { start: at('16:30', TOMORROW), end: at('17:30', TOMORROW) });
+      },
+      { layout },
+    );
+    await userEvent.click(await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ }));
+    const popup = await taskPopup('Write the report');
+    const tomorrow = async () => {
+      await userEvent.click(within(popup).getByRole('button', { name: 'Move…' }));
+      await userEvent.click(within(await screen.findByRole('menu', { name: 'Move to' })).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));
+      const ask = await screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+      expect(ask).toHaveTextContent('Write the report overlaps Paint the fence.');
+      await waitFor(() => expect(within(ask).getByRole('button', { name: 'Keep both' })).toHaveFocus());
+      return ask;
+    };
+    // Cancel leaves both where they were, and the popup open.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Schedule both at the same time?' })).toBeNull());
+    expect(popup).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Replace sends the fence back to To schedule, with one Undo for both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+  });
+
   it("Move… shows while a block can still move: later today, and under way but not started, which can't be placed by hand", async () => {
     await open(async (w) => {
       await day(w);
@@ -2407,6 +2443,39 @@ describe("a block's quick menu", () => {
 
     await choose(['Move to', 'Choose a time…']);
     expect(t.nav().tab).toBe('week');
+  });
+
+  it("Tomorrow asks first when it lands on a block there, though Today doesn't draw tomorrow", async () => {
+    const TOMORROW = '2026-11-03';
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '16:30', '17:30', { start: at('16:30', TOMORROW), end: at('17:30', TOMORROW) });
+    });
+    const tomorrow = async () => {
+      rightClick(await report());
+      for (const name of ['Move to', 'Tomorrow, 4pm']) await userEvent.click(await screen.findByRole('menuitem', { name }));
+      return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    };
+    // Cancel leaves both where they were.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Replace sends the fence back to To schedule, with one Undo for both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Keep both keeps both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Keep both' }));
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy();
   });
 
   it('Start now, Open, Remove from calendar and Delete task do what the popup does; Delete asks first', async () => {

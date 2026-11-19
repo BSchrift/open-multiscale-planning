@@ -6,7 +6,6 @@ import {
   answerBlocks,
   extendBlock,
   markDoneNow,
-  moveBlock,
   pauseBlock,
   resumeBlock,
   startBlock,
@@ -23,8 +22,6 @@ import type { BlockRow } from '../../../core/queries';
 import type { Db } from '../../../core/db';
 import type { Writer } from '../../../core/records';
 import { snoozeUntil } from '../../../core/reminders';
-import { slotInstants } from '../../../core/slots';
-import type { Slot } from '../../../core/slots';
 import { closeTask, tickOneOff } from '../../../core/tasks';
 import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useMutation } from '../../app/store';
@@ -146,8 +143,6 @@ export function useBlockActions() {
         `Took ${block.title ?? 'it'} off the calendar. It's in To schedule on Week.`,
         true,
       ),
-    /** To a new time, keeping its length, said as where it went. */
-    move: (block: BlockRow, slot: Slot, message: string) => withUndo((w) => moveBlock(w, block.id, slotInstants(slot, clock.zone())), message),
     start: (block: BlockRow) => run((w) => startBlock(w, block.id, clock)),
     startEarly: (block: BlockRow) => run((w) => startEarly(w, block.id, clock)),
     swap: (block: BlockRow, next: BlockRow) => withUndo((w) => swapBlocks(w, block.id, next.id), 'Swapped with your next block'),

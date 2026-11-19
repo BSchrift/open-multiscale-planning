@@ -179,12 +179,15 @@ export function PhoneWeek(props: WeekProps) {
   // Planning goes no later than the end of the week or stretch it plans.
   const late = !!plan && !!at && at.date > plan.last;
   const locked = gone || late;
-  /** Moves a placed block, from Move here or a hold on the day. Resolves to whether it moved, or was already there. */
-  const moveTo = async (b: PlacedBlock, slot: Slot) => {
+  /**
+   * Moves a placed block, from Move here or a hold on the day. Resolves to whether it moved, or was already there, so
+   * false when the save failed. `undone` runs as its Undo is pressed.
+   */
+  const moveTo = async (b: PlacedBlock, slot: Slot, undone?: () => void) => {
     // A session moved to another day is for this week only, so nothing asks about future weeks.
     if (b.practice_id && slot.date !== b.date) return act.moveSessionDay(b, slot, model.blocks);
     if (slot.date !== b.date || slot.start !== b.start || slot.end !== b.end) {
-      await act.moveWithUndo(b.id, b.title, slot);
+      if (!(await act.moveWithUndo(b.id, b.title, slot, undone))) return false;
       if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
     }
     return true;
@@ -207,10 +210,15 @@ export function PhoneWeek(props: WeekProps) {
     props.donePlacing();
     if (placing.mode === 'planning' && placing.plan.flow) props.close();
   };
-  /** A block held on the day and let go on another asks first, as Move here does. Holds stay on their day. */
-  const holdMove = async (b: PlacedBlock, slot: Slot) => {
+  /**
+   * A block held on the day and let go on another asks first, as Move here does. Holds stay on their day. Resolves to
+   * whether it moved, so false when the ask was cancelled or the save failed.
+   */
+  const holdMove = async (b: PlacedBlock, slot: Slot, undone?: () => void) => {
     const { go, off } = await landing(b.title, slot, b.id, b);
-    if (go && (await moveTo(b, slot))) takeOff(off);
+    if (!go || !(await moveTo(b, slot, undone))) return false;
+    takeOff(off);
+    return true;
   };
   /** Planning carried to another week keeps its day of the week and time. */
   const carryTo = (days: number) => props.goWeek(addDays(props.week, days), plan && at ? { ...at, date: addDays(at.date, days) } : undefined);
@@ -427,7 +435,7 @@ export function PhoneWeek(props: WeekProps) {
             <h3 className="wkday">{dayTitle}</h3>
           )}
           <div ref={dayCard} className="card wkdaycard" {...pinch}>
-            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={(b, slot) => void holdMove(b, slot)} />
+            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={holdMove} />
           </div>
           {isThis && (
             <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
@@ -603,11 +611,31 @@ function leastZoom(root: HTMLElement | null, card: HTMLElement | null, zoom: num
 const HELD = 'holddraft';
 
 /**
+ * A block let go at a new time, drawn there until the saved position comes back in `blocks`, so it doesn't jump back to
+ * where it was while it saves. Compared by position, since callers build a new list on every render.
+ */
+function useLanded(blocks: readonly PlacedBlock[]) {
+  const [landed, setLanded] = useState<{ id: string; slot: Slot } | null>(null);
+  const placed = blocks.map((b) => `${b.id} ${b.date} ${b.start} ${b.end}`).join();
+  useEffect(() => setLanded(null), [placed]);
+  return [landed, setLanded] as const;
+}
+
+/**
  * One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. Blocks at the
  * same time share a row, side by side. A press held on a stretch of time drafts an hour there, in a row of its own that
  * splits the stretch around it, and opens Capture on it.
  */
-function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's height. */ cell: number; readOnly: boolean; onOpen(id: string): void; onMove(block: PlacedBlock, slot: Slot): void }) {
+function DayRows(props: {
+  date: LocalDate;
+  model: WeekModel;
+  /** A half hour's height. */
+  cell: number;
+  readOnly: boolean;
+  onOpen(id: string): void;
+  /** Resolves to whether it moved. `undone` runs as its Undo is pressed. */
+  onMove(block: PlacedBlock, slot: Slot, undone: () => void): Promise<boolean>;
+}) {
   const { date, model, cell } = props;
   const { clock, layout, platform } = useApp();
   // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
@@ -626,7 +654,10 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
   });
   const held = holdNew.draft?.slot;
   const draftBlock: PlacedBlock | null = held ? { ...held, id: HELD, title: holdNew.draft!.name.trim() || 'New task', kind: 'project', draft: true, task_id: null, practice_id: null, past: false, ended: false, result: null } : null;
-  const blocks = [...model.blocks.filter((b) => b.date === date), ...(draftBlock?.date === date ? [draftBlock] : [])];
+  const saved = model.blocks.filter((b) => b.date === date);
+  // A block let go on another row is drawn at its new time while it saves.
+  const [landed, setLanded] = useLanded(saved);
+  const blocks = [...saved.map((b) => (b.id === landed?.id ? { ...b, ...landed.slot } : b)), ...(draftBlock?.date === date ? [draftBlock] : [])];
   const groups = overlapGroups(blocks);
   const info = model.info.filter((x) => x.date === date);
   const shown = new Set<unknown>();
@@ -655,7 +686,14 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
     e.stopPropagation();
     dragCard(e, { length: block.end - block.start, offers: [] }, { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== block.id) }, {
       preview: () => undefined,
-      drop: (slot) => props.onMove(block, slot),
+      drop: (slot) => {
+        const put = { id: block.id, slot };
+        setLanded(put);
+        // A failed save puts it back, and so does Undo pressed before the day has redrawn from the save: the day's next
+        // drawing then matches the one before the move, which wouldn't redraw it.
+        const back = () => setLanded((l) => (l === put ? null : l));
+        void props.onMove(block, slot, back).then((moved) => moved || back());
+      },
       ...(platform.haptic ? { haptic: platform.haptic } : {}),
     });
   };
@@ -859,10 +897,8 @@ export function DragDay(props: {
   const { clock, layout, platform } = useApp();
   const nowMin = localMinutes(clock.now(), clock.zone());
   const targets = ghosts.map((g) => ({ date: g.date, start: g.start }));
-  const [preview, setPreview] = useState<{ id: string; slot: Slot } | null>(null);
   // A dropped block stays where it landed until the saved position comes back.
-  const placed = props.blocks.map((b) => `${b.id}${b.start}${b.end}`).join();
-  useEffect(() => setPreview(null), [placed]);
+  const [preview, setPreview] = useLanded(props.blocks);
   // Blocks at the same time sit side by side, laid out where they're saved, so a block being dragged keeps its column.
   const [measure, width] = useWidth<HTMLDivElement>();
   const groups = overlapGroups(props.blocks).map((group) => ({ group, shown: shownColumns(group.cols, width && width - 4, MORE_PX) }));

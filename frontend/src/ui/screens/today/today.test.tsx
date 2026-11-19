@@ -2331,6 +2331,18 @@ describe("a block's quick menu", () => {
       .map((el) => (el.getAttribute('role') === 'separator' ? '-' : el.textContent));
   const rightClick = (el: Element) => fireEvent.contextMenu(el, { clientX: 200, clientY: 300 });
 
+  it('goes when the page scrolls, but not for a scroll from before it opened that the browser reports after', async () => {
+    await open(day);
+    rightClick(await report());
+    expect(screen.getByRole('menu', { name: 'Write the report' })).toBeInTheDocument();
+    // A scroll bringing the block into view just before the right-click is reported in the next frame.
+    fireEvent.scroll(document);
+    expect(screen.getByRole('menu', { name: 'Write the report' })).toBeInTheDocument();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    fireEvent.scroll(document);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('a right-click on a block later today opens what can be done to it, and Done finishes the task', async () => {
     const t = await open(day);
     const el = await report();

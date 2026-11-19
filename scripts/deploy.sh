@@ -4,11 +4,11 @@
 #   ENV=staging (default), ENV=prod, ENV=control, or ENV=pipeline for the release pipeline in the control account
 #   (docs/releasing.md). The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 #   CANARY=skip sends a new backend version all its traffic at once, rather than by config/env's canary: on prod, 10%
-#   for 90 minutes. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
+#   for prod's canary minutes. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
 #   ALARMS=off turns the release alarms off for this deploy, which CodeDeploy otherwise refuses to start while one is
 #   firing: for the fix to what fires. A failed deployment or pre-traffic check still rolls back, and the next deploy
 #   turns them on again. An agent uses it only with the owner's go-ahead, each time.
-# A backend change waits out its canary, so a prod deploy runs about 90 minutes. CloudFormation carries on if this stops early.
+# A backend change waits out its canary, so a prod deploy runs at least prod's stack.canaryMinutes. CloudFormation carries on if this stops early.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

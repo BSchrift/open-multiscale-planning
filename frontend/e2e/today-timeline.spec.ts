@@ -274,6 +274,89 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
 });
 
 
+test('a mouse pressed on empty time and dragged draws the draft at once, down or up, a short drag a quarter hour, and Esc takes it away; on phone a finger that moves still scrolls', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  await countRings(page);
+  const draft = page.locator('.cev.holddraft');
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+
+  if (phone) {
+    // As before: a finger that moves before the hold drafts nothing, and one held still drafts an hour.
+    const moved = await pressOnDay(page, '17:50', true);
+    await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 7, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y + 30 })), moved);
+    await page.waitForTimeout(600);
+    await letGo(page, { ...moved, y: moved.y + 30 }, true);
+    await expect(draft).toHaveCount(0);
+    await expect(capture).toHaveCount(0);
+    const still = await pressOnDay(page, '17:50', true);
+    await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+    await letGo(page, still, true);
+    await expect(capture.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+    expect(errors).toEqual([]);
+    return;
+  }
+
+  // The point on the day at a time, from 7am at 30px an hour, measured as it's used.
+  await page.locator('.day').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const point = async (time: string, dx = 0) => {
+    const [h, m] = time.split(':').map(Number);
+    const box = (await page.locator('.day').boundingBox())!;
+    return { x: box.x + box.width * 0.6 + dx, y: box.y + ((h! * 60 + m! - 420) / 60) * 30 };
+  };
+  const drag = async (from: string, to: string, dx = 0) => {
+    const a = await point(from);
+    const b = await point(to, dx);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+  };
+  const cancelCapture = async () => {
+    await page.keyboard.press('Escape');
+    await expect(capture).toHaveCount(0);
+    await expect(draft).toHaveCount(0);
+  };
+
+  // Down: the draft follows the mouse at once, from the press's quarter hour to the pointer's.
+  await drag('17:50', '18:50');
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  await expect(draft).toHaveClass(/\bs-placing\b/);
+  await expect(capture).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('today-drag-draft.png') });
+  await page.mouse.up();
+  await expect(capture.getByText('Today, 5:45pm to 7pm')).toBeVisible();
+  await expect(capture.getByRole('textbox', { name: 'Capture to Inbox' })).toBeFocused();
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  await page.screenshot({ path: info.outputPath('today-drag-capture.png') });
+  await cancelCapture();
+
+  // Up.
+  await drag('19:20', '18:10');
+  await expect(draft).toHaveAttribute('title', '6pm to 7:30pm');
+  await page.mouse.up();
+  await expect(capture.getByText('Today, 6pm to 7:30pm')).toBeVisible();
+  await cancelCapture();
+
+  // A drag that only just passes a click's wobble: the shortest block, a quarter hour.
+  await drag('18:05', '18:05', 7);
+  await expect(draft).toHaveAttribute('title', '6pm to 6:15pm');
+  await page.mouse.up();
+  await expect(capture.getByText('Today, 6pm to 6:15pm')).toBeVisible();
+  await cancelCapture();
+
+  // Esc while dragging takes it away, and letting go then opens nothing.
+  await drag('18:05', '19:00');
+  await expect(draft).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(draft).toHaveCount(0);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  await expect(capture).toHaveCount(0);
+  expect(await rings(page)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 /**
  * Puts a pointer down on the day at a time: a finger on phone, a mouse on desktop. The day is measured in the same moment,
  * since what loads above it can still move it down the page. Returns where it pressed.

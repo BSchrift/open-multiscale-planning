@@ -1,9 +1,10 @@
 // Hold to create, on every calendar: a press held still on empty time drafts an hour there, as the phone taps and a
 // ring spreads from the finger, and letting go opens Capture with that time. Moving before the hold scrolls the page (a
-// finger) or does nothing (a mouse); moving after it moves the draft, keeping its length. Each calendar draws the draft
+// finger); a mouse that moves draws the draft at once instead, from the press to the pointer, on a calendar that `draws`,
+// and does nothing elsewhere. Moving after the hold moves the draft, keeping its length. Each calendar draws the draft
 // and the ring in its own geometry, and passes the draft's time to Capture, which can change its length and name it.
 //
-//   const hold = useHoldToCreate({ at, move, earliest, off: !!dragging });
+//   const hold = useHoldToCreate({ at, move, earliest, off: !!dragging, draws: true });
 //   <div onPointerDown={(e) => !onABlock(e) && hold.press(e)}>{hold.draft && <div ref={hold.draftRef} … />}</div>
 //   {hold.draft?.open && <Capture layout={layout} close={hold.close} slot={hold.slot(overlap)} />}
 
@@ -11,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { formatMinutes, formatTimeOfDay } from '../../../core/dates';
-import { DRAWN_DAY, holdSlot } from '../../../core/slots';
+import { DRAWN_DAY, drawnSlot, holdSlot } from '../../../core/slots';
 import type { HeldSlot, Slot } from '../../../core/slots';
 import type { LocalDate, Minutes, TimeOfDay } from '../../../core/types';
 import { useApp } from '../../app/store';
@@ -122,6 +123,8 @@ export function useHoldToCreate(opts: {
   to?: TimeOfDay;
   /** While another block is selected, being moved or being placed. */
   off?: boolean;
+  /** A mouse that moves before the hold draws the draft from the press to the pointer, in the pressed element's day. */
+  draws?: boolean;
 }) {
   const { platform, layout } = useApp();
   const toast = useToast();
@@ -165,6 +168,16 @@ export function useHoldToCreate(opts: {
     // From the events' own times, which say when the finger moved or lifted however late a busy page hears of it.
     const pressed = event.timeStamp;
     let held: Slot | null = null;
+    // A mouse drawing the draft, from the day and minute it was pressed at, read once as the calendar may redraw under it.
+    let drawing = false;
+    let from: { date: LocalDate; minute: number } | null = null;
+    const draw = (x: number, y: number) => {
+      const r = el.getBoundingClientRect();
+      const at = from && live.current.at(x - r.left, y - r.top, el);
+      held = from && at ? drawnSlot(from.date, from.minute, at.minute, live.current.earliest, to()) : null;
+      const slot = held;
+      setDraft((d) => (!slot ? null : d && same(d.slot, slot) ? d : { slot, moved: null, name: '', open: false, fresh: false }));
+    };
     const own = (e: Event) => (e as PointerEvent).pointerId === event.pointerId;
     const lift = () => {
       clearTimeout(timer);
@@ -184,13 +197,19 @@ export function useHoldToCreate(opts: {
       pointermove: (ev) => {
         const m = ev as PointerEvent;
         if (!own(m)) return;
+        if (drawing) return draw(m.clientX, m.clientY);
         if (!held) {
           // Held long enough, though a busy page ran the timer late: it drafts rather than reading as a swipe.
           if (m.timeStamp - pressed >= HOLD_MS) lift();
           else {
             const [dx, dy] = [m.clientX - x0, m.clientY - y0];
-            if (mouse ? Math.hypot(dx, dy) >= DRAG_PX : Math.abs(dx) > SLOP_PX || Math.abs(dy) > SLOP_PX) stop();
-            return;
+            if (mouse ? Math.hypot(dx, dy) < DRAG_PX : Math.abs(dx) <= SLOP_PX && Math.abs(dy) <= SLOP_PX) return;
+            if (!mouse || !live.current.draws) return stop();
+            // No hold to wait for, so no ring or tap: the draft grows under the pointer.
+            clearTimeout(timer);
+            drawing = true;
+            from = live.current.at(x0 - box.left, y0 - box.top, el);
+            return draw(m.clientX, m.clientY);
           }
           if (!held) return;
         }
@@ -200,9 +219,12 @@ export function useHoldToCreate(opts: {
       pointerup: (ev) => {
         if (!own(ev)) return;
         // Let go after the hold, though the timer hasn't run yet on a busy page.
-        if (!held && ev.timeStamp - pressed >= HOLD_MS) lift();
+        if (!held && !drawing && ev.timeStamp - pressed >= HOLD_MS) lift();
         stop();
-        if (!held) return;
+        if (!held) {
+          if (from) toast.show(PAST_TIME);
+          return;
+        }
         // Letting go isn't a click on whatever is under the finger.
         swallowClick(el);
         setDraft((d) => d && { ...d, open: true });
@@ -221,6 +243,9 @@ export function useHoldToCreate(opts: {
       },
       contextmenu: (ev) => {
         if (held) ev.preventDefault();
+      },
+      keydown: (ev) => {
+        if ((ev as KeyboardEvent).key === 'Escape') cancel();
       },
     };
     const stop = () => {

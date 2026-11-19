@@ -840,4 +840,22 @@ describe.each(['desktop', 'phone'] as const)('hold to create in Schedule, on %s'
     expect(item).toMatchObject({ title: 'Book dentist', estimate_min: 60 });
     expect(await blocks(t, item!.id as string)).toEqual([layout === 'phone' ? [at(WEEK, 18), at(WEEK, 19)] : [at('2026-11-05', 16), at('2026-11-05', 17)]]);
   });
+
+  it.runIf(layout === 'desktop')('with nothing left to place, a mouse dragged on empty time draws the draft at once, and Capture saves that time', async () => {
+    const t = await open({ layout, seed: allPlaced });
+    await waitFor(() => expect(target()).not.toBeNull());
+    fireEvent.pointerDown(target(), { clientX: 20, clientY: y(16 * 60 + 40), button: 0, pointerType, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 20, clientY: y(15 * 60 + 10), pointerType, pointerId: 1 });
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '3pm to 4:45pm'));
+    letGo(15 * 60 + 10);
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    expect(within(capture).getByText('Thu Nov 5, 3pm to 4:45pm')).toBeVisible();
+    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(draft()).toBeNull());
+    const item = (await listRecords(t.db, 'task')).find((x) => x.kind === 'inbox');
+    expect(item).toMatchObject({ title: 'Book dentist', estimate_min: 105 });
+    expect(await blocks(t, item!.id as string)).toEqual([[at('2026-11-05', 15), at('2026-11-05', 16, 45)]]);
+    expect(t.platform.haptics).toEqual([]);
+  });
 });

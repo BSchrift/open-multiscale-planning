@@ -425,6 +425,25 @@ describe('Process on desktop', () => {
     expect(within(card()).getByText('1 of 5')).toBeInTheDocument();
   });
 
+  it('sets Done and Delete apart: Done outlined in the success colour with a tick, Delete red with a bin, and Yes, delete solid red', async () => {
+    await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    // Each keeps its word and its key, so colour is never the only sign.
+    expect(btn('Done')).toHaveClass('btn', 'ok');
+    expect(btn('Done')).not.toHaveClass('danger');
+    expect(btn('Done').querySelector('[data-icon="done"]')).not.toBeNull();
+    expect(btn('Done')).toHaveTextContent(/^Done.*F$/);
+    expect(btn('Delete')).toHaveClass('btn', 'danger');
+    expect(btn('Delete')).not.toHaveClass('pri');
+    expect(btn('Delete').querySelector('[data-icon="bin"]')).not.toBeNull();
+    expect(btn('Delete')).toHaveTextContent(/^Delete.*D$/);
+    // The other choices stay plain.
+    expect(btn('Skip').className).toBe('btn sm');
+    await userEvent.click(btn('Delete'));
+    expect(btn('Yes, delete')).toHaveClass('btn', 'pri', 'danger');
+    expect(btn('Cancel').className).toBe('btn sm');
+  });
+
   it('skips and deletes with a toast for each, and asks before deleting', async () => {
     const close = vi.fn();
     const t = await open({ close });
@@ -1532,6 +1551,11 @@ describe('Process on phone', () => {
       'Done',
       'Delete',
     ]);
+    // Four buttons with icons don't fit a phone's width, so Undo keeps its icon and drops its word, named Undo still.
+    expect(btn('Undo')).toHaveTextContent('');
+    expect(btn('Undo').querySelector('[data-icon="undo"]')).not.toBeNull();
+    expect(btn('Done')).toHaveClass('ok');
+    expect(btn('Delete')).toHaveClass('danger');
     await waitFor(() => expect(btn('Add to a project or One offs')).toHaveFocus());
     // A phone has no keyboard: no setting, and keys do nothing, Option or not.
     key('s');

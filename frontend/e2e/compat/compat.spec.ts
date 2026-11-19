@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
-import { putPromptsAway, timezoneWithRoom, workJourney } from '../deployed/journey';
+import { clearLeftChecks, putPromptsAway, timezoneWithRoom, workJourney } from '../deployed/journey';
 import { goals, openProject } from '../journeys/journey';
 import { account, go, oneOffRow, openSeeded, pane, readRecord, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
@@ -140,13 +140,36 @@ async function pauseShed(page: Page, h: House, action: 'Pause' | 'Resume', end?:
 // The deployed web suite's journey, on a device of its own, signed out. The prod Test step takes it against the web app
 // prod still serves, the release before, which here is the old bundle: main's on CI, and on staging prod's web app's.
 // When one of prod's app feeds serves an older bundle than its web app, staging's old bundle is that one, and the
-// journey's steps need only work back as far as the web app.
+// journey's steps need only work back as far as the web app. The device starts with what failed runs left on prod's
+// shared test user, which CI's and staging's users never hold: three practices, putting a row above every day, a check
+// that ended unanswered, whose question sits in the corner, and a check at 7pm on the last day, the time the journey
+// drags to. The deployed suite's clean-up runs first, as it does there.
 for (const name of ['old', 'new'] as const) {
-  test(`the deployed suite's journey, from Capture to the calendar and back, works on the ${name} bundle`, async ({ browser }) => {
+  test(`the deployed suite's clean-up and journey, from Capture to the calendar and back, work on the ${name} bundle`, async ({ browser }) => {
     const from = process.env.COMPAT_OLD_SURFACE;
     test.skip(name === 'old' && !!from && from !== 'web', `The old bundle is the one prod's ${from} feed serves, older than the web app prod's Test step takes the journey on`);
     const d = await device(browser, `e2e-${randomUUID()}`, { ...on(name), timezoneId: timezoneWithRoom() });
+    // In the page's time zone: half an hour ending an hour ago, and half an hour from 7pm on the week's last day, Sunday.
+    const at = await d.page.evaluate(() => {
+      const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const sunday = new Date();
+      sunday.setDate(sunday.getDate() + ((7 - sunday.getDay()) % 7));
+      sunday.setHours(19, 0, 0, 0);
+      const ended = Math.floor(Date.now() / 60_000) * 60_000 - 3_600_000;
+      return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ended: [iso(ended - 1_800_000), iso(ended)], sunday: [iso(+sunday), iso(+sunday + 1_800_000)] };
+    });
+    const leftBlock = (id: string, title: string, [start, end]: string[]): Seed[] => [
+      { type: 'task', id, fields: { kind: 'one_off', title, schedule: { type: 'once' } } },
+      { type: 'time_block', id: `${id}-block`, fields: { task_id: id, start, end, tz: at.tz } },
+    ];
+    await seed(d.page, [
+      ...[1, 2, 3].map((n) => ({ type: 'practice', id: `left-${n}`, fields: { title: `Compat check left ${n}`, target_min: 30, per: 'day', state: 'active' } })),
+      ...leftBlock('left-ended', 'Compat check left ended', at.ended),
+      ...leftBlock('left-sunday', 'Compat check left Sunday', at.sunday),
+    ]);
     await putPromptsAway(d.page);
+    await clearLeftChecks(d.page);
+    await expect(d.page.getByRole('button', { name: /^Compat check left Sunday, / })).toHaveCount(0);
     await workJourney(d.page, `Compat check ${new Date().toISOString().slice(11, 19)}`);
   });
 }

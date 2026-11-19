@@ -7,7 +7,7 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Request } from '@playwright/test';
 import { syncNow } from '../seed';
-import { timezoneWithRoom, workJourney } from './journey';
+import { putPromptsAway, timezoneWithRoom, workJourney } from './journey';
 import { deployed } from './target';
 
 const d = deployed();
@@ -59,6 +59,7 @@ test.beforeAll(async ({ browser }, info) => {
     p.on('requestfailed', (r) => void noteSync(r));
   });
   page = await context.newPage();
+  await putPromptsAway(page);
 });
 
 test.afterAll(() => context?.close());

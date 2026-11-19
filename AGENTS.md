@@ -43,7 +43,7 @@ nothing from the package.
 | CI | Everything in the local layer, on every PR and every push to main, and the web app's bundle bytes against their budget, which block. A PR runs the iPhone Simulator only when it changes something the iPhone app is built from or runs, as [scripts/ci-changes.sh](scripts/ci-changes.sh) lists, and the run's summary says why it ran or didn't. Main always runs it, and so does a run started by hand from the Actions tab. On each PR, the performance KPIs in the browser beside the base, report-only, in one comment; on each push to main, the fuller set with the Mac app, kept on the `perf-data` branch; each night main moved, every scenario with A/A runs, and sync through Toxiproxy; once a week, the Mac app on macOS; nightly, and with a PR's `perf-ios` label, the iPhone | `.github/workflows/ci.yml`, `perf.yml`, `perf-main.yml`, `perf-nightly.yml`, `perf-mac.yml`, `perf-ios.yml` |
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |
 | On demand | The performance KPIs on the browser at desktop and phone sizes and on the Mac app, against [config/perf.ts](config/perf.ts), report-only; with a base commit, what this checkout made slower | `make test-perf`, `BASE=<commit>`; the iPhone's, `scripts/test-perf-ios.sh` |
-| Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones, after publishing CI's performance results to staging's performance dashboard. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
+| Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones, after publishing CI's performance results to staging's performance dashboard, the per-route latency targets' request mix, and sync timed against staging. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
 
 [docs/testing.md](docs/testing.md) maps each feature to the end-to-end tests that cover it on each platform. A change
 that adds a feature or an end-to-end test updates its row.
@@ -145,7 +145,7 @@ Then wait for CI. A PR merges only with every check green.
   | Merge to main | Only with every CI check green | Owner |
   | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
   | Window before prod | An email says the commit passed staging and when it goes to prod, with a link to send it sooner. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
-  | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
+  | Prod | The same build, by a canary of 10% for 5 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
   | Signed apps | `make release-tag`, then `make release ENV=prod` from the tag | Owner, on the Mac |
 
   To roll back, revert on main and let it release. `make release-surface` switches the web app or one app's feed back

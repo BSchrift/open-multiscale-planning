@@ -18,8 +18,8 @@ test('an overdue milestone, then finishing, dropping and restoring projects', as
   const fence = await addProject(page, phone, goal, 'Paint the garden fence', '2026-12-18');
   await addMilestones(fence, [{ name: 'Supplies bought', due: '2026-11-04' }]);
   await addTasks(fence, 'Supplies bought', [
-    { title: 'Choose a colour', step: 2, estimate: '30m' },
-    { title: 'Buy the paint', step: 4, estimate: '1h' },
+    { title: 'Choose a colour', step: 6, estimate: '30m' },
+    { title: 'Buy the paint', step: 12, estimate: '1h' },
   ]);
   await fence.getByRole('checkbox', { name: 'Choose a colour done' }).click();
   await expect(fence.getByRole('button', { name: 'Show 1 completed' })).toBeVisible();

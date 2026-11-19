@@ -4,7 +4,7 @@
 // field sits low, in thumb reach, and its list opens in a sheet, as does the form for a new home.
 //
 // A goal's backlog takes an item too: B, or Goal backlog, swaps the picker for the goals on desktop, and opens a sheet of
-// them on phone.
+// them on phone. Beside it, K, or Save as note, makes the item a note in one tap.
 //
 // params.planning is the week being planned, so Add to this week adds to that plan; params.item opens on one item.
 // params.stretchStart and stretchEnd are the stretch being planned: its projects come first, new projects end with it,
@@ -20,6 +20,7 @@ import type { InboxRow } from '../../../core/queries';
 import { getRecord, setWeekPick, weekPickId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { isRepeating, onceWhen, projectDates } from '../../../core/schedule';
+import { saveAsNote } from '../../../core/memos';
 import { closeTask, makeHome, undoHome } from '../../../core/tasks';
 import type { Home, Made } from '../../../core/tasks';
 import type { Fields, LocalDate, Minutes, Task } from '../../../core/types';
@@ -45,6 +46,7 @@ import type { Place } from './Picker';
 import './process.css';
 import { Button } from '../../components/ds/Button';
 import { Switch } from '../../components/ds/Controls';
+import { Icon } from '../../components/ds/Icon';
 
 export default function Screen(props: ScreenProps) {
   const { stretchStart, stretchEnd } = props.params;
@@ -481,6 +483,14 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       () => ({ closed: s.closed + 1 }),
       () => (freed ? `Deleted ${name} and its block${blockAt}.` : `Deleted ${name}.`),
     );
+  // One tap: the item becomes a note in Notes, with what was written and attached. Never on the week.
+  const saveNote = () =>
+    item &&
+    void commit(
+      closing((w) => saveAsNote(w, item.id, clock)),
+      () => ({ sorted: s.sorted + 1 }),
+      () => `Saved ${name} in Notes.${s.planOn ? " Notes aren't added to the week." : ''}${cameOff()}`,
+    );
   const togglePlan = () => setS({ ...s, planOn: !s.planOn });
 
   // Single keys need the device setting, since speech input can type them; with Option or Alt they always work, in Add
@@ -510,11 +520,30 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       d: () => setDelAsk(true),
       p: () => openForm('practice', 'p'),
       g: () => openForm('goal', 'g'),
+      k: saveNote,
       ...(data.backlogs.length ? { b: () => setChoosing(true) } : {}),
       ...(stretch ? {} : { w: togglePlan }),
     };
     const fn = keys[k];
     if (fn) run(fn);
+  };
+
+  // Enter adds the item, as Add to does, from wherever focus is on the desktop card: Time, the card itself, or the title
+  // or date field, what's typed there saved first; in the description, where Enter makes a new line, Cmd or Ctrl Enter.
+  // Caught on its way down, before the field's own Enter. A button keeps Enter, as do Add to and any other field. With no
+  // place shown to add to, a field keeps its own Enter, and Time or the card goes on to Add to.
+  const onEnter = (event: ReactKeyboardEvent) => {
+    if (event.key !== 'Enter' || event.altKey || event.shiftKey || form || phone || delAsk || choosing || !item) return;
+    const target = event.target as HTMLElement;
+    const command = event.metaKey || event.ctrlKey;
+    const field = target.tagName === 'INPUT' && !!target.closest('.pxtitleform, .pxdateform');
+    const plain = target === ref.current || (target as HTMLInputElement).type === 'range';
+    const takes = target.tagName === 'TEXTAREA' ? command && !!target.closest('.pxnotes') : !command && (field || plain);
+    if (!takes || (!addRef.current && !plain)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (addRef.current) addRef.current.click();
+    else focusPicker();
   };
 
   const total = queue.length;
@@ -578,6 +607,20 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
       {cap('B')}
       Goal backlog
     </Button>
+  );
+  const noteButton = (
+    <Button size="compact" type="button" onClick={saveNote}>
+      {cap('K')}
+      <Icon name="note" size={16} />
+      Save as note
+    </Button>
+  );
+  // Choices that aren't a place, side by side.
+  const side = (
+    <div className="pxside">
+      {backlogButton}
+      {noteButton}
+    </div>
   );
   const chooser = !phone && choosing && item && (
     <BacklogChooser key={item.id} goals={data.backlogs} keysOn={keysOn} cap={cap} onAdd={(id) => void file(id)} onBack={closeChooser} />
@@ -667,7 +710,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
             {itemCard(weekToggle)}
             <div className="pxspace" />
             {picker}
-            {backlogButton}
+            {side}
             {choosing && <BacklogSheet goals={data.backlogs} last={lastBacklog} onAdd={(id) => void file(id)} onClose={closeChooser} />}
             {makeOne}
             {homeForm}
@@ -698,7 +741,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
   return (
     // A press on the veil around the card closes Process, as Exit does.
     <div className="pxwrap" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDown={onKeyDown}>
+      <div ref={ref} className="pxcard" role="dialog" aria-modal="true" aria-label="Process Inbox" tabIndex={-1} onKeyDownCapture={onEnter} onKeyDown={onKeyDown}>
         <div className="pxtop">
           <Button size="compact" type="button" disabled={!back && !itemEdits.length} onClick={() => void undo()} icon="undo">
             Undo and go back
@@ -718,7 +761,7 @@ function Cards(props: ScreenProps & { data: ProcessData; stretch: Stretch | unde
               <>
                 {picker}
                 <div className="pxopts">
-                  {backlogButton}
+                  {side}
                   {makeOne}
                   <div className="row">
                     <Button size="compact" type="button" onClick={skip}>

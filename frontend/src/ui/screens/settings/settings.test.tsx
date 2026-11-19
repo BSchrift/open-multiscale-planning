@@ -13,6 +13,7 @@ import { moreLine } from './moreLine';
 import { describePeriod } from './Retention';
 import { parsePeriod } from '../../../../../config/retention';
 import { noFiles } from '../../../core/sync-testing';
+import { EST_STEPS } from '../../components/EstimateSlider';
 
 afterEach(cleanup);
 
@@ -392,7 +393,7 @@ describe('Settings', () => {
       const t = await renderScreen('settings');
       const aim = await screen.findByRole('slider', { name: 'Weekly one offs aim' });
       expect(aim).toHaveAttribute('aria-valuetext', 'No aim');
-      fireEvent.change(aim, { target: { value: '13' } });
+      fireEvent.change(aim, { target: { value: String(EST_STEPS.indexOf(300)) } });
       await waitFor(async () => expect((await stored(t)).one_offs_weekly_aim).toBe(300));
       expect(aim).toHaveAttribute('aria-valuetext', '5h');
     });
@@ -793,6 +794,8 @@ describe('Data retention', () => {
     expect(page.getByText('5 years after they\'re closed')).toBeVisible();
     expect(page.getByText('30 days after you delete them')).toBeVisible();
     expect(page.getByRole('heading', { level: 2, name: 'Kept until you delete it' })).toBeVisible();
+    expect(page.getByText('Notes: kept until you delete them, even once what they belong to is finished or gone.')).toBeVisible();
+    expect(page.getByText('Photos and files on notes: kept with the note, and counted in your storage while kept.')).toBeVisible();
     expect(page.queryAllByRole('button').filter((b) => !/^Back/.test(b.getAttribute('aria-label') ?? ''))).toEqual([]);
     expect(page.queryAllByRole('textbox')).toEqual([]);
     expect(screen.getByRole('button', { name: 'Back to Settings' })).toBeVisible();

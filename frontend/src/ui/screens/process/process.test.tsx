@@ -575,12 +575,12 @@ describe('Process on desktop', () => {
     const caps = () => [...card().querySelectorAll('.keycap')].map((k) => k.textContent).filter((c) => c !== '↩');
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['⌥B', '⌥D', '⌥E', '⌥F', '⌥G', '⌥P', '⌥S', '⌥W', '⌥Z']);
+    expect(caps().sort()).toEqual(['⌥B', '⌥D', '⌥E', '⌥F', '⌥G', '⌥K', '⌥P', '⌥S', '⌥W', '⌥Z']);
     cleanup();
     keysOn();
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
-    expect(caps().sort()).toEqual(['B', 'D', 'E', 'F', 'G', 'P', 'S', 'W', 'Z']);
+    expect(caps().sort()).toEqual(['B', 'D', 'E', 'F', 'G', 'K', 'P', 'S', 'W', 'Z']);
   });
 
   it('labels the held key Alt away from a Mac', async () => {
@@ -1213,7 +1213,9 @@ describe('Editing the item on the card', () => {
     await addTo('Learn to bake bread');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     await userEvent.click(pen());
-    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), ' latch{Enter}');
+    // Saved with Save: with a place shown, Enter would add the item too.
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), ' latch');
+    await userEvent.click(btn('Save'));
     await waitFor(() => expect(title()).toHaveTextContent('Fix the gate latch'));
     await userEvent.click(btn('Add description'));
     await userEvent.type(within(card()).getByRole('textbox', { name: 'Description' }), 'Hinges');
@@ -1240,7 +1242,60 @@ describe('Editing the item on the card', () => {
     await screen.findByRole('heading', { name: 'Call the bank' });
   });
 
-  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, Goal backlog, New practice and goal, Skip, Done, Delete', async () => {
+  it('adds the item with Enter from Time, the card, and the title or date field with what was typed, and with Cmd or Ctrl Enter from the description', async () => {
+    localStorage.setItem('multiscale.processLast', JSON.stringify('one_offs'));
+    const close = vi.fn();
+    const t = await open({ close });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    slide(90);
+    await userEvent.click(screen.getByRole('slider', { name: 'Time' }));
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(await task(t.db, 'i1')).toMatchObject({ kind: 'one_off', estimate_min: 90 });
+    expect(toast()).toHaveTextContent('Added Call the bank to One offs.');
+
+    // The title as typed is saved, then the item added.
+    await userEvent.click(pen());
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), ' latch{Enter}');
+    await screen.findByRole('heading', { name: 'Read the article' });
+    expect(await task(t.db, 'i2')).toMatchObject({ kind: 'one_off', title: 'Fix the gate latch' });
+
+    await userEvent.click(btn('Add date'));
+    fireEvent.change(within(card()).getByLabelText('Date'), { target: { value: '2026-11-13' } });
+    await userEvent.type(within(card()).getByLabelText('Date'), '{Enter}');
+    await screen.findByRole('heading', { name: 'Buy stamps' });
+    expect(await task(t.db, 'i3')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-13', to: null } });
+
+    // In the description Enter makes a new line, and Cmd or Ctrl Enter adds.
+    await userEvent.click(btn('Add description'));
+    const box = within(card()).getByRole('textbox', { name: 'Description' });
+    await userEvent.type(box, 'Second class{Enter}A book of ten');
+    expect(title()).toHaveTextContent('Buy stamps');
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    await screen.findByRole('heading', { name: 'Return the books' });
+    expect(await task(t.db, 'i4')).toMatchObject({ kind: 'one_off', notes: 'Second class\nA book of ten' });
+
+    // A button keeps Enter for itself: on Skip, Enter skips the last item, and Process closes.
+    btn('Skip').focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    expect((await task(t.db, 'i5'))?.kind).toBe('inbox');
+  });
+
+  it('takes Enter on the card itself to Add to while no place is shown, and leaves a field its own Enter', async () => {
+    const t = await open();
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    card().focus();
+    await userEvent.keyboard('{Enter}');
+    expect(picker()).toHaveFocus();
+    expect(title()).toHaveTextContent('Call the bank');
+    await userEvent.click(pen());
+    await userEvent.type(within(card()).getByRole('textbox', { name: 'Title' }), ' now{Enter}');
+    await waitFor(() => expect(title()).toHaveTextContent('Call the bank now'));
+    expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
+  });
+
+  it('keeps focus in order: the title, Add date and the other add buttons, Time, Add to, the week, Goal backlog, Save as note, New practice and goal, Skip, Done, Delete', async () => {
     await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     const stops = Array.from(card().querySelectorAll<HTMLElement>('button, input, textarea, select'))
@@ -1255,6 +1310,7 @@ describe('Editing the item on the card', () => {
       'Add to a project or One offs',
       'Add to this weekAlt W',
       'Alt BGoal backlog',
+      'Alt KSave as note',
       'New practice from this item',
       'New goal from this item',
       'SkipAlt S',
@@ -1451,7 +1507,7 @@ describe('Process for planning a stretch', () => {
 });
 
 describe('Process on phone', () => {
-  it('puts the item on top, then Add to low in thumb reach, then Goal backlog, New practice and goal, then Undo, Skip, Done and Delete', async () => {
+  it('puts the item on top, then Add to low in thumb reach, then Goal backlog and Save as note, New practice and goal, then Undo, Skip, Done and Delete', async () => {
     await open({ layout: 'phone' });
     await screen.findByRole('heading', { name: 'Call the bank' });
     const order = Array.from(card().querySelectorAll('h1, button, input')).map((e) =>
@@ -1468,6 +1524,7 @@ describe('Process on phone', () => {
       'Add to this week',
       'Add to a project or One offs',
       'Goal backlog',
+      'Save as note',
       'New practice from this item',
       'New goal from this item',
       'Undo',

@@ -51,12 +51,13 @@ const taskPopup = async (name: string) => {
 const slideTo = (slider: HTMLElement, minutes: number) => fireEvent.change(slider, { target: { value: String(EST_STEPS.indexOf(minutes)) } });
 
 describe('the Done today line', () => {
-  it('ends Today, says nothing is finished until something is, and opens Done on today', async () => {
+  it('ends Today, says nothing is finished until something is, and opens Done on today', { timeout: 15000 }, async () => {
     const t = await open(async (w) => {
       await task(w, 't1', 'Write the report');
       await block(w, 'b1', 't1', '13:00', '15:00');
     });
-    const empty = await screen.findByRole('button', { name: 'Done: nothing finished yet today' });
+    // The first render in a run also loads the modules, so it gets longer.
+    const empty = await screen.findByRole('button', { name: 'Done: nothing finished yet today' }, { timeout: 5000 });
     expect(empty).toHaveTextContent(/^Nothing finished yet today$/);
     expect(screen.getByRole('heading', { name: 'Timeline' }).compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Mark done now' }));
@@ -1052,6 +1053,210 @@ describe('the timeline', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull());
   });
 
+  it.each(['desktop', 'phone'] as const)("on %s, Move… in a later block's popup picks a new time as its quick menu's Move to does, each with Undo", async (layout) => {
+    const t = await open(
+      async (w) => {
+        await day(w);
+        await task(w, 't2', 'Paint the fence');
+        await block(w, 'b2', 't2', '17:00', '18:00');
+      },
+      { layout },
+    );
+    // On phone a block still to come is a slider, which a tap opens.
+    await userEvent.click(await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ }));
+    const popup = await taskPopup('Write the report');
+    const section = within(popup).getByRole('region', { name: 'Time block' });
+    const moveButton = within(section).getByRole('button', { name: 'Move…' });
+    expect(moveButton).toHaveAttribute('aria-haspopup', 'menu');
+    // Moved to tomorrow, or off the calendar, the block's section goes until Undo brings it back.
+    const pick = async (name: string) => {
+      await userEvent.click(await within(popup).findByRole('button', { name: 'Move…' }));
+      await userEvent.click(within(await screen.findByRole('menu', { name: 'Move to' })).getByRole('menuitem', { name }));
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    };
+
+    // The same four choices as the menu's Move to, the first one focused; Esc closes them and keeps the popup.
+    await userEvent.click(moveButton);
+    const menu = await screen.findByRole('menu', { name: 'Move to' });
+    expect([...menu.querySelectorAll('[role="menuitem"], [role="separator"]')].map((el) => (el.getAttribute('role') === 'separator' ? '-' : el.textContent))).toEqual([
+      'Next free time, 6pm',
+      'Tomorrow, 4pm',
+      'Back to To schedule',
+      '-',
+      'Choose a time…',
+    ]);
+    expect(moveButton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(menu).getByRole('menuitem', { name: 'Next free time, 6pm' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(moveButton).toHaveFocus();
+    expect(popup).toBeVisible();
+
+    // 5pm is taken by the fence, so the next free time is after it. The popup stays, showing where it went.
+    await pick('Next free time, 6pm');
+    expect(await screen.findByText('Moved Write the report to 6pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('18:00'), end: at('19:00') });
+    expect(await within(section).findByText('Mon Nov 2, 6pm to 7pm')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00')));
+
+    await pick('Tomorrow, 4pm');
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', '2026-11-03'), end: at('17:00', '2026-11-03') });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00')));
+
+    await pick('Back to To schedule');
+    expect(await screen.findByText("Took Write the report off the calendar. It's in To schedule on Week.")).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull());
+
+    // By hand: the popup goes, and Week opens ready to edit, with the block where it was.
+    await pick('Choose a time…');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(t.nav().route).toMatchObject({ area: 'week', params: { edit: 'this' } });
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00'));
+  });
+
+  it.each(['desktop', 'phone'] as const)("on %s, Move…'s Tomorrow asks first when it lands on a block there, as the quick menu's does, and the popup stays", async (layout) => {
+    const TOMORROW = '2026-11-03';
+    const t = await open(
+      async (w) => {
+        await day(w);
+        await task(w, 't2', 'Paint the fence');
+        await block(w, 'b2', 't2', '16:30', '17:30', { start: at('16:30', TOMORROW), end: at('17:30', TOMORROW) });
+      },
+      { layout },
+    );
+    await userEvent.click(await screen.findByRole(layout === 'phone' ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ }));
+    const popup = await taskPopup('Write the report');
+    const tomorrow = async () => {
+      await userEvent.click(within(popup).getByRole('button', { name: 'Move…' }));
+      await userEvent.click(within(await screen.findByRole('menu', { name: 'Move to' })).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));
+      const ask = await screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+      expect(ask).toHaveTextContent('Write the report overlaps Paint the fence.');
+      await waitFor(() => expect(within(ask).getByRole('button', { name: 'Keep both' })).toHaveFocus());
+      return ask;
+    };
+    // Cancel leaves both where they were, and the popup open.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Schedule both at the same time?' })).toBeNull());
+    expect(popup).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Replace sends the fence back to To schedule, with one Undo for both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+  });
+
+  it("Move… shows while a block can still move: later today, and under way but not started, which can't be placed by hand", async () => {
+    await open(async (w) => {
+      await day(w);
+      await task(w, 't3', 'Read the brief');
+      await block(w, 'b3', 't3', '13:30', '14:30');
+      await task(w, 't4', 'Plan the talk');
+      await block(w, 'b4', 't4', '13:00', '15:00', { started_at: at('13:00') });
+      await block(w, 'b5', 't4', '11:00', '12:00');
+    });
+    const sectionOf = async (name: RegExp, title: string) => {
+      await userEvent.click(await screen.findByRole('button', { name }));
+      return within(await taskPopup(title)).getByRole('region', { name: 'Time block' });
+    };
+    const close = async (title: string) => {
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: title })).toBeNull());
+    };
+    // Under way and not started: its time can still change, but Week keeps a block whose time has come where it is.
+    const notStarted = await sectionOf(/^Read the brief, 1:30pm to 2:30pm/, 'Read the brief');
+    await userEvent.click(within(notStarted).getByRole('button', { name: 'Move…' }));
+    const menu = await screen.findByRole('menu', { name: 'Move to' });
+    // Plan the talk runs to 3pm.
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(['Next free time, 3pm', 'Tomorrow, 1:30pm', 'Back to To schedule']);
+    await userEvent.keyboard('{Escape}');
+    await close('Read the brief');
+    // Started, or gone by, it stays where it is.
+    expect(within(await sectionOf(/^Plan the talk, 1pm to 3pm/, 'Plan the talk')).queryByRole('button', { name: 'Move…' })).toBeNull();
+    await close('Plan the talk');
+    expect(within(await sectionOf(/^Plan the talk, 11am to 12pm/, 'Plan the talk')).queryByRole('button', { name: 'Move…' })).toBeNull();
+  });
+
+  it("Done in a later block's popup finishes the task, and its blocks from then on come off the calendar, with Undo", async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await block(w, 'b4', 't1', '18:00', '19:00');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+    const section = within(await taskPopup('Write the report')).getByRole('region', { name: 'Time block' });
+    // Beside Start now, Move… and Remove from calendar, in the order they're read.
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start now', 'Done', 'Move…', 'Remove from calendar']);
+    await userEvent.click(within(section).getByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('Marked Write the report done. Its 4pm block and 1 later one came off the calendar, so that time is free.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(NOW));
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
+    expect((await getRecord(t.db, 'time_block', 'b4'))?.cancelled).toBe(true);
+    // Finished before it began, it has no answer of its own.
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('b1'))).toBeUndefined();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBeNull());
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull();
+  });
+
+  it("Done on a one off's later block ticks it off, as its row's box does", async () => {
+    const t = await open(async (w) => {
+      await w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't2');
+      await block(w, 'b2', 't2', '16:00', '17:00');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Paint the fence, 4pm to 5pm/ }));
+    await userEvent.click(within(await taskPopup('Paint the fence')).getByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('Marked Paint the fence done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't2'))?.done_at).toBe(NOW));
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    expect(await listRecords(t.db, 'task_completion')).toHaveLength(1);
+  });
+
+  it("the block under way offers Done, which marks it done now, and Pause or Resume", async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't3', 'Read the brief');
+      await block(w, 'b0', 't3', '13:30', '15:00', { started_at: at('13:30') });
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 1:30pm to 3pm/ }));
+    const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Done', 'Pause']);
+    await userEvent.click(within(section).getByRole('button', { name: 'Pause' }));
+    expect(await screen.findByText('Paused Read the brief')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.paused_at).toBe(NOW));
+    await userEvent.click(await within(section).findByRole('button', { name: 'Resume' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.paused_at).toBeNull());
+    expect(await screen.findByText('Resumed. It now ends at 3pm.')).toBeVisible();
+    expect(await within(section).findByRole('button', { name: 'Pause' })).toBeVisible();
+    // As Mark done now has it: the block ends now and says how long it took.
+    await userEvent.click(within(section).getByRole('button', { name: 'Done' }));
+    expect(await screen.findByText("Marked done after 30m. You're free until 4pm.")).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW));
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('b0')))?.result).toBe('done');
+    expect((await getRecord(t.db, 'task', 't3'))?.done_at).toBe(NOW);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
+  });
+
+  it("the block under way, not yet started, offers Start, Done and Move…", async () => {
+    await open(async (w) => {
+      await day(w);
+      await task(w, 't3', 'Read the brief');
+      await block(w, 'b0', 't3', '13:30', '15:00');
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 1:30pm to 3pm/ }));
+    const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start', 'Done', 'Move…', 'Remove from calendar']);
+  });
+
   it("a practice's session and a planning block open their details, as before", async () => {
     await open(async (w) => {
       await day(w);
@@ -1307,6 +1512,41 @@ describe.each(['desktop', 'phone'] as const)('an Inbox item’s block on the tim
     expect(el).toHaveTextContent('Inbox, 5:45pm to 6:45pm');
     await userEvent.click(el);
     await taskPopup('Book dentist');
+  });
+});
+
+describe('a block landing on another on the timeline', () => {
+  const day = async (w: Writer) => {
+    await task(w, 't1', 'Write the report');
+    await block(w, 'b1', 't1', '16:00', '17:00');
+    await task(w, 't2', 'Paint the fence');
+    await block(w, 'b2', 't2', '17:00', '17:30');
+  };
+  const step = async () => {
+    const el = await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+    el.focus();
+    // A quarter hour later it runs into Paint the fence.
+    await userEvent.keyboard('{ArrowDown}');
+    return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+  };
+
+  it('asks, and Replace sends the block landed on back to To schedule, with one Undo for both', async () => {
+    const t = await open(day);
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText(/^Write the report is now 4:15pm to 5:15pm\. Took Paint the fence off the calendar\./)).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+  });
+
+  it('Keep both keeps both, and Cancel leaves it where it was', async () => {
+    const t = await open(day);
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Cancel' }));
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+    await userEvent.click(within(await step()).getByRole('button', { name: 'Keep both' }));
+    await waitFor(async () => expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:15') }));
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy();
   });
 });
 
@@ -1584,7 +1824,7 @@ describe('moving a block on the timeline', () => {
     await taskPopup('Write the report');
   });
 
-  it('on phone, a finger that moves before the hold scrolls instead, and a hold let go in place opens nothing', async () => {
+  it('on phone, a finger that moves before the hold scrolls instead, and a hold let go in place opens its menu, not the task', async () => {
     const t = await open(day, { layout: 'phone' });
     const el = await report(undefined, 'slider');
     fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch' });
@@ -1603,6 +1843,9 @@ describe('moving a block on the timeline', () => {
     fireEvent.click(el);
     expect(screen.queryByRole('dialog', { name: 'Write the report' })).toBeNull();
     expect(el).not.toHaveClass('lifted');
+    expect(await screen.findByRole('menu', { name: 'Write the report' })).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
     // A tap a moment later opens it as before.
     await wait(450);
     await userEvent.click(el);
@@ -1891,6 +2134,59 @@ describe('hold to create on the timeline', () => {
     expect(draft()).toBeNull();
   });
 
+  // A hold on a block is the block's own: it moves it, or opens its menu, and never drafts, even on one that doesn't
+  // move or whose time has gone by.
+  it('on phone, a hold let go in place on a block opens its menu and drafts nothing, on a block that moves and one gone by', async () => {
+    const t = await open(
+      async (w) => {
+        await day(w);
+        await block(w, 'b0', 't1', '11:00', '12:00');
+      },
+      { layout: 'phone' },
+    );
+    const holdOn = async (el: HTMLElement, time: string) => {
+      fireEvent.pointerDown(el, { clientX: 100, clientY: y(time), button: 0, pointerType: 'touch', pointerId: 1 });
+      await wait(450);
+      expect(el).toHaveClass('lifted');
+      letGo(time, 'phone');
+      fireEvent.click(el);
+      expect(await screen.findByRole('menu', { name: 'Write the report' })).toBeVisible();
+      expect(draft()).toBeNull();
+      expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: 'Write the report' })).toBeNull();
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    };
+    await holdOn(await ready('phone'), '16:30');
+    await holdOn(await screen.findByRole('button', { name: /^Write the report, 11am to 12pm/ }), '11:30');
+    expect(screen.queryByText('That time has gone by. Hold on a later time.')).toBeNull();
+    expect(t.platform.haptics).toEqual(['light', 'light']);
+  });
+
+  it('on desktop, a right-click on empty time does nothing new, and one on a block opens its menu and drafts nothing', async () => {
+    await open(day);
+    const el = await ready('desktop');
+    const rightClick = async (on: HTMLElement, time: string) => {
+      const point = { clientX: 100, clientY: y(time), button: 2, pointerType: 'mouse', pointerId: 1 };
+      fireEvent.pointerDown(on, point);
+      const shown = fireEvent.contextMenu(on, point);
+      await wait(450);
+      fireEvent.pointerUp(window, point);
+      return shown;
+    };
+    // The browser's own menu stays.
+    expect(await rightClick(timeline(), '18:00')).toBe(true);
+    expect(draft()).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    expect(await rightClick(el, '16:30')).toBe(false);
+    expect(await screen.findByRole('menu', { name: 'Write the report' })).toBeVisible();
+    expect(el).not.toHaveClass('lifted');
+    expect(draft()).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it.each(['desktop', 'phone'] as const)('on %s, a hold on another calendar’s event drafts nothing, as before', async (layout) => {
     const t = await open(
       async (w) => {
@@ -2017,5 +2313,278 @@ describe('To schedule on Today', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("a block's quick menu", () => {
+  const day = async (w: Writer) => {
+    await w.create('objective', { title: 'Write more', state: 'active' }, 'g');
+    await w.create('project', { objective_id: 'g', title: 'Finish the essay', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+    await task(w, 't1', 'Write the report');
+    await block(w, 'b1', 't1', '16:00', '17:00');
+  };
+  const report = () => screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ });
+  /** A menu's items in order, a separator as '-', leaving out any submenu inside it. */
+  const entries = (menu: HTMLElement) =>
+    [...menu.querySelectorAll('[role="menuitem"], [role="separator"]')]
+      .filter((el) => el.closest('[role="menu"]') === menu)
+      .map((el) => (el.getAttribute('role') === 'separator' ? '-' : el.textContent));
+  const rightClick = (el: Element) => fireEvent.contextMenu(el, { clientX: 200, clientY: 300 });
+
+  it('a right-click on a block later today opens what can be done to it, and Done finishes the task', async () => {
+    const t = await open(day);
+    const el = await report();
+    // The browser's own menu stays away.
+    expect(rightClick(el)).toBe(false);
+    const menu = await screen.findByRole('menu', { name: 'Write the report' });
+    expect(entries(menu)).toEqual(['Done', 'Start now', 'Move to', 'Open', '-', 'Remove from calendar', 'Delete task…']);
+    expect(within(menu).getByRole('menuitem', { name: 'Done' })).toHaveFocus();
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Done' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(await screen.findByText('Marked Write the report done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(NOW));
+  });
+
+  it('offers what each block can do: under way, gone by, answered, a practice, and nothing for an event', async () => {
+    await open(async (w) => {
+      await day(w);
+      await dinner(w);
+      await task(w, 't3', 'Read the brief');
+      await block(w, 'b3', 't3', '13:30', '15:00', { started_at: at('13:30') });
+      await task(w, 't6', 'Call the bank');
+      await block(w, 'b8', 't6', '13:45', '14:30');
+      await task(w, 't4', 'Plan the talk');
+      await block(w, 'b4', 't4', '11:00', '12:00');
+      await task(w, 't5', 'Email Sam');
+      await block(w, 'b5', 't5', '09:00', '09:30');
+      await w.create('block_outcome', { result: 'done', answered_at: at('09:30') }, outcomeId('b5'));
+      await w.create('practice', { title: 'Piano practice', objective_id: 'g', target_min: 30, per: 'day', state: 'active' }, 'pr');
+      await w.create('time_block', { practice_id: 'pr', start: at('18:00'), end: at('18:30'), tz: ZONE }, 'b6');
+      await w.create('time_block', { practice_id: 'pr', start: at('12:00'), end: at('12:30'), tz: ZONE }, 'b7');
+    });
+    const menuOf = async (name: RegExp) => {
+      rightClick(await screen.findByRole('button', { name }));
+      const menu = await screen.findByRole('menu');
+      const said = entries(menu);
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+      return said;
+    };
+    expect(await menuOf(/^Read the brief, 1:30pm to 3pm/)).toEqual(['Done', 'Pause', 'Open', '-', 'Delete task…']);
+    // Under way but not started, it can still have a new time, as its popup's Move… gives it.
+    expect(await menuOf(/^Call the bank, 1:45pm to 2:30pm/)).toEqual(['Done', 'Start', 'Move to', 'Open', '-', 'Remove from calendar', 'Delete task…']);
+    expect(await menuOf(/^Plan the talk, 11am to 12pm/)).toEqual(['Done', 'Partly…', 'Not done', '-', 'Open', 'Delete task…']);
+    expect(await menuOf(/^Email Sam, 9am to 9:30am/)).toEqual(['Open', '-', 'Delete task…']);
+    expect(await menuOf(/^Piano practice, 6pm to 6:30pm/)).toEqual(['Did it', 'Start now', 'Move to', 'Open', '-', 'Skip this session']);
+    expect(await menuOf(/^Piano practice, 12pm to 12:30pm/)).toEqual(['Did it', 'Some…', 'Skipped', '-', 'Open']);
+    // Another calendar's event has no menu: the browser's own stays.
+    const event = within(screen.getByRole('region', { name: "Today's timeline" })).getByText('Quiz night');
+    expect(rightClick(event)).toBe(true);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('on desktop, Shift-F10 or the menu key opens it on a focused block; arrows move, Move to opens beside it, and Esc goes back', async () => {
+    await open(day);
+    const el = await report();
+    el.focus();
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}');
+    const menu = await screen.findByRole('menu', { name: 'Write the report' });
+    expect(within(menu).getByRole('menuitem', { name: 'Done' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    const move = within(menu).getByRole('menuitem', { name: 'Move to' });
+    expect(move).toHaveFocus();
+    expect(move).toHaveAttribute('aria-haspopup', 'menu');
+    await userEvent.keyboard('{ArrowRight}');
+    const sub = await screen.findByRole('menu', { name: 'Move to' });
+    expect(move).toHaveAttribute('aria-expanded', 'true');
+    // The next free time after it, tomorrow at the same time, or back to To schedule; or Week, to place it by hand.
+    expect(entries(sub)).toEqual(['Next free time, 5pm', 'Tomorrow, 4pm', 'Back to To schedule', '-', 'Choose a time…']);
+    expect(within(sub).getByRole('menuitem', { name: 'Next free time, 5pm' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(screen.queryByRole('menu', { name: 'Move to' })).toBeNull();
+    expect(move).toHaveFocus();
+    // Up from the top comes round to the bottom.
+    await userEvent.keyboard('{Home}{ArrowUp}');
+    expect(within(menu).getByRole('menuitem', { name: 'Delete task…' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(el).toHaveFocus();
+    fireEvent.keyDown(el, { key: 'ContextMenu' });
+    expect(await screen.findByRole('menu', { name: 'Write the report' })).toBeVisible();
+  });
+
+  it('Move to moves it to the next free time or tomorrow, each with Undo, and Choose a time opens Week to place it', async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '17:00', '18:00');
+    });
+    const choose = async (path: string[]) => {
+      rightClick(await report());
+      for (const name of path) await userEvent.click(await screen.findByRole('menuitem', { name }));
+    };
+    // 5pm is taken by the fence, so the next free time is after it.
+    await choose(['Move to', 'Next free time, 6pm']);
+    expect(await screen.findByText('Moved Write the report to 6pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('18:00'), end: at('19:00') });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00')));
+
+    await choose(['Move to', 'Tomorrow, 4pm']);
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', '2026-11-03'), end: at('17:00', '2026-11-03') });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00')));
+
+    await choose(['Move to', 'Back to To schedule']);
+    expect(await screen.findByText("Took Write the report off the calendar. It's in To schedule on Week.")).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull());
+
+    await choose(['Move to', 'Choose a time…']);
+    expect(t.nav().tab).toBe('week');
+  });
+
+  it("Tomorrow asks first when it lands on a block there, though Today doesn't draw tomorrow", async () => {
+    const TOMORROW = '2026-11-03';
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't2', 'Paint the fence');
+      await block(w, 'b2', 't2', '16:30', '17:30', { start: at('16:30', TOMORROW), end: at('17:30', TOMORROW) });
+    });
+    const tomorrow = async () => {
+      rightClick(await report());
+      for (const name of ['Move to', 'Tomorrow, 4pm']) await userEvent.click(await screen.findByRole('menuitem', { name }));
+      return screen.findByRole('dialog', { name: 'Schedule both at the same time?' });
+    };
+    // Cancel leaves both where they were.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Replace sends the fence back to To schedule, with one Undo for both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Replace' }));
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy());
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00') });
+
+    // Keep both keeps both.
+    await userEvent.click(within(await tomorrow()).getByRole('button', { name: 'Keep both' }));
+    expect(await screen.findByText('Moved Write the report to tomorrow, 4pm.')).toBeVisible();
+    expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ start: at('16:00', TOMORROW) });
+    expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBeFalsy();
+  });
+
+  it('Start now, Open, Remove from calendar and Delete task do what the popup does; Delete asks first', async () => {
+    const t = await open(day);
+    rightClick(await report());
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    await taskPopup('Write the report');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    rightClick(await report());
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete task…' }));
+    const ask = await screen.findByRole('dialog', { name: 'Delete Write the report?' });
+    expect(within(ask).getByText('Its blocks come off the calendar. You can undo this.')).toBeVisible();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    expect((await getRecord(t.db, 'task', 't1'))?.deleted_at).toBeFalsy();
+    rightClick(await report());
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete task…' }));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'Delete Write the report?' })).getByRole('button', { name: 'Delete task' }));
+    expect(await screen.findByText('Deleted Write the report.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.deleted_at).toBe(NOW));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.deleted_at).toBeFalsy());
+
+    rightClick(await report());
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Start now' }));
+    expect(await screen.findByText('Started Write the report. It now runs 2pm to 3pm.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeNull());
+
+    rightClick(await report());
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove from calendar' }));
+    expect(await screen.findByText("Took Write the report off the calendar. It's in To schedule on Week.")).toBeVisible();
+  });
+
+  it('Partly on a block gone by asks for the time left, as the end of a block does', async () => {
+    await open(async (w) => {
+      await day(w);
+      await block(w, 'b0', 't1', '11:00', '12:00');
+    });
+    rightClick(await screen.findByRole('button', { name: /^Write the report, 11am to 12pm/ }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Partly…' }));
+    expect(await screen.findByLabelText('Time left')).toBeVisible();
+  });
+
+  it('in the Mac app, macOS draws the menu, and the item chosen there acts', async () => {
+    const shown: unknown[] = [];
+    const t = await open(day, {
+      showMenu: async (items) => {
+        shown.push(items);
+        return 'done';
+      },
+    });
+    rightClick(await report());
+    expect(await screen.findByText('Marked Write the report done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(shown).toEqual([
+      [
+        { id: 'done', label: 'Done' },
+        { id: 'start', label: 'Start now' },
+        {
+          id: 'move',
+          label: 'Move to',
+          submenu: [
+            { id: 'move:next', label: 'Next free time, 5pm' },
+            { id: 'move:tomorrow', label: 'Tomorrow, 4pm' },
+            { id: 'move:back', label: 'Back to To schedule' },
+            { type: 'separator' },
+            { id: 'move:choose', label: 'Choose a time…' },
+          ],
+        },
+        { id: 'open', label: 'Open' },
+        { type: 'separator' },
+        { id: 'remove', label: 'Remove from calendar' },
+        { id: 'delete', label: 'Delete task…' },
+      ],
+    ]);
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(NOW));
+  });
+
+  it('on phone, a hold let go without moving opens it, on a block that moves and one that does not', async () => {
+    await open(
+      async (w) => {
+        await day(w);
+        await block(w, 'b0', 't1', '11:00', '12:00');
+      },
+      { layout: 'phone' },
+    );
+    const later = await screen.findByRole('slider', { name: /^Write the report, 4pm to 5pm/ });
+    holdDown(later, { clientY: 300, pointerType: 'touch' });
+    fireEvent.pointerMove(window, { clientY: 302, pointerType: 'touch' });
+    fireEvent.pointerUp(window, { clientY: 302, pointerType: 'touch' });
+    fireEvent.click(later);
+    const menu = await screen.findByRole('menu', { name: 'Write the report' });
+    expect(screen.queryByRole('dialog', { name: 'Write the report' })).toBeNull();
+    for (const item of within(menu).getAllByRole('menuitem')) expect(item.closest('.imenu')).not.toBeNull();
+    // Move to opens in its place, with a way back.
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Move to' }));
+    expect(entries(await screen.findByRole('menu', { name: 'Move to' }))).toEqual(['Back', 'Next free time, 5pm', 'Tomorrow, 4pm', 'Back to To schedule', '-', 'Choose a time…']);
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Back' }));
+    expect(screen.getByRole('menuitem', { name: 'Move to' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+
+    const gone = await screen.findByRole('button', { name: /^Write the report, 11am to 12pm/ });
+    holdDown(gone, { clientY: 300, pointerType: 'touch' });
+    fireEvent.pointerMove(window, { clientY: 301, pointerType: 'touch' });
+    fireEvent.pointerUp(window, { clientY: 301, pointerType: 'touch' });
+    fireEvent.click(gone);
+    expect(entries(await screen.findByRole('menu', { name: 'Write the report' }))).toEqual(['Done', 'Partly…', 'Not done', '-', 'Open', 'Delete task…']);
   });
 });

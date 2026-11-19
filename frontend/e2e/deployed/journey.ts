@@ -9,7 +9,6 @@
 
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { syncNow } from '../seed';
 
 /**
  * The time zone the page runs in: the runner's own, unless it's late on Sunday there. The journey asks for a suggested
@@ -28,6 +27,17 @@ export function timezoneWithRoom(now = new Date()): string | undefined {
   };
   if (!lateSunday()) return undefined;
   return lateSunday('Pacific/Honolulu') ? 'Pacific/Kiritimati' : 'Pacific/Honolulu';
+}
+
+/**
+ * Puts away, before each action, the questions a block asks by itself on every tab while it's left unanswered: Block
+ * finished, the missed blocks sheet and Have you started?. On a shared test user, a block a failed run left on the
+ * calendar asks once it has ended, and on desktop its question sits in the corner over the page: on prod, on 18
+ * November, over the block on the last day that the journey pressed to drag. Esc puts each away for the session, as
+ * Answer later and Later do, and answers nothing.
+ */
+export async function putPromptsAway(page: Page): Promise<void> {
+  await page.addLocatorHandler(page.getByRole('dialog', { name: /^(Block finished|\d+ missed blocks?|Have you started\?)$/ }), (prompt) => prompt.press('Escape'));
 }
 
 /** The journey, with checks titled `title`, on a page past first-run setup, at the desktop layout. */
@@ -79,28 +89,29 @@ export async function workJourney(page: Page, title: string): Promise<void> {
   await page.getByRole('group', { name: title }).getByRole('group', { name: 'Suggested times' }).getByRole('button').first().click();
   // The toast with Undo shows once the change is saved, and goes after 5 seconds. Week takes the card away only once it
   // has read the change back, which on prod's shared test user's history can take longer than that (see the expect
-  // timeout in playwright.config.ts), so waiting for the card first can leave no Undo to press. The mouse rests on Undo
-  // as soon as it shows, which holds the toast, as it does for a person reaching for it, until the card has gone.
+  // timeout in playwright.config.ts), so waiting for the card first can leave no Undo to press. As soon as Undo shows,
+  // the mouse rests on it and it takes focus, either of which holds the toast, as for a person reaching for it by mouse
+  // or by keyboard, until the card has gone. Both, since the mouse alone let it go now and then in the slowed-down run
+  // of this step on this checkout's web app, though no other toast came and nothing moved the mouse.
   const undo = page.getByRole('button', { name: 'Undo' });
   await undo.hover();
+  await undo.focus();
   await expect(card).toHaveCount(0);
   await undo.click();
   await expect(card).toBeVisible();
 
   // Dragged by the mouse onto the last day, at 7pm, 13 hours down a 26px-an-hour day from 6am, it's placed there.
-  await dragTo(page, card, (c) => ({ x: c.x + 20, y: c.y + 10 }), page.locator('[data-drop-date]').last(), (d) => ({ x: d.x + d.width / 2, y: d.y + 26 * 13 + 2 }));
+  await dragTo(page, card, () => ({ x: 20, y: 10 }), page.locator('[data-drop-date]').last(), (d) => ({ x: d.x + d.width / 2, y: d.y + 26 * 13 + 2 }));
   await expect(card).toHaveCount(0);
   const placed = page.getByRole('button', { name: new RegExp(`^${title}, .* One off\\.`) });
   await expect(placed).toBeVisible();
 
   // While editing, dragged back onto To schedule, it comes off the calendar.
-  // Skip for now is × on desktop, and is kept on the week's plan for every device.
-  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) {
-    await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
-  }
-  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  await editWeek(page);
   const block = page.getByRole('group', { name: new RegExp(`^${title}, `) });
-  await dragTo(page, block, (b) => ({ x: b.x + b.width / 2, y: b.y + 6 }), lane, (l) => ({ x: l.x + l.width / 2, y: l.y + 12 }));
+  // Pressed near its left end: its × to take it off sits at the top right, and takes a press for itself. Beside another
+  // block at the same time, it's half as wide, and its middle is under the ×.
+  await dragTo(page, block, () => ({ x: 8, y: 6 }), lane, (l) => ({ x: l.x + l.width / 2, y: l.y + 12 }));
   await expect(block).toHaveCount(0);
   await expect(card).toBeVisible();
   await page.getByRole('button', { name: 'Done editing' }).click();
@@ -111,17 +122,27 @@ export async function workJourney(page: Page, title: string): Promise<void> {
   await expect(card).toHaveCount(0);
 }
 
+/** Week's editing, from this week: Skip for now first, while the week still asks to be planned. */
+async function editWeek(page: Page): Promise<void> {
+  // Skip for now is × on desktop, and is kept on the week's plan for every device.
+  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) {
+    await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
+  }
+  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+}
+
 /**
- * Takes away the checks the journey leaves on a deployment's test user: Inbox items are deleted, and a one off still waiting
- * in this week's To schedule is marked done. It runs first as well as last, since a run that fails part way leaves its
- * checks behind, and they change what the next run meets, such as how far down the week the calendar starts. It syncs
- * before, to see what earlier runs sent, and after, or the deployment keeps them for the next suite to trip on.
+ * Takes away the checks a journey leaves, which a run that fails part way leaves for the next: Inbox items are
+ * deleted, a check on the calendar from now on is taken off it, and a one off still waiting in this week's To schedule
+ * is marked done. A check left on the calendar changes what the next run meets: on prod, on 19 November, one left at
+ * 7pm on the last day, the time the journey drags to, was drawn beside the journey's own block, and the journey's press
+ * landed on that block's ×; this checkout's web app asks before putting a second block there at all. A check that has
+ * already ended stays, as Week can't take it off, and putPromptsAway puts its question away.
  */
-export async function clearChecks(page: Page) {
-  await syncNow(page);
+export async function clearLeftChecks(page: Page): Promise<void> {
   const nav = page.getByRole('navigation', { name: 'Main' });
   await nav.getByRole('button', { name: /Inbox/ }).click();
-  for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging) check / }); await left.count(); ) {
+  for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging|Compat) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
     await left.first().click();
     // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
@@ -142,14 +163,21 @@ export async function clearChecks(page: Page) {
     if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
   }
   await nav.getByRole('button', { name: 'Week' }).click();
+  // Its × takes a block off the calendar while editing, and puts a one off picked for the week back in To schedule.
+  await editWeek(page);
+  for (let left = page.getByRole('button', { name: /^Remove (Deployed|Staging|Compat) check / }); await left.count(); ) {
+    const name = (await left.first().getAttribute('aria-label'))!;
+    await left.first().click();
+    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
+  await page.getByRole('button', { name: 'Done editing' }).click();
   const lane = page.getByRole('region', { name: 'To schedule' });
-  for (let left = lane.getByRole('button', { name: /^(Deployed|Staging) check [^,]*, One off, .*, to schedule$/ }); await left.count(); ) {
+  for (let left = lane.getByRole('button', { name: /^(Deployed|Staging|Compat) check [^,]*, One off, .*, to schedule$/ }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!;
     await left.first().click();
     await page.getByRole('group', { name: name.replace(/, One off, .*$/, '') }).getByRole('button', { name: 'Mark done' }).click();
     await expect(lane.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
-  await syncNow(page);
 }
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -158,12 +186,15 @@ type Box = { x: number; y: number; width: number; height: number };
  * A mouse drag from a point on one element to a point on another. What waits above the week's days varies with the
  * shared test user's data: a practice left by an earlier run puts a row above every day. So the day's 7pm could be
  * below the window when measured before the drag, where the mouse lets go over nothing. The second element is
- * scrolled into the middle of the window once the drag is under way, and measured after.
+ * scrolled into the middle of the window once the drag is under way, and measured after. The press is at `grip`, a point
+ * on the first element, which the mouse goes to as it would for a click: once nothing covers that point and the
+ * element has stopped moving, since Week can still be laying out a change it has just read back.
  */
 async function dragTo(page: Page, from: Locator, grip: (box: Box) => { x: number; y: number }, to: Locator, at: (box: Box) => { x: number; y: number }) {
-  await from.scrollIntoViewIfNeeded();
-  const start = grip((await from.boundingBox())!);
-  await page.mouse.move(start.x, start.y);
+  const position = grip((await from.boundingBox())!);
+  await from.hover({ position });
+  const box = (await from.boundingBox())!;
+  const start = { x: box.x + position.x, y: box.y + position.y };
   await page.mouse.down();
   // Pressed and moved past a click's wobble, it lifts. This checkout's web app lifts it once the press has been held,
   // and only then lets it follow. A release from before hold to drag, which the prod Test step can meet, has no hold:

@@ -8,7 +8,7 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Request } from '@playwright/test';
 import { syncNow } from '../seed';
-import { clearChecks, timezoneWithRoom, workJourney } from './journey';
+import { clearLeftChecks, putPromptsAway, timezoneWithRoom, workJourney } from './journey';
 import { deployed } from './target';
 
 const d = deployed();
@@ -89,6 +89,7 @@ test.beforeAll(async ({ browser }, info) => {
     p.on('requestfailed', (r) => void noteSync(r));
   });
   page = await context.newPage();
+  await putPromptsAway(page);
 });
 
 test.afterAll(async ({}, info) => {
@@ -251,6 +252,16 @@ test('clears the checks this run left on the shared test user', async ({}, info)
   test.setTimeout(300_000);
   await clearChecks(page);
 });
+
+/**
+ * Takes away the checks earlier runs left on the shared test user, as clearLeftChecks has it. It syncs before, to see
+ * what earlier runs sent, and after, or the deployment keeps them for the next suite to trip on.
+ */
+async function clearChecks(page: Page) {
+  await syncNow(page);
+  await clearLeftChecks(page);
+  await syncNow(page);
+}
 
 test('stretch planning walks Goals, Practices, Projects, the Inbox and Finish, with Does it fit in view, and saves and exits', async ({}, info) => {
   test.skip(beforePublish, "needs: this release's web app, which release-prod checks once it's published");

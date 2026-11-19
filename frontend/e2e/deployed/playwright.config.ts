@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import { deployed } from './target';
+import { join } from 'node:path';
+import { assertInstalled } from '../../scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(join(import.meta.dirname, '../..'));
 
 // The web app as people get it: the production build, from its host, behind its security policy, signed in through the
 // hosted sign-in page as the deployment's test user. Nothing local serves it. One worker, since the specs share that

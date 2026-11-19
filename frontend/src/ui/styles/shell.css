@@ -437,6 +437,15 @@ p {
   box-shadow: var(--shadow-2);
 }
 
+/* On phone it's a sheet, above the task popup when Move… in the popup asks. */
+[data-layout='phone'] .sheet.bothsheet {
+  z-index: calc(var(--z-sticky) + 4);
+}
+
+[data-layout='phone'] .scrim:has(+ .sheet.bothsheet) {
+  z-index: calc(var(--z-sticky) + 3);
+}
+
 /* Shared widgets that need the same frame on both layouts. */
 .pillbtn {
   display: inline-flex;

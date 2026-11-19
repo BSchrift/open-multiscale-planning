@@ -5,16 +5,16 @@ import { accessSync, existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, autoUpdater as squirrel, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, net, Notification, powerMonitor, protocol, safeStorage, shell, Tray } from 'electron';
-import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import Database from 'better-sqlite3';
 import type { Reminder } from '../src/core/types';
 import type { DownloadedRelease, SignedRelease } from '../src/core/updates';
-import type { ReminderResponse } from '../src/platform/types';
+import type { NativeMenuItem, ReminderResponse } from '../src/platform/types';
 import { afterMove, appUpdates, MOVED_FILE, readOnlyPlace, setsLoginItem } from './appUpdates';
 import type { Updater } from './appUpdates';
 import { captureHotkey } from './hotkey';
 import { createReminderTimers } from './reminder-timers';
-import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl } from './security';
+import { appFilePath, cleanCapture, contentSecurityPolicy, isDeepLink, isExternalUrl, isOwnDbSql, isSqlValues, isWebUrl, menuItems } from './security';
 import { betterSqliteDriver } from './sqlite-driver';
 import { fileTokens } from './tokens';
 import { webBundles } from './updates';
@@ -30,6 +30,8 @@ const SAVE_TIMEOUT_MS = 15_000;
 const WEB_ROOT = join(__dirname, '../dist');
 /** How long a newly downloaded web bundle has to start and draw the app before it's rolled back. */
 const TRIAL_MS = 20_000;
+/** How long after a right-click's menu closes its chosen item still counts. */
+const MENU_CLOSE_MS = 100;
 
 // Before anything reads the data folder, which is named after the app, so each environment gets its own.
 app.setName(__BUILD__.name);
@@ -393,6 +395,21 @@ function start() {
     nativeTheme.themeSource = appearance;
   });
   nativeTheme.on('updated', () => mainWindow.setBackgroundColor(pageBackground()));
+
+  // A right-click's menu, such as a Today block's, with the items the page gives: macOS draws it at the pointer.
+  handleFrom(main, 'menu:show', (items: unknown) => {
+    const checked = menuItems(items);
+    if (!checked) throw new Error('Bad menu');
+    return new Promise<string | null>((resolve) => {
+      const template = (list: readonly NativeMenuItem[]): MenuItemConstructorOptions[] =>
+        list.map((item) =>
+          'type' in item ? { type: 'separator' } : item.submenu ? { label: item.label, submenu: template(item.submenu) } : { label: item.label, click: () => resolve(item.id) },
+        );
+      // macOS can close the menu before it sends the chosen item's click, so closing waits a moment before it means no
+      // choice. shortcut: a fixed wait; resolve on the click's own event if Electron ever orders them.
+      Menu.buildFromTemplate(template(checked)).popup({ window: mainWindow, callback: () => setTimeout(() => resolve(null), MENU_CLOSE_MS) });
+    });
+  });
 
   handleFrom(main, 'open-external', async (url: unknown) => {
     if (!isWebUrl(url)) throw new Error('Only web links can open in the browser');

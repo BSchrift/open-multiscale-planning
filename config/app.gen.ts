@@ -86,7 +86,7 @@ export const envs = {
     "stack": {
       "terminationProtection": true,
       "canaryPercent": 10,
-      "canaryMinutes": 90,
+      "canaryMinutes": 5,
       "throttleReleaseAlarm": true,
       "performanceDashboard": false
     },

@@ -331,6 +331,36 @@ test('Done and Delete stand apart: Done in the success colour with a tick, Delet
   expect(errors).toEqual([]);
 });
 
+test('desktop: Enter adds the item from Time and from the title field, with the title as typed, as Add to does', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'Keys are for the desktop card.');
+  const errors = await open(page, false);
+  await pane(page, 'Inbox').getByRole('button', { name: 'Process 3 items' }).click();
+  await processTo(page, false, 'One offs');
+  await expect(toast(page)).toContainText('Added Call the bank to One offs.');
+
+  // On Time, Enter adds the item to the place Add to shows.
+  await expect(title(page, 'Fix the gate')).toBeVisible();
+  const slider = card(page).getByRole('slider', { name: 'Time' });
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuetext', '2h 30m');
+  await page.keyboard.press('Enter');
+  await expect(toast(page)).toContainText('Added Fix the gate to One offs.');
+
+  // In the title field, Enter saves what's typed, then adds the item.
+  await title(page, 'Buy stamps').getByRole('button').click();
+  await card(page).getByRole('textbox', { name: 'Title' }).fill('Buy stamps for the cards');
+  await page.keyboard.press('Enter');
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.locator('.clearveil')).toHaveCount(0, { timeout: 4000 });
+  await expect(toast(page)).toContainText('Added Buy stamps for the cards to One offs.');
+
+  await nav(page).getByRole('button', { name: 'One offs' }).click();
+  await expect(oneOffRow(page, 'Fix the gate')).toContainText('2h 30m');
+  await expect(oneOffRow(page, 'Buy stamps for the cards')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('a new project from Process needs a goal: Add project says so with focus on Goal, then makes it under the one chosen', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors: string[] = [];

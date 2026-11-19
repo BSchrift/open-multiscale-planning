@@ -211,6 +211,63 @@ test("a past week can be read but not changed: its blocks don't move, open their
   expect(errors).toEqual([]);
 });
 
+test("Capture on Week's draft is a search too: it starts on a new Inbox task, typing finds the tasks you have, and one to schedule picked goes there, with Undo; Esc leaves nothing", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const pick: Seed = { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 120 } };
+  const errors = await openWeek(page, [...records, pick]);
+  const target = phone ? page.locator('.tlrow', { has: page.getByText(/^Free, 2(:30)?pm to 10pm$/) }) : page.locator('.colbody[data-drop-date="2026-11-04"]');
+  const draft = page.locator('.holddraft');
+  const hold = async () => {
+    const at = await pressOn(target, 17 * 60 + 50, phone, phone ? undefined : { from: 360, to: 1380 });
+    await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+    await release(page, at, phone);
+  };
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  const field = capture.getByRole('combobox', { name: 'Capture to Inbox' });
+  const list = capture.getByRole('listbox', { name: 'A new task or one you have' });
+  const option = list.getByRole('option', { name: 'Draft the summary, Project · 1h of 2h left, Fits' });
+
+  // Esc takes the draft away, with nothing made or placed.
+  await hold();
+  await expect(field).toBeFocused();
+  await expect(list.getByRole('option').first()).toHaveAccessibleName('New Inbox task');
+  await expect(list.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(option).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(capture).toHaveCount(0);
+  await expect(draft).toHaveCount(0);
+
+  await hold();
+  await expect(field).toBeFocused();
+  // Typing narrows To schedule to what matches, under the new task, which stays first and lit.
+  await page.keyboard.type('draft');
+  await expect(list.getByRole('option').first()).toHaveAccessibleName('New Inbox task: draft');
+  await expect(list.getByRole('option')).toHaveCount(2);
+  await expect(option).toBeVisible();
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`capture-search-week-${info.project.name}-${scheme}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (phone) {
+    await expectTapTarget(option);
+    await option.click();
+  } else {
+    await page.keyboard.press('ArrowDown');
+    await expect(option).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Enter');
+  }
+
+  await expect(page.locator('.toast')).toContainText(/Placed Draft the summary, .*5:45pm/);
+  await expect(capture).toHaveCount(0);
+  await expect(draft).toHaveCount(0);
+  const placed = page.getByRole('button', { name: phone ? 'Draft the summary, 5:45pm to 6:45pm, Project.' : 'Draft the summary, Wed Nov 4, 5:45pm to 6:45pm, Project.' });
+  await expect(placed).toBeVisible();
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(placed).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('a press held on empty time on Week drafts an hour there, and Capture saves it there as an Inbox item, with Undo; on desktop a press held on a block still opens it', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await openWeek(page);
@@ -226,7 +283,7 @@ test('a press held on empty time on Week drafts an hour there, and Capture saves
 
   const capture = page.getByRole('dialog', { name: 'Capture' });
   await expect(capture.getByText(phone ? 'Today, 5:45pm to 6:45pm' : 'Wed Nov 4, 5:45pm to 6:45pm')).toBeVisible();
-  await expect(capture.getByRole('textbox', { name: 'Capture to Inbox' })).toBeFocused();
+  await expect(capture.getByRole('combobox', { name: 'Capture to Inbox' })).toBeFocused();
   await page.keyboard.type('Book dentist');
   await expect(draft).toContainText('Book dentist');
   // The draft stays in view beside Capture on desktop, and above its sheet on phone.

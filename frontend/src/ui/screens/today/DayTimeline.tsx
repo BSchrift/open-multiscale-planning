@@ -42,7 +42,7 @@ import { NowLine } from '../../components/NowLine';
 import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from '../../components/weekgrid/holdCreate';
-import { Capture } from '../capture';
+import { DraftCapture } from '../capture/DraftCapture';
 import { DeleteTask, TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 import { Icon } from '../../components/ds/Icon';
@@ -693,7 +693,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
       {holdNew.draft?.open && (
-        <Capture
+        <DraftCapture
           layout={layout}
           close={holdNew.close}
           slot={holdNew.slot(overlapWords(holdNew.draft.slot, items.map((i) => ({ title: i.title, start: i.from, end: i.to }))))}

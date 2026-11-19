@@ -1503,7 +1503,7 @@ describe('hold to create on Week', () => {
       letGo(gridY(16 * 60) + 1, 'desktop');
       const capture = await screen.findByRole('dialog', { name: 'Capture' });
       expect(within(capture).getByText('Thu Nov 5, 4pm to 5pm')).toBeVisible();
-      const field = within(capture).getByRole('textbox', { name: 'Capture to Inbox' });
+      const field = within(capture).getByRole('combobox', { name: 'Capture to Inbox' });
       await waitFor(() => expect(field).toHaveFocus());
       await userEvent.type(field, 'Book dentist');
       expect(draft()).toHaveTextContent('Book dentist, 4pm');
@@ -1513,6 +1513,22 @@ describe('hold to create on Week', () => {
       expect(await screen.findByRole('button', { name: 'Book dentist, Thu Nov 5, 4pm to 5pm, Inbox.' })).toHaveClass('k-inbox');
       await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
       await waitFor(() => expect(screen.queryByRole('button', { name: /^Book dentist,/ })).toBeNull());
+    });
+
+    it('Capture’s search lists To schedule, and picking a task there places it in the drafted time instead, with Undo', async () => {
+      const t = await open({ seed: async (w) => { await planned(w); await setWeekPick(w, MON, 't1', 180); } });
+      await screen.findByRole('group', { name: 'Week calendar' });
+      press(column('2026-11-05'), gridY(16 * 60) + 1, 'desktop');
+      await wait(450);
+      letGo(gridY(16 * 60) + 1, 'desktop');
+      const capture = await screen.findByRole('dialog', { name: 'Capture' });
+      await userEvent.click(await within(capture).findByRole('option', { name: 'Draft the summary, Project · 2h of 3h left, Fits' }));
+      expect(await screen.findByText(/^Placed Draft the summary, .*4pm$/)).toBeVisible();
+      expect(draft()).toBeNull();
+      const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't1' && !b.deleted_at && b.start === at('16:00', '2026-11-05'));
+      await waitFor(async () => expect(await placed()).toMatchObject([{ end: at('18:00', '2026-11-05') }]));
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await placed()).toEqual([]));
     });
 
     it('a draft that overlaps keeps its hour and sits beside it, Capture says by how much, moving takes it to another day in quarter hours, and Esc takes it away', async () => {
@@ -1600,12 +1616,28 @@ describe('hold to create on Week', () => {
       letGo(rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
       const capture = await screen.findByRole('dialog', { name: 'Capture' });
       expect(within(capture).getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
-      await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+      await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
       expect(draft()).toHaveTextContent('Book dentist');
       await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
       expect(await screen.findByRole('button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' })).toHaveClass('k-inbox');
       expect(draft()).toBeNull();
       expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([expect.objectContaining({ title: 'Book dentist', estimate_min: 60 })]);
+    });
+
+    it('Capture’s search lists To schedule, and a tap on a task there places it in the drafted time instead, with Undo', async () => {
+      const t = await phone({ seed: async (w) => { await planned(w); await setWeekPick(w, MON, 't1', 180); } });
+      expect(await screen.findByText('Free, 5pm to 10pm')).toBeVisible();
+      press(rowFrom(17 * 60), rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
+      await wait(450);
+      letGo(rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
+      const capture = await screen.findByRole('dialog', { name: 'Capture' });
+      await userEvent.click(await within(capture).findByRole('option', { name: 'Draft the summary, Project · 2h of 3h left, Fits' }));
+      expect(await screen.findByText(/^Placed Draft the summary, .*5:45pm$/)).toBeVisible();
+      expect(draft()).toBeNull();
+      const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't1' && !b.deleted_at && b.start === at('17:45'));
+      await waitFor(async () => expect(await placed()).toMatchObject([{ end: at('19:45') }]));
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await placed()).toEqual([]));
     });
 
     it('a hold on time gone by drafts nothing and says why; a hold on a block lifts it to move and drafts nothing; a sideways swipe after a hold keeps the day', async () => {

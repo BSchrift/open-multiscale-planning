@@ -129,7 +129,10 @@ export interface WeekGridProps {
   editing?: boolean;
   /** Time before ctx.earliest is greyed, its blocks stay put, and nothing moves into it. */
   lockPast?: boolean;
-  /** A save that resolves to undefined has failed, and the dropped block goes back to where it was saved. */
+  /**
+   * A save that resolves to undefined or false has failed or been turned down, and the dropped block goes back to where
+   * it was saved.
+   */
   onChange?(id: string, slot: Slot): unknown;
   onRemove?(id: string): void;
   /** A block let go over To schedule, which takes it off the calendar. */
@@ -233,7 +236,7 @@ export function WeekGrid(props: WeekGridProps) {
           setDrag({ id: b.id, slot: last });
           const saved = live.current.onChange?.(b.id, last);
           if (saved instanceof Promise) {
-            void saved.then((ok) => ok === undefined && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
+            void saved.then((ok) => !ok && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
           }
         } else setDrag(null);
       },

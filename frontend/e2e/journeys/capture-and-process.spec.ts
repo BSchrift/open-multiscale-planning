@@ -42,14 +42,14 @@ test('capture, process each item to its place, then one offs across the week', a
   await inbox.getByRole('button', { name: 'Process 5 items' }).click();
   const card = page.getByRole('dialog', { name: 'Process Inbox' });
 
-  // Dated on the card before it moves, then to the project, its date going with it.
+  // Dated on the card before it moves, then to the project, its date going with it, under its next milestone.
   await expect(card.getByRole('heading', { name: 'Buy a proofing basket' })).toBeVisible();
   await card.getByRole('button', { name: 'Add date' }).click();
   await card.getByLabel('Date', { exact: true }).fill('2026-11-13');
   await card.getByRole('button', { name: 'Set date' }).click();
   await expect(card.getByRole('button', { name: 'Change date, Nov 13' })).toBeVisible();
   await processTo(page, phone, 'Bake a sourdough loaf');
-  await expect(page.locator('.toast')).toContainText('Added Buy a proofing basket to Bake a sourdough loaf, for Nov 13.');
+  await expect(page.locator('.toast')).toContainText('Added Buy a proofing basket to Bake a sourdough loaf, under A starter that rises, for Nov 13.');
 
   // To One offs, dated Friday.
   await expect(card.getByRole('heading', { name: 'Return the library books' })).toBeVisible();
@@ -60,9 +60,14 @@ test('capture, process each item to its place, then one offs across the week', a
   await processTo(page, phone, 'One offs');
   await expect(page.locator('.toast')).toContainText('Added Return the library books to One offs, for Nov 6.');
 
-  // To One offs with no date.
+  // To One offs with no date: on desktop, Enter from Time adds it where Add to shows, the place last used.
   await expect(card.getByRole('heading', { name: 'Pay the water bill' })).toBeVisible();
-  await processTo(page, phone, 'One offs');
+  if (phone) await processTo(page, phone, 'One offs');
+  else {
+    await card.getByRole('slider', { name: 'Time' }).focus();
+    await page.keyboard.press('Enter');
+  }
+  await expect(page.locator('.toast')).toContainText('Added Pay the water bill to One offs.');
 
   // A practice of its own, made from its card: the item becomes it, and leaves the Inbox.
   await expect(card.getByRole('heading', { name: 'Stretch every morning' })).toBeVisible();
@@ -84,10 +89,8 @@ test('capture, process each item to its place, then one offs across the week', a
   await expect(inbox.getByText(/^Inbox is empty\./)).toBeVisible();
 
   // Each landed where it was sent.
-  // A project task keeps its date, shown on its row under the project's Done.
+  // A project task keeps its date, shown on its row under its milestone.
   await openProject(page, phone, 'Learn to bake bread', 'Bake a sourdough loaf');
-  const done = page.getByRole('button', { name: 'Done tasks' });
-  if ((await done.getAttribute('aria-expanded')) === 'false') await done.click();
   await expect(page.getByRole('button', { name: /^Edit task Buy a proofing basket, Nov 13, / })).toBeVisible();
 
   await tab(page, phone, 'One offs');

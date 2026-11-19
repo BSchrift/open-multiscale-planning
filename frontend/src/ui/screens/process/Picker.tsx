@@ -2,8 +2,8 @@
 // offs, then every project under its goal; typing narrows it to projects whose name or goal has the letters, each goal
 // moving beside its project, and lights the best match for Enter. Picking a row, by Enter or a tap, only chooses where
 // the item goes: closed, the field shows that place, else the place last used, and Enter, or Add to beside it, adds the
-// item there. On desktop the list opens under the field; on phone the field is a button that opens it in a sheet, ready
-// to search.
+// item there. Holding a project, it shows that project's milestones under it, for the card to fill in. On desktop the
+// list opens under the field; on phone the field is a button that opens it in a sheet, ready to search.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
@@ -42,7 +42,7 @@ const count = (n: number) => (n === 0 ? 'No matches' : n === 1 ? '1 match' : `${
 export function Picker(props: {
   phone: boolean;
   groups: readonly PickGroup[];
-  /** Shown while nothing is typed, until a place is picked: the place last used, or a project just made. Undefined for none. */
+  /** Shown while nothing is typed: the place picked, else the place last used, or a project just made. Undefined for none. */
   value: Place | undefined;
   /** What the lit row adds besides, while the week toggle is on: its tag, and the words a screen reader hears. */
   tag: { text: string; says: string } | null;
@@ -53,28 +53,26 @@ export function Picker(props: {
   /** The key that adds, on desktop. */
   cap?: ReactNode;
   onAdd(place: Place): void;
+  /** A place picked from the list, which only chooses where the item goes. */
+  onPick(place: Place): void;
+  /** The milestones of the project it holds, under the field on desktop and between it and Add to on phone. */
+  milestones?: ReactNode;
   /** Opens the new project form, named as typed. */
   onNew(name: string): void;
   /** Beside the field on desktop: the week toggle. */
   children?: ReactNode;
 }) {
-  const { phone, groups, tag } = props;
+  const { phone, groups, value, tag } = props;
   const [q, setQ] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // The lit row, or null for the one the list starts on.
   const [at, setAt] = useState<number | null>(null);
-  // The place picked from the list, by its key, over the value it was picked over: a project made since takes its place.
-  const [picked, setPicked] = useState<{ key: string; over: string | undefined } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listId = useId();
 
   const typed = (q ?? '').trim();
   const lq = typed.toLowerCase();
   const all = groups.flatMap((g) => g.dests);
-  const given = props.value === undefined ? undefined : placeKey(props.value);
-  const pick = picked?.over === given ? picked : null;
-  // What Add to and Enter add to: the place picked, else the value. A project picked that has since gone is no choice.
-  const value: Place | undefined = !pick ? props.value : pick.key === ONE_OFFS ? null : (all.find((d) => d.plan.project.id === pick.key) ?? props.value);
   const found = lq ? all.filter((d) => `${d.title} ${d.goal ?? ''}`.toLowerCase().includes(lq)) : all;
   const oneShown = !lq || 'one offs'.includes(lq);
   const rows: Row[] = [
@@ -111,7 +109,7 @@ export function Picker(props: {
     if (!row) return;
     reset();
     if (row.kind === 'new') props.onNew(typed);
-    else setPicked({ key: row.key, over: given });
+    else props.onPick(row.kind === 'project' ? row.dest : null);
   };
 
   // Esc closes the list, then clears what was typed. A listener of its own, since the card's catches Esc before React
@@ -129,10 +127,11 @@ export function Picker(props: {
     return () => field.removeEventListener('keydown', onKey);
   }, [open, q, phone]);
   // The place shown is selected whenever it shows in a focused field, so typing replaces it.
+  const shownKey = value === undefined ? '' : placeKey(value);
   useEffect(() => {
     const field = inputRef.current;
     if (q === null && field && document.activeElement === field) field.select();
-  }, [q, picked]);
+  }, [q, shownKey]);
   // The lit row stays in view as the arrows move it.
   useEffect(() => {
     if (open && lit >= 0) document.getElementById(`${listId}-${lit}`)?.scrollIntoView?.({ block: 'nearest' });
@@ -285,6 +284,7 @@ export function Picker(props: {
             )}
           </span>
         </button>
+        {props.milestones}
         {addButton}
         {lateLine}
         {open && (
@@ -333,6 +333,7 @@ export function Picker(props: {
       </div>
       {q === null && !open && addButton}
       {props.children}
+      {q === null && !open && props.milestones}
       {lateLine}
     </div>
   );

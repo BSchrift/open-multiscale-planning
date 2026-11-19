@@ -213,6 +213,52 @@ test("Today: a block's quick menu opens on a right-click or Shift-F10 on desktop
   expect(errors).toEqual([]);
 });
 
+test("Today: Move… in a block's popup offers its quick menu's new times, and the next free time moves it with Undo", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const shot = (name: string) => page.screenshot({ path: info.outputPath(`${name}-${info.project.name}.png`) });
+  const dark = async (name: string) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await shot(`${name}-dark`);
+    await page.emulateMedia({ colorScheme: 'light' });
+  };
+  const errors = await open(page);
+  const day = page.getByRole('region', { name: "Today's timeline" });
+  const report = day.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  await report.scrollIntoViewIfNeeded();
+  await (phone ? report.tap() : report.click());
+  const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
+  const buttons = section.getByRole('button');
+  await expect(buttons).toHaveText(['Start now', 'Done', 'Move…', 'Remove from calendar']);
+  // Every one fits inside the section, wrapping onto a second line if it must, and on phone each is a full tap target.
+  const box = (await section.boundingBox())!;
+  for (const b of await buttons.all()) {
+    const r = (await b.boundingBox())!;
+    expect(r.x).toBeGreaterThanOrEqual(box.x);
+    expect(r.x + r.width).toBeLessThanOrEqual(box.x + box.width);
+    if (phone) await expectTapTarget(b);
+  }
+  await shot('popup-move');
+  await dark('popup-move');
+
+  const move = section.getByRole('button', { name: 'Move…' });
+  await (phone ? move.tap() : move.click());
+  const menu = page.getByRole('menu', { name: 'Move to' });
+  await expect(menu.getByRole('menuitem')).toHaveText(['Next free time, 5pm', 'Tomorrow, 4pm', 'Back to To schedule', 'Choose a time…']);
+  await expect(menu.getByRole('menuitem', { name: 'Next free time, 5pm' })).toBeFocused();
+  if (phone) for (const item of await menu.getByRole('menuitem').all()) await expectTapTarget(item);
+  await shot('popup-move-menu');
+  await dark('popup-move-menu');
+
+  const next = menu.getByRole('menuitem', { name: 'Next free time, 5pm' });
+  await (phone ? next.tap() : next.click());
+  await expect(page.getByText('Moved Write the report to 5pm.')).toBeVisible();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(section.getByText('Mon Nov 2, 5pm to 6pm')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(section.getByText('Mon Nov 2, 4pm to 5pm')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("Today: Move to, Tomorrow asks first when tomorrow has a block at that time, which Today doesn't draw", async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [{ type: 'time_block', id: 'b4', fields: { task_id: 't2', start: at(3, '16:30'), end: at(3, '17:30'), tz: 'America/Chicago' } }]);
@@ -228,10 +274,33 @@ test("Today: Move to, Tomorrow asks first when tomorrow has a block at that time
   const ask = page.getByRole('dialog', { name: 'Schedule both at the same time?' });
   await expect(ask).toContainText('Write the report overlaps Paint the fence.');
   await expect(ask.getByRole('button', { name: 'Keep both' })).toBeFocused();
-  await expect(page.getByText(/ is now /)).toHaveCount(0);
+  await expect(page.getByText(/^Moved /)).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`today-tomorrow-ask-${info.project.name}.png`) });
   await press(ask.getByRole('button', { name: 'Replace' }));
-  await expect(page.getByText('Write the report is now tomorrow, 4pm to 5pm. Took Paint the fence off the calendar.')).toBeVisible();
+  await expect(page.getByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
+  await expect(report).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(report).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Today: Move… in a block's popup, Tomorrow asks first when tomorrow has a block at that time, above the popup", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [{ type: 'time_block', id: 'b4', fields: { task_id: 't2', start: at(3, '16:30'), end: at(3, '17:30'), tz: 'America/Chicago' } }]);
+  const report = page.getByRole('region', { name: "Today's timeline" }).getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
+  const press = (target: Locator) => (phone ? target.tap() : target.click());
+  await report.scrollIntoViewIfNeeded();
+  await press(report);
+  const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
+  await press(section.getByRole('button', { name: 'Move…' }));
+  await press(page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Tomorrow, 4pm' }));
+  const ask = page.getByRole('dialog', { name: 'Schedule both at the same time?' });
+  await expect(ask).toContainText('Write the report overlaps Paint the fence.');
+  await expect(ask.getByRole('button', { name: 'Keep both' })).toBeFocused();
+  await expect(page.getByText(/^Moved /)).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`popup-tomorrow-ask-${info.project.name}.png`) });
+  await press(ask.getByRole('button', { name: 'Replace' }));
+  await expect(page.getByText('Moved Write the report to tomorrow, 4pm. Took Paint the fence off the calendar.')).toBeVisible();
   await expect(report).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(report).toBeVisible();

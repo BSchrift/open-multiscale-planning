@@ -143,12 +143,16 @@ export function PhoneWeek(props: WeekProps) {
     if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
-  /** Saves a block's new time. Cancelled on another block, it resolves to nothing, and the day puts it back. */
+  /**
+   * Saves a block's new time. Cancelled on another block, or when the save fails, it resolves to nothing and changes
+   * nothing else, and the day puts it back.
+   */
   const changeBlock = async (b: PlacedBlock, slot: Slot) => {
     if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return undefined;
     const { go, off } = await landing(b.title, slot, b.id, b);
     if (!go) return undefined;
     const saved = await act.move(b.id, slot);
+    if (!saved) return undefined;
     setEdSel(b.id);
     setAsk(b.practice_id ? { blockId: b.id, wasMin: ask?.blockId === b.id ? ask.wasMin : b.end - b.start } : null);
     setSplit(shortened(b, slot, { task: isTask(b), underWay: !!b.now, week: data.week, title: b.title, open: split }));
@@ -837,7 +841,7 @@ export function DragDay(props: {
   selected?: string | null;
   onMoving(slot: Slot): void;
   onDone(): void;
-  /** A save that resolves to nothing has been called off, and the block goes back to where it was. */
+  /** A save that resolves to nothing has been called off or has failed, and the block goes back to where it was. */
   onChange(b: PlacedBlock, slot: Slot): unknown;
   /** A block let go over To schedule, which takes it off the calendar. */
   onUnschedule?(b: PlacedBlock): void;

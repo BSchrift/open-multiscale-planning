@@ -93,7 +93,7 @@ describe('Process on desktop, an Inbox item with a time block', () => {
     expect(await task(t.db, 'i0')).toMatchObject({ kind: 'one_off' });
     expect((await heldBlock(t.db))?.cancelled ?? false).toBe(false);
     await addTo('Paint the fence');
-    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence.');
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, under First coat.');
   });
 
   it('Delete takes its block off too, and says so, and Undo puts both back', async () => {
@@ -202,7 +202,7 @@ describe('Process on desktop', () => {
     await userEvent.keyboard('{Enter}');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: 'p1' });
-    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence.');
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, under First coat.');
 
     // The next card starts on the place last used; another picked there waits for Add to.
     expect(picker()).toHaveValue('Paint the fence');
@@ -1405,7 +1405,7 @@ describe('Dates on the card', () => {
     await addTo('Paint the fence');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', project_id: 'p1', schedule: { type: 'once', from: '2026-11-13', to: null }, next_due: '2026-11-13' });
-    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, for Nov 13.');
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, under First coat, for Nov 13.');
 
     await userEvent.click(btn('Add date'));
     fireEvent.change(dateField(), { target: { value: '2026-11-16' } });
@@ -1448,16 +1448,20 @@ describe('Dates on the card', () => {
     expect(within(card()).getByText('It came with this date.')).toBeInTheDocument();
   });
 
-  it('warns, without blocking, when the date falls after the project ends or after the milestone made with it', async () => {
+  it('warns, without blocking, when the date falls after the project ends or after the milestone chosen', async () => {
     const t = await open();
     await screen.findByRole('heading', { name: 'Call the bank' });
     await userEvent.click(btn('Add date'));
     fireEvent.change(dateField(), { target: { value: '2027-02-10' } });
     await userEvent.click(btn('Set date'));
     await within(card()).findByRole('button', { name: 'Change date, Feb 10' });
-    await userEvent.type(picker(), 'paint');
-    expect(lit()).toHaveAccessibleName('Paint the fence, Keep the house, due after the project ends (Jan 31)');
+    await userEvent.type(picker(), 'bread');
+    expect(lit()).toHaveAccessibleName('Learn to bake bread, due after the project ends (Jan 31)');
     expect(within(lit()).getByText('Due after the project ends (Jan 31)').closest('.latewarn')!.querySelector('svg')).not.toBeNull();
+    // A project with milestones warns by the one the item would go under.
+    await userEvent.clear(picker());
+    await userEvent.type(picker(), 'paint');
+    expect(lit()).toHaveAccessibleName('Paint the fence, Keep the house, due after First coat (Nov 20)');
     // One offs has no end to miss.
     await userEvent.clear(picker());
     await userEvent.type(picker(), 'o');
@@ -1467,11 +1471,13 @@ describe('Dates on the card', () => {
     await screen.findByRole('heading', { name: 'Fix the gate' });
     expect(await task(t.db, 'i1')).toMatchObject({ project_id: 'p1', schedule: { type: 'once', from: '2027-02-10' } });
 
-    // Shown closed on a project, the warning sits under the picker.
+    // Shown closed on a project, the warning sits under the picker, and follows the milestone chosen.
     await userEvent.click(btn('Add date'));
     fireEvent.change(dateField(), { target: { value: '2027-02-10' } });
     await userEvent.click(btn('Set date'));
-    expect(await within(card()).findByText('Due after the project ends (Jan 31)')).toBeInTheDocument();
+    expect(await within(card()).findByText('Due after First coat (Nov 20)')).toBeInTheDocument();
+    await userEvent.click(within(card()).getByRole('radio', { name: 'No milestone' }));
+    expect(within(card()).getByText('Due after the project ends (Jan 31)')).toBeInTheDocument();
   });
 
   it('drops a repeat when an item that has one goes to a project, and says so', async () => {
@@ -1485,7 +1491,146 @@ describe('Dates on the card', () => {
     await addTo('Paint the fence');
     await screen.findByRole('heading', { name: 'Fix the gate' });
     expect(await task(t.db, 'i1')).toMatchObject({ kind: 'project', schedule: null, next_due: null });
-    expect(toast()).toHaveTextContent("Added Call the bank to Paint the fence. Repeats stay with One offs, so it won't repeat.");
+    expect(toast()).toHaveTextContent("Added Call the bank to Paint the fence, under First coat. Repeats stay with One offs, so it won't repeat.");
+  });
+});
+
+describe('Milestones in Process', () => {
+  /** Paint the fence's milestones beyond First coat (Nov 20): two more open, an undated one, and one met and one dropped. */
+  const more = async (w: Writer) => {
+    await seed(w);
+    await w.create('milestone', { project_id: 'p1', title: 'Second coat', due: '2026-12-10' }, 'm2');
+    await w.create('milestone', { project_id: 'p1', title: 'Gate hung', due: '2026-12-01' }, 'm3');
+    await w.create('milestone', { project_id: 'p1', title: 'Tidy up' }, 'm4');
+    await w.create('milestone', { project_id: 'p1', title: 'Primer', due: '2026-11-05', met_at: '2026-11-01T12:00:00Z' }, 'm5');
+    await w.create('milestone', { project_id: 'p1', title: 'Stain', due: '2026-11-10', dropped_at: '2026-11-01T12:00:00Z' }, 'm6');
+  };
+  const row = () => within(card()).getByRole('radiogroup', { name: /^Milestone in / });
+  const radios = () => within(row()).getAllByRole('radio').map((r) => [r.getAttribute('aria-label'), r.getAttribute('aria-checked')]);
+
+  it('shows the open milestones of the project Add to holds, the next one chosen, and files the item under it', async () => {
+    const t = await open({ seed: more });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    // Nothing held yet, so no row.
+    expect(within(card()).queryByRole('radiogroup')).toBeNull();
+    await userEvent.type(picker(), 'paint{Enter}');
+    expect(row()).toHaveAccessibleName('Milestone in Paint the fence');
+    // Up to three by date, the rest in a list, met and dropped ones not offered; the next one is chosen.
+    expect(radios()).toEqual([
+      ['First coat, due Nov 20', 'true'],
+      ['Gate hung, due Dec 1', 'false'],
+      ['Second coat, due Dec 10', 'false'],
+      ['No milestone', 'false'],
+    ]);
+    const rest = within(row()).getByRole('combobox', { name: 'More milestones' });
+    expect(within(rest).getAllByRole('option').map((o) => o.textContent)).toEqual(['1 more', 'Tidy up, due Jan 31']);
+    expect(within(row()).getByRole('button', { name: 'New milestone' })).toHaveTextContent('M');
+    // Enter files it under the one chosen.
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect(await task(t.db, 'i1')).toMatchObject({ project_id: 'p1', milestone_id: 'm1' });
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, under First coat.');
+
+    // The next card starts on the milestone this project's last item went under; one from the list goes the same way.
+    expect(radios()[0]).toEqual(['First coat, due Nov 20', 'true']);
+    await userEvent.selectOptions(within(row()).getByRole('combobox', { name: 'More milestones' }), 'Tidy up, due Jan 31');
+    expect(radios().every(([, on]) => on === 'false')).toBe(true);
+    await userEvent.click(btn('Add to Paint the fence'));
+    await screen.findByRole('heading', { name: 'Read the article' });
+    expect((await task(t.db, 'i2'))?.milestone_id).toBe('m4');
+    expect(within(row()).getByRole('combobox', { name: 'More milestones' })).toHaveValue('m4');
+
+    // No milestone is a choice too, and remembered as one.
+    await userEvent.click(within(row()).getByRole('radio', { name: 'No milestone' }));
+    await userEvent.click(btn('Add to Paint the fence'));
+    await screen.findByRole('heading', { name: 'Buy stamps' });
+    expect(await task(t.db, 'i3')).toMatchObject({ project_id: 'p1', milestone_id: null });
+    expect(toast()).toHaveTextContent('Added Read the article to Paint the fence.');
+    expect(within(row()).getByRole('radio', { name: 'No milestone' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('moves between milestones with the arrow keys from Tab, and Enter on one files the item', async () => {
+    const t = await open({ seed: more });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.type(picker(), 'paint{Enter}');
+    // One stop for the row: the one chosen.
+    const chosen = within(row()).getByRole('radio', { name: 'First coat, due Nov 20' });
+    expect(chosen).toHaveAttribute('tabindex', '0');
+    expect(within(row()).getByRole('radio', { name: 'No milestone' })).toHaveAttribute('tabindex', '-1');
+    chosen.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(within(row()).getByRole('radio', { name: 'Gate hung, due Dec 1' })).toHaveFocus();
+    expect(within(row()).getByRole('radio', { name: 'Gate hung, due Dec 1' })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+    expect(within(row()).getByRole('radio', { name: 'No milestone' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(within(row()).getByRole('radio', { name: 'First coat, due Nov 20' })).toHaveFocus();
+    // Esc goes back to Add to, as it does from Add to's button.
+    await userEvent.keyboard('{Escape}');
+    expect(picker()).toHaveFocus();
+    within(row()).getByRole('radio', { name: 'First coat, due Nov 20' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect((await task(t.db, 'i1'))?.milestone_id).toBe('m1');
+  });
+
+  it('makes a new milestone from Option M, named in place, created with the add in one Undo', async () => {
+    const t = await open({ seed: more });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.type(picker(), 'paint{Enter}');
+    altKey('KeyM', picker());
+    const name = within(row()).getByRole('textbox', { name: 'New milestone name' });
+    expect(name).toHaveFocus();
+    // Esc closes it, and leaves the card open.
+    fireEvent.keyDown(name, { key: 'Escape' });
+    expect(within(row()).queryByRole('textbox')).toBeNull();
+    expect(card()).toBeInTheDocument();
+    await userEvent.click(within(row()).getByRole('button', { name: 'New milestone' }));
+    await userEvent.type(within(row()).getByRole('textbox', { name: 'New milestone name' }), 'Sand it down{Enter}');
+    // Chosen, and not made until the item is added.
+    expect(within(row()).getByRole('radio', { name: 'Sand it down, new' })).toHaveAttribute('aria-checked', 'true');
+    expect(await t.db.all("SELECT id FROM milestone WHERE title = 'Sand it down'")).toEqual([]);
+    await userEvent.click(btn('Add to Paint the fence'));
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    const [made] = await t.db.all<{ id: string }>("SELECT id FROM milestone WHERE title = 'Sand it down'");
+    expect(await getRecord(t.db, 'milestone', made!.id)).toMatchObject({ project_id: 'p1', title: 'Sand it down', added_on: '2026-11-02' });
+    // Undated: it goes by the project's end until it's given a date on Goals.
+    expect((await getRecord(t.db, 'milestone', made!.id))?.due ?? null).toBeNull();
+    expect(await task(t.db, 'i1')).toMatchObject({ project_id: 'p1', milestone_id: made!.id });
+    expect(toast()).toHaveTextContent('Added Call the bank to Paint the fence, under the new milestone Sand it down.');
+    // The next item for this project starts on it: undated, it sorts last, in the list after the chips.
+    expect(within(row()).getByRole('combobox', { name: 'More milestones' })).toHaveValue(made!.id);
+
+    await userEvent.click(toastUndo());
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    expect((await task(t.db, 'i1'))?.kind).toBe('inbox');
+    expect((await getRecord(t.db, 'milestone', made!.id))?.deleted_at).toBeTruthy();
+  });
+
+  it('shows no row for One offs, and says when a project has no milestones yet, with No milestone chosen', async () => {
+    await open({ seed: more });
+    await screen.findByRole('heading', { name: 'Call the bank' });
+    await userEvent.type(picker(), 'One offs{Enter}');
+    expect(within(card()).queryByRole('radiogroup')).toBeNull();
+    await userEvent.clear(picker());
+    await userEvent.type(picker(), 'bread{Enter}');
+    expect(row()).toHaveTextContent('No milestones yet.');
+    expect(radios()).toEqual([['No milestone', 'true']]);
+    expect(within(row()).getByRole('button', { name: 'New milestone' })).toBeInTheDocument();
+  });
+
+  it('on phone sits between the field and Add to, and a tap picks a milestone', async () => {
+    const t = await open({ layout: 'phone', seed: more });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add to a project or One offs' }));
+    await userEvent.click(screen.getByRole('option', { name: 'Paint the fence, Keep the house' }));
+    const field = btn('Add to a project or One offs: Paint the fence');
+    const add = btn('Add to Paint the fence');
+    expect(field.compareDocumentPosition(row()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row().compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(within(row()).getByRole('radio', { name: 'Second coat, due Dec 10' }));
+    await userEvent.click(add);
+    await screen.findByRole('heading', { name: 'Fix the gate' });
+    expect((await task(t.db, 'i1'))?.milestone_id).toBe('m2');
   });
 });
 

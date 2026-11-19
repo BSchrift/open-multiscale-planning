@@ -65,6 +65,12 @@
   color: var(--card);
 }
 
+/* Done, finishing an item: outlined in the success colour, so it stands apart from a destructive Delete beside it. */
+.btn.ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
 /* Quiet: a text button, for the least of the actions in a place. */
 .btn.plain {
   border-color: transparent;

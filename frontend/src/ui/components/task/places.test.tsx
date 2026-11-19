@@ -112,7 +112,7 @@ describe('the task popup opens from', () => {
       const block = await screen.findByRole('button', { name: layout === 'phone' ? /^Draft the summary, 4pm to 5pm/ : /^Draft the summary/ });
       expect(block).toHaveAttribute('aria-haspopup', 'dialog');
       await userEvent.click(block);
-      expect(within(blockSection(await popup('Draft the summary'))).getByRole('button', { name: 'Move' })).toBeVisible();
+      expect(within(blockSection(await popup('Draft the summary'))).getByRole('button', { name: 'Move…' })).toBeVisible();
       await closeBackTo(block);
     });
   }

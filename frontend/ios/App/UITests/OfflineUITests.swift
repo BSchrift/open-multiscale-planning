@@ -128,7 +128,8 @@ final class OfflineUITests: XCTestCase {
     func testEveryMainScreenOpensOffline() {
         let app = launchApp(seed: "Seed plan", offline: true)
         onToday(app.webText("Today"), in: app)
-        app.tapWeb("Week", until: app.webButton("Previous week"))
+        app.openWeek()
+        exists(app.webButton("Previous week"))
         app.tapWeb("Inbox", until: app.webText("Inbox is empty. Anything you capture lands here."))
         app.tapWeb("Goals", until: app.webButton(startingWith: "Learn to bake bread"))
         app.tapWeb("More", until: app.webText("More"))

@@ -40,3 +40,9 @@
 [data-layout] .doneline { width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 [data-layout='desktop'] .doneline { min-height: 48px; flex-wrap: nowrap; }
 [data-layout] .doneline .chev { margin-left: auto; color: var(--ink-3); }
+
+/* Add something you did: a quiet row under Finished, which opens one line and the time it took. */
+[data-layout] .doneadd { display: flex; }
+[data-layout] .doneaddform { display: flex; flex: 1; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+[data-layout='desktop'] .doneaddfoot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+[data-layout='phone'] .doneaddfoot { display: flex; flex-direction: column; gap: var(--space-3); }

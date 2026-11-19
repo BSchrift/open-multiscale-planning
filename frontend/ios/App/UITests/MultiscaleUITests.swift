@@ -288,6 +288,8 @@ final class ShellUITests: XCTestCase {
         // Add to opens a sheet of places, ready to search; a tap on one picks it, and Add to adds the item there.
         app.tapWeb(anyStartingWith: "Add to a project or One offs")
         app.tapWeb(anyStartingWith: "Bake a sourdough loaf")
+        // Its next milestone is chosen; No milestone puts it under the project's Done, which the end of this test opens.
+        app.tapWeb(anyStartingWith: "No milestone")
         app.tapWeb("Add to Bake a sourdough loaf")
         exists(app.webText("Added Buy a proofing basket to Bake a sourdough loaf."))
 
@@ -585,11 +587,13 @@ final class ShellUITests: XCTestCase {
         let left = app.page.sliders["Time left"]
         app.tapWeb("Partly", until: left)
         XCTAssertEqual(left.value as? String, "1h")
-        // XCUITest can't set a web slider's value, so the thumb is dragged: 1h is step 4 of 19, toward step 3.
-        let thumb = left.coordinate(withNormalizedOffset: CGVector(dx: 4.0 / 19, dy: 0.5))
-        thumb.press(forDuration: 0.2, thenDragTo: left.coordinate(withNormalizedOffset: CGVector(dx: 3.0 / 19, dy: 0.5)))
+        // XCUITest can't set a web slider's value, so the thumb is dragged. The slider's steps are EstimateSlider.tsx's
+        // EST_STEPS: none, then every 5 minutes to 2h, then 11 longer ones, 36 in all, so 1h is step 12 of 35. It's
+        // dragged toward step 9, 45m, and may land a step or two either side.
+        let thumb = left.coordinate(withNormalizedOffset: CGVector(dx: 12.0 / 35, dy: 0.5))
+        thumb.press(forDuration: 0.2, thenDragTo: left.coordinate(withNormalizedOffset: CGVector(dx: 9.0 / 35, dy: 0.5)))
         let set = try XCTUnwrap(left.value as? String)
-        XCTAssertTrue(["15m", "30m", "45m"].contains(set), "the slider reads \(set)")
+        XCTAssertTrue(["30m", "35m", "40m", "45m", "50m", "55m"].contains(set), "the slider reads \(set)")
         app.tapWeb("Save")
 
         // Then the one that began six minutes ago without a Start. Its sheet hides the toast from the tree.

@@ -107,7 +107,7 @@ export function HomeForm(props: {
         return goalSelectRef.current?.focus();
       }
       if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-      home = { kind, title: name, goal: pick, start, end, keep: firstTask, milestone: null };
+      home = { kind, title: name, goal: pick, start, end, keep: firstTask };
     } else if (kind === 'practice') {
       home = { kind, title: name, goal: pick, target_min: target, per, keep: onCard };
     } else {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -73,7 +74,7 @@ func buildCalendar(ctx context.Context, cfg config, client *dynamodb.Client, sto
 				Region: "us-west-2", BaseEndpoint: aws.String(cfg.Endpoint),
 				Credentials: credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
 			}),
-			iterators: map[string]*string{}, closed: map[string]bool{},
+			iterators: map[string]*string{}, closed: map[string]bool{}, last: map[string]*string{},
 		},
 		pending: map[string]time.Time{}, retryAt: map[string]time.Time{},
 	}
@@ -212,11 +213,25 @@ func (l *calendarLoop) tickHandler(w http.ResponseWriter, r *http.Request) {
 
 // streamReader follows the table's stream through every shard, keeping what the deployed trigger's filter keeps.
 type streamReader struct {
-	tables    *dynamodb.Client
+	tables    tableDescriber
 	tableName string
-	client    *dynamodbstreams.Client
+	client    streamsAPI
 	iterators map[string]*string
 	closed    map[string]bool
+	// last is the sequence number of the last record read from each shard, where a new iterator carries on from.
+	last map[string]*string
+}
+
+// tableDescriber is the part of DynamoDB the reader uses, to find the table's stream.
+type tableDescriber interface {
+	DescribeTable(context.Context, *dynamodb.DescribeTableInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+}
+
+// streamsAPI is the part of DynamoDB Streams the reader uses.
+type streamsAPI interface {
+	DescribeStream(context.Context, *dynamodbstreams.DescribeStreamInput, ...func(*dynamodbstreams.Options)) (*dynamodbstreams.DescribeStreamOutput, error)
+	GetShardIterator(context.Context, *dynamodbstreams.GetShardIteratorInput, ...func(*dynamodbstreams.Options)) (*dynamodbstreams.GetShardIteratorOutput, error)
+	GetRecords(context.Context, *dynamodbstreams.GetRecordsInput, ...func(*dynamodbstreams.Options)) (*dynamodbstreams.GetRecordsOutput, error)
 }
 
 // wakePrefixes are the deployed filter's: the worker's inputs, never the calendar record it writes.
@@ -253,22 +268,32 @@ func (s *streamReader) poll(ctx context.Context) ([]string, error) {
 		}
 		iterator, seen := s.iterators[id]
 		if !seen {
-			out, err := s.client.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
-				StreamArn: described.Table.LatestStreamArn, ShardId: shard.ShardId, ShardIteratorType: streamtypes.ShardIteratorTypeTrimHorizon,
-			})
-			if err != nil {
+			if iterator, err = s.open(ctx, described.Table.LatestStreamArn, shard.ShardId, nil); err != nil {
 				return nil, err
 			}
-			iterator = out.ShardIterator
 		}
+		reopened := false
 		for iterator != nil {
 			out, err := s.client.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{ShardIterator: iterator})
+			// An iterator lasts 15 minutes, which a laptop's sleep outlasts, so one is opened again after the last record
+			// read. Once per poll: a new one that expires at once is something else.
+			var expired *streamtypes.ExpiredIteratorException
+			if errors.As(err, &expired) && !reopened {
+				reopened = true
+				if iterator, err = s.open(ctx, described.Table.LatestStreamArn, shard.ShardId, s.last[id]); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}
 			for _, record := range out.Records {
 				if sub, ok := wakesWorker(record); ok && !slices.Contains(woken, sub) {
 					woken = append(woken, sub)
+				}
+				if record.Dynamodb != nil && record.Dynamodb.SequenceNumber != nil {
+					s.last[id] = record.Dynamodb.SequenceNumber
 				}
 			}
 			iterator = out.NextShardIterator
@@ -282,4 +307,18 @@ func (s *streamReader) poll(ctx context.Context) ([]string, error) {
 		s.iterators[id] = iterator
 	}
 	return woken, nil
+}
+
+// open returns an iterator on a shard from just after the record numbered after, or from its start when nothing has
+// been read from it.
+func (s *streamReader) open(ctx context.Context, stream, shard, after *string) (*string, error) {
+	in := &dynamodbstreams.GetShardIteratorInput{StreamArn: stream, ShardId: shard, ShardIteratorType: streamtypes.ShardIteratorTypeTrimHorizon}
+	if after != nil {
+		in.ShardIteratorType, in.SequenceNumber = streamtypes.ShardIteratorTypeAfterSequenceNumber, after
+	}
+	out, err := s.client.GetShardIterator(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return out.ShardIterator, nil
 }

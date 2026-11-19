@@ -3,7 +3,9 @@
 // release before, since that publishes only once the checks pass. So each step keeps to what both releases do. The
 // cross-version suite (e2e/compat) takes it on the last release's bundle as well as this checkout's, so a step only
 // this checkout's web app can take fails there, on CI against main's bundle and on staging against prod's, before
-// prod's Test step meets it.
+// prod's Test step meets it. What neither can show is how slowly prod's shared test user's history reads a change
+// back: CI starts empty and staging deletes its records within minutes. So no step waits for a screen to catch up while
+// something that goes by itself, such as a toast, holds the control it presses next.
 
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
@@ -25,6 +27,17 @@ export function timezoneWithRoom(now = new Date()): string | undefined {
   };
   if (!lateSunday()) return undefined;
   return lateSunday('Pacific/Honolulu') ? 'Pacific/Kiritimati' : 'Pacific/Honolulu';
+}
+
+/**
+ * Puts away, before each action, the questions a block asks by itself on every tab while it's left unanswered: Block
+ * finished, the missed blocks sheet and Have you started?. On a shared test user, a block a failed run left on the
+ * calendar asks once it has ended, and on desktop its question sits in the corner over the page: on prod, on 18
+ * November, over the block on the last day that the journey pressed to drag. Esc puts each away for the session, as
+ * Answer later and Later do, and answers nothing.
+ */
+export async function putPromptsAway(page: Page): Promise<void> {
+  await page.addLocatorHandler(page.getByRole('dialog', { name: /^(Block finished|\d+ missed blocks?|Have you started\?)$/ }), (prompt) => prompt.press('Escape'));
 }
 
 /** The journey, with checks titled `title`, on a page past first-run setup, at the desktop layout. */
@@ -74,12 +87,21 @@ export async function workJourney(page: Page, title: string): Promise<void> {
   await expect(card).toBeVisible();
   await card.click();
   await page.getByRole('group', { name: title }).getByRole('group', { name: 'Suggested times' }).getByRole('button').first().click();
+  // The toast with Undo shows once the change is saved, and goes after 5 seconds. Week takes the card away only once it
+  // has read the change back, which on prod's shared test user's history can take longer than that (see the expect
+  // timeout in playwright.config.ts), so waiting for the card first can leave no Undo to press. As soon as Undo shows,
+  // the mouse rests on it and it takes focus, either of which holds the toast, as for a person reaching for it by mouse
+  // or by keyboard, until the card has gone. Both, since the mouse alone let it go now and then in the slowed-down run
+  // of this step on this checkout's web app, though no other toast came and nothing moved the mouse.
+  const undo = page.getByRole('button', { name: 'Undo' });
+  await undo.hover();
+  await undo.focus();
   await expect(card).toHaveCount(0);
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await undo.click();
   await expect(card).toBeVisible();
 
   // Dragged by the mouse onto the last day, at 7pm, 13 hours down a 26px-an-hour day from 6am, it's placed there.
-  await dragTo(page, card, (c) => ({ x: c.x + 20, y: c.y + 10 }), page.locator('[data-drop-date]').last(), (d) => ({ x: d.x + d.width / 2, y: d.y + 26 * 13 + 2 }));
+  await dragTo(page, card, () => ({ x: 20, y: 10 }), page.locator('[data-drop-date]').last(), (d) => ({ x: d.x + d.width / 2, y: d.y + 26 * 13 + 2 }));
   await expect(card).toHaveCount(0);
   const placed = page.getByRole('button', { name: new RegExp(`^${title}, .* One off\\.`) });
   await expect(placed).toBeVisible();
@@ -91,7 +113,7 @@ export async function workJourney(page: Page, title: string): Promise<void> {
   }
   await page.getByRole('button', { name: "Edit this week's plan" }).click();
   const block = page.getByRole('group', { name: new RegExp(`^${title}, `) });
-  await dragTo(page, block, (b) => ({ x: b.x + b.width / 2, y: b.y + 6 }), lane, (l) => ({ x: l.x + l.width / 2, y: l.y + 12 }));
+  await dragTo(page, block, (b) => ({ x: b.width / 2, y: 6 }), lane, (l) => ({ x: l.x + l.width / 2, y: l.y + 12 }));
   await expect(block).toHaveCount(0);
   await expect(card).toBeVisible();
   await page.getByRole('button', { name: 'Done editing' }).click();
@@ -108,12 +130,15 @@ type Box = { x: number; y: number; width: number; height: number };
  * A mouse drag from a point on one element to a point on another. What waits above the week's days varies with the
  * shared test user's data: a practice left by an earlier run puts a row above every day. So the day's 7pm could be
  * below the window when measured before the drag, where the mouse lets go over nothing. The second element is
- * scrolled into the middle of the window once the drag is under way, and measured after.
+ * scrolled into the middle of the window once the drag is under way, and measured after. The press is at `grip`, a point
+ * on the first element, which the mouse goes to as it would for a click: once nothing covers that point and the
+ * element has stopped moving, since Week can still be laying out a change it has just read back.
  */
 async function dragTo(page: Page, from: Locator, grip: (box: Box) => { x: number; y: number }, to: Locator, at: (box: Box) => { x: number; y: number }) {
-  await from.scrollIntoViewIfNeeded();
-  const start = grip((await from.boundingBox())!);
-  await page.mouse.move(start.x, start.y);
+  const position = grip((await from.boundingBox())!);
+  await from.hover({ position });
+  const box = (await from.boundingBox())!;
+  const start = { x: box.x + position.x, y: box.y + position.y };
   await page.mouse.down();
   // Pressed and moved past a click's wobble, it lifts. This checkout's web app lifts it once the press has been held,
   // and only then lets it follow. A release from before hold to drag, which the prod Test step can meet, has no hold:

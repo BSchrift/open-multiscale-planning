@@ -186,6 +186,16 @@ describe.each(['desktop', 'phone'] as const)('a block landing on another while e
     expect(await screen.findByText('Took Paint the fence off the calendar')).toBeVisible();
   });
 
+  it("Replace takes nothing off when the block's own save fails", async () => {
+    const t = await open({ layout, seed });
+    const ask = await step();
+    vi.spyOn(t.db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+    await userEvent.click(within(ask).getByRole('button', { name: 'Replace' }));
+    await waitFor(() => expect(screen.getByText("Couldn't save that. Try again.")).toBeVisible());
+    expect((await block('b1')(t))?.start).toBe(at('18:00', TUE));
+    expect((await block('b4')(t))?.cancelled).toBeFalsy();
+  });
+
   it('Keep both, with Enter, keeps both; Cancel leaves it where it was', async () => {
     const t = await open({ layout, seed });
     await step();
@@ -1147,6 +1157,41 @@ describe('Week on phone', () => {
     // Monday morning has passed, so its block is drawn but doesn't move.
     expect(screen.queryByRole('slider', { name: /^Paint the fence\. Hold, then drag/ })).toBeVisible();
     expect(screen.getAllByText('Paint the fence').length).toBeGreaterThan(1);
+  });
+
+  it('editing on the day: a block dragged, or made shorter, goes back where it was when its save fails, and nothing asks about the rest', async () => {
+    const t = await phone({
+      seed: async (w) => {
+        await planned(w);
+        await setWeekPick(w, MON, 't2', 60);
+        await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4');
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    const handle = () => screen.getByRole('slider', { name: /^Paint the fence\. Hold, then drag/ });
+    // jsdom has no layout: the day from 6am to 11pm is drawn 816px tall, 48px an hour.
+    const day = document.querySelector('.day')!;
+    vi.spyOn(day, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 816, top: 0, left: 0, right: 300, bottom: 816, x: 0, y: 0, toJSON: () => ({}) });
+    const failing = (el: Element, dy: number) => {
+      vi.spyOn(t.db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+      holdDown(el, { clientY: 300 });
+      fireEvent.pointerMove(window, { clientY: 300 + dy });
+      fireEvent.pointerUp(window, { clientY: 300 + dy });
+    };
+    // The same toast each time, drawn afresh, so it's looked for until it settles.
+    const failed = async () => {
+      await waitFor(() => expect(screen.getByText("Couldn't save that. Try again.")).toBeVisible());
+      await waitFor(() => expect(handle()).toHaveAttribute('aria-valuetext', 'Mon Nov 2, 5pm to 6pm'));
+      expect(await block('b4')(t)).toMatchObject({ start: at('17:00'), end: at('18:00') });
+    };
+
+    // An hour later.
+    failing(await waitFor(handle), 48);
+    await failed();
+    // Half an hour shorter: nothing asks about the half hour.
+    failing(handle().querySelector('.rz')!, -24);
+    await failed();
+    expect(screen.queryByRole('group', { name: /^What about the other/ })).toBeNull();
   });
 
   it('draws a block as early as the desktop grid allows inside the day, where it still drags', async () => {

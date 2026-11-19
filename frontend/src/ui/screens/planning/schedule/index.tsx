@@ -229,10 +229,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
       const text = `Moved ${DAY_NAMES[weekday(day)]}'s ${x.title} to ${formatWeekday(slot.date)} ${formatTimeOfDay(slot.start)}, this week only.`;
       return run((w) => moveBlock(w, x.id, slotInstants(slot, zone))).then((reverse) => reverse && notify(text, () => run((w) => applyPlanChange(w, reverse))));
     }
-    const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
-    setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
-    setSplit(shortened(x, slot, { task: isTaskBlock(x.kind), underWay: !!x.now, week, title: x.title, open: split }));
-    return saved;
+    // A failed save resolves to nothing, so the block goes back, and nothing asks about a change that didn't happen.
+    return run((w) => moveBlock(w, x.id, slotInstants(slot, zone))).then((saved) => {
+      if (!saved) return undefined;
+      setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
+      setSplit(shortened(x, slot, { task: isTaskBlock(x.kind), underWay: !!x.now, week, title: x.title, open: split }));
+      return saved;
+    });
   };
   const moveTo = (o: { date: LocalDate; start: number }) => {
     const slot = { date: o.date, start: o.start, end: o.start + len };

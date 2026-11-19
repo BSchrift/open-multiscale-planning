@@ -368,7 +368,7 @@ export class PipelineStack extends Stack {
               deploymentRole: prodRole('cfn-exec'),
               runOrder: 2,
             }),
-            // CloudFormation waits out the canary here, 90 minutes on prod.
+            // CloudFormation waits out the canary here, prod's stack.canaryMinutes.
             new CloudFormationExecuteChangeSetAction({ actionName: 'Deploy', ...changeSet, role: deployRole, runOrder: 3 }),
             step('Test', 'test-prod', 4),
             // Only once prod's suites pass.

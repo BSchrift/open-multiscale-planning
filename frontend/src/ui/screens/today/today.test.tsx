@@ -383,6 +383,21 @@ describe('the Now card', () => {
     });
   });
 
+  it('Start stops a block counting beside it, says so, and Undo puts both back', async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't0', 'Rake the leaves');
+      await block(w, 'b0', 't0', '13:30', '14:30', { started_at: at('13:30') });
+    });
+    const now = await screen.findByRole('region', { name: 'Current block' });
+    await userEvent.click(within(now).getByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('Started Write the report. Stopped Rake the leaves at 2pm.')).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeNull();
+  });
+
   it('on phone, Mark done now and Stop for now appear once the block is started', async () => {
     await open(day, { layout: 'phone' });
     const now = await screen.findByRole('region', { name: 'Current block' });
@@ -1099,6 +1114,47 @@ describe('the timeline', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeNull());
     expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00'));
+  });
+
+  describe('Start now while another block counts', () => {
+    const counting = async (w: Writer) => {
+      await day(w);
+      await task(w, 't0', 'Paint the fence');
+      await block(w, 'b0', 't0', '13:00', '15:00', { started_at: at('13:00') });
+    };
+
+    it("in a block's popup, stops that one at now and says so, and Undo puts both back", async () => {
+      const t = await open(counting);
+      await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+      const popup = await taskPopup('Write the report');
+      await userEvent.click(within(popup).getByRole('button', { name: 'Start now' }));
+      expect(await screen.findByText('Started Write the report. It now runs 2pm to 3pm. Stopped Paint the fence at 2pm.')).toBeVisible();
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
+      expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW);
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b0'))).toBeUndefined();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ started_at: null, start: at('16:00') });
+    });
+
+    it('from the quick menu, then asks how the stopped one went, Partly starting from its estimate less the time spent', async () => {
+      const t = await open(counting);
+      fireEvent.contextMenu(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }), { clientX: 200, clientY: 300 });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Start now' }));
+      expect(await screen.findByText('Started Write the report. It now runs 2pm to 3pm. Stopped Paint the fence at 2pm.')).toBeVisible();
+      const prompt = await dialog('Block finished');
+      expect(within(prompt).getByText('Paint the fence')).toBeVisible();
+      expect(within(prompt).getByText('1h spent.')).toBeVisible();
+      // It was stopped, so it isn't still going.
+      expect(within(prompt).queryByRole('button', { name: /Still going/ })).toBeNull();
+      await userEvent.click(within(prompt).getByRole('button', { name: 'Partly' }));
+      // 3h estimated, 1h spent.
+      expect(within(await dialog('How much is left?')).getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '2h');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b0'))).toMatchObject({ result: 'partly', remaining_min: 120 });
+    });
   });
 
   it("a block gone by asks how it went in its popup: Partly takes the time left, and saves with Undo", async () => {

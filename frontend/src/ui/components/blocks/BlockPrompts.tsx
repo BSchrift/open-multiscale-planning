@@ -205,7 +205,9 @@ export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: bo
               Resume, {formatMinutes(Math.round(timeLeftMs(block, now) / 60_000))} left
             </button>
           ) : (
-            !paused && (
+            // Not for one stopped when another started: it isn't still going.
+            !paused &&
+            !block.ended_at && (
               <button className="link small" type="button" disabled={actions.pending} onClick={() => void actions.stillGoing(block).then(props.onClose)}>
                 Still going, add {formatMinutes(STILL_GOING_MIN)}
               </button>

@@ -1,4 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import { join } from 'node:path';
+import { assertInstalled } from '../../scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(join(import.meta.dirname, '../..'));
 
 // The performance runner (scripts/test-perf.sh, docs/performance.md): the browser's KPIs in desktop Chromium and in
 // Chromium at a phone's size with its CPU slowed, and the Mac app's, against the builds PERF_TARGETS and

@@ -142,8 +142,9 @@ async function pauseShed(page: Page, h: House, action: 'Pause' | 'Resume', end?:
 // When one of prod's app feeds serves an older bundle than its web app, staging's old bundle is that one, and the
 // journey's steps need only work back as far as the web app. The device starts with what failed runs left on prod's
 // shared test user, which CI's and staging's users never hold: three practices, putting a row above every day, a check
-// that ended unanswered, whose question sits in the corner, and a check at 7pm on the last day, the time the journey
-// drags to. The deployed suite's clean-up runs first, as it does there.
+// that ended unanswered, whose question sits in the corner, and four checks at 7pm on the last day, the time the journey
+// drags to. Drawn side by side there, each one's × sits under the next block, as on prod on 20 November, so the clean-up
+// can't take them off by pointer. The deployed suite's clean-up runs first, as it does there.
 for (const name of ['old', 'new'] as const) {
   test(`the deployed suite's clean-up and journey, from Capture to the calendar and back, work on the ${name} bundle`, async ({ browser }) => {
     const from = process.env.COMPAT_OLD_SURFACE;
@@ -165,11 +166,11 @@ for (const name of ['old', 'new'] as const) {
     await seed(d.page, [
       ...[1, 2, 3].map((n) => ({ type: 'practice', id: `left-${n}`, fields: { title: `Compat check left ${n}`, target_min: 30, per: 'day', state: 'active' } })),
       ...leftBlock('left-ended', 'Compat check left ended', at.ended),
-      ...leftBlock('left-sunday', 'Compat check left Sunday', at.sunday),
+      ...[1, 2, 3, 4].flatMap((n) => leftBlock(`left-sunday-${n}`, `Compat check left Sunday ${n}`, at.sunday)),
     ]);
     await putPromptsAway(d.page);
     await clearLeftChecks(d.page);
-    await expect(d.page.getByRole('button', { name: /^Compat check left Sunday, / })).toHaveCount(0);
+    await expect(d.page.getByRole('button', { name: /^Compat check left Sunday \d, / })).toHaveCount(0);
     await workJourney(d.page, `Compat check ${new Date().toISOString().slice(11, 19)}`);
   });
 }

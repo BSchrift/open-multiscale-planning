@@ -1,7 +1,8 @@
-// Which question Today asks now, one at a time: a notification's Partly, then missed blocks (one prompt, or one sheet
-// for several, today's practices among them), then "Have you started?". Closing one without answering puts it away
-// for this session; missed blocks keep a Review row so there's always a way back. The sheet, once up, stays for its
-// last row. Today's pane stays mounted behind the other tabs, so the prompts show on every tab.
+// Which question Today asks now, one at a time: a notification's Partly or the Now card's Stop for now, then missed
+// blocks (one prompt, or one sheet for several, today's practices among them), then "Have you started?". Closing one
+// without answering puts it away for this session; missed blocks keep a Review row so there's always a way back. The
+// sheet, once up, stays for its last row. Today's pane stays mounted behind the other tabs, so the prompts show on
+// every tab.
 
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -56,8 +57,9 @@ export function usePrompts(data: TodayData): { prompt: ReactNode; missed: { titl
 
   let prompt: ReactNode = null;
   let askingMissed = true;
-  if (request && find(request)) {
-    prompt = <EndPrompt key={`request:${request}`} block={find(request)!} partly onClose={() => requestPrompt(null)} />;
+  if (request && find(request.blockId)) {
+    const { blockId, stop } = request;
+    prompt = <EndPrompt key={`request:${blockId}:${stop}`} block={find(blockId)!} partly stop={stop} onClose={() => requestPrompt(null)} />;
   } else if (open?.kind === 'end') {
     prompt = end(open.id);
   } else if (open?.kind === 'sheet' && missed.length > 0) {

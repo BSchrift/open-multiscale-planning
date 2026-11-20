@@ -143,6 +143,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | --- | --- | --- | --- | --- |
 | Now card: Start, the countdown, Mark done now, Undo | covered (today: "the Now card: Start counts down, Mark done now frees the time…") | covered (same) | partly (journeys/first-week: the day's blocks, no Start) | missing |
 | Mark done now with nothing after; Start early in the freed time | covered (today-prompts: "Mark done now with nothing after says the time spent…", "free time before the next block offers Start early…") | covered (same) | missing | missing |
+| Stop for now: how much is left, then the block ends; Undo | covered (today-prompts: "Stop for now asks how much is left, ends the block with that…") | covered (same) | missing | missing |
 | Do next block instead; Still going | covered (today-prompts: "Do next block instead trades the work…", "Still going adds half an hour…") | covered (same) | missing | missing |
 | The time-spent ring: pause and resume, P on desktop | covered (today: "the time-spent ring pauses and resumes…", "on desktop, P pauses and resumes…", "the ring changes without animating under reduced motion…", "a pause running to the end asks the end question…") | covered (same, P aside) | missing | missing |
 | Start check-in: has it started? | covered (today-prompts: "a block not started a few minutes in asks whether it has…"; journeys/first-week) | covered (same) | covered (journeys/first-week) | covered (testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted) |
@@ -296,7 +297,7 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Area | Web desktop and phone | Mac app | iPhone |
 | --- | --- | --- | --- |
 | Process | process: "Undo steps back over each card in turn…"; inbox: "edits the item on the card… Undo puts it back as it arrived" | missing | missing |
-| Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
+| Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Stop for now, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |

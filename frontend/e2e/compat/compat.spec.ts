@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { formatDate } from '../../src/core/dates';
+import { clearLeftChecks, putPromptsAway, timezoneWithRoom, workJourney } from '../deployed/journey';
 import { goals, openProject } from '../journeys/journey';
 import { account, go, oneOffRow, openSeeded, pane, readRecord, seed, setDate, syncNow } from '../seed';
 import type { Seed } from '../seed';
-import { capture, closeDevices, daysAhead, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
+import { capture, closeDevices, daysAhead, DELETED, deleteAccount, deleteFromInbox, device, oneOff, signIn } from '../stack/devices';
+import { target } from '../stack/target';
 
 // The last release's bundle, old, and this checkout's, new, as scripts/test-compat.sh built them. serve.mjs serves each
 // browser context the one its bundle cookie names, from one origin. In one context the two share a database, as an
@@ -54,6 +56,12 @@ const oldPlansToInbox = () => {
   return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes('Give each item a home'));
 };
 const noOlderThanInboxStep = 'The bundle before already plans a stretch through the Inbox, so there is no older one to run against.';
+// Whether the bundle before already erases a deleted account's copy, as every bundle since account deletion does: on CI,
+// origin/main once that's merged.
+const oldErasesDeletedAccounts = () => {
+  const assets = join(process.env.COMPAT_OLD ?? '', 'assets');
+  return readdirSync(assets).some((f) => f.endsWith('.js') && readFileSync(join(assets, f), 'utf8').includes(DELETED));
+};
 
 /** Notes what the page logs as an error, such as a query the database refused. */
 function consoleErrors(page: Page, errors: string[], name: Bundle) {
@@ -127,6 +135,43 @@ async function pauseShed(page: Page, h: House, action: 'Pause' | 'Resume', end?:
   if (end) await expect(dialog.getByLabel('Ends')).toHaveValue(end);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+}
+
+// The deployed web suite's journey, on a device of its own, signed out. The prod Test step takes it against the web app
+// prod still serves, the release before, which here is the old bundle: main's on CI, and on staging prod's web app's.
+// When one of prod's app feeds serves an older bundle than its web app, staging's old bundle is that one, and the
+// journey's steps need only work back as far as the web app. The device starts with what failed runs left on prod's
+// shared test user, which CI's and staging's users never hold: three practices, putting a row above every day, a check
+// that ended unanswered, whose question sits in the corner, and a check at 7pm on the last day, the time the journey
+// drags to. The deployed suite's clean-up runs first, as it does there.
+for (const name of ['old', 'new'] as const) {
+  test(`the deployed suite's clean-up and journey, from Capture to the calendar and back, work on the ${name} bundle`, async ({ browser }) => {
+    const from = process.env.COMPAT_OLD_SURFACE;
+    test.skip(name === 'old' && !!from && from !== 'web', `The old bundle is the one prod's ${from} feed serves, older than the web app prod's Test step takes the journey on`);
+    const d = await device(browser, `e2e-${randomUUID()}`, { ...on(name), timezoneId: timezoneWithRoom() });
+    // In the page's time zone: half an hour ending an hour ago, and half an hour from 7pm on the week's last day, Sunday.
+    const at = await d.page.evaluate(() => {
+      const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const sunday = new Date();
+      sunday.setDate(sunday.getDate() + ((7 - sunday.getDay()) % 7));
+      sunday.setHours(19, 0, 0, 0);
+      const ended = Math.floor(Date.now() / 60_000) * 60_000 - 3_600_000;
+      return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ended: [iso(ended - 1_800_000), iso(ended)], sunday: [iso(+sunday), iso(+sunday + 1_800_000)] };
+    });
+    const leftBlock = (id: string, title: string, [start, end]: string[]): Seed[] => [
+      { type: 'task', id, fields: { kind: 'one_off', title, schedule: { type: 'once' } } },
+      { type: 'time_block', id: `${id}-block`, fields: { task_id: id, start, end, tz: at.tz } },
+    ];
+    await seed(d.page, [
+      ...[1, 2, 3].map((n) => ({ type: 'practice', id: `left-${n}`, fields: { title: `Compat check left ${n}`, target_min: 30, per: 'day', state: 'active' } })),
+      ...leftBlock('left-ended', 'Compat check left ended', at.ended),
+      ...leftBlock('left-sunday', 'Compat check left Sunday', at.sunday),
+    ]);
+    await putPromptsAway(d.page);
+    await clearLeftChecks(d.page);
+    await expect(d.page.getByRole('button', { name: /^Compat check left Sunday, / })).toHaveCount(0);
+    await workJourney(d.page, `Compat check ${new Date().toISOString().slice(11, 19)}`);
+  });
 }
 
 test.describe('one device', () => {
@@ -328,6 +373,36 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test('something the update added to Done, with the time it took, is a finished one off in the bundle before, its block done on Week', async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    await openSeeded(page, week);
+    await go(page, 'Done', 'Wednesday, Nov 4');
+    const done = pane(page, 'Done');
+    await done.getByRole('button', { name: 'Add something you did' }).click();
+    const field = done.getByRole('textbox', { name: 'What you did' });
+    await field.fill('Fixed the garden gate');
+    const slider = done.getByRole('slider', { name: 'Time it took' });
+    await slider.focus();
+    for (let i = 0; i < 6; i++) await slider.press('ArrowRight');
+    await field.press('Enter');
+    await expect(page.locator('.toast')).toContainText('Added Fixed the garden gate to Done on Wednesday, Nov 4.');
+    await everyScreen(page);
+
+    // It fails its trial. The bundle before has no way to add one, and needs none to show it: an ordinary finished one
+    // off, after a block that long answered Done.
+    page = await relaunch(page, 'old', errors);
+    await everyScreen(page);
+    await go(page, 'One offs');
+    await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
+    const finished = pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
+    await expect(finished.getByRole('checkbox', { name: 'Fixed the garden gate done' })).toBeChecked();
+    await go(page, 'Week');
+    await expect(pane(page, 'Week').getByRole('button', { name: /^Fixed the garden gate, Wed Nov 4, 9:50am to 10:20am/ })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('Inbox items the update saved as notes leave the bundle before\'s Inbox, unfinished, and its launch writes nothing to the notes', async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);
@@ -344,6 +419,10 @@ test.describe('one device', () => {
       await card.getByRole('option', { name: 'On its own, In Notes, no home' }).click();
       await expect(page.locator('.toast')).toContainText(`Saved ${title} in Notes.`);
     }
+    // A one off finished now, so the bundle before has a finished task to list beside the notes' items. The week's
+    // ladder, finished the day before, won't do: built for staging, both bundles keep a closed task 35 minutes
+    // (config/retention.yaml), so the relaunch's expiry pass removes it, and One offs then hides Finished tasks.
+    await tick(page, 'Renew the library card', errors);
     await go(page, 'Notes');
     await pane(page, 'Notes').getByRole('button', { name: /^Order more coffee beans/ }).click();
     await page.getByRole('dialog', { name: /^Note: / }).getByRole('button', { name: 'Delete note' }).click();
@@ -366,7 +445,7 @@ test.describe('one device', () => {
     await go(page, 'One offs');
     await pane(page, 'One offs').getByRole('button', { name: 'Finished tasks' }).click();
     const finished = pane(page, 'One offs').getByRole('region', { name: 'Finished tasks' });
-    await expect(finished.getByText('Return the borrowed ladder')).toBeVisible();
+    await expect(finished.getByText('Renew the library card')).toBeVisible();
     for (const title of ['Look up a bike repair shop', 'Order more coffee beans']) await expect(finished.getByText(title)).toHaveCount(0);
     expect(await Promise.all(ids.map(([type, id]) => readRecord(page, type, id)))).toEqual(before);
     expect(errors).toEqual([]);
@@ -882,4 +961,29 @@ test('an old and a new device of one user: planning begun on the new one is no t
   await expect(pane(newDevice.page, 'Plan').getByRole('button', { name: 'Continue planning' })).toHaveCount(0);
   expect(oldDevice.errors).toEqual([]);
   expect(newDevice.errors).toEqual([]);
+});
+
+test("an old device whose account a new device deleted shows it's signed out, or erases its copy if it knows how", async ({ browser }) => {
+  test.skip(!target().localApi, 'Deleting an account needs a user only the local stack can make');
+  const run = randomUUID().slice(0, 8);
+  const paint = { id: `e2e-${run}-paint`, title: `Paint the fence ${run}` };
+  const old = await device(browser, `e2e-${run}`, on('old'));
+  await seed(old.page, [oneOff(paint.id, paint.title)]);
+  await signIn(old.page);
+  const fresh = await device(browser, `e2e-${run}`, on('new'));
+  await signIn(fresh.page);
+  await deleteAccount(fresh.page);
+  // At its next launch the bundle before's sync is refused, and so is its refresh, since the sign-in is gone. A launch
+  // rather than Sync now, since a sync of its own may have reached that already.
+  await old.page.reload();
+  if (oldErasesDeletedAccounts()) {
+    // A bundle from since account deletion erases its copy and starts over, saying why.
+    await expect(old.page.getByText(DELETED)).toBeVisible();
+    expect(await readRecord(old.page, 'task', paint.id)).toBeUndefined();
+  } else {
+    // One from before shows it's signed out.
+    await go(old.page, 'Settings');
+    await expect(account(old.page).getByText('Signed out', { exact: true })).toBeVisible();
+  }
+  expect(old.errors).toEqual([]);
 });

@@ -4,11 +4,11 @@
 #   ENV=staging (default), ENV=prod, ENV=control, or ENV=pipeline for the release pipeline in the control account
 #   (docs/releasing.md). The config folder is $MULTISCALE_CONFIG_DIR, else config/.
 #   CANARY=skip sends a new backend version all its traffic at once, rather than by config/env's canary: on prod, 10%
-#   for 90 minutes. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
+#   for prod's canary minutes. The release alarms still roll it back. An agent uses it only with the owner's go-ahead, each time.
 #   ALARMS=off turns the release alarms off for this deploy, which CodeDeploy otherwise refuses to start while one is
 #   firing: for the fix to what fires. A failed deployment or pre-traffic check still rolls back, and the next deploy
 #   turns them on again. An agent uses it only with the owner's go-ahead, each time.
-# A backend change waits out its canary, so a prod deploy runs about 90 minutes. CloudFormation carries on if this stops early.
+# A backend change waits out its canary, so a prod deploy runs at least prod's stack.canaryMinutes. CloudFormation carries on if this stops early.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,7 +58,7 @@ if [ "$env_name" = staging ] || [ "$env_name" = prod ]; then
   # The integration suite reads this file with the strict Go loader, so stop on a file it would refuse.
   (cd "$root/config" && go run ./cmd/check "$env_name")
   echo "Building Lambdas"
-  for name in api calendar retention canary; do
+  for name in api calendar retention canary account; do
     # Each folder is the Lambda's whole package, so only the binary may be in it: an earlier deploy put config.yaml here.
     rm -rf "$root/backend/dist/$name"
     # -trimpath and an empty build id keep the binary identical when the code is, so an unchanged Lambda doesn't redeploy.

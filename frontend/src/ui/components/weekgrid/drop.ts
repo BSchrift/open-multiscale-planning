@@ -72,7 +72,8 @@ export function swallowClick(el: Element) {
  * mouse as with a finger, so a click whose hand shifts a few pixels is still a click. Before the hold, a finger that
  * moves is scrolling, so the press lets go; a mouse that moves waits for the hold. Once lifted, the page holds still,
  * and moving past a click's wobble drags it: `drag` gets the pointer's distance from the press. Let go after dragging,
- * it drops; let go in place, it opens nothing. Either way the click that follows is swallowed.
+ * it drops; let go in place, it's held, which opens nothing unless `held` does. Either way the click that follows is
+ * swallowed.
  */
 export function holdToDrag(
   event: ReactPointerEvent,
@@ -84,6 +85,8 @@ export function holdToDrag(
     tap?(): void;
     /** Lifted, then let go without dragging, or the browser took the press back. */
     cancel?(): void;
+    /** Lifted, then let go without dragging, after cancel: as a phone's hold, then let go, opens a menu. */
+    held?(): void;
     /** The platform's light tap, as a finger's hold lifts. */
     haptic?(): unknown;
   },
@@ -129,8 +132,9 @@ export function holdToDrag(
     end();
     if (!lifted) return on.tap?.();
     swallowClick(target);
-    if (dragged) on.drop(e);
-    else on.cancel?.();
+    if (dragged) return on.drop(e);
+    on.cancel?.();
+    on.held?.();
   };
   const cancel = (e: PointerEvent) => {
     if (!own(e)) return;

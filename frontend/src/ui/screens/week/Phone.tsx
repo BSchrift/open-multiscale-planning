@@ -11,6 +11,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, R
 import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, formatWeekday, localMinutes, today } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { closestFit, defaultSlot, dragResult, DRAWN_DAY, GRID, isOpen, isPast, offers, slotNotes } from '../../../core/slots';
+import { SLIDER_STEP } from '../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../core/slots';
 import type { LocalDate, Minutes } from '../../../core/types';
 import { useNav } from '../../app/nav';
@@ -32,11 +33,14 @@ import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Bl
 import { clearLane, columnStyle, dayName, dragCard, finishedCount, holdToDrag, MORE_INSET, MORE_PX, overLane, overlapGroups, overlapNote, shownColumns, slotRange, useWidth } from '../../components/weekgrid';
 import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
+import { DraftBlock, HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
+import { Capture } from '../capture';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useWeekActions } from './useWeekActions';
@@ -76,6 +80,8 @@ export function PhoneWeek(props: WeekProps) {
   const [at, setAt] = useState<Slot | null>(null);
   const [edSel, setEdSel] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  // Landing on placed blocks asks first: keep both, replace them, or leave it.
+  const { landing, takeOff, asking } = useLanding(model.blocks, data.week);
   // A task's block made shorter asks what about the rest, until answered or another block is opened.
   const [split, setSplit] = useState<Shortened | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
@@ -137,12 +143,25 @@ export function PhoneWeek(props: WeekProps) {
     if (placing && at) setAt(landOn(date, at, kindOf(placing), ctx, floorOf(date)));
   };
 
-  const changeBlock = (b: PlacedBlock, slot: Slot) => {
-    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return;
-    void act.move(b.id, slot);
+  /**
+   * Saves a block's new time. Cancelled on another block, or when the save fails, it resolves to nothing and changes
+   * nothing else, and the day puts it back.
+   */
+  const changeBlock = async (b: PlacedBlock, slot: Slot) => {
+    if (slot.start === b.start && slot.end === b.end && slot.date === b.date) return undefined;
+    const { go, off } = await landing(b.title, slot, b.id, b);
+    if (!go) return undefined;
+    const saved = await act.move(b.id, slot);
+    if (!saved) return undefined;
     setEdSel(b.id);
     setAsk(b.practice_id ? { blockId: b.id, wasMin: ask?.blockId === b.id ? ask.wasMin : b.end - b.start } : null);
     setSplit(shortened(b, slot, { task: isTask(b), underWay: !!b.now, week: data.week, title: b.title, open: split }));
+    takeOff(off);
+    return saved;
+  };
+  const dropCard = async (item: LaneItem, slot: Slot) => {
+    const { go, off } = await landing(item.title, slot);
+    if (go && (await act.place(item, slot))) takeOff(off);
   };
 
   const cancelPlacing = () => {
@@ -160,27 +179,46 @@ export function PhoneWeek(props: WeekProps) {
   // Planning goes no later than the end of the week or stretch it plans.
   const late = !!plan && !!at && at.date > plan.last;
   const locked = gone || late;
-  /** Moves a placed block, from Move here or a hold on the day. Resolves to whether it moved, or was already there. */
-  const moveTo = async (b: PlacedBlock, slot: Slot) => {
+  /**
+   * Moves a placed block, from Move here or a hold on the day. Resolves to whether it moved, or was already there, so
+   * false when the save failed. `undone` runs as its Undo is pressed.
+   */
+  const moveTo = async (b: PlacedBlock, slot: Slot, undone?: () => void) => {
     // A session moved to another day is for this week only, so nothing asks about future weeks.
     if (b.practice_id && slot.date !== b.date) return act.moveSessionDay(b, slot, model.blocks);
     if (slot.date !== b.date || slot.start !== b.start || slot.end !== b.end) {
-      await act.moveWithUndo(b.id, b.title, slot);
+      if (!(await act.moveWithUndo(b.id, b.title, slot, undone))) return false;
       if (b.practice_id) setAsk({ blockId: b.id, wasMin: b.end - b.start });
     }
     return true;
   };
   const finishPlacing = async () => {
     if (!placing || !at || locked) return;
+    const moving = placing.mode === 'move' ? placing.block : null;
+    // A day with another of a practice's sessions refuses it before anything asks.
+    const refused = !!moving?.practice_id && at.date !== moving.date && model.blocks.some((x) => x.id !== moving.id && x.practice_id === moving.practice_id && x.date === at.date);
+    const { go, off } = refused ? { go: true, off: [] } : await landing(drawnOf(placing).title, at, moving?.id ?? null, moving);
+    if (!go) return;
     if (placing.mode === 'move') {
       if (!(await moveTo(placing.block, at))) return;
     } else if (placing.mode === 'planning') {
       if (!(await planning.place(placing.plan, at))) return;
     } else if (!(await act.place(placing.item, at))) return;
+    takeOff(off);
     setPlacing(null);
     setAt(null);
     props.donePlacing();
     if (placing.mode === 'planning' && placing.plan.flow) props.close();
+  };
+  /**
+   * A block held on the day and let go on another asks first, as Move here does. Holds stay on their day. Resolves to
+   * whether it moved, so false when the ask was cancelled or the save failed.
+   */
+  const holdMove = async (b: PlacedBlock, slot: Slot, undone?: () => void) => {
+    const { go, off } = await landing(b.title, slot, b.id, b);
+    if (!go || !(await moveTo(b, slot, undone))) return false;
+    takeOff(off);
+    return true;
   };
   /** Planning carried to another week keeps its day of the week and time. */
   const carryTo = (days: number) => props.goWeek(addDays(props.week, days), plan && at ? { ...at, date: addDays(at.date, days) } : undefined);
@@ -209,7 +247,7 @@ export function PhoneWeek(props: WeekProps) {
       draggable={isThis && !placing}
       onToggle={() => (planningWeekOf(x.id) ? setPlanningFor(planningWeekOf(x.id)) : setOpen({ kind: 'item', id: x.id }))}
       onPreview={(slot) => setDropAt(slot && { item: x, slot })}
-      onDrop={(slot) => void act.place(x, slot)}
+      onDrop={(slot) => void dropCard(x, slot)}
     />
   );
   const dayIndex = diffDays(data.week, selDay);
@@ -367,6 +405,7 @@ export function PhoneWeek(props: WeekProps) {
                     : null
               }
               editing={editing && !placing}
+              holdToCreate={!placing}
               onMoving={setAt}
               onDone={() => void finishPlacing()}
               onChange={changeBlock}
@@ -396,7 +435,7 @@ export function PhoneWeek(props: WeekProps) {
             <h3 className="wkday">{dayTitle}</h3>
           )}
           <div ref={dayCard} className="card wkdaycard" {...pinch}>
-            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={(b, slot) => void moveTo(b, slot)} />
+            <DayRows date={selDay} model={model} cell={CELL_PX * zoom} readOnly={offset < 0} onOpen={openBlock} onMove={holdMove} />
           </div>
           {isThis && (
             <Button className="wkstats" type="button" onClick={() => nav.go('analytics', { week: data.week })}>
@@ -468,6 +507,7 @@ export function PhoneWeek(props: WeekProps) {
         </button>
       ) : null}
 
+      {asking}
       {opened && (
         <BlockSheet
           block={opened}
@@ -493,7 +533,7 @@ export function PhoneWeek(props: WeekProps) {
                 block={popRow}
                 {...(popEdit && popPlaced
                   ? {
-                      onMove: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced),
+                      move: { ctx: model.ctx, choose: () => startPlacing({ mode: 'move', block: popPlaced, length: popPlaced.end - popPlaced.start }, popPlaced) },
                       onRemove: () => {
                         setEdSel(null);
                         void act.remove(popPlaced.id, popPlaced.title);
@@ -567,17 +607,57 @@ function leastZoom(root: HTMLElement | null, card: HTMLElement | null, zoom: num
   return fitZoom(bottom - top - fixed, scales / zoom);
 }
 
+/** The id of a hold's draft among a day's rows, drawn as a block until Capture saves or cancels it. */
+const HELD = 'holddraft';
+
+/**
+ * A block let go at a new time, drawn there until the saved position comes back in `blocks`, so it doesn't jump back to
+ * where it was while it saves. Compared by position, since callers build a new list on every render.
+ */
+function useLanded(blocks: readonly PlacedBlock[]) {
+  const [landed, setLanded] = useState<{ id: string; slot: Slot } | null>(null);
+  const placed = blocks.map((b) => `${b.id} ${b.date} ${b.start} ${b.end}`).join();
+  useEffect(() => setLanded(null), [placed]);
+  return [landed, setLanded] as const;
+}
+
 /**
  * One row per block, busy event or stretch of time, so short blocks stay readable. Cells are half hours. Blocks at the
- * same time share a row, side by side.
+ * same time share a row, side by side. A press held on a stretch of time drafts an hour there, in a row of its own that
+ * splits the stretch around it, and opens Capture on it.
  */
-function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's height. */ cell: number; readOnly: boolean; onOpen(id: string): void; onMove(block: PlacedBlock, slot: Slot): void }) {
+function DayRows(props: {
+  date: LocalDate;
+  model: WeekModel;
+  /** A half hour's height. */
+  cell: number;
+  readOnly: boolean;
+  onOpen(id: string): void;
+  /** Resolves to whether it moved. `undone` runs as its Undo is pressed. */
+  onMove(block: PlacedBlock, slot: Slot, undone: () => void): Promise<boolean>;
+}) {
   const { date, model, cell } = props;
-  const { clock, platform } = useApp();
+  const { clock, layout, platform } = useApp();
   // On today, the current time is a line across the row whose time holds it, as far down it as the time is.
   const nowMin = date === today(clock) ? localMinutes(clock.now(), clock.zone()) : null;
-  const { availability, busy } = model.ctx;
-  const blocks = model.blocks.filter((b) => b.date === date);
+  const { availability, busy, earliest } = model.ctx;
+  // The minute under the finger, from the time the row covers and the height it's drawn, which for a closed row isn't
+  // its time's. After the hold the draft moves at the rows' scale, a half hour a cell.
+  const holdNew = useHoldToCreate({
+    at: (_x, py, el) => {
+      const [from, to] = [Number(el.dataset.dropFrom), Number(el.dataset.dropTo)];
+      const tall = el.getBoundingClientRect().height || ((to - from) / 30) * cell;
+      return { date, minute: from + (py / tall) * (to - from) };
+    },
+    move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 30) / cell, [], { from: date === earliest.date ? Math.max(DAY_FROM, Math.ceil(earliest.minutes / GRID) * GRID) : DAY_FROM, to: DAY_TO }),
+    earliest,
+  });
+  const held = holdNew.draft?.slot;
+  const draftBlock: PlacedBlock | null = held ? { ...held, id: HELD, title: holdNew.draft!.name.trim() || 'New task', kind: 'project', draft: true, task_id: null, practice_id: null, past: false, ended: false, result: null } : null;
+  const saved = model.blocks.filter((b) => b.date === date);
+  // A block let go on another row is drawn at its new time while it saves.
+  const [landed, setLanded] = useLanded(saved);
+  const blocks = [...saved.map((b) => (b.id === landed?.id ? { ...b, ...landed.slot } : b)), ...(draftBlock?.date === date ? [draftBlock] : [])];
   const groups = overlapGroups(blocks);
   const info = model.info.filter((x) => x.date === date);
   const shown = new Set<unknown>();
@@ -588,9 +668,9 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
   const kindAt = (m: number) => (!isOpen(availability, date, m, 'project') ? 'closed' : isPast(date, m, model.ctx) ? 'gone' : 'free');
   const rows: ReactElement[] = [];
   // Each row says the time it covers, so a card dropped on it lands where it was let go.
-  const row = (key: string, time: number, body: ReactElement, from: number, to: number) =>
+  const row = (key: string, time: number, body: ReactElement, from: number, to: number, holdable = false) =>
     rows.push(
-      <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to}>
+      <div key={key} className="tlrow" data-drop-date={date} data-drop-from={from} data-drop-to={to} onPointerDown={holdable ? holdNew.press : undefined}>
         <span className="tltime">{formatTimeOfDay(time)}</span>
         {body}
         {nowMin !== null && from <= nowMin && nowMin < to && <NowLine top={`${((nowMin - from) / (to - from)) * 100}%`} />}
@@ -606,12 +686,29 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
     e.stopPropagation();
     dragCard(e, { length: block.end - block.start, offers: [] }, { ...model.ctx, placed: model.ctx.placed.filter((s) => s.id !== block.id) }, {
       preview: () => undefined,
-      drop: (slot) => props.onMove(block, slot),
+      drop: (slot) => {
+        const put = { id: block.id, slot };
+        setLanded(put);
+        // A failed save puts it back, and so does Undo pressed before the day has redrawn from the save: the day's next
+        // drawing then matches the one before the move, which wouldn't redraw it.
+        const back = () => setLanded((l) => (l === put ? null : l));
+        void props.onMove(block, slot, back).then((moved) => moved || back());
+      },
       ...(platform.haptic ? { haptic: platform.haptic } : {}),
     });
   };
   /** A block filling its row, or in its column of its group's row, whose time is `from`: one starting later says when. */
   const draw = (block: PlacedBlock, others: readonly PlacedBlock[], from: number, style: CSSProperties) => {
+    if (block.id === HELD) {
+      return (
+        <div key={HELD} ref={holdNew.draftRef} className={`tlblock holddraft ${blockClass('project', 'placing')}${holdNew.draft!.fresh ? ' pop' : ''}`} style={style} title={slotRange(block)} aria-hidden="true">
+          <span className="tlname">
+            <span className="blktitle">{block.title}</span>
+          </span>
+          <span className="tlkind">{slotRange(block)}</span>
+        </div>
+      );
+    }
     const word = KIND_WORD[block.kind];
     const kindLine = `${word}, ${formatMinutes(block.end - block.start)}${block.start > from ? `, from ${formatTimeOfDay(block.start)}` : ''}${block.note ? `. ${block.note}` : ''}`;
     const state = blockState({ result: block.result, ended: block.ended, now: block.now });
@@ -662,7 +759,7 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
         group.items.length === 1 ? (
           draw(block, [], block.start, { height: cells * cell - 2 })
         ) : (
-          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => !shut(b)} onOpen={props.onOpen} />
+          <DayGroup group={group} from={m} cells={cells} cell={cell} draw={draw} canOpen={(b) => b.id !== HELD && !shut(b)} onOpen={props.onOpen} />
         ),
         m,
         m + cells * 30,
@@ -709,10 +806,24 @@ function DayRows(props: { date: LocalDate; model: WeekModel; /** A half hour's h
       ),
       m,
       n,
+      true,
     );
     m = n;
   }
-  return <>{rows}</>;
+  return (
+    // A finger moving the draft sideways isn't a swipe to the next day.
+    <div className="tlrows" onTouchEnd={(e) => holdNew.draft && e.stopPropagation()}>
+      {rows}
+      <HoldRing ring={holdNew.ring} />
+      {holdNew.draft?.open && (
+        <Capture
+          layout={layout}
+          close={holdNew.close}
+          slot={holdNew.slot(overlapWords(holdNew.draft.slot, [...model.blocks, ...busy].filter((o) => o.date === date).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))}
+        />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -768,22 +879,26 @@ export function DragDay(props: {
   selected?: string | null;
   onMoving(slot: Slot): void;
   onDone(): void;
-  onChange(b: PlacedBlock, slot: Slot): void;
+  /** A save that resolves to nothing has been called off or has failed, and the block goes back to where it was. */
+  onChange(b: PlacedBlock, slot: Slot): unknown;
   /** A block let go over To schedule, which takes it off the calendar. */
   onUnschedule?(b: PlacedBlock): void;
   onOpen(id: string): void;
   /** An hour's height: Week's pinch zoom, or the usual. */
   hour?: number;
+  /**
+   * A press held on empty time drafts an hour there and opens Capture on it. The caller leaves it off while a block is
+   * selected or being placed; it's off while one is held or being placed here.
+   */
+  holdToCreate?: boolean;
 }) {
   const { date, ctx, floor, moving, ghosts = [], hour = HOUR_PX } = props;
   const y = (m: number) => ((m - DAY_FROM) * hour) / 60;
-  const { clock, platform } = useApp();
+  const { clock, layout, platform } = useApp();
   const nowMin = localMinutes(clock.now(), clock.zone());
   const targets = ghosts.map((g) => ({ date: g.date, start: g.start }));
-  const [preview, setPreview] = useState<{ id: string; slot: Slot } | null>(null);
   // A dropped block stays where it landed until the saved position comes back.
-  const placed = props.blocks.map((b) => `${b.id}${b.start}${b.end}`).join();
-  useEffect(() => setPreview(null), [placed]);
+  const [preview, setPreview] = useLanded(props.blocks);
   // Blocks at the same time sit side by side, laid out where they're saved, so a block being dragged keeps its column.
   const [measure, width] = useWidth<HTMLDivElement>();
   const groups = overlapGroups(props.blocks).map((group) => ({ group, shown: shownColumns(group.cols, width && width - 4, MORE_PX) }));
@@ -800,6 +915,15 @@ export function DragDay(props: {
 
   // The block a hold has lifted, drawn raised until it's let go.
   const [lifted, setLifted] = useState<string | null>(null);
+  const holdNew = useHoldToCreate({
+    at: (_x, py) => ({ date, minute: DAY_FROM + (py * 60) / hour }),
+    move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / hour, [], bounds),
+    earliest: ctx.earliest,
+    off: !props.holdToCreate || !!moving || !!lifted || !!preview || !!props.selected,
+  });
+  const held = holdNew.draft?.slot.date === date ? holdNew.draft.slot : undefined;
+  /** What the draft would share its time with: blocks and calendar events on the day. */
+  const sharing = held ? [...props.blocks, ...ctx.busy].filter((o) => o.date === date && o.start < held.end && held.start < o.end) : [];
   // Measured from the drawn track each move, so zoom and scrolling during the drag can't shift the block.
   const track = (key: string, event: ReactPointerEvent, apply: (minutes: number) => void, done?: () => void, tap?: () => void, off?: () => void) => {
     event.preventDefault();
@@ -837,7 +961,7 @@ export function DragDay(props: {
     kind: PlacedBlock['kind'],
     slot: Slot,
     calm: boolean,
-    on: { change(s: Slot): void; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
+    on: { change(s: Slot): unknown; /** Saves on drop rather than following the finger. */ commit?: boolean; open?(): void; enter(): void; unschedule?(): void },
     /** Its column among blocks at the same time, and those it overlaps. */
     column?: { style: CSSProperties; others: readonly PlacedBlock[] },
   ) => {
@@ -867,8 +991,9 @@ export function DragDay(props: {
           else on.change(latest);
         },
         () => {
-          if (on.commit && (latest.start !== slot.start || latest.end !== slot.end)) on.change(latest);
-          else setPreview(null);
+          if (!on.commit || (latest.start === slot.start && latest.end === slot.end)) return setPreview(null);
+          const saved = on.change(latest);
+          if (saved instanceof Promise) void saved.then((ok) => ok === undefined && setPreview(null));
         },
         mode === 'move' ? on.open : undefined,
         mode === 'move' ? on.unschedule : undefined,
@@ -905,7 +1030,14 @@ export function DragDay(props: {
 
   return (
     <div className="daywrap">
-      <div ref={measure} className="day dragday" style={{ height: y(DAY_TO), '--hour': `${hour}px` } as CSSProperties} data-drop-date={date}>
+      <div
+        ref={measure}
+        className="day dragday"
+        style={{ height: y(DAY_TO), '--hour': `${hour}px` } as CSSProperties}
+        data-drop-date={date}
+        // Empty time is the day itself and its closed hours; a block, an event or a suggested time keeps its own press.
+        onPointerDown={(e) => !(e.target as Element).closest('.cev') && holdNew.press(e)}
+      >
         {zones.map((z, i) => (
           <div key={i} className={`dzone${z.lock ? ' lockz' : ''}`} style={{ top: z.top, height: z.h }} aria-hidden="true">
             {z.lock ? 'Time has passed' : ''}
@@ -981,7 +1113,12 @@ export function DragDay(props: {
             </button>
           ))}
         {moving && handle('moving', moving.title, moving.kind, moving.slot, false, { change: props.onMoving, enter: props.onDone })}
+        {held && <DraftBlock hold={holdNew} top={y(held.start)} height={y(held.end) - y(held.start)} beside={sharing.length > 0} />}
+        <HoldRing ring={holdNew.ring} />
       </div>
+      {held && holdNew.draft!.open && (
+        <Capture layout={layout} close={holdNew.close} slot={holdNew.slot(overlapWords(held, sharing.map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
+      )}
     </div>
   );
 }
@@ -1009,7 +1146,7 @@ function LengthAndNote(props: { block: PlacedBlock; model: WeekModel; canEdit: b
             type="range"
             min={GRID}
             max={max}
-            step={GRID}
+            step={SLIDER_STEP}
             value={len}
             aria-valuetext={formatMinutes(len)}
             onChange={(e) => props.onLength(block.start + Number(e.target.value))}
@@ -1115,7 +1252,7 @@ function AddChoice(props: { row: AddRow; len: Minutes; model: WeekModel; onLengt
             </label>
             <span className="strong">{formatMinutes(len)}</span>
           </div>
-          <input id={id} className="wkrange" type="range" min={GRID} max={most} step={GRID} value={len} aria-valuetext={formatMinutes(len)} onChange={(e) => props.onLength(Number(e.target.value))} />
+          <input id={id} className="wkrange" type="range" min={GRID} max={most} step={SLIDER_STEP} value={len} aria-valuetext={formatMinutes(len)} onChange={(e) => props.onLength(Number(e.target.value))} />
         </div>
       )}
       {found.map((o, i) => (

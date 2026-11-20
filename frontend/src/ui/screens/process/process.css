@@ -252,6 +252,14 @@
   font-size: var(--fs-meta);
 }
 
+/* Under a shared description that was cut to fit. */
+[data-layout] .pxcutnote {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+
 /* When its block is on the calendar, as hold to create leaves one. */
 [data-layout] .pxwhen {
   display: flex;
@@ -274,6 +282,55 @@
 [data-layout] .pklate {
   flex: 1 1 100%;
   margin: 0;
+}
+
+/* The milestones of the project the picker holds, a line of their own under it: chips, the rest in a list, and New. */
+[data-layout] .pkms {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--wash);
+}
+
+[data-layout] .pkmslabel {
+  margin-right: var(--space-1);
+  color: var(--ink-2);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-strong);
+}
+
+[data-layout] .pkms .msdue {
+  margin-left: var(--space-1);
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+}
+
+[data-layout] .pkms .mssel {
+  width: auto;
+}
+
+[data-layout] .pkmsnew {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-layout='desktop'] .pkmsnew .field {
+  width: 220px;
+}
+
+[data-layout='phone'] .pkmslabel,
+[data-layout='phone'] .pkmsnew {
+  flex: 1 1 100%;
+}
+
+[data-layout='phone'] .pkmsnew .field {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Add link and Add photo join the row of buttons; the link's fields take a line of their own. */

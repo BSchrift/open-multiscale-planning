@@ -106,6 +106,14 @@ device's database, as a sync would apply it, so no sync is timed but `sync.first
 The browser loads them through `window.multiscaleApply`, which dev builds and the runner's build (`vite build --mode
 perf`) have and production bundles drop. `e2e/perf-seeds.spec.ts` checks that a year and a new account arrive whole.
 
+Their records carry no expiry, as an account's from before retention don't. So the first launch on them works out
+every record's expiry and removes what retention no longer keeps (`core/expiry.ts`): a fifth of a year's records, and
+over half of five years', which leaves about 18,500. Today stays empty until that's done: about 35 seconds in CI's
+desktop Chromium on five years, and over two minutes with the phone's CPU slowed. A device does that once, the first
+time it launches with records from before retention, so it isn't a KPI. The runner launches each build once on the data
+at full speed and waits for a record that launch removes to be gone (`openLaunched` in `e2e/perf/harness.ts`), and the
+KPIs time the actions and launches after it, as the Mac app's do.
+
 ### The runner
 
 `make test-perf` runs [scripts/test-perf.sh](../scripts/test-perf.sh): it builds this checkout as it's timed, runs
@@ -180,10 +188,29 @@ rate over two weeks decides in phase 3 whether a KPI may ever block. A KPI more 
 baseline fails the run, which GitHub emails. Phase 3, calibrating the targets and gating the reliable KPIs, is tracked
 in [#203](https://github.com/BSchrift/open-multiscale-planning/issues/203).
 
+**The iPhone** (`.github/workflows/perf-ios.yml`, `scripts/test-perf-ios.sh`): nightly at 05:00 UTC when `frontend/`
+changed since the last run, and on a PR when someone adds the `perf-ios` label, never on every PR. `PerfUITests`
+loads a year of history from the test page as a sync would, launches the app 5 times (the first after install cold,
+the rest warm, each from the test's clock to Today interactive on the page's), then captures and goes through the
+screens 30 times each and comes back to the app 5 times. The app keeps its measures where the test page reads them
+back, since XCUITest can't read the app's page: a debug switch the test page sets, which nothing else does. The app's
+peak memory and memory warnings come from the diagnostics plugin's report of that session, and the web view's peak from
+the Mac's side, where the Simulator's processes run (its resident size, near enough its footprint). Then the same on
+an iPhone SE (3rd generation) Simulator, for its small screen and older WebKit; a Simulator runs at the Mac's speed,
+so it's not a slow phone. The nightly's results go to `perf-data`.
+
 **Once a week** (`.github/workflows/perf-mac.yml`, Sunday at 06:00 UTC): the Mac app's KPIs on a macOS runner, 200
 samples and 20 cold and warm starts after emptying the file cache, set beside the Linux numbers in main's baseline in
 the run's summary, to check that xvfb's numbers still track a real Mac's. One of the five macOS runners for about 25
 minutes, 60 at most.
+
+**Staging, each night main moved**, in the release pipeline's nightly run before its suites: the request mix the
+per-route targets are for (`TestNightlyRequestMix` in the integration suite, which a deployment runs only with `MULTISCALE_REQUEST_MIX=1` and the local suite always): 10
+pushes of 99 records, 10 pulls of the two pages they make, 20 telemetry batches, 20 calls to `/files/usage` and 5 to
+`/calendar/refresh`, as the test user, whose records it then empties and deletes as every test does. Then sync
+between two browsers against staging as that user (`PERF_SYNC=staging scripts/test-perf.sh`), whose `sync.send`,
+`sync.push` and `sync.pull` go straight to the dashboard as a staging run, since that run can't write to `perf-data`.
+Neither stops the suites. Together they add about five minutes to the nightly.
 
 **Results** go to the `perf-data` branch, which only the scheduled and main performance workflows write (`scripts/perf-data.sh`):
 one file per run under `runs/<day>/`, with each KPI's sample count, p50, p95 and p99, the commit and the runner, and

@@ -152,7 +152,7 @@ test("a task's block opens the task's popup, with the block's own section at its
   if (phone) expect(Math.round(box.y + box.height)).toBe(view.height);
   else expect(Math.abs(box.x + box.width / 2 - view.width / 2)).toBeLessThan(2);
   if (phone) {
-    for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+    for (const name of ['Move…', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
     await expectTapTarget(section.getByRole('slider', { name: 'Length' }));
   }
   await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}.png`) });
@@ -172,6 +172,31 @@ test("a task's block opens the task's popup, with the block's own section at its
   await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(section).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("desktop: what waits above the week shares rows across days, so the strip is as tall as its busiest day", async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
+  // A session every day still to place, as the owner's Gym is, and a one off for Thursday. Piano practice waits on
+  // every day but Wednesday, which has its session.
+  const errors = await openWeek(page, [
+    ...records,
+    { type: 'practice', id: 'gym', fields: { title: 'Gym', target_min: 60, per: 'day', days: [0, 1, 2, 3, 4, 5, 6], state: 'active' } },
+    { type: 'task', id: 't3', fields: { kind: 'one_off', title: 'Do some cleaning', estimate_min: 30, schedule: { type: 'once', from: '2026-11-05' } } },
+  ]);
+  const lane = page.locator('.collane');
+  const tops = (title: RegExp) => lane.locator('.oochip', { hasText: title }).evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+  await expect(lane.locator('.oochip', { hasText: /^Gym$/ })).toHaveCount(7);
+  // Each practice keeps one row across the week, and the one off goes under them on its day.
+  const [gym, piano, cleaning] = [await tops(/^Gym$/), await tops(/^Piano practice$/), await tops(/^Do some cleaning$/)];
+  expect(new Set(gym).size).toBe(1);
+  expect(new Set(piano).size).toBe(1);
+  expect(piano[0]).toBeGreaterThan(gym[0]!);
+  expect(cleaning[0]).toBeGreaterThan(piano[0]!);
+  // Three rows, for Thursday's three, rather than one for each of the 14 items.
+  const heights = await lane.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
+  expect(Math.max(...heights)).toBe(3 * 28 + 4);
+  await page.screenshot({ path: info.outputPath('week-lane-rows.png') });
   expect(errors).toEqual([]);
 });
 
@@ -212,7 +237,8 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   const sheet = page.getByRole('dialog', { name: 'Draft the summary' });
   await expect(sheet.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
   await expectTapTarget(sheet.getByRole('slider', { name: 'Length' }));
-  await sheet.getByRole('button', { name: 'Move', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Move…', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Choose a time…' }).click();
   await expect(page.getByText('Moving Draft the summary, 1h, from Tue 6pm')).toBeVisible();
   const handle = page.getByRole('slider', { name: /^Time for Draft the summary/ });
   await handle.focus();
@@ -258,7 +284,8 @@ test('phone: a day with no slot stays readable', async ({ page }, info) => {
   const strip = page.getByRole('group', { name: 'Choose a day' });
   await strip.getByRole('button').nth(1).click();
   await page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm/ }).click();
-  await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move…', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Choose a time…' }).click();
   const thursday = strip.getByRole('button', { name: /^Thu.*no slot for this task/ });
   await expect(thursday).toContainText('No slot');
   const contrast = await thursday.locator('.wfree').evaluate((el) => {

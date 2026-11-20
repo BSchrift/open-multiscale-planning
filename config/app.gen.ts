@@ -47,6 +47,9 @@ export const protocol = {
       "application/vnd.oasis.opendocument.spreadsheet",
       "application/vnd.oasis.opendocument.presentation"
     ]
+  },
+  "account": {
+    "maxSignInAgeMinutes": 10
   }
 } as const;
 
@@ -83,7 +86,7 @@ export const envs = {
     "stack": {
       "terminationProtection": true,
       "canaryPercent": 10,
-      "canaryMinutes": 90,
+      "canaryMinutes": 5,
       "throttleReleaseAlarm": true,
       "performanceDashboard": false
     },

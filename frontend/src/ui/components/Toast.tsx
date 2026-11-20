@@ -141,8 +141,8 @@ export function ToastProvider(props: { children: ReactNode }) {
   // The browser's own pointerenter and pointerleave, not React's. React makes its enter from a pointerout on what the
   // mouse was over before, and when a change took that away, as Week takes away the card or button just pressed, the
   // browser sends none: the mouse reaches the toast and React says nothing. WebKit reports a finger as a pointer that
-  // never leaves, so only a mouse holds it.
-  useEffect(() => {
+  // never leaves, so only a mouse holds it. Listening from before the toast is painted, for a mouse already where it shows.
+  useLayoutEffect(() => {
     const el = toastEl.current;
     if (!showing || !el) return;
     const hover = (on: boolean) => (event: PointerEvent) => event.pointerType === 'mouse' && setHeld((h) => (h.hover === on ? h : { ...h, hover: on }));

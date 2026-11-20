@@ -319,11 +319,13 @@ final class ShellUITests: XCTestCase {
         app.type("Gate code at the allotment\n", into: field)
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
 
-        // One tap beside Goal backlog; Process closes itself on the last item, and its toast shows.
+        // Beside Goal backlog; Process closes itself on the last item, and its toast shows.
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 1 item")
         exists(app.webButton("Gate code at the allotment"))
         app.tapWeb("Save as note")
+        // Then where it lives, in a sheet: On its own comes first.
+        app.tapWeb(anyStartingWith: "On its own")
         exists(app.webText("Saved Gate code at the allotment in Notes."))
 
         // Notes is a row under More, and the note opens in its popup.

@@ -20,6 +20,7 @@ import { loadToday } from './data';
 import type { TodayData } from './data';
 import { DayTimeline } from './DayTimeline';
 import { NowCard } from './NowCard';
+import { NotesToday } from '../notes/NoteList';
 import { OneOffsToday } from './OneOffsToday';
 import { QueuePanel } from './QueuePanel';
 import { ToSchedule } from './ToSchedule';
@@ -202,6 +203,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       {stretchShown && <StretchRow stretch={stretch.stretch} first={stretch.first} onGone={(after) => land(() => firstControl(after))} />}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />
+      <NotesToday />
       {(work || !unplanned) && <DayTimeline data={data} events={data.events} />}
       <DoneLine />
       {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}

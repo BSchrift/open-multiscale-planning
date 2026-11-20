@@ -81,6 +81,7 @@ const PLAN_PARAMS: Params = {
   since: '2026-11-02T05:00:00Z',
   task_id: 'task-3-45',
   memo_id: 'note:inbox-3',
+  day: '2026-11-02',
   project_id: 'project-3',
   now: '2026-11-02T05:00:00Z',
 };

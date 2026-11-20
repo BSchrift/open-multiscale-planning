@@ -24,6 +24,7 @@ import { ProjectBody } from './ProjectView';
 import { useStretchPlanning } from '../../components/planning/useStretchPlanning';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
+import { GoalNotes } from '../notes/NoteList';
 
 const NO_GOAL = 'nogoal';
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -465,6 +466,13 @@ export function GoalsPage(props: { data: GoalsData; ctx: PlanContext; show?: str
             {own.map(practiceRow)}
             {projects.map(projectRow)}
             {backlogRow(goal)}
+            <GoalNotes
+              goal={goal}
+              homes={[
+                ...projects.map((p) => ({ home: { type: 'project' as const, id: p.project.id }, title: p.project.title })),
+                ...own.map((p) => ({ home: { type: 'practice' as const, id: p.id }, title: p.title })),
+              ]}
+            />
             {asks && (
               <div className="row">
                 <span className="small quiet">Still a goal?</span>

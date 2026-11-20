@@ -38,6 +38,7 @@ import { HOLD_MS, SLOP_PX, swallowClick } from '../../components/weekgrid';
 import { ProjectProgress } from './ProjectTimeline';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
+import { HomeNotes } from '../notes/NoteList';
 
 type Editing =
   | { kind: 'addTask'; at: string; milestone: string | null }
@@ -356,6 +357,8 @@ export function ProjectBody(props: { plan: ProjectPlan; ctx: PlanContext; goals:
           {editing?.kind === 'addMilestone' && <MilestoneEditor plan={plan} ctx={ctx} onClose={close} />}
         </div>
       </div>
+
+      <HomeNotes home={{ type: 'project', id: plan.project.id }} />
 
       <button className={layout === 'phone' ? 'card projbtn morerow' : 'link small settingsbtn'} type="button" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
         <span>Project settings</span>

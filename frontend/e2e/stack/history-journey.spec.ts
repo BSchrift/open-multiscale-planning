@@ -8,8 +8,8 @@ import { systemClock } from '../../src/core/clock';
 import { historyFacts, keptHistory, seedHistory } from '../../src/core/history-testing';
 import { createHttpSend } from '../../src/core/sync';
 import { memoryTokens } from '../../src/platform/memory';
-import { workJourney } from '../deployed/journey';
-import { account } from '../seed';
+import { clearLeftChecks, workJourney } from '../deployed/journey';
+import { account, syncNow } from '../seed';
 import { closeDevices, device, startSignIn } from './devices';
 import { target } from './target';
 
@@ -53,12 +53,23 @@ test("the deployed suite's journey, from Capture to the calendar and back, works
   await startSignIn(d.page);
   // The first sync pulls the whole account before Settings says Synced; the Inbox count is the history's.
   await expect(account(d.page).getByText('Synced', { exact: true })).toBeVisible({ timeout: 5 * 60_000 });
-  await expect(d.page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /^Inbox/ })).toContainText(String(historyFacts(changes).openInbox));
+  const inbox = d.page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /^Inbox/ });
+  await expect(inbox).toContainText(String(historyFacts(changes).openInbox));
 
   // Prod's runner took more than 5 seconds to read a change back on its shared test user. A CI runner or a Mac takes about
   // one on this account, so the page runs six times slower from here, where Week's read-back takes 5 to 6 seconds, past
   // the toast's: the journey before #312 fails here as it did on prod, waiting for Undo.
   await (await d.context.newCDPSession(d.page)).send('Emulation.setCPUThrottlingRate', { rate: 6 });
   await workJourney(d.page, `Deployed check ${new Date().toISOString().slice(11, 19)}`);
+
+  // Then the clean-up the deployed suite runs after it, which deletes the second check the journey leaves in the Inbox. On
+  // this account the Inbox reads a delete back seconds later, and the clean-up pressed the deleted check's row while it
+  // still showed: Process opened on an item it no longer had, so on the rest of the Inbox, once it had read it, and
+  // stayed open over the page after the clean-up had moved on. Staging's history user met it on 20 November, at the
+  // next test's first press. Process can draw some seconds after the press, so it's looked for again after a sync.
+  await clearLeftChecks(d.page);
+  await syncNow(d.page);
+  await expect(d.page.getByRole('dialog', { name: 'Process Inbox' })).toHaveCount(0);
+  await expect(inbox).toHaveAccessibleName(`Inbox ${historyFacts(changes).openInbox}`);
   expect(d.errors).toEqual([]);
 });

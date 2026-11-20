@@ -20,7 +20,8 @@ const NETWORK = { timeout: 60_000 };
 // On prod's shared test user, which held tens of thousands of deleted records, it ran past 70 seconds on 15 November.
 const CATCH_UP = 180_000;
 // The history project (playwright.config.ts) signs in as staging's history user, whose five-year account
-// (history-seed.setup.ts) is about 33,000 records: some 67 pages of 500 for a new browser. Fewer means it isn't seeded.
+// (history-seed.setup.ts) is about 33,000 records: 78 to 83 pages for a new browser on staging's runs of 20 November, of
+// about 400 records each. Fewer means it isn't seeded.
 const HISTORY_PAGES = 50;
 const HISTORY_ONLY = 'The history project checks only what a long history changes: sign-in, a reload, OPFS, the journey, planning and the console';
 

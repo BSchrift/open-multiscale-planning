@@ -9,7 +9,8 @@ import { useApp } from '../../app/store';
 import { DraftCapture } from '../../screens/capture/DraftCapture';
 import { Menu } from '../Menu';
 import { HoldRing, overlapWords, useHoldToCreate } from './holdCreate';
-import { COLUMN_GAP, dayName, hourPx, sharedWith, WeekGrid } from './WeekGrid';
+import { dayName } from '../blocks/describe';
+import { COLUMN_GAP, hourPx, sharedWith, WeekGrid } from './WeekGrid';
 import type { WeekGridProps } from './WeekGrid';
 
 /**

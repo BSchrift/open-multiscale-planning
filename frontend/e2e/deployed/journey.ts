@@ -124,11 +124,14 @@ export async function workJourney(page: Page, title: string): Promise<void> {
 
 /** Week's editing, from this week: Skip for now first, while the week still asks to be planned. */
 async function editWeek(page: Page): Promise<void> {
+  const edit = page.getByRole('button', { name: "Edit this week's plan" });
   // Skip for now is × on desktop, and is kept on the week's plan for every device.
-  if (!(await page.getByRole('button', { name: "Edit this week's plan" }).count())) {
-    await page.getByRole('button', { name: /^Skip (for now|planning this week)$/ }).click();
-  }
-  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  const skip = page.getByRole('button', { name: /^Skip (for now|planning this week)$/ });
+  // Week draws one or the other once it has loaded. Counted before then, it has neither, and waiting on Skip for now
+  // waits for good on a week that doesn't ask: every staging run from 19 November did, as staging's Week drew late.
+  await expect(edit.or(skip).first()).toBeVisible();
+  if (!(await edit.count())) await skip.click();
+  await edit.click();
 }
 
 /**

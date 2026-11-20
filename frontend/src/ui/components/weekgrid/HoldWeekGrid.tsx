@@ -10,8 +10,8 @@ import type { WeekGridProps } from './WeekGrid';
 
 /**
  * A press held on empty time drafts an hour at the quarter hour under it, which moves with the mouse as a block does, a
- * day per column and never into time gone by, and letting go opens Capture on it. The caller turns it off while a block
- * is open, selected or being placed.
+ * day per column and never into time gone by, and letting go opens Capture on it. A mouse dragged on empty time draws
+ * the draft instead, in the pressed day's column. The caller turns it off while a block is open, selected or being placed.
  */
 export function HoldWeekGrid(props: WeekGridProps & { holdOff: boolean }) {
   const { holdOff, ...grid } = props;
@@ -26,6 +26,7 @@ export function HoldWeekGrid(props: WeekGridProps & { holdOff: boolean }) {
     },
     earliest: ctx.earliest,
     off: holdOff,
+    draws: true,
   });
   const held = hold.draft?.slot;
   return (

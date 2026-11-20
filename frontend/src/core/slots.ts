@@ -302,6 +302,21 @@ export function holdSlot(date: LocalDate, minute: number, earliest: SlotContext[
 }
 
 /**
+ * Where a mouse pressed on empty time and dragged draws a new block: over every quarter hour from the one pressed to the
+ * one under the pointer, up or down, so at least one, the shortest block. Within the drawn day, and as a hold, none in a
+ * quarter hour that has gone by and in the one now falls in, from the next.
+ */
+export function drawnSlot(date: LocalDate, pressed: number, pointer: number, earliest: SlotContext['earliest'], to: TimeOfDay = DRAWN_DAY.to): Slot | null {
+  const first = Math.floor(Math.min(pressed, pointer) / GRID) * GRID;
+  const last = Math.floor(Math.max(pressed, pointer) / GRID) * GRID + GRID;
+  const today = date === earliest.date;
+  if (date < earliest.date || (today && last <= earliest.minutes)) return null;
+  const start = Math.max(first, DRAWN_DAY.from, today ? Math.ceil(earliest.minutes / GRID) * GRID : 0);
+  const end = Math.min(to, Math.max(last, start + GRID));
+  return end - start >= GRID ? { date, start, end } : null;
+}
+
+/**
  * Where work dropped at a minute of a day lands: the 15-minute grid within the drawn day, snapping to a suggested time
  * within 20 minutes. Null on a day gone by, or when no time is left in it.
  */

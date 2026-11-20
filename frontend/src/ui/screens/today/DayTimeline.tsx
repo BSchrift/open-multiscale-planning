@@ -10,16 +10,15 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, TouchEvent } from 'react';
-import { currentBlock, isPaused, moveBlock, nextBlock, unscheduleBlock } from '../../../core/blocks';
-import { addDays, dayRange, formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
+import { currentBlock, isPaused, nextBlock } from '../../../core/blocks';
+import { formatTime, formatTimeOfDay, instantMs, localDate, localMinutes, weekStart } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
-import type { PlanChange, RecordWrite } from '../../../core/plan';
-import { blocksInRange } from '../../../core/queries';
+import type { PlanChange } from '../../../core/plan';
 import type { BlockRow } from '../../../core/queries';
 import type { Writer } from '../../../core/records';
-import { dayOffer, dragResult, DRAWN_DAY, fits, GRID, slotContext, slotInstants, slotNotes } from '../../../core/slots';
+import { dayOffer, dragResult, DRAWN_DAY, GRID, slotContext, slotNotes } from '../../../core/slots';
 import type { Slot } from '../../../core/slots';
-import type { CalendarEvent, LocalDate } from '../../../core/types';
+import type { CalendarEvent } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { requestPrompt } from '../../app/reminders';
 import { useApp, useMutation, useStickyState } from '../../app/store';
@@ -31,7 +30,6 @@ import { describeBlock, formatRange, isTaskBlock, KIND_WORD, OUTCOME_WORD } from
 import type { BlockKind } from '../../components/blocks/describe';
 import { OutcomeTag } from '../../components/blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../../components/ds/Block';
-import { landsOn, useBothAsk } from '../../components/blocks/BothAsk';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
 import { useOpenTask } from '../../components/task/TaskName';
@@ -78,7 +76,7 @@ const touchGap = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches
 
 export function DayTimeline(props: { data: TodayData; events: readonly CalendarEvent[] }) {
   const { data, events } = props;
-  const { clock, db, layout, platform } = useApp();
+  const { clock, layout, platform } = useApp();
   const zone = clock.zone();
   const phone = layout === 'phone';
   const [view, setView] = useStickyState<'calendar' | 'list'>('today.view', 'calendar');
@@ -88,6 +86,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const toggle = (id: string) => setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : phone || view === 'calendar' ? new Set([id]) : new Set(s).add(id)));
   const toast = useToast();
   const openTask = useOpenTask();
+  // Its ask, when a drag or Move to lands a block on another: keep both, replace it, or leave it.
   const actions = useBlockCommands();
   const nav = useNav();
   /** A task's block opened in the task's popup. */
@@ -96,8 +95,6 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number }; from: HTMLElement } | null>(null);
   /** Delete task from a block's menu, asking first. */
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
-  // Landing on another block asks first: keep both, replace it, or leave it.
-  const both = useBothAsk();
   // A task's block made shorter asks what about the rest, under the timeline, until answered.
   const [split, setSplit] = useState<Shortened | null>(null);
   const { run } = useMutation((w, fn: (w: Writer) => Promise<PlanChange>) => fn(w));
@@ -112,18 +109,19 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   // A dropped block stays where it landed until the saved position comes back.
   const positions = data.blocks.map((b) => `${b.id} ${b.start} ${b.end}`).join();
   useEffect(() => setDrag(null), [positions]);
-  // A hold on empty time drafts an hour there, never while a block is open, moving or just dropped. Its day and minutes
-  // come from the drawn day, which grows to fit the draft.
+  // A hold on empty time drafts an hour there, and a mouse dragged on it draws one, never while a block is open, moving
+  // or just dropped. Its day and minutes come from the drawn day, which grows to fit the draft.
   const holdNew = useHoldToCreate({
     at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
     move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
     earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
     off: !!drag || !!pop || open.size > 0,
+    draws: true,
   });
   const held = holdNew.draft?.slot;
 
-  // Minutes after the day's midnight, kept within the day, so an event over midnight still draws.
-  const minutesOf = (at: string, edge: number, date: LocalDate = data.date) => (localDate(at, zone) === date ? localMinutes(at, zone) : edge);
+  // Minutes after today's midnight, kept within the day, so an event over midnight still draws.
+  const minutesOf = (at: string, edge: number) => (localDate(at, zone) === data.date ? localMinutes(at, zone) : edge);
   const cur = currentBlock(data.blocks, clock);
   const records = {
     tasks: new Map(data.tasks.map((t) => [t.id, t])),
@@ -218,33 +216,13 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   const slotOf = (i: Item): Slot => ({ date: data.date, start: i.from, end: i.to });
   const workOf = (i: Item) => ({ kind: i.kind === 'one_off' ? ('one_off' as const) : ('project' as const) });
 
-  /**
-   * Asks first when a block lands on others on its new time's day, from that day's blocks where they're saved; one under
-   * way or answered can only be kept. Resolves to the blocks to take off as it moves, or null when cancelled.
-   */
-  const landing = async (i: Item, blocks: readonly BlockRow[], from: Slot | null, to: Slot) => {
-    const saved = blocks.map((b) => ({ id: b.id, title: b.title ?? 'Time block', date: to.date, start: minutesOf(b.start, 0, to.date), end: minutesOf(b.end, 1440, to.date), fixed: ended(b) || !!b.started_at }));
-    const on = landsOn(saved, i.id, to, from);
-    const answer = on.length ? await both.ask(i.title, on) : 'keep';
-    return answer === 'cancel' ? null : answer === 'replace' ? on.filter((x) => !x.fixed) : [];
-  };
-  /** Moves a block and takes off those it replaces, as one change, so one Undo puts them all back. */
-  const moveOver = (i: Item, to: Slot, off: readonly { id: string }[]) =>
-    run(async (w) => {
-      const moved = await moveBlock(w, i.id, slotInstants(to, zone));
-      const back: RecordWrite[] = [];
-      for (const x of off) back.unshift(...(await unscheduleBlock(w, x.id, weekStart(to.date), clock)).writes);
-      return { writes: [...back, ...moved.writes] };
-    });
-  const tookOff = (off: readonly { title: string }[]) => (off.length ? [`Took ${new Intl.ListFormat('en-GB').format(off.map((x) => x.title))} off the calendar.`] : []);
-
   const save = async (i: Item, from: Slot, to: Slot, key = false) => {
-    const off = await landing(i, data.blocks, from, to);
+    const off = await actions.landing(i, data.blocks, from, to);
     if (!off) {
       steps.current = null;
       return setDrag(null);
     }
-    const reverse = await moveOver(i, to, off);
+    const reverse = await actions.moveOver(i.id, to, off);
     if (!reverse) return setDrag(null);
     // Arrow steps in a row are one change, so Undo takes the block back to before the first.
     const prev = steps.current;
@@ -256,7 +234,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       setDrag(null);
       return run((w) => applyPlanChange(w, first));
     };
-    toast.show([`${i.title} is now ${range(to)}.`, ...tookOff(off), ...notes].join(' '), { undo });
+    toast.show([`${i.title} is now ${range(to)}.`, ...actions.tookOff(off), ...notes].join(' '), { undo });
     const b = { id: i.id, task_id: i.block?.task_id ?? null, start: from.start, end: from.end };
     setSplit(shortened(b, to, { task: !!taskOf(i), underWay: !!i.cur, week: weekStart(data.date), title: i.title, open: split }));
   };
@@ -321,28 +299,12 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     });
   };
 
-  // The first time after a block, today, that it fits as it is, as a drag would land without a note.
-  const nextFree = (i: Item) => {
-    const len = i.to - i.from;
-    const others = { ...ctx, placed: ctx.placed.filter((x) => x.id !== i.id) };
-    for (let start = Math.max(i.to, floor); start + len <= bounds(slotOf(i)).to; start += GRID) if (fits(data.date, start, len, workOf(i).kind, others)) return start;
-    return null;
+  // The popup's Move… choices, so both move it alike; Choose a time opens Week ready to edit.
+  const moveTo = (b: BlockRow): MenuChoice[] => {
+    const entries = actions.moveChoices(b, ctx);
+    return entries.length ? [{ id: 'move', label: 'Move to', icon: 'calendar', submenu: entries }] : [];
   };
-  // Tomorrow at the same time, within this week, whose picks and To schedule it's part of.
-  const tomorrow = addDays(data.date, 1);
-  const thisWeekStill = weekStart(tomorrow) === weekStart(data.date);
-  const moveTo = (i: Item): MenuChoice => {
-    const next = nextFree(i);
-    const entries: MenuEntry[] = [
-      ...(next === null ? [] : [{ id: 'move:next', label: `Next free time, ${formatTimeOfDay(next)}`, icon: 'clock' as const }]),
-      ...(thisWeekStill ? [{ id: 'move:tomorrow', label: `Tomorrow, ${formatTimeOfDay(i.from)}`, icon: 'calendar' as const }] : []),
-      // A practice's session comes off with Skip this session.
-      ...(i.block?.task_id ? [{ id: 'move:back', label: 'Back to To schedule', icon: 'inbox' as const }] : []),
-      'separator',
-      { id: 'move:choose', label: 'Choose a time…', icon: 'week' },
-    ];
-    return { id: 'move', label: 'Move to', icon: 'calendar', submenu: entries };
-  };
+  const chooseOnWeek = () => nav.go('week', { edit: 'this' });
   // What can be done to a block where it is in its day: the popup's own actions, with "Did it" and "Skip this session"
   // for a practice. None for a planning block, which has its own flow, nor for another calendar's event.
   const menuOf = (i: Item): MenuEntry[] | null => {
@@ -357,10 +319,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
     const after = (rest: MenuChoice[]): MenuEntry[] => (rest.length ? ['separator', ...rest] : []);
     switch (stageOf(b, clock.now())) {
       case 'later':
-        return [done, { id: 'start', label: 'Start now', icon: 'clock' }, ...(movable(b) ? [moveTo(i)] : []), open, ...after([...remove, ...del])];
+        return [done, { id: 'start', label: 'Start now', icon: 'clock' }, ...moveTo(b), open, ...after([...remove, ...del])];
       case 'now': {
         const timer: MenuChoice = !b.started_at ? { id: 'start', label: 'Start', icon: 'clock' } : isPaused(b) ? { id: 'resume', label: 'Resume', icon: 'clock' } : { id: 'pause', label: 'Pause', icon: 'clock' };
-        return [done, timer, open, ...after([...remove, ...del])];
+        return [done, timer, ...moveTo(b), open, ...after([...remove, ...del])];
       }
       case 'gone':
         return [done, { id: 'partly', label: `${words.partly}…`, icon: 'partly' }, { id: 'not', label: words.not, icon: 'not-done' }, ...after([open, ...del])];
@@ -370,7 +332,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   };
   const act = (i: Item, id: string) => {
     const b = i.block!;
-    const at = (date: string, start: number): Slot => ({ date, start, end: start + i.to - i.from });
+    if (id.startsWith('move:')) return void actions.moveTo(b, id, ctx, chooseOnWeek);
     switch (id) {
       case 'done':
         return void actions.done(b, nextBlock(data.blocks.filter((x) => x.id !== b.id), clock));
@@ -388,30 +350,10 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       case 'open':
         return openItem(i);
       case 'remove':
-      case 'move:back':
         return void actions.skip(b);
       case 'delete':
         return setDeleting({ id: b.task_id!, title: records.tasks.get(b.task_id!)?.title ?? i.title });
-      case 'move:next': {
-        const next = nextFree(i);
-        return void (next !== null && save(i, slotOf(i), at(data.date, next)));
-      }
-      case 'move:tomorrow':
-        return void moveTomorrow(i, at(tomorrow, i.from));
-      case 'move:choose':
-        return nav.go('week', { edit: 'this' });
     }
-  };
-  // Today draws only today, so tomorrow's blocks are read here for the ask.
-  const moveTomorrow = async (i: Item, to: Slot) => {
-    const there = await blocksInRange(db, dayRange(to.date, zone)).catch((error: unknown) => {
-      console.error('Read failed', error);
-      toast.show("Couldn't move that. Try again.");
-      return null;
-    });
-    const off = there && (await landing(i, there, null, to));
-    const reverse = off && (await moveOver(i, to, off));
-    if (reverse) toast.show([`${i.title} is now tomorrow, ${range(to)}.`, ...tookOff(off)].join(' '), { undo: () => run((w) => applyPlanChange(w, reverse)) });
   };
   const below = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
@@ -689,7 +631,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         </div>
       </div>
       {view === 'calendar' ? calendar : <div className="tllist">{list}</div>}
-      {both.asking}
+      {actions.asking}
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
       {holdNew.draft?.open && (
@@ -703,7 +645,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
         <TaskPopupFor
           id={pop.task}
           close={() => setPop(null)}
-          block={popBlock && <BlockSection block={popBlock} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
+          block={popBlock && <BlockSection block={popBlock} move={{ ctx, choose: chooseOnWeek }} {...(removable(popBlock) ? { onRemove: () => void actions.skip(popBlock) } : {})} />}
         />
       )}
       {menu && menuItem && (

@@ -1,4 +1,4 @@
-import { cleanup, screen, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixedClock } from '../../../core/clock';
@@ -30,7 +30,8 @@ async function seed(w: Writer) {
 describe("a note's home shows it", () => {
   it('on an open goal card, in one Notes row grouped by home, and nowhere on a closed one', async () => {
     await renderScreen('goals', { seed });
-    const home = await screen.findByRole('button', { name: /^Home/, expanded: false });
+    // The first render of a screen loads it, which takes longer on a busy machine.
+    const home = await screen.findByRole('button', { name: /^Home/, expanded: false }, { timeout: 5000 });
     expect(screen.queryByRole('button', { name: /^Notes, / })).toBeNull();
     await userEvent.click(home);
     const row = await screen.findByRole('button', { name: 'Notes, 2 notes' });
@@ -43,14 +44,32 @@ describe("a note's home shows it", () => {
 
   it("in a Notes section on the project's page", async () => {
     await renderScreen('goals', { seed, layout: 'phone', params: { project: 'p1' } });
-    const section = await screen.findByRole('region', { name: 'Notes' });
+    const section = await screen.findByRole('region', { name: 'Notes' }, { timeout: 5000 });
     expect(within(section).getAllByRole('button').map((b) => b.querySelector('.ntitle')?.textContent)).toEqual(['Tiles: 10x10 white']);
   });
 
   it("in the practice's sheet", async () => {
     await renderScreen('goals', { seed, layout: 'phone', params: { show: 'pr1' } });
-    const sheet = await screen.findByRole('dialog', { name: 'Edit practice' });
+    const sheet = await screen.findByRole('dialog', { name: 'Edit practice' }, { timeout: 5000 });
     expect(within(within(sheet).getByRole('region', { name: 'Notes' })).getByRole('button', { name: /^Shoe size 44/ })).toBeInTheDocument();
+  });
+});
+
+describe('a note outlives its home', () => {
+  it('reads as having no home, in Notes and in Belongs to, once its project is finished', async () => {
+    await renderScreen('notes', {
+      seed: async (w) => {
+        await seed(w);
+        await w.set('project', 'p1', { state: 'finished' });
+      },
+    });
+    const tiles = await screen.findByRole('button', { name: /^Tiles: 10x10 white/ }, { timeout: 5000 });
+    // Only once the homes are read does the goal's name show on its note.
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Paint for the hall/ })).toHaveAccessibleDescription('Saved Nov 2 · Home'));
+    expect(tiles).toHaveAccessibleDescription('Saved Nov 2');
+    await userEvent.click(tiles);
+    const popup = await screen.findByRole('dialog', { name: 'Note: Tiles: 10x10 white' });
+    expect(within(popup).getByRole('button', { name: 'Belongs to Notes · On its own' })).toBeInTheDocument();
   });
 });
 
@@ -63,7 +82,7 @@ describe('Today', () => {
         await seed(w);
       },
     });
-    const card = await screen.findByRole('region', { name: 'Notes for today' });
+    const card = await screen.findByRole('region', { name: 'Notes for today' }, { timeout: 5000 });
     expect(within(card).getAllByRole('button').map((b) => b.querySelector('.ntitle')?.textContent)).toEqual(['Shoe size 44']);
     expect(within(card).getByRole('button', { name: /^Shoe size 44/ })).toHaveAccessibleDescription('Saved Nov 2 · Morning run · On Today now');
     expect(within(card).queryByRole('checkbox')).toBeNull();

@@ -170,7 +170,9 @@ export async function clearLeftChecks(page: Page): Promise<void> {
   await editWeek(page);
   for (let left = page.getByRole('button', { name: /^Remove (Deployed|Staging|Compat) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!;
-    await left.first().click();
+    // Pressed by keyboard, as a person using one would. Checks left at the same time are drawn side by side, and each
+    // one's × sits under the next block, which takes a click: prod's Test failed so on 20 November.
+    await left.first().press('Enter');
     await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
   await page.getByRole('button', { name: 'Done editing' }).click();

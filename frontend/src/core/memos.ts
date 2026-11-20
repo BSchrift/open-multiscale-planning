@@ -48,18 +48,6 @@ function clamped(fields: NoteEdit): Fields<'memo'> {
   };
 }
 
-const HOME_TYPES: readonly MemoHome['type'][] = ['objective', 'project', 'practice'];
-
-/**
- * A note's home, read defensively: one of another type, or naming a record that's gone, as from another device or a
- * newer app, is no home. live holds the ids of the goals, projects and practices still here.
- */
-export function homeOf(memo: Pick<Memo, 'home'>, live: Readonly<Record<MemoHome['type'], ReadonlySet<string>>>): MemoHome | null {
-  const home = memo.home as Partial<MemoHome> | null | undefined;
-  if (!home || typeof home !== 'object' || typeof home.id !== 'string' || !HOME_TYPES.includes(home.type as MemoHome['type'])) return null;
-  return live[home.type as MemoHome['type']].has(home.id) ? { type: home.type as MemoHome['type'], id: home.id } : null;
-}
-
 /** Writes a note that may be here already, and returns the write that puts it back: deleted if it's new. */
 async function put(w: Writer, id: string, fields: Fields<'memo'>, clock: Clock): Promise<RecordWrite> {
   if (await getRecord(w.sql, 'memo', id)) return { type: 'memo', id, fields: await w.set('memo', id, fields) };

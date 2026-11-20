@@ -6,7 +6,7 @@
 
 import { parseClock } from './clock';
 import type { Sql } from './db';
-import type { Attachment, BlockResult, Instant, LocalDate, Memo, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
+import type { Attachment, BlockResult, Instant, LocalDate, Memo, MemoHome, Milestone, Minutes, Task, TaskCompletion, TaskKind, TimeBlock, WeekPick } from './types';
 import type { UtcRange } from './dates';
 
 export const SQL = {
@@ -270,6 +270,24 @@ export interface NoteRow extends Required<Pick<Memo, 'id' | 'title' | 'body' | '
   files: number;
 }
 
+const HOME_TYPES: readonly unknown[] = ['objective', 'project', 'practice'] satisfies MemoHome['type'][];
+
+/**
+ * A note's home as its view holds it, an object as JSON text, read defensively: anything else another device or a newer
+ * app sent, such as another type of home or not an object at all, is no home. One that's gone the screens leave out.
+ */
+function readHome(value: unknown): MemoHome | null {
+  let home: unknown = value;
+  try {
+    if (typeof value === 'string') home = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!home || typeof home !== 'object') return null;
+  const { type, id } = home as Record<string, unknown>;
+  return HOME_TYPES.includes(type) && typeof id === 'string' ? { type: type as MemoHome['type'], id } : null;
+}
+
 async function withAttachments(sql: Sql, memos: Promise<Memo[]>): Promise<NoteRow[]> {
   const counts = new Map<string, Record<string, number>>();
   for (const c of await sql.all<{ memo_id: string; kind: string; n: number }>(SQL.noteAttachments)) {
@@ -282,8 +300,7 @@ async function withAttachments(sql: Sql, memos: Promise<Memo[]>): Promise<NoteRo
       title: m.title,
       body: m.body ?? null,
       saved_on: m.saved_on ?? null,
-      // A view's column holds an object as JSON text.
-      home: (typeof m.home === 'string' ? (JSON.parse(m.home) as Memo['home']) : m.home) ?? null,
+      home: readHome(m.home),
       show_on: m.show_on ?? null,
       deleted_at: m.deleted_at ?? null,
       photos: n.photo ?? 0,

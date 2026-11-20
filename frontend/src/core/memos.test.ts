@@ -6,7 +6,7 @@ import { MAX_TITLE } from './captureTitle';
 import { fixedClock, formatClock } from './clock';
 import type { Db } from './db';
 import { backfillExpiry } from './expiry';
-import { clampText, deleteNote, editNote, foldMatches, homeOf, noteId, restore, saveAsNote, searchNotes, toTask } from './memos';
+import { clampText, deleteNote, editNote, foldMatches, noteId, restore, saveAsNote, searchNotes, toTask } from './memos';
 import { MAX_NOTES } from './notes';
 import { applyPlanChange } from './plan';
 import { applyRemote, getRecord, transact } from './records';
@@ -208,13 +208,22 @@ describe("a note's home and day", () => {
     expect(await getRecord(db, 'memo', noteId('paint'))).toMatchObject({ home: null, show_on: null });
   });
 
-  it('reads a home of another type, or one that has gone, as no home', async () => {
-    const homes = { objective: new Set(['g1']), project: new Set(['p1']), practice: new Set<string>() };
-    expect(homeOf({ home: { type: 'project', id: 'p1' } }, homes)).toEqual({ type: 'project', id: 'p1' });
-    expect(homeOf({ home: { type: 'project', id: 'gone' } }, homes)).toBeNull();
-    expect(homeOf({ home: { type: 'person', id: 'p1' } as never }, homes)).toBeNull();
-    expect(homeOf({ home: 'p1' as never }, homes)).toBeNull();
-    expect(homeOf({}, homes)).toBeNull();
+  it('lists a home another device sent of another type, or not a home at all, as no home', async () => {
+    const memo = (id: string, home: unknown) => ({
+      type: 'memo' as const,
+      id,
+      fields: { title: { v: id, c: other('2026-11-17T16:00:00Z') }, saved_on: { v: '2026-11-17', c: other('2026-11-17T16:00:00Z') }, home: { v: home, c: other('2026-11-17T16:00:00Z') } },
+    });
+    await applyRemote(db, [
+      memo('n1', { type: 'project', id: 'p1' }),
+      memo('n2', { type: 'person', id: 'p1' }),
+      memo('n3', 'p1'),
+      memo('n4', 7),
+      memo('n5', { type: 'project' }),
+      memo('n6', null),
+    ]);
+    const homes = Object.fromEntries((await notesList(db)).map((n) => [n.id, n.home]));
+    expect(homes).toEqual({ n1: { type: 'project', id: 'p1' }, n2: null, n3: null, n4: null, n5: null, n6: null });
   });
 });
 

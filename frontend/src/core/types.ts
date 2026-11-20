@@ -368,7 +368,7 @@ export interface Memo extends BaseRecord {
   saved_on?: LocalDate | null;
   /**
    * Where it lives: a goal, project or practice, whose page shows it. Absent, or naming a record that's gone or of
-   * another type, it has no home (memos.homeOf). A note outlives its home.
+   * another type, it has no home (queries.readHome). A note outlives its home.
    */
   home?: MemoHome | null;
   /** A day the person chose to see it on Today, read only. Never set or changed by the app. */

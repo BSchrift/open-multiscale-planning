@@ -108,8 +108,12 @@ export function createSyncRunner(deps: {
         // Another account's, signed in here and refused: this device's own account is still there, so it's only signed out.
         if (!erased) code = 'sign_in_expired';
       }
-      // Signed out with its account deleted, it says so until someone signs in, rather than just signed out.
-      if (code === 'sign_in_expired' && (await getMeta(db, META.lastSyncError).catch(() => null)) === 'account_deleted') return;
+      // Signed out with its account deleted, or after a sign-in that didn't finish, it says so until someone signs in,
+      // rather than just signed out. The sync an edit or a return from the sign-in page starts would otherwise hide why.
+      if (code === 'sign_in_expired') {
+        const last = await getMeta(db, META.lastSyncError).catch(() => null);
+        if (last === 'account_deleted' || last === 'sign_in_failed') return;
+      }
       await recordFailure(db, code).catch((e: unknown) => console.error('Could not record sync failure', e));
       return;
     }

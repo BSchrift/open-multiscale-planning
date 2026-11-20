@@ -86,9 +86,11 @@ export function NoteRowButton(props: {
   );
 }
 
-/** Notes as rows in a card, each opening its popup, which returns focus to the row. homeless leaves the home off each row. */
-export function NoteList(props: { notes: readonly NoteRow[]; label?: string; homeless?: boolean }) {
-  const names = useHomeNames();
+/**
+ * Notes as rows in a card, each opening its popup, which returns focus to the row. homes names each row's home; the
+ * places a home shows its notes leave it out, as every row there has that home.
+ */
+export function NoteList(props: { notes: readonly NoteRow[]; label?: string; homes?: ReadonlyMap<string, string> | undefined }) {
   const day = useToday();
   const [open, setOpen] = useState<{ id: string; opener: HTMLElement } | null>(null);
   return (
@@ -96,7 +98,7 @@ export function NoteList(props: { notes: readonly NoteRow[]; label?: string; hom
       <ul className="card nlist" aria-label={props.label}>
         {props.notes.map((note) => (
           <li key={note.id}>
-            <NoteRowButton note={note} homes={props.homeless ? undefined : names} today={day} onOpen={(el) => setOpen({ id: note.id, opener: el })} />
+            <NoteRowButton note={note} homes={props.homes} today={day} onOpen={(el) => setOpen({ id: note.id, opener: el })} />
           </li>
         ))}
       </ul>
@@ -128,7 +130,7 @@ export function HomeNotes(props: { home: MemoHome }) {
   return (
     <section className="stack8 homenotes" aria-labelledby={id}>
       <h3 id={id}>Notes</h3>
-      <NoteList notes={notes} homeless />
+      <NoteList notes={notes} />
     </section>
   );
 }
@@ -167,7 +169,7 @@ export function GoalNotes(props: { goal: Objective; homes: readonly { home: Memo
           {groups.map((g) => (
             <div key={homeKey(g.home)} className="stack8">
               <h4 className="small quiet">{g.title}</h4>
-              <NoteList notes={g.notes} homeless />
+              <NoteList notes={g.notes} />
             </div>
           ))}
         </div>
@@ -180,15 +182,20 @@ export function GoalNotes(props: { goal: Objective; homes: readonly { home: Memo
 export function NotesToday() {
   const day = useToday();
   const notes = useQuery((sql) => notesForDay(sql, day), [day]).data ?? [];
+  return notes.length ? <TodaysNotes notes={notes} /> : null;
+}
+
+/** Apart from NotesToday, so Today reads the homes' names only on a day with notes to show. */
+function TodaysNotes(props: { notes: readonly NoteRow[] }) {
+  const names = useHomeNames();
   const id = useId();
-  if (!notes.length) return null;
   return (
     <section className="stack8 notestoday" aria-labelledby={id}>
       <div>
         <h2 id={id}>Notes for today</h2>
         <p className="small quiet">Shown today only. Tomorrow they're just in Notes.</p>
       </div>
-      <NoteList notes={notes} />
+      <NoteList notes={props.notes} homes={names} />
     </section>
   );
 }

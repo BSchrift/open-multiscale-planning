@@ -92,17 +92,19 @@ const STALE = 'stale';
 /** How long an answer waits for a sync, which a weak network can stretch past the time iOS gives a background action. */
 const SYNC_WAIT_MS = 2000;
 
-// A notification's Partly needs the app to ask for the time left, so it asks Today to open that block's prompt.
-let promptRequest: string | null = null;
+// A notification's Partly needs the app to ask for the time left, so it asks Today to open that block's prompt. The Now
+// card's Stop for now asks the same with `stop`, whose answer also ends the block then.
+type PromptRequest = { blockId: string; stop: boolean };
+let promptRequest: PromptRequest | null = null;
 const requestListeners = new Set<() => void>();
 
-export function requestPrompt(blockId: string | null): void {
-  promptRequest = blockId;
+export function requestPrompt(blockId: string | null, stop = false): void {
+  promptRequest = blockId ? { blockId, stop } : null;
   for (const notify of requestListeners) notify();
 }
 
-/** The block a notification asked to answer in the app, if any. Clear it with requestPrompt(null). */
-export function usePromptRequest(): string | null {
+/** The block a notification or Stop for now asked to answer in the app, if any. Clear it with requestPrompt(null). */
+export function usePromptRequest(): PromptRequest | null {
   return useSyncExternalStore(
     (notify) => {
       requestListeners.add(notify);

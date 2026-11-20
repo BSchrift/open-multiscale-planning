@@ -6,6 +6,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { halfOfPractice, isPaused, partlyLeft, spentLine, timeLeftMs, workMinutes } from '../../../core/blocks';
+import type { BlockAnswer } from '../../../core/blocks';
 import { formatMinutes, instantMs, localDate } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
@@ -71,25 +72,33 @@ function Heading(props: { over: string; title: ReactNode }) {
   );
 }
 
-function PartlyStep(props: { block: BlockRow; onClose(): void }) {
-  const { block } = props;
+/**
+ * How much is left, for Partly. From Stop for now, on a block still going, it starts from the time spent when it was
+ * pressed, offers Not done too, and either answer ends the block.
+ */
+function PartlyStep(props: { block: BlockRow; onClose(): void; stop?: boolean }) {
+  const { block, stop } = props;
+  const { clock } = useApp();
   const task = useTask(block);
   const actions = useBlockActions();
   const [left, setLeft] = useState<number | null>(null);
-  const value = left ?? (task ? partlyLeft(task, block) : null);
+  const [pressed] = useState(() => clock.now());
+  const value = left ?? (task ? partlyLeft(task, block, stop ? pressed : undefined) : null);
+  const answer = (said: BlockAnswer) => void (stop ? actions.stopForNow(block, said) : actions.answer(block, said)).then(props.onClose);
   return (
     <PromptFrame label="How much is left?" onClose={props.onClose}>
       <Heading over={block.title ?? ''} title="How much is left?" />
       <EstimateSlider label="Time left" value={value} noneLabel="Choose a time" onChange={setLeft} />
       <div className="row">
-        <Button
-          variant="primary"
-          type="button"
-          disabled={!value || actions.pending}
-          onClick={() => void actions.answer(block, { result: 'partly', remaining_min: value }).then(props.onClose)}
-        >
+        <Button variant="primary" type="button" disabled={!value || actions.pending} onClick={() => answer({ result: 'partly', remaining_min: value })}>
           Save
         </Button>
+        {stop && (
+          <Button type="button" disabled={actions.pending} onClick={() => answer({ result: 'not' })}>
+            <Icon name="not-done" size={16} />
+            Not done
+          </Button>
+        )}
       </div>
     </PromptFrame>
   );
@@ -156,14 +165,15 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
 /**
  * The end-of-block prompt. Work asks Done, Partly or Not done, each after its icon as the missed blocks sheet draws it,
  * with Partly setting the time left; a practice logs how much was done. onClose without an answer means "Answer later".
+ * With `stop`, from Stop for now, Partly's question ends the block when answered.
  */
-export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean }) {
+export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean; stop?: boolean }) {
   const { block } = props;
   const { clock } = useApp();
   const actions = useBlockActions();
   const [partly, setPartly] = useState(!!props.partly);
   if (block.practice_id) return <PracticeLog block={block} onClose={props.onClose} />;
-  if (partly) return <PartlyStep block={block} onClose={props.onClose} />;
+  if (partly) return <PartlyStep block={block} stop={props.stop} onClose={props.onClose} />;
   const answer = (result: 'done' | 'not') => void actions.answer(block, { result }).then(props.onClose);
   const now = clock.now();
   const spent = spentLine(block, clock.zone(), now);

@@ -352,8 +352,9 @@ final class ShellUITests: XCTestCase {
         app.type("Morning run", into: app.page.textFields["Name"])
         app.tapWeb("Add practice", until: app.webButton(startingWith: "Morning run"))
 
-        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full.
-        app.tapWeb(startingWith: "Morning run")
+        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full. The row's tap waits for
+        // the editor, since on CI's Simulator a tap now and then is lost.
+        app.tapWeb(startingWith: "Morning run", until: app.webButton("Weekdays"))
         app.tapWeb("Weekdays")
         for day in ["Wednesday", "Thursday"] {
             let chip = app.page.descendants(matching: .any).matching(NSPredicate(format: "label == %@", day)).firstMatch
@@ -366,8 +367,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webText("Saved Morning run: 30m on Mon, Tue and Fri, around 7am."))
         // Undo puts back every day.
         app.tapWeb("Undo")
-        app.tapWeb(startingWith: "Morning run")
-        exists(app.webText("Summary: 30 minutes every day, around 7 AM"))
+        app.tapWeb(startingWith: "Morning run", until: app.webText("Summary: 30 minutes every day, around 7 AM"))
         app.tapWeb("Cancel")
     }
 

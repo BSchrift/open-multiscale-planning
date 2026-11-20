@@ -3,7 +3,7 @@
 
 import { dragResult, DRAWN_DAY, isPast } from '../../../core/slots';
 import { useApp } from '../../app/store';
-import { Capture } from '../../screens/capture';
+import { DraftCapture } from '../../screens/capture/DraftCapture';
 import { HoldRing, overlapWords, useHoldToCreate } from './holdCreate';
 import { COLUMN_GAP, hourPx, sharedWith, WeekGrid } from './WeekGrid';
 import type { WeekGridProps } from './WeekGrid';
@@ -34,7 +34,7 @@ export function HoldWeekGrid(props: WeekGridProps & { holdOff: boolean }) {
       <WeekGrid {...grid} hold={hold} />
       <HoldRing ring={hold.ring} />
       {held && hold.draft!.open && (
-        <Capture layout={layout} close={hold.close} slot={hold.slot(overlapWords(held, sharedWith(held, blocks, ctx).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
+        <DraftCapture layout={layout} close={hold.close} slot={hold.slot(overlapWords(held, sharedWith(held, blocks, ctx).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
       )}
     </>
   );

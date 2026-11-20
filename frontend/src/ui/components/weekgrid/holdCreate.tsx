@@ -6,7 +6,7 @@
 //
 //   const hold = useHoldToCreate({ at, move, earliest, off: !!dragging, draws: true });
 //   <div onPointerDown={(e) => !onABlock(e) && hold.press(e)}>{hold.draft && <div ref={hold.draftRef} … />}</div>
-//   {hold.draft?.open && <Capture layout={layout} close={hold.close} slot={hold.slot(overlap)} />}
+//   {hold.draft?.open && <DraftCapture layout={layout} close={hold.close} slot={hold.slot(overlap)} />}
 
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';

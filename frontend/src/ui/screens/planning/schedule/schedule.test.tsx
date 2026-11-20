@@ -125,7 +125,7 @@ describe('Schedule on desktop', () => {
     expect(within(now()).getByRole('button', { name: 'Place here' })).toBeInTheDocument();
   });
 
-  it('keeps keyboard focus at the top, on the next task under Now, after Place here, Skip for now, Enter on the block and Done', async () => {
+  it('keeps keyboard focus at the top, on the next task under Now, after Place here, Skip for now, Enter on the block and Done editing', async () => {
     await open();
     (await screen.findByRole('button', { name: 'Place here' })).focus();
     await userEvent.keyboard('{Enter}');
@@ -142,12 +142,12 @@ describe('Schedule on desktop', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'All tasks are placed' })).toHaveFocus());
 
     await userEvent.click(rowButton(/^Collect the sources/));
-    within(now()).getByRole('button', { name: 'Done' }).focus();
+    within(now()).getByRole('button', { name: 'Done editing' }).focus();
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByRole('heading', { name: 'All tasks are placed' })).toHaveFocus());
   });
 
-  it('a placed task opens its block, with Done, and Remove from calendar that offers Undo', async () => {
+  it('a placed task opens its block, with Done editing, and Remove from calendar that offers Undo', async () => {
     const t = await open({
       seed: async (w) => {
         await picked(w);
@@ -158,13 +158,33 @@ describe('Schedule on desktop', () => {
     await userEvent.click(rowButton(/^Collect the sources/));
     const cur = now();
     expect(within(cur).getByText('Tue Nov 3, 6pm to 8pm (2h)')).toBeInTheDocument();
-    expect(within(cur).getByRole('button', { name: 'Done' })).toBeInTheDocument();
+    expect(within(cur).getByRole('button', { name: 'Done editing' })).toBeInTheDocument();
     await userEvent.click(within(cur).getByRole('button', { name: 'Remove from calendar' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true));
     expect(await within(now()).findByRole('button', { name: 'Place here' })).toBeInTheDocument();
     expect(screen.getByText('Removed Collect the sources')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeFalsy());
+  });
+
+  // Done marks a task done wherever else a block offers it, as Today's block popup does. Here the button only stops
+  // changing the block, so it says so, and it leaves the task as it was.
+  it("a placed one off's card says Done editing, not Done, and pressing it leaves the task unfinished and moves on", async () => {
+    const t = await open({
+      seed: async (w) => {
+        await picked(w);
+        await w.create('time_block', { task_id: 'o1', start: at('2026-11-06', 11, 15), end: at('2026-11-06', 12, 45), tz: ZONE }, 'b1');
+      },
+    });
+    expect(await screen.findByText('1 of 3 placed')).toBeInTheDocument();
+    await userEvent.click(rowButton(/^Paint the fence/));
+    const cur = now();
+    expect(within(cur).getByText('Fri Nov 6, 11:15am to 12:45pm (1h 30m)')).toBeInTheDocument();
+    expect(within(cur).queryByRole('button', { name: 'Done' })).toBeNull();
+    await userEvent.click(within(cur).getByRole('button', { name: 'Done editing' }));
+    expect(within(now()).getByRole('heading', { name: 'Collect the sources' })).toBeInTheDocument();
+    expect((await getRecord(t.db, 'task', 'o1'))?.done_at).toBeFalsy();
+    expect(await blocks(t, 'o1')).toEqual([[at('2026-11-06', 11, 15), at('2026-11-06', 12, 45)]]);
   });
 
   it('Place the rest at suggested times places everything left, and Undo takes it all back', async () => {
@@ -645,7 +665,7 @@ describe('Schedule on phone', () => {
     expect(screen.getByText('Write chapter one', { selector: '.strong, .strong .taskname' })).toBeInTheDocument();
   });
 
-  it('tapping a placed block selects it, with Done and Remove from calendar', async () => {
+  it('tapping a placed block selects it, with Done editing and Remove from calendar', async () => {
     await phone({
       seed: async (w) => {
         await picked(w);
@@ -655,7 +675,7 @@ describe('Schedule on phone', () => {
     const block = await screen.findByRole('slider', { name: /^Collect the sources\./ });
     fireEvent.keyDown(block, { key: 'Enter' });
     expect(screen.getByText('Mon Nov 2, 6pm to 8pm (2h)')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done editing' })).toBeInTheDocument();
     // The app's toast sits under the flow, so Undo shows above the dock.
     await userEvent.click(screen.getByRole('button', { name: 'Remove from calendar' }));
     const said = await screen.findByText('Removed Collect the sources');

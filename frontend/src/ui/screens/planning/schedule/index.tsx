@@ -381,8 +381,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const buttons = (cls: string) =>
     editB ? (
       <div className="row">
+        {/* Not Done: that marks a task done wherever else a block offers it, and this only stops changing the block. */}
         <Button variant="primary" className={cls} type="button" onClick={done}>
-          Done
+          Done editing
         </Button>
         <Button className={cls} type="button" onClick={() => void remove(editB)}>
           Remove from calendar

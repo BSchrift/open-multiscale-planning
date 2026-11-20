@@ -5,6 +5,7 @@ import {
   dayOffer,
   defaultSlot,
   dragResult,
+  drawnSlot,
   dropSlot,
   fits,
   holdSlot,
@@ -340,6 +341,37 @@ describe('holdSlot', () => {
   it('runs to the end of the day in its last hour, rather than start in time gone by, and takes none once it ends', () => {
     expect(holdSlot(MON, 1360, { date: MON, minutes: 1350 })).toEqual({ date: MON, start: 1350, end: 1380, moved: 'short' });
     expect(holdSlot(MON, 1378, { date: MON, minutes: 1372 })).toBeNull();
+  });
+});
+
+describe('drawnSlot', () => {
+  // Monday at 10:40am.
+  const now = { date: MON, minutes: 640 };
+
+  it('spans every quarter hour from the one pressed to the one under the pointer, dragged down or up', () => {
+    expect(drawnSlot(TUE, 545, 610, now)).toEqual({ date: TUE, start: 540, end: 615 });
+    expect(drawnSlot(TUE, 610, 545, now)).toEqual({ date: TUE, start: 540, end: 615 });
+    expect(drawnSlot(MON, 1070, 1200, now)).toEqual({ date: MON, start: 1065, end: 1215 });
+  });
+
+  it('is at least one quarter hour, the shortest block, however short the drag', () => {
+    expect(drawnSlot(TUE, 545, 548, now)).toEqual({ date: TUE, start: 540, end: 555 });
+    expect(drawnSlot(TUE, 545, 545, now)).toEqual({ date: TUE, start: 540, end: 555 });
+  });
+
+  it('takes no time that has gone by: none in quarter hours gone by, and from the next one past now', () => {
+    expect(drawnSlot(MON, 530, 600, now)).toBeNull();
+    expect(drawnSlot(SUN, 1200, 1260, { date: '2026-11-09', minutes: 600 })).toBeNull();
+    expect(drawnSlot(MON, 700, 530, now)).toEqual({ date: MON, start: 645, end: 705 });
+    expect(drawnSlot(MON, 632, 636, now)).toEqual({ date: MON, start: 645, end: 660 });
+    expect(drawnSlot(MON, 600, 700, now)).toEqual({ date: MON, start: 645, end: 705 });
+  });
+
+  it('stays within the drawn day', () => {
+    expect(drawnSlot(TUE, 1300, 1500, now)).toEqual({ date: TUE, start: 1290, end: 1380 });
+    expect(drawnSlot(TUE, 1300, 1500, now, 1320)).toEqual({ date: TUE, start: 1290, end: 1320 });
+    expect(drawnSlot(TUE, 420, 200, now)).toEqual({ date: TUE, start: 360, end: 435 });
+    expect(drawnSlot(MON, 1378, 1379, { date: MON, minutes: 1372 })).toBeNull();
   });
 });
 

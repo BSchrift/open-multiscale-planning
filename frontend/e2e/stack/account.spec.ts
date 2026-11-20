@@ -108,3 +108,30 @@ for (const [size, options] of Object.entries(sizes)) {
     }
   });
 }
+
+test("a second device closed while it erases a deleted account's copy finishes the erase, and says so, when it opens again", async ({ browser }) => {
+  test.skip(!t.localApi, 'The account specs make their own users, which only the local stack can');
+  const run = randomUUID().slice(0, 8);
+  const user = `e2e-${run}`;
+  const paint = { id: `e2e-${run}-paint`, title: `Paint the fence ${run}` };
+  const a = await device(browser, user);
+  await seed(a.page, [oneOff(paint.id, paint.title)]);
+  await signIn(a.page);
+  const b = await device(browser, user);
+  await signIn(b.page);
+  await expect.poll(async () => (await readRecord(b.page, 'task', paint.id))?.title, NETWORK).toBe(paint.title);
+
+  // Watched from before the deletion, so a sync the device makes by itself meanwhile counts too.
+  const refused = b.page.waitForResponse((res) => res.url().endsWith('/sync') && res.status() === 401);
+  await deleteAccount(a.page);
+  // A sync of its own, if it hasn't made one: going offline and back fires the online event.
+  await b.context.setOffline(true);
+  await b.context.setOffline(false);
+  await refused;
+  // Reloaded the moment it hears, so it's closed while it erases.
+  await b.page.reload();
+  await expect(b.page.getByText(DELETED)).toBeVisible(NETWORK);
+  expect(await readRecord(b.page, 'task', paint.id)).toBeUndefined();
+  expect(a.errors).toEqual([]);
+  expect(b.errors).toEqual([]);
+});

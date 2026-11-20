@@ -76,15 +76,17 @@ export function Menu(props: { label: string; entries: readonly MenuEntry[]; at: 
     focusIn(main.current, from.current);
     from.current = null;
   }, [open, phone]);
-  // Anchored where it opened, it goes when the page under it moves.
+  // Anchored where it opened, it goes when the page under it moves. Only from the next frame: the browser reports a
+  // scroll in the frame after it, so one just before it opened, such as bringing its block into view, would close it.
   useEffect(() => {
     const away = (e: Event) => {
       if (!(e.target instanceof Node && (main.current?.contains(e.target) || side.current?.contains(e.target)))) onClose();
     };
     window.addEventListener('resize', onClose);
-    document.addEventListener('scroll', away, true);
+    const frame = requestAnimationFrame(() => document.addEventListener('scroll', away, true));
     return () => {
       window.removeEventListener('resize', onClose);
+      cancelAnimationFrame(frame);
       document.removeEventListener('scroll', away, true);
     };
   }, [onClose]);

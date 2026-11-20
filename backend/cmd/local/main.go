@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -35,8 +36,10 @@ type config struct {
 	// URL is where this server is reached, which the stand-ins' links point at.
 	URL                                    string
 	Endpoint, Table, Issuer, ClientID, Env string
-	SSMEndpoint, SSMPrefix                 string
-	TickEvery                              time.Duration
+	// Retention names the environment whose retention.yaml block the store keeps records by, Env's when empty.
+	Retention              string
+	SSMEndpoint, SSMPrefix string
+	TickEvery              time.Duration
 }
 
 func main() {
@@ -57,6 +60,9 @@ func main() {
 		Issuer:   envOr("LOCAL_ISSUER", "http://"+addr+"/cognito"),
 		ClientID: envOr("COGNITO_CLIENT_ID", "local-client"),
 		Env:      "local",
+		// RETENTION keeps records as another environment does, so the suites staging runs can run here with its minutes,
+		// beside apps built with the same RETENTION.
+		Retention: os.Getenv("RETENTION"),
 		// Without it the calendar routes answer as unconfigured, so the rest works with no Moto running.
 		SSMEndpoint: os.Getenv("SSM_ENDPOINT"),
 		SSMPrefix:   envOr("SSM_PREFIX", "/multiscale/local"),
@@ -95,7 +101,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 		return nil, err
 	}
 	gateway := &fakes.Gateway{Issuer: cfg.Issuer, Audience: cfg.ClientID, Keys: cognito.PublicKeys, Now: clock.Now}
-	retention, err := appconfig.LoadRetention(cfg.Env)
+	retention, err := appconfig.LoadRetention(cmp.Or(cfg.Retention, cfg.Env))
 	if err != nil {
 		return nil, err
 	}

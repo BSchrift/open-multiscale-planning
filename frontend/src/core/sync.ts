@@ -342,8 +342,11 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
   return res;
 }
 
-/** The server's codes for a request refused because one record's text is too long. */
-const TOO_LONG: unknown[] = ['notes_too_long', 'memo_too_long'];
+/**
+ * The server's codes for a request refused because one record is too long: its text, or the whole record once merged
+ * with what other devices sent, which this one may not have pulled yet.
+ */
+const TOO_LONG: unknown[] = ['notes_too_long', 'memo_too_long', 'record_too_large'];
 
 /** The real network behind runSync. A record refused as too long is reported as too_large, which runSync holds. */
 export function createHttpSend(deps: ApiDeps): SyncSend {

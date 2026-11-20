@@ -23,7 +23,9 @@ feature gets a row, and a test that covers a cell gets named in it.
 still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
 journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
 bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
-there, before prod's Test step meets it.
+there, before prod's Test step meets it. Staging's release step also runs the deployed web suite the way prod's Test
+step does, against the web app staging still serves, before it publishes: a step outside the journey that only the new
+suite takes, such as clearing the checks earlier runs left, fails there first too.
 
 **The deployed journey, on a long history.** Prod's shared test user holds tens of thousands of records, so a change
 there takes seconds to read back, where a new user's takes milliseconds; once, Week took a card away only after the

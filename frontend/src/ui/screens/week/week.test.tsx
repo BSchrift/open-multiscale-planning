@@ -1224,6 +1224,54 @@ describe('Week on phone', () => {
     await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('17:00')));
   });
 
+  it('a block held and let go over a later row is drawn there at once, while the day has yet to redraw; Undo, or a failed save, puts it back', async () => {
+    const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
+    const fence = (time: string) => screen.findByRole('button', { name: new RegExp(`^Paint the fence, ${time}`) });
+    // Held on the block, let go 120px down the free row from 6pm to 10pm, which jsdom draws 240px tall: 8pm.
+    const moveTo8pm = async () => {
+      const el = await fence('5pm to 6pm');
+      const free = document.querySelector('.tlrow[data-drop-from="1080"]')!;
+      expect(free).toHaveTextContent('Free, 6pm to 10pm');
+      vi.spyOn(free, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 240, top: 0, left: 0, right: 300, bottom: 240, x: 0, y: 0, toJSON: () => ({}) });
+      Object.defineProperty(document, 'elementFromPoint', { value: () => free, configurable: true });
+      try {
+        holdDown(el, { clientX: 10, clientY: 10, pointerType: 'touch' });
+        fireEvent.pointerMove(window, { clientX: 50, clientY: 120, pointerType: 'touch' });
+        fireEvent.pointerUp(window, { clientX: 50, clientY: 120, pointerType: 'touch' });
+      } finally {
+        Reflect.deleteProperty(document, 'elementFromPoint');
+      }
+    };
+    // The day's reads wait until let through, as the web app's database makes them wait on a busy device, so the day
+    // doesn't redraw from the save meanwhile. Saves aren't held.
+    let gate: Promise<void> | null = null;
+    let letThrough = () => undefined as void;
+    const slow = () => (gate = new Promise<void>((r) => (letThrough = () => ((gate = null), r()))));
+    const [all, get] = [t.db.all.bind(t.db), t.db.get.bind(t.db)];
+    vi.spyOn(t.db, 'all').mockImplementation(async (sql, params) => (await gate, all(sql, params)));
+    vi.spyOn(t.db, 'get').mockImplementation(async (sql, params) => (await gate, get(sql, params)));
+
+    expect(await fence('5pm to 6pm')).toBeVisible();
+    slow();
+    await moveTo8pm();
+    expect(await screen.findByText(/^Moved Paint the fence to .*8pm$/)).toBeVisible();
+    expect(await fence('8pm to 9pm')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Paint the fence, 5pm/ })).toBeNull();
+    // Undo before the day has drawn the move: its next drawing has the block where it started, which wouldn't redraw it.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await fence('5pm to 6pm')).toBeVisible();
+    letThrough();
+    await waitFor(async () => expect((await block('b4')(t))?.start).toBe(at('17:00')));
+    expect(await fence('5pm to 6pm')).toBeVisible();
+
+    vi.spyOn(t.db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+    await moveTo8pm();
+    expect(await screen.findByText("Couldn't save that. Try again.")).toBeVisible();
+    expect(await fence('5pm to 6pm')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Paint the fence, 8pm/ })).toBeNull();
+    expect((await block('b4')(t))?.start).toBe(at('17:00'));
+  });
+
   it('a block held on the day and let go over another asks first: Cancel leaves it, Replace takes the other off', async () => {
     const t = await phone({
       seed: async (w) => {
@@ -1584,6 +1632,39 @@ describe('hold to create on Week', () => {
       expect(within(capture).getByText('Wed Nov 4, 6:45pm to 7:45pm')).toBeVisible();
       await userEvent.keyboard('{Escape}');
       await waitFor(() => expect(draft()).toBeNull());
+      expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+    });
+
+    it('a mouse pressed on empty time and dragged draws the draft at once, down or up, in its own day however far it strays, with no ring or tap; letting go opens Capture with that time', async () => {
+      const t = await open({ seed: planned });
+      await screen.findByRole('group', { name: 'Week calendar' });
+      const thu = column('2026-11-05');
+      const moveTo = (minutes: number, x = 20) => fireEvent.pointerMove(window, { clientX: x, clientY: gridY(minutes) + 1, pointerType: 'mouse', pointerId: 1 });
+      press(thu, gridY(16 * 60) + 1, 'desktop');
+      moveTo(17 * 60 + 20);
+      await waitFor(() => expect(draft()).toHaveAttribute('title', '4pm to 5:30pm'));
+      expect(thu.contains(draft())).toBe(true);
+      expect(draft()).not.toHaveClass('pop');
+      expect(document.querySelector('.holdring')).toBeNull();
+      // Up past the press, and over Friday's column: it stays on Thursday.
+      moveTo(14 * 60 + 50, 122);
+      await waitFor(() => expect(draft()).toHaveAttribute('title', '2:45pm to 4:15pm'));
+      expect(thu.contains(draft())).toBe(true);
+      letGo(gridY(14 * 60 + 50) + 1, 'desktop', 122);
+      const capture = await screen.findByRole('dialog', { name: 'Capture' });
+      expect(within(capture).getByText('Thu Nov 5, 2:45pm to 4:15pm')).toBeVisible();
+      expect(t.platform.haptics).toEqual([]);
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(draft()).toBeNull());
+
+      // Esc while dragging takes it away.
+      press(thu, gridY(16 * 60) + 1, 'desktop');
+      moveTo(17 * 60);
+      await waitFor(() => expect(draft()).not.toBeNull());
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(draft()).toBeNull());
+      letGo(gridY(17 * 60) + 1, 'desktop');
+      await wait(100);
       expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
     });
 

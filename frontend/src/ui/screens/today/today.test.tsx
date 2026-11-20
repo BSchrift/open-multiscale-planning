@@ -2115,12 +2115,104 @@ describe('hold to create on the timeline', () => {
     expect(t.platform.haptics).toEqual([]);
   });
 
-  it('on desktop, a mouse that moves 6px before the hold drafts nothing', async () => {
+  const moveTo = (time: string, x = 100) => fireEvent.pointerMove(window, { clientX: x, clientY: y(time), pointerType: 'mouse', pointerId: 1 });
+
+  it('on desktop, a mouse pressed on empty time and dragged down draws the draft at once, over the quarter hours from the press to the pointer, with no ring or tap; letting go opens Capture with that time, and Save keeps it', async () => {
+    const t = await open(day);
+    await ready('desktop');
+    press('17:46', 'desktop');
+    moveTo('17:58');
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '5:45pm to 6pm'));
+    moveTo('18:20');
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '5:45pm to 6:30pm'));
+    expect(draft()).toHaveTextContent('New task');
+    expect(draft()).toHaveClass('blk', 's-placing');
+    expect(draft()).not.toHaveClass('pop');
+    expect(document.querySelector('.holdring')).toBeNull();
+    await wait(450);
+    expect(draft()).toHaveAttribute('title', '5:45pm to 6:30pm');
+    letGo('18:20', 'desktop');
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    expect(within(capture).getByText('Today, 5:45pm to 6:30pm')).toBeVisible();
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByText('Saved to Inbox, 5:45pm to 6:30pm')).toBeVisible();
+    expect(await listRecords(t.db, 'task')).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'inbox', title: 'Book dentist', estimate_min: 45 })]));
+    expect(t.platform.haptics).toEqual([]);
+  });
+
+  it('on desktop, a mouse dragged up draws from the pointer to the press, and never into time gone by', async () => {
+    await open(day);
+    await ready('desktop');
+    press('18:20', 'desktop');
+    moveTo('17:50');
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '5:45pm to 6:30pm'));
+    // It's 2pm.
+    moveTo('12:00');
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '2pm to 6:30pm'));
+    letGo('12:00', 'desktop');
+    expect(within(await screen.findByRole('dialog', { name: 'Capture' })).getByText('Today, 2pm to 6:30pm')).toBeVisible();
+  });
+
+  it('on desktop, a mouse that moves 6px and no further draws the shortest block, a quarter hour, from where it was pressed', async () => {
     await open(day);
     await ready('desktop');
     press('18:00', 'desktop');
-    fireEvent.pointerMove(window, { clientX: 106, clientY: y('18:00'), pointerType: 'mouse', pointerId: 1 });
-    await wait(450);
+    moveTo('18:00', 106);
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '6pm to 6:15pm'));
+    letGo('18:00', 'desktop');
+    expect(within(await screen.findByRole('dialog', { name: 'Capture' })).getByText('Today, 6pm to 6:15pm')).toBeVisible();
+  });
+
+  it('on desktop, Esc while dragging takes the draft away, and letting go then opens nothing', async () => {
+    await open(day);
+    await ready('desktop');
+    press('18:00', 'desktop');
+    moveTo('19:00');
+    await waitFor(() => expect(draft()).not.toBeNull());
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(draft()).toBeNull());
+    moveTo('19:30');
+    letGo('19:30', 'desktop');
+    await wait(100);
+    expect(draft()).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+  });
+
+  it('on desktop, a drag across a block draws over it, beside it, and Capture says by how much without asking', async () => {
+    await open(day);
+    await ready('desktop');
+    press('15:30', 'desktop');
+    moveTo('16:20');
+    await waitFor(() => expect(draft()).toHaveAttribute('title', '3:30pm to 4:30pm'));
+    expect(draft()!.style.left).toBe('50%');
+    letGo('16:20', 'desktop');
+    const capture = await screen.findByRole('dialog', { name: 'Capture' });
+    expect(within(capture).getByText('Overlaps Write the report by 30m.')).toBeVisible();
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
+    expect(await screen.findByText('Saved to Inbox, 3:30pm to 4:30pm')).toBeVisible();
+    expect(screen.queryByText('Schedule both at the same time?')).toBeNull();
+  });
+
+  it('on desktop, a drag wholly in time gone by draws nothing, and a toast says why', async () => {
+    await open(day);
+    await ready('desktop');
+    press('12:00', 'desktop');
+    moveTo('13:00');
+    await wait(50);
+    expect(draft()).toBeNull();
+    letGo('13:00', 'desktop');
+    expect(await screen.findByText('That time has gone by. Hold on a later time.')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+  });
+
+  it('on desktop, a drag while a block is open draws nothing', async () => {
+    await open(day);
+    await userEvent.click(await ready('desktop'));
+    await taskPopup('Write the report');
+    press('18:00', 'desktop');
+    moveTo('19:00');
+    await wait(50);
     expect(draft()).toBeNull();
   });
 
@@ -2357,6 +2449,18 @@ describe("a block's quick menu", () => {
       .filter((el) => el.closest('[role="menu"]') === menu)
       .map((el) => (el.getAttribute('role') === 'separator' ? '-' : el.textContent));
   const rightClick = (el: Element) => fireEvent.contextMenu(el, { clientX: 200, clientY: 300 });
+
+  it('goes when the page scrolls, but not for a scroll from before it opened that the browser reports after', async () => {
+    await open(day);
+    rightClick(await report());
+    expect(screen.getByRole('menu', { name: 'Write the report' })).toBeInTheDocument();
+    // A scroll bringing the block into view just before the right-click is reported in the next frame.
+    fireEvent.scroll(document);
+    expect(screen.getByRole('menu', { name: 'Write the report' })).toBeInTheDocument();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    fireEvent.scroll(document);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 
   it('a right-click on a block later today opens what can be done to it, and Done finishes the task', async () => {
     const t = await open(day);

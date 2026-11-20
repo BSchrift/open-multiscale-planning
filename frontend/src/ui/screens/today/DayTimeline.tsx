@@ -109,13 +109,14 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   // A dropped block stays where it landed until the saved position comes back.
   const positions = data.blocks.map((b) => `${b.id} ${b.start} ${b.end}`).join();
   useEffect(() => setDrag(null), [positions]);
-  // A hold on empty time drafts an hour there, never while a block is open, moving or just dropped. Its day and minutes
-  // come from the drawn day, which grows to fit the draft.
+  // A hold on empty time drafts an hour there, and a mouse dragged on it draws one, never while a block is open, moving
+  // or just dropped. Its day and minutes come from the drawn day, which grows to fit the draft.
   const holdNew = useHoldToCreate({
     at: (_x, py) => ({ date: data.date, minute: from + (py / ph) * 60 }),
     move: (s, _dx, dy) => dragResult(s, 'move', 0, (dy * 60) / ph, [], { from: floor, to: DRAWN_DAY.to }),
     earliest: { date: data.date, minutes: localMinutes(clock.now(), zone) },
     off: !!drag || !!pop || open.size > 0,
+    draws: true,
   });
   const held = holdNew.draft?.slot;
 

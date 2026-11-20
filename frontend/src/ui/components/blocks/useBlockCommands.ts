@@ -15,8 +15,8 @@ import type { Minutes } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import type { MenuEntry } from '../Menu';
 import { useToast } from '../Toast';
-import { dayName } from '../weekgrid';
 import { landsOn, useBothAsk } from './BothAsk';
+import { dayName } from './describe';
 import { answerFor, saidOf } from './MissedSheet';
 import { useBlockActions } from './useBlockActions';
 

@@ -213,6 +213,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
 | Opens from anywhere a task is named, edits everything, Undo | covered (details: "a task opens in its popup from its project…", "the Now card, a To schedule card and a block on Today open the popup", "the body scrolls once the popup reaches 70%…") | covered (same) | covered (journeys/first-week; desktop: "closing the window keeps the edits not yet saved…") | partly (testATaskOpensWithTheKeyboardDown…) |
+| Belongs to: a search of the places a task can go, under the field on desktop and in a sheet on phone | covered (details: "Belongs to searches the places a task can go…") | covered (same, with a 44pt check) | missing | missing |
 | Cancel, Esc, the close button and a tap outside with unsaved changes | covered (popup: "Cancel drops the popup's changes, and Esc, the close button or a tap outside keep them until Save") | covered (same) | partly (desktop: closing the window keeps them; quitting drops them, reported) | missing |
 | Delete task, with its block, Undo | covered (popup: "Delete task takes the task and its block off Today…") | covered (same) | missing | missing |
 | Notes: the formatting bar, links open outside, the limit | covered (notes: "writes a description with the bar…", "stops a description at the limit…") | covered (same) | missing | covered (testATaskOpensWithTheKeyboardDownThenItsDescriptionTakesBoldFromTheBar…) |

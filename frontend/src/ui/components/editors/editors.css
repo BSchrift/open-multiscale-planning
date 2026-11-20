@@ -102,14 +102,15 @@
 }
 
 /* A practice's schedule (PracticeSchedule): two radio options drawn as bordered choices, the count's stepper, the
-   per-day switch and rows, and the summary. */
+   per-day switch and rows, and the summary. The choices are only those in a .segrow: the shared segmented control,
+   such as Today's Calendar | List, is also .seg, and this stylesheet loads with Process's code after Today has drawn. */
 [data-layout] .segrow {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
-[data-layout] .seg {
+[data-layout] .segrow > .seg {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -121,7 +122,7 @@
   cursor: pointer;
 }
 
-[data-layout] .seg input {
+[data-layout] .segrow > .seg input {
   flex: none;
   width: 18px;
   height: 18px;
@@ -130,13 +131,13 @@
 }
 
 /* A border as well as a tint, since the tint alone doesn't stand out enough. */
-[data-layout] .seg.on {
+[data-layout] .segrow > .seg.on {
   border: 1.5px solid var(--accent);
   background: var(--accent-tint);
   font-weight: var(--fw-strong);
 }
 
-[data-layout] .seg:has(input:focus-visible) {
+[data-layout] .segrow > .seg:has(input:focus-visible) {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

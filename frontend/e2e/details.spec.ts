@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { expectTapTarget, go, openSeeded, pane } from './seed';
+import { expectBelongs, expectTapTarget, go, openSeeded, pane } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -60,7 +60,7 @@ test('a task opens in its popup from its project, to read and change everything 
   await page.waitForTimeout(300);
   await expectShape(page, popup, phone);
   await expect(popup.getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-  await expect(popup.getByLabel('Belongs to')).toHaveValue('m:m1');
+  await expectBelongs(popup, 'Report, Drafts', phone);
   await expect(popup.locator('.notes strong')).toHaveText('Q3 numbers');
   await page.screenshot({ path: info.outputPath(`popup-${info.project.name}.png`) });
   if (phone) {
@@ -85,6 +85,64 @@ test('a task opens in its popup from its project, to read and change everything 
   await expect(page.getByRole('button', { name: /^Edit task Draft the executive summary/ })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('button', { name: 'Edit task Draft the summary, 2h, has details' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// The owner's request: Belongs to is a searchable dropdown.
+test('Belongs to searches the places a task can go: typing narrows them, and the one taken is where Save moves it', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.clock.install({ time: NOW });
+  await openSeeded(page, [
+    ...records,
+    { type: 'objective', id: 'g2', fields: { title: 'Make the house a home', state: 'active' } },
+    { type: 'project', id: 'p2', fields: { objective_id: 'g2', title: 'Garden', state: 'active', start: '2026-10-01', end: '2027-04-30' } },
+    { type: 'milestone', id: 'm2', fields: { project_id: 'p2', title: 'Beds built', due: '2026-11-28' } },
+    { type: 'milestone', id: 'm3', fields: { project_id: 'p2', title: 'Spring planting', due: '2027-04-01' } },
+    { type: 'project', id: 'p3', fields: { objective_id: 'g2', title: 'Kitchen', state: 'active', start: '2026-10-01', end: '2027-01-31' } },
+    { type: 'milestone', id: 'm4', fields: { project_id: 'p3', title: 'Cabinets in', due: '2026-12-12' } },
+  ]);
+  await openProject(page, phone);
+  await page.getByRole('button', { name: 'Edit task Draft the summary, 2h, has details' }).click();
+  const popup = popupOf(page, 'Draft the summary');
+  const list = page.getByRole('listbox', { name: 'Belongs to' });
+  // Desktop's field opens the list under it; phone's button opens a sheet, ready to search.
+  if (phone) {
+    const button = popup.getByRole('button', { name: 'Belongs to: Report, Drafts' });
+    await expectTapTarget(button);
+    await button.click();
+    await expect(page.getByRole('dialog', { name: 'Belongs to' }).getByRole('combobox', { name: 'Search places' })).toBeFocused();
+  } else {
+    await popup.getByRole('combobox', { name: 'Belongs to' }).click();
+  }
+  await expect(list.getByRole('option', { name: 'Report, Drafts' })).toHaveAttribute('aria-selected', 'true');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`belongs-search-open-${info.project.name}-${scheme}.png`) });
+  }
+  await page.keyboard.type('gar');
+  await expect(list.getByRole('option')).toHaveText(['Garden, Beds built', 'Garden, Spring planting', 'Garden, Done']);
+  const option = list.getByRole('option', { name: 'Garden, Beds built' });
+  await expect(option).toHaveAttribute('aria-selected', 'true');
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`belongs-search-typed-${info.project.name}-${scheme}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (phone) {
+    await expectTapTarget(option);
+    await option.click();
+  } else {
+    await page.keyboard.press('ArrowDown');
+    await expect(list.getByRole('option', { name: 'Garden, Spring planting' })).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+  }
+  await expect(list).toHaveCount(0);
+  await expectBelongs(popup, 'Garden, Beds built', phone);
+  await popup.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Moved Draft the summary to Garden, Beds built.')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -118,7 +176,7 @@ test('an Inbox item opens in its popup to be renamed and described, and still go
   if (phone) await expectTapTarget(name);
   await name.click();
   const popup = popupOf(page, 'Fix the gate');
-  await expect(popup.getByLabel('Belongs to')).toHaveValue('inbox');
+  await expectBelongs(popup, 'Inbox', phone);
   await popup.getByRole('button', { name: 'Rename Fix the gate' }).click();
   await popup.getByRole('textbox', { name: 'Name' }).fill('Fix the side gate');
   await popup.getByRole('textbox', { name: 'Description' }).fill('Hinges are in the **shed**');

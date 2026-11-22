@@ -1,0 +1,125 @@
+{
+ "kind": "mac",
+ "commit": "0c1160f059cc90d5f7f2486d777ef232e56096c7",
+ "runner": "macos-15",
+ "at": "2026-11-22T14:16:06.539Z",
+ "rows": [
+  {
+   "kpi": "capture.open",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 4.1,
+   "p95": 32,
+   "p99": 45.1
+  },
+  {
+   "kpi": "capture.global",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 0.6,
+   "p95": 17.9,
+   "p99": 20.8
+  },
+  {
+   "kpi": "capture.key",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 600,
+   "p50": 7,
+   "p95": 18.8,
+   "p99": 32.4
+  },
+  {
+   "kpi": "capture.save",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 9.7,
+   "p95": 24,
+   "p99": 31.5
+  },
+  {
+   "kpi": "start.cold",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 20,
+   "p50": 6117.6,
+   "p95": 7074.1,
+   "p99": 7142.5
+  },
+  {
+   "kpi": "start.warm",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 20,
+   "p50": 2142.4,
+   "p95": 3408.1,
+   "p99": 3764.2
+  },
+  {
+   "kpi": "start.resume",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 7.7,
+   "p95": 17.1,
+   "p99": 24.7
+  },
+  {
+   "kpi": "nav.today",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 24.9,
+   "p95": 32.5,
+   "p99": 33.7
+  },
+  {
+   "kpi": "nav.week",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 24.9,
+   "p95": 34.4,
+   "p99": 36.2
+  },
+  {
+   "kpi": "nav.done",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 27.4,
+   "p95": 32.7,
+   "p99": 34.1
+  },
+  {
+   "kpi": "nav.analytics",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 200,
+   "p50": 29.1,
+   "p95": 33,
+   "p99": 34.3
+  },
+  {
+   "kpi": "sync.pull",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 11,
+   "p50": 30.9,
+   "p95": 47.2,
+   "p99": 47.2
+  },
+  {
+   "kpi": "mem.heap",
+   "platform": "mac",
+   "scenario": "one-year",
+   "n": 1,
+   "p50": 116.5,
+   "p95": 116.5,
+   "p99": 116.5
+  }
+ ]
+}

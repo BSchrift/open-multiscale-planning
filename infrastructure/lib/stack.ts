@@ -295,9 +295,7 @@ export class MultiscaleStack extends Stack {
     const google = { GOOGLE_TOKEN_KEY: tokenKey.keyArn, CALENDAR_QUEUE_URL: calendarQueue.queueUrl };
     const calendarFunction = goFunction('CalendarFunction', 'calendar', calendarLogs, calendarTimeout, google);
     const calendarAlias = live(calendarFunction);
-    // The API starts the worker through its alias, named by ARN rather than by the alias resource: CloudFormation counts
-    // the alias's UpdatePolicy, so the alias waits on its deployment group, whose alarms watch the API. Referring to the
-    // alias resource from the API would make a loop CloudFormation refuses (test/cycles.test.ts).
+    // The queue's mapping names the worker's alias by ARN rather than by the alias resource, below.
     const calendarLiveArn = `${calendarFunction.functionArn}:${calendarAlias.aliasName}`;
     const retentionFunction = goFunction('RetentionFunction', 'retention', retentionLogs, Duration.minutes(5), {});
     const retentionAlias = live(retentionFunction);
@@ -313,13 +311,11 @@ export class MultiscaleStack extends Stack {
     const accountFunction = goFunction('AccountFunction', 'account', accountLogs, Duration.minutes(15), { USER_POOL_ID: userPool.userPoolId, ...google }, undefined, 1024);
     const accountAlias = live(accountFunction);
     accountAlias.configureAsyncInvoke({ retryAttempts: 0 });
-    // By ARN, as the worker is, so the API's grant doesn't make a loop through the alias's deployment group.
+    // By ARN rather than the alias resource: CloudFormation makes the alias wait on its deployment group, whose alarms watch
+    // the API, so the API's grant on the alias resource would make a loop it refuses (test/cycles.test.ts).
     const accountLiveArn = `${accountFunction.functionArn}:${accountAlias.aliasName}`;
     const apiFunction = goFunction('ApiFunction', 'api', apiLogs, Duration.seconds(25), {
       API_URL: apiUrl,
-      // Read only by the API from before per-person connections, which invoked the worker itself; this one queues the run.
-      // shortcut: goes, with the invoke grant below, in the release that removes the legacy connection.
-      CALENDAR_FUNCTION_NAME: calendarLiveArn,
       ACCOUNT_FUNCTION_NAME: accountLiveArn,
       // For a lapsed token's question whether its account was deleted: the pool's keys and the clients it may be from.
       USER_POOL_ID: userPool.userPoolId,
@@ -359,7 +355,9 @@ export class MultiscaleStack extends Stack {
       resources: [table.tableArn, `${table.tableArn}/index/by_seq`],
     });
     // Only the Google secrets: the test users' passwords sit beside them, for the integration suite alone. The worker
-    // never starts a consent, so it doesn't get the key that signs them.
+    // never starts a consent, so it doesn't get the key that signs them. The legacy connection is read and deleted only
+    // to retire it, by the worker's schedule, or the API's disconnect when it names that person.
+    // shortcut: drop the grants on refresh-token once every deployment logs it retired.
     const readSecrets = (names: string[]) => new PolicyStatement({
       actions: ['ssm:GetParameter'],
       resources: names.map((name) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/${name}` })),
@@ -367,11 +365,12 @@ export class MultiscaleStack extends Stack {
     apiFunction.addToRolePolicy(readSecrets(['*']));
     calendarFunction.addToRolePolicy(readSecrets(['client-id', 'client-secret', 'refresh-token']));
     for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(dataAccess);
-    apiFunction.addToRolePolicy(new PolicyStatement({
-      actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
+    const deleteLegacy = new PolicyStatement({
+      actions: ['ssm:DeleteParameter'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `multiscale/${envName}/google/refresh-token` })],
-    }));
-    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [calendarLiveArn, accountLiveArn] }));
+    });
+    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(deleteLegacy);
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [accountLiveArn] }));
     // Whether an account is being deleted, and its export, are single items.
     apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['dynamodb:GetItem'], resources: [table.tableArn] }));
     // Whether a lapsed token's sign-in still exists. The account function deletes it; the API never can.
@@ -397,9 +396,9 @@ export class MultiscaleStack extends Stack {
     });
 
     // Google connections: their items only, by partition, read and deleted with GetItem and a transaction's Delete; the
-    // claim on a Google account is a Put, which the data actions above already allow. The API seals tokens at consent, and
-    // the worker when it copies the legacy connection; they and the account function, which ends a deleted account's
-    // connection, open them, only this environment's and for that purpose, with this key alone.
+    // claim on a Google account is a Put, which the data actions above already allow. Only the API seals a token, at
+    // consent; it, the worker and the account function, which ends a deleted account's connection, open them, only this
+    // environment's and for that purpose, with this key alone.
     const connectionItems = new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:DeleteItem'],
       resources: [table.tableArn],
@@ -410,13 +409,12 @@ export class MultiscaleStack extends Stack {
       calendarQueue.grantSendMessages(fn);
     }
     accountFunction.addToRolePolicy(connectionItems);
-    // shortcut: the worker's Encrypt is for the migration alone; it goes with the migration, in the contract release.
-    for (const fn of [apiFunction, calendarFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
+    apiFunction.addToRolePolicy(new PolicyStatement({ actions: ['kms:Encrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     for (const fn of [apiFunction, calendarFunction, accountFunction]) fn.addToRolePolicy(new PolicyStatement({ actions: ['kms:Decrypt'], resources: [tokenKey.keyArn], conditions: tokenPurpose }));
     // By role, not by function version: every version of a function shares its role, so the old and the new alike may use the
     // key through a canary, and a rollback.
     tokenKey.addToResourcePolicy(new PolicyStatement({
-      sid: 'Seal', principals: [apiFunction.role!, calendarFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
+      sid: 'Seal', principals: [apiFunction.role!], actions: ['kms:Encrypt'], resources: ['*'], conditions: tokenPurpose,
     }));
     tokenKey.addToResourcePolicy(new PolicyStatement({
       sid: 'Open', principals: [apiFunction.role!, calendarFunction.role!, accountFunction.role!], actions: ['kms:Decrypt'], resources: ['*'], conditions: tokenPurpose,

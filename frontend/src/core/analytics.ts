@@ -4,7 +4,7 @@
 
 import { timeSpentMs } from './blocks';
 import type { Clock } from './clock';
-import { addWeeks, instantMs, localDate, localMinutes, thisWeek, today, weekday, weekStart } from './dates';
+import { addWeeks, instantMs, localDate, localMinutes, thisWeek, today, weekday, weekRange, weekStart } from './dates';
 import type { Sql } from './db';
 import { msTasks } from './plan';
 import { isAway } from './queue';
@@ -318,6 +318,25 @@ function buildAnalytics(data: AnalyticsData, clock: Clock, scope: LocalDate[], i
 /** Any week by its Monday. Only weeks in the trend's eight have a bar marked. */
 export function weekAnalytics(data: AnalyticsData, clock: Clock, week: LocalDate): WeekAnalytics {
   return buildAnalytics(data, clock, [week], true);
+}
+
+/**
+ * The time planned and delivered in each of these weeks, as weekAnalytics totals it. Only blocks starting in them are
+ * read, since a local date costs a formatter call, and Week and planning work this out on every change, over an
+ * account's whole history of blocks.
+ */
+export function weeksTime(data: AnalyticsData, clock: Clock, weeks: readonly LocalDate[]): { planned_min: Minutes; delivered_min: Minutes }[] {
+  const zone = clock.zone();
+  const ranges = weeks.map((w) => weekRange(w, zone)).map((r) => [instantMs(r.from_utc), instantMs(r.to_utc)] as const);
+  const inWeeks = (b: TimeBlock) => {
+    const at = instantMs(b.start);
+    return ranges.some(([from, to]) => at >= from && at < to);
+  };
+  const facts = blockFacts({ ...data, blocks: data.blocks.filter(inWeeks) }, zone);
+  return weeks.map((w) => {
+    const own = facts.filter((f) => f.week === w);
+    return { planned_min: own.reduce((sum, f) => sum + f.planned, 0), delivered_min: sumDelivered(own) };
+  });
 }
 
 const PACE_WEEKS = 4;

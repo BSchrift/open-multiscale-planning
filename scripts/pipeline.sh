@@ -719,9 +719,19 @@ case "$command" in
     outputs prod
     frontend_deps
     browsers
+    # First this commit's web app suite against the web app staging still serves, the release before, as prod's Test step
+    # runs it before each release publishes there. So a step only this commit's suite takes, such as clearing the checks
+    # earlier runs left, meets the web app before it here first, not on prod.
+    ENV=staging WEB_ONLY=1 DEPLOYED_BEFORE_PUBLISH=1 "$root/scripts/test-deployed.sh"
     publish staging "${CODEBUILD_SRC_DIR_SignedStaging:?}"
-    # Retention and the history-scale test are left to the nightly run.
-    ENV=staging EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"
+    # Retention and the history-scale test are left to the nightly run. A release left live after failing them would fail
+    # the next run's suite above, the fix's too, so what it switched goes back to what that suite passed, as on prod.
+    if ! ENV=staging EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"; then
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      AWS_PROFILE="$profile" switch_back staging "web $feeds" "$version"
+      echo "staging's suites failed after this release published, so each surface it switched went back to what it served before, which this commit's web app suite passed before publishing. The run stops here: fix what failed, and the next run releases it." >&2
+      exit 1
+    fi
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.

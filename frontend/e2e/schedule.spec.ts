@@ -355,6 +355,21 @@ test('phone: All tasks lists practices first, and a task comes out of this week 
   expect(errors).toEqual([]);
 });
 
+/**
+ * Phone: once Capture opens, a draft scrolls to just under the week's sticky top, above the dock and Capture's sheet, so
+ * it stays in sight behind the sheet's dimming.
+ */
+async function expectDraftInSight(page: Page) {
+  const inSight = () =>
+    page.evaluate(() => {
+      const draft = document.querySelector('.holddraft')!.getBoundingClientRect();
+      const top = document.querySelector('.weektop')!.getBoundingClientRect().bottom;
+      const bottom = Math.min(...[...document.querySelectorAll('.pksum, .capsheet')].map((e) => e.getBoundingClientRect().top));
+      return draft.top >= top && draft.bottom <= bottom;
+    });
+  await expect.poll(inSight).toBe(true);
+}
+
 const holdTarget = (page: Page, phone: boolean) => (phone ? page.locator('.day.dragday') : page.locator('.colbody[data-drop-date="2026-11-04"]'));
 
 test('a press held on empty time in the Schedule step drafts nothing while a task is being placed', async ({ page }, info) => {
@@ -380,11 +395,87 @@ test('with nothing left to place in the Schedule step, a press held on empty tim
   await release(page, at, phone);
   const capture = page.getByRole('dialog', { name: 'Capture' });
   await expect(capture.getByText(phone ? 'Today, 5:45pm to 6:45pm' : 'Wed Nov 4, 5:45pm to 6:45pm')).toBeVisible();
+  if (phone) await expectDraftInSight(page);
   await page.keyboard.type('Book dentist');
   await page.screenshot({ path: info.outputPath('schedule-hold-capture.png') });
   await page.keyboard.press('Enter');
   await expect(draft).toHaveCount(0);
   await expect(page.locator('.cev, .ev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-hold-saved.png') });
+  expect(errors).toEqual([]);
+});
+
+test("Mark done on a placed task's card finishes the task and takes its block off, with Undo", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const fence: Seed = { type: 'time_block', id: 'b1', fields: { task_id: 'o1', start: '2026-11-06T17:15:00Z', end: '2026-11-06T18:45:00Z', tz: 'America/Chicago' } };
+  const errors = await openSchedule(page, phone, [...records, fence]);
+  if (phone) {
+    await page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' }).click();
+    await page.getByRole('dialog', { name: 'All picked tasks' }).getByRole('button', { name: /^Paint the fence/ }).click();
+  } else {
+    await page.getByRole('list', { name: 'Tasks' }).getByRole('button', { name: /^Paint the fence/ }).click();
+  }
+  const markDone = page.getByRole('button', { name: 'Mark done', exact: true });
+  if (phone) await expectTapTarget(markDone);
+  await markDone.click();
+  const said = page.locator(phone ? '.pktoast' : '.toast').filter({ hasText: 'Marked Paint the fence done. Its 11:15am block came off the calendar, so that time is free.' });
+  await expectOnTop(said);
+  if (!phone) await expect(said.getByRole('button', { name: 'Undo' })).toBeFocused();
+  await expect(phone ? page.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' }) : page.getByText('1 of 3 placed')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('schedule-mark-done.png') });
+  await said.getByRole('button', { name: 'Undo' }).click();
+  await expect(phone ? page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' }) : page.getByText('2 of 4 placed')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('desktop: a right-click on empty time offers New task here while a task waits, and Capture saves it there', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout; phone has New task');
+  const errors = await openSchedule(page, false);
+  const now = page.getByRole('region', { name: 'Now' });
+  await expect(now.getByRole('heading', { name: 'Collect the sources' })).toBeVisible();
+  // Wednesday on the editing grid, 4pm: ten hours after 6am at 40px an hour.
+  await page.locator('.colbody[data-drop-date="2026-11-04"]').click({ button: 'right', position: { x: 20, y: 401 } });
+  const menu = page.getByRole('menu', { name: 'Wed Nov 4, 4pm' });
+  await expectOnTop(menu.getByRole('menuitem', { name: 'New task here' }));
+  await page.screenshot({ path: info.outputPath('schedule-new-task-menu.png') });
+  await menu.getByRole('menuitem', { name: 'New task here' }).click();
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText('Wed Nov 4, 4pm to 5pm')).toBeVisible();
+  await page.keyboard.type('Book dentist');
+  await page.keyboard.press('Enter');
+  await expect(capture).toHaveCount(0);
+  await expect(page.locator('.ev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
+  // The step's task still waits where it was.
+  await expect(now.getByRole('heading', { name: 'Collect the sources' })).toBeVisible();
+  await expect(now.getByRole('button', { name: 'Place here' })).toBeVisible();
+
+  // From the keys: Shift-F10 on a day opens the same menu there, and Esc puts focus back on the day.
+  const thursday = page.getByRole('group', { name: /^Thu Nov 5\./ });
+  await thursday.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menu', { name: 'Thu Nov 5' }).getByRole('menuitem', { name: 'New task here' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(thursday).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test("phone: + in the step's bar is New task, opening Capture at the first free hour of the day shown while a task waits", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'Desktop has the right-click');
+  const errors = await openSchedule(page, true);
+  const button = page.getByRole('button', { name: 'New task', exact: true });
+  await expectTapTarget(button);
+  await page.screenshot({ path: info.outputPath('schedule-new-task-button.png') });
+  await button.click();
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText('Today, 2pm to 3pm')).toBeVisible();
+  // The draft comes up the page, under the week's top and above the dock and Capture's sheet, as a hold's does.
+  await expectDraftInSight(page);
+  await page.keyboard.type('Book dentist');
+  await page.keyboard.press('Enter');
+  await expect(capture).toHaveCount(0);
+  await expect(page.locator('.dragblock, .cev').filter({ hasText: 'Book dentist' }).first()).toBeVisible();
+  // The step's task still waits in the dock.
+  await expect(page.locator('.flowdock').getByRole('button', { name: 'Place here' })).toBeVisible();
   expect(errors).toEqual([]);
 });

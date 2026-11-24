@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import {
   answerBlock,
   answerBlocks,
+  endNow,
   extendBlock,
   markDoneNow,
   pauseBlock,
@@ -25,7 +26,8 @@ import { snoozeUntil } from '../../../core/reminders';
 import { closeTask, tickOneOff } from '../../../core/tasks';
 import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useMutation } from '../../app/store';
-import { useToast } from '../Toast';
+import { useToastOr } from '../Toast';
+import type { Say } from '../Toast';
 
 const QUEUED = 'Added to Needs a new time. No need to decide now.';
 
@@ -38,9 +40,10 @@ const TAKE_BACK_MS = 30_000;
  */
 let lastResume: { db: Db; blockId: string; at: number; reverse: PlanChange } | null = null;
 
-export function useBlockActions() {
+/** say: where its messages go instead of the app's toast, as the phone's Schedule step says its own above its dock. */
+export function useBlockActions(say?: Say) {
   const { clock, db } = useApp();
-  const toast = useToast();
+  const toast = useToastOr(say);
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange | void>) => fn(w));
   const { run } = write;
 
@@ -51,6 +54,11 @@ export function useBlockActions() {
     },
     [run, toast],
   );
+  /** ' after 22m': the time spent, pauses left out, on a block started a minute or more ago. */
+  const after = (block: BlockRow) => {
+    const minutes = block.started_at ? Math.round(timeSpentMs(block, clock.now()) / 60_000) : 0;
+    return minutes ? ` after ${formatMinutes(minutes)}` : '';
+  };
 
   return {
     pending: write.pending,
@@ -91,16 +99,20 @@ export function useBlockActions() {
       toast.show(`Marked ${block.title ?? 'it'} done.${off}`, { undo: () => run((w) => applyPlanChange(w, reverse)), focusUndo: true });
     },
     /** Says the time spent, pauses left out, on a block started a minute or more ago. */
-    markDoneNow: (block: BlockRow, next: BlockRow | undefined) => {
-      const minutes = block.started_at ? Math.round(timeSpentMs(block, clock.now()) / 60_000) : 0;
-      const spent = minutes ? ` after ${formatMinutes(minutes)}` : '';
-      return withUndo(
+    markDoneNow: (block: BlockRow, next: BlockRow | undefined) =>
+      withUndo(
         (w) => markDoneNow(w, block.id, clock),
-        `Marked done${spent}. ${next ? `You're free until ${formatTime(next.start, clock.zone())}.` : 'Nothing else planned today.'}`,
+        `Marked done${after(block)}. ${next ? `You're free until ${formatTime(next.start, clock.zone())}.` : 'Nothing else planned today.'}`,
         // The Mark done now button unmounts with its block, so focus would otherwise fall to the page.
         true,
-      );
-    },
+      ),
+    /**
+     * Stop for now: the block ends now, as Mark done now ends it, answered Partly with the time left or Not done, so the
+     * task waits in Needs a new time. Undo puts the block and its answer back as they were.
+     */
+    stopForNow: (block: BlockRow, answer: BlockAnswer) =>
+      // Its question closes and the Stop for now button goes with the block, so focus would otherwise fall to the page.
+      withUndo((w) => endNow(w, block.id, answer, clock), `Stopped${after(block)}. ${QUEUED}`, true),
     /**
      * Pause and Resume each say so, with Undo, and each toast takes the place of the other's, so the one showing always
      * matches the ring. Pause's Undo takes the pause away with the end where it was; Resume's puts the pause back, with

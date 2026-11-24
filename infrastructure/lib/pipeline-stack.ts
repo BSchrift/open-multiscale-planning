@@ -334,7 +334,8 @@ export class PipelineStack extends Stack {
             // Beside staging's deploy, since it may wait a while for GitHub Actions' build. A failed check stops the run.
             ...(macProject ? [step('MacApp', 'mac', 1, macApps, [], macProject)] : []),
             sign('staging', signedStaging, 2),
-            // Publishes staging's web app and its signed feed, then runs staging's suites against them.
+            // Runs this commit's web app suite against the web app staging still serves, as prod's Test step does, then
+            // publishes staging's web app and its signed feed, and runs staging's suites against them.
             step('ReleaseAndTest', 'release-staging', 3, [], [signedStaging, ...macApps]),
           ],
         },

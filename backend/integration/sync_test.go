@@ -1,8 +1,11 @@
 package integration
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -235,6 +238,43 @@ func TestLargeRecordsSplitAndPage(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("%d records never came", len(want))
+	}
+}
+
+// Gzipped only when asked. On a deployment this is the one check that API Gateway passes the Lambda's base64 body on as
+// the gzipped bytes, which no test without it can show.
+func TestAPullIsGzippedOnlyWhenAsked(t *testing.T) {
+	needs(t)
+	a := signIn(t)
+	start := a.startCursor()
+	title := strings.Repeat("Paint the fence. ", 20)
+	var changes []record
+	for i := 0; i < 5; i++ {
+		changes = append(changes, a.record("task", fresh("gzip"), "title", title))
+	}
+	a.sync(start, changes...)
+	pull := mustJSON(t, syncRequest{Cursor: start, Changes: []record{}})
+
+	// Asking for gzip by hand turns off Go's own unpacking, so the body is what came over the wire.
+	res := request(t, "POST", "/sync", a.tokens.access, pull, "Accept-Encoding", "gzip")
+	if res.status != 200 || res.header.Get("Content-Encoding") != "gzip" || !strings.Contains(res.header.Get("Vary"), "Accept-Encoding") {
+		t.Fatalf("%d %v %s", res.status, res.header, truncated(res.body))
+	}
+	unpacked, err := gzip.NewReader(bytes.NewReader(res.body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(unpacked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page := decodeSync(t, response{200, raw, res.header}); len(page.Changes) < len(changes) {
+		t.Fatalf("%d changes, want at least %d", len(page.Changes), len(changes))
+	}
+
+	plain := request(t, "POST", "/sync", a.tokens.access, pull, "Accept-Encoding", "identity")
+	if plain.status != 200 || plain.header.Get("Content-Encoding") != "" || !json.Valid(plain.body) {
+		t.Fatalf("%d %v %s", plain.status, plain.header, truncated(plain.body))
 	}
 }
 

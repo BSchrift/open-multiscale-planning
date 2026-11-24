@@ -3,6 +3,8 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -276,7 +278,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request, sub string) outcom
 	if err != nil {
 		return fail(err)
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeGzippable(w, r, http.StatusOK, res)
 	return finish(http.StatusOK, "")
 }
 
@@ -563,4 +565,47 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(body)
+}
+
+// gzipMinBytes is the smallest body worth gzipping: below it, gzip's own header and the work cost more than they save.
+const gzipMinBytes = 1024
+
+// writeGzippable is writeJSON gzipped, at the default level, when the body is over gzipMinBytes and the request takes
+// gzip. A page of a first sync is up to 2 MB of JSON, which gzip makes about eight times smaller. Browsers, Electron and
+// the iPhone's web view all ask for gzip and unpack it before the app sees the body, so no app changes; a client that
+// doesn't ask gets JSON as before.
+func writeGzippable(w http.ResponseWriter, r *http.Request, status int, body any) {
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(body)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Vary", "Accept-Encoding")
+	if buf.Len() <= gzipMinBytes || !takesGzip(r.Header.Values("Accept-Encoding")) {
+		w.WriteHeader(status)
+		w.Write(buf.Bytes())
+		return
+	}
+	w.Header().Set("Content-Encoding", "gzip")
+	w.WriteHeader(status)
+	zw := gzip.NewWriter(w)
+	zw.Write(buf.Bytes())
+	zw.Close()
+}
+
+// takesGzip is whether Accept-Encoding lists gzip, other than as refused with q=0.
+func takesGzip(values []string) bool {
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			name, params, _ := strings.Cut(part, ";")
+			if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+				continue
+			}
+			if q, ok := strings.CutPrefix(strings.ReplaceAll(params, " ", ""), "q="); ok {
+				if weight, err := strconv.ParseFloat(q, 64); err == nil && weight == 0 {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
 }

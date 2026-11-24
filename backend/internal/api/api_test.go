@@ -2,10 +2,12 @@ package api
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -111,6 +113,60 @@ func TestSyncPassesTheTokenSubAndReturnsTheResponse(t *testing.T) {
 	}
 	if rec.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("headers %v", rec.Header())
+	}
+}
+
+// A page of a first sync is up to 2 MB of JSON, which gzip makes about eight times smaller.
+func TestSyncGzipsAResponseOver1KBWhenAsked(t *testing.T) {
+	changes := make([]sync.Change, 50)
+	for i := range changes {
+		changes[i] = sync.Change{Type: "task", ID: fmt.Sprintf("r%02d", i), Fields: sync.Fields{"title": {V: "Paint the fence", C: "1800000000000-000000-a"}}}
+	}
+	large := sync.Response{Cursor: 50, Changes: changes}
+	small := sync.Response{Cursor: 9, Changes: []sync.Change{}}
+	for _, c := range []struct {
+		name           string
+		res            sync.Response
+		acceptEncoding string
+		gzipped        bool
+	}{
+		{"asked", large, "gzip, deflate, br", true},
+		{"asked alone, in any case", large, "GZIP", true},
+		{"not asked", large, "", false},
+		{"asked for something else", large, "br", false},
+		{"refused", large, "gzip;q=0, br", false},
+		{"too small to be worth it", small, "gzip", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, _ := newServer(&fakeSyncer{res: c.res}, nil)
+			req := httptest.NewRequest("POST", "/sync", strings.NewReader(goodBody))
+			req = req.WithContext(WithSub(req.Context(), testSub))
+			if c.acceptEncoding != "" {
+				req.Header.Set("Accept-Encoding", c.acceptEncoding)
+			}
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/json" || rec.Header().Get("Vary") != "Accept-Encoding" {
+				t.Fatalf("%d %v", rec.Code, rec.Header())
+			}
+			body := rec.Body.Bytes()
+			if got := rec.Header().Get("Content-Encoding") == "gzip"; got != c.gzipped {
+				t.Fatalf("gzipped %v, want %v", got, c.gzipped)
+			}
+			if c.gzipped {
+				zr, err := gzip.NewReader(bytes.NewReader(body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if body, err = io.ReadAll(zr); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var got sync.Response
+			if err := json.Unmarshal(body, &got); err != nil || got.Cursor != c.res.Cursor || len(got.Changes) != len(c.res.Changes) {
+				t.Fatalf("%+v %v", got, err)
+			}
+		})
 	}
 }
 

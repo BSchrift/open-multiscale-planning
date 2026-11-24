@@ -14,7 +14,7 @@ private let pageLoaded = "io.github.bschrift.multiscale.page-loaded"
 /// nav.week once Week is drawn with its data.
 private let measured = "io.github.bschrift.multiscale.measured."
 
-/// Set by scripts/test-ios.sh for its second run, which builds with the extensions on.
+/// Set by scripts/test-ios.sh for its run that builds with the extensions on, which CI runs on a Mac of its own.
 let extensionsEnabled = ProcessInfo.processInfo.environment["MULTISCALE_EXTENSIONS"] == "YES"
 private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
@@ -236,9 +236,13 @@ func openLink(_ link: String, until opened: @escaping () -> Bool) {
     if open.exists { open.tap() }
 }
 
-/// The real app, through its web view.
+/// The real app, through its web view. Nothing here touches what the extensions add, so these run once, with them on,
+/// as the released app has them. With them off, OfflineUITests and NativeUITests run the app as a free personal team's.
 final class ShellUITests: XCTestCase {
-    override func setUp() { continueAfterFailure = false }
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        try XCTSkipUnless(extensionsEnabled, "the shell tests run once, with the extensions on")
+    }
 
     func testFirstRunSetupThenItRemembersAfterARestart() {
         let app = launchApp()

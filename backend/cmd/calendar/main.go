@@ -84,9 +84,6 @@ func handle(ctx context.Context, w worker, payload json.RawMessage, requestID st
 		return nil, w.Wake(ctx, subs, requestID)
 	case e.Trigger == "refresh" && e.Sub != "":
 		return nil, w.Run(ctx, e.Sub, "refresh", requestID)
-	case e.Trigger == "refresh":
-		// From an API version before per-person connections, which names no one: a run for everyone covers whoever it meant.
-		return nil, w.Dispatch(ctx, "refresh", requestID)
 	}
 	return nil, w.Dispatch(ctx, "schedule", requestID)
 }

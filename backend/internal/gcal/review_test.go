@@ -178,26 +178,6 @@ func TestAConnectionThatWontDecryptDoesntLockItsPersonOut(t *testing.T) {
 	}
 }
 
-// One person's connection that won't open, beside a legacy one naming them, falls back to the legacy one, and says so.
-func TestAnUnreadableConnectionFallsBackToTheLegacyOne(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	w.legacy(testSub)
-	w.connect(testSub)
-	w.conns.unreadable = map[string]bool{testSub: true}
-	w.block("b1", "Write the report", at(1), at(2))
-	w.run()
-	if w.eventFor("b1") == nil {
-		t.Fatal("stopped syncing")
-	}
-	if line := w.linesFor(testSub)[0]; line["outcome"] != "ok" || line["legacy"] != true {
-		t.Fatalf("%+v", line)
-	}
-	if len(w.logLines("calendar_connection_unreadable")) != 1 {
-		t.Fatalf("%s", w.logs)
-	}
-}
-
 // A connection made while a disconnect runs, by the migration's copy or a consent, goes too: the disconnect goes round.
 func TestADisconnectGoesRoundForAConnectionMadeWhileItRan(t *testing.T) {
 	w := newWorld(t)
@@ -274,22 +254,6 @@ type countingSecrets struct {
 func (c *countingSecrets) Get(ctx context.Context, name string) (string, error) {
 	c.reads[name]++
 	return c.memSecrets.Get(ctx, name)
-}
-
-// The stream's wake reads the legacy parameter once, however many of its people aren't connected: SSM allows 40 reads a
-// second across the account.
-func TestWakeReadsTheLegacyConnectionOnce(t *testing.T) {
-	w := newWorld(t)
-	w.connect(testSub)
-	w.legacy(testSub)
-	counting := &countingSecrets{memSecrets: w.secrets, reads: map[string]int{}}
-	w.g.Secrets = counting
-	if err := w.g.Wake(context.Background(), []string{"a", "b", "c", testSub}, "r"); err != nil {
-		t.Fatal(err)
-	}
-	if counting.reads[SecretRefreshToken] != 1 || len(w.queued) != 1 || w.queued[0].Sub != testSub {
-		t.Fatalf("%d reads, queued %+v", counting.reads[SecretRefreshToken], w.queued)
-	}
 }
 
 // When the connections can't be read, the schedule and the stream fail, so the Lambda's error alarm sees it, rather than

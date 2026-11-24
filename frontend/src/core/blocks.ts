@@ -270,19 +270,19 @@ export async function swapBlocks(w: Writer, aId: string, bId: string): Promise<P
 /** Longest block a task gets when started with nothing planned, the same cap planning uses. */
 const LONGEST_START_MIN = 120;
 
-/** Puts a task on the clock now, for its time left (or 30 minutes with no estimate), and starts it. Returns its block. */
-export async function startTaskNow(w: Writer, taskId: string, clock: Clock): Promise<string> {
+/**
+ * Puts a task on the clock now, for its time left (or 30 minutes with no estimate), and starts it as any block starts.
+ * The reverse deletes the new block, whose id is its first write, and puts back whatever the start changed.
+ */
+export async function startTaskNow(w: Writer, taskId: string, clock: Clock): Promise<PlanChange> {
   const task = await getRecord(w.sql, 'task', taskId);
   if (!task) throw new Error(`No task ${taskId}`);
   const start = Math.floor(clock.now() / MINUTE_MS) * MINUTE_MS;
   const minutes = Math.min(minutesLeft(task) || 30, LONGEST_START_MIN);
-  return w.create('time_block', {
-    task_id: taskId,
-    start: toInstant(start),
-    end: toInstant(start + minutes * MINUTE_MS),
-    tz: clock.zone(),
-    started_at: nowInstant(clock),
-  });
+  const id = await w.create('time_block', { task_id: taskId, start: toInstant(start), end: toInstant(start + minutes * MINUTE_MS), tz: clock.zone() });
+  const started = await startBlock(w, id, clock);
+  // The new block goes on Undo, so its own start needs no putting back.
+  return { writes: [{ type: 'time_block', id, fields: { deleted_at: nowInstant(clock) } }, ...started.writes.filter((x) => x.id !== id)] };
 }
 
 /** Still going: the block runs longer. */

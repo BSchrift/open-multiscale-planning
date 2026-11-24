@@ -100,13 +100,14 @@ export function useBlockCommands(say?: Say) {
     moveOver: moveOver.run,
     tookOff,
     /**
-     * Done: for one gone by, its answer; for the one under way, Mark done now; for a task's block still to come, the
-     * task finishes and frees its time. A practice's session still to come is logged as done, as Did it would be after.
+     * Done: for one gone by, its answer; for the one under way, Mark done now; for a task's block still to come, or one
+     * already answered, the task finishes and frees its time. A practice's session still to come is logged as done, as
+     * Did it would be after.
      */
     done: (block: BlockRow, next: BlockRow | undefined): Promise<unknown> => {
       const stage = stageOf(block, clock.now());
       if (stage === 'now') return actions.markDoneNow(block, next);
-      if (stage === 'later' && block.task_id) return actions.finish(block);
+      if ((stage === 'later' || stage === 'answered') && block.task_id) return actions.finish(block);
       return answer(block, 'done');
     },
     /** Start, or for one later today Start now, which moves it to now, keeping its length. Says where it now runs. */

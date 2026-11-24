@@ -11,6 +11,7 @@ import {
   resumeBlock,
   startBlock,
   startEarly,
+  startTaskNow,
   swapBlocks,
   timeSpentMs,
   unscheduleBlock,
@@ -156,6 +157,8 @@ export function useBlockActions(say?: Say) {
         true,
       ),
     start: (block: BlockRow) => run((w) => startBlock(w, block.id, clock)),
+    /** Start now on a task with no block under way: a block for it from now, started, as Today's Next up starts one. */
+    startTask: (task: { id: string; title: string }) => withUndo((w) => startTaskNow(w, task.id, clock), `Started ${task.title}.`),
     startEarly: (block: BlockRow) => run((w) => startEarly(w, block.id, clock)),
     swap: (block: BlockRow, next: BlockRow) => withUndo((w) => swapBlocks(w, block.id, next.id), 'Swapped with your next block'),
     stillGoing: async (block: BlockRow) => {

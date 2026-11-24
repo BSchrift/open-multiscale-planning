@@ -97,8 +97,8 @@ test('stops a description at the limit and counts the last tenth', async ({ page
   } else {
     await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'One offs' }).click();
   }
-  await pane(page, 'One offs').getByRole('button', { name: 'Change repeat for Return the drill' }).click();
-  const form = page.getByRole('form', { name: 'Change Return the drill' });
+  await pane(page, 'One offs').getByRole('button', { name: 'Return the drill', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Return the drill' });
   const field = form.getByLabel('Description');
   await field.fill('x'.repeat(MAX_NOTES - 1));
   await expect(form.getByText('19,999 of 20,000')).toBeVisible();

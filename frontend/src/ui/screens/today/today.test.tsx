@@ -1156,6 +1156,19 @@ describe('the timeline', () => {
       expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ started_at: null, start: at('16:00') });
     });
 
+    it("in a block's popup, asks how the stopped one went once the popup closes, though nothing else changes then", async () => {
+      await open(counting);
+      await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+      const popup = await taskPopup('Write the report');
+      await userEvent.click(within(popup).getByRole('button', { name: 'Start now' }));
+      // Today has read the change: the Now card is on the new block, and the stopped one's question waits for the popup.
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      expect(await within(now).findByRole('heading', { name: 'Write the report' })).toBeVisible();
+      expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
+      await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
+      expect(within(await dialog('Block finished')).getByText('Paint the fence')).toBeVisible();
+    });
+
     it('from the quick menu, then asks how the stopped one went, Partly starting from its estimate less the time spent', async () => {
       const t = await open(counting);
       fireEvent.contextMenu(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }), { clientX: 200, clientY: 300 });

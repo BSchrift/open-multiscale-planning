@@ -1,0 +1,172 @@
+{
+  "v": 1,
+  "writtenAt": "2026-11-18T17:06:00Z",
+  "syncedAt": "2026-11-18T17:06:00Z",
+  "zone": "America/Los_Angeles",
+  "signedIn": true,
+  "days": [
+    {
+      "date": "2026-11-18",
+      "weekPlanned": true
+    },
+    {
+      "date": "2026-11-19",
+      "weekPlanned": true
+    }
+  ],
+  "blocks": [
+    {
+      "id": "run",
+      "rev": "5ea7ff67",
+      "start": "2026-11-18T15:00:00Z",
+      "end": "2026-11-18T15:45:00Z",
+      "kind": "practice",
+      "title": "Run",
+      "space": null,
+      "startedAt": null,
+      "pausedAt": null,
+      "pausedMin": null,
+      "endedAt": null,
+      "answer": "done"
+    },
+    {
+      "id": "spec",
+      "rev": "0b1ad7f0",
+      "start": "2026-11-18T17:00:00Z",
+      "end": "2026-11-18T18:30:00Z",
+      "kind": "project",
+      "title": "Write widget spec",
+      "space": null,
+      "startedAt": null,
+      "pausedAt": null,
+      "pausedMin": null,
+      "endedAt": null,
+      "answer": null
+    },
+    {
+      "id": "dentist",
+      "rev": "14fdeec0",
+      "start": "2026-11-18T19:00:00Z",
+      "end": "2026-11-18T19:15:00Z",
+      "kind": "oneoff",
+      "title": "Call the dentist",
+      "space": null,
+      "startedAt": null,
+      "pausedAt": null,
+      "pausedMin": null,
+      "endedAt": null,
+      "answer": null
+    },
+    {
+      "id": "prs",
+      "rev": "4c672665",
+      "start": "2026-11-18T21:00:00Z",
+      "end": "2026-11-18T22:00:00Z",
+      "kind": "project",
+      "title": "Review pull requests",
+      "space": null,
+      "startedAt": null,
+      "pausedAt": null,
+      "pausedMin": null,
+      "endedAt": null,
+      "answer": null
+    },
+    {
+      "id": "piano",
+      "rev": "66228b0c",
+      "start": "2026-11-19T01:30:00Z",
+      "end": "2026-11-19T02:00:00Z",
+      "kind": "practice",
+      "title": "Piano",
+      "space": null,
+      "startedAt": null,
+      "pausedAt": null,
+      "pausedMin": null,
+      "endedAt": null,
+      "answer": null
+    },
+    {
+      "id": "notes",
+      "rev": "6924a40f",
+      "start": "2026-11-19T17:00:00Z",
+      "end": "2026-11-19T18:00:00Z",
+      "kind": "project",
+      "title": "Draft release notes",
+      "space": null,
+      "startedAt": null,
+      "pausedAt": null,
+      "pausedMin": null,
+      "endedAt": null,
+      "answer": null
+    }
+  ],
+  "events": [
+    {
+      "start": "2026-11-18T18:30:00Z",
+      "end": "2026-11-18T18:45:00Z",
+      "title": "Standup"
+    }
+  ],
+  "inbox": {
+    "count": 0
+  },
+  "week": {
+    "start": "2026-11-16",
+    "plannedMinutes": [
+      255,
+      105,
+      240,
+      60,
+      0,
+      60,
+      0
+    ],
+    "aims": [
+      {
+        "name": "Garden",
+        "kind": "project",
+        "plannedMinutes": 60,
+        "aimMinutes": 120,
+        "status": {
+          "pill": "Behind",
+          "tone": "amber"
+        },
+        "space": null
+      },
+      {
+        "name": "Multiscale",
+        "kind": "project",
+        "plannedMinutes": 450,
+        "aimMinutes": 480,
+        "status": {
+          "pill": "On track",
+          "tone": "green"
+        },
+        "space": null
+      },
+      {
+        "name": "One offs",
+        "kind": "oneoff",
+        "plannedMinutes": 60,
+        "aimMinutes": 120,
+        "status": null,
+        "space": null
+      }
+    ],
+    "practices": [
+      {
+        "name": "Piano",
+        "done": 1,
+        "of": 2,
+        "space": null
+      },
+      {
+        "name": "Run",
+        "done": 2,
+        "of": 3,
+        "space": null
+      }
+    ]
+  },
+  "fromWidget": []
+}

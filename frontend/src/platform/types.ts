@@ -2,6 +2,7 @@
 // Each adapter (electron.ts, capacitor.ts, web.ts) implements this, and memory.ts holds the fakes used by the
 // browser build and by tests. Core code never imports this: it gets data and a Clock as arguments.
 
+import type { AppLink } from '../core/appLinks';
 import type { Db } from '../core/db';
 import type { Diagnostics, Energy } from '../core/telemetry';
 import type { Reminder } from '../core/types';
@@ -56,6 +57,22 @@ export interface CaptureShortcut {
   set(accelerator: string): Promise<boolean>;
 }
 
+/** The iPhone's widgets, through the App Group they share with the app (frontend/ios/App/MultiscaleWidgets). */
+export interface Widgets {
+  /** Saves the snapshot the widgets draw from, then asks iOS to redraw them. */
+  write(json: string): Promise<void>;
+  /** The snapshot and any queued actions go, as at an erase. */
+  clear(): Promise<void>;
+  /** What the widget's buttons queued, oldest first, as files: each stays until removed. */
+  actions(): Promise<{ id: string; text: string }[]>;
+  remove(ids: string[]): Promise<void>;
+  /**
+   * iOS woke the app in the background to bring the widgets up to date. The listener syncs and writes the snapshot, and
+   * iOS is told it finished when the promise settles. Returns an unsubscribe function.
+   */
+  onRefresh(listener: () => Promise<void>): () => void;
+}
+
 /** Attachments' bytes kept on this device, by attachment id. */
 export interface FileStore {
   get(id: string): Promise<Blob | null>;
@@ -87,6 +104,11 @@ export interface Platform {
   readonly signInRedirectUri: string;
   /** A deep link opened the app, such as the sign-in callback. Returns an unsubscribe function. */
   onDeepLink(listener: (url: string) => void): () => void;
+  /**
+   * Only where widgets link into the app: one of its own links opened it, such as Today at a block. Waits for a listener,
+   * so a link that launched the app isn't lost. Returns an unsubscribe function.
+   */
+  onAppLink?(listener: (link: AppLink) => void): () => void;
   /** Only on desktop: the computer woke from sleep or its screen unlocked. Returns an unsubscribe function. */
   onWake?(listener: () => void): () => void;
   /** Only where a global shortcut exists. */
@@ -114,6 +136,8 @@ export interface Platform {
   readonly updates?: NativeUpdates;
   /** Only on desktop: the global shortcut that opens capture, as an Electron accelerator. */
   readonly captureShortcut?: CaptureShortcut;
+  /** Only on an iPhone whose build has the App Group the widgets read. */
+  readonly widgets?: Widgets;
   /** Only where a share sheet exists. */
   readonly shareImport?: {
     /** Text shared while the app was closed, oldest first. It stays queued until removed. */

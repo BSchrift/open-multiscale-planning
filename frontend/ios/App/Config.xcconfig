@@ -16,3 +16,6 @@ MULTISCALE_SIGN_EXTENSIONS_YES = YES
 MULTISCALE_SIGN_EXTENSIONS_NO = NO
 MULTISCALE_ENTITLEMENTS_YES = Shared/AppGroup.entitlements
 MULTISCALE_ENTITLEMENTS_NO =
+// The widgets that read the App Group are built in only with it: without one they'd never have anything to show.
+MULTISCALE_WIDGETS_YES = MULTISCALE_APP_GROUP
+MULTISCALE_WIDGETS_NO =

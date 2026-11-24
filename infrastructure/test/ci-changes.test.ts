@@ -54,6 +54,7 @@ describe('scripts/ci-changes.sh', () => {
       'config/retention.yaml',
       'config/retention.ts',
       'scripts/test-ios.sh',
+      'scripts/test-widget-renders.sh',
       'scripts/local-stack.sh',
       'Makefile',
       '.github/workflows/ci.yml',
@@ -284,8 +285,11 @@ describe('the iPhone job in .github/workflows/ci.yml', () => {
     assert.ok('workflow_dispatch' in ci.on);
   });
 
+  // The iPhone widgets' job holds a macOS runner too, and tests only what the iPhone app is built from, so it runs when
+  // the iPhone job does.
   it('leaves every other job to run whatever changed', () => {
     const conditional = Object.entries(ci.jobs).filter(([, job]) => job.if).map(([name]) => name);
-    assert.deepEqual(conditional, ['ios-simulator', 'ios']);
+    assert.deepEqual(conditional, ['ios-simulator', 'ios', 'widgets']);
+    assert.equal(ci.jobs.widgets!.if, ci.jobs['ios-simulator']!.if);
   });
 });

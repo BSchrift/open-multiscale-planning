@@ -25,7 +25,8 @@ import { OneOffsToday } from './OneOffsToday';
 import { QueuePanel } from './QueuePanel';
 import { ToSchedule } from './ToSchedule';
 import { ShiftPanel } from './ShiftPanel';
-import { usePrompts } from './usePrompts';
+import { usePrompts, usePutAway } from './usePrompts';
+import type { PutAway } from './usePrompts';
 import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
 import './today.css';
 import { Button } from '../../components/ds/Button';
@@ -119,11 +120,11 @@ function firstControl(from: Element | null): HTMLElement | null {
   return null;
 }
 
-function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null }) {
+function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null; putAway: PutAway }) {
   const { data, unplanned } = props;
   const { clock, layout, sync } = useApp();
   const land = useFocusLanding();
-  const { prompt, missed } = usePrompts(data);
+  const { prompt, missed } = usePrompts(data, props.putAway);
   const { call } = useCalendarCall();
   const [panel, setPanel] = useState<'shift' | 'queue' | null>(null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
@@ -213,8 +214,8 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
 }
 
 /** Every block still gets its prompts while Today asks to plan the week. */
-function Prompts(props: { data: TodayData }) {
-  return <>{usePrompts(props.data).prompt}</>;
+function Prompts(props: { data: TodayData; putAway: PutAway }) {
+  return <>{usePrompts(props.data, props.putAway).prompt}</>;
 }
 
 export default function Screen(_props: ScreenProps) {
@@ -223,6 +224,7 @@ export default function Screen(_props: ScreenProps) {
   const { clock, layout } = useApp();
   const { data } = useQuery((sql, c) => loadToday(sql, c), []);
   const [picking, setPicking] = useState(false);
+  const putAway = usePutAway();
   // Whenever this device works out Today, it saves any planning task that's due. It places no time.
   const day = useToday();
   const makeDue = useMutation(({ automatic: w }) => makeDuePlanningTasks(w, clock));
@@ -267,9 +269,9 @@ export default function Screen(_props: ScreenProps) {
       'Plan your week',
       <>
         <Gate data={data} />
-        <Prompts data={data} />
+        <Prompts data={data} putAway={putAway} />
       </>,
     );
   }
-  return <TodayView data={data} unplanned={!data.planned} pick={pick?.date === data.date ? pick.id : null} />;
+  return <TodayView data={data} unplanned={!data.planned} pick={pick?.date === data.date ? pick.id : null} putAway={putAway} />;
 }

@@ -467,10 +467,11 @@ export function startAppSync(
     },
     /**
      * Deletes the account this device's data belongs to, once the person has typed DELETE, then erases this device's copy
-     * and signs it out. Resolves to 'sign_in_again' when their sign-in is too old for it, and 'wrong_account' when it's
-     * another account's, changing nothing either way. Throws SyncError.
+     * and signs it out. Resolves to 'sign_in_again' when their sign-in is too old for it, 'wrong_account' when it's
+     * another account's, and 'protected' when the server never deletes it, changing nothing in each case. Throws
+     * SyncError.
      */
-    async deleteAccount(): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> {
+    async deleteAccount(): Promise<'deleted' | 'sign_in_again' | 'wrong_account' | 'protected'> {
       const account = await getMeta(platform.db, META.account);
       if (!account || tokenSubject(await auth.accessToken()) !== account) return 'wrong_account';
       const answer = await deleteAccount(accountRequest, account);

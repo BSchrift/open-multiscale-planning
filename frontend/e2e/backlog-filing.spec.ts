@@ -1,7 +1,7 @@
 // Filing into a goal's backlog from Capture and from a task's Belongs to, at desktop and phone sizes.
 
 import { expect, test } from '@playwright/test';
-import { openSeeded, readRecord } from './seed';
+import { belongsTo, openSeeded, readRecord } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -42,7 +42,7 @@ test("Belongs to moves a dated one off into a goal's backlog, saying first that 
   }
   await page.getByRole('button', { name: /Order rye flour/ }).first().click();
   const popup = page.getByRole('dialog', { name: 'Order rye flour' });
-  await popup.getByLabel('Belongs to').selectOption({ label: 'Learn to bake bread, Backlog' });
+  await belongsTo(page, popup, 'Learn to bake bread, Backlog');
   await expect(popup.getByRole('status')).toHaveText('Backlog tasks have no date, so Fri Nov 20 will be cleared.');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/belongs-to-backlog-${info.project.name}.png` });
   await popup.getByRole('button', { name: 'Save' }).click();

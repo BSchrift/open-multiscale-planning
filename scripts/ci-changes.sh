@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Whether CI's iPhone job runs, since it holds one of the few macOS runners for about 40 minutes. Usage:
+# Whether CI's iPhone jobs run, since they hold two of the few macOS runners for about half an hour. Usage:
 #   git diff --name-only --no-renames <base> HEAD | scripts/ci-changes.sh <event>
 # A push to main, a scheduled run and a run started by hand always run it, whatever changed. A pull request, or a merge
 # group, runs it only when a path in its diff is something the iPhone app is built from or runs, or something that

@@ -202,7 +202,7 @@ export function missedBlocks(blocks: readonly BlockRow[], away: readonly AwayPer
   const now = clock.now();
   const zone = clock.zone();
   return blocks
-    .filter((b) => b.task_id && !isPlanning(b) && !b.result && !b.ended_at && instantMs(b.end) <= now && !isAway(localDate(b.start, zone), away))
+    .filter((b) => b.task_id && !isPlanning(b) && !b.result && instantMs(b.ended_at ?? b.end) <= now && !isAway(localDate(b.start, zone), away))
     .sort((a, b) => instantMs(a.start) - instantMs(b.start));
 }
 

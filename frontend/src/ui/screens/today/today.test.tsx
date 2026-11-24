@@ -2166,7 +2166,7 @@ describe('hold to create on the timeline', () => {
         letGo('17:46', layout);
         const capture = await screen.findByRole('dialog', { name: 'Capture' });
         expect(within(capture).getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
-        const field = within(capture).getByRole('textbox', { name: 'Capture to Inbox' });
+        const field = within(capture).getByRole('combobox', { name: 'Capture to Inbox' });
         await waitFor(() => expect(field).toHaveFocus());
         await userEvent.type(field, 'Book dentist');
         expect(draft()).toHaveTextContent('Book dentist');
@@ -2198,6 +2198,33 @@ describe('hold to create on the timeline', () => {
         await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull());
         expect(draft()).toBeNull();
         expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([]);
+      });
+
+      it('Capture’s search lists To schedule, and picking a task there places it in the drafted time instead, with Undo', async () => {
+        const t = await open(async (w) => {
+          await day(w);
+          await w.create('project', { title: 'Report', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+          await task(w, 't2', 'Draft the summary', { estimate_min: 30 });
+          await setWeekPick(w, DAY, 't2', 30);
+        });
+        // With work to schedule, the phone's blocks are buttons, so the day is ready once the block is drawn at all.
+        await screen.findByLabelText(/^Write the report, 4pm to 5pm/, {}, { timeout: 5000 });
+        press('17:46', layout);
+        await wait(450);
+        letGo('17:46', layout);
+        const capture = await screen.findByRole('dialog', { name: 'Capture' });
+        const option = await within(capture).findByRole('option', { name: 'Draft the summary, Project · 30m, Fits' });
+        if (layout === 'desktop') {
+          await userEvent.keyboard('{ArrowDown}');
+          expect(option).toHaveAttribute('aria-selected', 'true');
+          await userEvent.keyboard('{Enter}');
+        } else await userEvent.click(option);
+        expect(await screen.findByText(/^Placed Draft the summary, .*5:45pm$/)).toBeVisible();
+        expect(draft()).toBeNull();
+        expect(await screen.findByLabelText(/^Draft the summary, 5:45pm to 6:15pm/)).toBeVisible();
+        expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([]);
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        await waitFor(() => expect(screen.queryByLabelText(/^Draft the summary, 5:45pm/)).toBeNull());
       });
 
       it('a tap or a click on empty space drafts nothing', async () => {
@@ -2277,7 +2304,7 @@ describe('hold to create on the timeline', () => {
     letGo('18:20', 'desktop');
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText('Today, 5:45pm to 6:30pm')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
     await userEvent.keyboard('{Enter}');
     expect(await screen.findByText('Saved to Inbox, 5:45pm to 6:30pm')).toBeVisible();
     expect(await listRecords(t.db, 'task')).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'inbox', title: 'Book dentist', estimate_min: 45 })]));
@@ -2332,7 +2359,7 @@ describe('hold to create on the timeline', () => {
     letGo('16:20', 'desktop');
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText('Overlaps Write the report by 30m.')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
     expect(await screen.findByText('Saved to Inbox, 3:30pm to 4:30pm')).toBeVisible();
     expect(screen.queryByText('Schedule both at the same time?')).toBeNull();
   });

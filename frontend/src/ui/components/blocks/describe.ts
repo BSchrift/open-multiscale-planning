@@ -23,11 +23,14 @@ function blockKind(block: Pick<BlockRow, 'practice_id' | 'task_kind'>): BlockKin
 
 export const OUTCOME_WORD: Record<BlockResult, string> = { done: 'Done', partly: 'Partly', not: 'Not done' };
 
+/** 'Mon Nov 2'. Here rather than with the week grid, so a block's popup, which loads with the app, doesn't take the grid. */
+export const dayName = (date: LocalDate) => `${formatWeekday(date)} ${formatDate(date)}`;
+
 /** 'Today', 'Tomorrow' or 'Thu Nov 12': a day, said from today. */
 export function dayWord(date: LocalDate, today: LocalDate): string {
   if (date === today) return 'Today';
   if (date === addDays(today, 1)) return 'Tomorrow';
-  return `${formatWeekday(date)} ${formatDate(date)}`;
+  return dayName(date);
 }
 
 /** '6pm to 7:30pm' */

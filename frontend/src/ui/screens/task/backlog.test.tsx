@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getRecord } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { renderScreen } from '../../app/testing';
+import { pickFrom, renderScreen } from '../../app/testing';
 
 afterEach(cleanup);
 
@@ -27,12 +27,13 @@ const popup = async (task: string) => {
   const t = await renderScreen('task', { seed, presentation: 'overlay', params: { task }, close: vi.fn() });
   return { t, popup: await screen.findByRole('dialog') };
 };
-const belongs = (popup: HTMLElement) => within(popup).getByLabelText('Belongs to');
+const belongs = (popup: HTMLElement) => within(popup).getByRole('combobox', { name: 'Belongs to' });
 
 describe('Belongs to, with goal backlogs', () => {
   it('lists each active goal\'s backlog after One offs, flat, and never a backlog as a project', async () => {
     const { popup: p } = await popup('i1');
-    expect(within(belongs(p)).getAllByRole('option').map((o) => o.textContent)).toEqual([
+    await userEvent.click(belongs(p));
+    expect(within(p).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Inbox',
       'One offs',
       'Learn to bake bread, Backlog',
@@ -44,7 +45,7 @@ describe('Belongs to, with goal backlogs', () => {
 
   it('moves an Inbox item into a backlog not made yet, last in arrival order, with Undo', async () => {
     const { t, popup: p } = await popup('i1');
-    await userEvent.selectOptions(belongs(p), 'Stay fit, Backlog');
+    await pickFrom(belongs(p), 'Stay fit, Backlog');
     await userEvent.click(within(p).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Moved Buy a banneton to the backlog for Stay fit.')).toBeVisible();
     expect(await getRecord(t.db, 'task', 'i1')).toMatchObject({ kind: 'project', project_id: 'backlog:g2', milestone_id: null });
@@ -56,7 +57,7 @@ describe('Belongs to, with goal backlogs', () => {
 
   it('says first that a dated one off loses its date, and clears it', async () => {
     const { t, popup: p } = await popup('o1');
-    await userEvent.selectOptions(belongs(p), 'Learn to bake bread, Backlog');
+    await pickFrom(belongs(p), 'Learn to bake bread, Backlog');
     const note = within(p).getByRole('status');
     expect(note).toHaveTextContent('Backlog tasks have no date, so Fri Nov 20 will be cleared.');
     expect(belongs(p)).toHaveAttribute('aria-describedby', note.id);
@@ -68,13 +69,16 @@ describe('Belongs to, with goal backlogs', () => {
   it('keeps a repeating one off out of backlogs, saying why from the start', async () => {
     const { popup: p } = await popup('o2');
     expect(within(p).getByRole('status')).toHaveTextContent('A repeating task stays in One offs. For regular time toward a goal, add a practice.');
-    const option = within(belongs(p)).getByRole('option', { name: 'Learn to bake bread, Backlog' }) as HTMLOptionElement;
-    expect(option.disabled).toBe(true);
+    await userEvent.click(belongs(p));
+    const option = within(p).getByRole('option', { name: 'Learn to bake bread, Backlog, Not for a repeating task' });
+    expect(option).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(option);
+    expect(belongs(p)).toHaveDisplayValue('One offs');
   });
 
   it('moves a project task to a backlog, dropping its milestone', async () => {
     const { t, popup: p } = await popup('t1');
-    await userEvent.selectOptions(belongs(p), 'Learn to bake bread, Backlog');
+    await pickFrom(belongs(p), 'Learn to bake bread, Backlog');
     await userEvent.click(within(p).getByRole('button', { name: 'Save' }));
     await screen.findByText('Moved Shape the dough to the backlog for Learn to bake bread.');
     expect(await getRecord(t.db, 'task', 't1')).toMatchObject({ project_id: 'backlog:g1', milestone_id: null });

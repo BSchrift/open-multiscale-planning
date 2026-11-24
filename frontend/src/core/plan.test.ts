@@ -525,7 +525,18 @@ describe('the candidates for a week', () => {
     expect(got).toEqual({ a: { minutes: 60, why: 'Suggested: reaches aim' } });
   });
 
-  it("counts a picked task's time once, as its pick, however much of it is placed", () => {
+  it("counts a picked task's time on this week's calendar when its share is less, even a 0m share, and never both", () => {
+    const p = reportPlan({ weekly_aim: 240 });
+    p.milestones = [milestone('m3', 'Send for review', '2026-12-01')];
+    p.tasks = [task('a', 'm3', 6), task('b', 'm3', 8)];
+    const blocks = [block('a', '2026-11-03T10:00:00Z', '2026-11-03T12:00:00Z')];
+    const offered = (share: number) => suggestions([p], [], week({ freeMin: 6000, picks: [pick('a', share)], blocks }), ctx).b?.minutes;
+    expect(offered(0)).toBe(120);
+    expect(offered(90)).toBe(120);
+    expect(offered(180)).toBe(60);
+  });
+
+  it("counts a picked task's time once, as its pick, when no more than that is placed", () => {
     const p = reportPlan({ weekly_aim: 240 });
     p.milestones = [milestone('m3', 'Send for review', '2026-12-01')];
     p.tasks = [task('a', 'm3', 6), task('b', 'm3', 2), task('c', 'm3', 2)];

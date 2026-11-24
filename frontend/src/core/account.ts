@@ -2,7 +2,7 @@
 // everything the account has and hands its link out once it's ready; this asks for one and waits for it.
 //
 //   const url = await exportData({ request, wait, isFilesLink });  // throws ExportError or SyncError
-//   const answer = await deleteAccount(request, sub);   // 'deleting', 'sign_in_again' or 'wrong_account'
+//   const answer = await deleteAccount(request, sub);   // 'deleting', 'sign_in_again', 'wrong_account' or 'protected'
 
 import { SyncError } from './sync';
 
@@ -46,13 +46,15 @@ export async function exportData(deps: {
 
 /**
  * Asks the server to delete the account sub, the one this device's data belongs to, once the person has typed DELETE.
- * 'sign_in_again' when their sign-in is older than the server takes for this, and 'wrong_account' when the sign-in is
- * another account's.
+ * 'sign_in_again' when their sign-in is older than the server takes for this, 'wrong_account' when the sign-in is
+ * another account's, and 'protected' when the server never deletes the account, as for a deployment's test users.
  */
-export async function deleteAccount(request: AccountRequest, sub: string): Promise<'deleting' | 'sign_in_again' | 'wrong_account'> {
+export async function deleteAccount(request: AccountRequest, sub: string): Promise<'deleting' | 'sign_in_again' | 'wrong_account' | 'protected'> {
   const res = await request('POST', '/account/delete', { confirm: 'DELETE', sub });
-  if (res.status === 403 && (await answer(res))?.error === 'sign_in_again') return 'sign_in_again';
-  if (res.status === 409 && (await answer(res))?.error === 'wrong_account') return 'wrong_account';
+  const error = res.status === 202 ? null : (await answer(res))?.error;
+  if (res.status === 403 && error === 'sign_in_again') return 'sign_in_again';
+  if (res.status === 403 && error === 'protected_account') return 'protected';
+  if (res.status === 409 && error === 'wrong_account') return 'wrong_account';
   if (res.status !== 202) throw new SyncError('error');
   return 'deleting';
 }

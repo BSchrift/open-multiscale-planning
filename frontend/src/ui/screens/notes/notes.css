@@ -186,19 +186,28 @@
   max-height: min(280px, 40vh);
 }
 
-/* Belongs to on phone, in the note's sheet: its field stays put while the list under it scrolls. */
+/* Belongs to on phone, in the note's sheet: its field stays put while the list under it scrolls. The popup's sheet has
+   no padding of its own, so the view keeps the gutter Attach note to's sheet has, and the sheet rises to the view's
+   full height rather than cutting off the end of the list. */
+[data-layout='phone'] .sheet.notepop:has(.nbelongsview) {
+  max-height: calc(86vh - var(--keyboard, 0px));
+  max-height: calc(86dvh - var(--keyboard, 0px));
+}
+
 [data-layout='phone'] .nbelongsview {
   display: flex;
   flex-direction: column;
   height: calc(86vh - var(--keyboard, 0px));
   height: calc(86dvh - var(--keyboard, 0px));
   min-height: 0;
+  padding: var(--space-4) var(--space-4) 0;
 }
 
 [data-layout='phone'] .nbelongsview .pkopts {
   flex: 1 1 auto;
   min-height: 0;
   margin: 0 calc(-1 * var(--space-4));
+  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   overflow-y: auto;
 }
 

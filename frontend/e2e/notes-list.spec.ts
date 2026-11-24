@@ -126,3 +126,24 @@ test("a note attached to a project shows on its goal's card and its page, and on
   await page.getByRole('button', { name: /^Kitchen redo/ }).first().click();
   await expect(page.getByRole('region', { name: 'Notes' }).last().getByRole('button', { name: /^Tiles: 10x10 white, matt/ })).toBeVisible();
 });
+
+test("on phone, Belongs to's search fills the note's sheet, inset from its edges, and its last row scrolls into view", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'the search takes over the sheet only on phone');
+  await page.clock.install({ time: NOW });
+  const goals: Seed[] = Array.from({ length: 12 }, (_, i) => ({ type: 'objective', id: `g${i}`, fields: { title: `Goal ${i + 1}`, state: 'active', order: i } }));
+  await openSeeded(page, [...goals, { type: 'memo', id: 'note:i1', fields: { title: 'Tiles: 10x10 white, matt', saved_on: '2026-11-02' } }]);
+  const notes = await openNotes(page, true);
+  await notes.getByRole('button', { name: /^Tiles: 10x10 white, matt/ }).click();
+  await popup(page).getByRole('button', { name: /^Belongs to/ }).click();
+  const search = page.getByRole('combobox', { name: 'Belongs to' });
+  await expect(search).toBeFocused();
+  // The field and the heading keep the sheet's 16px gutter, as Attach note to's sheet does.
+  const field = (await page.locator('.nbelongsview .pkfield').boundingBox())!;
+  expect(field.x).toBeGreaterThanOrEqual(16);
+  expect(field.x + field.width).toBeLessThanOrEqual(390 - 16);
+  // Inbox comes last, after every goal, and the list scrolls to it inside the sheet.
+  const inbox = page.getByRole('option', { name: 'Inbox, Make it a task' });
+  await inbox.scrollIntoViewIfNeeded();
+  await expect(inbox).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: info.outputPath('belongs-to.png'), fullPage: true, animations: 'disabled' });
+});

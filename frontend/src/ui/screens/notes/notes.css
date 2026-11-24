@@ -1,0 +1,216 @@
+/* Notes: the search that leads the page, then rows marked by a folded page in ink. Notes add no colour. */
+
+[data-layout] .notesearchwrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+[data-layout] .notesearch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--card);
+}
+
+[data-layout='phone'] .notesearch {
+  min-height: 52px;
+  border-radius: var(--radius-card);
+}
+
+[data-layout] .notesearch:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+[data-layout] .notesearch > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+[data-layout] .notesearch input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-body);
+  outline: none;
+}
+
+[data-layout] .notesearch input::placeholder {
+  color: var(--ink-3);
+}
+
+[data-layout] .nlist {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+}
+
+[data-layout] .nlist > li + li {
+  border-top: 1px solid var(--hairline);
+}
+
+[data-layout] .nrow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+[data-layout] button.nrow:hover {
+  background: var(--wash);
+}
+
+/* Rows in a card draw their focus ring inside. */
+[data-layout] .nrow:focus-visible,
+[data-layout] .ndisc:focus-visible {
+  outline-offset: -2px;
+}
+
+[data-layout] .nmark {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink-2);
+}
+
+[data-layout] .ngone {
+  align-items: center;
+}
+
+[data-layout] .ngone .nmark {
+  opacity: 0.6;
+}
+
+[data-layout] .nwhat {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* A saved link's title has nowhere to break. */
+[data-layout] .ntitle {
+  font-weight: var(--fw-strong);
+  overflow-wrap: anywhere;
+}
+
+[data-layout] .nbody {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-layout] .nmeta {
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+}
+
+[data-layout='phone'] .nmeta {
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+
+/* What a search matched, underlined in the text's own colour. */
+[data-layout] .nrow mark {
+  background: none;
+  color: inherit;
+  font-weight: var(--fw-strong);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-text);
+  text-underline-offset: 2px;
+}
+
+[data-layout] .nmonth {
+  font-weight: var(--fw-regular);
+}
+
+[data-layout] .nbin {
+  overflow: hidden;
+  padding: 0;
+}
+
+[data-layout] .ndisc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+[data-layout] .ndisc > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+[data-layout] .nbin .nlist {
+  border-top: 1px solid var(--hairline);
+}
+
+/* Belongs to, searching, under its field in the popup on desktop. */
+[data-layout] .nbelongs {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+[data-layout='desktop'] .nbelongs .pkopts {
+  max-height: min(280px, 40vh);
+}
+
+/* Belongs to on phone, in the note's sheet: its field stays put while the list under it scrolls. The popup's sheet has
+   no padding of its own, so the view keeps the gutter Attach note to's sheet has, and the sheet rises to the view's
+   full height rather than cutting off the end of the list. */
+[data-layout='phone'] .sheet.notepop:has(.nbelongsview) {
+  max-height: calc(86vh - var(--keyboard, 0px));
+  max-height: calc(86dvh - var(--keyboard, 0px));
+}
+
+[data-layout='phone'] .nbelongsview {
+  display: flex;
+  flex-direction: column;
+  height: calc(86vh - var(--keyboard, 0px));
+  height: calc(86dvh - var(--keyboard, 0px));
+  min-height: 0;
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+[data-layout='phone'] .nbelongsview .pkopts {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 calc(-1 * var(--space-4));
+  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+[data-layout] .notepop .taskpopform[hidden] {
+  display: none;
+}

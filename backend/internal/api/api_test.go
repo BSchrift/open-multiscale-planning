@@ -383,8 +383,10 @@ func TestCalendarCallbackErrors(t *testing.T) {
 		err    error
 		status int
 	}{
-		"forged state": {ErrInvalidState, 400},
-		"google down":  {errors.New("upstream"), 502},
+		"forged state":          {ErrInvalidState, 400},
+		"google down":           {errors.New("upstream"), 502},
+		"account taken":         {ErrAccountTaken, 409},
+		"a permission unticked": {ErrScopesMissing, 400},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -393,6 +395,15 @@ func TestCalendarCallbackErrors(t *testing.T) {
 				t.Fatalf("%d", rec.Code)
 			}
 		})
+	}
+}
+
+// A Google account someone else connected is refused in words that say what to do.
+func TestCalendarCallbackSaysWhenTheGoogleAccountIsTaken(t *testing.T) {
+	s, _ := newServer(&fakeSyncer{}, &fakeCalendar{err: ErrAccountTaken})
+	rec := do(s, "GET", "/calendar/callback?state=s&code=c", "", "")
+	if !strings.Contains(rec.Body.String(), "This Google account is connected to another Multiscale account. Disconnect it there, or connect a different Google account.") {
+		t.Fatalf("%s", rec.Body)
 	}
 }
 

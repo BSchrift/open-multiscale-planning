@@ -9,7 +9,8 @@ import type { Params, Sql } from './db';
 import { applyPlanChange, undoLastChange } from './plan';
 import type { PlanChange, ProjectPlan, RecordWrite, ScheduledWork } from './plan';
 import { futureBlocks, futurePicks } from './queries';
-import { getRecord } from './records';
+import { getRecord, weekPickId } from './records';
+import { GRID } from './slots';
 import type { Writer } from './records';
 import { blocksToRelease, isRepeating, retick, tick, untick } from './schedule';
 import type { Fields, Instant, LocalDate, Minutes, Practice, Project, SlipEntry, Task, TaskCompletion, TimeBlock, WeekPick } from './types';
@@ -36,6 +37,20 @@ export async function closeTask(w: Writer, taskId: string, how: TaskClose, clock
     ...blocks.map(({ id }): RecordWrite => ({ type: 'time_block', id, fields: { cancelled: true } })),
     ...picks.map(({ id }): RecordWrite => ({ type: 'week_pick', id, fields: { deleted_at: now } })),
   ];
+  return applyPlanChange(w, { writes });
+}
+
+/**
+ * Change the estimate, after a block of a task was made shorter: the task's estimate, and its minutes in that week's
+ * plan if it was picked for it, each `by` shorter, never under a quarter hour. Returns the exact reverse, for Undo.
+ */
+export async function shortenEstimate(w: Writer, taskId: string, by: Minutes, week: LocalDate): Promise<PlanChange> {
+  const task = await getRecord(w.sql, 'task', taskId);
+  const pick = await getRecord(w.sql, 'week_pick', weekPickId(week, taskId));
+  const less = (m: Minutes) => Math.max(GRID, m - by);
+  const writes: RecordWrite[] = [];
+  if (task?.estimate_min) writes.push({ type: 'task', id: taskId, fields: { estimate_min: less(task.estimate_min) } });
+  if (pick && !pick.deleted_at) writes.push({ type: 'week_pick', id: pick.id, fields: { minutes: less(pick.minutes) } });
   return applyPlanChange(w, { writes });
 }
 
@@ -268,26 +283,23 @@ export type GoalPick = { id: string } | { title: string } | null;
 
 /**
  * A new home for an Inbox item. keep: the item stays open on its card, to add next: to the project, as its first task,
- * under the milestone named with it, or anywhere after a practice or goal. Otherwise the item is what was made, and
- * closes with a link to it.
+ * or anywhere after a practice or goal. Otherwise the item is what was made, and closes with a link to it.
  */
 export type Home =
-  | { kind: 'project'; title: string; goal: GoalPick; start: LocalDate; end: LocalDate; keep: boolean; milestone?: string | null }
+  | { kind: 'project'; title: string; goal: GoalPick; start: LocalDate; end: LocalDate; keep: boolean }
   | { kind: 'practice'; title: string; goal: GoalPick; target_min: Minutes; per: Practice['per']; keep: boolean }
   | { kind: 'goal'; title: string; keep: boolean };
 
-/** What makeHome made: the record, and a goal or a project's milestone made with it, for undoHome. */
+/** What makeHome made: the record, and a goal made with it, for undoHome. */
 export interface Made {
   type: 'project' | 'practice' | 'objective';
   id: string;
   goal: string | null;
-  milestone?: string | null;
 }
 
 /**
  * Makes a project, practice or goal from an Inbox item, with a new goal if asked, all in the caller's one transaction.
- * A project gets the milestone named with it, due at its end. An item that becomes what was made closes as a finish
- * with its completion, as a ticked one off does, so it lists under Finished tasks, and links to it; one kept is left as
+ * An item that becomes what was made closes as a finish with its completion, as a ticked one off does, so it lists under Finished tasks, and links to it; one kept is left as
  * it is, for the caller to add. Returns what was made and the exact reverse.
  */
 export async function makeHome(w: Writer, itemId: string, home: Home, clock: Clock): Promise<{ made: Made; reverse: PlanChange }> {
@@ -299,15 +311,14 @@ export async function makeHome(w: Writer, itemId: string, home: Home, clock: Clo
   let made: Made;
   if (home.kind === 'project') {
     const id = await w.create('project', { objective_id, title, state: 'active', start: home.start, end: home.end, added_on: today(clock) });
-    const milestone = home.milestone ? await w.create('milestone', { project_id: id, title: home.milestone, due: home.end, added_on: today(clock) }) : null;
-    made = { type: 'project', id, goal, milestone };
+    made = { type: 'project', id, goal };
   } else if (home.kind === 'practice') {
     made = { type: 'practice', id: await w.create('practice', { objective_id, title, target_min: home.target_min, per: home.per, preferred_times: [], state: 'active' }), goal };
   } else {
     made = { type: 'objective', id: await w.create('objective', { title, state: 'active' }), goal };
   }
   const gone = (type: RecordWrite['type'], id: string): RecordWrite => ({ type, id, fields: { deleted_at: now } });
-  const tombstones = [gone(made.type, made.id), ...(made.milestone ? [gone('milestone', made.milestone)] : []), ...(goal ? [gone('objective', goal)] : [])];
+  const tombstones = [gone(made.type, made.id), ...(goal ? [gone('objective', goal)] : [])];
 
   let filed: RecordWrite[] = [];
   if (!home.keep) {
@@ -326,7 +337,7 @@ export async function undoHome(w: Writer, itemId: string, made: Made, reverse: P
   const others =
     made.type === 'project' &&
     !!(await w.sql.get('SELECT id FROM task WHERE project_id = :project AND id != :item AND deleted_at IS NULL', { project: made.id, item: itemId }));
-  const kept = new Set(others ? [made.id, made.goal, made.milestone] : []);
+  const kept = new Set(others ? [made.id, made.goal] : []);
   await applyPlanChange(w, { writes: reverse.writes.filter((r) => !kept.has(r.id)) });
   return others;
 }

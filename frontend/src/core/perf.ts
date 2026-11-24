@@ -7,9 +7,28 @@
 /** Past this many, every measure is cleared: whoever reads them reads more often. */
 export const MEASURE_LIMIT = 500;
 
+/**
+ * The iPhone's test page sets KEEP, and then the app also keeps each measure in KEPT, where the page reads them after
+ * the session (MultiscaleUITests.swift, PerfUITests): XCUITest can't read the app's page itself.
+ */
+export const KEEP = 'multiscale.perf.keep';
+export const KEPT = 'multiscale.perf.kept';
+
 const started = new Map<string, number>();
 let measured = 0;
 let lastDown = 0;
+let keeping: [string, number][] | null | undefined;
+
+function keep(name: string, value: number) {
+  try {
+    if (keeping === undefined) keeping = localStorage.getItem(KEEP) === '1' ? [] : null;
+    if (!keeping) return;
+    keeping.push([name, Math.round(value * 10) / 10]);
+    localStorage.setItem(KEPT, JSON.stringify(keeping));
+  } catch {
+    keeping = null;
+  }
+}
 
 /** Remembers when the last pointer went down, so a click can be timed from its pointerdown. */
 export function watchPointers(target: Pick<EventTarget, 'addEventListener'>): void {
@@ -26,12 +45,19 @@ export function inputTime(event: { type: string; timeStamp: number; detail?: num
 }
 
 function record(name: string, start: number, detail?: Record<string, unknown>) {
+  // At the limit, what the page still holds decides, since a reader may have cleared them since: a test clears after
+  // each action, and clearing under it would lose the action's first measures.
   if (++measured > MEASURE_LIMIT) {
-    performance.clearMeasures();
-    measured = 1;
+    measured = performance.getEntriesByType('measure').length + 1;
+    if (measured > MEASURE_LIMIT) {
+      performance.clearMeasures();
+      measured = 1;
+    }
   }
   try {
-    performance.measure(name, { start, end: performance.now(), ...(detail ? { detail } : {}) });
+    const end = performance.now();
+    performance.measure(name, { start, end, ...(detail ? { detail } : {}) });
+    keep(name, end - start);
   } catch {
     // A start from before this page's time origin, such as a launch: nothing to measure.
   }
@@ -87,11 +113,16 @@ export const perf = {
   markAfterPaint(name: string): void {
     if (started.has(`mark:${name}`) || performance.getEntriesByName(name, 'mark').length > 0) return;
     started.set(`mark:${name}`, 0);
-    afterPaint(() => performance.mark(name));
+    afterPaint(() => {
+      const mark = performance.mark(name);
+      // On the wall clock, which the test's launch time is on too.
+      keep(`${name}@`, performance.timeOrigin + mark.startTime);
+    });
   },
   /** For tests. */
   reset(): void {
     started.clear();
     measured = 0;
+    keeping = undefined;
   },
 };

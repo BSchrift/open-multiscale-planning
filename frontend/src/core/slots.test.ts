@@ -5,8 +5,10 @@ import {
   dayOffer,
   defaultSlot,
   dragResult,
+  drawnSlot,
   dropSlot,
   fits,
+  holdSlot,
   infoSpans,
   isOpen,
   offers,
@@ -310,6 +312,66 @@ describe('dragResult', () => {
   it("doesn't end a block under way before the range starts, now", () => {
     expect(dragResult(span(MON, 780, 900), 'resize', 0, -120, [], { from: 840, to: 1380 }).end).toBe(840);
     expect(dragResult(span(MON, 780, 900), 'resize', 0, -45, [], { from: 840, to: 1380 }).end).toBe(855);
+  });
+});
+
+describe('holdSlot', () => {
+  // Monday at 10:40am.
+  const now = { date: MON, minutes: 640 };
+
+  it('drafts an hour from the quarter hour under the finger', () => {
+    expect(holdSlot(MON, 1070, now)).toEqual({ date: MON, start: 1065, end: 1125, moved: null });
+    expect(holdSlot(TUE, 545, now)).toEqual({ date: TUE, start: 540, end: 600, moved: null });
+  });
+
+  it('takes no time that has gone by, and in the quarter hour now falls in starts at the next', () => {
+    expect(holdSlot(MON, 530, now)).toBeNull();
+    expect(holdSlot(MON, 629, now)).toBeNull();
+    expect(holdSlot(SUN, 1200, { date: '2026-11-09', minutes: 600 })).toBeNull();
+    expect(holdSlot(MON, 632, now)).toEqual({ date: MON, start: 645, end: 705, moved: 'next' });
+    // On the quarter hour itself, nothing of it has gone by.
+    expect(holdSlot(MON, 600, { date: MON, minutes: 600 })).toEqual({ date: MON, start: 600, end: 660, moved: null });
+  });
+
+  it('starts earlier near the end of the day, to keep its hour', () => {
+    expect(holdSlot(TUE, 1355, now)).toEqual({ date: TUE, start: 1320, end: 1380, moved: 'end' });
+    expect(holdSlot(TUE, 1290, now, 1320)).toEqual({ date: TUE, start: 1260, end: 1320, moved: 'end' });
+  });
+
+  it('runs to the end of the day in its last hour, rather than start in time gone by, and takes none once it ends', () => {
+    expect(holdSlot(MON, 1360, { date: MON, minutes: 1350 })).toEqual({ date: MON, start: 1350, end: 1380, moved: 'short' });
+    expect(holdSlot(MON, 1378, { date: MON, minutes: 1372 })).toBeNull();
+  });
+});
+
+describe('drawnSlot', () => {
+  // Monday at 10:40am.
+  const now = { date: MON, minutes: 640 };
+
+  it('spans every quarter hour from the one pressed to the one under the pointer, dragged down or up', () => {
+    expect(drawnSlot(TUE, 545, 610, now)).toEqual({ date: TUE, start: 540, end: 615 });
+    expect(drawnSlot(TUE, 610, 545, now)).toEqual({ date: TUE, start: 540, end: 615 });
+    expect(drawnSlot(MON, 1070, 1200, now)).toEqual({ date: MON, start: 1065, end: 1215 });
+  });
+
+  it('is at least one quarter hour, the shortest block, however short the drag', () => {
+    expect(drawnSlot(TUE, 545, 548, now)).toEqual({ date: TUE, start: 540, end: 555 });
+    expect(drawnSlot(TUE, 545, 545, now)).toEqual({ date: TUE, start: 540, end: 555 });
+  });
+
+  it('takes no time that has gone by: none in quarter hours gone by, and from the next one past now', () => {
+    expect(drawnSlot(MON, 530, 600, now)).toBeNull();
+    expect(drawnSlot(SUN, 1200, 1260, { date: '2026-11-09', minutes: 600 })).toBeNull();
+    expect(drawnSlot(MON, 700, 530, now)).toEqual({ date: MON, start: 645, end: 705 });
+    expect(drawnSlot(MON, 632, 636, now)).toEqual({ date: MON, start: 645, end: 660 });
+    expect(drawnSlot(MON, 600, 700, now)).toEqual({ date: MON, start: 645, end: 705 });
+  });
+
+  it('stays within the drawn day', () => {
+    expect(drawnSlot(TUE, 1300, 1500, now)).toEqual({ date: TUE, start: 1290, end: 1380 });
+    expect(drawnSlot(TUE, 1300, 1500, now, 1320)).toEqual({ date: TUE, start: 1290, end: 1320 });
+    expect(drawnSlot(TUE, 420, 200, now)).toEqual({ date: TUE, start: 360, end: 435 });
+    expect(drawnSlot(MON, 1378, 1379, { date: MON, minutes: 1372 })).toBeNull();
   });
 });
 

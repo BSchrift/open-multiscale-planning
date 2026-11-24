@@ -90,6 +90,16 @@ export function sessionDay(id: string, practiceId: string): LocalDate | null {
   return isDay(date) ? date : null;
 }
 
+/**
+ * The note an Inbox item is saved as (memos.ts): one per item, so saving it again after an Undo, or on two devices, makes
+ * one note. The prefix sorts after every newId, so a push split across requests sends a note's attachments before the
+ * note: a note deleted or made a task never reaches another device ahead of the attachments it let go
+ * (attachments.sweepOrphans).
+ */
+export function noteId(taskId: string): string {
+  return `note:${taskId}`;
+}
+
 /** The id of one finish of a recurring task, so that two offline devices finishing the same occurrence merge. */
 export function occurrenceId(taskId: string, date: LocalDate): string {
   return `occ-done:${taskId}:${date}`;

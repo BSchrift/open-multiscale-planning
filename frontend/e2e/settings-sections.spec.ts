@@ -105,7 +105,7 @@ test('the weekly one offs aim moves up from No aim and is kept, and on phone the
   await expect(aim).toHaveAttribute('aria-valuetext', 'No aim');
   if (phone) await expectTapTarget(aim);
   // In one move: arrow keys pressed faster than each save reads back can lose a step.
-  await aim.fill('4');
+  await aim.fill('12');
   await expect(aim).toHaveAttribute('aria-valuetext', '1h');
   await expect.poll(async () => (await readRecord(page, 'settings', 'settings'))?.one_offs_weekly_aim).toBe(60);
 

@@ -14,6 +14,7 @@ import {
   makeHome,
   retickOneOff,
   scheduledWork,
+  shortenEstimate,
   tickOneOff,
   undoHome,
   undoProjectChange,
@@ -433,29 +434,22 @@ describe('makeHome', () => {
   }
   const dates = { start: '2026-11-04', end: '2026-12-31' };
 
-  it('makes a project under a new goal with a milestone at its end, and leaves the item to add next, in one change that undoes exactly', async () => {
+  it('makes a project under a new goal, with no milestone, and leaves the item to add next, in one change that undoes exactly', async () => {
     const { db, make, undo, live } = await inbox();
     const before = await getRecord(db, 'task', 'i');
-    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true, milestone: 'Visas sorted' });
-    expect(made).toMatchObject({ type: 'project', milestone: expect.any(String) });
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true });
+    expect(made).toMatchObject({ type: 'project' });
     expect(await getRecord(db, 'project', made.id)).toMatchObject({ title: 'Japan trip', state: 'active', ...dates, objective_id: made.goal, added_on: '2026-11-04' });
     expect(await getRecord(db, 'objective', made.goal!)).toMatchObject({ title: 'See Asia', state: 'active' });
-    expect(await getRecord(db, 'milestone', made.milestone!)).toMatchObject({ project_id: made.id, title: 'Visas sorted', due: '2026-12-31', added_on: '2026-11-04' });
+    // Milestones are chosen under Process's picker, as the item is added.
+    expect(await listRecords(db, 'milestone')).toEqual([]);
     // The item waits on the card, to be added on a second Enter.
     expect(await getRecord(db, 'task', 'i')).toEqual(before);
 
     expect(await undo(made, reverse)).toBe(false);
     expect(await live('project')).toEqual([]);
     expect(await live('objective')).toEqual(['Travel more']);
-    expect((await getRecord(db, 'milestone', made.milestone!))?.deleted_at).toBeTruthy();
     expect(await getRecord(db, 'task', 'i')).toEqual(before);
-  });
-
-  it('makes a project with no milestone when none is named', async () => {
-    const { db, make } = await inbox();
-    const { made } = await make({ kind: 'project', title: 'Japan trip', goal: null, ...dates, keep: true, milestone: null });
-    expect(made.milestone).toBeNull();
-    expect(await listRecords(db, 'milestone')).toEqual([]);
   });
 
   it('makes a project from an item that is the project itself: closed with a link, listed as finished, and back on Undo', async () => {
@@ -503,11 +497,31 @@ describe('makeHome', () => {
 
   it('keeps a project another device has put tasks in since, with its new goal, and gives back only the item', async () => {
     const { db, clock, make, undo, live } = await inbox();
-    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true, milestone: null });
+    const { made, reverse } = await make({ kind: 'project', title: 'Japan trip', goal: { title: 'See Asia' }, ...dates, keep: true });
     await transact(db, clock, (w) => w.create('task', { kind: 'project', project_id: made.id, title: 'Renew the passport' }, 'other'));
     expect(await undo(made, reverse)).toBe(true);
     expect(await live('project')).toEqual(['Japan trip']);
     expect((await live('objective')).sort()).toEqual(['See Asia', 'Travel more']);
     expect((await getRecord(db, 'task', 'i'))?.kind).toBe('inbox');
+  });
+});
+
+describe('shortenEstimate', () => {
+  it("takes the minutes off a task's estimate and its plan for the week, with an exact Undo", async () => {
+    const { clock, db } = await setup();
+    await transact(db, clock, (w) => w.set('task', 't', { estimate_min: 240 }));
+    await transact(db, clock, (w) => w.set('week_pick', 'pick:2026-11-02:t', { minutes: 120 }));
+    const reverse = await transact(db, clock, (w) => shortenEstimate(w, 't', 30, '2026-11-02'));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ estimate_min: 210 });
+    expect(await getRecord(db, 'week_pick', 'pick:2026-11-02:t')).toMatchObject({ minutes: 90 });
+    // Other weeks' plans stay as they were.
+    expect(await getRecord(db, 'week_pick', 'pick:2026-11-09:t')).toMatchObject({ minutes: 30 });
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ estimate_min: 240 });
+    expect(await getRecord(db, 'week_pick', 'pick:2026-11-02:t')).toMatchObject({ minutes: 120 });
+
+    // Not picked that week, only the estimate changes; and it never goes under a quarter hour.
+    await transact(db, clock, (w) => shortenEstimate(w, 't', 300, '2026-11-16'));
+    expect(await getRecord(db, 'task', 't')).toMatchObject({ estimate_min: 15 });
   });
 });

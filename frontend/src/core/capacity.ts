@@ -2,7 +2,7 @@
 // outside the unavailable list, minus calendar events. Aims are soft, so nothing here ever blocks.
 
 import { isBacklog } from './backlog';
-import { weekAnalytics } from './analytics';
+import { weeksTime } from './analytics';
 import type { AnalyticsData } from './analytics';
 import type { Clock } from './clock';
 import { formatDate, formatMinutes, formatWeekday, thisWeek, weekDates } from './dates';
@@ -48,12 +48,7 @@ export function pushbackLately(weekPlans: readonly WeekPlan[], data: AnalyticsDa
     .map((p) => p.week_start)
     .sort()
     .slice(-4);
-  return recentPushback(
-    finished.map((w) => {
-      const { time } = weekAnalytics(data, clock, w);
-      return { planned: time.planned_min, done: time.delivered_min };
-    }),
-  );
+  return recentPushback(weeksTime(data, clock, finished).map((t) => ({ planned: t.planned_min, done: t.delivered_min })));
 }
 
 /** `placed` is time placed that wasn't picked, from placedMinutes. Share is what the capacity ring draws. */

@@ -9,7 +9,7 @@
 // Each tab keeps its page and scroll: panes stay mounted but hidden. Tapping the tab you're on goes to its root.
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { DESKTOP_TABS, PHONE_TABS, tabForArea, tabLabel } from './registry';
 import type { AreaId, Layout, RouteParams, TabId } from './registry';
 
@@ -56,6 +56,12 @@ export interface Nav {
  * outside the panes: in a flow or an overlay.
  */
 export const PaneShown = createContext<boolean | null>(null);
+
+/**
+ * Inside a flow, its frame. A sheet opened in a flow is drawn at the top of the flow's screen, so a sticky bar or column
+ * inside the screen can't hold it under another sticky bar, and the screen's styles still reach it.
+ */
+export const FlowFrame = createContext<RefObject<HTMLDivElement | null> | null>(null);
 
 const NavContext = createContext<Nav | null>(null);
 // Kept out of Nav, so opening or closing Capture or Process doesn't render every pane and screen again, none of which

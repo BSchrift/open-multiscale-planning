@@ -430,6 +430,22 @@ p {
   z-index: calc(var(--z-raised) + 7);
 }
 
+/* "Schedule both at the same time?", fixed under the block let go or the button pressed (BothAsk.tsx). */
+.bothask {
+  width: 320px;
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+}
+
+/* On phone it's a sheet, above the task popup when Move… in the popup asks. */
+[data-layout='phone'] .sheet.bothsheet {
+  z-index: calc(var(--z-sticky) + 4);
+}
+
+[data-layout='phone'] .scrim:has(+ .sheet.bothsheet) {
+  z-index: calc(var(--z-sticky) + 3);
+}
+
 /* Shared widgets that need the same frame on both layouts. */
 .pillbtn {
   display: inline-flex;

@@ -98,6 +98,28 @@ describe('useQuery', () => {
     expect(reads - before).toBeLessThanOrEqual(2);
   });
 
+  it('draws again only for a change to what it read, though every change reads it again', async () => {
+    let reads = 0;
+    let draws = 0;
+    function Drawn() {
+      const { data } = useQuery(async (sql) => {
+        reads++;
+        return (await listRecords(sql, 'task')).filter((t) => t.kind === 'inbox').map((t) => ({ title: t.title }));
+      }, []);
+      draws++;
+      return <div data-testid="titles">{data?.map((t) => t.title).join(',') ?? 'none yet'}</div>;
+    }
+    const platform = await setup(<Drawn />);
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe(''));
+    const [readBefore, drawnBefore] = [reads, draws];
+    await act(() => transact(platform.db, clock, (w) => w.create('task', { kind: 'one_off', title: 'Not in the Inbox' })));
+    await waitFor(() => expect(reads).toBe(readBefore + 1));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(draws).toBe(drawnBefore);
+    await act(() => transact(platform.db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' })));
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe('Paint the fence'));
+  });
+
   it('reports a failed query instead of throwing, and stops listening when unmounted', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     let calls = 0;

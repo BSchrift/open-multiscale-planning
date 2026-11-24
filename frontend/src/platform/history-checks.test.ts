@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { fixedClock } from '../core/clock';
 import { addDays, localDate, weekStart } from '../core/dates';
 import type { Db, Sql } from '../core/db';
@@ -6,7 +6,7 @@ import { historyChanges, historyFacts, HISTORY } from '../core/history-testing';
 import { applyRemote } from '../core/records';
 import { loadDoneDay } from '../ui/screens/done/data';
 import { loadToday } from '../ui/screens/today/data';
-import { loadWeek } from '../ui/screens/week/data';
+import { loadWeek, weekModel } from '../ui/screens/week/data';
 import { timeHistoryQueries } from './history-checks';
 import { openTestDb } from './node-sqlite';
 
@@ -53,11 +53,28 @@ describe('the history on a device', () => {
     expect(rows).toBeLessThan(300);
   }, 60_000);
 
-  it('times Today, Week and Done as of the history end, the median of five runs each, and counts what arrived', async () => {
-    const { today_query_ms, week_query_ms, done_query_ms, records } = await timeHistoryQueries(db);
+  it("works out Week's figures from the weeks they show, not from five years of blocks", async () => {
+    const data = await loadWeek(db, clock, weekStart(localDate(clock.now(), HISTORY.zone)));
+    // A local date is a formatter call, the costly part of Week's figures, which Week works out again on every change.
+    // One for each block of the history took the slowed-down page in the history journey (e2e/stack) past 15 seconds
+    // to take a block off after it was dragged away.
+    const toLocal = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts');
+    try {
+      weekModel(data, clock);
+      expect(toLocal.mock.calls.length).toBeLessThan(data.records.blocks.length);
+    } finally {
+      toLocal.mockRestore();
+    }
+  }, 60_000);
+
+  it("times Today, Week, Week's figures, Done and Notes as of the history end, the median of five runs each, and counts what arrived", async () => {
+    const { today_query_ms, week_query_ms, week_figures_ms, done_query_ms, notes_list_ms, notes_search_ms, records } = await timeHistoryQueries(db);
     expect(today_query_ms).toBeGreaterThan(0);
     expect(week_query_ms).toBeGreaterThan(0);
+    expect(week_figures_ms).toBeGreaterThan(0);
     expect(done_query_ms).toBeGreaterThan(0);
+    expect(notes_list_ms).toBeGreaterThan(0);
+    expect(notes_search_ms).toBeGreaterThan(0);
     expect(records).toBe(historyFacts().records);
   }, 60_000);
 });

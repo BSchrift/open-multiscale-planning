@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -19,8 +20,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	cognitoidp "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
+	"github.com/BSchrift/open-multiscale-planning/backend/internal/account"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/api"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/fakes"
 	"github.com/BSchrift/open-multiscale-planning/backend/internal/files"
@@ -33,8 +36,10 @@ type config struct {
 	// URL is where this server is reached, which the stand-ins' links point at.
 	URL                                    string
 	Endpoint, Table, Issuer, ClientID, Env string
-	SSMEndpoint, SSMPrefix                 string
-	TickEvery                              time.Duration
+	// Retention names the environment whose retention.yaml block the store keeps records by, Env's when empty.
+	Retention              string
+	SSMEndpoint, SSMPrefix string
+	TickEvery              time.Duration
 }
 
 func main() {
@@ -55,6 +60,9 @@ func main() {
 		Issuer:   envOr("LOCAL_ISSUER", "http://"+addr+"/cognito"),
 		ClientID: envOr("COGNITO_CLIENT_ID", "local-client"),
 		Env:      "local",
+		// RETENTION keeps records as another environment does, so the suites staging runs can run here with its minutes,
+		// beside apps built with the same RETENTION.
+		Retention: os.Getenv("RETENTION"),
 		// Without it the calendar routes answer as unconfigured, so the rest works with no Moto running.
 		SSMEndpoint: os.Getenv("SSM_ENDPOINT"),
 		SSMPrefix:   envOr("SSM_PREFIX", "/multiscale/local"),
@@ -93,7 +101,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 		return nil, err
 	}
 	gateway := &fakes.Gateway{Issuer: cfg.Issuer, Audience: cfg.ClientID, Keys: cognito.PublicKeys, Now: clock.Now}
-	retention, err := appconfig.LoadRetention(cfg.Env)
+	retention, err := appconfig.LoadRetention(cmp.Or(cfg.Retention, cfg.Env))
 	if err != nil {
 		return nil, err
 	}
@@ -107,6 +115,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	accounts := buildAccount(cfg, client, store, clock, cognito, bucket, apiServer, logs)
 
 	mux := http.NewServeMux()
 	if cfg.SSMEndpoint != "" {
@@ -115,6 +124,7 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 			return nil, fmt.Errorf("calendar: %w", err)
 		}
 		apiServer.Calendar = google
+		accounts.Google = google
 		mux.Handle("/google/", http.StripPrefix("/google", fake))
 		mux.HandleFunc("POST /_local/calendar/tick", loop.tickHandler)
 		if cfg.TickEvery > 0 {
@@ -132,11 +142,16 @@ func build(cfg config, logs io.Writer) (http.Handler, error) {
 	mux.Handle("POST /files/upload", gateway.Require(server))
 	mux.Handle("POST /files/download", gateway.Require(server))
 	mux.Handle("GET /files/usage", gateway.Require(server))
+	mux.Handle("POST /account/export", gateway.Require(server))
+	mux.Handle("GET /account/export", gateway.Require(server))
+	mux.Handle("POST /account/delete", gateway.Require(server))
+	mux.Handle("POST /account/status", server)
 	mux.Handle("GET /calendar/callback", server)
 	mux.Handle("/cognito/", http.StripPrefix("/cognito", cognito))
 	mux.HandleFunc("POST /_local/clock", setClock(clock))
 	mux.HandleFunc("POST /_local/faults", setFaults(faults))
 	mux.HandleFunc("POST /_local/cleanup", runCleanup(cleanup))
+	mux.HandleFunc("POST /_local/account/resume", resumeDeletions(accounts))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -168,6 +183,51 @@ func buildFiles(cfg config, client *dynamodb.Client, store *sync.Store, clock *f
 	}
 	cleanup.Removing = (&files.Remover{DB: client, Table: cfg.Table, Objects: bucket}).Removing
 	return bucket, nil
+}
+
+// buildAccount gives the API its account routes, with the jobs the account function runs started here in the
+// background, and lapsed tokens checked against the Cognito stand-in's keys. Its admin API, which deleting a sign-in
+// uses, is called through the SDK at this server's own address, as the deployed function calls the pool's.
+func buildAccount(cfg config, client *dynamodb.Client, store *sync.Store, clock *fakes.Clock, pool *fakes.Cognito, bucket *fakes.Bucket, server *api.Server, logs io.Writer) *account.Service {
+	logger := obs.NewLogger(logs)
+	svc := &account.Service{
+		DB: client, Table: cfg.Table, Records: store, Objects: bucket,
+		Identity: &account.CognitoIdentity{PoolID: "local", Client: cognitoidp.New(cognitoidp.Options{
+			// With its slash: the stand-in is mounted at /cognito/, and the bare path would be redirected.
+			Region: "us-west-2", BaseEndpoint: aws.String(cfg.URL + "/cognito/"),
+			Credentials: credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+		})},
+		Now: clock.Now, Log: logger, Env: cfg.Env,
+	}
+	if service, ok := server.Files.(*files.Service); ok {
+		svc.Sign = service.SignURL
+	}
+	svc.Start = func(_ context.Context, job account.Job) error {
+		go func() {
+			if err := svc.Run(context.Background(), job); err != nil {
+				logger.Info("account_job", "job", job.Kind, "outcome", "failed")
+			}
+		}()
+		return nil
+	}
+	server.Account = svc
+	server.Tokens = &account.Tokens{
+		Issuer: cfg.Issuer, ClientIDs: []string{cfg.ClientID}, Now: clock.Now,
+		Keys: func(context.Context) (map[string]*rsa.PublicKey, error) { return pool.PublicKeys(), nil },
+	}
+	return svc
+}
+
+// resumeDeletions carries on every deletion under way by the clock's time, as the account function's schedule does
+// every few minutes.
+func resumeDeletions(svc *account.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := svc.Run(r.Context(), account.Job{}); err != nil {
+			http.Error(w, "run failed", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // withCORS does what the deployed gateway's CORS settings do: the apps load from file:// and capacitor://, so every call

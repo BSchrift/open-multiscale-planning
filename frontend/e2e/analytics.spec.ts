@@ -87,3 +87,27 @@ test('reads a week, moves between weeks, and acts on a pattern', async ({ page }
   await page.screenshot({ path: info.outputPath('analytics.png'), fullPage: true });
   expect(errors).toEqual([]);
 });
+
+test('the back button above Analytics, opened from Week, is a text link with room above the title', async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
+  await openSeeded(page, records);
+  await page.getByRole('dialog', { name: 'Block finished' }).getByRole('button', { name: 'Answer later' }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  await page.getByRole('button', { name: "See this week's analytics" }).click();
+  const back = page.getByRole('button', { name: 'Back to Week' });
+  const title = pane(page, 'Analytics').getByRole('heading', { name: 'Analytics', level: 1 });
+  await expect(title).toBeVisible();
+
+  // Like the app's other text links: no box drawn around it.
+  const look = await back.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { border: s.borderTopWidth, background: s.backgroundColor };
+  });
+  expect(look).toEqual({ border: '0px', background: 'rgba(0, 0, 0, 0)' });
+
+  // At least --space-4 between it and the page title.
+  const space = await back.evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--space-4')));
+  const backBox = (await back.boundingBox())!;
+  const titleBox = (await title.boundingBox())!;
+  expect(titleBox.y - (backBox.y + backBox.height)).toBeGreaterThanOrEqual(space);
+});

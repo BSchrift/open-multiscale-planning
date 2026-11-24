@@ -227,6 +227,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Start now from a list: a block from now, started, with Undo | covered (task-actions: "from a list…") | covered (same) | missing | missing |
 | Schedule…: To schedule's times this week, placed with Undo, and Choose a time… on Week | covered (task-actions: "from a list…") | covered (same) | missing | missing |
 | Dates: a one off's date, range and repeat, a project task's date or range, none in the Inbox | covered (task-actions: "from a list…", "from Inbox…"; each rule in task.test.tsx and oneoffs.test.tsx) | covered (same) | missing | missing |
+| On phone, no popup scrolls sideways: its fields, a date with iOS's own date field included, stay inside the sheet | n/a | covered (task-actions: "phone: no popup scrolls sideways…") | n/a | covered (testATaskPopupWithADateFitsThePhoneAndNeverSlidesSideways) |
 | Belongs to: a search of the places a task can go, under the field on desktop and in a sheet on phone | covered (details: "Belongs to searches the places a task can go…") | covered (same, with a 44pt check) | missing | missing |
 | Cancel, Esc, the close button and a tap outside with unsaved changes | covered (popup: "Cancel drops the popup's changes, and Esc, the close button or a tap outside keep them until Save") | covered (same) | partly (desktop: closing the window keeps them; quitting drops them, reported) | missing |
 | Delete task, with its block, Undo | covered (popup: "Delete task takes the task and its block off Today…") | covered (same) | missing | missing |

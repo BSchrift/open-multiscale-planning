@@ -41,7 +41,7 @@ async function openSchedule(page: Page, phone: boolean, seeded: readonly Seed[] 
 test('desktop: drag the task to a time, place it, then place the rest with Undo', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
   const errors = await openSchedule(page, false);
-  await expect(page.getByText('1 of 4 placed')).toBeVisible();
+  await expect(page.getByText('3 to place · 2 at their set times')).toBeVisible();
   const draft = page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, Project\./ });
   await expect(draft).toBeVisible();
   await expect(page.getByRole('group', { name: /^Morning stretch, Tue Nov 3, 7am to 7:30am, Practice\./ })).toBeVisible();
@@ -58,18 +58,18 @@ test('desktop: drag the task to a time, place it, then place the rest with Undo'
   await expect(page.getByText('Tue Nov 3, 3pm to 5pm (2h)')).toBeVisible();
 
   await page.getByRole('button', { name: 'Place here' }).click();
-  await expect(page.getByText('2 of 4 placed')).toBeVisible();
+  await expect(page.getByText('2 to place · 2 at their set times')).toBeVisible();
   // The row in the list, rather than the same task's name under Now, which opens its popup.
   await expect(page.getByRole('list', { name: 'Tasks' }).getByRole('button', { name: /^Write chapter one/ })).toHaveAttribute('aria-current', 'step');
   // Now moves on to the next task, and focus with it, at the top of the list rather than falling to the page.
   await expect(page.getByRole('region', { name: 'Now' }).getByRole('heading', { name: 'Write chapter one' })).toBeFocused();
 
   await page.getByRole('button', { name: 'Place the rest at suggested times' }).click();
-  await expect(page.getByText('4 of 4 placed')).toBeVisible();
+  await expect(page.getByText('Nothing left to place · 2 at their set times')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'All tasks are placed' })).toBeFocused();
   await page.screenshot({ path: info.outputPath('schedule-desktop-placed.png') });
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByText('2 of 4 placed')).toBeVisible();
+  await expect(page.getByText('2 to place · 2 at their set times')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -164,7 +164,7 @@ test('phone: compare days, move the task to another day, place it, and place the
   await expect(strip.getByRole('button')).toHaveCount(7);
   await expectTapTarget(strip.getByRole('button').first());
   await expect(page.getByText('Mon Nov 2, 2pm to 4pm (2h)')).toBeVisible();
-  const summary = page.getByRole('button', { name: 'All picked tasks, 1 of 4 placed' });
+  const summary = page.getByRole('button', { name: 'All picked tasks, 3 to place · 2 at their set times' });
   await expectTapTarget(summary);
   await page.screenshot({ path: info.outputPath('schedule-phone.png') });
   // The task's name in the dock opens its popup, and is a whole tap target.
@@ -192,19 +192,19 @@ test('phone: compare days, move the task to another day, place it, and place the
   const place = page.getByRole('button', { name: 'Place here' });
   await expectTapTarget(place);
   await place.click();
-  await expect(page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 2 to place · 2 at their set times' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' }).click();
+  await page.getByRole('button', { name: 'All picked tasks, 2 to place · 2 at their set times' }).click();
   const sheet = page.getByRole('dialog', { name: 'All picked tasks' });
-  await expect(sheet.getByRole('button', { name: /^Morning stretch/ })).toBeVisible();
+  await expect(sheet.getByRole('list', { name: 'At their set times · 2' }).getByText('Morning stretch')).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-phone-list.png') });
   await sheet.getByRole('button', { name: 'Place the rest at suggested times' }).click();
   await expect(sheet).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'All picked tasks, 4 of 4 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, Nothing left to place · 2 at their set times' })).toBeVisible();
   await expect(page.getByText('All tasks are placed')).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-phone-placed.png') });
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 2 to place · 2 at their set times' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -216,6 +216,9 @@ test("a practice's row reads its schedule, and on desktop Place the rest puts ea
   await openSeeded(page, [
     { type: 'practice', id: 'pr', fields: { title: 'Morning stretch', target_min: 30, per: 'day', days: [1, 2], preferred_times: [420], day_times: [null, null, 540, null, null, null, null], state: 'active' } },
   ]);
+  // Both its days land at their set times on opening; Undo takes them off, so they wait to be placed.
+  await expect(page.getByText('Placed 2 practice sessions at their set times this week.')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
   await startPlanningThenUndo(page);
   await page.getByRole('navigation', { name: 'Planning steps' }).getByRole('button', { name: phone ? 'Schedule' : '3. Schedule' }).click();
   await expect(page.getByText('Practice, 30m on Tue around 7am, Wed around 9am').first()).toBeVisible();
@@ -234,11 +237,13 @@ test("a practice's row reads its schedule, and on desktop Place the rest puts ea
   expect(errors).toEqual([]);
 });
 
-// A long week: Morning stretch already placed, Evening walk still to place, then eighteen half-hour tasks.
+// A long week: Morning stretch already placed, Evening walk taken off its set time so it's still to place, then eighteen
+// half-hour tasks.
 const chores = ['Collect the sources', 'Write chapter one', 'Write chapter two', 'Read the brief', 'Call the printer', 'Sort the receipts', 'Draft the agenda', 'Book the venue', 'Review the budget', 'Email the team', 'Plan the launch', 'Fix the gutter', 'Check the tyres', 'Renew the passport', 'Clean the garage', 'Back up photos', 'Order the parts', 'Write the summary'];
 const longWeek: Seed[] = [
   ...records.filter((r) => r.type === 'project' || r.type === 'practice' || r.id === 's1' || r.id === 's2'),
   { type: 'practice', id: 'walk', fields: { title: 'Evening walk', target_min: 30, per: 'day', days: [5], preferred_times: [1080], state: 'active' } },
+  { type: 'time_block', id: 'session:walk:2026-11-07', fields: { practice_id: 'walk', start: '2026-11-08T00:00:00Z', end: '2026-11-08T00:30:00Z', tz: 'America/Chicago', cancelled: true } },
   // Ids that sort as the list does, since tasks alike come up in id order.
   ...chores.flatMap((title, i): Seed[] => [
     { type: 'task', id: `c${String(i).padStart(2, '0')}`, fields: { kind: 'project', project_id: 'report', title, estimate_min: 30 } },
@@ -252,22 +257,23 @@ test('desktop: in a long list the one being placed stays at the top under Now, a
   const errors = await openSchedule(page, false, longWeek);
   const now = page.getByRole('region', { name: 'Now' });
   const title = now.getByRole('heading', { level: 4 });
-  // Practices are up first, in a list of their own above the tasks.
-  await expect(page.getByText('1 of 20 placed')).toBeVisible();
+  // Practices are up first, in a list of their own above the tasks, and those at their set times are ticked below them.
+  await expect(page.getByText('19 to place · 2 at their set times')).toBeVisible();
   await expect(title).toHaveText('Evening walk');
   const practices = page.getByRole('list', { name: 'Practices' });
-  await expect(practices.getByRole('button', { name: /^Morning stretch/ })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'At their set times · 2' }).getByText('Morning stretch')).toBeVisible();
   expect((await practices.boundingBox())!.y).toBeLessThan((await page.getByRole('list', { name: 'Tasks' }).boundingBox())!.y);
   await page.screenshot({ path: info.outputPath('schedule-practices-desktop.png') });
 
-  // Placing one task after another, Place here stays where it is, at the top, and focus moves on with Now.
+  // Placing one task after another, Place here stays where it is, at the top, and focus moves on with Now. Evening walk
+  // lands at its set time, so it joins the group.
   const place = now.getByRole('button', { name: 'Place here' });
   await place.click();
   await expect(title).toHaveText('Collect the sources');
   const first = (await place.boundingBox())!;
   for (let n = 3; n <= 11; n++) {
     await place.click();
-    await expect(page.getByText(`${n} of 20 placed`)).toBeVisible();
+    await expect(page.getByText(`${20 - n} to place · 3 at their set times`)).toBeVisible();
     await expect(title).toBeFocused();
     expect((await place.boundingBox())!.y).toBe(first.y);
   }
@@ -310,11 +316,11 @@ test('desktop: in a long list the one being placed stays at the top under Now, a
   await ask.getByRole('button', { name: 'Remove' }).click();
   await expect(page.getByText('Removed Email the team from this week.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Email the team/ })).toHaveCount(0);
-  await expect(page.getByText('11 of 19 placed')).toBeVisible();
+  await expect(page.getByText('8 to place · 3 at their set times')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Undo' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', { name: /^Email the team/ })).toBeVisible();
-  await expect(page.getByText('11 of 20 placed')).toBeVisible();
+  await expect(page.getByText('9 to place · 3 at their set times')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -324,7 +330,7 @@ test('phone: All tasks lists practices first, and a task comes out of this week 
   // Practices are up first, so the one being placed in the dock is Evening walk.
   await expect(page.locator('.flowdock').getByText('Evening walk', { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-long-phone.png') });
-  await page.getByRole('button', { name: 'All picked tasks, 1 of 20 placed' }).click();
+  await page.getByRole('button', { name: 'All picked tasks, 19 to place · 2 at their set times' }).click();
   const sheet = page.getByRole('dialog', { name: 'All picked tasks' });
   const practices = sheet.getByRole('list', { name: 'Practices' });
   await expect(practices.getByRole('button', { name: /^Evening walk/ })).toHaveAttribute('aria-current', 'step');
@@ -349,9 +355,9 @@ test('phone: All tasks lists practices first, and a task comes out of this week 
   await expect(sheet).toHaveCount(0);
   const said = page.locator('.pktoast').filter({ hasText: 'Removed Read the brief from this week.' });
   await expect(said).toBeVisible();
-  await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 19 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 18 to place · 2 at their set times' })).toBeVisible();
   await said.getByRole('button', { name: 'Undo' }).click();
-  await expect(page.getByRole('button', { name: 'All picked tasks, 1 of 20 placed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All picked tasks, 19 to place · 2 at their set times' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -410,7 +416,7 @@ test("Mark done on a placed task's card finishes the task and takes its block of
   const fence: Seed = { type: 'time_block', id: 'b1', fields: { task_id: 'o1', start: '2026-11-06T17:15:00Z', end: '2026-11-06T18:45:00Z', tz: 'America/Chicago' } };
   const errors = await openSchedule(page, phone, [...records, fence]);
   if (phone) {
-    await page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' }).click();
+    await page.getByRole('button', { name: 'All picked tasks, 2 to place · 2 at their set times' }).click();
     await page.getByRole('dialog', { name: 'All picked tasks' }).getByRole('button', { name: /^Paint the fence/ }).click();
   } else {
     await page.getByRole('list', { name: 'Tasks' }).getByRole('button', { name: /^Paint the fence/ }).click();
@@ -421,10 +427,10 @@ test("Mark done on a placed task's card finishes the task and takes its block of
   const said = page.locator(phone ? '.pktoast' : '.toast').filter({ hasText: 'Marked Paint the fence done. Its 11:15am block came off the calendar, so that time is free.' });
   await expectOnTop(said);
   if (!phone) await expect(said.getByRole('button', { name: 'Undo' })).toBeFocused();
-  await expect(phone ? page.getByRole('button', { name: 'All picked tasks, 1 of 3 placed' }) : page.getByText('1 of 3 placed')).toBeVisible();
+  await expect(phone ? page.getByRole('button', { name: 'All picked tasks, 2 to place · 2 at their set times' }) : page.getByText('2 to place · 2 at their set times')).toBeVisible();
   await page.screenshot({ path: info.outputPath('schedule-mark-done.png') });
   await said.getByRole('button', { name: 'Undo' }).click();
-  await expect(phone ? page.getByRole('button', { name: 'All picked tasks, 2 of 4 placed' }) : page.getByText('2 of 4 placed')).toBeVisible();
+  await expect(phone ? page.getByRole('button', { name: 'All picked tasks, 2 to place · 2 at their set times' }) : page.getByText('2 to place · 2 at their set times')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

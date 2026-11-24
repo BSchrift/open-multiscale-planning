@@ -1,4 +1,6 @@
-// Schedule: the week's practices, then its picked work, one at a time, most pressing first. Each waits as a block at
+// Schedule: the week's practices, then its picked work, one at a time, most pressing first. Sessions already at their
+// set times are a ticked group below, each of which can be taken off; one whose set time is taken asks first, with why,
+// and Skip for its day. Each waits as a block at
 // its best time with other suggested times; it drags anywhere on a 15-minute grid and snaps to a suggestion. Place here
 // puts it on the week, taking any block it lands on off to place again, and a shorter block leaves the rest to place.
 // Desktop places on the week grid beside the list, with the current task pinned above it under Now; phone compares days
@@ -9,11 +11,13 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { keepPracticeChange, moveBlock, nextBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, unscheduleBlock } from '../../../../core/blocks';
+import { moveBlock, nextBlock, placeBlock, placeSession, placeWeekPractices, removeBlock, skipPractice, skipSession, unscheduleBlock } from '../../../../core/blocks';
 import { addDays, formatMinutes, formatTimeOfDay, formatWeekday, localDate, weekday, weekRange } from '../../../../core/dates';
 import { applyPlanChange } from '../../../../core/plan';
 import type { PlanChange, RecordWrite } from '../../../../core/plan';
 import { weekPractices } from '../../../../core/queries';
+import { followMessage, keepSetTime, setTime, whySaid } from '../../../../core/setTimes';
+import type { FollowChange } from '../../../../core/setTimes';
 import { sessionDay } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { closestFit, defaultSlot, DRAFT_MIN, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
@@ -89,6 +93,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const [look, setLook] = useState<{ key: string; date: LocalDate } | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [practicesOpen, setPracticesOpen] = useState(false);
+  /** The sessions at their set times, listed one by one. */
+  const [setOpen, setSetOpen] = useState(false);
   /** The task whose Remove from this week is asking first. */
   const [removing, setRemoving] = useState<string | null>(null);
   const lenFrom = useRef<PlacedBlock | null>(null);
@@ -153,7 +159,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const day = look?.key === curKey ? look.date : (b?.date ?? look?.date ?? (firstDay > addDays(week, 6) ? week : firstDay));
   const rest = s.rows.filter((r) => r.toPlace > 0 && !skipped.includes(r.id));
   const placedCount = s.rows.filter((r) => r.toPlace <= 0).length;
-  const progress = `${placedCount} of ${s.rows.length} placed`;
+  const progress = s.atSetTimes ? `${rest.length ? `${rest.length} to place` : 'Nothing left to place'} · ${s.atSetTimes} at their set times` : `${placedCount} of ${s.rows.length} placed`;
 
   const reset = () => {
     setDraft(null);
@@ -235,10 +241,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
     setSelected(null);
     reset();
   };
+  /** A practice's session waits in To schedule for its day, so it says where it was. */
+  const tookOff = (x: PlacedBlock) => `Took ${x.title} off ${formatWeekday(x.date)} ${formatTimeOfDay(x.start)}. It's in To schedule.`;
   const remove = async (x: PlacedBlock) => {
     const reverse = await run((w) => removeBlock(w, x.id));
     if (!reverse) return;
-    notify(`Removed ${x.title}`, () => run((w) => applyPlanChange(w, reverse)));
+    notify(x.practice_id ? tookOff(x) : `Removed ${x.title}`, () => run((w) => applyPlanChange(w, reverse)));
     setEditId(null);
     if (rowId(x)) setSelected(rowId(x));
     reset();
@@ -278,10 +286,25 @@ export function ScheduleStep(props: ScheduleStepProps) {
     const x = blockOf(a?.blockId ?? null);
     setAsk(null);
     if (!a || !x?.practice_id) return;
-    const reverse = await run((w) => keepPracticeChange(w, a.blockId, choice.keep, clock));
-    if (reverse) notify(choice.done, () => run((w) => applyPlanChange(w, reverse)));
+    // Its other sessions at the old set time follow, in the same Undo.
+    const reverse = await run((w) => keepSetTime(w, a.blockId, choice.keep, clock));
+    if (reverse) notify([choice.done, followMessage(reverse as FollowChange)].filter(Boolean).join(' '), () => run((w) => applyPlanChange(w, reverse)));
   };
   const togglePractice = (id: string, off: boolean) => void run((w) => skipPractice(w, week, id, off, clock));
+  /** A session at its set time, off the calendar from the group's list: it waits in To schedule. */
+  const takeOff = async (x: PlacedBlock) => {
+    const reverse = await run((w) => removeBlock(w, x.id));
+    if (reverse) notify(tookOff(x), () => run((w) => applyPlanChange(w, reverse)), true);
+  };
+  // A set day's session, as Place the rest would put it, is for its own day, which Skip skips this week.
+  const skipDay = cur?.practice && usual?.[0] && setTime(cur.practice, usual[0].date) !== null ? usual[0].date : null;
+  const skipThatDay = async () => {
+    if (!cur || !skipDay) return;
+    landOnCurrent();
+    const reverse = await run((w) => skipSession(w, week, cur.id, skipDay, true, clock));
+    if (reverse) notify(`Skipped ${cur.title} on ${DAY_NAMES[weekday(skipDay)]} this week.`, () => run((w) => applyPlanChange(w, reverse)));
+    reset();
+  };
   /**
    * Takes a task out of this week's plan: its pick, as Pick's Remove from this week does, and its blocks still to come,
    * which would otherwise stay on the week with no row. Blocks under way or gone by stay, and the task stays where it is.
@@ -369,6 +392,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
     const last = r.blocks[r.blocks.length - 1];
     const isSkipped = skipped.includes(r.id);
     const sub = isSkipped ? 'Skipped' : last ? `${formatWeekday(last.date)} ${formatTimeOfDay(last.start)}${r.blocks.length > 1 ? `, and ${r.blocks.length - 1} more` : ''}` : '';
+    // A day whose set time is taken says so, under the warning, even while it's the one being placed.
+    if (r.why && !isSkipped) return { on, sub: `${dayName(r.why.date)} · ${whySaid(r.why.why, false)}`, mark: <Icon name="warning" size={16} /> };
     return { on, sub: on ? '' : sub, mark: on ? '▸' : r.toPlace <= 0 ? '✓' : isSkipped ? '–' : r.practice ? '↻' : String(i + 1) };
   };
   // Practices are up first, then tasks, each a list of its own. Tasks are numbered in the order they come up.
@@ -408,6 +433,60 @@ export function ScheduleStep(props: ScheduleStepProps) {
     </Popover>
   );
 
+  /** The sessions at their set times: one ticked row a practice, and Show to list each session with Take off. */
+  const setGroup = s.setTimes.length > 0 && (
+    <div className="setgroup">
+      <div className="between">
+        <h3 id={`${groupId}set`} className={phone ? undefined : 'schedgh'}>
+          At their set times · {s.atSetTimes}
+        </h3>
+        <button
+          className="link small"
+          type="button"
+          aria-expanded={setOpen}
+          aria-label={`${setOpen ? 'Hide' : 'Show'} sessions at their set times`}
+          onClick={() => setSetOpen(!setOpen)}
+        >
+          {setOpen ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      <ul className={phone ? 'schsheet' : 'schedlist'} aria-labelledby={`${groupId}set`}>
+        {s.setTimes.map((g) => (
+          <li key={g.id} className="schedrow setrow">
+            <span className={phone ? 'small schmark setmark' : 'schedmark setmark'} aria-hidden="true">
+              <Icon name="done" size={16} />
+            </span>
+            <span className="setbody">
+              <span className="subline">{g.title}</span>
+              <span className="subline small">{g.line}</span>
+              {setOpen && (
+                <ul className="setsessions">
+                  {g.sessions.map((x) => (
+                    <li key={x.id} className="between small">
+                      <span>
+                        {dayName(x.date)}, {formatTimeOfDay(x.start)}
+                      </span>
+                      {!x.past && (
+                        <button
+                          className="link small"
+                          type="button"
+                          aria-label={`Take off ${g.title}, ${formatWeekday(x.date)} ${formatTimeOfDay(x.start)}`}
+                          onClick={() => void takeOff(x)}
+                        >
+                          Take off
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
   const buttons = (cls: string) =>
     editB ? (
       <div className="row schacts">
@@ -422,7 +501,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           </Button>
         )}
         <Button className={cls} type="button" onClick={() => void remove(editB)}>
-          Remove from calendar
+          {editB.practice_id ? 'Take off calendar' : 'Remove from calendar'}
         </Button>
       </div>
     ) : (
@@ -432,16 +511,27 @@ export function ScheduleStep(props: ScheduleStepProps) {
             Place here
           </Button>
         )}
-        <Button className={cls} type="button" onClick={skip}>
-          {skipLabel}
-        </Button>
+        {skipDay ? (
+          <Button className={cls} type="button" onClick={() => void skipThatDay()}>
+            Skip {DAY_NAMES[weekday(skipDay)]}
+          </Button>
+        ) : (
+          <Button className={cls} type="button" onClick={skip}>
+            {skipLabel}
+          </Button>
+        )}
       </div>
     );
   const said = (
     <>
       {amount && <div className="small">{amount}</div>}
       {alsoText && <div className="small">{alsoText}</div>}
-      {cur?.practice && !editB && usual?.[0]?.note && <div className="small schnote">{usual[0].note}</div>}
+      {cur?.practice && !editB && usual?.[0]?.note && (
+        <div className="small schnote schwarn">
+          <Icon name="warning" size={16} />
+          <span>{usual[0].note}</span>
+        </div>
+      )}
       {notes.map((n) => (
         <div key={n} className="small schnote">
           {n}
@@ -495,7 +585,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 </div>
               </section>
             )}
-            {groups.length > 0 && (
+            {(groups.length > 0 || setGroup) && (
               <div ref={listBox} className="schedcard card">
                 {groups.map((g) => {
                   const List = g.key === 'tasks' ? 'ol' : 'ul';
@@ -527,6 +617,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                     </div>
                   );
                 })}
+                {setGroup}
               </div>
             )}
             {rest.length > 0 && (
@@ -808,6 +899,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
               </div>
             );
           })}
+          {setGroup}
           {rest.length > 0 && (
             <Button type="button" onClick={() => void placeTheRest().then(() => setListOpen(false))}>
               Place the rest at suggested times

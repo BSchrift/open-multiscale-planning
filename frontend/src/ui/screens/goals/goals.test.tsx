@@ -1148,7 +1148,7 @@ describe('Goals', () => {
       expect(within(form).getByRole('alert')).toHaveTextContent('Give it a name.');
       await userEvent.type(within(form).getByLabelText('Name'), 'Juggling');
       await userEvent.click(within(form).getByRole('button', { name: 'Add practice' }));
-      expect(await screen.findByText('Practice added. It waits in To schedule on Week until you give it a time.')).toBeVisible();
+      expect(await screen.findByText('Practice added. Placed 6 sessions at their set times.')).toBeVisible();
       const rows = await t.db.all<{ objective_id: string | null; target_min: number }>("SELECT objective_id, target_min FROM practice WHERE title = 'Juggling'");
       expect(rows).toEqual([{ objective_id: null, target_min: 30 }]);
     });

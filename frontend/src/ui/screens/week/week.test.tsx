@@ -562,9 +562,30 @@ describe('Week on desktop', () => {
     expect(within(ask).getAllByRole('button').map((b) => b.textContent)).toEqual(['No, just this week', 'Yes, on Wednesdays', 'Yes, every day']);
     await userEvent.click(within(ask).getByRole('button', { name: 'Yes, every day' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toEqual([7 * 60 + 15]));
-    expect(await screen.findByText('Piano practice is now 7:15am every day.')).toBeVisible();
+    // Set to a time now, its days still ahead land at it, in the same Undo.
+    expect(await screen.findByText('Piano practice is now 7:15am every day. Placed 5 sessions at their set times.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(async () => expect((await getRecord(t.db, 'practice', 'pr'))?.preferred_times).toBeNull());
+    expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-05'))?.cancelled).toBe(true);
+  });
+
+  it('Yes to a new time moves the other sessions at the old set time, as editing the practice does', async () => {
+    const t = await open({
+      seed: async (w) => {
+        await planned(w);
+        await w.set('practice', 'pr', { days: [2, 3, 4], preferred_times: [7 * 60] });
+        for (const d of ['2026-11-05', '2026-11-06']) await w.create('time_block', { practice_id: 'pr', start: at('07:00', d), end: at('07:30', d), tz: ZONE }, `session:pr:${d}`);
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
+    (await screen.findByRole('group', { name: /^Piano practice, Wed/ })).focus();
+    await userEvent.keyboard('{ArrowDown}');
+    const ask = await screen.findByRole('group', { name: 'Use 7:15am in future weeks too?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Yes, on Wednesdays, Thursdays and Fridays' }));
+    expect(await screen.findByText(/^Piano practice is now 7:15am .*\. Moved 2 sessions to 7:15am\.$/)).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-06'))?.start).toBe(at('07:15', '2026-11-06'));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'session:pr:2026-11-06'))?.start).toBe(at('07:00', '2026-11-06')));
   });
 
   it('a practice moved to another day stays the session of its own day, for this week only, and a day with one refuses it', async () => {
@@ -752,12 +773,40 @@ describe('To schedule on Week', () => {
     expect(await getRecord(t.db, 'time_block', 'session:pr:2026-11-05')).toMatchObject({ practice_id: 'pr' });
   });
 
+  it('a set day waiting because its set time is taken says so on its card, and one with its time free says its usual time', async () => {
+    const seed = async (w: Writer) => (await picks(w), w.set('practice', 'pr', { preferred_times: [18 * 60 + 30] }));
+    await open({ seed });
+    // Tuesday's 6:30pm is under Quiz night. On desktop it waits above Tuesday, with the warning.
+    const tue = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' });
+    expect(tue.querySelector('[data-icon="warning"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' }).querySelector('[data-icon="warning"]')).toBeNull();
+    await userEvent.click(tue);
+    expect(within(screen.getByRole('group', { name: 'Piano practice' })).getByText('6:30pm is taken by Quiz night, so 7:30pm')).toBeVisible();
+    cleanup();
+
+    // On phone, Tuesday's card says so in words.
+    await open({ seed, layout: 'phone' });
+    await userEvent.click(await screen.findByRole('button', { name: /^Tue/ }));
+    const card = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' });
+    expect(within(card).getByText('Tue · 6:30pm is taken')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: /^Thu/ }));
+    const thu = await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' });
+    expect(within(thu).getByText('30m · usually 6:30pm')).toBeVisible();
+  });
+
+  it('a day away has no set-day session waiting', async () => {
+    await open({ seed: async (w) => (await picks(w), w.create('away_period', { start: '2026-11-05', end: '2026-11-06' })) });
+    await screen.findByRole('button', { name: /^Piano practice, Practice, 30 minutes on Tuesday/ });
+    expect(screen.queryByRole('button', { name: /^Piano practice, Practice, 30 minutes on (Thursday|Friday)/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Piano practice, Practice, 30 minutes on Saturday/ })).toBeVisible();
+  });
+
   it('Skip Thursday skips that one session this week, with Undo, and a suggestion says why it moved', async () => {
     const t = await open({ seed: async (w) => (await picks(w), w.set('practice', 'pr', { preferred_times: [18 * 60 + 30] })) });
-    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday around 6:30 PM, to schedule' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Piano practice, Practice, 30 minutes on Tuesday, 6:30 PM is taken, to schedule' }));
     // Tuesday's 6:30pm is under Quiz night and the summary's block, so it moves.
     const panel = screen.getByRole('group', { name: 'Piano practice' });
-    expect(within(panel).getByText('6:30pm is taken, so 7:30pm')).toBeVisible();
+    expect(within(panel).getByText('6:30pm is taken by Quiz night, so 7:30pm')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Piano practice, Practice, 30 minutes on Thursday around 6:30 PM, to schedule' }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Piano practice' })).getByRole('button', { name: 'Skip Thursday' }));
     expect(await screen.findByText('Skipped Piano practice on Thursday this week.')).toBeVisible();

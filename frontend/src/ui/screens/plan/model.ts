@@ -32,7 +32,8 @@ export const range = (st: Stretch) => `${formatDate(st.start)} to ${formatDate(s
  * Writes one planning change and keeps its reverse for the Undo line and What changed. Resolves to whether it saved.
  * goingOn, as a slider moves, keeps the first reverse, so Undo goes back to before it began.
  */
-export type Act = (key: string, text: string, build: (w: Writer) => Promise<PlanChange>, goingOn?: boolean) => Promise<boolean>;
+/** Text is what the change says, or for one whose words depend on what it did, made from the change once it's written. */
+export type Act = (key: string, text: string | ((done: PlanChange) => string), build: (w: Writer) => Promise<PlanChange>, goingOn?: boolean) => Promise<boolean>;
 
 /** Rounded, for totals that are only ever about right. */
 export const hrs = (minutes: number) => `${Math.round(minutes / 60)}h`;

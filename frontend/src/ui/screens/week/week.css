@@ -62,6 +62,9 @@
 [data-layout] .lanecard.k-practice { border-left: 4px double var(--practice); }
 [data-layout] .lanecard.k-maint { border-left: 4px dotted var(--oneoff); }
 [data-layout] .lanecard.on { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* A set day's session whose set time is taken: the warning icon in its tone, the words as quiet as any card's line. */
+[data-layout] .lanewarn { display: inline-flex; align-items: center; gap: var(--space-1); }
+[data-layout] .lanewarn svg { flex: none; color: var(--warn); }
 [data-layout] .lanet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-layout] .collane .oochip { touch-action: none; user-select: none; -webkit-user-select: none; }
 /* A set day's practice session, waiting above its own day. */

@@ -142,6 +142,8 @@ export function createSyncRunner(deps: {
 
   return {
     syncNow,
+    /** Resolves once the sync under way, if any, has finished or failed, without starting one. Never rejects. */
+    settled: (): Promise<void> => running ?? Promise.resolve(),
     start(): void {
       void syncNow();
       const period = setInterval(() => void syncNow(), PERIOD_MS);
@@ -450,6 +452,11 @@ export function startAppSync(
       }
     },
     syncNow: runner.syncNow,
+    /**
+     * Resolves once the sync under way has finished or failed, such as the first after opening or the one a return to the
+     * foreground starts, so what the app does on its own then works from what other devices did. Never rejects.
+     */
+    settled: runner.settled,
     /** The link to an export of everything the account has, once the server has built it. Throws ExportError or SyncError. */
     exportData: () => exportData({ request: accountRequest, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), isFilesLink }),
     /**

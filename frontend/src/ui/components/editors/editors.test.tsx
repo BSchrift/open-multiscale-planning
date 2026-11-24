@@ -130,7 +130,7 @@ describe.each(['phone', 'desktop'] as const)('a practice editor on %s', (layout)
     await editStretch(editor());
     const writes = vi.spyOn(t.db, 'transaction');
     await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Saved Stretch daily: 30m every weekday, around 6:30pm.')).toBeVisible();
+    expect(await screen.findByText('Saved Stretch daily: 30m every weekday, around 6:30pm. Placed 5 sessions at their set times.')).toBeVisible();
     expect(writes).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog', { name: 'Edit practice' })).toBeNull();
     expect(screen.queryByRole('group', { name: /^Edit Stretch/ })).toBeNull();

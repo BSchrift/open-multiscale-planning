@@ -96,6 +96,10 @@ export async function widgetScenario(name: WidgetScenario, driver: SqlDriver): P
     }
   });
   await setMeta(db, META.lastSyncAt, name === 'stale' ? pst('7:58') : SCENARIO_AT[name]);
-  if (name === 'signedout') await setMeta(db, META.lastSyncError, 'sign_in_expired');
+  // Signed in once, as user-a, and signed out since.
+  if (name === 'signedout') {
+    await setMeta(db, META.account, 'user-a');
+    await setMeta(db, META.lastSyncError, 'sign_in_expired');
+  }
   return { db, clock };
 }

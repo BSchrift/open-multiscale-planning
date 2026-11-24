@@ -8,22 +8,26 @@ import WidgetCore
 public struct CaptureView: View {
     let state: WidgetState
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var textSize
 
     public init(state: WidgetState) {
         self.state = state
     }
 
     public var body: some View {
-        ViewThatFits(in: .vertical) {
-            content
-            content.dynamicTypeSize(...DynamicTypeSize.accessibility2)
-            content.dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        Group {
+            if textSize.isAccessibilitySize {
+                // The count, whole, rather than its icon and chevron, at the most AX1.
+                content(icons: false).dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            } else {
+                content(icons: true)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(state.captureLabel)
     }
 
-    private var content: some View {
+    private func content(icons: Bool) -> some View {
         VStack(spacing: 6) {
             AppLinkView(url: WidgetLink.capture) {
                 VStack(spacing: 4) {
@@ -38,10 +42,10 @@ public struct CaptureView: View {
             .accessibilityLabel("Capture")
             AppLinkView(url: state.mode == .signedOut ? WidgetLink.today : WidgetLink.inbox) {
                 HStack(spacing: 6) {
-                    Icon(name: .inbox, size: 20).foregroundStyle(palette.ink2)
-                    Text(state.inboxLine).font(Type.meta).foregroundStyle(palette.ink).lineLimit(1).minimumScaleFactor(0.8)
+                    if icons { Icon(name: .inbox, size: 20).foregroundStyle(palette.ink2) }
+                    Text(state.inboxLine).font(Type.meta).foregroundStyle(palette.ink).lineLimit(1).minimumScaleFactor(icons ? 0.8 : 0.6)
                     Spacer(minLength: 0)
-                    if state.mode != .signedOut { Icon(name: .chevron, size: 16).foregroundStyle(palette.ink3) }
+                    if icons, state.mode != .signedOut { Icon(name: .chevron, size: 16).foregroundStyle(palette.ink3) }
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())

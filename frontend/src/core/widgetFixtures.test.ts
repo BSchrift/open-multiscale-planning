@@ -10,13 +10,14 @@
 //   overlays.json          a snapshot and the actions queued on it, and the blocks as the app leaves them once applied:
 //                          what the widget shows straight after a tap, before the app has opened
 //   times.json             times of day as the app writes them, which the widgets must write the same way
+//   weeks.json             weeks and lengths of time as the app writes them: "Nov 16 to 22", its days, and "1h 30m"
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { currentBlock, nextBlock } from './blocks';
 import { fixedClock } from './clock';
-import { formatTime, localDate, today } from './dates';
+import { formatMinutes, formatTime, formatWeekRange, localDate, today, weekDates } from './dates';
 import type { BlockRow } from './queries';
 import { transact } from './records';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
@@ -112,7 +113,16 @@ describe('the widget contract fixtures', () => {
       const { snapshot } = await scenario(name);
       all.push([name, snapshot, SCENARIO_AT[name]]);
     }
-    const encrypted = await scenario('now', (d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === 'spec' ? { ...b, space: acme } : b)) }));
+    // Write widget spec's block, Multiscale's aim and the Run practice in an encrypted space: only its name reaches the widget.
+    const encrypted = await scenario('now', (d) => ({
+      ...d,
+      blocks: d.blocks.map((b) => (b.id === 'spec' ? { ...b, space: acme } : b)),
+      week: {
+        ...d.week,
+        aims: d.week.aims.map((a) => (a.name === 'Multiscale' ? { ...a, space: acme } : a)),
+        practices: d.week.practices.map((p) => (p.name === 'Run' ? { ...p, space: acme } : p)),
+      },
+    }));
     all.push(['encrypted', encrypted.snapshot, SCENARIO_AT.now]);
     const inbox = await scenario('now', (d) => ({ ...d, inbox: 4 }));
     all.push(['inbox', inbox.snapshot, SCENARIO_AT.now]);
@@ -201,5 +211,14 @@ describe('the widget contract fixtures', () => {
       'times.json',
       zones.flatMap((zone) => instants.map((instant) => ({ instant, zone, text: formatTime(instant, zone) }))),
     );
+  });
+
+  it('hold weeks and lengths of time as the app writes them', () => {
+    // Within a month, across months and years, and the weeks the clocks change in.
+    const starts = ['2026-11-16', '2026-11-30', '2026-12-28', '2027-03-08', '2026-10-26', '2028-02-28'];
+    fixture('weeks.json', {
+      weeks: starts.map((start) => ({ start, range: formatWeekRange(start), days: weekDates(start) })),
+      minutes: [0, 5, 45, 60, 90, 390, 480, 600, 1439].map((minutes) => ({ minutes, text: formatMinutes(minutes) })),
+    });
   });
 });

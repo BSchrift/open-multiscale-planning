@@ -54,12 +54,17 @@ final class OfflineUITests: XCTestCase {
             checks.launchEnvironment[offlineFlag] = offline ? "YES" : nil
             checks.launchLoaded()
             exists(checks.webText("ready"), timeout: launchPatience)
-            // The first tap after a launch can be lost, so a field the keyboard didn't come up for is tapped again.
+            // The first tap after a launch can be lost, so the field is tapped again only if the page didn't hear it: the
+            // page notes when the field takes focus. A tap on the field once it has focus put the keyboard away on CI,
+            // and the typing that followed found none, so the address is typed with no further tap.
             let field = checks.page.textFields["Address"]
+            let keyboard = checks.keyboards.element
             exists(field)
             field.tap()
-            if !checks.keyboards.element.waitForExistence(timeout: 5) { field.tap() }
-            checks.type(address, into: field)
+            if !checks.webText("focused:Address").waitForExistence(timeout: 5) { field.tap() }
+            exists(checks.webText("focused:Address"))
+            XCTAssertTrue(keyboard.waitForExistence(timeout: patience), "no software keyboard came up. On screen:\n\(checks.debugDescription)")
+            checks.typeText(address)
             checks.tapWeb("Fetch", until: checks.webText(result))
             XCTAssertFalse(checks.webText(offline ? "fetch:reached" : "fetch:blocked").exists)
             checks.terminate()

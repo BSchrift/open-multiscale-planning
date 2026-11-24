@@ -27,7 +27,7 @@ import { createFiles } from './files';
 import { perf } from './perf';
 import type { FileBytes, FilesApi } from './files';
 import { CALENDAR_ID, getRecord, listRecords, rebaseClocks } from './records';
-import type { Diagnostics } from './telemetry';
+import type { Diagnostics, Energy } from './telemetry';
 import { apiPost, apiRequest, createHttpSend, runSync, SyncError } from './sync';
 import type { FetchFn, SyncErrorCode, SyncSend } from './sync';
 import type { Reminder } from './types';
@@ -108,8 +108,12 @@ export function createSyncRunner(deps: {
         // Another account's, signed in here and refused: this device's own account is still there, so it's only signed out.
         if (!erased) code = 'sign_in_expired';
       }
-      // Signed out with its account deleted, it says so until someone signs in, rather than just signed out.
-      if (code === 'sign_in_expired' && (await getMeta(db, META.lastSyncError).catch(() => null)) === 'account_deleted') return;
+      // Signed out with its account deleted, or after a sign-in that didn't finish, it says so until someone signs in,
+      // rather than just signed out. The sync an edit or a return from the sign-in page starts would otherwise hide why.
+      if (code === 'sign_in_expired') {
+        const last = await getMeta(db, META.lastSyncError).catch(() => null);
+        if (last === 'account_deleted' || last === 'sign_in_failed') return;
+      }
       await recordFailure(db, code).catch((e: unknown) => console.error('Could not record sync failure', e));
       return;
     }
@@ -207,6 +211,7 @@ export function startAppSync(
     files: FileBytes & { clear(): Promise<void> };
     kind?: string;
     diagnostics?: Diagnostics;
+    energy?: Energy;
   },
   clock: Clock,
   config: AppConfig,
@@ -248,7 +253,12 @@ export function startAppSync(
     },
   });
   const api = { apiUrl: config.apiUrl, auth, fetch: fetchFn };
-  const httpSend = createHttpSend(api);
+  // What telemetry's app.sync.count takes each minute.
+  let synced = { count: 0, bytes: 0 };
+  const httpSend = createHttpSend(api, (bytes) => {
+    synced.count++;
+    synced.bytes += bytes;
+  });
   // Before every request, since signing out and in can change the account between syncs.
   const send: SyncSend = async (request) => {
     await checkAccount(platform.db, tokenSubject(await auth.accessToken()));
@@ -389,7 +399,13 @@ export function startAppSync(
             ...(device ? { 'device.id': device } : {}),
           },
           ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
+          ...(platform.energy ? { energy: platform.energy } : {}),
           ...(options.updates ? { updates: options.updates } : {}),
+          syncs: () => {
+            const taken = synced;
+            synced = { count: 0, bytes: 0 };
+            return taken;
+          },
           screen: () => document.documentElement.dataset.screen,
           target: window,
         });

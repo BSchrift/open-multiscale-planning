@@ -4,8 +4,8 @@
 // to place on the left, and the grid's blocks drag, resize, come off with ×, or drag back to To schedule. Planning
 // from Choose another time waits on the grid with Place here above it, and the week arrows carry it to another week.
 
-import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { addDays, addWeeks, diffDays, formatMinutes, formatTimeOfDay, localMinutes, today, weekStart } from '../../../core/dates';
 import { FIRST_BLOCK_MIN } from '../../../core/plan';
 import { defaultSlot, DRAWN_DAY, GRID, otherOffers, slotNotes } from '../../../core/slots';
@@ -27,7 +27,7 @@ import { dayName, dragCard, slotRange } from '../../components/weekgrid';
 import { HoldWeekGrid } from '../../components/weekgrid/HoldWeekGrid';
 import type { GridBlock, GridGhost } from '../../components/weekgrid';
 import { landOn, rowItem } from './data';
-import type { LaneItem, Placeable } from './data';
+import type { AddRow, LaneItem, Placeable } from './data';
 import { LaneActions, LaneCard, laneCount, laneWords } from './lane';
 import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
@@ -134,6 +134,10 @@ export function DesktopWeek(props: WeekProps) {
     setAsk(null);
     setSplit(null);
   };
+  // The same function on every render, so the list's rows draw again only when they change.
+  const chosen = useRef(choose);
+  chosen.current = choose;
+  const chooseLive = useCallback((id: string | null) => chosen.current(id), []);
   const stopEditing = () => {
     choose(null);
     setMoved(null);
@@ -317,24 +321,10 @@ export function DesktopWeek(props: WeekProps) {
                 <div key={g.name} className="stack8">
                   <h3>{g.name}</h3>
                   <ol className="schedlist">
-                    {g.rows.map((r) => {
-                      const on = r === cur;
-                      const last = r.placed[r.placed.length - 1];
-                      const sub = last
-                        ? `${dayName(last.date).slice(0, 3)} ${formatTimeOfDay(last.start)}${r.placed.length > 1 ? `, and ${r.placed.length - 1} more` : ''}`
-                        : formatMinutes(r.left);
-                      return (
-                        <li key={r.task.id} className={`schedrow${on ? ' cur' : ''}${r.work.kind === 'one_off' ? ' is-maint' : ''}`}>
-                          <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} aria-expanded={on} onClick={() => choose(on ? null : r.task.id)}>
-                            <span className="schedmark" aria-hidden="true">
-                              <Icon name={on ? 'chevron-right' : last ? 'done' : 'plus'} size={16} />
-                            </span>
-                            <span>
-                              <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
-                              {!on && <span className="subline small">{sub}</span>}
-                            </span>
-                          </button>
-                          {on && draft && (
+                    {g.rows.map((r) =>
+                      r === cur ? (
+                        <AddRowItem key={r.task.id} row={r} on onChoose={chooseLive}>
+                          {draft && (
                             <Placing
                               context={r.context}
                               draft={draft}
@@ -346,9 +336,11 @@ export function DesktopWeek(props: WeekProps) {
                               onCancel={() => choose(null)}
                             />
                           )}
-                        </li>
-                      );
-                    })}
+                        </AddRowItem>
+                      ) : (
+                        <AddRowItem key={r.task.id} row={r} on={false} onChoose={chooseLive} />
+                      ),
+                    )}
                   </ol>
                 </div>
               ))}
@@ -537,6 +529,31 @@ export function DesktopWeek(props: WeekProps) {
     </div>
   );
 }
+
+/**
+ * A task in the list to add to the week, open with what's in it when it's the one being placed. Memoised: a long
+ * history lists hundreds, and Week draws again for every toast and every change elsewhere, while a row changes only
+ * with Week's data.
+ */
+const AddRowItem = memo(function AddRowItem(props: { row: AddRow; on: boolean; onChoose(id: string | null): void; children?: ReactNode }) {
+  const { row: r, on } = props;
+  const last = r.placed[r.placed.length - 1];
+  const sub = last ? `${dayName(last.date).slice(0, 3)} ${formatTimeOfDay(last.start)}${r.placed.length > 1 ? `, and ${r.placed.length - 1} more` : ''}` : formatMinutes(r.left);
+  return (
+    <li className={`schedrow${on ? ' cur' : ''}${r.work.kind === 'one_off' ? ' is-maint' : ''}`}>
+      <button className="schedbtn" type="button" aria-current={on ? 'step' : undefined} aria-expanded={on} onClick={() => props.onChoose(on ? null : r.task.id)}>
+        <span className="schedmark" aria-hidden="true">
+          <Icon name={on ? 'chevron-right' : last ? 'done' : 'plus'} size={16} />
+        </span>
+        <span>
+          <span className={`subline${on ? ' strong' : ''}`}>{r.task.title}</span>
+          {!on && <span className="subline small">{sub}</span>}
+        </span>
+      </button>
+      {props.children}
+    </li>
+  );
+});
 
 /**
  * A task or planning being placed: where its block sits, what's off about that spot, and Place here. left: a task's

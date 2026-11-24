@@ -12,7 +12,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { DependencyList, ReactNode } from 'react';
 import type { Clock } from '../../core/clock';
 import { today as todayOf } from '../../core/dates';
-import type { Db, DbChange, Sql } from '../../core/db';
+import type { Db, DbChange, Row, Sql } from '../../core/db';
 import { perf } from '../../core/perf';
 import { transact } from '../../core/records';
 import type { Writer } from '../../core/records';
@@ -73,6 +73,28 @@ interface QueryResult<T> {
   error: unknown;
 }
 
+/** A database row is a plain object, or one with no prototype, as some drivers return. */
+const plain = (o: object) => [Object.prototype, null].includes(Object.getPrototypeOf(o));
+
+/**
+ * Whether two query results hold the same data: plain objects, arrays and primitives, compared all the way down.
+ * Anything else, such as a Map, is the same only as the same object.
+ */
+export function sameData(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameData(a[i], b[i])) return false;
+    return true;
+  }
+  if (!plain(a) || !plain(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) if (!Object.hasOwn(b, key) || !sameData((a as Row)[key], (b as Row)[key])) return false;
+  return true;
+}
+
 function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
   let snapshot: QueryResult<T> = { data: seed, error: undefined };
   let generation = 0;
@@ -87,6 +109,10 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
     snapshot = next;
     for (const notify of notifiers) notify();
   };
+  // A read that finds what the last one did keeps it, and draws nothing. Every change reads every query on every
+  // screen still mounted, so publishing each would draw them all again for one change, which on a long history took
+  // the slowed-down browser seconds for each (e2e/stack/history-journey.spec.ts).
+  //
   // One read at a time, and changes made while it runs share the next one. A read is many statements, which on the web
   // app's database, in a worker (platform/web.ts), each wait their turn, so a read for every change in a burst would
   // queue behind the others and leave the screen seconds behind. A read a change landed in may mix before and after,
@@ -107,7 +133,7 @@ function queryStore<T>(run: () => Promise<T>, db: Db, seed: T | undefined) {
       .then(
         (data) => {
           if (!current()) return;
-          publish({ data, error: undefined });
+          if (snapshot.error !== undefined || !sameData(snapshot.data, data)) publish({ data, error: undefined });
           if (remote) perf.stopAfterPaint('sync.pull');
           remote = false;
         },

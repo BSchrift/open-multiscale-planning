@@ -287,7 +287,9 @@ final class ShellUITests: XCTestCase {
             XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
         }
 
-        app.tapWeb(startingWith: "Inbox")
+        // Straight after Capture closes, as its sheet and the keyboard go, a tap on the tab can be lost, so one the Inbox
+        // didn't open for is tapped again.
+        app.tapWeb("Inbox, 2 to sort", until: app.webButton("Process 2 items"))
         app.tapWeb("Process 2 items")
         // The card's title is a button, which edits it.
         exists(app.webButton("Buy a proofing basket"))
@@ -325,11 +327,14 @@ final class ShellUITests: XCTestCase {
         app.type("Gate code at the allotment\n", into: field)
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "Capture is still open")
 
-        // One tap beside Goal backlog; Process closes itself on the last item, and its toast shows.
+        // Beside Goal backlog; Process closes itself on the last item, and its toast shows.
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 1 item")
         exists(app.webButton("Gate code at the allotment"))
-        app.tapWeb("Save as note")
+        // It opens a dialog now, Attach note to, so WebKit doesn't call it a button.
+        app.tapWeb(anyStartingWith: "Save as note")
+        // Then where it lives, in a sheet: On its own comes first.
+        app.tapWeb(anyStartingWith: "On its own")
         exists(app.webText("Saved Gate code at the allotment in Notes."))
 
         // Notes is a row under More, and the note opens in its popup.
@@ -352,8 +357,9 @@ final class ShellUITests: XCTestCase {
         app.type("Morning run", into: app.page.textFields["Name"])
         app.tapWeb("Add practice", until: app.webButton(startingWith: "Morning run"))
 
-        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full.
-        app.tapWeb(startingWith: "Morning run")
+        // Weekdays, then untick Wednesday and Thursday: the chips are checkboxes named in full. The row's tap waits for
+        // the editor, since on CI's Simulator a tap now and then is lost.
+        app.tapWeb(startingWith: "Morning run", until: app.webButton("Weekdays"))
         app.tapWeb("Weekdays")
         for day in ["Wednesday", "Thursday"] {
             let chip = app.page.descendants(matching: .any).matching(NSPredicate(format: "label == %@", day)).firstMatch
@@ -366,8 +372,7 @@ final class ShellUITests: XCTestCase {
         exists(app.webText("Saved Morning run: 30m on Mon, Tue and Fri, around 7am."))
         // Undo puts back every day.
         app.tapWeb("Undo")
-        app.tapWeb(startingWith: "Morning run")
-        exists(app.webText("Summary: 30 minutes every day, around 7 AM"))
+        app.tapWeb(startingWith: "Morning run", until: app.webText("Summary: 30 minutes every day, around 7 AM"))
         app.tapWeb("Cancel")
     }
 
@@ -393,6 +398,13 @@ final class ShellUITests: XCTestCase {
         XCTAssertTrue(keyboard.exists, "Bold put the keyboard away")
         app.typeText("rye")
         XCTAssertEqual(field.value as? String, "Use **rye**")
+        // The keyboard goes by its bar's Done before Save is tapped. With it up, WebKit has the page panned to keep the
+        // field in view, and a tap on Save there can land as the page moves: on CI the keyboard went, the page slid back,
+        // and the editor stayed open. Put away first, Save is tapped where it rests.
+        let done = app.toolbars.buttons["Done"]
+        exists(done)
+        done.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: patience), "the keyboard is still up. On screen:\n\(app.debugDescription)")
         app.tapWeb("Save")
         XCTAssertTrue(field.waitForNonExistence(timeout: patience), "the editor is still open")
 

@@ -245,10 +245,6 @@ func (c *DynamoConnections) Put(ctx context.Context, conn connection, previous c
 	return err
 }
 
-func (c *DynamoConnections) PutNew(ctx context.Context, conn connection) ([]byte, error) {
-	return c.put(ctx, conn, connection{})
-}
-
 func (c *DynamoConnections) put(ctx context.Context, conn connection, previous connection) ([]byte, error) {
 	sealed, err := c.KMS.Encrypt(ctx, &kms.EncryptInput{KeyId: aws.String(c.KeyID), Plaintext: []byte(conn.RefreshToken), EncryptionContext: c.tokenContext(conn.Sub)})
 	if err != nil {

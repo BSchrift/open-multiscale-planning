@@ -14,7 +14,8 @@ import type { Slot, SlotContext } from '../../../core/slots';
 import type { Minutes } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import type { MenuEntry } from '../Menu';
-import { useToast } from '../Toast';
+import { useToastOr } from '../Toast';
+import type { Say } from '../Toast';
 import { landsOn, useBothAsk } from './BothAsk';
 import { dayName } from './describe';
 import { answerFor, saidOf } from './MissedSheet';
@@ -31,10 +32,11 @@ export function stageOf(block: BlockRow, now: number): Stage {
   return instantMs(block.start) <= now ? 'now' : 'later';
 }
 
-export function useBlockCommands() {
+/** say: where its messages go instead of the app's toast, as useBlockActions takes it. */
+export function useBlockCommands(say?: Say) {
   const { clock, db } = useApp();
-  const toast = useToast();
-  const actions = useBlockActions();
+  const toast = useToastOr(say);
+  const actions = useBlockActions(say);
   const undo = useMutation((w, reverse: PlanChange) => applyPlanChange(w, reverse));
   const both = useBothAsk();
   /** Moves a block and takes off those it replaces, as one change, so one Undo puts them all back. */

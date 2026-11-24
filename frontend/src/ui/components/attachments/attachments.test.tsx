@@ -183,6 +183,15 @@ describe('attachments in the popup', () => {
     expect(s.files.retry).toHaveBeenCalledTimes(2);
   });
 
+  it('says when a photo changed while it uploaded, with nothing to retry', async () => {
+    const photo = async (w: Writer) => w.create('attachment', { task_id: 't1', kind: 'photo', name: 'Gate.jpg', size: 2048, type: 'image/jpeg', sha256: 'x' }, 'a1');
+    const s = server({ states: { a1: { kind: 'changed' } } });
+    const { section } = await open({ sync: s.sync, seed: photo });
+    expect(await within(section).findByText("Couldn't upload. Try adding it again.")).toHaveClass('attachalert');
+    expect(within(section).queryByRole('button', { name: 'Retry uploading Gate.jpg' })).toBeNull();
+    expect(within(section).getByRole('button', { name: 'Remove Gate.jpg' })).toBeVisible();
+  });
+
   it('opens an uploaded photo from the device, and says why it cannot', async () => {
     const photo = async (w: Writer) =>
       w.create('attachment', { task_id: 't1', kind: 'photo', name: 'Gate.jpg', size: 3, type: 'image/jpeg', sha256: 'x', uploaded_at: '2026-11-02T19:00:00Z' }, 'a1');

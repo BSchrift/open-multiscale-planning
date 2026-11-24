@@ -4,9 +4,9 @@
 // counted, badged or due, and notes arrive only through Process.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent } from 'react';
 import { addDays, formatDate, localDate, today } from '../../../core/dates';
-import { foldMatches, restore, searchNotes } from '../../../core/memos';
+import { restore, searchNotes } from '../../../core/memos';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import { deletedNotes, notesList } from '../../../core/queries';
@@ -16,6 +16,8 @@ import { useApp, useMutation, useQuery } from '../../app/store';
 import { useToast } from '../../components/Toast';
 import { Button } from '../../components/ds/Button';
 import { Icon } from '../../components/ds/Icon';
+import { useHomeNames } from './HomePicker';
+import { NoteRowButton } from './NoteList';
 import { NotePopup } from './NotePopup';
 import './notes.css';
 
@@ -25,71 +27,10 @@ const SAY_MS = 400;
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-/** "Saved Nov 12 · 1 photo · 2 links". */
-export function savedLine(note: NoteRow): string {
-  const bits = [note.saved_on ? `Saved ${formatDate(note.saved_on)}` : 'Saved'];
-  if (note.photos) bits.push(plural(note.photos, 'photo'));
-  if (note.links) bits.push(plural(note.links, 'link'));
-  if (note.files) bits.push(plural(note.files, 'file'));
-  return bits.join(' · ');
-}
-
-/** The first line of a description, cut to about 120 characters. */
-function firstLine(body: string | null): string {
-  const line = (body ?? '').split('\n').find((l) => l.trim()) ?? '';
-  return line.length > 120 ? `${line.slice(0, 119).trimEnd()}…` : line;
-}
-
-/** Text with what was searched for underlined. */
-function Marked(props: { text: string; term: string }) {
-  const parts: ReactNode[] = [];
-  let at = 0;
-  for (const [start, end] of foldMatches(props.text, props.term)) {
-    parts.push(props.text.slice(at, start), <mark key={start}>{props.text.slice(start, end)}</mark>);
-    at = end;
-  }
-  parts.push(props.text.slice(at));
-  return <>{parts}</>;
-}
-
 const monthOf = (date: string, thisYear: string) => {
   const name = new Date(`${date.slice(0, 7)}-01T00:00:00Z`).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
   return date.slice(0, 4) === thisYear ? name : `${name} ${date.slice(0, 4)}`;
 };
-
-/** A note's row: read as its title, with its first line and Saved line as its description. */
-function Row(props: { note: NoteRow; term: string; onOpen(el: HTMLButtonElement): void; rowRef?: (el: HTMLButtonElement | null) => void }) {
-  const { note, term } = props;
-  const id = useId();
-  const line = firstLine(note.body);
-  return (
-    <button
-      ref={props.rowRef}
-      className="nrow"
-      type="button"
-      aria-labelledby={`${id}t`}
-      aria-describedby={`${line ? `${id}b ` : ''}${id}m`}
-      onClick={(event) => props.onOpen(event.currentTarget)}
-    >
-      <span className="nmark">
-        <Icon name="note" />
-      </span>
-      <span className="nwhat">
-        <span className="ntitle" id={`${id}t`}>
-          <Marked text={note.title} term={term} />
-        </span>
-        {line && (
-          <span className="nbody" id={`${id}b`}>
-            <Marked text={line} term={term} />
-          </span>
-        )}
-        <span className="nmeta" id={`${id}m`}>
-          {savedLine(note)}
-        </span>
-      </span>
-    </button>
-  );
-}
 
 export default function Screen(props: ScreenProps) {
   const { layout } = props;
@@ -98,6 +39,7 @@ export default function Screen(props: ScreenProps) {
   const toast = useToast();
   const ids = { search: useId(), help: useId(), all: useId(), deleted: useId() };
   const notes = useQuery((sql) => notesList(sql), []).data;
+  const names = useHomeNames();
   const deleted = useQuery((sql) => deletedNotes(sql), []).data ?? [];
   const [query, setQuery] = useState('');
   const [said, setSaid] = useState('');
@@ -154,7 +96,7 @@ export default function Screen(props: ScreenProps) {
     <ul className="card nlist">
       {items.map((note) => (
         <li key={note.id}>
-          <Row note={note} term={term} onOpen={opener(note)} rowRef={rowRef(note.id)} />
+          <NoteRowButton note={note} term={term} homes={names} today={today(clock)} onOpen={opener(note)} rowRef={rowRef(note.id)} />
         </li>
       ))}
     </ul>

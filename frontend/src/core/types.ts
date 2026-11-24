@@ -366,6 +366,18 @@ export interface Memo extends BaseRecord {
   body?: string | null;
   /** The day it was saved as a note, which the notes list shows and goes by. */
   saved_on?: LocalDate | null;
+  /**
+   * Where it lives: a goal, project or practice, whose page shows it. Absent, or naming a record that's gone or of
+   * another type, it has no home (queries.readHome). A note outlives its home.
+   */
+  home?: MemoHome | null;
+  /** A day the person chose to see it on Today, read only. Never set or changed by the app. */
+  show_on?: LocalDate | null;
+}
+
+export interface MemoHome {
+  type: 'objective' | 'project' | 'practice';
+  id: string;
 }
 
 export type AttachmentKind = 'link' | 'photo' | 'file';

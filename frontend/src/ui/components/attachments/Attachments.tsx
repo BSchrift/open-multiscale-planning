@@ -298,7 +298,7 @@ function photoLine(a: Attachment, state: UploadState | null, local: boolean, zon
     case 'full':
       return { text: 'Not uploaded: storage full', alert: true };
     case 'tooMany':
-      return { text: `Not uploaded: more than ${MAX_PER_TASK} attachments here. Remove one, then retry.`, alert: true };
+      return { text: "Couldn't upload: too many attachments.", alert: true };
     case 'refused':
       return { text: 'Not uploaded', alert: true };
     default:

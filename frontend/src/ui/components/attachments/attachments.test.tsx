@@ -178,7 +178,7 @@ describe('attachments in the popup', () => {
     expect(s.files.retry).toHaveBeenCalledWith('a1');
     // Past the ten a task may have, as two devices adding at once can make.
     act(() => s.setState('a1', { kind: 'tooMany' }));
-    expect(within(section).getByText('Not uploaded: more than 10 attachments here. Remove one, then retry.')).toHaveClass('attachalert');
+    expect(within(section).getByText("Couldn't upload: too many attachments.")).toHaveClass('attachalert');
     await userEvent.click(within(section).getByRole('button', { name: 'Retry uploading Gate.jpg' }));
     expect(s.files.retry).toHaveBeenCalledTimes(2);
   });

@@ -23,7 +23,9 @@ feature gets a row, and a test that covers a cell gets named in it.
 still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
 journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
 bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
-there, before prod's Test step meets it.
+there, before prod's Test step meets it. Staging's release step also runs the deployed web suite the way prod's Test
+step does, against the web app staging still serves, before it publishes: a step outside the journey that only the new
+suite takes, such as clearing the checks earlier runs left, fails there first too.
 
 **The deployed journey, on a long history.** Prod's shared test user holds tens of thousands of records, so a change
 there takes seconds to read back, where a new user's takes milliseconds; once, Week took a card away only after the
@@ -143,6 +145,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | --- | --- | --- | --- | --- |
 | Now card: Start, the countdown, Mark done now, Undo | covered (today: "the Now card: Start counts down, Mark done now frees the time…") | covered (same) | partly (journeys/first-week: the day's blocks, no Start) | missing |
 | Mark done now with nothing after; Start early in the freed time | covered (today-prompts: "Mark done now with nothing after says the time spent…", "free time before the next block offers Start early…") | covered (same) | missing | missing |
+| Stop for now: how much is left, then the block ends; Undo | covered (today-prompts: "Stop for now asks how much is left, ends the block with that…") | covered (same) | missing | missing |
 | Do next block instead; Still going | covered (today-prompts: "Do next block instead trades the work…", "Still going adds half an hour…") | covered (same) | missing | missing |
 | The time-spent ring: pause and resume, P on desktop | covered (today: "the time-spent ring pauses and resumes…", "on desktop, P pauses and resumes…", "the ring changes without animating under reduced motion…", "a pause running to the end asks the end question…") | covered (same, P aside) | missing | missing |
 | Start check-in: has it started? | covered (today-prompts: "a block not started a few minutes in asks whether it has…"; journeys/first-week) | covered (same) | covered (journeys/first-week) | covered (testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted) |
@@ -296,7 +299,7 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Area | Web desktop and phone | Mac app | iPhone |
 | --- | --- | --- | --- |
 | Process | process: "Undo steps back over each card in turn…"; inbox: "edits the item on the card… Undo puts it back as it arrived" | missing | missing |
-| Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
+| Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Stop for now, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |

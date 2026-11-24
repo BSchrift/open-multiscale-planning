@@ -13,6 +13,7 @@ reports, as `make test-deployed` does on staging.
 | An edit saved | Web | 50 ms |
 | Today query | Web, Mac, iPhone Simulator | 100 ms |
 | Week query | Web, Mac, iPhone Simulator | 100 ms |
+| Week figures (report only) | Web, Mac, iPhone Simulator | 100 ms |
 | Pick estimate drag, slowest step (report only) | Web, Mac | 50 ms |
 | Done query (report only) | Web, Mac, iPhone Simulator | 100 ms |
 | Notes list (report only) | Web, Mac, iPhone Simulator | 100 ms |
@@ -20,6 +21,10 @@ reports, as `make test-deployed` does on staging.
 
 `frontend/scripts/history-report.ts` holds the same budgets and checks every run against them. A report-only budget is
 shown in the report but never fails a run, missed or not measured, until it has a baseline of its own.
+
+Week figures is what Week works out from its query before it draws (`weekModel` in `frontend/src/ui/screens/week/data.ts`),
+in the page, which it does again on every change. Until 19 November 2026 it worked out how much was pushed back lately
+from every block in the history, four times over, which `src/platform/history-checks.test.ts` now keeps from coming back.
 
 ## Baseline
 
@@ -53,7 +58,10 @@ What the runs showed beside the numbers:
   96 ms, the first after the sync slower than the rest. The edit budget is met only on a quiet Mac, by 0.2 ms.
 - **Today and Week** both read whole tables on every change, as the `shortcut:` comments in
   `frontend/src/ui/screens/today/data.ts` and `frontend/src/ui/screens/week/data.ts` say: every task, project, pick and
-  week plan, and for Week the analytics data too.
+  week plan, and for Week the analytics data too. Every query on a screen still mounted reads again on every change;
+  since 19 November 2026 a read that finds what the last one did draws nothing (`useQuery` in
+  `frontend/src/ui/app/store.tsx`), where before each one drew its screen again, which on a long history took a
+  slowed-down browser seconds for one change.
 
 The baseline run took 5 minutes 11 seconds: about a minute to start the stack and build the app, a minute and a half
 to seed the account (35 s) and time the browser and the Mac app, and under three for the iPhone, two of them its first

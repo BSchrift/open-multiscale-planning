@@ -436,6 +436,37 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
   expect(errors).toEqual([]);
 });
 
+test("desktop: a toast that takes another's place under the resting mouse is held by it too, until the mouse goes", async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'A mouse rests on the toast on desktop');
+  const picks = [
+    { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 180 } },
+    { type: 'week_pick', id: 'pick:2026-11-02:t2', fields: { week_start: '2026-11-02', task_id: 't2', minutes: 60 } },
+  ] as const;
+  const errors = await openWeek(page, [...records, ...picks]);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  await lane.getByRole('button', { name: /^Draft the summary, / }).click();
+  await page.getByRole('group', { name: 'Draft the summary' }).getByRole('group', { name: 'Suggested times' }).getByRole('button').first().click();
+  const toast = page.locator('.toast');
+  await expect(toast).toContainText('Placed Draft the summary');
+  await toast.getByRole('button', { name: 'Undo' }).hover();
+
+  // Another change, from the keyboard, so the mouse stays where it is: its toast takes the first one's place under it.
+  await lane.getByRole('button', { name: /^Paint the fence, / }).focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('group', { name: 'Paint the fence' }).getByRole('button', { name: 'Take out of this week' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(toast).toContainText('Took Paint the fence out of this week');
+  await expect.poll(() => toast.evaluate((el) => el.matches(':hover'))).toBe(true);
+  // Past the 5 seconds a toast with Undo shows for.
+  await page.clock.runFor(6000);
+  await expect(toast).toContainText('Took Paint the fence out of this week');
+
+  await page.mouse.move(10, 10);
+  await page.clock.runFor(6000);
+  await expect(toast).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('phone: a card held, then dragged down onto the day, is placed where it is let go', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'Holding first is for touch');
   const errors = await openWeek(page);

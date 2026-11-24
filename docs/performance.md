@@ -315,3 +315,17 @@ database rather than synced. On 12 November 2026, `HISTORY_REPORT_ONLY=1 SKIP_IO
 Mac measured the slowest step at 397 ms on the web and 820 ms in the Mac app with every step saving, and 16 ms and
 8 ms once the slider saved only when let go. On 13 November 2026, with Pick's project cards and its time popover, the
 same run measured 14 ms and 8 ms.
+
+## Battery
+
+What drains a phone's or a laptop's battery, measured on real devices and reported with the apps' other telemetry
+([setup.md](setup.md), "What the apps report"). Every value is a number or a fixed word, never what a person wrote, and
+the API keeps only the events and attributes it lists. Nothing has a budget yet: after two weeks of data, each gets one
+at the 90th percentile of a good week plus a margin, reported and never failing a release.
+
+| Event | From | When | Attributes |
+| --- | --- | --- | --- |
+| `app.sync.count` | Web, Mac, iPhone | Each minute, with the heartbeat | `sync.count`, the sync requests the server answered since the last one, and `sync.bytes`, about the bytes they sent and received |
+
+Each sync wakes the radio, so a sync loop is the battery bug most likely to slip in, and `app.sync.count` is the web
+app's only battery signal: browsers don't say how much power a page uses.

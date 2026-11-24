@@ -323,6 +323,7 @@ Not every change has one yet: Start early and Still going on the Now card change
 | The last release's bundle beside this one, on the same data | covered (compat) | missing | missing | missing |
 | Every screen of a lived-in week renders, and the links between areas | covered (tour: "every screen of a lived-in week renders cleanly", "the planning flows of a lived-in week render cleanly", "the links between areas reach their page and come back") | covered (same) | missing | missing |
 | A five-year history: first sync, Today and Week within budget | covered (history/web, on demand) | missing | covered (history/mac, on demand) | covered (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek, on demand) |
+| Battery: each minute's syncs and their bytes, reported to telemetry | covered (telemetry: "signed in, it reports each minute the syncs it made and their bytes") | covered (same) | missing | missing |
 
 ## Not covered yet, and why
 

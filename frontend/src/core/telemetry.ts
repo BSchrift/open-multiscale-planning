@@ -51,7 +51,7 @@ function errorPlace(event: ErrorEvent): Attributes {
 }
 
 /**
- * Reports app.start and the last run's end at once, an app.heartbeat each minute, memory warnings and uncaught errors,
+ * Reports app.start and the last run's end at once, an app.heartbeat and app.sync.count each minute, memory warnings and uncaught errors,
  * each update check's result, an update rolled back, and a Mac app that just replaced itself. The SDK sends a batch each minute and when the page is hidden; a
  * batch that fails to send is dropped.
  */
@@ -66,6 +66,8 @@ export async function startTelemetry(deps: {
   diagnostics?: Diagnostics;
   /** Over-the-air updates, in apps that take them. */
   updates?: Pick<Updater, 'status' | 'subscribe' | 'rolledBack' | 'app'>;
+  /** The sync requests answered since the last call, and the bytes they carried, which drain the battery. */
+  syncs?(): { count: number; bytes: number };
   /** The screen on show, such as week. */
   screen(): string | undefined;
   /** Where errors and visibility changes arrive: the window. */
@@ -153,7 +155,12 @@ export async function startTelemetry(deps: {
   target.addEventListener('unhandledrejection', onRejection);
   target.addEventListener('visibilitychange', onVisibility);
   const stopWarnings = diagnostics?.onMemoryWarning(() => void memory().then((m) => record('device.memory_warning', m)));
-  const timer = setInterval(() => void memory().then((m) => record('app.heartbeat', m)), FLUSH_MS);
+  const timer = setInterval(() => {
+    void memory().then((m) => record('app.heartbeat', m));
+    // Idle minutes too, so a sync loop shows against the time the app was open.
+    const synced = deps.syncs?.();
+    if (synced) record('app.sync.count', { 'sync.count': synced.count, 'sync.bytes': synced.bytes });
+  }, FLUSH_MS);
 
   return {
     flush: () => provider.forceFlush(),

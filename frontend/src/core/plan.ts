@@ -574,6 +574,18 @@ function oneOffDueThisWeek(c: Candidate, weekStart: LocalDate): boolean {
   return !dates || dates.from <= addDays(weekStart, 6);
 }
 
+/**
+ * What each task counts toward its aim this week: its share, or its time on this week's calendar when that's more, so
+ * a 0m share still counts what's placed. Placed time comes out of the share, as pickToPlace has it, so never both.
+ */
+export function aimMinutesByTask(week: WeekInput): Map<string, Minutes> {
+  const { picks, blocks } = weekByTask(week);
+  const out = new Map<string, Minutes>();
+  for (const [id, own] of blocks) out.set(id, own.reduce((sum, b) => sum + blockMinutes(b), 0));
+  for (const [id, p] of picks) out.set(id, Math.max(p.minutes, out.get(id) ?? 0));
+  return out;
+}
+
 export type Suggestions = Record<string, { minutes: Minutes; why: string }>;
 
 /**
@@ -608,14 +620,9 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
       if (total < aim) total += give(c, Math.ceil((aim - total) / 30) * 30, 'Suggested: reaches aim');
     }
   };
-  // As the aim meters count it: each pick in full, and blocks only for work not picked, so nothing counts twice.
-  const plannedFor = (tasks: readonly Task[]) => {
-    const ids = new Set(tasks.map((t) => t.id));
-    const picks = livePicks(week).filter((p) => ids.has(p.task_id));
-    const picked = new Set(picks.map((p) => p.task_id));
-    const placed = liveBlocks(week).filter((b) => b.task_id && ids.has(b.task_id) && !picked.has(b.task_id));
-    return picks.reduce((sum, p) => sum + p.minutes, 0) + placed.reduce((sum, b) => sum + blockMinutes(b), 0);
-  };
+  // As the aim meters count it, so nothing counts twice.
+  const counted = aimMinutesByTask(week);
+  const plannedFor = (tasks: readonly Task[]) => tasks.reduce((sum, t) => sum + (counted.get(t.id) ?? 0), 0);
   // Nothing in a backlog is due, so nothing there is suggested, whatever aim an older app gave it.
   for (const plan of plannable(plans, ctx).filter((p) => !isBacklog(p.project))) {
     const aim = week.aims?.[plan.project.id] ?? plan.project.weekly_aim ?? 0;

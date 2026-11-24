@@ -1,6 +1,6 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { inputTime, perf } from '../../core/perf';
 import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
@@ -25,6 +25,9 @@ import { Icon } from '../components/ds/Icon';
 import type { IconName } from '../components/ds/Icon';
 import { Button } from '../components/ds/Button';
 
+// The iPhone's widgets and their links: loaded only where they exist, so the browser's first load doesn't carry them.
+const WidgetSync = lazy(() => import('./widgets'));
+
 const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', inbox: 'inbox', goals: 'goals', more: 'more' };
 
 function AreaScreen(props: { area: AreaId; params: RouteParams; presentation: Presentation; close(): void }) {
@@ -45,10 +48,11 @@ function Pane(props: { route: Route; visible: boolean; isTop: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const label = tabLabel(route.area);
 
-  // Move focus with the page, so keyboards and screen readers land on what just changed.
+  // Move focus with the page, so keyboards and screen readers land on what just changed, unless something on the page
+  // took it as it showed, such as the block a widget's link opened Today at.
   const wasVisible = useRef(visible);
   useEffect(() => {
-    if (visible && !wasVisible.current) ref.current?.focus({ preventScroll: true });
+    if (visible && !wasVisible.current && !ref.current?.contains(document.activeElement)) ref.current?.focus({ preventScroll: true });
     wasVisible.current = visible;
   }, [visible]);
 
@@ -341,6 +345,11 @@ function Frame() {
       </main>
       {layout === 'phone' && <PhoneNav />}
       <OverlayScreen />
+      {(platform.widgets || platform.onAppLink) && (
+        <Suspense fallback={null}>
+          <WidgetSync />
+        </Suspense>
+      )}
     </>
   );
 }

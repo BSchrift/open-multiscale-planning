@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "writtenAt": "2026-11-18T17:30:00Z",
+  "syncedAt": "2026-11-18T17:30:00Z",
+  "zone": "America/Los_Angeles",
+  "signedIn": true,
+  "days": [
+    {
+      "date": "2026-11-18",
+      "weekPlanned": false
+    },
+    {
+      "date": "2026-11-19",
+      "weekPlanned": false
+    }
+  ],
+  "blocks": [],
+  "events": [],
+  "inbox": {
+    "count": 0
+  },
+  "week": {
+    "start": "2026-11-16",
+    "plannedMinutes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "aims": [],
+    "practices": []
+  },
+  "fromWidget": []
+}

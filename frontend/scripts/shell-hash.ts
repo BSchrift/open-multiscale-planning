@@ -6,8 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// The widgets' Swift package ships its sources; its tests and their fixtures don't.
 const NOT_SHIPPED =
-  /(\.test\.ts|\/e2e\/.*|\/UITests\/.*|playwright\.config\.ts|vitest\.electron\.config\.ts|node-sqlite-swap\.ts|Config\.example\.xcconfig|\/harness\/.*|README\.md|\.gitignore)$/;
+  /(\.test\.ts|\/e2e\/.*|\/UITests\/.*|\/MultiscaleWidgets\/(Tests|Sources\/WidgetTestSupport)\/.*|playwright\.config\.ts|vitest\.electron\.config\.ts|node-sqlite-swap\.ts|Config\.example\.xcconfig|\/harness\/.*|README\.md|\.gitignore)$/;
 
 /**
  * The packages the Mac app is made with, by where the lockfile puts them: its native ones, electron-builder, which

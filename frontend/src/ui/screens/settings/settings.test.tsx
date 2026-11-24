@@ -31,7 +31,7 @@ function fakeSync() {
     signedInAt: vi.fn(async (): Promise<number | null> => null),
     exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
     deletionTarget: vi.fn(async () => ({ sameAccount: true, email: 'reader@example.com' as string | null })),
-    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> => 'deleted'),
+    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again' | 'wrong_account' | 'protected'> => 'deleted'),
     files: noFiles(),
   } satisfies AppSync;
 }
@@ -220,6 +220,14 @@ describe('Settings', () => {
         expect(await screen.findByText('Sign in again first: your last sign-in was too long ago.')).toBeVisible();
         await userEvent.click(remove());
         expect(await screen.findByText("You're offline. Connect to delete your account.")).toBeVisible();
+      });
+
+      it('says when the account is one the server keeps, deleting nothing', async () => {
+        const { sync } = await open(NOW - 60_000);
+        sync.deleteAccount.mockResolvedValueOnce('protected');
+        await userEvent.type(screen.getByRole('textbox', { name: 'Type DELETE to confirm' }), 'DELETE');
+        await userEvent.click(remove());
+        expect(await screen.findByText("This account is protected and can't be deleted. Nothing was deleted.")).toBeVisible();
       });
     });
   });
@@ -497,6 +505,24 @@ describe('Settings', () => {
       expect(await screen.findByText('Google access was removed. Connect again.')).toBeVisible();
       expect(screen.getByRole('button', { name: 'Connect' })).toBeVisible();
     });
+
+    for (const [error, line] of [
+      ['calendar_rate_limited', 'Google asked to slow down. It will try again soon.'],
+      ['too_many_events', 'Some events were left out. There were too many to read.'],
+    ] as const) {
+      it(`says what ${error} means while still connected`, async () => {
+        await renderScreen('settings', {
+          sync: fakeSync(),
+          seed: async (w) => {
+            await connected(w);
+            await w.set('calendar', CALENDAR_ID, { last_error: error });
+          },
+        });
+        const cal = await screen.findByRole('region', { name: 'Google Calendar' });
+        expect(await within(cal).findByText(line)).toBeVisible();
+        expect(within(cal).getByText('Connected. Blocks go to your Time blocks calendar.')).toBeVisible();
+      });
+    }
   });
 
   describe('away dates', () => {

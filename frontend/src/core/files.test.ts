@@ -150,6 +150,19 @@ describe('uploads', () => {
     expect((await getRecord(db, 'attachment', id))?.uploaded_at).toBe(NOW);
   });
 
+  it('gives up on a photo whose record changed after its upload was granted, and goes on to the next', async () => {
+    const { files, kept, calls } = setup({
+      grantUpload: async (id) => (calls.push(`grant ${id}`), calls.length === 1 ? json(409, { error: 'attachment_changed' }) : grant(id)),
+    });
+    const ids = [await photo(kept), await photo(kept)].sort();
+    await files.run();
+    expect(files.state(ids[0]!)).toEqual({ kind: 'changed' });
+    expect((await getRecord(db, 'attachment', ids[1]!))?.uploaded_at).toBe(NOW);
+    // No upload under its id can match again, so it isn't asked for again.
+    await files.run();
+    expect(calls.filter((c) => c.startsWith('grant'))).toEqual(ids.map((id) => `grant ${id}`));
+  });
+
   it('gives up on a file the API refuses for good', async () => {
     const { files, kept, calls } = setup({ grantUpload: async (id) => (calls.push(id), json(413, { error: 'file_too_large' })) });
     const id = await photo(kept);

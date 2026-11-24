@@ -299,6 +299,8 @@ function photoLine(a: Attachment, state: UploadState | null, local: boolean, zon
       return { text: 'Not uploaded: storage full', alert: true };
     case 'refused':
       return { text: 'Not uploaded', alert: true };
+    case 'changed':
+      return { text: 'Not uploaded: the photo changed while it uploaded. Remove it and add it again.', alert: true };
     default:
       return { text: local ? 'Waiting to upload' : 'Not uploaded yet' };
   }

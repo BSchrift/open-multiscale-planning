@@ -19,7 +19,10 @@ import (
 )
 
 // The attachment limits under test, from the files the server reads them from.
-var maxFileBytes = appconfig.Protocol.Attachments.MaxFileBytes
+var (
+	maxFileBytes = appconfig.Protocol.Attachments.MaxFileBytes
+	maxPerTask   = appconfig.Protocol.Attachments.MaxPerTask
+)
 
 func defaultQuota(t *testing.T) int {
 	t.Helper()
@@ -220,6 +223,30 @@ func TestUploadRefusals(t *testing.T) {
 	if now, _ := a.usage(); now != used {
 		t.Errorf("a refusal took storage: %d, then %d", used, now)
 	}
+}
+
+// A task takes as many attachments as config/protocol.yaml allows, links among them, as the apps count them. A photo
+// past that, as two devices adding at once can make, gets no upload until another is removed.
+func TestATaskTakesOnlySoManyAttachments(t *testing.T) {
+	needs(t, filesStored)
+	a := signIn(t)
+	task := fresh("task")
+	var links []record
+	for i := 0; i < maxPerTask; i++ {
+		links = append(links, a.record("attachment", fresh("link"), "task_id", task, "kind", "link", "name", "example.com", "url", "https://example.com"))
+	}
+	a.sync(a.startCursor(), links...)
+	id := fresh("photo")
+	a.attach(id, []byte("one too many"), "task_id", task)
+	used, _ := a.usage()
+	if res := a.askUpload(id); res.status != 400 || res.errorCode() != "too_many_attachments" {
+		t.Fatalf("%d %s", res.status, truncated(res.body))
+	}
+	if now, _ := a.usage(); now != used {
+		t.Errorf("the refusal took storage: %d, then %d", used, now)
+	}
+	a.sync(a.startCursor(), a.record("attachment", links[0].ID, "deleted_at", time.Now().UTC().Format(time.RFC3339)))
+	a.grantUpload(id)
 }
 
 // The quota and the hourly upload limit, each reached on the local stack by someone new.

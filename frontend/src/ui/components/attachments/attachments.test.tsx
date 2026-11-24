@@ -176,6 +176,11 @@ describe('attachments in the popup', () => {
     expect(within(section).getByText('Not uploaded: storage full')).toHaveClass('attachalert');
     await userEvent.click(within(section).getByRole('button', { name: 'Retry uploading Gate.jpg' }));
     expect(s.files.retry).toHaveBeenCalledWith('a1');
+    // Past the ten a task may have, as two devices adding at once can make.
+    act(() => s.setState('a1', { kind: 'tooMany' }));
+    expect(within(section).getByText("Couldn't upload: too many attachments.")).toHaveClass('attachalert');
+    await userEvent.click(within(section).getByRole('button', { name: 'Retry uploading Gate.jpg' }));
+    expect(s.files.retry).toHaveBeenCalledTimes(2);
   });
 
   it('opens an uploaded photo from the device, and says why it cannot', async () => {

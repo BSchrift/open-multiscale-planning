@@ -378,15 +378,26 @@ jobs:
           if-no-files-found: ignore
 
   # The iPhone widgets' Swift package: the snapshot, the timeline, the action queue and the contract fixtures the frontend
-  # job's tests check, on macOS with no Simulator. Skipped, which counts as passing, with the ios job.
+  # job's tests check, on macOS with no Simulator; then every widget rendered on an iPhone Simulator, checked to fit at
+  # every text size, with the pictures kept for review. Skipped, which counts as passing, with the ios job.
   widgets:
     runs-on: macos-15
     needs: [changes]
     if: needs.changes.outputs.ios == 'true'
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: make test-widgets
+      - run: scripts/test-widget-renders.sh
+        env:
+          WIDGET_RENDERS_DIR: ${{ runner.temp }}/widget-renders
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: widget-renders
+          path: ${{ runner.temp }}/widget-renders
+          retention-days: 14
+          if-no-files-found: ignore
 
   # The workflows themselves, with shellcheck on their scripts.
   workflow-lint:

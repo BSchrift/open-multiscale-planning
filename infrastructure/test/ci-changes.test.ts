@@ -54,6 +54,7 @@ describe('scripts/ci-changes.sh', () => {
       'config/retention.yaml',
       'config/retention.ts',
       'scripts/test-ios.sh',
+      'scripts/test-widget-renders.sh',
       'scripts/local-stack.sh',
       'Makefile',
       '.github/workflows/ci.yml',

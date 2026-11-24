@@ -6,7 +6,7 @@ import type { Clock } from './clock';
 import { fixedClock } from './clock';
 import type { Db, SqlDriver } from './db';
 import { META, openDb, setMeta } from './db';
-import { CALENDAR_ID, outcomeId, transact, weekPlanId } from './records';
+import { CALENDAR_ID, outcomeId, transact, updateSettings, weekPlanId } from './records';
 import type { Writer } from './records';
 
 export const ZONE = 'America/Los_Angeles';
@@ -33,9 +33,35 @@ export const SCENARIO_AT: Record<WidgetScenario, string> = {
 const done = (w: Writer, id: string, result: 'done' | 'partly' | 'not', at: string) =>
   w.create('block_outcome', { result, answered_at: at, ...(result === 'partly' ? { remaining_min: 30 } : {}) }, outcomeId(id));
 
+/**
+ * The rest of the week around the example day, for This week: Monday's and Tuesday's work, a Saturday on the garden, two
+ * projects with weekly aims (Multiscale on track, Garden behind) and One offs aiming for 2h. Nothing on Wednesday or
+ * Thursday, so Now and next and Today see only the example day.
+ */
+async function exampleWeek(w: Writer) {
+  await w.create('project', { title: 'Multiscale', state: 'active', start: '2026-11-09', end: '2027-01-29', weekly_aim: 480 }, 'multiscale');
+  await w.create('project', { title: 'Garden', state: 'active', start: '2026-09-01', end: '2026-12-31', weekly_aim: 120 }, 'garden');
+  await w.create('task', { kind: 'project', project_id: 'garden', title: 'Plant the bulbs', estimate_min: 600, remaining_min: 600 }, 'bulbs-task');
+  await w.create('task', { kind: 'one_off', title: 'Return the parcel' }, 'parcel-task');
+  await updateSettings(w, { one_offs_weekly_aim: 120 });
+  await w.create('time_block', { practice_id: 'run-practice', start: pst('7:00', 16), end: pst('7:45', 16), tz: ZONE }, 'run-mon');
+  await w.create('time_block', { task_id: 'spec-task', start: pst('9:00', 16), end: pst('12:00', 16), tz: ZONE }, 'spec-mon');
+  await w.create('time_block', { practice_id: 'piano-practice', start: pst('17:30', 16), end: pst('18:00', 16), tz: ZONE }, 'piano-mon');
+  await w.create('time_block', { task_id: 'spec-task', start: pst('9:00', 17), end: pst('10:00', 17), tz: ZONE }, 'spec-tue');
+  await w.create('time_block', { task_id: 'parcel-task', start: pst('13:00', 17), end: pst('13:45', 17), tz: ZONE }, 'parcel');
+  await w.create('time_block', { task_id: 'bulbs-task', start: pst('10:00', 21), end: pst('11:00', 21), tz: ZONE }, 'bulbs');
+  await done(w, 'run-mon', 'done', pst('7:46', 16));
+  await done(w, 'spec-mon', 'done', pst('12:01', 16));
+  await done(w, 'piano-mon', 'partly', pst('18:01', 16));
+  await done(w, 'spec-tue', 'done', pst('10:01', 17));
+  await done(w, 'parcel', 'done', pst('13:46', 17));
+}
+
 async function exampleDay(w: Writer) {
-  await w.create('practice', { title: 'Run', target_min: 45, per: 'week', state: 'active' }, 'run-practice');
-  await w.create('practice', { title: 'Piano', target_min: 30, per: 'week', state: 'active' }, 'piano-practice');
+  await exampleWeek(w);
+  // Sessions a week, as This week counts them: Run 2 of 3 and Piano 1 of 2 by Wednesday.
+  await w.create('practice', { title: 'Run', target_min: 135, sessions: 3, per: 'week', state: 'active' }, 'run-practice');
+  await w.create('practice', { title: 'Piano', target_min: 60, sessions: 2, per: 'week', state: 'active' }, 'piano-practice');
   await w.create('task', { kind: 'project', project_id: 'multiscale', title: 'Write widget spec', estimate_min: 90, remaining_min: 90 }, 'spec-task');
   await w.create('task', { kind: 'one_off', title: 'Call the dentist' }, 'dentist-task');
   await w.create('task', { kind: 'project', project_id: 'multiscale', title: 'Review pull requests', estimate_min: 60, remaining_min: 60 }, 'prs-task');

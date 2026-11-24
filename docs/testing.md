@@ -283,11 +283,12 @@ app's side, the Swift package the widgets' side, the fixtures both, and XCUITest
 | Feature | Layer | Covered by |
 | --- | --- | --- |
 | The snapshot for every state the spec draws: in progress, time to start, paused, free, nothing planned, day finished, signed out, stale | Vitest | `widgetSnapshot.test.ts` |
-| An encrypted space's task names never reach the snapshot; only names are free text, for the Lock Screen to hide | Vitest, Swift | `widgetSnapshot.test.ts` ("privacy in the widget snapshot"); `WordsTests` (testOnlyNamesAreMarkedPrivate, testALockedPhoneHidingNamesReadsThePlaceholdersInstead) |
-| The snapshot's caps: 120-character titles, 60 blocks, 64 KB | Vitest | `widgetSnapshot.test.ts` |
+| This week's part of the snapshot: each day's planned time (blocks cut at midnight, planning left out), aims with planned time and the project's pill (none set, skipped or not under way left out), practices' sessions done of those wanted (paused, ended and skipped left out), and an empty week | Vitest | `widgetSnapshot.test.ts` ("the week in the widget snapshot") |
+| An encrypted space's task, project and practice names never reach the snapshot; only names are free text, for the Lock Screen to hide | Vitest, Swift | `widgetSnapshot.test.ts` ("privacy in the widget snapshot"); `WordsTests` (testOnlyNamesAreMarkedPrivate, testALockedPhoneHidingNamesReadsThePlaceholdersInstead) |
+| The snapshot's caps: 120-character titles and names, 60 blocks, 10 aims and 10 practices, 64 KB | Vitest | `widgetSnapshot.test.ts` |
 | Start, Start early, Pause and Resume from the widget apply at the tap, with Undo; stale, duplicate, moved, answered and ended ones are dropped and say why | Vitest | `widgetActions.test.ts`; `widgets.test.tsx` (the toast and its Undo, on opening and on coming back) |
 | The widgets' links open Today, Today at a block, the Inbox, Week and Plan your week | Vitest, XCUITest | `appLinks.test.ts`, `widgets.test.tsx`, `capacitor.test.ts`; testEachWidgetLinkOpensItsScreen |
-| The app and the widgets agree: the snapshot decodes, the block under the clock and the next match the app's own at every edge of both days, action files and what a tap leaves match, times read alike | Fixtures | `widgetFixtures.test.ts` writes them, `FixtureTests` reads them |
+| The app and the widgets agree: the snapshot decodes, the block under the clock and the next match the app's own at every edge of both days, action files and what a tap leaves match, times, weeks ("Nov 16 to 22") and lengths read alike, the week decodes and a snapshot from before it still does | Fixtures | `widgetFixtures.test.ts` writes them, `FixtureTests` reads them |
 | Timeline entries only where the widget changes, Smart Stack relevance, the countdown, the bar and the pause | Swift | `TimelineTests`, `StateTests` |
 | A button's intent queues its tap, checked against the plan at the tap; Undo of an unapplied start takes it off the queue | Swift | `TapTests`, `StoreTests` |
 | VoiceOver: one label per widget in order of importance, end times, buttons named in full | Swift | `WordsTests` |

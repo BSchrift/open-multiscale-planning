@@ -80,7 +80,22 @@ public enum Fixtures {
         public let text: String
     }
 
+    public struct Weeks: Decodable {
+        public struct Week: Decodable {
+            public let start: String
+            public let range: String
+            public let days: [String]
+        }
+        public struct Length: Decodable {
+            public let minutes: Int
+            public let text: String
+        }
+        public let weeks: [Week]
+        public let minutes: [Length]
+    }
+
     public static var states: [String: [State]] { decode([String: [State]].self, "states.json") }
+    public static var weeks: Weeks { decode(Weeks.self, "weeks.json") }
     public static var overlays: [Overlay] { decode([Overlay].self, "overlays.json") }
     public static var times: [Time] { decode([Time].self, "times.json") }
 }

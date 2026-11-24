@@ -110,5 +110,63 @@
   "inbox": {
     "count": 4
   },
+  "week": {
+    "start": "2026-11-16",
+    "plannedMinutes": [
+      255,
+      105,
+      240,
+      60,
+      0,
+      60,
+      0
+    ],
+    "aims": [
+      {
+        "name": "Garden",
+        "kind": "project",
+        "plannedMinutes": 60,
+        "aimMinutes": 120,
+        "status": {
+          "pill": "Behind",
+          "tone": "amber"
+        },
+        "space": null
+      },
+      {
+        "name": "Multiscale",
+        "kind": "project",
+        "plannedMinutes": 450,
+        "aimMinutes": 480,
+        "status": {
+          "pill": "On track",
+          "tone": "green"
+        },
+        "space": null
+      },
+      {
+        "name": "One offs",
+        "kind": "oneoff",
+        "plannedMinutes": 60,
+        "aimMinutes": 120,
+        "status": null,
+        "space": null
+      }
+    ],
+    "practices": [
+      {
+        "name": "Piano",
+        "done": 1,
+        "of": 2,
+        "space": null
+      },
+      {
+        "name": "Run",
+        "done": 2,
+        "of": 3,
+        "space": null
+      }
+    ]
+  },
   "fromWidget": []
 }

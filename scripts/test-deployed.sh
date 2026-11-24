@@ -10,7 +10,7 @@
 #                minutes (scripts/test-retention.sh)
 #   iPhone       the app's signed-in test on a Simulator, built for the deployment
 #   history      on staging, the history-scale test against its own user's five-year account (scripts/test-history.sh),
-#                reporting its numbers: it fails only when a device holds fewer records than were seeded
+#                reporting its numbers: it fails only when a device holds fewer live records than were seeded
 #   history web app
 #                on staging, the web app suite as a desktop browser of that user, once its account is seeded: its long
 #                first sync, a reload during one, OPFS, the journey, planning and the console (frontend/e2e/deployed,

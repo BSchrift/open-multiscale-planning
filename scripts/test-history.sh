@@ -7,7 +7,8 @@
 #   ENV=staging seeds and signs in as integration.historyUser in staging.yaml, with its password from SSM
 #   (frontend/scripts/test-target.mjs). The config folder is $MULTISCALE_CONFIG_DIR, or config/ in the repo.
 #   Exits 1 when a budget is missed or a part fails. HISTORY_REPORT_ONLY=1, for a baseline and for releases, reports
-#   those without failing, and fails only when a device holds fewer records than were seeded, or nothing was seeded.
+#   those without failing, and fails only when a device holds fewer live records than were seeded, or nothing was
+#   seeded.
 #   SKIP_IOS=1 leaves out the iPhone, much the slowest. HISTORY_WRITE_UNITS paces the seed, 500 a second off local.
 set -euo pipefail
 

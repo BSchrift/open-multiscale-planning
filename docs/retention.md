@@ -115,6 +115,13 @@ few minutes across a change that then expires is reset when it next syncs, which
   and a pull that reaches the end moves the cursor to the counter, past any record already removed. They go by the
   record, as the checks on changes do, not by the TTL attribute, so a record deleted before retention, which has none,
   is left out once its deleted period has passed. A new device never takes one on, so never fills it in.
+- **A first sync leaves out what was deleted before it began.** A device that holds nothing, at cursor 0 with nothing
+  to send, gets the counter its pull read as `snapshot`, and sends it with every request until its pull reaches the end,
+  so one that stops part way resumes with it. The API then leaves out records deleted at or below it, and the cursor
+  moves past them. A record deleted, or restored, since has a higher sequence number, so it still arrives. These never
+  count toward the reset for expired records: nothing on the device can be an older copy of them. Apps from before
+  send no snapshot and get every record. A note deleted before the first sync never reaches the device, so the orphan
+  sweep dates a photo still naming it now, and the photo goes after the deleted period.
 - **A file follows its record.** An attachment's file sits in the environment's bucket, and the API keeps its key and
   size in a `file#<attachment id>` item beside the record, with the bytes the person stores in `meta#storage`. When TTL
   removes an attachment's record, the Streams consumer deletes its file from the bucket, the `file#` item and its bytes

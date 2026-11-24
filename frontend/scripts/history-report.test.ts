@@ -12,7 +12,7 @@ const within = {
   iphone: { first_sync_ms: 15000, today_query_ms: 80, week_query_ms: 99, done_query_ms: 30 },
 };
 
-const facts = { records: 38836 };
+const facts = { records: 38836, deleted: 7747 };
 
 /** With what was seeded, unless results gives facts of its own, or none as undefined. */
 function run(results: Record<string, object | undefined>, env: Record<string, string> = {}, args: string[] = []) {
@@ -111,11 +111,12 @@ describe('history-report', () => {
     expect(reported.stdout).toContain('Report only: 3 numbers were not measured');
   });
 
-  it('fails on a device holding fewer records than were seeded, even when only reporting', () => {
-    const short = { ...within, web: { ...within.web, records: 37000 }, mac: { ...within.mac, records: 38836 }, iphone: { ...within.iphone, records: 40000 } };
+  // A first sync leaves out what was deleted before it began, so a device is held to the live records.
+  it('fails on a device holding fewer live records than were seeded, even when only reporting', () => {
+    const short = { ...within, web: { ...within.web, records: 31088 }, mac: { ...within.mac, records: 31089 }, iphone: { ...within.iphone, records: 40000 } };
     const result = run(short, { HISTORY_REPORT_ONLY: '1' });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('web holds 37000 of the 38836 records seeded.');
+    expect(result.stderr).toContain('web holds 31088 of the 31089 live records seeded.');
     expect(result.stderr).not.toContain('mac holds');
     expect(result.stderr).not.toContain('iphone holds');
   });

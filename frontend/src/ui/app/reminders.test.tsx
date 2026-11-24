@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { extendBlock, markDoneNow, moveBlock, removeBlock, swapBlocks } from '../../core/blocks';
 import { fixedClock } from '../../core/clock';
 import { localToInstant } from '../../core/dates';
+import { perf } from '../../core/perf';
 import { getRecord, outcomeId } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { REMINDER_ACTION } from '../../core/reminders';
@@ -46,6 +47,10 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    signedInAt: vi.fn(async (): Promise<number | null> => null),
+    exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
+    deletionTarget: vi.fn(async () => ({ sameAccount: true, email: 'reader@example.com' as string | null })),
+    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> => 'deleted'),
     files: noFiles(),
   } satisfies AppSync;
 }
@@ -91,6 +96,15 @@ describe('reminders', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
     await respond(t, REMINDER_ACTION.stillGoing);
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.end).toBe(at(16, 30)));
+  });
+
+  it('times an answer from the notification to its commit, as notify.action', async () => {
+    performance.clearMeasures();
+    perf.reset();
+    const t = await open();
+    await respond(t, REMINDER_ACTION.start, 'start');
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
+    await waitFor(() => expect(performance.getEntriesByName('notify.action')).toHaveLength(1));
   });
 
   it("a planning block's Start starts it and opens planning on its week", async () => {

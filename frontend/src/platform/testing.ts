@@ -16,12 +16,15 @@ export interface TestPlatform extends Platform {
   readonly opened: string[];
   /** Every appearance passed to setAppearance. */
   readonly appearances: Appearance[];
+  /** Every haptic tap the screens asked for, by its strength, which is always light. */
+  readonly haptics: 'light'[];
 }
 
 export async function createTestPlatform(db?: Db): Promise<TestPlatform> {
   const links = deepLinks();
   const opened: string[] = [];
   const appearances: Appearance[] = [];
+  const haptics: 'light'[] = [];
   return {
     kind: 'test',
     db: db ?? (await openTestDb()),
@@ -36,5 +39,7 @@ export async function createTestPlatform(db?: Db): Promise<TestPlatform> {
     opened,
     setAppearance: async (appearance) => void appearances.push(appearance),
     appearances,
+    haptic: async () => void haptics.push('light'),
+    haptics,
   };
 }

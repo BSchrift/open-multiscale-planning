@@ -3,7 +3,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { goals, tab } from './journeys/journey';
 import { everyScreenLoaded, expectSaved, goOffline, reloadOnline, SCREEN_URLS } from './offline';
 import type { Offline } from './offline';
-import { openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
+import { holdMouse, openSeeded, pane, readRecord, startPlanningThenUndo } from './seed';
 import type { Seed } from './seed';
 
 // Each main flow done with no connection, start to finish, by a signed-out app: everything it does is on this device,
@@ -118,12 +118,16 @@ test('processes the Inbox offline: a home for each item, Undo, and Delete', asyn
       const field = page.getByRole('combobox', { name: 'Add to a project or One offs' });
       await field.fill(typed);
       await expect(page.getByRole('option', { name: option })).toHaveAttribute('aria-selected', 'true');
+      // Enter picks it, and a second Enter adds the item there.
+      await field.press('Enter');
+      await expect(card.getByRole('button', { name: `Add to ${option.split(',')[0]}`, exact: true })).toBeVisible();
       return field.press('Enter');
     }
     await card.getByRole('button', { name: /^Add to a project or One offs/ }).click();
     const sheet = page.getByRole('dialog', { name: 'Add to' });
     await sheet.getByRole('combobox', { name: 'Add to a project or One offs' }).fill(typed);
     await sheet.getByRole('option', { name: option }).click();
+    await card.getByRole('button', { name: `Add to ${option.split(',')[0]}`, exact: true }).click();
   };
 
   await addTo('paint', 'Paint the fence');
@@ -175,6 +179,7 @@ test('plans the week offline, through each step: Inbox, Pick, Schedule and Revie
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('report');
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).press('Enter');
   }
+  await card.getByRole('button', { name: 'Add to Write the report', exact: true }).click();
   await expect(card).toHaveCount(0);
   await page.getByRole('button', { name: 'Continue to picking tasks' }).click();
 
@@ -253,8 +258,7 @@ test('schedules the week offline: one task by hand, then the rest, with Undo', a
     const draft = page.getByRole('group', { name: /^Collect the sources, Mon Nov 2, 2pm to 4pm, Project\./ });
     const box = (await draft.boundingBox())!;
     const column = (await page.locator('.colbody').first().boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + 8);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
     await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 30, { steps: 4 });
     await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 48, { steps: 4 });
     await page.mouse.up();
@@ -301,9 +305,11 @@ test('answers time blocks on Today offline: how the last one went, then Start an
   // It starts at the estimate's time left once the task has loaded; before that, the arrow keys have nothing to move.
   await expect(left).toHaveAttribute('aria-valuetext', '2h');
   await left.focus();
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
-  await expect(left).toHaveAttribute('aria-valuetext', '1h 30m');
+  // Five minutes a step, each checked before the next.
+  for (const text of ['1h 55m', '1h 50m', '1h 45m', '1h 40m', '1h 35m', '1h 30m']) {
+    await page.keyboard.press('ArrowLeft');
+    await expect(left).toHaveAttribute('aria-valuetext', text);
+  }
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
   expect(await readRecord(page, 'block_outcome', 'outcome:b1')).toMatchObject({ result: 'partly', remaining_min: 90 });

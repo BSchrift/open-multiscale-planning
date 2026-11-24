@@ -13,10 +13,28 @@ feature gets a row, and a test that covers a cell gets named in it.
 | Two devices on the local stack | `frontend/e2e/stack/` | Web desktop | `scripts/e2e.sh stack`, CI's e2e-stack, every PR and push to main |
 | The Mac app's own | `frontend/electron/e2e/` | Mac app (Electron, real main process, preload and SQLite) | `scripts/e2e.sh electron`, CI's e2e-electron (project `mac`), every PR and push to main |
 | The last release beside this one | `frontend/e2e/compat/` | Web desktop | `scripts/e2e.sh compat`, CI's e2e-compat, every PR and push to main |
-| iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main |
+| Sync and the last release, with staging's retention | `frontend/e2e/stack/`, `frontend/e2e/compat/` | Web desktop | `RETENTION=staging scripts/e2e.sh stack compat`, CI's e2e-staging-retention, every PR and push to main. Staging runs both suites on every release with its retention of minutes ([config/retention.yaml](../config/retention.yaml)), where the local stack and CI's other jobs keep records for years, so a test that needs an old record to stay fails here first |
+| iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main. Its signed-in tests (`SignedInUITests`) need a backend, and GitHub's Macs have no Docker for the local stack, so CI's ios skips them; `.github/workflows/ios-staging.yml` runs them against staging every night |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
-| Capture benchmarks | `frontend/e2e/capture-bench.spec.ts`, `frontend/electron/e2e/capture-bench.spec.ts` | Web, Mac app | `BENCH=1`, on demand |
+| Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`); the server's routes and sync against staging each night, from the release pipeline |
+
+**The deployed journey, on the release before.** Prod's Test step runs the deployed web suite against the web app prod
+still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
+journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
+bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
+there, before prod's Test step meets it. Staging's release step also runs the deployed web suite the way prod's Test
+step does, against the web app staging still serves, before it publishes: a step outside the journey that only the new
+suite takes, such as clearing the checks earlier runs left, fails there first too.
+
+**The deployed journey, on a long history.** Prod's shared test user holds tens of thousands of records, so a change
+there takes seconds to read back, where a new user's takes milliseconds; once, Week took a card away only after the
+toast holding the journey's next Undo had gone (#312). So the same journey also runs on the history-scale test's
+five-year account, about 33,000 records: on CI in e2e-stack (`frontend/e2e/stack/history-journey.spec.ts`), seeded for a
+user of its own, with the page's CPU six times slower once synced, so Week's read-back passes the toast's 5 seconds as
+prod's did; and on every staging run as `integration.historyUser`, in the web app suite's `history` project, seeded
+first, with the long first sync, a reload during one, OPFS, planning and the console, reported only for now. That page
+never reloads: a reload would give each of the account's records an expiry of staging's minutes and send them.
 
 **One suite, several platforms.** A spec that imports `test` and `expect` from `frontend/e2e/platform.ts` runs on the
 Mac app too when `frontend/electron/playwright.config.ts` runs it: `page` is then the window of a freshly launched app
@@ -39,6 +57,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture from the button | covered (inbox: "captures to the Inbox from the button and the keyboard") | covered (same) | covered (journeys/capture-and-process; desktop: "closing the window keeps the edits not yet saved…") | covered (testCaptureFromThePlusButtonThenProcessToAProjectAndAOneOff) |
 | Capture from the keyboard, in the app | covered (inbox: "captures to the Inbox…"; journeys/capture-and-process) | n/a | covered (journeys/capture-and-process) | n/a |
 | Capture from anywhere: global shortcut, Control Center, share sheet | n/a | n/a | covered (desktop: "the shortcut opens a one-field window that saves to the Inbox…", "a save that fails keeps the text and says so") | covered (testControlCenterWidgetOpensCapture, testShareExtensionQueuesForTheApp, testShareImportIsOffWithoutTheExtensions, testCaptureSitsAboveTheKeyboard…) |
+| Share sheet: the first line the title and the rest the description, a link on its own attached, a long share cut and Process saying so | n/a (Process's notice: process "a shared description that was cut to fit says so under it") | n/a (same) | n/a | partly (testALongShareReachesTheAppWholeAndItsDescriptionIsCut: the queue keeps it whole and the app cuts it; the item a share makes is checked in shareImport.test.tsx only) |
 | Capture's Add details: time, and a place that skips the Inbox | covered (details: "Capture's Add details opens with Time first…"; process: "Add details sends a task with its time straight to One offs…") | covered (same) | missing (seeded specs run in the browser only) | missing |
 | Capture: Esc and Cancel drop the text; a click outside keeps it | covered (process: "Esc and Cancel drop what was typed…") | partly (Esc only; a tap on the backdrop untested) | missing | missing |
 | Inbox: count, rows, rename, popup | covered (inbox: "shows the Inbox's count in a circle", "an Inbox row opens its popup…"; details: "an Inbox item opens in its popup…") | covered (same) | partly (journeys/capture-and-process: rows and popup) | missing |
@@ -54,6 +73,19 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Process: Esc exits and reopening continues | covered (process: "Skip keeps an item for later… leaving part way, Process starts again on what's left") | covered (same, by Exit) | missing | missing |
 | Process: keys, with Option or alone | covered (inbox: "keyboard shortcuts on the desktop card…"; process: "desktop: W, E and G do what their buttons do…") | n/a | missing | n/a |
 | Process: edit the item on its card (title, description, link, date) | covered (inbox: "edits the item on the card…", "a date set on the card goes with the item to a project…") | covered (same) | missing | missing |
+
+### Notes
+
+| Feature | Web desktop | Web phone | Mac app | iPhone |
+| --- | --- | --- | --- | --- |
+| Process: Save as note, then Attach note to (On its own, or a home found by search), with the item's description and attachments, its block off the calendar | covered (notes-list: "an Inbox item saved as a note…", "a note attached to a project…") | covered (same) | missing (seeded specs run in the browser only) | covered (testSaveAsNoteFromProcessThenFindItInNotesUnderMore) |
+| Notes: on the sidebar after One offs, under More on phone, with no count | covered (notes-list) | covered (same) | missing | covered (same test) |
+| Notes: search over titles and descriptions, ignoring case and accents, underlined, and its count spoken | covered (notes-list) | covered (same) | missing | missing |
+| A note's popup: Delete note, Recently deleted and Restore, Belongs to Inbox to make it a task | covered (notes-list) | covered (same) | missing | missing |
+| A note's home: Belongs to's search, and its notes on the goal's card, the project's page and the practice's sheet | covered (notes-list: "a note attached to a project shows on its goal's card and its page…"; unit: notes/homes.test.tsx) | covered (same) | missing | missing |
+| Show it on Today on: the day's notes on Today, read only, above the timeline | covered (notes-list: "…and one chosen for today shows on Today") | covered (same) | missing | missing |
+| A note's title with nowhere to break, in its row, its popup and the Process card | covered (long-titles: "a 200-character title with nowhere to break…") | covered (same) | missing | missing |
+| Notes on the last release: the item leaves its Inbox unfinished, and its launch writes nothing to them | covered (compat: "Inbox items the update saved as notes…") | missing | missing | missing |
 
 ### Settings and first run
 
@@ -74,6 +106,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Capture shortcut | n/a (apps only) | n/a | covered (desktop: "a new capture shortcut from Settings replaces the old one…") | n/a |
 | Updates | n/a (apps only) | n/a | partly (unit tests only; the section shows only in builds with a release feed) | partly (unit tests only) |
 | Data retention | covered (settings: "Data retention says what's kept and for how long…") | covered (same) | missing | missing |
+| Account: Export my data, a zip of every record, its settings and a README | covered (stack/account: "desktop: Export my data downloads a zip of everything the account has") | covered (stack/account: "phone: …", at phone size) | missing (the Mac app hands the link to the default browser; settings.test.tsx checks it goes through the platform) | missing (Safari saves it; settings.test.tsx checks the platform is asked) |
+| Account: Delete my account and data, with a fresh sign-in and DELETE typed | covered (stack/account: "desktop: Delete my account and data takes a fresh sign-in and DELETE…"; settings.test.tsx: the page's safeguards) | covered (stack/account: "phone: …", at phone size) | missing | missing |
 
 ### Stretch planning (Plan)
 
@@ -98,9 +132,10 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Planning as a task, saved three days before the week | covered (journeys/planning-task; stack/planning: across devices) | covered (journeys/planning-task) | covered (journeys/planning-task) | missing |
 | Inbox step | covered (planning: "plans a week: Inbox, pick with Does it fit…"; weekly-planning: "the Inbox step processes into the plan for the week being planned…") | covered (same) | covered (journeys/first-week) | missing |
 | Pick tasks | owned by the Pick rebuild (planning: "plans a week…", "adds a task while picking…", "dragging an estimate in Pick…" cover today's) | owned by the Pick rebuild | covered (journeys/first-week, today's Pick) | missing |
-| Schedule: drag, place, place the rest, Undo | covered (schedule: "desktop: drag the task to a time…", "…Place here takes it off to place again", "…Place the rest puts each session at its own day's time…"; planning-place) | covered (schedule: "phone: compare days, move the task to another day…", "phone: the draft floats beside a placed block…"; planning-place) | covered (journeys/first-week, journeys/answered-weeks) | missing |
+| Schedule: drag, place, place the rest, Undo | covered (schedule: "desktop: drag the task to a time…", "…Place here asks, then Replace takes it off to place again", "…Place the rest puts each session at its own day's time…"; planning-place) | covered (schedule: "phone: compare days, move the task to another day…", "phone: the draft floats beside a placed block…"; planning-place) | covered (journeys/first-week, journeys/answered-weeks) | missing |
 | Schedule: a moved practice session asks about future weeks | covered (schedule: "desktop: moving a practice session asks…"; weekly-planning: "desktop: Yes on Schedule's practice question…") | missing (the phone's question sheet; touch dragging) | missing | missing |
 | Schedule: skip a practice this week, and include it again | covered (weekly-planning: "Skip a practice this week takes its sessions out…") | covered (same) | missing | missing |
+| Schedule: with nothing left to place, a press held on empty time drafts an hour there and Capture saves it; none while a task is being placed | covered (schedule: "with nothing left to place in the Schedule step, a press held on empty time drafts an hour there…", "a press held on empty time in the Schedule step drafts nothing while a task is being placed") | covered (same) | missing | missing |
 | Review: aims not reached, finish, Undo | covered (planning: "plans a week…"; weekly-planning: "Review names each aim not reached…") | covered (same) | covered (journeys/first-week) | missing |
 | Step navigation: tabs and arrows | covered (planning: "week arrows have no limit…"; weekly-planning: "the step arrows and tabs move between the steps…") | covered (same) | missing | missing |
 
@@ -110,6 +145,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | --- | --- | --- | --- | --- |
 | Now card: Start, the countdown, Mark done now, Undo | covered (today: "the Now card: Start counts down, Mark done now frees the time…") | covered (same) | partly (journeys/first-week: the day's blocks, no Start) | missing |
 | Mark done now with nothing after; Start early in the freed time | covered (today-prompts: "Mark done now with nothing after says the time spent…", "free time before the next block offers Start early…") | covered (same) | missing | missing |
+| Stop for now: how much is left, then the block ends; Undo | covered (today-prompts: "Stop for now asks how much is left, ends the block with that…") | covered (same) | missing | missing |
 | Do next block instead; Still going | covered (today-prompts: "Do next block instead trades the work…", "Still going adds half an hour…") | covered (same) | missing | missing |
 | The time-spent ring: pause and resume, P on desktop | covered (today: "the time-spent ring pauses and resumes…", "on desktop, P pauses and resumes…", "the ring changes without animating under reduced motion…", "a pause running to the end asks the end question…") | covered (same, P aside) | missing | missing |
 | Start check-in: has it started? | covered (today-prompts: "a block not started a few minutes in asks whether it has…"; journeys/first-week) | covered (same) | covered (journeys/first-week) | covered (testTodayAsksHowAFinishedBlockWentThenWhetherTheCurrentOneHasStarted) |
@@ -121,11 +157,14 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | After a week away: Welcome back, Pick one thing for today | covered (today-waiting: "after a week away Today opens on Welcome back…") | covered (same) | missing | missing |
 | Timeline calendar: drag a block, arrow keys, Undo | covered (today: "a block still to come drags to a new time, held first on phone; arrow keys move it on…") | covered (same, held first) | missing | missing |
 | Timeline: resize from the bottom edge, Shift and arrows | covered (today-timeline: "a block still to come changes its length from its bottom edge…", "on desktop, Shift and the arrow keys change a block's length…", "the block under way keeps its start and changes only its end…") | covered (same, by the grip) | missing | missing |
+| Timeline: a press held on empty time drafts an hour with a ring, Capture saves it there as an Inbox item, Undo; none on time gone by or a quick press | covered (today-timeline: "a press held on empty time drafts an hour there with a ring…", "a press held on time gone by drafts nothing…") | covered (same, by touch pointer events) | missing | covered (testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem, testAHoldsTapReachesTheHapticsPlugin) |
 | Timeline: a click or tap opens the block's task | covered (today: "a click or tap on a block opens its task…"; details: "the Now card, a To schedule card and a block on Today open the popup") | covered (same) | missing | missing |
+| Timeline: Done in a block's popup, and Pause or Resume on the one under way | covered (today: "Done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
+| Timeline: a block's quick menu, by a right-click, Shift-F10 or the menu key, or a hold let go in place | partly (click-and-hold: "Today: a block's quick menu opens on a right-click or Shift-F10…" chooses Done and Pause, and lists Move to's items; choosing Next free time, Tomorrow, Back to To schedule or Choose a time is in today.test.tsx only) | partly (same, a hold let go in place) | partly (desktop: "a right-click's menu: macOS draws the items the page gives…", the bridge with Menu.popup stubbed; Today's blocks calling it are unit tests) | missing |
 | List view, kept after a reload | covered (today-timeline: "the timeline switches to a list of the day in order…") | covered (same) | missing | missing |
 | Zoom | covered (today-timeline: "zoom draws the calendar taller a step at a time and back…") | partly (the buttons; a pinch needs the Simulator) | missing | missing |
 | The planning block's Now card: Keep going, Free this time | partly (journeys/planning-task: Keep going on the planning row; stack/planning: the Now card's; Free this time untested) | partly (same) | partly (journeys/planning-task) | missing |
-| To schedule above the day, dragged onto it | covered (today: "to schedule sits just above the day, and a card dragged onto it is placed there…", "a practice on set days waits in To schedule on its own days only…") | covered (same, held first) | missing | covered (testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday) |
+| To schedule above the day, dragged onto it, or Choose a time to place it on Week | covered (today: "to schedule sits just above the day, and a card dragged onto it is placed there…", "a practice on set days waits in To schedule on its own days only… and Choose a time places it on Week") | covered (same, held first) | missing | covered (testAToScheduleCardHeldThenDraggedOntoTheDayIsPlacedOnToday) |
 | A clash with the calendar shifts the rest of today | covered (today: "a clash with the calendar shifts the rest of today") | covered (same) | missing | missing |
 | One offs on Today: tick, Change date, Find a time | covered (today-waiting: "a one off dated today offers Change date… and Find a time…"; journeys/capture-and-process: tick) | covered (same) | covered (journeys/capture-and-process: tick) | missing |
 | Short blocks keep 44pt targets on phone | n/a | covered (today: "on phone, a short block on the calendar still has a 44pt tap target", "on phone, a block's resize grip stays under the block right below it…") | n/a | missing |
@@ -134,15 +173,19 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
-| The grid: drag a block to another day and time, remove with Undo | covered (week: "desktop: drag a block to another day and time, then remove it with Undo") | partly (the phone day moves a block from its sheet; a held drag of a placed block is untested) | covered (sync: "dragging and resizing a block on the Week grid moves it on the other device…") | n/a |
+| The grid: drag a block to another day and time, remove with Undo | covered (week: "desktop: drag a block to another day and time, then remove it with Undo") | covered (week: "phone: a block held on the day, then dragged to a later row, moves to the time it's let go at, with Undo"; the sheet's Move too) | covered (sync: "dragging and resizing a block on the Week grid moves it on the other device…") | covered (testABlockHeldOnWeeksDayThenDraggedDownMovesLater) |
+| A click or tap opens any block, one that moves included, and only a hold drags it, on Today and Week | covered (click-and-hold: "Today: a click that wobbles opens any block…", "Week, desktop: while editing, a click that wobbles opens a block or a card…") | covered (click-and-hold: "Today: …", "Week, phone: while editing, a tap opens a block, a swipe across it doesn't move it, and a hold drags it") | missing | missing |
 | The grid: a block's length from its edge, Shift and arrows | covered (week-blocks: "desktop: while editing, a block's bottom edge snaps its length…") | n/a | covered (sync: same test) | n/a |
+| A press held on empty time drafts an hour there, and Capture saves it as an Inbox item, with Undo; a press held on a block still opens it on desktop | covered (week-blocks: "a press held on empty time on Week drafts an hour there…") | covered (same, a Free row of the day) | missing | covered (testAHoldOnAFreeRowOfWeeksDayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem) |
 | The block's details beside the week | covered (week-blocks: "desktop: a block clicked on the grid shows its details beside the week…") | n/a | missing | n/a |
+| Phone: pinching the day zooms its hours, around the fingers, from the whole day to three times, kept on the device | n/a | covered (week-pinch, in Chromium: WebKit here can't put down a second finger; pinch.test: the zoom's sums) | n/a | covered (testPinchingWeeksDayDrawsItsHoursTallerAndANewLaunchKeepsThem) |
 | Phone: the day strip, a block's sheet, Move to another day, Length, Remove | n/a | covered (week: "phone: the day strip, a block sheet, and Move to another day", "phone: a day with no slot stays readable"; week-blocks: "phone: a block's sheet changes its length on a slider…") | n/a | partly (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek: it draws) |
-| To schedule above the week: a suggestion places it, Undo, drag both ways | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
+| To schedule above the week: a suggestion places it, Undo, drag both ways, rows shared across days | covered (week: "to schedule: picked work waits above the week…", "a set-day practice waits above its own days…", "desktop: what waits above the week shares rows across days…") | covered (same; week: "phone: a card held, then dragged down onto the day…") | missing | missing |
 | Add a task at its suggested time; Edit this week's plan | covered (week: "desktop: add a task at its suggested time") | covered (week: "phone: Edit this week's plan and add a task from the drawer") | missing | missing |
 | Week arrows and This week | covered (week: "week arrows reach any week and This week comes back") | covered (same) | partly (journeys/answered-weeks) | missing |
 | Past weeks: read only, linked to their analytics | covered (week-blocks: "a past week can be read but not changed…") | covered (same) | missing | missing |
 | Day headings open Done on that day | covered (done: "Week's day headings open Done on that day…") | covered (same) | missing | missing |
+| A move or a placing that lands on another block asks first: Keep both, Replace (the one landed on back to To schedule), Cancel | partly (Schedule: schedule "desktop: the draft floats over a placed block… Place here asks, then Replace…"; Today: today "a block still to come drags…", by arrow keys; Week: week.test.tsx only, no e2e drops a block onto another) | partly (schedule "phone: …Place here asks, then Replace…"; Today and Week as on desktop) | missing | missing |
 
 ### Goals, projects, milestones and practices
 
@@ -198,15 +241,28 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Expired sign-in, and signing in as another account | covered (stack/sync: "an expired sign-in shows in Settings…", "signing in as another account asks first…") | missing (desktop only) | partly (sync: "…a restart keeps data and sign-in") | missing |
 | Sign-in tokens kept safely | n/a | n/a | covered (desktop: "tokens are stored encrypted and survive a restart") | covered (testTokensRoundTripThroughTheKeychain) |
 | Attachments' photos sync and open on another device | covered (stack/attachments: "a link and a photo added on one device reach another…") | missing (desktop only) | missing (the file picker is the browser's; not run on the Mac app) | missing |
+| A deleted account: every signed-in device erases its copy on its next sync, and one whose token lapsed asks | covered (stack/account: "…a second device erases its copy", at its next launch; syncRunner.test.ts for a sync and a lapsed token; account.stack.test.ts) | missing (desktop only) | missing | missing |
+| A released app after its account is deleted shows it's signed out | covered (compat: "an old device whose account a new device deleted shows it's signed out") | n/a | n/a | n/a |
+| Export and account deletion, server side: every record type and note in the export, a deletion removing everything from DynamoDB, the bucket and the user pool, other people untouched, an interrupted deletion carried on, devices refused, a lapsed token's status | n/a: server side, in backend/internal/account, backend/internal/api/account_test.go and backend/integration/account_test.go | | | |
 
 ### Google Calendar
 
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
-| Connect, Refresh, a blocking calendar's events in hours and Week, Ignore, Disconnect | covered (stack/calendar: "connecting Google Calendar reads its calendars, whose events take time from planning until ignored…"; settings-sections: "Google Calendar, signed out: Connect asks for a sign-in…") | partly (settings: "edits settings in place" sets modes on seeded calendars) | missing (the same page; Connect opens the system browser) | missing |
+| Connect, Refresh, a blocking calendar's events in hours and Week, Ignore, Disconnect | covered (stack/calendar: "connecting Google Calendar reads its calendars, whose events take time from planning until ignored…"; settings-sections: "Google Calendar, signed out: Connect asks for a sign-in…") | partly (settings-sections: "Google Calendar, signed out…"; settings: "edits settings in place" sets modes on seeded calendars; connecting runs at desktop size only, in the stack layer) | missing (the same page; Connect opens the system browser) | missing |
 | Calendar modes and busy time with seeded calendars | covered (settings: "edits settings in place") | covered (settings: "edits settings in place") | missing | missing |
 | A clash with the calendar shifts the rest of today | covered (today: "a clash with the calendar shifts the rest of today") | covered (same) | missing | missing |
 | Blocks mirrored to Google, edits there overwritten, errors | n/a: server side, in backend/integration/calendar_test.go and backend/cmd/local/calendar_test.go | | | |
+| Each person connects their own Google account: two at once each sync their own, one's removed access, outage, quota or slowness leaves the other syncing, a Google account connects to one person at a time | n/a: server side, in backend/integration/calendar_test.go ("TestTwoPeopleConnectedAtOnceEachSyncTheirOwn", "TestOnePersonsGoogleTroubleLeavesTheOtherSyncing", "TestAGoogleAccountConnectsToOnePersonAtATime") and backend/internal/gcal/people_test.go | | | |
+| A person's token is stored encrypted for them alone, never in the clear, and goes on disconnect and account deletion | n/a: server side, in backend/internal/gcal/aws_test.go ("TestConnectionsThroughDynamoDBAndKMS", against DynamoDB Local and Moto's KMS) and connect_test.go | | | |
+| The deployment's one connection from before keeps working until it's copied to its person's own | n/a: server side, in backend/internal/gcal/people_test.go ("TestTheLegacyConnectionKeepsRunningForItsPersonOnly") | | | |
+| The schedule copies that connection to its person's own, verified with Google, twice or at once or cut off partway, never over a newer consent or undoing a disconnect, with their sync uninterrupted | n/a: server side, in backend/internal/gcal/migrate_test.go and backend/integration/calendar_migration_test.go ("TestTheLegacyConnectionMovesToItsPersonWithoutInterruption") | | | |
+| The schedule and the stream start each connected person's run through the queue, spread and bounded | n/a: server side, in backend/internal/gcal/people_test.go, backend/cmd/calendar/main_test.go and infrastructure/test/stack.test.ts | | | |
+| Google refusing a token marks the connection and keeps it until they connect again or disconnect; a 401 from the Calendar API, a lasting 403 or an organisation's policy isn't a worker failure; a consent with a permission unticked is refused | n/a: server side, in backend/internal/gcal/review_test.go | | | |
+| A connection that won't open never locks its person out, and falls back to the legacy one naming them; a disconnect goes round for a connection made while it ran; a consent stores over only the connection it read | n/a: server side, in backend/internal/gcal/review_test.go | | | |
+| A run's failure names its AWS error code, never a value | n/a: server side, in backend/internal/gcal/review_test.go ("TestARunsFailureNamesTheAWSErrorCode") | | | |
+| The queue mapping exists through the canary, the failure and revocation alarms, the dead-letter alarm on arrivals, and the token key used only by the two functions | n/a: infrastructure/test/stack.test.ts | | | |
+| A real Google account per person on staging | missing: needs a dedicated test Google account for the test user (`testCalendar`), and a second for the second test user | | | |
 
 ### Reminders and notifications
 
@@ -243,12 +299,13 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Area | Web desktop and phone | Mac app | iPhone |
 | --- | --- | --- | --- |
 | Process | process: "Undo steps back over each card in turn…"; inbox: "edits the item on the card… Undo puts it back as it arrived" | missing | missing |
-| Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
+| Today | today: Now card, ring, drag; today-prompts: Do next block instead, Mark done now, Stop for now, Skip; today-timeline: resize; today-waiting: Change date, Needs a new time | journeys/first-week | missing |
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
 | One offs | oneoffs-repeats: dates in place, Change repeat's delete | missing | missing |
 | The task popup | details: Save; popup: Delete task; attachments: link removed | missing | missing |
+| Notes | notes-list: Delete note's Undo takes focus; unit tests: Save as note's Undo (process/note.test.tsx), Save and Belongs to: Inbox (notes/notes.test.tsx) | missing | missing |
 | Done and Analytics | done: marked finished; analytics: a pattern; analytics-estimates: Raise estimates | missing | missing |
 | Settings | settings-sections: away dates removed | missing | missing |
 
@@ -278,8 +335,14 @@ Not every change has one yet: Start early and Still going on the Now card change
 - **The phone's "future weeks" question** after moving a practice session in Schedule needs a touch drag of a session.
 - **Daily and yearly one offs** aren't added by any test; they take the same form path as monthly.
 - **The planning block's Free this time**, on Today's Now card, has no test at any layer.
+- **Choosing a quick menu's Move to item** (Next free time, Tomorrow, Back to To schedule, Choose a time) is tested in
+  `today.test.tsx` only. The e2e specs open the menu and list the items.
+- **Week's "Schedule both at the same time?"** has component tests (`week.test.tsx`) but no e2e drop of a block onto
+  another, at either size. Today's is reached by arrow keys only.
+- **Hold to create on the Mac app**: no journey holds on empty time, so the Mac column is missing for Today, Week and
+  the Schedule step.
 - **Offline and network interruption** have their own suites (browser, stack, Mac app, iPhone).
 
 ## Where each suite runs in CI, and what it costs
 
-Everything in the local layer runs on every PR and every push to main, one job per part of `scripts/e2e.sh`. The Mac app's journeys run inside e2e-electron: that job went from about 2 min 10 s to about 3 min 25 s on Linux (Playwright's own time from 1.3 to 2.3 min, for 23 tests instead of 13). It still ends long before e2e-browser (about 9 to 13 min) and ios (about 40 min), so it adds no time to a PR's checks. If e2e-browser grows past ios, split it by project (desktop and phone) into two jobs rather than moving tests off PRs.
+Everything in the local layer runs on every PR and every push to main, one job per part of `scripts/e2e.sh`. The iPhone's signed-in tests against staging run every night at 06:41 UTC, and by hand with `gh workflow run ios-staging.yml`, on one macos-15 runner: about 30 minutes a night, two builds of about 5 to 7 minutes each, as in CI's ios, and four tests that each sign in and wait up to 3 minutes for the test user's first sync. That's about 15 hours of macOS a month, which costs nothing while the repository is public; on a private one GitHub bills a macOS minute as ten. The Mac app's journeys run inside e2e-electron: that job went from about 2 min 10 s to about 3 min 25 s on Linux (Playwright's own time from 1.3 to 2.3 min, for 23 tests instead of 13). It still ends long before e2e-browser (about 9 to 13 min) and ios (about 40 min), so it adds no time to a PR's checks. If e2e-browser grows past ios, split it by project (desktop and phone) into two jobs rather than moving tests off PRs.

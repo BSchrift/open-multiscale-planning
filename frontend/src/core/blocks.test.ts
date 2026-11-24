@@ -3,6 +3,7 @@ import {
   answerBlock,
   answerBlocks,
   currentBlock,
+  endNow,
   extendBlock,
   isPaused,
   keepPracticeChange,
@@ -307,6 +308,14 @@ describe('the time left for Partly', () => {
     expect(partlyLeft({ remaining_min: 45 }, block)).toBe(60);
     expect(partlyLeft({}, block)).toBe(60);
   });
+
+  it('stopped early, is the estimate less the time spent so far, pauses left out', () => {
+    const block = { start: at('18:00'), end: at('19:00'), started_at: at('18:00') };
+    expect(partlyLeft({ estimate_min: 180 }, block, Date.parse(at('18:30')))).toBe(150);
+    expect(partlyLeft({ estimate_min: 180 }, { ...block, paused_at: at('18:20') }, Date.parse(at('18:30')))).toBe(160);
+    // With the estimate used up, it's the block itself, as at the end.
+    expect(partlyLeft({ estimate_min: 20 }, block, Date.parse(at('18:30')))).toBe(60);
+  });
 });
 
 describe('moving through the day', () => {
@@ -317,6 +326,21 @@ describe('moving through the day', () => {
     expect((await getRecord(t.db, 'task', 't'))?.done_at).toBe(NOW);
     await t.run((w) => applyPlanChange(w, undo));
     expect((await t.block('now'))?.ended_at).toBeNull();
+    expect(currentBlock(await t.rows(), t.clock)?.id).toBe('now');
+  });
+
+  it('Stop for now ends the block at once with its answer, counts a pause out, and undoes exactly', async () => {
+    const t = await setup(async (w) => w.set('time_block', 'now', { started_at: at('18:00'), paused_at: at('18:20') }));
+    const undo = await t.run((w) => endNow(w, 'now', { result: 'partly', remaining_min: 160 }, t.clock));
+    expect(await t.block('now')).toMatchObject({ ended_at: NOW, paused_at: null, paused_min: 10, end: at('19:10') });
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('now'))).toMatchObject({ result: 'partly', remaining_min: 160 });
+    const task = await getRecord(t.db, 'task', 't');
+    expect(task?.remaining_min).toBe(160);
+    expect(task?.done_at).toBeFalsy();
+    await t.run((w) => applyPlanChange(w, undo));
+    expect(await t.block('now')).toMatchObject({ ended_at: null, paused_at: at('18:20'), end: at('19:00') });
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('now')))?.deleted_at).toBe(NOW);
+    expect((await getRecord(t.db, 'task', 't'))?.remaining_min).toBe(180);
     expect(currentBlock(await t.rows(), t.clock)?.id).toBe('now');
   });
 

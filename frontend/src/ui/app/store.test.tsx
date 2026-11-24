@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { fixedClock } from '../../core/clock';
+import { perf } from '../../core/perf';
 import { listRecords, transact } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import { ToastProvider } from '../components/Toast';
@@ -31,6 +32,19 @@ function Titles(props: { kind: string }) {
 }
 
 describe('useQuery', () => {
+  it("ends sync.pull once a sync's changes are drawn, and not on a change made here", async () => {
+    performance.clearMeasures();
+    const platform = await setup(<Titles kind="inbox" />);
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe(''));
+    perf.start('sync.pull');
+    await act(() => transact(platform.db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Typed here' })));
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe('Typed here'));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(performance.getEntriesByName('sync.pull')).toHaveLength(0);
+    act(() => platform.db.notifyChanged({ source: 'remote' }));
+    await waitFor(() => expect(performance.getEntriesByName('sync.pull')).toHaveLength(1));
+  });
+
   it('loads, then re-runs on any change to the database', async () => {
     const platform = await setup(<Titles kind="inbox" />);
     expect(screen.getByTestId('titles').textContent).toBe('none yet');
@@ -82,6 +96,28 @@ describe('useQuery', () => {
     await act(() => Promise.all(titles.map((title) => transact(platform.db, clock, (w) => w.create('task', { kind: 'inbox', title })))));
     await waitFor(() => expect(screen.getByTestId('titles').textContent!.split(',').sort()).toEqual(titles));
     expect(reads - before).toBeLessThanOrEqual(2);
+  });
+
+  it('draws again only for a change to what it read, though every change reads it again', async () => {
+    let reads = 0;
+    let draws = 0;
+    function Drawn() {
+      const { data } = useQuery(async (sql) => {
+        reads++;
+        return (await listRecords(sql, 'task')).filter((t) => t.kind === 'inbox').map((t) => ({ title: t.title }));
+      }, []);
+      draws++;
+      return <div data-testid="titles">{data?.map((t) => t.title).join(',') ?? 'none yet'}</div>;
+    }
+    const platform = await setup(<Drawn />);
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe(''));
+    const [readBefore, drawnBefore] = [reads, draws];
+    await act(() => transact(platform.db, clock, (w) => w.create('task', { kind: 'one_off', title: 'Not in the Inbox' })));
+    await waitFor(() => expect(reads).toBe(readBefore + 1));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(draws).toBe(drawnBefore);
+    await act(() => transact(platform.db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' })));
+    await waitFor(() => expect(screen.getByTestId('titles').textContent).toBe('Paint the fence'));
   });
 
   it('reports a failed query instead of throwing, and stops listening when unmounted', async () => {

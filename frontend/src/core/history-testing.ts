@@ -1,11 +1,11 @@
 // A made-up five-year account for the history-scale test (make test-history), and the code that seeds it through the
-// sync API. The same records on every run: about 40,000 in a heavy user's weekly mix, about 400 bytes each as sent, a
-// fifth of them deleted. The app never imports this file.
+// sync API. The same records on every run: about 41,700 in a heavy user's weekly mix, about 420 bytes each as sent, a
+// fifth of them deleted, notes among them. The app never imports this file.
 
 import { protocol } from '@multiscale/config';
 import { formatClock } from './clock';
 import { addDays, localDate, localToMs, toInstant, weekStart } from './dates';
-import { occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
+import { noteId, occurrenceId, outcomeId, practiceSessionId, SETTINGS_ID, weekPickId, weekPlanId } from './records';
 import { addPeriod } from './retention';
 import type { Period } from './retention';
 import type { BlockResult, LocalDate, Practice, RecordChange, RecordMap, RecordType, TaskSchedule, Weekday } from './types';
@@ -68,20 +68,22 @@ const DETAILS = ['', '', ' for next week', ' before Friday', ' with Sam', ' and 
 const GOALS = ['Run a half marathon', 'Ship the side project', 'Learn Spanish', 'Renovate the house', 'Grow the consulting work', 'Read 40 books', 'Get the finances in order'];
 const PRACTICES = ['Guitar practice', 'Morning run', 'Spanish lessons', 'Strength training', 'Writing hour', 'Meditation'];
 const REPEATS = ['Water the plants', 'Take out the recycling', 'Weekly review', 'Pay the bills', 'Call Mum', 'Back up the laptop', 'Clean the bathroom'];
+const FACTS = ['Paint for the hall', 'Bike tyres', 'Gate code at the allotment', "Sam's kid", 'Boiler serviced', 'Dishwasher warranty', 'Wifi at the cabin', 'Recipe from Priya', 'Long run'];
+const WORDS = ['pale', 'oat', 'eggshell', 'two', 'coats', 'from', 'the', 'garage', 'shelf', 'ask', 'about', 'next', 'time', 'felt', 'easy', 'renews', 'in', 'march', 'vegetarian', 'room'];
 
 type DraftOf<T extends RecordType> = { type: T; id: string; at: number; fields: Omit<RecordMap[T], 'id'> };
 type Draft = { [T in RecordType]: DraftOf<T> }[RecordType];
 
-function build(): Draft[] {
+function build(weeks: number, nowMs: number): Draft[] {
   const r = random(20211108);
   const { zone } = HISTORY;
   const out: Draft[] = [];
   /** Adds a record last written at `at`, deleted then by chance unless told. Returns it, or null if it's after the end. */
   const add = <T extends RecordType>(type: T, id: string, at: number, fields: Omit<RecordMap[T], 'id'>, deleted?: boolean): DraftOf<T> | null => {
-    if (at > NOW_MS) return null;
+    if (at > nowMs) return null;
     const draft: DraftOf<T> = { type, id, at, fields };
     if (deleted ?? r.chance(DELETED)) {
-      draft.at = Math.min(NOW_MS, at + r.int(1, 10) * DAY_MS);
+      draft.at = Math.min(nowMs, at + r.int(1, 10) * DAY_MS);
       (draft.fields as { deleted_at?: string | null }).deleted_at = toInstant(draft.at);
     }
     out.push(draft as unknown as Draft);
@@ -95,18 +97,19 @@ function build(): Draft[] {
     return noon + (minutes - 720) * 60_000;
   };
   /** A UUID version 7 for a record made at ms, as newId makes them, from this run's randomness. */
-  const uuid = (ms: number) => {
-    const bytes = Array.from({ length: 16 }, () => r.int(0, 255));
+  const uuidFrom = (g: typeof r) => (ms: number) => {
+    const bytes = Array.from({ length: 16 }, () => g.int(0, 255));
     for (let i = 5, rest = ms; i >= 0; i--, rest = Math.floor(rest / 256)) bytes[i] = rest % 256;
     bytes[6] = 0x70 | (bytes[6]! & 0x0f);
     bytes[8] = 0x80 | (bytes[8]! & 0x3f);
     const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   };
+  const uuid = uuidFrom(r);
   const title = () => `${r.pick(VERBS)} ${r.pick(THINGS)}${r.pick(DETAILS)}`;
   const estimate = () => 15 * r.int(2, 12);
 
-  const first = addDays(weekStart(localDate(NOW_MS, zone)), -7 * (HISTORY.weeks - 1));
+  const first = addDays(weekStart(localDate(nowMs, zone)), -7 * (weeks - 1));
   const objectives: string[] = [];
   const practices: { id: string; from: number; until: number }[] = [];
   const projects: { id: string; end: LocalDate; milestones: string[] }[] = [];
@@ -114,11 +117,11 @@ function build(): Draft[] {
   let order = 0;
   let other = 0;
 
-  for (let w = 0; w < HISTORY.weeks; w++) {
+  for (let w = 0; w < weeks; w++) {
     const week = addDays(first, 7 * w);
     const day = (d: number) => addDays(week, d);
     const sometime = () => at(day(r.int(0, 6)), r.int(8 * 60, 21 * 60));
-    const settled = (made: number) => made < NOW_MS - RECENT_MS;
+    const settled = (made: number) => made < nowMs - RECENT_MS;
 
     // Planned on the Sunday before, with this week's aims.
     const planned = at(day(-1), 18 * 60);
@@ -145,7 +148,7 @@ function build(): Draft[] {
           { per: 'day', target_min, days: [0, 1, 4], preferred_times: [7 * 60], day_times: [null, null, null, null, 9 * 60 + 30, null, null] },
         ];
         const schedule = schedules[Math.floor(other / 26) % 3]!;
-        const added = add('practice', id, made, { objective_id, title, ...schedule, state: ends < NOW_MS ? 'ended' : 'active' }, false);
+        const added = add('practice', id, made, { objective_id, title, ...schedule, state: ends < nowMs ? 'ended' : 'active' }, false);
         if (added) practices.push({ id, from: made, until: ends });
       } else if (other % 104 === 5) {
         add('calendar_source', `history-calendar-${other}@group.calendar.google.com`, made, { google_id: `history-calendar-${other}@group.calendar.google.com`, name: r.pick(['Family', 'Work', 'Holidays', 'Football club']), mode: r.pick(['block', 'info', 'ignore'] as const) }, false);
@@ -162,8 +165,8 @@ function build(): Draft[] {
     const projectMade = at(day(0), 9 * 60);
     const project = { id: uuid(projectMade), end: addDays(week, 7 * r.int(6, 16)), milestones: [] as string[] };
     const ended = at(project.end, 17 * 60);
-    const state = ended >= NOW_MS ? 'active' : r.pick(['finished', 'finished', 'finished', 'dropped', 'paused'] as const);
-    if (add('project', project.id, state === 'active' ? projectMade : Math.min(ended, NOW_MS), {
+    const state = ended >= nowMs ? 'active' : r.pick(['finished', 'finished', 'finished', 'dropped', 'paused'] as const);
+    if (add('project', project.id, state === 'active' ? projectMade : Math.min(ended, nowMs), {
       objective_id: objectives.length ? r.pick(objectives) : null,
       title: `${r.pick(['Launch', 'Rebuild', 'Finish', 'Prepare', 'Organise'])} ${r.pick(THINGS)}`,
       state,
@@ -176,7 +179,7 @@ function build(): Draft[] {
         const due = addDays(week, Math.round(((m + 1) / 6) * (Date.parse(project.end) - Date.parse(week)) / DAY_MS));
         const dueMs = at(due, 17 * 60);
         const id = uuid(projectMade + m);
-        const met = dueMs < NOW_MS && state !== 'dropped';
+        const met = dueMs < nowMs && state !== 'dropped';
         if (add('milestone', id, met ? dueMs : projectMade, { project_id: project.id, title: `${r.pick(['Draft', 'First cut of', 'Sign-off on', 'Review of'])} ${r.pick(THINGS)}`, due, added_on: week, met_at: met ? toInstant(dueMs) : null })) {
           project.milestones.push(id);
         }
@@ -188,7 +191,7 @@ function build(): Draft[] {
     const task = (made: number, fields: Omit<RecordMap['task'], 'id'>, deleted?: boolean) => {
       const est = fields.estimate_min ?? null;
       const done = !fields.schedule || fields.schedule.type === 'once' ? (settled(made) && r.chance(0.85) ? made + r.int(1, 21) * DAY_MS : null) : null;
-      const doneAt = done !== null && done <= NOW_MS ? done : null;
+      const doneAt = done !== null && done <= nowMs ? done : null;
       return add('task', uuid(made), doneAt ?? made, { ...fields, order: order++, remaining_min: doneAt ? null : est, done_at: doneAt ? toInstant(doneAt) : null }, deleted);
     };
     for (let i = 0; i < 20; i++) {
@@ -232,7 +235,7 @@ function build(): Draft[] {
       for (let s = 0; s < 5; s++) {
         const start = at(day(d), 8 * 60 + s * 120 + 15 * r.int(0, 3));
         const end = start + 15 * r.int(2, 7) * 60_000;
-        if (end > NOW_MS) continue;
+        if (end > nowMs) continue;
         const forPractice = s === 0 && !!practice;
         const work = picked.length ? picked[(d * 5 + s) % picked.length]! : null;
         if (!forPractice && !work) continue;
@@ -249,11 +252,11 @@ function build(): Draft[] {
         const result: BlockResult = r.pick(['done', 'done', 'done', 'done', 'done', 'done', 'done', 'partly', 'partly', 'not']);
         const answered = end + 5 * 60_000;
         // As answerBlock writes it: minutes logged only for a practice.
-        add('block_outcome', outcomeId(id), Math.min(answered, NOW_MS), {
+        add('block_outcome', outcomeId(id), Math.min(answered, nowMs), {
           result,
           remaining_min: result === 'partly' ? 15 * r.int(1, 4) : null,
           logged_min: forPractice ? (result === 'not' ? 0 : (end - start) / 60_000) : null,
-          answered_at: toInstant(Math.min(answered, NOW_MS)),
+          answered_at: toInstant(Math.min(answered, nowMs)),
           deleted_at: null,
         }, !!block.fields.deleted_at);
       }
@@ -267,11 +270,34 @@ function build(): Draft[] {
       const date = day(i % 7);
       const id = occurrenceId(t.id, date);
       const done = at(date, 19 * 60);
-      if (finished.has(id) || done > NOW_MS) continue;
+      if (finished.has(id) || done > nowMs) continue;
       finished.add(id);
       add('task_completion', id, done, { task_id: t.id, done_at: toInstant(done), previous_next: t.fields.next_due ?? date, undo: null });
       t.fields.next_due = addDays(date, 7);
       t.at = Math.max(t.at, done);
+    }
+  }
+
+  // Ten notes a week, from their own randomness so the records above stay as they were: most 50 to 300 characters, one
+  // in fifty a full 20,000, a tenth with a link on it.
+  const n = random(20261117);
+  const noteUuid = uuidFrom(n);
+  for (let w = 0; w < weeks; w++) {
+    const week = addDays(first, 7 * w);
+    for (let i = 0; i < 10; i++) {
+      const date = addDays(week, n.int(0, 6));
+      const made = at(date, n.int(8 * 60, 21 * 60));
+      const id = noteId(noteUuid(made - DAY_MS));
+      const length = n.chance(0.02) ? protocol.records.maxNotesChars : n.int(50, 300);
+      let body = '';
+      while (body.length < length) body += `${n.pick(WORDS)} `;
+      const note = add('memo', id, made, { title: `${n.pick(FACTS)}: ${n.pick(WORDS)} ${n.pick(WORDS)}`, body: body.slice(0, length), saved_on: date }, false);
+      const link = note && n.chance(0.1) ? add('attachment', noteUuid(made), made, { memo_id: id, kind: 'link', name: 'example.com', url: `https://example.com/${i}` }, false) : null;
+      // Deleted by chance, its link with it at the same time, as Delete note does.
+      if (note && n.chance(DELETED)) {
+        const gone = Math.min(nowMs, made + n.int(1, 10) * DAY_MS);
+        for (const d of link ? [note, link] : [note]) Object.assign(d, { at: gone }).fields.deleted_at = toInstant(gone);
+      }
     }
   }
 
@@ -280,7 +306,7 @@ function build(): Draft[] {
   add(
     'settings',
     SETTINGS_ID,
-    NOW_MS,
+    nowMs,
     {
       availability: [
         { days: 'all', from: 22 * 60, to: 7 * 60, projects: true, one_offs: true },
@@ -298,9 +324,12 @@ function build(): Draft[] {
   return out;
 }
 
-/** The history in sync form, in the order its last writes happened: what a sync from 0 brings down, oldest first. */
-export function historyChanges(): RecordChange[] {
-  const drafts = build();
+/**
+ * The history in sync form, in the order its last writes happened: what a sync from 0 brings down, oldest first. The
+ * history-scale test's five years end at HISTORY.now; the performance runner's one year (weeks: 52) ends when it runs.
+ */
+export function historyChanges(options: { weeks?: number; now?: number } = {}): RecordChange[] {
+  const drafts = build(options.weeks ?? HISTORY.weeks, options.now ?? NOW_MS);
   // Stable, so records written in the same millisecond keep the order they were made in.
   const order = drafts.map((d, i) => ({ d, i })).sort((a, b) => a.d.at - b.d.at || a.i - b.i);
   return order.map(({ d }) => {
@@ -308,6 +337,12 @@ export function historyChanges(): RecordChange[] {
     const fields = Object.fromEntries(Object.entries(d.fields).filter(([, v]) => v !== undefined).map(([k, v]) => [k, { v, c }]));
     return { type: d.type, id: d.id, fields };
   });
+}
+
+/** A new account, as the performance KPIs' empty scenario has it: only its settings, past first-run setup. */
+export function emptyAccount(now: number): RecordChange[] {
+  const c = formatClock({ wall: now, counter: HISTORY.version, device: 'history' });
+  return [{ type: 'settings', id: SETTINGS_ID, fields: { setup_done_at: { v: toInstant(now), c } } }];
 }
 
 const byteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;

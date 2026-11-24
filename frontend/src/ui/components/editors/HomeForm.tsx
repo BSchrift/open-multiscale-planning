@@ -1,8 +1,8 @@
 // The quick form that gives an Inbox item a home: a new project, practice or goal, one form switching between the
-// three. Only the name is needed, and it starts as the item's title, or as what was typed in Process's picker. A project
-// can name a milestone to put the item under. In place on desktop, where Process puts it instead of the picker, and a
-// sheet on phone, its button above the keyboard. It writes nothing itself: the caller makes the home in one change, and
-// closes it once that's saved.
+// three. The name starts as the item's title, or as what was typed in Process's picker. A project needs a goal, chosen
+// or made here with it; a practice can go without. In place on desktop, where Process puts it instead of the picker,
+// and a sheet on phone, its button above the keyboard. It writes nothing itself: the caller makes the home in one
+// change, and closes it once that's saved.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
@@ -44,8 +44,11 @@ export function HomeForm(props: {
   const [kind, setKind] = useState(props.kind);
   const [title, setTitle] = useState(props.name ?? props.item);
   const [goal, setGoal] = useState(props.goal);
+  // With no goals yet, a project starts on a new one's name, since it can't go without.
+  const noGoals = !props.goals.some((g) => g.state !== 'archived' && !g.deleted_at);
+  const startsNew = (k: HomeKind) => (k === 'project' && noGoals ? '' : null);
   // A new goal's name while its field is open, in place of the select.
-  const [newGoal, setNewGoal] = useState<string | null>(null);
+  const [newGoal, setNewGoal] = useState<string | null>(startsNew(props.kind));
   const [start, setStart] = useState(on);
   const [end, setEnd] = useState(props.end);
   const [dates, setDates] = useState(false);
@@ -53,13 +56,14 @@ export function HomeForm(props: {
   const [per, setPer] = useState<Practice['per']>('day');
   const [timing, setTiming] = useState(false);
   const [firstTask, setFirstTask] = useState(true);
-  const [milestone, setMilestone] = useState('');
   const [onCard, setOnCard] = useState(false);
   const [error, setError] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
   const goalRef = useRef<HTMLInputElement>(null);
+  const goalSelectRef = useRef<HTMLSelectElement>(null);
   const nameId = useId();
   const goalId = useId();
+  const goalHelp = useId();
 
   // Desktop selects the item's title to type over; on touch, or after what was typed, the caret goes at the end.
   useEffect(() => {
@@ -98,8 +102,12 @@ export function HomeForm(props: {
     const pick: GoalPick = goalName ? { title: goalName } : goal ? { id: goal } : null;
     let home: Home;
     if (kind === 'project') {
+      if (!pick) {
+        setError(`Choose a goal for ${name}, or make a new one.`);
+        return goalSelectRef.current?.focus();
+      }
       if (!isDay(start) || !isDay(end) || end < start) return setError('Pick an end date on or after the start.');
-      home = { kind, title: name, goal: pick, start, end, keep: firstTask, milestone: (firstTask && milestone.trim()) || null };
+      home = { kind, title: name, goal: pick, start, end, keep: firstTask };
     } else if (kind === 'practice') {
       home = { kind, title: name, goal: pick, target_min: target, per, keep: onCard };
     } else {
@@ -125,7 +133,17 @@ export function HomeForm(props: {
       {phone && <h2>{label}</h2>}
       <div className="row" role="group" aria-label="Make it a">
         {KINDS.map(([k, text]) => (
-          <button key={k} className={`dchip${kind === k ? ' on' : ''}`} type="button" aria-pressed={kind === k} onClick={() => change(setKind)(k)}>
+          <button
+            key={k}
+            className={`dchip${kind === k ? ' on' : ''}`}
+            type="button"
+            aria-pressed={kind === k}
+            onClick={() => {
+              change(setKind)(k);
+              // A new goal's name the form opened on, left empty, goes with the project.
+              if (!newGoal) setNewGoal(startsNew(k));
+            }}
+          >
             {text}
           </button>
         ))}
@@ -149,7 +167,16 @@ export function HomeForm(props: {
       </div>
       {kind !== 'goal' &&
         (newGoal === null ? (
-          <GoalSelect goals={props.goals} value={goal} onChange={setGoal} onNew={() => setNewGoal('')} />
+          kind === 'project' ? (
+            <div className="stack8">
+              <GoalSelect goals={props.goals} value={goal} onChange={change(setGoal)} onNew={() => setNewGoal('')} required selectRef={goalSelectRef} describedBy={goalHelp} />
+              <span id={goalHelp} className="small quiet">
+                Every project sits under a goal.
+              </span>
+            </div>
+          ) : (
+            <GoalSelect goals={props.goals} value={goal} onChange={setGoal} onNew={() => setNewGoal('')} />
+          )
         ) : (
           <div className="popfield">
             <label htmlFor={goalId}>New goal name</label>
@@ -220,15 +247,6 @@ export function HomeForm(props: {
         )}
         <span>{kind === 'project' ? `Keep "${props.item}" as its first task` : 'Keep it on this card to file next'}</span>
       </label>
-      {kind === 'project' && firstTask && (
-        <div className="homems">
-          <label className="popfield">
-            Milestone to put it under, if any
-            <input className="field" value={milestone} onChange={(event) => change(setMilestone)(event.target.value)} />
-          </label>
-          {!phone && <span className="small quiet">With none, it goes under the project’s Done, as now.</span>}
-        </div>
-      )}
       {error && (
         <div className="fielderr" role="alert">
           {error}

@@ -46,7 +46,7 @@ never by how it looks, and never add a colour for one screen.
 | `--placing` | `#c2410c` | `#f5944d` | The block being placed, whatever its kind. |
 | `--danger` | `#b3261e` | `#f08a80` | Overdue, Past end date, Delete. |
 | `--warn` | `#8a5300` | `#e0a040` | Behind, No tasks. Never Not done. |
-| `--ok` | `#1e6b3e` | `#6fcf97` | On track. |
+| `--ok` | `#1e6b3e` | `#6fcf97` | On track. Also the Done action, as Process's Done button, beside a destructive Delete. |
 | `--ink-action` | `#bfe0f5` | `#1f5f8b` | Undo, and the focus ring, on the toast. |
 
 **Derived colours** are made from the roles and never chosen on their own; `tokens.test.ts` checks each against its
@@ -125,6 +125,7 @@ word. Answer badges are round, in ink rather than the kind's colour: 16px on Tod
 | Drop target | A 2px dashed accent outline over a faint accent wash. |
 | Suggested | No fill, a dashed outline in the kind's colour. |
 | Planning | A wash with an ink-3 edge. |
+| Inbox, not yet sorted | Planning's wash with a dashed ink-3 edge, the inbox icon and the word Inbox. Once Process files it, it takes its kind's look. |
 | Another calendar's event | Grey stripes with a line-coloured edge. |
 | Information only | No fill, a dashed line-coloured outline. |
 
@@ -152,8 +153,8 @@ The shared components live in `frontend/src/ui/components/ds`. Use them rather t
   of text). `size="compact"` is 36px on desktop and changes nothing on phone, where every button is 44pt. `icon` and
   `iconEnd` put an icon before or after the label. Without a `type` it behaves as a plain `<button>`, so one in a form
   submits it.
-- **The calendar block**: `blockClass(kind, state, { short })` gives a block its look and `<BlockMarks state short />`
-  draws its answer badge, or the live dot and Now; `blockState()` reads the state from a block's answer and time. Each
+- **The calendar block**: `blockClass(kind, state, { short })` gives a block its look and `<BlockMarks state short look />`
+  draws its answer badge, or the live dot and Now, after the inbox icon on an Inbox item's block; `blockState()` reads the state from a block's answer and time. Each
   calendar keeps its own element and geometry. Wrap the title in `.blktitle`, which is what Done strikes through.
 - **`AnswerBadge`**: `<AnswerBadge answer="done" small />`, the round badge on its own, for anywhere else an answer
   shows.
@@ -188,13 +189,18 @@ redraws them on Linux, as CI runs; other systems skip the comparison.
 
 ## The checks
 
-`npm test` in `frontend` runs them:
+`npm test` in `frontend` runs them, and CI fails a pull request that breaks one:
 
-- `styles/tokens.test.ts`: the 27 roles and their derived colours in both themes, every contrast pair, and the
-  budget: seven text styles at two weights, eight spacing steps, four radii plus the pill and circle, three shadows,
-  six layers and three durations.
-- `styles/designRules.test.ts`: raw colour, size, spacing, radius, shadow, layer and duration values outside
-  `tokens.css`, text glyphs used as icons, and buttons built by hand from the `btn` class outside `components/ds`.
-  These report against `styles/design-baseline.json`, today's count of each, and fail nothing while the baseline
-  burns down. `DESIGN_LIST=spacing npx vitest run src/ui/styles/designRules.test.ts` lists each one, and
-  `DESIGN_BASELINE=write` records the counts after a change removes some.
+- `styles/tokens.test.ts`: the 27 roles and their derived colours in both themes, every contrast pair, the budget
+  (seven text styles at two weights, eight spacing steps, four radii plus the pill and circle, three shadows, six
+  layers and three durations), and that nothing uses a custom property tokens.css doesn't define.
+- `styles/designRules.test.ts`: no raw colour, size, spacing, radius, shadow, layer or duration outside `tokens.css`;
+  no text glyph used as an icon; no button built by hand from the `btn` class outside `components/ds`. A failure names
+  the file, the line and the declaration. What it allows, and why:
+  - a 1px nudge in spacing, which overlaps a neighbour's border rather than spacing anything;
+  - a step within a layer, `calc(var(--z-raised) + 1)`, to lift one thing over its neighbour;
+  - a shadow with no blur, which is a shape (a ring, an edge, a cover, a hover's overlay) rather than elevation, in a
+    token colour;
+  - a looping animation, such as the spinner, which has a period rather than a duration;
+  - a size between two text styles that follows the window, such as the clock's `clamp()`.
+- `e2e/reference.spec.ts`: the reference page's screenshots, in both themes at both sizes.

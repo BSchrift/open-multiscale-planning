@@ -35,6 +35,9 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      # web.initial, the gzipped scripts and styles the page links (docs/performance.md): exact, so it blocks over budget.
+      - run: node scripts/bundle-budget.ts dist
+        working-directory: frontend
 
   backend:
     runs-on: ubuntu-latest
@@ -188,6 +191,50 @@ jobs:
         if: failure()
         with:
           name: e2e-compat
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+
+  # The two suites staging runs on each release, sync and cross-version, with staging's retention rather than local's:
+  # both bundles and the stack keep a closed task 35 minutes and a deleted one 5, as there. A test that leans on an old
+  # record staying, as one whose seed finished it the day before, fails here rather than on staging. The old bundle
+  # takes RETENTION once its commit has it.
+  e2e-staging-retention:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            backend/go.sum
+            config/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: playwright
+        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: scripts/e2e.sh stack compat
+        env:
+          RETENTION: staging
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-staging-retention
           path: |
             frontend/playwright-report
             frontend/test-results

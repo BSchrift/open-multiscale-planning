@@ -38,11 +38,12 @@ nothing from the package.
 
 | Layer | Runs | Command |
 | --- | --- | --- |
-| Local, no deployment | Unit tests; browser e2e at desktop and phone sizes; the Mac app; a Docker stand-in backend for sync; the last release's web bundle beside this one; the iPhone Simulator | `make test`, `make test-e2e`, `make test-compat`, `make test-ios` |
+| Local, no deployment | Unit tests; browser e2e at desktop and phone sizes, with each KPI mark measured once and the KPIs' data loaded whole; the Mac app; a Docker stand-in backend for sync; the last release's web bundle beside this one; the iPhone Simulator | `make test`, `make test-e2e`, `make test-compat`, `make test-ios` |
 | Against a deployment | The deployed web app, sync, on staging the last release's web bundle beside this one, the integration suite, smoke, the iPhone signed-in test | `make test-deployed` (staging), `ENV=prod CONFIRM_PROD=yes` |
-| CI | Everything in the local layer, on every PR and every push to main. A PR runs the iPhone Simulator only when it changes something the iPhone app is built from or runs, as [scripts/ci-changes.sh](scripts/ci-changes.sh) lists, and the run's summary says why it ran or didn't. Main always runs it, and so does a run started by hand from the Actions tab | `.github/workflows/ci.yml` |
+| CI | Everything in the local layer, on every PR and every push to main, and the web app's bundle bytes against their budget, which block. A PR runs the iPhone Simulator only when it changes something the iPhone app is built from or runs, as [scripts/ci-changes.sh](scripts/ci-changes.sh) lists, and the run's summary says why it ran or didn't. Main always runs it, and so does a run started by hand from the Actions tab. On each PR, the performance KPIs in the browser beside the base, report-only, in one comment; on each push to main, the fuller set with the Mac app, kept on the `perf-data` branch; each night main moved, every scenario with A/A runs, and sync through Toxiproxy; once a week, the Mac app on macOS; nightly, and with a PR's `perf-ios` label, the iPhone | `.github/workflows/ci.yml`, `perf.yml`, `perf-main.yml`, `perf-nightly.yml`, `perf-mac.yml`, `perf-ios.yml` |
 | On demand and before releases | The history-scale test: a seeded five-year account timed on the browser, the Mac app and the iPhone Simulator against the budgets in [docs/performance.md](docs/performance.md). Too slow for every PR | `make test-history` (local stack), `ENV=staging`; `make test-deployed` runs it on staging, report-only |
-| Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
+| On demand | The performance KPIs on the browser at desktop and phone sizes and on the Mac app, against [config/perf.ts](config/perf.ts), report-only; with a base commit, what this checkout made slower | `make test-perf`, `BASE=<commit>`; the iPhone's, `scripts/test-perf-ios.sh` |
+| Release | The release pipeline: staging's suites on each main commit, prod's after its canary, and every night staging's slow ones, after publishing CI's performance results to staging's performance dashboard, the per-route latency targets' request mix, and sync timed against staging. See [docs/releasing.md](docs/releasing.md) | `scripts/pipeline.sh` |
 
 [docs/testing.md](docs/testing.md) maps each feature to the end-to-end tests that cover it on each platform. A change
 that adds a feature or an end-to-end test updates its row.
@@ -71,7 +72,7 @@ For contributors and agents alike. None of this needs a deployment or AWS access
 | You changed | Run |
 | --- | --- |
 | Anything in `frontend/src` | `make test-frontend`; `scripts/e2e.sh browser` (desktop and phone) |
-| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration` |
+| Stored data, record types, views or sync | The above, plus `make test-compat`, `scripts/e2e.sh stack` and `make test-integration`, and `RETENTION=staging scripts/e2e.sh stack compat` for staging's short retention |
 | Storage or platform adapters, Electron main or preload | The above, plus `scripts/e2e.sh electron` |
 | The Go backend | `make test-backend`; `make test-integration` (the Docker stack, with stand-ins for DynamoDB, SSM, sign-in and Google) |
 | Infrastructure | `make test-infra` (tests and `cdk synth`) |
@@ -115,8 +116,7 @@ Then wait for CI. A PR merges only with every check green.
   by its role, not its look, and change the design there rather than adding a value for one screen. After a change to
   how something looks, `scripts/reference-shots.sh` redraws the reference page's screenshots.
 - **The checks enforce it:** `tokens.test.ts` holds the roles, the contrast pairs in both themes and the budget, and
-  `designRules.test.ts` finds raw values, glyph icons and hand-built buttons. They report against
-  `design-baseline.json` until it reaches zero; never add to it.
+  `designRules.test.ts` fails on a raw value, a glyph icon or a hand-built button, and says where it is.
 
 ## The product's rules
 
@@ -143,9 +143,9 @@ Then wait for CI. A PR merges only with every check green.
   | Step | What happens | Who |
   | --- | --- | --- |
   | Merge to main | Only with every CI check green | Owner |
-  | Staging | Built once, deployed by a 10-minute canary, then tested | The pipeline, on each main commit |
+  | Staging | Built once, deployed by a 10-minute canary, tested against the web app it still serves as prod is, then published and tested again | The pipeline, on each main commit |
   | Window before prod | An email says the commit passed staging and when it goes to prod, with a link to send it sooner. No approval: it goes then unless stopped, by `make pipeline-stop` | The pipeline; the owner may stop it |
-  | Prod | The same build, by a canary of 10% for 90 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
+  | Prod | The same build, by a canary of 10% for 5 minutes. An alarm rolls it back by itself. Then tested, then the web app and the feed are published | The pipeline |
   | Signed apps | `make release-tag`, then `make release ENV=prod` from the tag | Owner, on the Mac |
 
   To roll back, revert on main and let it release. `make release-surface` switches the web app or one app's feed back

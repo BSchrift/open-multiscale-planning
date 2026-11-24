@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedClock, parseClock } from './clock';
 import { getMeta, META, setMeta } from './db';
 import type { Db } from './db';
-import { CALENDAR_ID, getRecord, transact } from './records';
+import { applyRemote, CALENDAR_ID, getRecord, transact } from './records';
 import { configureRetention } from './retention';
 import { parsePeriod } from '../../../config/retention';
 import { SyncError, syncStatus, unsyncedChanges } from './sync';
 import type { SyncSend } from './sync';
 import { fakeSyncServer } from './sync-testing';
 import { createSyncRunner, startAppSync } from './syncRunner';
+import { perf } from './perf';
 import { memoryLifecycle } from '../platform/memory';
 import { openTestDb } from '../platform/node-sqlite';
 import { createTestPlatform } from '../platform/testing';
@@ -89,6 +90,46 @@ describe('when it syncs', () => {
     t.runner.stop();
   });
 
+  it('not again for an edit a sync since has already sent', async () => {
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    t.send.mockClear();
+
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    await vi.advanceTimersByTimeAsync(500);
+    // Sync now in Settings, or a return to the foreground, sends the edit before its 2 seconds are up.
+    await t.runner.syncNow();
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.send.mock.calls[0]![0].changes).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10 * SECOND);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.runner.stop();
+  });
+
+  it('for an edit made while a sync was under way', async () => {
+    let release = () => {};
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    t.send.mockClear();
+    t.send.mockImplementationOnce(async (req) => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return t.server.send(req);
+    });
+
+    const running = t.runner.syncNow();
+    await flush();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    release();
+    await running;
+    expect(t.send).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.send.mock.calls[1]![0].changes).toHaveLength(1);
+    t.runner.stop();
+  });
+
   it('on the computer waking from sleep or its screen unlocking', async () => {
     const t = await setup();
     const wake = memoryLifecycle();
@@ -159,6 +200,73 @@ describe('when it syncs', () => {
     release();
     await Promise.all([first, second, third]);
     expect(t.send).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The sync KPIs in docs/performance.md.
+describe('what it measures', () => {
+  const measures = (name: string) => performance.getEntriesByType('measure').filter((m) => m.name === name);
+  beforeEach(() => {
+    performance.clearMeasures();
+    perf.reset();
+  });
+
+  it('a push: sync.send from its request to the reply, and sync.push from the first edit it carries', async () => {
+    const t = await setup();
+    t.runner.start();
+    await flush();
+    performance.clearMeasures();
+    const before = performance.now();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    expect(measures('sync.send')).toHaveLength(1);
+    expect(measures('sync.push')).toHaveLength(1);
+    expect(measures('sync.push')[0]!.startTime).toBeGreaterThanOrEqual(before);
+    expect(measures('sync.push')[0]!.startTime).toBeLessThan(measures('sync.send')[0]!.startTime);
+    t.runner.stop();
+  });
+
+  it('a push that fails keeps its first edit for the next try, and times no send', async () => {
+    const t = await setup();
+    await t.runner.syncNow();
+    const before = performance.now();
+    await transact(t.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }));
+    t.send.mockRejectedValueOnce(new SyncError('offline'));
+    perf.start('sync.push', before);
+    await t.runner.syncNow();
+    expect(measures('sync.send')).toHaveLength(0);
+    expect(perf.pending('sync.push')).toBe(before);
+    await t.runner.syncNow();
+    expect(measures('sync.push').map((m) => m.startTime)).toEqual([before]);
+  });
+
+  it('sync.pull waits for the screens only when a sync brought changes', async () => {
+    const t = await setup();
+    await t.runner.syncNow();
+    expect(perf.pending('sync.pull')).toBeUndefined();
+    const other = await openTestDb();
+    await transact(other, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'From the phone' }));
+    await createSyncRunner({ db: other, clock: t.clock, lifecycle: memoryLifecycle(), send: (req) => t.server.send(req) }).syncNow();
+    await t.runner.syncNow();
+    expect(perf.pending('sync.pull')).toBeDefined();
+  });
+});
+
+describe("a note's leftover attachments", () => {
+  it('are swept after a sync that pulled to the end, and never at launch or after one that failed', async () => {
+    const t = await setup();
+    const by = (iso: string) => `${Date.parse(iso)}-000000-other`;
+    // Pulled from another device: a note deleted there, and a photo added to it offline before.
+    await applyRemote(t.db, [
+      { type: 'memo', id: 'note:a', fields: { title: { v: 'Hall paint', c: by(NOW) }, deleted_at: { v: NOW, c: by(NOW) } } },
+      { type: 'attachment', id: 'photo', fields: { memo_id: { v: 'note:a', c: by('2026-11-02T14:00:00Z') }, kind: { v: 'photo', c: by('2026-11-02T14:00:00Z') } } },
+    ]);
+    t.send.mockRejectedValueOnce(new SyncError('offline'));
+    await t.runner.syncNow();
+    expect((await getRecord(t.db, 'attachment', 'photo'))!.deleted_at ?? null).toBeNull();
+    await t.runner.syncNow();
+    expect((await getRecord(t.db, 'attachment', 'photo'))!.deleted_at).toBe(NOW);
   });
 });
 
@@ -399,6 +507,14 @@ describe('startAppSync', () => {
     expect((await syncStatus(t.platform.db)).lastError).toBe('sign_in_failed');
     expect(log).toHaveBeenCalled();
     log.mockRestore();
+    // A sync that follows, for an edit or on returning from the sign-in page, finds no sign-in but keeps saying why.
+    await transact(t.platform.db, t.clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    await vi.advanceTimersByTimeAsync(2 * SECOND);
+    t.platform.lifecycle.foreground();
+    await flush();
+    expect((await syncStatus(t.platform.db)).lastError).toBe('sign_in_failed');
+    await t.finishSignIn();
+    expect(await syncStatus(t.platform.db)).toEqual({ lastSyncAt: NOW, lastError: null });
     t.sync.stop();
   });
 
@@ -786,6 +902,222 @@ describe('startAppSync', () => {
     await flush();
     expect(t.fetchFn).not.toHaveBeenCalled();
     expect(await getMeta(t.platform.db, META.cursor)).toBeNull();
+  });
+});
+
+describe('a deleted account', () => {
+  const API = 'https://api.example.test';
+  const AUTH = 'https://auth.example.test';
+  const jwt = (claims: object) => `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
+
+  /**
+   * One device of user-a, with records, a file kept, shared text waiting and a reminder scheduled. The server deletes
+   * the account when asked, or when told to, and answers as the API does from then on.
+   */
+  async function device() {
+    const shares = [{ id: 'share-1', text: 'Buy flour' }];
+    const platform = Object.assign(await createTestPlatform(), {
+      shareImport: {
+        peek: async () => [...shares],
+        remove: async (ids: string[]) => void shares.splice(0, shares.length, ...shares.filter((s) => !ids.includes(s.id))),
+      },
+    });
+    const clock = fixedClock(NOW);
+    const server = fakeSyncServer({ now: () => clock.now() });
+    const state = { deleted: false, refuseRefresh: false, signedInAt: Date.parse(NOW) / 1000, who: 'a', deleteAnswer: 202 };
+    const token = () => jwt({ sub: `user-${state.who}`, auth_time: state.signedInAt });
+    const requests: { url: string; body: unknown; authorization?: string }[] = [];
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      const authorization = (init.headers as Record<string, string> | undefined)?.authorization;
+      const json = (init.headers as Record<string, string> | undefined)?.['content-type'] === 'application/json';
+      requests.push({ url, body: json ? JSON.parse(init.body as string) : null, authorization });
+      if (url === `${AUTH}/oauth2/token`) {
+        if (new URLSearchParams(init.body as string).get('grant_type') === 'refresh_token' && state.refuseRefresh) {
+          return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
+        }
+        return new Response(JSON.stringify({ access_token: token(), id_token: jwt({ sub: `user-${state.who}`, email: `${state.who}@example.com` }), refresh_token: 'refresh-1', expires_in: 3600 }));
+      }
+      if (url === `${API}/account/status`) return new Response(JSON.stringify({ deleted: state.deleted }));
+      if (authorization !== `Bearer ${token()}`) return new Response('{}', { status: 401 });
+      if (url === `${API}/account/delete`) {
+        if (state.deleteAnswer !== 202) return new Response(JSON.stringify({ error: 'sign_in_again' }), { status: state.deleteAnswer });
+        state.deleted = true;
+        return new Response(JSON.stringify({ state: 'deleting' }), { status: 202 });
+      }
+      if (state.deleted && state.who === 'a') return new Response(JSON.stringify({ error: 'account_deleted' }), { status: 401 });
+      return new Response(JSON.stringify(await server.send(JSON.parse(init.body as string))));
+    });
+    const forget = vi.fn();
+    const sync = startAppSync(platform, clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, { fetch: fetchFn, forget });
+    await sync.signIn();
+    const signInState = new URL(platform.opened.at(-1)!).searchParams.get('state');
+    platform.openDeepLink(`${platform.signInRedirectUri}?code=c&state=${signInState}`);
+    await flush();
+    const db = platform.db;
+    const id = await transact(db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Paint the fence' }));
+    await sync.syncNow();
+    await transact(db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Not sent yet' }));
+    await platform.files.put('photo-1', new Blob(['a photo']));
+    await platform.notifications.replaceAll([{ id: 'r1', block_id: 'b1', at: NOW, title: 'Write', body: '' } as never]);
+    const device = await getMeta(db, META.deviceId);
+    return { platform, clock, server, state, sync, db, id, shares, requests, forget, device, fetchFn };
+  }
+
+  async function expectErased(t: Awaited<ReturnType<typeof device>>) {
+    expect(await t.db.all('SELECT id FROM records')).toEqual([]);
+    expect(await outboxCount(t.db)).toBe(0);
+    expect(t.platform.files.kept.size).toBe(0);
+    expect(t.shares).toEqual([]);
+    expect(await t.platform.notifications.scheduled()).toEqual([]);
+    expect(await getMeta(t.db, META.account)).toBeNull();
+    expect(await getMeta(t.db, META.deviceId)).toBe(t.device);
+    expect(t.forget).toHaveBeenCalled();
+    expect((await syncStatus(t.db)).lastError).toBe('account_deleted');
+  }
+
+  it("a sync refused as deleted erases this device's copy, signs it out, and says so until someone signs in", async () => {
+    const t = await device();
+    t.state.deleted = true;
+    await t.sync.syncNow();
+    await expectErased(t);
+    // Signed out now, which changes nothing it says.
+    await t.sync.syncNow();
+    expect((await syncStatus(t.db)).lastError).toBe('account_deleted');
+    expect(t.requests.filter((r) => r.url === `${API}/sync`).at(-1)?.authorization).toBeDefined();
+    // Someone else signs in here, and it's their device.
+    t.state.who = 'b';
+    await t.sync.signIn();
+    const signInState = new URL(t.platform.opened.at(-1)!).searchParams.get('state');
+    t.platform.openDeepLink(`${t.platform.signInRedirectUri}?code=c&state=${signInState}`);
+    await flush();
+    expect(await syncStatus(t.db)).toEqual({ lastSyncAt: NOW, lastError: null });
+    expect(await getMeta(t.db, META.account)).toBe('user-b');
+    t.sync.stop();
+  });
+
+  /**
+   * Has obj[name] do its work and then never return, as when the app closes just after it, by a reload or the phone
+   * ending it: nothing after it runs. closed resolves once it has.
+   */
+  function closeAfter<T extends object>(obj: T, name: keyof T) {
+    const target = obj as Record<keyof T, unknown>;
+    const step = target[name] as (...args: unknown[]) => Promise<void>;
+    let reached!: () => void;
+    const closed = new Promise<void>((resolve) => (reached = resolve));
+    target[name] = async (...args: unknown[]) => {
+      await step.apply(obj, args);
+      reached();
+      return new Promise<void>(() => {});
+    };
+    return { closed, restore: () => void (target[name] = step) };
+  }
+
+  it.each([
+    ['as it signs out', (t: Awaited<ReturnType<typeof device>>) => closeAfter(t.platform.tokens, 'remove')],
+    ['while it erases its files', (t: Awaited<ReturnType<typeof device>>) => closeAfter(t.platform.files, 'clear')],
+  ])('an erase the app closes %s still says so, and the next launch finishes it', async (_, close) => {
+    const t = await device();
+    t.state.deleted = true;
+    const app = close(t);
+    void t.sync.syncNow();
+    await app.closed;
+    t.sync.stop();
+    expect((await syncStatus(t.db)).lastError).toBe('account_deleted');
+
+    app.restore();
+    const next = startAppSync(t.platform, t.clock, { env: 'local', apiUrl: API, authUrl: AUTH, authClientId: 'client-1' }, { fetch: t.fetchFn, forget: t.forget });
+    await next.syncNow();
+    await expectErased(t);
+    expect(await next.signedInAt()).toBeNull();
+    next.stop();
+  });
+
+  it('a device whose token lapsed asks with it, and erases its copy only when the account is gone', async () => {
+    const t = await device();
+    t.state.refuseRefresh = true;
+    t.clock.set(Date.parse(NOW) + 2 * 60 * MINUTE);
+    await t.sync.syncNow();
+    // Its sign-in lapsed some other way: signed out, with everything kept.
+    expect((await syncStatus(t.db)).lastError).toBe('sign_in_expired');
+    expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
+    const asked = t.requests.filter((r) => r.url === `${API}/account/status`);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.authorization).toBe(`Bearer ${jwt({ sub: 'user-a', auth_time: t.state.signedInAt })}`);
+    t.sync.stop();
+
+    const u = await device();
+    u.state.refuseRefresh = true;
+    u.state.deleted = true;
+    u.clock.set(Date.parse(NOW) + 2 * 60 * MINUTE);
+    await u.sync.syncNow();
+    await expectErased(u);
+    u.sync.stop();
+  });
+
+  /** Signs this device in as user-b, whose sync is refused, since the device's data is user-a's. */
+  async function signInAsB(t: Awaited<ReturnType<typeof device>>) {
+    t.state.who = 'b';
+    await t.sync.signIn({ again: true });
+    const signInState = new URL(t.platform.opened.at(-1)!).searchParams.get('state');
+    t.platform.openDeepLink(`${t.platform.signInRedirectUri}?code=c&state=${signInState}`);
+    await flush();
+    expect((await syncStatus(t.db)).lastError).toBe('other_account');
+  }
+
+  it("Delete my account asks the server once DELETE is typed, then erases this device's copy", async () => {
+    const t = await device();
+    expect(await t.sync.signedInAt()).toBe(Date.parse(NOW));
+    expect(await t.sync.deletionTarget()).toEqual({ sameAccount: true, email: 'a@example.com' });
+    expect(await t.sync.deleteAccount()).toBe('deleted');
+    expect(t.requests.find((r) => r.url === `${API}/account/delete`)?.body).toEqual({ confirm: 'DELETE', sub: 'user-a' });
+    await expectErased(t);
+    expect(await t.sync.signedInAt()).toBeNull();
+    t.sync.stop();
+  });
+
+  it('Delete my account with a sign-in too old for it changes nothing', async () => {
+    const t = await device();
+    t.state.deleteAnswer = 403;
+    expect(await t.sync.deleteAccount()).toBe('sign_in_again');
+    expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
+    expect((await syncStatus(t.db)).lastError).toBeNull();
+    t.sync.stop();
+  });
+
+  it("Delete my account signed in again as another account deletes nothing, and erases nothing", async () => {
+    const t = await device();
+    await signInAsB(t);
+    // The other account's email isn't this device's account's, so it isn't named.
+    expect(await t.sync.deletionTarget()).toEqual({ sameAccount: false, email: null });
+    expect(await t.sync.deleteAccount()).toBe('wrong_account');
+    expect(t.requests.some((r) => r.url === `${API}/account/delete`)).toBe(false);
+    expect(t.state.deleted).toBe(false);
+    expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
+    t.sync.stop();
+  });
+
+  it("another account's lapsed token, found deleted, signs this device out and erases nothing of its own account", async () => {
+    const t = await device();
+    await signInAsB(t);
+    t.state.refuseRefresh = true;
+    t.state.deleted = true;
+    t.clock.set(Date.parse(NOW) + 2 * 60 * MINUTE);
+    const waiting = await outboxCount(t.db);
+    expect(waiting).toBeGreaterThan(0);
+    await t.sync.syncNow();
+    expect(await getRecord(t.db, 'task', t.id)).toMatchObject({ title: 'Paint the fence' });
+    expect(await outboxCount(t.db)).toBe(waiting);
+    expect(await getMeta(t.db, META.account)).toBe('user-a');
+    expect(t.forget).not.toHaveBeenCalled();
+    expect((await syncStatus(t.db)).lastError).toBe('sign_in_expired');
+    t.sync.stop();
+  });
+
+  it('signing in again for it asks the sign-in page to ask, even if the browser is still signed in', async () => {
+    const t = await device();
+    await t.sync.signIn({ again: true });
+    expect(new URL(t.platform.opened.at(-1)!).searchParams.get('prompt')).toBe('login');
+    t.sync.stop();
   });
 });
 

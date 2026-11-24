@@ -14,7 +14,7 @@
   grid-template-columns: 1fr auto;
   align-items: center;
   min-height: 56px;
-  padding: 6px 0 6px var(--space-4);
+  padding: var(--space-2) 0 var(--space-2) var(--space-4);
   border-top: 1px solid var(--hairline);
 }
 
@@ -27,8 +27,8 @@
 [data-layout='phone'] .inboxest {
   grid-column: 1;
   grid-row: 2;
-  margin-top: -8px;
-  padding-bottom: 4px;
+  margin-top: calc(-1 * var(--space-2));
+  padding-bottom: var(--space-1);
 }
 
 [data-layout='phone'] .inboxgo {
@@ -69,7 +69,7 @@
 [data-layout] .inboxcount {
   flex: 1;
   text-align: center;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 [data-layout] .inboxtoggle {
@@ -79,7 +79,7 @@
 /* Stuck, it sits at the very top of the page, its own padding covering the page's, so no row shows above it. */
 [data-layout] .inboxsel {
   position: sticky;
-  z-index: 2;
+  z-index: calc(var(--z-raised) + 1);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -94,7 +94,7 @@
 
 [data-layout='phone'] .inboxsel {
   top: -20px;
-  padding-top: 20px;
+  padding-top: calc(var(--space-4) + var(--space-1));
 }
 
 [data-layout] .inboxacts,
@@ -119,8 +119,8 @@
 
 [data-layout='desktop'] .inboxsend .field {
   min-height: 36px;
-  padding: 4px 10px;
-  font-size: 14px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--fs-label);
 }
 
 [data-layout] .inboxtick input {
@@ -179,7 +179,7 @@
 [data-layout] .inboxrow.whole:has(.rowname:focus-visible) {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
-  border-radius: 4px;
+  border-radius: var(--radius-block);
 }
 
 /* Desktop: the name with the pencil after it on its line, and an estimate under the name. */
@@ -188,7 +188,7 @@
   grid-template-columns: minmax(0, max-content) auto;
   justify-content: start;
   align-items: center;
-  gap: 0 4px;
+  gap: 0 var(--space-1);
   flex: 1 1 auto;
   min-width: 0;
   min-height: 36px;
@@ -196,6 +196,12 @@
 
 [data-layout] .rowmain > .inboxest {
   grid-row: 2;
+}
+
+/* An item already on the calendar says when, after the calendar icon. */
+[data-layout] .inboxest > .ico {
+  margin-right: var(--space-1);
+  vertical-align: -3px;
 }
 
 [data-layout] .rowmain > .rowpen {
@@ -211,7 +217,7 @@
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--ink-3);
 }
@@ -225,7 +231,7 @@
 [data-layout='desktop'] .rowpen {
   width: 36px;
   height: 36px;
-  margin-block: -8px;
+  margin-block: calc(-1 * var(--space-2));
   visibility: hidden;
 }
 
@@ -243,7 +249,7 @@
    sits the card's padding in from its edge, as on More's rows, its target reaching past it. */
 [data-layout='phone'] .inboxlist > .inboxrow.whole {
   grid-template-columns: minmax(0, 1fr) var(--tap) var(--tap);
-  padding-right: calc(var(--space-4) - (var(--tap) - 18px) / 2);
+  padding-right: calc(var(--space-4) - (var(--tap) - calc(var(--space-4) + var(--space-1))) / 2);
 }
 
 [data-layout='phone'] .rowpen {
@@ -269,7 +275,7 @@
 
 [data-layout='desktop'] .inboxrename .field {
   min-height: 36px;
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-3);
 }
 
 [data-layout='desktop'] .inboxrename > .row {
@@ -281,7 +287,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 10px var(--space-4) 12px;
+  padding: var(--space-3) var(--space-4) var(--space-3);
 }
 
 [data-layout='phone'] .inboxrename {

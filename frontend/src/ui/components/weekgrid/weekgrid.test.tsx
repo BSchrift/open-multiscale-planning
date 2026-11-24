@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SlotContext } from '../../../core/slots';
+import { holdDown } from '../../app/testing';
 import { WeekGrid } from './WeekGrid';
 import type { GridBlock, WeekGridProps } from './WeekGrid';
 
@@ -38,8 +39,9 @@ function draw(props: Partial<WeekGridProps> = {}) {
 }
 
 const block = (name: RegExp) => screen.getByRole('group', { name });
+// Held first, as a block lifts to drag only after a hold.
 const drag = (el: Element, from: { x: number; y: number }, to: { x: number; y: number }) => {
-  fireEvent.pointerDown(el, { clientX: from.x, clientY: from.y, button: 0 });
+  holdDown(el, { clientX: from.x, clientY: from.y });
   fireEvent.pointerMove(window, { clientX: to.x, clientY: to.y });
   fireEvent.pointerUp(window, { clientX: to.x, clientY: to.y });
 };
@@ -117,7 +119,7 @@ describe('the week grid', () => {
       const first = block(/^Write the report, Thu Nov 5, 5pm to 6pm, Project\. Overlaps Edit the essay\./);
       const second = block(/^Edit the essay, Thu Nov 5, 5:30pm to 6:30pm, Project\. Overlaps Write the report\./);
       sideBySide([first, second]);
-      fireEvent.pointerDown(second, { button: 0, clientX: 0, clientY: 0 });
+      holdDown(second, { clientX: 0, clientY: 0 });
       fireEvent.pointerMove(window, { clientX: 0, clientY: 22 });
       fireEvent.pointerUp(window, { clientX: 0, clientY: 22 });
       expect(t.onChange).toHaveBeenCalledWith('b4', { date: '2026-11-05', start: 18 * 60, end: 19 * 60 });
@@ -215,6 +217,12 @@ describe('the week grid', () => {
     await waitFor(() => expect(block(/^Write the report/)).toHaveAccessibleName(/5pm to 6pm/));
   });
 
+  it('a drop the screen turns down, resolving to false, goes back too', async () => {
+    draw({ editing: true, onChange: vi.fn(async () => false) });
+    drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });
+    await waitFor(() => expect(block(/^Write the report/)).toHaveAccessibleName(/5pm to 6pm/));
+  });
+
   it('keyboard: a block moved to another day keeps focus, so the arrows keep working', async () => {
     function Host() {
       const [blocks, setBlocks] = useState<GridBlock[]>([report, piano]);
@@ -228,11 +236,13 @@ describe('the week grid', () => {
     expect(block(/^Write the report, Sat Nov 7/)).toHaveFocus();
   });
 
-  it('a dropped block stays where it landed until the new position arrives', () => {
+  it('a dropped block stays where it landed until the new position arrives, no longer lifted', () => {
     const t = draw({ editing: true });
     drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 50, y: 140 });
     expect(t.onChange).toHaveBeenCalledWith('b1', { date: '2026-11-05', start: 18 * 60, end: 19 * 60 });
     expect(block(/^Write the report/)).toHaveAccessibleName(/6pm to 7pm/);
+    // Let go, it's put down, so a hold on it straight away is a hold of its own.
+    expect(block(/^Write the report/)).not.toHaveClass('lifted');
   });
 
   it('a dropped block stays put while its caller redraws the old position, until a new one arrives', () => {
@@ -259,7 +269,7 @@ describe('the week grid', () => {
   it('a drag moves on the 15-minute grid and saves once, on drop', () => {
     const t = draw({ editing: true });
     const el = block(/^Write the report/);
-    fireEvent.pointerDown(el, { clientX: 50, clientY: 100, button: 0 });
+    holdDown(el, { clientX: 50, clientY: 100 });
     // 40px an hour while editing: 22px down is 33 minutes, so 30 on the grid; 100px right is a day.
     fireEvent.pointerMove(window, { clientX: 150, clientY: 122 });
     expect(t.onChange).not.toHaveBeenCalled();
@@ -297,11 +307,18 @@ describe('the week grid', () => {
     expect(block(/^Piano practice/).querySelector('.evh')).not.toBeNull();
   });
 
-  it('a press that does not move opens the block', () => {
+  it('a press let go before the hold opens the block, however the mouse wobbled, and a hold let go in place opens nothing', () => {
     const t = draw({ editing: true });
-    drag(block(/^Write the report/), { x: 50, y: 100 }, { x: 52, y: 103 });
+    const el = block(/^Write the report/);
+    // 12px down would be 18 minutes, were it a drag.
+    fireEvent.pointerDown(el, { clientX: 50, clientY: 100, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 55, clientY: 112 });
+    fireEvent.pointerUp(window, { clientX: 55, clientY: 112 });
     expect(t.onChange).not.toHaveBeenCalled();
     expect(t.onOpen).toHaveBeenCalledWith('b1');
+    drag(el, { x: 50, y: 100 }, { x: 52, y: 103 });
+    expect(t.onChange).not.toHaveBeenCalled();
+    expect(t.onOpen).toHaveBeenCalledTimes(1);
   });
 
   it('keyboard: arrows move by 15 minutes or a day, Shift and arrows change the length, Enter opens', async () => {

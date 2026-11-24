@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { answerBlock, extendBlock, nextBlock, resumeBlock, startBlock, swapBlocks, unscheduleBlock, workMinutes } from '../../core/blocks';
 import type { Clock } from '../../core/clock';
 import { addWeeks, dayRange, instantMs, localDate, thisWeek, today, weekStart } from '../../core/dates';
+import { perf } from '../../core/perf';
 import { loadWeekPlanning, planningReminder, planningWeekOf } from '../../core/planning';
 import { blocksInRange, inboxCount } from '../../core/queries';
 import type { BlockRow } from '../../core/queries';
@@ -91,17 +92,19 @@ const STALE = 'stale';
 /** How long an answer waits for a sync, which a weak network can stretch past the time iOS gives a background action. */
 const SYNC_WAIT_MS = 2000;
 
-// A notification's Partly needs the app to ask for the time left, so it asks Today to open that block's prompt.
-let promptRequest: string | null = null;
+// A notification's Partly needs the app to ask for the time left, so it asks Today to open that block's prompt. The Now
+// card's Stop for now asks the same with `stop`, whose answer also ends the block then.
+type PromptRequest = { blockId: string; stop: boolean };
+let promptRequest: PromptRequest | null = null;
 const requestListeners = new Set<() => void>();
 
-export function requestPrompt(blockId: string | null): void {
-  promptRequest = blockId;
+export function requestPrompt(blockId: string | null, stop = false): void {
+  promptRequest = blockId ? { blockId, stop } : null;
   for (const notify of requestListeners) notify();
 }
 
-/** The block a notification asked to answer in the app, if any. Clear it with requestPrompt(null). */
-export function usePromptRequest(): string | null {
+/** The block a notification or Stop for now asked to answer in the app, if any. Clear it with requestPrompt(null). */
+export function usePromptRequest(): PromptRequest | null {
   return useSyncExternalStore(
     (notify) => {
       requestListeners.add(notify);
@@ -202,6 +205,8 @@ export function useReminders(): void {
   });
 
   const respond = async (response: ReminderResponse) => {
+    // notify.action (docs/performance.md): from the answer reaching the app to its commit, the sync wait included.
+    const heard = performance.now();
     if (response.action_id === REMINDER_ACTION.snooze) return snoozeBlock(response.block_id, snoozeUntil(clock));
     // The weekly reminder is about a week's planning task rather than a block: it opens Today on its times.
     const week = planningWeekOf(response.block_id);
@@ -222,6 +227,7 @@ export function useReminders(): void {
     await Promise.race([sync?.syncNow(), new Promise((resolve) => setTimeout(resolve, SYNC_WAIT_MS))]);
     // Rather than act on a block that's no longer what the notification said, show the day as it is.
     const result = await answer.run(response, tap);
+    if (result !== STALE) perf.measure('notify.action', heard);
     if (result === STALE) nav.go('today');
     else if (result && 'planning' in result) {
       if (result.planning === 'stretch') nav.openFlow('plan');

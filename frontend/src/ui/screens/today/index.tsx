@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatDayLong, instantMs, thisWeek } from '../../../core/dates';
 import { shiftRestOfToday, welcomeBack } from '../../../core/queue';
+import { perf } from '../../../core/perf';
+import { useDrawn } from '../../app/drawn';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useNow, useQuery, useStickyState, useToday } from '../../app/store';
 import { PlanningRow, PlanningSet } from '../../components/planning/PlanningRow';
@@ -18,11 +20,13 @@ import { loadToday } from './data';
 import type { TodayData } from './data';
 import { DayTimeline } from './DayTimeline';
 import { NowCard } from './NowCard';
+import { NotesToday } from '../notes/NoteList';
 import { OneOffsToday } from './OneOffsToday';
 import { QueuePanel } from './QueuePanel';
 import { ToSchedule } from './ToSchedule';
 import { ShiftPanel } from './ShiftPanel';
-import { usePrompts } from './usePrompts';
+import { usePrompts, usePutAway } from './usePrompts';
+import type { PutAway } from './usePrompts';
 import { Banner, Gate, NextUp, PickOne, Welcome } from './Views';
 import './today.css';
 import { Button } from '../../components/ds/Button';
@@ -116,11 +120,11 @@ function firstControl(from: Element | null): HTMLElement | null {
   return null;
 }
 
-function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null }) {
+function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | null; putAway: PutAway }) {
   const { data, unplanned } = props;
   const { clock, layout, sync } = useApp();
   const land = useFocusLanding();
-  const { prompt, missed } = usePrompts(data);
+  const { prompt, missed } = usePrompts(data, props.putAway);
   const { call } = useCalendarCall();
   const [panel, setPanel] = useState<'shift' | 'queue' | null>(null);
   const [skippedCalendar, setSkippedCalendar] = useStickyState<string | null>('today.skippedCalendar', null);
@@ -200,6 +204,7 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
       {stretchShown && <StretchRow stretch={stretch.stretch} first={stretch.first} onGone={(after) => land(() => firstControl(after))} />}
       <OneOffsToday data={data} />
       <ToSchedule date={data.date} />
+      <NotesToday />
       {(work || !unplanned) && <DayTimeline data={data} events={data.events} />}
       <DoneLine />
       {!phone && data.connected && <p className="small quiet">Blocks mirror to the Time blocks calendar in Google, one-way. Edit them here.</p>}
@@ -209,8 +214,8 @@ function TodayView(props: { data: TodayData; unplanned: boolean; pick: string | 
 }
 
 /** Every block still gets its prompts while Today asks to plan the week. */
-function Prompts(props: { data: TodayData }) {
-  return <>{usePrompts(props.data).prompt}</>;
+function Prompts(props: { data: TodayData; putAway: PutAway }) {
+  return <>{usePrompts(props.data, props.putAway).prompt}</>;
 }
 
 export default function Screen(_props: ScreenProps) {
@@ -219,6 +224,7 @@ export default function Screen(_props: ScreenProps) {
   const { clock, layout } = useApp();
   const { data } = useQuery((sql, c) => loadToday(sql, c), []);
   const [picking, setPicking] = useState(false);
+  const putAway = usePutAway();
   // Whenever this device works out Today, it saves any planning task that's due. It places no time.
   const day = useToday();
   const makeDue = useMutation(({ automatic: w }) => makeDuePlanningTasks(w, clock));
@@ -228,6 +234,12 @@ export default function Screen(_props: ScreenProps) {
   }, [makeDueRun, day]);
   const skip = useMutation((w) => skipWeek(w, thisWeek(clock), clock));
   const [pick, setPick] = useStickyState<{ date: string; id: string } | null>('today.pick', null);
+  useDrawn('nav.today', !!data);
+  // Where the start KPIs end: Today drawn with its data and taking input.
+  const loaded = !!data;
+  useEffect(() => {
+    if (loaded) perf.markAfterPaint('today:interactive');
+  }, [loaded]);
   if (!data) return <div className={layout === 'phone' ? 'stack' : 'wrap stack24'} />;
 
   const welcome = welcomeBack(data.recent, data.away, clock);
@@ -257,9 +269,9 @@ export default function Screen(_props: ScreenProps) {
       'Plan your week',
       <>
         <Gate data={data} />
-        <Prompts data={data} />
+        <Prompts data={data} putAway={putAway} />
       </>,
     );
   }
-  return <TodayView data={data} unplanned={!data.planned} pick={pick?.date === data.date ? pick.id : null} />;
+  return <TodayView data={data} unplanned={!data.planned} pick={pick?.date === data.date ? pick.id : null} putAway={putAway} />;
 }

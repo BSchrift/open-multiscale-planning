@@ -14,11 +14,16 @@ import { weekPractices } from '../../../../core/queries';
 import { sessionDay } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { closestFit, defaultSlot, DRAWN_DAY, GRID, offers, otherOffers, placeRest, practiceSlots, slotInstants, slotNotes } from '../../../../core/slots';
+import { SLIDER_STEP } from '../../../components/EstimateSlider';
 import type { Slot, SlotContext, Work } from '../../../../core/slots';
 import type { LocalDate, Minutes } from '../../../../core/types';
 import type { Layout } from '../../../app/registry';
 import { useApp, useMutation, useQuery } from '../../../app/store';
+import { isTaskBlock } from '../../../components/blocks/describe';
 import { KeepAsk } from '../../../components/editors/KeepAsk';
+import { useBothAsk } from '../../../components/blocks/BothAsk';
+import { shortened, SplitAsk } from '../../../components/editors/SplitAsk';
+import type { Shortened } from '../../../components/editors/SplitAsk';
 import { DAY_NAMES } from '../../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../../components/editors/PracticeSchedule';
 import { Popover } from '../../../components/Popover';
@@ -26,7 +31,8 @@ import { Sheet } from '../../../components/Sheet';
 import { useToast } from '../../../components/Toast';
 import { TaskName } from '../../../components/task/TaskName';
 import { useFocusLanding } from '../../../components/useFocusLanding';
-import { dayName, slotRange, WeekGrid } from '../../../components/weekgrid';
+import { dayName, slotRange } from '../../../components/weekgrid';
+import { HoldWeekGrid } from '../../../components/weekgrid/HoldWeekGrid';
 import type { GridBlock, GridGhost, PlacedBlock } from '../../../components/weekgrid';
 import { DayStrip, PackedDay, weekFree } from '../../../components/week/DayStrip';
 import { DragDay } from '../../week/Phone';
@@ -69,6 +75,9 @@ export function ScheduleStep(props: ScheduleStepProps) {
   // Forgotten on leaving the step, so the guided list starts fresh.
   const [skipped, setSkipped] = useState<readonly string[]>([]);
   const [ask, setAsk] = useState<{ blockId: string; wasMin: Minutes } | null>(null);
+  const both = useBothAsk();
+  // A task's block made shorter asks what about the rest, until answered or another block is chosen.
+  const [split, setSplit] = useState<Shortened | null>(null);
   /** Phone: the day looked at, while it differs from the current block's. */
   const [look, setLook] = useState<{ key: string; date: LocalDate } | null>(null);
   const [listOpen, setListOpen] = useState(false);
@@ -120,7 +129,6 @@ export function ScheduleStep(props: ScheduleStepProps) {
   // Placing takes what the draft overlaps off the calendar, to place again. Until then it only floats over them, and
   // what's under way or done with stays.
   const bumped = !draftSlot ? [] : s.blocks.filter((x) => !x.past && x.date === draftSlot.date && x.start < draftSlot.end && draftSlot.start < x.end);
-  const bumpedNames = listed([...new Set(bumped.map((x) => x.title))]);
   const len = b ? b.end - b.start : 0;
   const found = !b ? [] : usual ? usual.map((x) => ({ ...x, end: x.start + len })) : offers(len, work, ctxOut);
   const others = !b ? [] : usual ? found.filter((x) => !same(x, b)).slice(0, 4) : otherOffers(b, work, ctxOut);
@@ -144,6 +152,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
     setSkipped(skipped.filter((id) => id !== r.id));
   };
   const selectBlock = (x: PlacedBlock) => {
+    if (split?.blockId !== x.id) setSplit(null);
     if (!phone && !s.rows.some((r) => r.id === rowId(x))) return;
     setSelected(rowId(x));
     setEditId(x.id);
@@ -168,6 +177,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
 
   const place = async () => {
     if (!cur || !draftSlot) return;
+    // Landing on placed blocks asks first: keep both, send them back to place again, or leave it.
+    const under = s.blocks.filter((x) => x.now && x.date === draftSlot.date && x.start < draftSlot.end && draftSlot.start < x.end);
+    const on = [...bumped, ...under];
+    const answer = on.length ? await both.ask(cur.title, on.map((x) => ({ id: x.id, title: x.title, fixed: !!x.now }))) : 'keep';
+    if (answer === 'cancel') return;
+    const off = answer === 'replace' ? bumped.filter((x) => !x.now) : [];
+    const offNames = listed([...new Set(off.map((x) => x.title))]);
     landOnCurrent();
     const times = slotInstants(draftSlot, zone);
     let refused = false;
@@ -179,12 +195,12 @@ export function ScheduleStep(props: ScheduleStepProps) {
         return { writes: [] };
       }
       const writes: RecordWrite[] = [];
-      for (const x of bumped) writes.unshift(...(await unscheduleBlock(w, x.id, week, clock)).writes);
+      for (const x of off) writes.unshift(...(await unscheduleBlock(w, x.id, week, clock)).writes);
       return { writes: [...placed.writes, ...writes] };
     });
     if (refused) return notify(`${cur.title} is already on ${DAY_NAMES[weekday(draftSlot.date)]}.`);
     if (!reverse) return;
-    if (bumped.length) notify(`Took ${bumpedNames} off the calendar to place again`, () => run((w) => applyPlanChange(w, reverse)));
+    if (off.length) notify(`Took ${offNames} off the calendar to place again`, () => run((w) => applyPlanChange(w, reverse)));
     reset();
     setEditId(null);
     setSelected(cur.toPlace - len > 0 ? cur.id : null);
@@ -213,9 +229,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
       const text = `Moved ${DAY_NAMES[weekday(day)]}'s ${x.title} to ${formatWeekday(slot.date)} ${formatTimeOfDay(slot.start)}, this week only.`;
       return run((w) => moveBlock(w, x.id, slotInstants(slot, zone))).then((reverse) => reverse && notify(text, () => run((w) => applyPlanChange(w, reverse))));
     }
-    const saved = run((w) => moveBlock(w, x.id, slotInstants(slot, zone)));
-    setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
-    return saved;
+    // A failed save resolves to nothing, so the block goes back, and nothing asks about a change that didn't happen.
+    return run((w) => moveBlock(w, x.id, slotInstants(slot, zone))).then((saved) => {
+      if (!saved) return undefined;
+      setAsk(x.practice_id ? { blockId: x.id, wasMin: ask?.blockId === x.id ? ask.wasMin : x.end - x.start } : null);
+      setSplit(shortened(x, slot, { task: isTaskBlock(x.kind), underWay: !!x.now, week, title: x.title, open: split }));
+      return saved;
+    });
   };
   const moveTo = (o: { date: LocalDate; start: number }) => {
     const slot = { date: o.date, start: o.start, end: o.start + len };
@@ -285,10 +305,10 @@ export function ScheduleStep(props: ScheduleStepProps) {
   const title = cur?.title ?? editB?.title ?? '';
   // Selecting places it; its name opens the task's popup, as a task's name does anywhere it shows, filling its line so
   // it's a whole tap target on phone.
-  const taskId = cur ? cur.task?.id : editB && (editB.kind === 'project' || editB.kind === 'one_off') ? editB.task_id : null;
+  const taskId = cur ? cur.task?.id : editB && isTaskBlock(editB.kind) ? editB.task_id : null;
   const name = taskId ? <TaskName className="rowname" id={taskId} title={title} /> : title;
   const when = b ? `${dayName(b.date)}, ${slotRange(b)} (${formatMinutes(len)})` : '';
-  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : 'Project';
+  const context = cur ? cur.context : editB?.kind === 'practice' ? 'Practice' : editB?.kind === 'one_off' ? 'One offs' : editB?.kind === 'inbox' ? 'Inbox' : 'Project';
   const amount =
     !cur || editB || !draftSlot
       ? ''
@@ -298,7 +318,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           ? `${formatMinutes(cur.toPlace - len)} more of this ${cur.practice ? 'practice' : 'task'} stays to place`
           : '';
   const notes = b ? slotNotes({ ...b, id: editB?.id ?? 'draft' }, work, { ...ctx, placed: ctx.placed.filter((p) => !bumped.some((x) => x.id === p.id)) }) : [];
-  if (bumped.length) notes.push(`Placing here takes ${bumpedNames} off the calendar to place again.`);
+  if (bumped.length) notes.push(`Overlaps ${listed(bumped.map((x) => `${x.title}, ${formatTimeOfDay(x.start)} to ${formatTimeOfDay(x.end)}`))}.`);
   const skipLabel = cur?.blocks.length ? 'Leave the rest for later' : 'Skip for now';
   const none = !b && !(cur && !draftSlot);
   const noneTitle = s.rows.length ? 'All tasks are placed' : 'Nothing is picked yet';
@@ -402,6 +422,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
       <div className="planlay">
         <div className="planleft stack">
           {keepAsk}
+          {both.asking}
+          {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
           {none && (
             <div className="stack8">
               <h2 ref={noneRef} tabIndex={-1}>
@@ -432,7 +454,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                   {b && <div className="strong">{when}</div>}
                   {said}
                   {buttons('sm')}
-                  <p className="small quiet">Drag the block anywhere, or click a suggested time. Drag its bottom edge to change the time.</p>
+                  <p className="small quiet">Hold the block, then drag it anywhere, or click a suggested time. Hold its bottom edge and drag to change the time.</p>
                 </div>
               </section>
             )}
@@ -502,7 +524,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           )}
         </div>
         <div className="planright card">
-          <WeekGrid
+          <HoldWeekGrid
             ctx={ctx}
             blocks={gridBlocks}
             // The context's earliest time is now, read on each of the screen's ticks.
@@ -510,6 +532,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
             ghosts={ghosts}
             editing
             lockPast
+            // Hold to create: never while the step's task is being placed or a placed block is chosen.
+            holdOff={!!b}
             onChange={(id, slot) => {
               const x = blockOf(id);
               if (id === 'draft') setDraft({ key: draftKey, slot });
@@ -593,7 +617,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
           </div>
           <PackedDay date={day} ctx={ctx} />
           <h3 className="schday">{dayName(day)}</h3>
-          <p className="small quiet">Drag the block anywhere, or tap a suggested time. Drag its bottom edge to change the time.</p>
+          <p className="small quiet">Hold the block, then drag it anywhere, or tap a suggested time. Hold its bottom edge and drag to change the time.</p>
           <BringIntoView watch={`${curKey}|${day}`}>
             <DragDay
               date={day}
@@ -607,6 +631,8 @@ export function ScheduleStep(props: ScheduleStepProps) {
                 .filter((o) => o.date === day)
                 .map((o) => ({ ...o, end: o.start + len, label: `${dayName(o.date)}, ${formatTimeOfDay(o.start)}`, onAccept: () => moveTo(o) }))}
               selected={editB?.id ?? null}
+              // Never while the step's task is being placed or a placed block is chosen.
+              holdToCreate={!b}
               onMoving={(slot) => setDraft({ key: draftKey, slot })}
               onDone={() => void place()}
               onChange={changeBlock}
@@ -667,7 +693,7 @@ export function ScheduleStep(props: ScheduleStepProps) {
                     type="range"
                     min={GRID}
                     max={lenMax}
-                    step={GRID}
+                    step={SLIDER_STEP}
                     value={len}
                     aria-valuetext={formatMinutes(len)}
                     onChange={(e) => setLength(Number(e.target.value))}
@@ -759,11 +785,13 @@ export function ScheduleStep(props: ScheduleStepProps) {
       )}
       {/* Beside All tasks rather than in it, so the two sheets don't share focus or Esc. */}
       {listOpen && confirm}
+      {both.asking}
       {keepAsk && (
         <Sheet label="Use this in future weeks too?" onClose={() => setAsk(null)}>
           {keepAsk}
         </Sheet>
       )}
+      {phone && split && <SplitAsk ask={split} sheet onDone={() => setSplit(null)} />}
     </>
   );
 }

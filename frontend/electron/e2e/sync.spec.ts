@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron as electron, expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import { account, go, oneOffRow, pane, setDate, syncNow } from '../../e2e/seed';
+import { account, go, holdMouse, oneOffRow, pane, setDate, syncNow } from '../../e2e/seed';
 import { addDays, formatDate, formatTimeOfDay, formatWeekday, localDate, localToInstant, localToMs, toInstant, weekStart } from '../../src/core/dates';
 import { outcomeId, weekPlanId } from '../../src/core/records';
 import type { ElectronBridge } from '../bridge';
@@ -49,15 +49,18 @@ async function launch(dir = mkdtempSync(join(tmpdir(), 'multiscale-sync-'))): Pr
     args: [...KEYCHAIN, ROOT, `--user-data-dir=${dir}`, '--use-mock-keychain'],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
   });
-  // The system browser is the one thing stood in for: signIn plays it.
-  await app.evaluate(({ shell }) => {
-    globalThis.browserUrls = [];
-    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
-  });
   const page = await app.firstWindow();
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForFunction(() => document.getElementById('root')?.childElementCount);
+  // The system browser is the one thing stood in for: signIn plays it. Only once the window has drawn. Playwright's first
+  // evaluate in the main process reads Node's lazy `performance` global, which loads it. The window's first request,
+  // landing meanwhile, has the app scheme's handler load Node's fetch classes, which read `performance` half loaded and
+  // throw, and the window is left on Chromium's error page.
+  await app.evaluate(({ shell }) => {
+    globalThis.browserUrls = [];
+    shell.openExternal = async (url: string) => void globalThis.browserUrls.push(url);
+  });
   const device = { app, page, dir, errors };
   running.push(device);
   return device;
@@ -280,8 +283,7 @@ test('dragging and resizing a block on the Week grid moves it on the other devic
   const column = (await a.page.locator('.colbody').first().boundingBox())!;
   // One column right, and 47px down at 40px an hour: 70.5 minutes, which the grid makes 75.
   const [x, y] = [box.x + box.width / 2, box.y + 8];
-  await a.page.mouse.move(x, y);
-  await a.page.mouse.down();
+  await holdMouse(a.page, { x, y });
   await a.page.mouse.move(x + column.width / 2, y + 20, { steps: 4 });
   await a.page.mouse.move(x + column.width + 2, y + 47, { steps: 4 });
   await a.page.mouse.up();
@@ -290,8 +292,7 @@ test('dragging and resizing a block on the Week grid moves it on the other devic
 
   // 22px off the bottom edge is 33 minutes, which the grid makes 30.
   const edge = (await block.locator('.evh').boundingBox())!;
-  await a.page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
-  await a.page.mouse.down();
+  await holdMouse(a.page, { x: edge.x + edge.width / 2, y: edge.y + edge.height / 2 });
   await a.page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2 + 22, { steps: 4 });
   await a.page.mouse.up();
   await expect(a.page.getByRole('group', { name: said(thursday, 11 * 60 + 15, 12 * 60 + 45), exact: false })).toBeVisible();

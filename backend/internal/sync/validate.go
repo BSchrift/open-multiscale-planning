@@ -32,6 +32,8 @@ var (
 	maxClockAhead = time.Duration(config.Protocol.Sync.MaxClockAheadHours) * time.Hour
 	// MaxNotesChars is the longest a task's notes may be, in code points.
 	MaxNotesChars = config.Protocol.Records.MaxNotesChars
+	// MaxTitleChars is the longest a note's title may be, in code points.
+	MaxTitleChars = config.Protocol.Records.MaxTitleChars
 )
 
 const (
@@ -136,6 +138,9 @@ func validateChange(change Change, latestClock int64) error {
 	if err := validateNotes(change); err != nil {
 		return err
 	}
+	if err := validateMemo(change); err != nil {
+		return err
+	}
 	if recordBytes(change.Fields) > MaxRecordBytes {
 		return tooLarge("record_too_large")
 	}
@@ -155,6 +160,31 @@ func validateNotes(change Change) error {
 	}
 	if utf8.RuneCountInString(notes) > MaxNotesChars {
 		return rejected("notes_too_long")
+	}
+	return nil
+}
+
+// validateMemo checks a note's title and body. Making a note a task copies its body into the task's notes, so the body
+// stops where a task's notes do. Like validateNotes, its code names the problem and never carries the text.
+func validateMemo(change Change) error {
+	if change.Type != "memo" {
+		return nil
+	}
+	for _, f := range []struct {
+		name  string
+		limit int
+	}{{"title", MaxTitleChars}, {"body", MaxNotesChars}} {
+		field, ok := change.Fields[f.name]
+		if !ok || field.V == nil {
+			continue
+		}
+		text, isText := field.V.(string)
+		if !isText {
+			return rejected("invalid_value")
+		}
+		if utf8.RuneCountInString(text) > f.limit {
+			return rejected("memo_too_long")
+		}
 	}
 	return nil
 }

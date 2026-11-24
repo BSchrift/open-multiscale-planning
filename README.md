@@ -16,7 +16,7 @@ History is kept for a set time: time blocks and week plans for 2 years, finished
 | `frontend/src/platform` | Adapters for the browser, Electron and Capacitor |
 | `frontend/src/ui` | React screens and components, one tree with desktop and phone layouts |
 | `frontend/electron`, `frontend/ios` | The Mac app and the Xcode project |
-| `backend/` | Go: `cmd/api` (sync and Google connect Lambda), `cmd/calendar` (the Google Calendar worker), `cmd/retention` (keeps the expiry mark, and staging's cleanup), `cmd/local` (all of them, plus stand-in sign-in and Google, for local use) |
+| `backend/` | Go: `cmd/api` (sync and Google connect Lambda), `cmd/calendar` (the Google Calendar worker), `cmd/retention` (keeps the expiry mark, and staging's cleanup), `cmd/account` (builds exports and deletes accounts), `cmd/local` (all of them, plus stand-in sign-in and Google, for local use) |
 | `backend/integration` | The black-box API suite, run against local, staging or prod |
 | `infrastructure/` | AWS CDK: one stack per environment, `Multiscale-staging` and `Multiscale-prod`, plus `Multiscale-control` for an optional domain |
 | `config/` | The app's own settings, `protocol.yaml` and `env/`, which Go checks and exports to TypeScript as `@multiscale/config`; `retention.yaml`, how long each environment keeps history; the Go module that loads each deployment's YAML, with an example of each file. [docs/config.md](docs/config.md) says what goes where. |

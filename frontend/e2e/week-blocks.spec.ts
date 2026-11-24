@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, pane } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, pane, pressOn, release } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -90,8 +90,7 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   const hour = (await summary.boundingBox())!.height;
   const edge = (await summary.locator('.evh').boundingBox())!;
   const x = edge.x + edge.width / 2;
-  await page.mouse.move(x, edge.y + edge.height / 2);
-  await page.mouse.down();
+  await holdMouse(page, { x, y: edge.y + edge.height / 2 });
   await page.mouse.move(x, edge.y + edge.height / 2 + hour / 6, { steps: 3 });
   await page.mouse.move(x, edge.y + edge.height / 2 + (hour * 20) / 60, { steps: 3 });
   await page.mouse.up();
@@ -111,6 +110,24 @@ test("desktop: while editing, a block's bottom edge snaps its length to the quar
   expect(errors).toEqual([]);
 });
 
+test("a task's block made shorter while editing asks what about the rest, and Change the estimate takes it off the task", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openWeek(page);
+  await page.getByRole('button', { name: "Edit this week's plan" }).click();
+  if (phone) await page.getByRole('group', { name: 'Choose a day' }).getByRole('button').nth(1).click();
+  // Shift and the up arrow take a quarter hour off, on both layouts.
+  const block = phone ? page.getByRole('slider', { name: /^Draft the summary\./ }) : page.getByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
+  await block.focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  const ask = page.getByRole('group', { name: 'What about the other 15m?' });
+  await expect(ask.getByRole('button', { name: 'Split it' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath(`week-split-ask-${info.project.name}.png`) });
+  await ask.getByRole('button', { name: 'Change the estimate' }).click();
+  await expect(page.getByText('Draft the summary is now 1h 45m. Its estimate was 2h.')).toBeVisible();
+  await expect(ask).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("phone: a task's block changes its length on a slider in the task's popup, and Remove from calendar takes it off with Undo", async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip is the phone layout');
   const errors = await openWeek(page);
@@ -121,15 +138,15 @@ test("phone: a task's block changes its length on a slider in the task's popup, 
   const section = popup.getByRole('region', { name: 'Time block' });
   const length = section.getByRole('slider', { name: 'Length' });
   await expect(length).toHaveAttribute('aria-valuetext', '1h');
-  for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+  for (const name of ['Move…', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
   await expectTapTarget(length);
   await length.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(length).toHaveAttribute('aria-valuetext', '1h 15m');
-  await expect(section.getByText('Tue Nov 3, 6pm to 7:15pm')).toBeVisible();
+  await expect(length).toHaveAttribute('aria-valuetext', '1h 5m');
+  await expect(section.getByText('Tue Nov 3, 6pm to 7:05pm')).toBeVisible();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
-  await expect(section.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
+  await expect(section.getByText('Tue Nov 3, 6pm to 6:55pm')).toBeVisible();
   await page.screenshot({ path: info.outputPath('week-phone-length.png') });
 
   // The block comes off the day and its section goes, while the task stays open.
@@ -138,10 +155,10 @@ test("phone: a task's block changes its length on a slider in the task's popup, 
   await expect(section).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Draft the summary, / })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(section.getByText('Tue Nov 3, 6pm to 6:45pm')).toBeVisible();
+  await expect(section.getByText('Tue Nov 3, 6pm to 6:55pm')).toBeVisible();
   await popup.getByRole('button', { name: 'Cancel' }).click();
   await expect(popup).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 6:45pm, Project\./ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Draft the summary, 6pm to 6:55pm, Project\./ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -191,5 +208,106 @@ test("a past week can be read but not changed: its blocks don't move, open their
   const a = pane(page, 'Analytics');
   await expect(a.getByText('Oct 26 to Nov 1')).toBeVisible();
   await expect(a.getByText('Past week')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a press held on empty time on Week drafts an hour there, and Capture saves it there as an Inbox item, with Undo; on desktop a press held on a block still opens it', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await openWeek(page);
+  // Desktop: Wednesday's column, drawn from 6am to 11pm. Phone: today's free row in the evening, which says the time it
+  // covers.
+  const target = phone ? page.locator('.tlrow', { has: page.getByText(/^Free, 2(:30)?pm to 10pm$/) }) : page.locator('.colbody[data-drop-date="2026-11-04"]');
+  const at = await pressOn(target, 17 * 60 + 50, phone, phone ? undefined : { from: 360, to: 1380 });
+  const draft = page.locator('.holddraft');
+  await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+  await expect(draft).toHaveClass(/\bs-placing\b/);
+  await page.screenshot({ path: info.outputPath('week-hold-draft.png') });
+  await release(page, at, phone);
+
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText(phone ? 'Today, 5:45pm to 6:45pm' : 'Wed Nov 4, 5:45pm to 6:45pm')).toBeVisible();
+  await expect(capture.getByRole('textbox', { name: 'Capture to Inbox' })).toBeFocused();
+  await page.keyboard.type('Book dentist');
+  await expect(draft).toContainText('Book dentist');
+  // The draft stays in view beside Capture on desktop, and above its sheet on phone.
+  const sheet = (await capture.boundingBox())!;
+  const drawn = (await draft.boundingBox())!;
+  const apart = drawn.x + drawn.width <= sheet.x || sheet.x + sheet.width <= drawn.x || drawn.y + drawn.height <= sheet.y || sheet.y + sheet.height <= drawn.y;
+  expect(apart, 'Capture covers the draft').toBe(true);
+  // On phone it scrolls up the page to just under the week's top, which stays stuck above the day, not behind it.
+  if (phone) {
+    const top = (await page.locator('.weektop').boundingBox())!;
+    await expect.poll(async () => (await draft.boundingBox())!.y).toBeGreaterThanOrEqual(top.y + top.height);
+  }
+  await page.screenshot({ path: info.outputPath('week-hold-capture.png') });
+  await page.keyboard.press('Enter');
+
+  await expect(page.locator('.toast')).toContainText(phone ? 'Saved to Inbox, 5:45pm to 6:45pm' : 'Saved to Inbox, Wed Nov 4, 5:45pm to 6:45pm');
+  await expect(draft).toHaveCount(0);
+  const saved = page.getByRole('button', { name: phone ? 'Book dentist, 5:45pm to 6:45pm, Inbox.' : 'Book dentist, Wed Nov 4, 5:45pm to 6:45pm, Inbox.' });
+  await expect(saved).toHaveClass(/\bk-inbox\b/);
+  await page.screenshot({ path: info.outputPath('week-hold-saved.png') });
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(saved).toHaveCount(0);
+
+  // On desktop, out of Edit, a mouse held on a block and let go is its click, which opens it, and drafts nothing.
+  if (!phone) {
+    const piano = page.getByRole('button', { name: /^Piano practice, Wed Nov 4, 7am to 7:30am/ });
+    const box = (await piano.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+    await expect(piano).toHaveAttribute('aria-expanded', 'true');
+    await expect(draft).toHaveCount(0);
+    await expect(capture).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+});
+
+
+test('desktop: a mouse pressed on empty time on Week and dragged draws the draft at once in that day, down or up, and Capture opens on its time', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
+  const errors = await openWeek(page);
+  const wed = page.locator('.colbody[data-drop-date="2026-11-04"]');
+  await wed.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // Wednesday's column, drawn from 6am to 11pm.
+  const point = async (minute: number, dx = 0) => {
+    const box = (await wed.boundingBox())!;
+    return { x: box.x + box.width / 2 + dx, y: box.y + ((minute - 360) / (1380 - 360)) * box.height };
+  };
+  const draft = page.locator('.holddraft');
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  const from = await point(17 * 60 + 50);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  const down = await point(18 * 60 + 50);
+  await page.mouse.move(down.x, down.y, { steps: 4 });
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  // Over Thursday's column it stays on Wednesday.
+  const over = await point(18 * 60 + 50, 150);
+  await page.mouse.move(over.x, over.y, { steps: 2 });
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  await expect(wed.locator('.holddraft')).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath('week-drag-draft.png') });
+  await page.mouse.up();
+  await expect(capture.getByText('Wed Nov 4, 5:45pm to 7pm')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('week-drag-capture.png') });
+  await page.keyboard.press('Escape');
+  await expect(draft).toHaveCount(0);
+
+  // Up.
+  const a = await point(19 * 60 + 20);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  const up = await point(18 * 60 + 10);
+  await page.mouse.move(up.x, up.y, { steps: 4 });
+  await expect(draft).toHaveAttribute('title', '6pm to 7:30pm');
+  await page.mouse.up();
+  await expect(capture.getByText('Wed Nov 4, 6pm to 7:30pm')).toBeVisible();
+  await page.keyboard.type('Book dentist');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.toast')).toContainText('Saved to Inbox, Wed Nov 4, 6pm to 7:30pm');
+  await expect(page.getByRole('button', { name: 'Book dentist, Wed Nov 4, 6pm to 7:30pm, Inbox.' })).toHaveClass(/\bk-inbox\b/);
   expect(errors).toEqual([]);
 });

@@ -24,12 +24,22 @@ const showsPane = (label: string) =>
 
 const planned = (w: Writer) => w.create('week_plan', { week_start: '2026-11-02', finished_at: '2026-11-02T14:00:00Z' }, weekPlanId('2026-11-02'));
 
+describe('KPI marks', () => {
+  it('times coming back to the app, start.resume, to the next frame', async () => {
+    const t = await renderApp();
+    await showsPane('Today');
+    performance.clearMeasures();
+    act(() => t.platform.lifecycle.foreground());
+    await waitFor(() => expect(performance.getEntriesByName('start.resume')).toHaveLength(1));
+  });
+});
+
 describe('shell on desktop', () => {
   it('shows the side navigation in order, with Today current', async () => {
     await renderApp();
     await showsPane('Today');
     const labels = within(main()).getAllByRole('button').map((b) => b.textContent);
-    expect(labels.slice(2)).toEqual(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Analytics', 'Done', 'Settings']);
+    expect(labels.slice(2)).toEqual(['Today', 'Inbox', 'Week', 'Plan', 'Goals', 'One offs', 'Notes', 'Analytics', 'Done', 'Settings']);
     expect(tab('Today')).toHaveAttribute('aria-current', 'page');
   });
 
@@ -228,7 +238,7 @@ describe('shell on phone', () => {
     await renderApp({ layout: 'phone' });
     await userEvent.click(await screen.findByRole('button', { name: 'More' }));
     // A row's name starts with its label and goes on with its live line.
-    for (const name of ['Plan', 'One offs', 'Analytics', 'Done', 'Settings']) expect(await screen.findByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    for (const name of ['Plan', 'One offs', 'Notes', 'Analytics', 'Done', 'Settings']) expect(await screen.findByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Settings/ }));
     await showsPane('Settings');
     expect(tab('More')).toHaveAttribute('aria-current', 'page');

@@ -58,6 +58,12 @@ function codeOf(error: unknown): string {
   return 'app-download';
 }
 
+/** latest-mac.yml must say exactly what the signed record does, before anything downloads. */
+export function matchesRecord(found: UpdateInfo | undefined, app: AppRecord): boolean {
+  const file = found?.files?.length === 1 ? found.files[0] : undefined;
+  return found?.version === app.version && found.path === app.file && found.sha512 === app.sha512 && file?.url === app.file && file.sha512 === app.sha512 && file.size === app.size;
+}
+
 /** Whether an app here can't replace itself because it runs read-only: from a disk image, or a temporary copy macOS made. */
 export function readOnlyPlace(appPath: string, access: (path: string, mode: number) => void): AppPlace | null {
   if (appPath.includes('/AppTranslocation/')) return { kind: 'translocated' };
@@ -144,17 +150,11 @@ export function appUpdates(deps: {
     return { manifest, app };
   }
 
-  /** latest-mac.yml must say exactly what the signed record does, before anything downloads. */
-  function matches(found: UpdateInfo | undefined, app: AppRecord) {
-    const file = found?.files?.length === 1 ? found.files[0] : undefined;
-    return found?.version === app.version && found.path === app.file && found.sha512 === app.sha512 && file?.url === app.file && file.sha512 === app.sha512 && file.size === app.size;
-  }
-
   async function fetchApp(release: SignedRelease, progress: (percent: number) => void) {
     const { app } = checked(release);
     updater.setFeedURL({ provider: 'generic', url: `${deps.downloadsOrigin}/${app.folder}`, useMultipleRangeRequest: false });
     const found = await updater.checkForUpdates().catch((error: unknown) => Promise.reject(refused('app-download', String(error))));
-    if (!matches(found?.updateInfo, app)) throw refused('app-mismatch', "latest-mac.yml doesn't match the signed app record");
+    if (!matchesRecord(found?.updateInfo, app)) throw refused('app-mismatch', "latest-mac.yml doesn't match the signed app record");
     updater.on('download-progress', (p) => progress(p.percent));
     // Squirrel checks the app's signature after electron-updater hands it over, and says when it's staged or why not.
     let done!: () => void;

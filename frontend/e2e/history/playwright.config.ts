@@ -1,4 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import { join } from 'node:path';
+import { assertInstalled } from '../../scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(join(import.meta.dirname, '../..'));
 
 // The history-scale test (scripts/test-history.sh): seeds the five-year account, then times a new browser and a new Mac
 // install of it. The web app is the production build in dist, which the Mac app loads too, served on HISTORY_WEB_PORT;

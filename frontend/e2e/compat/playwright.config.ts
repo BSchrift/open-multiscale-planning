@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import { target } from '../stack/target';
+import { join } from 'node:path';
+import { assertInstalled } from '../../scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(join(import.meta.dirname, '../..'));
 
 // The last release's web bundle and this checkout's, as scripts/test-compat.sh built them, served from one origin by
 // serve.mjs, signing in to the backend the stack specs use. Tests share that server and backend, so they run one at a

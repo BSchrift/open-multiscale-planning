@@ -7,14 +7,14 @@
 }
 
 [data-layout] .daychipset > legend {
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
   padding: 0;
 }
 
 [data-layout] .daychipfill {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout] .daychipbox {
@@ -24,7 +24,7 @@
 [data-layout] .daychips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 [data-layout] .daychip {
@@ -58,12 +58,12 @@
 [data-layout='phone'] .daychips {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 [data-layout='phone'] .daychip {
   min-width: 0;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 /* Too narrow for seven, they wrap four and three. */

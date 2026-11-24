@@ -27,6 +27,7 @@ vi.mock('@capacitor/app', () => ({
   },
 }));
 vi.mock('@capacitor/browser', () => ({ Browser: { open: vi.fn(async () => undefined), close: vi.fn(async () => undefined) } }));
+vi.mock('@capacitor/haptics', () => ({ Haptics: { impact: vi.fn(async () => undefined) }, ImpactStyle: { Light: 'LIGHT' } }));
 vi.mock('@capacitor/local-notifications', () => ({
   LocalNotifications: {
     addListener: vi.fn(async (event: string, handler: (data: never) => void) => {
@@ -97,6 +98,7 @@ vi.mock('@capacitor-community/sqlite', () => {
 
 const { App } = await import('@capacitor/app');
 const { Browser } = await import('@capacitor/browser');
+const { Haptics } = await import('@capacitor/haptics');
 const { LocalNotifications } = await import('@capacitor/local-notifications');
 const { capacitorSqlDriver, createCapacitorPlatform } = await import('./capacitor');
 
@@ -367,5 +369,20 @@ describe('appearance', () => {
     await platform.setAppearance!('dark');
     await platform.setAppearance!('system');
     expect(native.appearances).toEqual([{ appearance: 'dark' }, { appearance: 'system' }]);
+  });
+});
+
+describe('haptics', () => {
+  it('taps once, lightly, through the Taptic Engine, which the browser’s vibrate never reaches on an iPhone', async () => {
+    const platform = await createCapacitorPlatform();
+    await platform.haptic!();
+    expect(Haptics.impact).toHaveBeenCalledOnce();
+    expect(Haptics.impact).toHaveBeenCalledWith({ style: 'LIGHT' });
+  });
+
+  it('never fails what the tap goes with, even when the phone refuses it', async () => {
+    vi.mocked(Haptics.impact).mockRejectedValueOnce(new Error('not available'));
+    const platform = await createCapacitorPlatform();
+    await expect(platform.haptic!()).resolves.toBeUndefined();
   });
 });

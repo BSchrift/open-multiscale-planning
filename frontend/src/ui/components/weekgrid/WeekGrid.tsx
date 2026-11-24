@@ -2,7 +2,8 @@
 // blocks at the same time side by side.
 // While editing, blocks drag on a 15-minute grid and snap to a suggested time within 20 minutes; the bottom edge
 // changes the length, on a block tall enough to have one. A move or resize is reported once, on drop; let go over To schedule, a block comes off the
-// calendar through onUnschedule. Week and the planning Schedule step share it.
+// calendar through onUnschedule. Week and the planning Schedule step share it, as HoldWeekGrid (HoldWeekGrid.tsx), where
+// a press held on empty time drafts an hour there and opens Capture on it.
 //
 //   <WeekGrid ctx={slotContext(...)} blocks={blocks} editing onChange={(id, slot) => save(id, slot)} />
 //
@@ -20,8 +21,9 @@ import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
 import { OutcomeTag } from '../blocks/Outcome';
 import { blockClass, BlockMarks, blockState, LOOK } from '../ds/Block';
-import { columnStyle, overlapGroups, overlapNote } from './columns';
-import { clearLane, overLane } from './drop';
+import { columnStyle, laneRows, overlapGroups, overlapNote } from './columns';
+import { clearLane, holdToDrag, overLane } from './drop';
+import type { useHoldToCreate } from './holdCreate';
 import './weekgrid.css';
 import { Icon } from '../ds/Icon';
 
@@ -57,7 +59,7 @@ export interface PlacedBlock extends GridBlock {
   result: BlockResult | null;
 }
 
-const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off', planning: 'planning' };
+const KIND: Record<string, BlockKind> = { practice: 'practice', one_off: 'one_off', planning: 'planning', inbox: 'inbox' };
 
 /** The placed spans of a slot context, with what their block rows say. */
 export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[], now: number): PlacedBlock[] {
@@ -127,7 +129,10 @@ export interface WeekGridProps {
   editing?: boolean;
   /** Time before ctx.earliest is greyed, its blocks stay put, and nothing moves into it. */
   lockPast?: boolean;
-  /** A save that resolves to undefined has failed, and the dropped block goes back to where it was saved. */
+  /**
+   * A save that resolves to undefined or false has failed or been turned down, and the dropped block goes back to where
+   * it was saved.
+   */
   onChange?(id: string, slot: Slot): unknown;
   onRemove?(id: string): void;
   /** A block let go over To schedule, which takes it off the calendar. */
@@ -140,23 +145,28 @@ export interface WeekGridProps {
   now?: { date: LocalDate; minutes: number };
   /** How many things were finished each day up to today: those days' headings say so, and open Done. */
   done?: { finished: Readonly<Record<LocalDate, number>>; open(date: LocalDate): void };
+  /** Hold to create, from HoldWeekGrid. */
+  hold?: ReturnType<typeof useHoldToCreate>;
 }
 
 const { from: FROM, to: TO } = DRAWN_DAY;
 const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
-const COLUMN_GAP = 2;
+export const COLUMN_GAP = 2;
 // Shorter than this, a block draws no edge to change its length: the edge, at least 4px, would take more than a quarter
 // of it, and most presses would change its length instead of moving it. Shift and the arrow keys still do.
 const EDGE_MIN = 16;
 const LANE_ROW = 28;
 
 const same = (a: Slot, b: Slot) => a.date === b.date && a.start === b.start && a.end === b.end;
+/** An hour's height: taller while editing. */
+export const hourPx = (editing: boolean) => (editing ? 40 : 26);
 
 export function WeekGrid(props: WeekGridProps) {
   const { ctx, blocks, info = [], ghosts = [], lane = [], editing = false, lockPast = false } = props;
-  const hr = editing ? 40 : 26;
+  const hr = hourPx(editing);
   const y = (m: number) => ((Math.max(FROM, Math.min(TO, m)) - FROM) * hr) / 60;
-  const [drag, setDrag] = useState<{ id: string; slot: Slot } | null>(null);
+  // held: still under the pointer, drawn lifted; a block let go stays where it landed, put down, until it's saved.
+  const [drag, setDrag] = useState<{ id: string; slot: Slot; held?: boolean } | null>(null);
   const live = useRef(props);
   live.current = props;
   // A dropped block stays where it landed until the saved position comes back in blocks. Compared by position, since
@@ -175,6 +185,9 @@ export function WeekGrid(props: WeekGridProps) {
     [...(grid.current?.querySelectorAll<HTMLElement>('[data-id]') ?? [])].find((e) => e.dataset.id === want.id)?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions]);
+
+  const holdNew = props.hold;
+  const held = holdNew?.draft?.slot;
 
   const days = weekDates(ctx.week);
   // Blocks at the same time sit side by side, laid out where they're saved, so one being dragged keeps its column.
@@ -202,46 +215,38 @@ export function WeekGrid(props: WeekGridProps) {
     (event.currentTarget as HTMLElement).closest<HTMLElement>('.evdrag')?.focus();
     const column = (event.currentTarget as HTMLElement).closest('.colbody');
     const wide = (column?.getBoundingClientRect().width ?? 100) + COLUMN_GAP;
-    const [x0, y0] = [event.clientX, event.clientY];
     let last: Slot = b;
-    let moved = false;
     const leaving = (e: PointerEvent) => mode === 'move' && !!live.current.onUnschedule && overLane(e.clientX, e.clientY);
-    const move = (e: PointerEvent) => {
-      if (leaving(e)) return;
-      const next = dragResult(b, mode, Math.round((e.clientX - x0) / wide), ((e.clientY - y0) * 60) / hr, mode === 'move' ? targets : []);
-      if (same(next, b) && !moved) return;
-      moved = true;
-      if (isPast(next.date, next.start)) return;
-      last = next;
-      setDrag({ id: b.id, slot: next });
-    };
-    const stop = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      clearLane();
-    };
-    const cancel = () => {
-      stop();
-      setDrag(null);
-    };
-    const up = (e: PointerEvent) => {
-      const off = leaving(e);
-      stop();
-      if (off) {
+    holdToDrag(event, {
+      lift: () => setDrag({ id: b.id, slot: b, held: true }),
+      drag: (dx, dy, e) => {
+        if (leaving(e)) return;
+        const next = dragResult(b, mode, Math.round(dx / wide), (dy * 60) / hr, mode === 'move' ? targets : []);
+        if (isPast(next.date, next.start)) return;
+        last = next;
+        setDrag({ id: b.id, slot: next, held: true });
+      },
+      drop: (e) => {
+        const off = leaving(e);
+        clearLane();
+        if (off) {
+          setDrag(null);
+          live.current.onUnschedule?.(b.id);
+        } else if (!same(last, b)) {
+          setDrag({ id: b.id, slot: last });
+          const saved = live.current.onChange?.(b.id, last);
+          if (saved instanceof Promise) {
+            void saved.then((ok) => !ok && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
+          }
+        } else setDrag(null);
+      },
+      // A click, held or not, opens it: the block is a group, with no click of its own.
+      tap: () => live.current.onOpen?.(b.id),
+      cancel: () => {
+        clearLane();
         setDrag(null);
-        live.current.onUnschedule?.(b.id);
-      } else if (!moved) live.current.onOpen?.(b.id);
-      else if (!same(last, b)) {
-        const saved = live.current.onChange?.(b.id, last);
-        if (saved instanceof Promise) {
-          void saved.then((ok) => ok === undefined && setDrag((d) => (d?.id === b.id && same(d.slot, last) ? null : d)));
-        }
-      } else setDrag(null);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
+      },
+    });
   };
 
   const onKey = (event: KeyboardEvent, b: GridBlock) => {
@@ -261,7 +266,12 @@ export function WeekGrid(props: WeekGridProps) {
     props.onChange?.(b.id, next);
   };
 
-  const laneH = lane.length ? lane.length * LANE_ROW + 4 : 0;
+  // What waits above the week shares rows across days, so the strip is only as tall as its busiest day, and a practice's
+  // sessions keep to one row.
+  const laneAt = laneRows(
+    lane.map((a) => ({ from: Math.max(0, diffDays(days[0]!, a.from)), to: Math.min(6, diffDays(days[0]!, a.to)), ...(a.practice ? { group: a.title } : {}) })),
+  );
+  const laneH = laneAt.count ? laneAt.count * LANE_ROW + 4 : 0;
   const gridH = (TO - FROM) * (hr / 60);
 
   return (
@@ -315,7 +325,7 @@ export function WeekGrid(props: WeekGridProps) {
                       key={a.id}
                       type="button"
                       className={a.planning ? 'oochip planchip' : a.practice ? 'oochip pracchip' : 'oochip'}
-                      style={{ top: i * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
+                      style={{ top: laneAt.rows[i]! * LANE_ROW + 2, width: `calc(${span} * 100% + ${(span - 1) * COLUMN_GAP}px)` }}
                       title={a.alt}
                       aria-label={a.alt}
                       aria-expanded={a.open}
@@ -327,7 +337,13 @@ export function WeekGrid(props: WeekGridProps) {
                   );
                 })}
               </div>
-              <div className={`colbody${editing ? ' tall' : ''}`} style={{ height: gridH }} data-drop-date={date}>
+              <div
+                className={`colbody${editing ? ' tall' : ''}`}
+                style={{ height: gridH }}
+                data-drop-date={date}
+                // Empty time is the day itself and its closed hours; a block, an event or a suggested time keeps its own press.
+                onPointerDown={(e) => holdNew && !drag && !(e.target as Element).closest('.ev:not(.ev-closed), button') && holdNew.press(e)}
+              >
                 {closed.map((z, i) => (
                   <div key={`c${i}`} className="ev ev-closed" style={{ top: z.top, height: z.h }} aria-hidden="true" />
                 ))}
@@ -371,7 +387,7 @@ export function WeekGrid(props: WeekGridProps) {
                       <div
                         key={b.id}
                         data-id={b.id}
-                        className={b.draft ? cls : `${cls} evdrag${drag?.id === b.id ? ' lifted' : ''}`}
+                        className={`${cls}${b.draft ? '' : ' evdrag'}${drag?.id === b.id && drag.held ? ' lifted' : ''}`}
                         tabIndex={0}
                         role="group"
                         aria-label={said + help}
@@ -380,7 +396,7 @@ export function WeekGrid(props: WeekGridProps) {
                         onPointerDown={(e) => startDrag(e, at, 'move')}
                         onKeyDown={(e) => onKey(e, b)}
                       >
-                        <BlockMarks state={state} short={h < 30} />
+                        <BlockMarks state={state} short={h < 30} look={LOOK[b.kind]} />
                         <span className="blktitle">{b.draft ? `${b.title}, ${formatTimeOfDay(at.start)}` : b.title}</span>
                         {h >= EDGE_MIN && <span className="evh" onPointerDown={(e) => startDrag(e, at, 'resize')} />}
                         {!b.draft && props.onRemove && (
@@ -410,7 +426,7 @@ export function WeekGrid(props: WeekGridProps) {
                         title={b.note}
                         onClick={() => props.onOpen?.(b.id)}
                       >
-                        <BlockMarks state={state} short={h < 30} />
+                        <BlockMarks state={state} short={h < 30} look={LOOK[b.kind]} />
                         <OutcomeTag result={b.result} />
                         <span className="blktitle">{b.title}</span>
                       </button>
@@ -418,12 +434,23 @@ export function WeekGrid(props: WeekGridProps) {
                   }
                   return (
                     <div key={b.id} className={cls} style={style} title={said}>
-                      <BlockMarks state={state} short={h < 30} />
+                      <BlockMarks state={state} short={h < 30} look={LOOK[b.kind]} />
                       <OutcomeTag result={b.result} />
                       <span className="blktitle">{b.title}</span>
                     </div>
                   );
                 })}
+                {held?.date === date && (
+                  <div
+                    ref={holdNew!.draftRef}
+                    className={`ev holddraft ${blockClass('project', 'placing', { short: y(held.end) - y(held.start) < 30 })}${sharedWith(held, blocks, ctx).length ? ' beside' : ''}${holdNew!.draft!.fresh ? ' pop' : ''}`}
+                    style={{ top: y(held.start), height: Math.max(13, y(held.end) - y(held.start)) }}
+                    title={slotRange(held)}
+                    aria-hidden="true"
+                  >
+                    <span className="blktitle">{`${holdNew!.draft!.name.trim() || 'New task'}, ${formatTimeOfDay(held.start)}`}</span>
+                  </div>
+                )}
                 {ghosts
                   .filter((g) => g.date === date)
                   .map((g) => (
@@ -446,6 +473,10 @@ export function WeekGrid(props: WeekGridProps) {
     </div>
   );
 }
+
+/** The blocks and calendar events on a draft's day at its time. */
+export const sharedWith = (held: Slot, blocks: readonly GridBlock[], ctx: SlotContext) =>
+  [...blocks.filter((b) => !b.draft), ...ctx.busy].filter((o) => o.date === held.date && o.start < held.end && held.start < o.end);
 
 /** Closed hours for project work, merged into runs of half hours. */
 function closedZones(date: LocalDate, ctx: SlotContext, y: (m: number) => number) {

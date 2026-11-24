@@ -1,6 +1,6 @@
 // To schedule on Today, just above the day: this week's work waiting for a time, either dated today or with no day
 // of its own. A card dragged onto the day (held first on phone) is placed where it's let go; tapped, it opens its
-// suggested times, as on Week.
+// suggested times, as on Week, and Choose a time opens Week to place it by hand.
 
 import { useMemo, useState } from 'react';
 import { weekStart } from '../../../core/dates';
@@ -11,6 +11,8 @@ import { Sheet } from '../../components/Sheet';
 import { loadWeek, weekModel } from '../week/data';
 import { LaneActions, LaneCard, laneCount } from '../week/lane';
 import { useWeekActions } from '../week/useWeekActions';
+import { useLanding } from '../week/landing';
+import type { Slot } from '../../../core/slots';
 import { Button } from '../../components/ds/Button';
 
 export function ToSchedule(props: { date: LocalDate }) {
@@ -21,7 +23,13 @@ export function ToSchedule(props: { date: LocalDate }) {
   const data = useQuery((sql, c) => loadWeek(sql, c, week), [week]).data;
   const model = useMemo(() => data && weekModel(data, clock), [data, clock]);
   const [openId, setOpenId] = useState<string | null>(null);
+  // A card let go on a block asks first: keep both, replace it, or leave it.
+  const { landing, takeOff, asking } = useLanding(model?.blocks ?? [], week);
   if (!model) return null;
+  const dropCard = async (x: (typeof model.unscheduled)[number], slot: Slot) => {
+    const { go, off } = await landing(x.title, slot);
+    if (go && (await act.place(x, slot))) takeOff(off);
+  };
   const phone = layout === 'phone';
   // Planning has its own row on Today.
   // A count's sessions wait on any day without one of its sessions; a set day's, on its own day only.
@@ -37,7 +45,7 @@ export function ToSchedule(props: { date: LocalDate }) {
         close();
         void act.place(item, slot);
       }}
-      onChoose={item.task ? () => nav.go('week', { place: item.id }) : undefined}
+      onChoose={() => nav.go('week', { place: item.id })}
       onSkipDay={() => {
         close();
         void act.skipDay(item, week);
@@ -80,12 +88,12 @@ export function ToSchedule(props: { date: LocalDate }) {
                 draggable
                 onToggle={() => setOpenId(openId === x.id ? null : x.id)}
                 onPreview={() => undefined}
-                onDrop={(slot) => void act.place(x, slot)}
+                onDrop={(slot) => void dropCard(x, slot)}
               />
             ))}
           </div>
           <p className="small quiet">
-            {phone ? 'Hold a card, then drag it onto the day, or tap it for suggested times.' : 'Drag work onto the day to place it, or click it for suggested times.'}
+            {phone ? 'Hold a card, then drag it onto the day, or tap it for suggested times.' : 'Hold work, then drag it onto the day to place it, or click it for suggested times.'}
           </p>
           {phone && planOne}
         </>
@@ -100,6 +108,7 @@ export function ToSchedule(props: { date: LocalDate }) {
           {actions}
         </Sheet>
       )}
+      {asking}
     </section>
   );
 }

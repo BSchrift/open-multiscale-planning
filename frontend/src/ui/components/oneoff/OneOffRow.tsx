@@ -141,7 +141,7 @@ export function OneOffEditor(props: { task: Task; onClose(): void }) {
           if (!reverse) return;
           onClose();
           // The row goes with it, so focus moves to Undo rather than the page.
-          toast.show(`Deleted ${task.title}`, { undo: () => undo.run(reverse), focusUndo: true });
+          toast.show(`Deleted ${task.title}.`, { undo: () => undo.run(reverse), focusUndo: true });
         }}
         onSave={async (fields) => {
           if ((await save.run(fields)) === undefined) return false;

@@ -8,7 +8,8 @@ import { useApp, useToday } from '../../app/store';
 import { DayChips } from '../DayChips';
 import { EstimateSlider } from '../EstimateSlider';
 import { NotesField } from '../notes/NotesField';
-import { draftDays, draftError, draftOf, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
+import { draftDays, draftError, draftOf, draftSchedule, emptyDraft, oneOffFields, REPEAT_TYPES } from './draft';
+import { hasOneDate } from '../../../core/schedule';
 import type { OneOffDraft, RepeatType, RuleDay, RuleOf, RulePos } from './draft';
 import './oneoff.css';
 import { Button } from '../ds/Button';
@@ -91,7 +92,7 @@ export function OneOffForm(props: {
   const [error, setError] = useState<string | null>(null);
   // The key starts the description afresh after each add.
   const [added, setAdded] = useState(0);
-  const ids = { title: useId(), type: useId(), from: useId(), to: useId(), starts: useId(), months: useId() };
+  const ids = { title: useId(), type: useId(), from: useId(), to: useId(), starts: useId(), months: useId(), time: useId() };
   const put = (patch: Partial<OneOffDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
     setError(null);
@@ -103,7 +104,7 @@ export function OneOffForm(props: {
     const problem = draftError(draft);
     if (problem) return setError(problem);
     if ((await props.onSave(oneOffFields(draft, today))) === false) return;
-    setDraft((d) => ({ ...d, title: '', from: '', to: '', ranged: false, notes: undefined }));
+    setDraft((d) => ({ ...d, title: '', from: '', to: '', ranged: false, time: '', notes: undefined }));
     setAdded((n) => n + 1);
   };
 
@@ -219,6 +220,15 @@ export function OneOffForm(props: {
         </div>
       )}
 
+      {hasOneDate(draftSchedule(draft)) && (
+        <div className="oospan stack8">
+          <label className={phone ? 'stack8 small quiet' : 'popfield'}>
+            {draft.type === 'once' ? 'At a time of day (optional)' : 'Each time at (optional)'}
+            <input className="field ootime" type="time" step={900} aria-describedby={ids.time} value={draft.time} onChange={(e) => put({ time: e.target.value })} />
+          </label>
+          <p id={ids.time} className="small quiet">With a time, it's placed then by itself when that time is free.</p>
+        </div>
+      )}
       <div className="oospan">
         <EstimateSlider label="Time" value={draft.estimate} onChange={(estimate) => put({ estimate })} />
       </div>

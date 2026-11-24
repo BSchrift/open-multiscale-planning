@@ -39,7 +39,8 @@ export function laneWords(item: LaneItem): string {
   if (s) return `${sayMinutes(item.length)} on ${DAY_NAMES[s.day]}${s.time === null ? '' : ` around ${sayTime(s.time)}`}`;
   if (item.practice) return item.line.replace(' · ', ', ');
   const when = datesText(item.dates);
-  return `${item.line}${when ? `, ${when}` : ''}`;
+  const why = item.why ? `, ${sayTime(item.why.time)} ${item.why.why}` : '';
+  return `${item.line}${when ? `, ${when}` : ''}${why}`;
 }
 
 export function LaneCard(props: {

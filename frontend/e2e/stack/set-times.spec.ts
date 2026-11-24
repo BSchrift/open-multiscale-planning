@@ -84,3 +84,41 @@ test('two devices placing the same practice offline make one session a day, and 
   await syncNow(a.page);
   expect([...a.errors, ...b.errors]).toEqual([]);
 });
+
+test('two devices placing the same one off at its time of day make one block', async ({ browser }) => {
+  test.skip(!t.localApi, 'needs: a fresh user each run');
+  const run = randomUUID().slice(0, 8);
+  const id = `e2e-${run}-pass`;
+  const title = `Renew passport ${run}`;
+  const a = await device(browser, `e2e-${run}`);
+  const b = await device(browser, `e2e-${run}`);
+  // Tomorrow at noon, which is always among the days placed.
+  const zone = await a.page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const tomorrow = addDays(today({ now: () => Date.now(), zone: () => zone }), 1);
+  await seed(a.page, [{ type: 'task', id, fields: { kind: 'one_off', title, estimate_min: 30, schedule: { type: 'once', from: tomorrow }, next_due: tomorrow, time: 12 * 60 } }]);
+  await signIn(a.page);
+  await syncNow(a.page);
+  await signIn(b.page);
+  await syncNow(b.page);
+  await go(b.page, 'One offs');
+  await expect(pane(b.page, 'One offs').getByText(title)).toBeVisible();
+
+  for (const d of [a, b]) {
+    await d.context.setOffline(true);
+    await foreground(d.page);
+    await expect(d.page.getByText(new RegExp(`^Placed ${title} at its set time`))).toBeVisible();
+  }
+  const block = (d: typeof a) => readRecord(d.page, 'time_block', `due:${id}:${tomorrow}`);
+  const placed = await block(a);
+  expect(placed).toMatchObject({ task_id: id });
+  expect(await block(b)).toEqual(placed);
+  for (const d of [a, b]) await d.context.setOffline(false);
+  for (const d of [a, b, a]) await syncNow(d.page);
+  expect(await block(a)).toEqual(placed);
+  expect(await block(b)).toEqual(placed);
+
+  const gone = new Date().toISOString();
+  await seed(a.page, [{ type: 'task', id, fields: { deleted_at: gone } }, { type: 'time_block', id: `due:${id}:${tomorrow}`, fields: { deleted_at: gone } }]);
+  await syncNow(a.page);
+  expect([...a.errors, ...b.errors]).toEqual([]);
+});

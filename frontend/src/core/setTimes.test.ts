@@ -11,7 +11,9 @@ import {
   atSetTime,
   awayMessage,
   followMessage,
+  followOneOff,
   followSetTimes,
+  oneOffWhy,
   pausedMessage,
   pausePractice,
   placedMessage,
@@ -455,3 +457,105 @@ async function context(t: Awaited<ReturnType<typeof setup>>, week: string) {
     away: await listRecords(t.db, 'away_period'),
   });
 }
+
+describe('one offs at a time of day', () => {
+  const passport = (fields: Fields<'task'> = {}) => (w: Writer) =>
+    w.create('task', { kind: 'one_off', title: 'Renew passport', estimate_min: 30, schedule: { type: 'once', from: '2026-12-02' }, time: 9 * 60, ...fields }, 'pass');
+  const blocks = async (t: Awaited<ReturnType<typeof setup>>, task = 'pass') =>
+    (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === task && !b.cancelled).map((b) => [b.id, b.start, b.end]);
+
+  it('lands at its time on its one date, under the day id, with the lowest clocks', async () => {
+    const t = await setup(FRI, passport());
+    const done = await t.place();
+    expect(await blocks(t)).toEqual([['due:pass:2026-12-02', at('2026-12-02', '09:00'), at('2026-12-02', '09:30')]]);
+    for (const clock of Object.values(await fieldClocks(t.db, 'due:pass:2026-12-02'))) expect(parseClock(clock)).toMatchObject({ wall: 0 });
+    expect(placedMessage(done.placed, t.clock)).toBe('Placed 7 blocks at their set times this week and next.');
+    expect((await t.place()).placed).toEqual([]);
+  });
+
+  it("a repeating one lands on its next date; one with a range, a window, no time, or that's done doesn't", async () => {
+    const t = await setup(FRI, async (w) => {
+      await w.create('task', { kind: 'one_off', title: 'Water the plants', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-11-03' }, next_due: '2026-12-01', time: 8 * 60 }, 'water');
+      await w.create('task', { kind: 'one_off', title: 'Paint the fence', schedule: { type: 'once', from: '2026-12-01', to: '2026-12-03' }, time: 8 * 60 }, 'fence');
+      await w.create('task', { kind: 'one_off', title: 'Service the boiler', schedule: { type: 'window', min: 2, max: 3, unit: 'month' }, next_due: '2026-12-01', time: 8 * 60 }, 'boiler');
+      await w.create('task', { kind: 'one_off', title: 'Call the bank', schedule: { type: 'once', from: '2026-12-01' } }, 'bank');
+      await w.create('task', { kind: 'one_off', title: 'Post the card', schedule: { type: 'once', from: '2026-12-01' }, time: 8 * 60, done_at: FRI }, 'card');
+    });
+    await t.place();
+    expect(await blocks(t, 'water')).toEqual([['due:water:2026-12-01', at('2026-12-01', '08:00'), at('2026-12-01', '08:30')]]);
+    for (const id of ['fence', 'boiler', 'bank', 'card']) expect(await blocks(t, id)).toEqual([]);
+  });
+
+  it('waits when its time is taken, and never lands on a day that has had a block of it', async () => {
+    const t = await setup(FRI, async (w) => {
+      await passport({ schedule: { type: 'once', from: '2026-12-03' }, time: 7 * 60 + 15 })(w);
+      await w.create('task', { kind: 'one_off', title: 'Return the drill', schedule: { type: 'once', from: '2026-12-04' }, time: 12 * 60 }, 'drill');
+      await w.create('time_block', { task_id: 'drill', start: at('2026-12-04', '15:00'), end: at('2026-12-04', '15:30'), tz: 'UTC', cancelled: true });
+      await dentist()(w);
+    });
+    await t.place();
+    expect(await blocks(t)).toEqual([]);
+    expect(await blocks(t, 'drill')).toEqual([]);
+  });
+
+  it('comes after the practices for the same time, and waits saying what takes it', async () => {
+    const t = await setup(FRI, passport({ schedule: { type: 'once', from: '2026-12-01' }, time: 7 * 60 }));
+    await t.place();
+    expect(await blocks(t)).toEqual([]);
+    expect((await t.sessions()).map((s) => s[0])).toContain('session:run:2026-12-01');
+    const task = (await getRecord(t.db, 'task', 'pass'))!;
+    expect(oneOffWhy(task, '2026-12-01', await context(t, NEXT))).toEqual({ time: 420, why: 'is taken', by: 'Morning run' });
+    expect(oneOffWhy(task, '2026-12-02', await context(t, NEXT))).toBeNull();
+  });
+
+  it('a released app editing its dates keeps its time', async () => {
+    const t = await setup(FRI, passport());
+    await t.run((w) => w.set('task', 'pass', { schedule: { type: 'once', from: '2026-12-03' }, next_due: '2026-12-03' }));
+    expect((await getRecord(t.db, 'task', 'pass'))?.time).toBe(9 * 60);
+  });
+});
+
+describe('a one off whose time or date changes', () => {
+  const passport = (w: Writer) =>
+    w.create('task', { kind: 'one_off', title: 'Renew passport', estimate_min: 30, schedule: { type: 'once', from: '2026-12-02' }, next_due: '2026-12-02', time: 9 * 60 }, 'pass');
+  const change = (t: Awaited<ReturnType<typeof setup>>, fields: Fields<'task'>) =>
+    t.run(async (w) => {
+      const before = (await getRecord(w.sql, 'task', 'pass'))!;
+      const back = await applyPlanChange(w, { writes: [{ type: 'task', id: 'pass', fields }] });
+      const follow = await followOneOff(w, before, { ...before, ...fields }, t.clock);
+      return { ...follow, writes: [...follow.writes, ...back.writes] };
+    });
+  const block = async (t: Awaited<ReturnType<typeof setup>>, id = 'due:pass:2026-12-02') => getRecord(t.db, 'time_block', id);
+
+  it('moves to a new time that day, and Undo puts it back', async () => {
+    const t = await setup(FRI, passport);
+    await t.place();
+    const done = await change(t, { time: 10 * 60 });
+    expect(done.said).toBe('Moved Renew passport to Wed 10am.');
+    expect(await block(t)).toMatchObject({ start: at('2026-12-02', '10:00'), end: at('2026-12-02', '10:30') });
+    await t.run((w) => applyPlanChange(w, done));
+    expect(await block(t)).toMatchObject({ start: at('2026-12-02', '09:00') });
+    expect((await getRecord(t.db, 'task', 'pass'))?.time).toBe(9 * 60);
+  });
+
+  it('comes off its old day and lands on a new one', async () => {
+    const t = await setup(FRI, passport);
+    await t.place();
+    const done = await change(t, { schedule: { type: 'once', from: '2026-12-03' }, next_due: '2026-12-03' });
+    expect(done.said).toBe('Placed Renew passport at its set time, Thu 9am.');
+    expect((await block(t))?.cancelled).toBe(true);
+    expect(await block(t, 'due:pass:2026-12-03')).toMatchObject({ start: at('2026-12-03', '09:00') });
+  });
+
+  it('waits when the new time is taken, and stays put when its time is cleared', async () => {
+    const t = await setup(FRI, passport);
+    await t.place();
+    const taken = await change(t, { time: 7 * 60 });
+    expect(taken.said).toBe("Took Renew passport off Wed 9am. It's in To schedule.");
+    await t.run((w) => applyPlanChange(w, taken));
+    const cleared = await change(t, { time: null });
+    expect(cleared.said).toBe('');
+    expect(await block(t)).toMatchObject({ start: at('2026-12-02', '09:00') });
+    expect((await block(t))?.cancelled).toBeFalsy();
+  });
+});

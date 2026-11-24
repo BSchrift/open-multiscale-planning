@@ -582,6 +582,33 @@ test.describe('one device', () => {
     expect(errors).toEqual([]);
   });
 
+  test("a one off's time of day: the bundle before keeps it through a change of date, and the update places it on the new day", async ({ context }) => {
+    const errors: string[] = [];
+    await context.addCookies([bundle('new')]);
+    let page = await launch(context, 'new', errors);
+    const passport: Seed = { type: 'task', id: 'pass', fields: { kind: 'one_off', title: 'Renew passport', estimate_min: 30, schedule: { type: 'once', from: '2026-11-05' }, next_due: '2026-11-05', time: 540 } };
+    await openSeeded(page, [...week, passport]);
+    await expect(page.getByText('Placed Renew passport at its set time, Thu 9am.')).toBeVisible();
+    expect(await readRecord(page, 'time_block', 'due:pass:2026-11-05')).toMatchObject({ start: at(5, '09:00'), end: at(5, '09:30') });
+
+    // The bundle before moves it to Friday with its own date control, which writes only the dates.
+    page = await relaunch(page, 'old', errors);
+    await go(page, 'One offs');
+    await pane(page, 'One offs').getByRole('button', { name: 'Change date for Renew passport' }).click();
+    await pane(page, 'One offs').getByLabel('Date', { exact: true }).fill('2026-11-06');
+    await pane(page, 'One offs').getByRole('button', { name: 'Set date' }).click();
+    await expect.poll(async () => ((await readRecord(page, 'task', 'pass'))?.schedule as { from?: string })?.from).toBe('2026-11-06');
+    expect((await readRecord(page, 'task', 'pass'))?.time).toBe(540);
+    await everyScreen(page);
+
+    // Updated again, its time is still there, and it lands on Friday at it.
+    page = await relaunch(page, 'new', errors);
+    await go(page, 'One offs');
+    await expect(pane(page, 'One offs').getByText('Nov 6, 9am, 30m')).toBeVisible();
+    await expect.poll(async () => (await readRecord(page, 'time_block', 'due:pass:2026-11-06'))?.start).toBe(at(6, '09:00'));
+    expect(errors).toEqual([]);
+  });
+
   test("the weekly planning reminder's switch, off in the update, stays off when the bundle before changes another", async ({ context }) => {
     const errors: string[] = [];
     await context.addCookies([bundle('new')]);

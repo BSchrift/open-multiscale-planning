@@ -147,6 +147,7 @@ export const RECORD_FIELDS = {
     'order',
     'schedule',
     'next_due',
+    'time',
     'done_at',
     'cancelled_at',
     'cancelled_by',

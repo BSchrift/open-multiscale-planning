@@ -145,3 +145,29 @@ test('Today shows the session at its set time, and Take off calendar puts it in 
   await expect(page.getByRole('button', { name: /^Tue 7am to 7:30am$/ })).toBeVisible();
   await shoot(page, info, 'removed');
 });
+
+test('a one off added with a date and a time of day lands then, said with Undo, and its row says when', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  await open(page);
+  await expect(page.getByText('Placed 7 practice sessions at their set times next week.')).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: phone ? 'More' : 'One offs' }).click();
+  if (phone) await page.getByRole('button', { name: /^One offs/ }).click();
+  const list = pane(page, 'One offs');
+  let form = list.getByRole('form', { name: 'Add a one off' });
+  if (phone) {
+    await list.getByRole('button', { name: 'Add one off' }).click();
+    form = page.getByRole('dialog', { name: 'Add a one off' });
+  }
+  await form.getByLabel('Title').fill('Renew passport');
+  await form.getByLabel('Date (optional)').fill('2026-12-02');
+  await form.getByLabel('At a time of day (optional)').fill('09:00');
+  await shoot(page, info, 'oneoff-form');
+  await form.getByRole('button', { name: 'Add one off' }).click();
+  await expect(page.getByText('Placed Renew passport at its set time, Wed 9am.')).toBeVisible();
+  await expect(list.getByText('Dec 2, 9am, 30m')).toBeVisible();
+  if (phone) return;
+  // On Week, it's a block at its time, as a block placed by hand is.
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Week' }).click();
+  await page.getByRole('button', { name: 'Next week', exact: true }).click();
+  await expect(pane(page, 'Week').getByRole('button', { name: /^Renew passport, Wed Dec 2, 9am to 9:30am/ })).toBeVisible();
+});

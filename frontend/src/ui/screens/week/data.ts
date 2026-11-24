@@ -14,7 +14,7 @@ import { blocksInRange, inboxCount, needsNewTime } from '../../../core/queries';
 import { blockConflicts, busyEvents, queueItems } from '../../../core/queue';
 import { CALENDAR_ID, getRecord, getSettings, listRecords } from '../../../core/records';
 import { onceOverlaps } from '../../../core/schedule';
-import { setTimeFit } from '../../../core/setTimes';
+import { oneOffWhy, setTimeFit } from '../../../core/setTimes';
 import type { SetTimeWhy } from '../../../core/setTimes';
 import { closestFit, fits, infoSpans, offers, practicesLeft, practiceSlots, practiceTime, sessionOffers, skippedSessionKey, slotContext, spansAhead } from '../../../core/slots';
 import type { Slot, SlotContext, Span, Work } from '../../../core/slots';
@@ -186,6 +186,9 @@ export function weekModel(d: WeekData, clock: Clock) {
     const plan = ranked.find((p) => p.project.id === t.project_id) ?? null;
     const { work } = workOf(t, plan, week, planCtx);
     const length = Math.min(left, FIRST_BLOCK_MIN);
+    // A one off at a time of day whose time is taken waits saying so, as a practice's day does.
+    const dates = datesOf(t);
+    const why = dates && dates.from === dates.to ? oneOffWhy(t, dates.from, ctx) : null;
     return {
       id: t.id,
       title: t.title,
@@ -198,6 +201,7 @@ export function weekModel(d: WeekData, clock: Clock) {
       task: t,
       picked: picked !== null,
       offers: offers(length, work, ctx).slice(0, 3),
+      ...(why ? { why } : {}),
     };
   };
   const picks = scheduleOrder(plans, oneOffs, input, planCtx);

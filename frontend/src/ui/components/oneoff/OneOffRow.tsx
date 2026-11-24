@@ -6,6 +6,7 @@ import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import { firstDue, isRepeating, rowLine } from '../../../core/schedule';
 import type { OneOffRow as Row } from '../../../core/schedule';
+import { followOneOff } from '../../../core/setTimes';
 import { closeTask, tickOneOff, untickOneOff } from '../../../core/tasks';
 import type { Fields, Task, TaskCompletion, TaskSchedule } from '../../../core/types';
 import { useShowCompleted } from '../../app/showCompleted';
@@ -119,7 +120,11 @@ export function OneOffEditor(props: { task: Task; onClose(): void }) {
       const day = today(clock);
       next_due = firstDue(fields.schedule!, done === day ? addDays(day, 1) : day, done);
     }
-    return w.set('task', task.id, { ...fields, next_due });
+    const written = { ...fields, next_due };
+    const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields: written }] });
+    // Its block at its time of day follows a new date, time or estimate, in the same Undo.
+    const follow = await followOneOff(w, task, { ...task, ...written } as Task, clock);
+    return { writes: [...follow.writes, ...back.writes], said: follow.said };
   });
   const toast = useToast();
   const remove = useMutation((w) => closeTask(w, task.id, 'deleted', clock));
@@ -144,8 +149,10 @@ export function OneOffEditor(props: { task: Task; onClose(): void }) {
           toast.show(`Deleted ${task.title}`, { undo: () => undo.run(reverse), focusUndo: true });
         }}
         onSave={async (fields) => {
-          if ((await save.run(fields)) === undefined) return false;
+          const done = await save.run(fields);
+          if (done === undefined) return false;
           onClose();
+          if (done.said) toast.show(done.said, { undo: () => undo.run(done) });
           return true;
         }}
       />

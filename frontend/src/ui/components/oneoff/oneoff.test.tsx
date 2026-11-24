@@ -46,6 +46,8 @@ describe('a draft becomes a schedule', () => {
       schedule: { type: 'once', from: null, to: null },
       next_due: null,
       estimate_min: 30,
+      // The form owns the time of day, so it writes none rather than leaving another's.
+      time: null,
     });
   });
 
@@ -118,6 +120,8 @@ describe('OneOffForm', () => {
       schedule: { type: 'once', from: '2026-11-04', to: '2026-11-05' },
       next_due: '2026-11-04',
       estimate_min: 45,
+      // A range has no one day for a time of day.
+      time: null,
     });
     expect(field('Title')).toHaveValue('');
     expect(screen.queryByRole('alert')).toBeNull();

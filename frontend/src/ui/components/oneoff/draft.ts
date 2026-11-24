@@ -2,7 +2,7 @@
 // core/schedule.ts; this only turns the form's choices into a schedule.
 
 import { weekday } from '../../../core/dates';
-import { firstDue, setOnceDates, validateSchedule } from '../../../core/schedule';
+import { firstDue, hasOneDate, setOnceDates, validateSchedule } from '../../../core/schedule';
 import type { Fields, LocalDate, Minutes, RepeatUnit, Task, TaskSchedule, Weekday } from '../../../core/types';
 
 export type RepeatType = TaskSchedule['type'];
@@ -45,6 +45,8 @@ export interface OneOffDraft {
   ruleDay: RuleDay;
   ruleOf: RuleOf;
   estimate: Minutes;
+  /** A time of day on its one date, as an <input type="time"> value, or '' for none. */
+  time: string;
   /** The description, once the form has one: without it the fields leave a task's description alone. */
   notes?: string;
 }
@@ -67,6 +69,7 @@ export function emptyDraft(today: LocalDate): OneOffDraft {
     ruleDay: 'MO',
     ruleOf: 'month',
     estimate: 30,
+    time: '',
   };
 }
 
@@ -82,7 +85,8 @@ export const draftDays = (d: OneOffDraft): Weekday[] => d.days ?? [weekday(d.sta
  * saved; add those controls to the form if such schedules start coming from somewhere.
  */
 export function draftOf(task: Task, today: LocalDate): OneOffDraft {
-  const d: OneOffDraft = { ...emptyDraft(today), title: task.title, estimate: task.estimate_min ?? 0, notes: task.notes ?? '' };
+  const time = task.time != null ? `${String(Math.floor(task.time / 60)).padStart(2, '0')}:${String(task.time % 60).padStart(2, '0')}` : '';
+  const d: OneOffDraft = { ...emptyDraft(today), title: task.title, estimate: task.estimate_min ?? 0, time, notes: task.notes ?? '' };
   const s = task.schedule ?? { type: 'once' };
   switch (s.type) {
     case 'once':
@@ -158,6 +162,7 @@ export function draftError(d: OneOffDraft): string | null {
  */
 export function oneOffFields(d: OneOffDraft, today: LocalDate): Fields<'task'> {
   const schedule = draftSchedule(d);
+  const [h, m] = d.time.split(':').map(Number);
   return {
     kind: 'one_off',
     project_id: null,
@@ -166,6 +171,8 @@ export function oneOffFields(d: OneOffDraft, today: LocalDate): Fields<'task'> {
     schedule,
     next_due: firstDue(schedule, today),
     estimate_min: d.estimate || null,
+    // Only on one day at a time: a range, a window or months have no one day to put it on.
+    time: d.time && hasOneDate(schedule) ? h! * 60 + m! : null,
     ...(d.notes === undefined ? {} : { notes: d.notes.trim() ? d.notes : null }),
   };
 }

@@ -5,7 +5,7 @@ import WidgetUI
 
 /// The app's look for a widget, from how iOS is drawing it: the app's light or dark in full colour, and one colour on
 /// glass on a tinted or clear Home Screen. StandBy at night turns everything red itself.
-private struct Looked<Content: View>: View {
+struct Looked<Content: View>: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var mode
     @ViewBuilder let content: Content

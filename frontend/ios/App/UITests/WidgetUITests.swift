@@ -75,7 +75,12 @@ final class WidgetUITests: XCTestCase {
         let weeks = Heard.count(measured + "nav.week")
         openLink("multiscale://week") { Heard.count(measured + "nav.week") > weeks }
         XCTAssertGreaterThan(Heard.count(measured + "nav.week"), weeks, "Week never said it was drawn")
-        let inbox = app.webText("Inbox is empty. Anything you capture lands here.")
+        // A row of the large Today widget opens Today at its block. Bringing the block into view is widgets.test.tsx's;
+        // this is the link's way in from outside the app, query and all.
+        let rows = Heard.count(measured + "nav.today")
+        openLink("multiscale://today?block=row-from-a-widget") { Heard.count(measured + "nav.today") > rows }
+        XCTAssertGreaterThan(Heard.count(measured + "nav.today"), rows, "Today never said it was drawn from a row's link")
+        let inbox =app.webText("Inbox is empty. Anything you capture lands here.")
         openLink("multiscale://inbox") { inbox.exists }
         exists(inbox)
         let todays = Heard.count(measured + "nav.today")

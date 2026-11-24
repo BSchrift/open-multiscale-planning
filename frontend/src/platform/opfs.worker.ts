@@ -82,10 +82,13 @@ async function open(): Promise<boolean> {
   return true;
 }
 
-// shortcut: every change is copied, as a whole file, to IndexedDB 200ms later, so the bundle before this one finds it
-// after a rollback; that costs what each save did before OPFS, but in this worker rather than on the page. Drop the copy
-// and the FILE_HASH check once no browser can go back to a bundle from before OPFS, and keep the first import of FILE
-// for browsers that skip this release.
+// shortcut: changes are copied, as a whole file, to IndexedDB once the database has been quiet for QUIET_MS, so the bundle
+// before this one finds them after a rollback; that costs what each save did before OPFS, but in this worker rather than
+// on the page. A first sync's pages come further apart than 200ms on a slow link, and a copy between them held up the
+// next page while it ran, so it waits for 2 seconds of quiet: a rollback within 2 seconds of an edit misses that edit.
+// Drop the copy and the FILE_HASH check in a release after OPFS has shipped, once no browser can go back to a bundle from
+// before OPFS, and keep the first import of FILE for browsers that skip this release.
+const QUIET_MS = 2000;
 let copied = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let copying = Promise.resolve();
@@ -94,7 +97,7 @@ const changes = () => Number(db.changes(true));
 function copySoon() {
   if (changes() === copied) return;
   clearTimeout(timer);
-  timer = setTimeout(() => (copying = copying.then(copy)), 200);
+  timer = setTimeout(() => (copying = copying.then(copy)), QUIET_MS);
 }
 
 async function copy() {

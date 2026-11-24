@@ -41,10 +41,15 @@ export async function openSeeded(page: Page, records: readonly Seed[] = []): Pro
   await seed(page, [{ type: 'settings', id: 'settings', fields: { setup_done_at: '2026-01-01T00:00:00.000Z' } }, ...records]);
 }
 
+/** How long a change may take to reach the database file the browser build keeps in IndexedDB. */
+export const SAVED_TIMEOUT_MS = 15_000;
+
 /**
  * Waits until the database file the browser build keeps in IndexedDB has this text in it, so a reload keeps it. Without
  * OPFS, as in phone's WebKit here, the browser build saves the whole file there 200ms after the last change, and a
- * reload sooner loses it (a shortcut in platform/web.ts); with OPFS, a copy follows as soon.
+ * reload sooner loses it (a shortcut in platform/web.ts); with OPFS, a copy follows once the database has been quiet for
+ * 2 seconds (platform/opfs.worker.ts). The app's own writes after a launch or a sync, such as its planning tasks and
+ * the sync that sends them, can keep it busy for several seconds before that.
  */
 export async function saved(page: Page, text: string): Promise<void> {
   await expect
@@ -65,6 +70,7 @@ export async function saved(page: Page, text: string): Promise<void> {
           }),
         { store: STORE, file: FILE, text },
       ),
+      { timeout: SAVED_TIMEOUT_MS },
     )
     .toBe(true);
 }

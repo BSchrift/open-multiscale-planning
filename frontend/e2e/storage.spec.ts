@@ -6,7 +6,10 @@
 
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, PlaywrightWorkerArgs, PlaywrightWorkerOptions, TestInfo } from '@playwright/test';
-import { openSeeded, pane } from './seed';
+import type { RecordChange } from '../src/core/types';
+import { FILE_HASH, STORE } from '../src/platform/web-file';
+import { signIn } from './api';
+import { openSeeded, pane, saved } from './seed';
 import type { Seed } from './seed';
 
 test.describe.configure({ mode: 'default' });
@@ -114,12 +117,12 @@ test('opens the IndexedDB file a bundle from before OPFS kept, and keeps it curr
   await page.waitForTimeout(600);
   await page.close();
 
-  // This one moves the data to OPFS, and copies each change back to IndexedDB soon after.
+  // This one moves the data to OPFS, and copies it back to IndexedDB once it has been quiet for 2 seconds.
   page = await context.newPage();
   await launch(page, ['Ask about the boiler', 'Before the update']);
   expect(await onOpfs(page)).toBe(true);
   await capture(page, 'After the update', info);
-  await page.waitForTimeout(600);
+  await saved(page, 'After the update');
   await page.close();
 
   // Rolled back, the bundle before finds that change, and makes one of its own.
@@ -132,6 +135,65 @@ test('opens the IndexedDB file a bundle from before OPFS kept, and keeps it curr
   // Updated again, this one takes the copy the bundle before changed, rather than its own older database.
   page = await context.newPage();
   await launch(page, ['Before the update', 'After the update', 'During the rollback']);
+  await context.close();
+});
+
+/** The hash of the copy the OPFS worker last made in IndexedDB, or null before the first. */
+const copyHash = (page: Page) =>
+  page.evaluate(
+    ({ store, key }) =>
+      new Promise<string | null>((resolve, reject) => {
+        // The database web-file.ts opens. Never made here: one without its store would break the app's.
+        const open = indexedDB.open('multiscale-dev');
+        open.onupgradeneeded = () => open.transaction!.abort();
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const read = open.result.transaction(store).objectStore(store).get(key);
+          read.onerror = () => reject(read.error);
+          read.onsuccess = () => resolve((read.result as string | undefined) ?? null);
+          open.result.close();
+        };
+      }),
+    { store: STORE, key: FILE_HASH },
+  );
+
+test('copies the database to IndexedDB once a first sync has gone quiet, not between its pages', async ({ playwright, browserName, baseURL }, info) => {
+  const context = await profile(playwright, browserName, info);
+  const page = await context.newPage();
+  // A first sync of four pages, each answered half a second after it was asked for, as a slow link answers. A copy
+  // between pages would read and write the whole file while the next page waits behind it.
+  const clock = (n: number) => `${String(Date.parse('2026-11-02T09:00:00Z') + n).padStart(13, '0')}-000000-other-device`;
+  const pages: RecordChange[][] = Array.from({ length: 4 }, (_, p) =>
+    Array.from({ length: 50 }, (_, i) => ({ type: 'task', id: `synced-${p}-${i}`, fields: { kind: { v: 'inbox', c: clock(p) }, title: { v: `Synced ${p}-${i}`, c: clock(p) } } })),
+  );
+  pages.at(-1)!.push({ type: 'settings', id: 'settings', fields: { setup_done_at: { v: '2026-01-01T00:00:00.000Z', c: clock(9) } } });
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type' };
+  // The copy as each page after the first is answered, which a copy between pages would have changed.
+  const between: (string | null)[] = [];
+  await context.route(
+    (url) => url.origin !== new URL(baseURL!).origin,
+    async (route) => {
+      const request = route.request();
+      if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      const json = (body: unknown) => route.fulfill({ headers: cors, contentType: 'application/json', body: JSON.stringify(body) });
+      if (!request.url().endsWith('/sync')) return json({});
+      const { cursor } = request.postDataJSON() as { cursor: number };
+      if (cursor >= pages.length) return json({ cursor, more: false, changes: [] });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (cursor > 0) between.push(await copyHash(page));
+      return json({ cursor: cursor + 1, more: cursor + 1 < pages.length, changes: pages[cursor] });
+    },
+  );
+  // Opened, so its IndexedDB store is there to sign in to.
+  await page.goto('/');
+  await page.waitForFunction(() => 'multiscaleSeed' in window);
+  await signIn(page);
+  await page.reload();
+  // Current within a few seconds of the sync's last change.
+  await saved(page, 'Synced 3-49');
+  expect(between).toHaveLength(pages.length - 1);
+  expect(new Set(between).size, 'copies made between pages').toBe(1);
+  expect(await onOpfs(page)).toBe(true);
   await context.close();
 });
 

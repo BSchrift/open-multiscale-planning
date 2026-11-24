@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRecord, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { pickFrom, renderScreen } from '../../app/testing';
+import { holdTimers, pass, pickFrom, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { EST_STEPS } from '../../components/EstimateSlider';
 
@@ -850,11 +850,12 @@ describe('Goals', () => {
   });
 
   describe('moving tasks by holding them on phone', () => {
-    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    beforeEach(holdTimers);
     const point = (el: Element | null) => {
       document.elementFromPoint = () => el;
     };
     afterEach(() => {
+      vi.useRealTimers();
       // jsdom has no layout, so each test says what is under the finger.
       document.elementFromPoint = () => null;
     });
@@ -863,7 +864,7 @@ describe('Goals', () => {
       const t = await project('phone');
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       expect(row.closest('.taskline')).toHaveClass('lifted');
       point(within(group('First loaf')).getByText('Milestone: First loaf'));
       fireEvent.pointerMove(window, { clientX: 50, clientY: 400 });
@@ -882,16 +883,16 @@ describe('Goals', () => {
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
       fireEvent.pointerMove(window, { clientX: 50, clientY: 330 });
-      await wait(450);
+      await pass(450);
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       fireEvent.pointerCancel(window);
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       fireEvent.pointerUp(window, { clientX: 0, clientY: 0 });
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m1');
@@ -908,7 +909,7 @@ describe('Goals', () => {
       const row = within(done).getByRole('button', { name: /^Edit task Buy a proofing basket/ });
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       point(group('Make a starter'));
       fireEvent.pointerMove(window, { clientX: 50, clientY: 200 });
       fireEvent.pointerUp(window, { clientX: 50, clientY: 200 });

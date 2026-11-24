@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
 import { META, setMeta } from '../../../core/db';
 import { CALENDAR_ID, getRecord, listRecords, outcomeId, setWeekPick, weekPickId, weekPlanId } from '../../../core/records';
@@ -8,7 +8,7 @@ import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
-import { holdDown, renderApp, renderScreen } from '../../app/testing';
+import { holdDown, holdTimers, pass, renderApp, renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
 import { noFiles } from '../../../core/sync-testing';
 
@@ -1769,6 +1769,7 @@ describe("a task's block made shorter on the timeline", () => {
 
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  afterEach(() => void vi.useRealTimers());
   const day = async (w: Writer) => {
     await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '16:00', '17:00');
@@ -2018,11 +2019,12 @@ describe('moving a block on the timeline', () => {
   });
 
   it('on phone, a finger that moves before the hold scrolls instead, and a hold let go in place opens its menu, not the task', async () => {
+    holdTimers();
     const t = await open(day, { layout: 'phone' });
     const el = await report(undefined, 'slider');
     fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch' });
     fireEvent.pointerMove(window, { clientY: 330, pointerType: 'touch' });
-    await wait(450);
+    await pass(450);
     expect(el).not.toHaveClass('lifted');
     fireEvent.pointerMove(window, { clientY: 360, pointerType: 'touch' });
     fireEvent.pointerUp(window, { clientY: 360, pointerType: 'touch' });
@@ -2040,16 +2042,17 @@ describe('moving a block on the timeline', () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
     // A tap a moment later opens it as before.
-    await wait(450);
+    await pass(450);
     await userEvent.click(el);
     await taskPopup('Write the report');
   });
 
   it('on phone, a short tap opens the task and moves nothing, and a hold lifts it with one light tap from the device', async () => {
+    holdTimers();
     const t = await open(day, { layout: 'phone' });
     const el = await report(undefined, 'slider');
     fireEvent.pointerDown(el, { clientY: 300, button: 0 });
-    await wait(100);
+    await pass(100);
     fireEvent.pointerUp(window, { clientY: 300 });
     fireEvent.click(el);
     await taskPopup('Write the report');
@@ -2152,7 +2155,8 @@ describe('moving a block on the timeline', () => {
 });
 
 describe('hold to create on the timeline', () => {
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  beforeEach(holdTimers);
+  afterEach(() => void vi.useRealTimers());
   const day = async (w: Writer) => {
     await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '16:00', '17:00');
@@ -2172,7 +2176,7 @@ describe('hold to create on the timeline', () => {
   const hold = async (time: string, layout: Layout) => {
     await ready(layout);
     press(time, layout);
-    await wait(450);
+    await pass(450);
   };
   const letGo = (time: string, layout: Layout) => fireEvent.pointerUp(window, { clientX: 100, clientY: y(time), pointerType: kind(layout), pointerId: 1 });
 
@@ -2233,7 +2237,7 @@ describe('hold to create on the timeline', () => {
         // With work to schedule, the phone's blocks are buttons, so the day is ready once the block is drawn at all.
         await screen.findByLabelText(/^Write the report, 4pm to 5pm/, {}, { timeout: 5000 });
         press('17:46', layout);
-        await wait(450);
+        await pass(450);
         letGo('17:46', layout);
         const capture = await screen.findByRole('dialog', { name: 'Capture' });
         const option = await within(capture).findByRole('option', { name: 'Draft the summary, Project · 30m, Fits' });
@@ -2254,9 +2258,9 @@ describe('hold to create on the timeline', () => {
         const t = await open(day, { layout });
         await ready(layout);
         press('18:00', layout);
-        await wait(100);
+        await pass(100);
         letGo('18:00', layout);
-        await wait(400);
+        await pass(400);
         expect(draft()).toBeNull();
         expect(screen.queryByRole('dialog')).toBeNull();
         expect(t.platform.haptics).toEqual([]);
@@ -2297,13 +2301,13 @@ describe('hold to create on the timeline', () => {
     await ready('phone');
     press('18:00', 'phone');
     fireEvent.pointerMove(window, { clientX: 100, clientY: y('18:00') + 9, pointerType: 'touch', pointerId: 1 });
-    await wait(450);
+    await pass(450);
     expect(draft()).toBeNull();
     letGo('18:00', 'phone');
 
     press('18:00', 'phone');
     press('19:00', 'phone', 2);
-    await wait(450);
+    await pass(450);
     expect(draft()).toBeNull();
     expect(t.platform.haptics).toEqual([]);
   });
@@ -2322,7 +2326,7 @@ describe('hold to create on the timeline', () => {
     expect(draft()).toHaveClass('blk', 's-placing');
     expect(draft()).not.toHaveClass('pop');
     expect(document.querySelector('.holdring')).toBeNull();
-    await wait(450);
+    await pass(450);
     expect(draft()).toHaveAttribute('title', '5:45pm to 6:30pm');
     letGo('18:20', 'desktop');
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
@@ -2367,7 +2371,7 @@ describe('hold to create on the timeline', () => {
     await waitFor(() => expect(draft()).toBeNull());
     moveTo('19:30');
     letGo('19:30', 'desktop');
-    await wait(100);
+    await pass(100);
     expect(draft()).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
   });
@@ -2392,7 +2396,7 @@ describe('hold to create on the timeline', () => {
     await ready('desktop');
     press('12:00', 'desktop');
     moveTo('13:00');
-    await wait(50);
+    await pass(50);
     expect(draft()).toBeNull();
     letGo('13:00', 'desktop');
     expect(await screen.findByText('That time has gone by. Hold on a later time.')).toBeVisible();
@@ -2405,7 +2409,7 @@ describe('hold to create on the timeline', () => {
     await taskPopup('Write the report');
     press('18:00', 'desktop');
     moveTo('19:00');
-    await wait(50);
+    await pass(50);
     expect(draft()).toBeNull();
   });
 
@@ -2423,10 +2427,10 @@ describe('hold to create on the timeline', () => {
     const t = await open(day, { layout: 'phone' });
     const el = await ready('phone');
     fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch', pointerId: 1 });
-    await wait(450);
+    await pass(450);
     expect(el).toHaveClass('lifted');
     press('19:00', 'phone', 2);
-    await wait(450);
+    await pass(450);
     expect(draft()).toBeNull();
     expect(t.platform.haptics).toEqual(['light']);
   });
@@ -2435,7 +2439,7 @@ describe('hold to create on the timeline', () => {
     await open(day);
     const el = await ready('desktop');
     fireEvent.pointerDown(el, { clientX: 100, clientY: y('16:30'), button: 0, pointerType: 'mouse', pointerId: 1 });
-    await wait(450);
+    await pass(450);
     expect(el).toHaveClass('lifted');
     expect(draft()).toBeNull();
     fireEvent.pointerUp(window, { clientX: 100, clientY: y('16:30'), pointerType: 'mouse', pointerId: 1 });
@@ -2458,7 +2462,7 @@ describe('hold to create on the timeline', () => {
     );
     const holdOn = async (el: HTMLElement, time: string) => {
       fireEvent.pointerDown(el, { clientX: 100, clientY: y(time), button: 0, pointerType: 'touch', pointerId: 1 });
-      await wait(450);
+      await pass(450);
       expect(el).toHaveClass('lifted');
       letGo(time, 'phone');
       fireEvent.click(el);
@@ -2482,7 +2486,7 @@ describe('hold to create on the timeline', () => {
       const point = { clientX: 100, clientY: y(time), button: 2, pointerType: 'mouse', pointerId: 1 };
       fireEvent.pointerDown(on, point);
       const shown = fireEvent.contextMenu(on, point);
-      await wait(450);
+      await pass(450);
       fireEvent.pointerUp(window, point);
       return shown;
     };
@@ -2510,7 +2514,7 @@ describe('hold to create on the timeline', () => {
     await ready(layout);
     const event = [...document.querySelectorAll<HTMLElement>('.cev')].find((el) => el.textContent?.includes('Quiz night'))!;
     fireEvent.pointerDown(event, { clientX: 100, clientY: y('19:30'), button: 0, pointerType: kind(layout), pointerId: 1 });
-    await wait(450);
+    await pass(450);
     letGo('19:30', layout);
     expect(draft()).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();

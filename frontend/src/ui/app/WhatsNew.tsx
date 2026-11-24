@@ -1,7 +1,7 @@
-// What's new, once on each iPhone: the lines (src/whatsNew.ts) an update brought that this phone hasn't seen, under the
-// date of the update. It waits until the app is idle on a screen: no flow such as planning, no Capture or Process, no
-// prompt or other sheet, nobody typing. Got it, Esc, the backdrop or a swipe down puts it away and records the newest
-// line as seen. Shell loads it only on the iPhone, so the web app's first load doesn't carry it.
+// What's new, once on each iPhone: the lines (src/whatsNew.ts) an update brought that this phone hasn't seen, under a
+// line saying when Multiscale was updated. It waits until the app is idle on a screen: no flow such as planning, no
+// Capture or Process, no prompt or other sheet, nobody typing. Got it, Esc, the backdrop or a swipe down puts it away
+// and records the newest line as seen. Shell loads it only on the iPhone, so the web app's first load doesn't carry it.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatDate, localDate } from '../../core/dates';
@@ -105,7 +105,7 @@ function WhatsNewSheet(props: { lines: readonly WhatsNewEntry[]; onClose(): void
   return (
     <Sheet label="What's new" onClose={props.onClose}>
       <h2 ref={heading}>What's new</h2>
-      {date && <p className="quiet">{date}</p>}
+      {date && <p className="quiet">Multiscale was updated on {date}.</p>}
       <ul className="whatsnew">
         {props.lines.map((line) => (
           <li key={line.id}>{line.text}</li>

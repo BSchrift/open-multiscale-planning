@@ -38,7 +38,7 @@ describe("what's new on the iPhone", () => {
     await settle();
     const sheet = await screen.findByRole('dialog', { name: "What's new" });
     expect(within(sheet).getByRole('heading', { name: "What's new" })).toBeVisible();
-    expect(within(sheet).getByText('Nov 24')).toBeVisible();
+    expect(within(sheet).getByText('Multiscale was updated on Nov 24.')).toBeVisible();
     expect(within(sheet).getAllByRole('listitem').map((li) => li.textContent)).toEqual(WHATS_NEW.slice(0, 2).map((e) => e.text));
     // Focus goes into the sheet, and what's behind it is out of reach of VoiceOver's swipes.
     expect(sheet).toHaveFocus();

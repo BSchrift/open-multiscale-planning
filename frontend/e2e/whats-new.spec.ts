@@ -40,7 +40,7 @@ test('a new install shows nothing, then an update shows its new lines once, date
   await page.reload();
   await expect(sheet(page)).toBeVisible();
   await expect(sheet(page).getByRole('heading', { name: "What's new" })).toBeVisible();
-  await expect(sheet(page).getByText(/^[A-Z][a-z]{2} \d{1,2}$/)).toBeVisible();
+  await expect(sheet(page).getByText(/^Multiscale was updated on [A-Z][a-z]{2} \d{1,2}\.$/)).toBeVisible();
   await expect(sheet(page).getByRole('listitem')).toHaveText(WHATS_NEW.slice(0, 2).map((e) => e.text));
   await expect(sheet(page)).toBeFocused();
   await expectTapTarget(sheet(page).getByRole('button', { name: 'Got it' }));

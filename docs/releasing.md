@@ -48,7 +48,7 @@ tens of thousands of records, where a change takes seconds to read back. So each
 browser in as the history-scale test's user, whose five-year account, about 33,000 records, stays there
 (`scripts/test-deployed.sh`, the web app suite's `history` project). A setup project seeds the account first, as
 `make test-history` does, with only the live records staging keeps; a rerun writes nothing. Then it checks that the
-first sync pulls the whole history, about 67 pages, and fails under 50; that a reload in the middle of a first sync opens
+first sync pulls the whole history, about 33,000 records, and fails under 25,000; that a reload in the middle of a first sync opens
 the database again; that the data is on OPFS; the desktop journey, from Capture to the calendar and back, with its
 clean-ups; that stretch planning's Save and exit leaves the steps; and that the console stays clean. The account's
 records carry no expiry, so a reload of a browser holding them would fill expiries in and send them, and staging's

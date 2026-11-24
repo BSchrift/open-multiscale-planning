@@ -21,7 +21,9 @@ const git = (command: string, fallback: string) => {
     return fallback;
   }
 };
-const version = `${(JSON.parse(readFileSync(join(import.meta.dirname, 'package.json'), 'utf8')) as { version: string }).version}-${git('rev-parse --short HEAD', 'dev')}`;
+// The commit's first seven characters rather than git's abbreviation, which grows with the clone's objects: the MacApp
+// step builds a commit again, in another clone and later, to compare byte for byte with GitHub Actions' build of it.
+const version = `${(JSON.parse(readFileSync(join(import.meta.dirname, 'package.json'), 'utf8')) as { version: string }).version}-${git('rev-parse HEAD', 'dev').slice(0, 7)}`;
 const build = Number(git('log -1 --format=%ct', '0'));
 const appConfig = loadAppConfig(process.env.ENV, readConfigFile, configDir, process.env.LOCAL_API_URL);
 // The Mac app built for this environment and backend, as electron-compile.mjs builds it. Its name and scheme don't

@@ -291,3 +291,23 @@ describe('Pick: what this stretch means', () => {
     expect(v.noTasks).toBe(1);
   });
 });
+
+describe("Pick: the aim meter's sum", () => {
+  // A project aiming at 4h this week, and one task in it with an hour on Tuesday's calendar.
+  const withBlock = (share: number | null) => async (w: Writer) => {
+    await w.create('project', { title: 'Fix up the bike', state: 'active', start: '2026-10-01', end: '2026-12-31', weekly_aim: 240 }, 'bike');
+    await task(w, 'b1', 'bike', null, 'Replace the chain', 120);
+    await w.create('time_block', { task_id: 'b1', start: '2026-11-17T15:00:00Z', end: '2026-11-17T16:00:00Z', tz: 'America/Chicago' }, 'tbb1');
+    if (share != null) await pick(w, WEEK, 'b1', share);
+  };
+
+  it("counts a task's time on this week's calendar toward its project's aim, even with a 0m share", async () => {
+    expect(project(await viewOf(withBlock(0)), 'Fix up the bike').aim?.got).toBe(60);
+  });
+
+  it('counts the larger of its share and its time on the calendar, never both, since placed time comes out of the share', async () => {
+    expect(project(await viewOf(withBlock(null)), 'Fix up the bike').aim?.got).toBe(60);
+    expect(project(await viewOf(withBlock(30)), 'Fix up the bike').aim?.got).toBe(60);
+    expect(project(await viewOf(withBlock(90)), 'Fix up the bike').aim?.got).toBe(90);
+  });
+});

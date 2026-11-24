@@ -21,6 +21,7 @@ import {
   planStretch,
   projectCandidates,
   taskDue,
+  weekMinutesByTask,
 } from '../../../../core/plan';
 import type { Candidate, ProjectPlan } from '../../../../core/plan';
 import { status } from '../../../../core/status';
@@ -214,6 +215,10 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
   const fresh = (ms?: Milestone) => filter && !!ms && !ms.due && !ms.stretch && (ms.added_on ?? '') >= from;
 
   const aims = m.aimRows(m.planned);
+  // What a picked task adds to the week's shape: its share, or its time placed this week when that's more, as Does it
+  // fit counts it. Time placed for work not picked is in Practices and repeating work.
+  const byTask = weekMinutesByTask(input);
+  const inWeek = (c: Candidate) => (c.picked ? (byTask.get(c.task.id) ?? c.week) : c.week);
   const aimOf = (bucket: string) => aims.find((r) => r.bucket === bucket && r.aim > 0);
 
   const projects: PickProject[] = m.ranked.map((plan) => {
@@ -245,7 +250,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       const ms = taskDue(c.task, plan, input.weekStart, ctx).milestone;
       const g = c.carried ? groupFor('carried', 'Needs a new time', { date: '' }) : ms ? msGroup(ms) : groupFor('none', `Done, by ${formatDate(project.end)}`);
       g.rows.push(task(c, plan));
-      g.planned += c.week;
+      g.planned += inWeek(c);
     }
     // An overdue milestone is asked about on its own line, so it has one even with no open tasks.
     if (s.late) msGroup(s.late).must = true;
@@ -310,7 +315,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
       { key: 'later', head: 'Later or no date', rows: oneOffParts[1]! },
     ].filter((g) => g.rows.length),
     aim: aimOf(ONE_OFFS_BUCKET),
-    planned: oneOffRows.reduce((sum, r) => sum + r.c.week, 0),
+    planned: oneOffRows.reduce((sum, r) => sum + inWeek(r.c), 0),
     count: oneOffRows.filter((r) => r.c.picked).length,
   };
 
@@ -326,7 +331,7 @@ export function pickModel(d: PlanningData, m: WeekModel, clock: Clock) {
     const cands = [...projectCandidates(plan, input, ctx, true), ...doneToday(plan.tasks)].sort((a, b) => key(a) - key(b));
     const rows = cands.map((c) => task(c, null));
     const { open, counts } = counted(rows);
-    return open ? [{ goalId: g.id, goal: g.title, plan, rows, open, counts, planned: rows.reduce((sum, r) => sum + r.c.week, 0) }] : [];
+    return open ? [{ goalId: g.id, goal: g.title, plan, rows, open, counts, planned: rows.reduce((sum, r) => sum + inWeek(r.c), 0) }] : [];
   });
 
   const statuses = m.plans.map((plan) => ({ plan, status: status(plan, ctx) }));

@@ -1,6 +1,7 @@
 // Package files grants the uploads and downloads of attachments' files, and counts what each person stores and fetches.
 // The bytes go straight between the apps and S3 or CloudFront: the API only signs links, after checking the attachment
-// record that synced, the person's hourly limits and their quota. What's in a file is never read, indexed or logged.
+// record that synced, how many attachments its task has, the person's hourly limits and their quota. What's in a file is
+// never read, indexed or logged.
 //
 // Beside each person's records, in their own partition, the API keeps:
 //   - file#<attachment id>: the file's key in the bucket, its size, type and hash, written when the upload is granted;
@@ -79,9 +80,10 @@ type DB interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 }
 
-// Records reads a synced record from its owner's partition. *sync.Store implements it.
+// Records reads synced records from their owner's partition. *sync.Store implements it.
 type Records interface {
 	Record(ctx context.Context, sub, recordType, id string) (sync.Fields, bool, error)
+	EachOf(ctx context.Context, sub, recordType string, fn func(sync.Change) error) error
 }
 
 // Presigner signs an S3 PUT of exactly size bytes with these headers. *PutSigner implements it.
@@ -92,6 +94,7 @@ type Presigner interface {
 // Limits are config/protocol.yaml's and the environment's attachment settings.
 type Limits struct {
 	MaxFileBytes         int64
+	MaxPerTask           int
 	MaxIDsPerDownload    int
 	ContentTypes         []string
 	DefaultQuotaBytes    int64
@@ -103,7 +106,7 @@ type Limits struct {
 func LimitsFor(env config.EnvConfig) Limits {
 	p, q := config.Protocol.Attachments, env.Attachments
 	return Limits{
-		MaxFileBytes: int64(p.MaxFileBytes), MaxIDsPerDownload: p.MaxIDsPerDownload, ContentTypes: p.ContentTypes,
+		MaxFileBytes: int64(p.MaxFileBytes), MaxPerTask: p.MaxPerTask, MaxIDsPerDownload: p.MaxIDsPerDownload, ContentTypes: p.ContentTypes,
 		DefaultQuotaBytes: int64(q.DefaultQuotaBytes), UploadsPerHour: int64(q.UploadsPerHour), DownloadBytesPerHour: int64(q.DownloadBytesPerHour),
 	}
 }
@@ -204,6 +207,14 @@ func (s *Service) GrantUpload(ctx context.Context, sub, id string) (Upload, erro
 			}
 			return s.upload(ctx, granted, c.usage(), now)
 		}
+		over, err := s.overCount(ctx, sub, fields)
+		if err != nil {
+			return Upload{}, err
+		}
+		if over {
+			// 400, which every released app takes as refused for good and goes on to the next upload.
+			return Upload{}, refused(http.StatusBadRequest, "too_many_attachments")
+		}
 		hour := hourOf(now)
 		if c.hour == hour.Unix() && c.uploads >= s.Limits.UploadsPerHour {
 			return Upload{}, &Refusal{Status: http.StatusTooManyRequests, Code: "upload_rate", RetryAt: hour.Add(time.Hour)}
@@ -228,17 +239,45 @@ func (s *Service) GrantUpload(ctx context.Context, sub, id string) (Upload, erro
 	}
 }
 
-// current is whether a record is an attachment's photo or file that's still there: not deleted, not expired.
+// current is whether a record is an attachment's photo or file that's still there.
 func (s *Service) current(fields sync.Fields) bool {
 	if kind := fields["kind"].V; kind != "photo" && kind != "file" {
 		return false
 	}
+	return s.live(fields)
+}
+
+// live is whether a record is still there: not deleted, not expired.
+func (s *Service) live(fields sync.Fields) bool {
 	if fields["deleted_at"].V != nil {
 		return false
 	}
 	expires, _ := fields["expires_at"].V.(string)
 	at, err := time.Parse(time.RFC3339, expires)
 	return err != nil || at.After(s.Now())
+}
+
+// overCount is whether the task or note an attachment is on has more attachments than one may have, counting this one
+// and its links as the apps count them. The apps stop at the limit, but two devices adding at once can pass it, so a
+// file past it isn't stored until another is removed.
+// shortcut: reads every attachment record the person has, which their quota bounds; an index by task would read only
+// the task's, if grants get slow.
+func (s *Service) overCount(ctx context.Context, sub string, fields sync.Fields) (bool, error) {
+	field, on := "task_id", fields["task_id"].V
+	if on == nil {
+		field, on = "memo_id", fields["memo_id"].V
+	}
+	if on == nil {
+		return false, nil
+	}
+	count := 0
+	err := s.Records.EachOf(ctx, sub, attachmentType, func(c sync.Change) error {
+		if c.Fields[field].V == on && s.live(c.Fields) {
+			count++
+		}
+		return nil
+	})
+	return count > s.Limits.MaxPerTask, err
 }
 
 // described reads a record's size, type and hash, and whether they make sense: a whole number of bytes, a type, and the

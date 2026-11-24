@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getRecord } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { Layout } from '../../app/registry';
-import { renderScreen } from '../../app/testing';
+import { pickFrom, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { EST_STEPS } from '../../components/EstimateSlider';
 
@@ -51,12 +51,14 @@ describe('the task popup', () => {
       expect(popup).toHaveClass('taskpop');
       // Read as the heading, so the phone's keyboard stays down until a field is tapped.
       await waitFor(() => expect(within(popup).getByRole('heading', { name: 'Draft the summary' })).toHaveFocus());
-      const order = Array.from(popup.querySelectorAll('h2, input[type="range"], select, .notesname, .taskpopbar button')).map((e) =>
-        e.matches('input') ? 'Time estimate' : e.matches('select') ? 'Belongs to' : e.textContent,
+      const order = Array.from(popup.querySelectorAll('h2, input[type="range"], .ssfield, .notesname, .taskpopbar button')).map((e) =>
+        e.matches('.ssfield') ? 'Belongs to' : e.matches('input') ? 'Time estimate' : e.textContent,
       );
       expect(order).toEqual(['Draft the summary', 'Time estimate', 'Belongs to', 'Description', 'Delete task', 'Cancel', 'Save']);
       expect(within(popup).getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-      expect(within(popup).getByLabelText('Belongs to')).toHaveDisplayValue('Report, Drafts');
+      // A search on desktop, showing where it is; on phone a button saying so, which opens a sheet of places.
+      if (layout === 'desktop') expect(within(popup).getByRole('combobox', { name: 'Belongs to' })).toHaveDisplayValue('Report, Drafts');
+      else expect(within(popup).getByLabelText('Belongs to')).toHaveAccessibleName('Belongs to: Report, Drafts');
       expect(within(popup).getByText('Q3 numbers').tagName).toBe('STRONG');
       // Desktop has a close button in its header; phone has a grab handle and closes from the scrim.
       expect(within(popup).queryByRole('button', { name: 'Close' }) === null).toBe(layout === 'phone');
@@ -67,7 +69,75 @@ describe('the task popup', () => {
   it('offers every open milestone of active projects, Done, One offs and Inbox, but not met milestones or finished projects', async () => {
     await open('t1');
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    await userEvent.click(within(popup).getByLabelText('Belongs to'));
     expect(within(popup).getAllByRole('option').map((o) => o.textContent)).toEqual(['Inbox', 'One offs', 'Report, Drafts', 'Report, Final', 'Report, Done']);
+  });
+
+  it('on desktop, Belongs to is a search: typing narrows the places to those with the letters, and Enter takes the lit one', async () => {
+    const { t, close } = await open('t1');
+    const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    const field = within(popup).getByRole('combobox', { name: 'Belongs to' });
+    await userEvent.click(field);
+    expect(field).toHaveAttribute('aria-expanded', 'true');
+    // It opens on the place the task is in.
+    expect(within(popup).getByRole('option', { name: 'Report, Drafts' })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.keyboard('fin');
+    expect(within(popup).getAllByRole('option').map((o) => o.textContent)).toEqual(['Report, Final']);
+    expect(within(popup).getByRole('option', { name: 'Report, Final' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(popup).getByText('Fin').tagName).toBe('B');
+    expect(within(popup).getByText('1 match')).toHaveAttribute('aria-live', 'polite');
+    // Enter takes the place, rather than saving the popup.
+    await userEvent.keyboard('{Enter}');
+    expect(field).toHaveDisplayValue('Report, Final');
+    expect(field).toHaveAttribute('aria-expanded', 'false');
+    expect(close).not.toHaveBeenCalled();
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Moved Draft the summary to Report, Final.')).toBeVisible();
+    expect(await record(t, 't1')).toMatchObject({ milestone_id: 'm2' });
+  });
+
+  it('on desktop, the arrows move over the places, Esc closes the list and then clears what was typed, and only then closes the popup', async () => {
+    const { close } = await open('t1');
+    const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    const field = within(popup).getByRole('combobox', { name: 'Belongs to' });
+    field.focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(field).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(field).toHaveAttribute('aria-activedescendant', within(popup).getByRole('option', { name: 'Report, Final' }).id);
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}{Enter}');
+    expect(field).toHaveDisplayValue('One offs');
+    // The place taken stays selected, so typing replaces it.
+    await userEvent.keyboard('zz');
+    expect(within(popup).getByText('Nothing matches “zz”.')).toBeVisible();
+    expect(within(popup).queryAllByRole('option')).toEqual([]);
+    await userEvent.keyboard('{Escape}');
+    expect(field).toHaveAttribute('aria-expanded', 'false');
+    expect(field).toHaveDisplayValue('zz');
+    await userEvent.keyboard('{Escape}');
+    expect(field).toHaveDisplayValue('One offs');
+    expect(close).not.toHaveBeenCalled();
+    // The popup now has a change, so its own Esc asks first.
+    await userEvent.keyboard('{Escape}');
+    expect(within(popup).getByRole('alert')).toHaveTextContent("Your changes aren't saved.");
+  });
+
+  it('on phone, Belongs to is a button that opens the places in a sheet, ready to search, and a tap takes one', async () => {
+    const { t } = await open('t1', { layout: 'phone' });
+    const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Belongs to: Report, Drafts' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Belongs to' });
+    const search = within(sheet).getByRole('combobox', { name: 'Search places' });
+    expect(search).toHaveFocus();
+    expect(within(sheet).getAllByRole('option')).toHaveLength(5);
+    await userEvent.keyboard('offs');
+    expect(within(sheet).getAllByRole('option').map((o) => o.textContent)).toEqual(['One offs']);
+    await userEvent.click(within(sheet).getByRole('option', { name: 'One offs' }));
+    expect(screen.queryByRole('dialog', { name: 'Belongs to' })).toBeNull();
+    expect(within(popup).getByRole('button', { name: 'Belongs to: One offs' })).toBeVisible();
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Moved Draft the summary to One offs.')).toBeVisible();
+    expect(await record(t, 't1')).toMatchObject({ kind: 'one_off' });
   });
 
   it('saves the name, estimate and description together, with Undo', async () => {
@@ -146,7 +216,7 @@ describe('the task popup', () => {
   it('moves a task between milestones, projects, One offs and the Inbox, each with Undo', async () => {
     const { t } = await open('t1');
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'One offs');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'One offs');
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Moved Draft the summary to One offs.')).toBeVisible();
     expect(await record(t, 't1')).toMatchObject({ kind: 'one_off', project_id: null, milestone_id: null, schedule: { type: 'once' }, notes: 'Use the **Q3 numbers** first.' });
@@ -157,7 +227,7 @@ describe('the task popup', () => {
   it('gives an Inbox item a home, and a one off a project', async () => {
     const first = await open('i1');
     let popup = await screen.findByRole('dialog', { name: 'Call the bank' });
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Report, Final');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'Report, Final');
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Moved Call the bank to Report, Final.')).toBeVisible();
     expect(await record(first.t, 'i1')).toMatchObject({ kind: 'project', project_id: 'p1', milestone_id: 'm2' });
@@ -166,7 +236,7 @@ describe('the task popup', () => {
     const second = await open('o1');
     popup = await screen.findByRole('dialog', { name: 'Return the drill' });
     expect(within(popup).getByLabelText('Belongs to')).toHaveDisplayValue('One offs');
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Inbox');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'Inbox');
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await screen.findByText('Moved Return the drill to Inbox.');
     expect(await record(second.t, 'o1')).toMatchObject({ kind: 'inbox', schedule: null, next_due: null });
@@ -175,7 +245,7 @@ describe('the task popup', () => {
   it('keeps a one off’s date as it moves to a project, but not a repeat, and says so', async () => {
     const dated = await open('o1');
     let popup = await screen.findByRole('dialog', { name: 'Return the drill' });
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Report, Drafts');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'Report, Drafts');
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Moved Return the drill to Report, Drafts.')).toBeVisible();
     expect(await record(dated.t, 'o1')).toMatchObject({ kind: 'project', milestone_id: 'm1', schedule: { type: 'once', from: '2026-11-07', to: null }, next_due: '2026-11-07' });
@@ -183,7 +253,7 @@ describe('the task popup', () => {
 
     const repeating = await open('o2');
     popup = await screen.findByRole('dialog', { name: 'Water the plants' });
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Report, Done');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'Report, Done');
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText("Moved Water the plants to Report, Done. Repeats stay with One offs, so it won't repeat.")).toBeVisible();
     expect(await record(repeating.t, 'o2')).toMatchObject({ kind: 'project', schedule: null, next_due: null });
@@ -192,7 +262,7 @@ describe('the task popup', () => {
   it('keeps the date an Inbox item has as it becomes a one off', async () => {
     const { t } = await open('i2');
     const popup = await screen.findByRole('dialog', { name: 'Renew the passport' });
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'One offs');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'One offs');
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     await screen.findByText('Moved Renew the passport to One offs.');
     expect(await record(t, 'i2')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-16', to: '2026-11-20' }, next_due: '2026-11-16' });
@@ -234,7 +304,7 @@ describe('the task popup after a failed save', () => {
   it('stays open as it was when Save fails', async () => {
     const { t, close } = await open('t1');
     const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
-    await userEvent.selectOptions(within(popup).getByLabelText('Belongs to'), 'Report, Done');
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'Report, Done');
     failNextSave(t);
     await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText("Couldn't save that. Try again.")).toBeVisible();

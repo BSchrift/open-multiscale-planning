@@ -93,7 +93,8 @@ if (command === 'record') {
   writeFileSync(join(s.root, 'scripts/perf-publish.sh'), '#!/bin/sh\necho "perf-publish AWS_PROFILE=$AWS_PROFILE $*" >> "$LOG"\n[ -z "$PUBLISH_FAILS" ]\n');
   writeFileSync(join(s.root, 'scripts/integration.sh'), '#!/bin/sh\necho "integration ENV=$ENV MULTISCALE_REQUEST_MIX=$MULTISCALE_REQUEST_MIX INTEGRATION_RUN=$INTEGRATION_RUN" >> "$LOG"\n[ -z "$MIX_FAILS" ]\n');
   writeFileSync(join(s.root, 'scripts/test-perf.sh'), '#!/bin/sh\necho "test-perf PERF_SYNC=$PERF_SYNC PERF_PLATFORMS=$PERF_PLATFORMS" >> "$LOG"\n[ -z "$PERF_FAILS" ]\n');
-  for (const script of ['perf-publish', 'integration', 'test-perf']) chmodSync(join(s.root, `scripts/${script}.sh`), 0o755);
+  writeFileSync(join(s.root, 'scripts/test-retention.sh'), '#!/bin/sh\necho "test-retention ENV=$ENV" >> "$LOG"\n[ -z "$RETENTION_FAILS" ]\n');
+  for (const script of ['perf-publish', 'integration', 'test-perf', 'test-retention']) chmodSync(join(s.root, `scripts/${script}.sh`), 0o755);
   const params = join(s.root, 'params');
   mkdirSync(params);
   const param = (name: string, value: string) => writeFileSync(join(params, name.replaceAll('/', '_')), `${value}\n`);
@@ -1165,8 +1166,30 @@ describe('scripts/pipeline.sh, in CodeBuild', () => {
     assert.match(s.log(), /curl -fsS --max-time 20 https:\/\/release\.example\.net\/desktop\/release\.json/);
     // The iPhone has had no version before this one.
     assert.match(r.stdout, /iphone has no version before 0\.1\.0-ccc to go back to/);
-    // Then the suites, against what it serves again.
-    assert.match(s.log(), /test-deployed ENV=staging/);
+    // Then the suites, against what it serves again, but for retention, which has a nightly build of its own.
+    assert.match(s.log(), /test-deployed ENV=staging .*SKIP_IOS=1 .*SKIP_RETENTION=1 /);
+    assert.doesNotMatch(s.log(), /test-retention/);
+  });
+
+  it('runs the retention suite against staging in its own nightly build, and records the commit it passed', () => {
+    const s = configured();
+    const r = s.run(['nightly-retention']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(s.log(), /test-retention ENV=staging\n(.*\n)*aws AWS_PROFILE=\S* ssm put-parameter --name \/multiscale\/pipeline\/nightly-retention --type String --overwrite --value abc123\n/);
+    assert.doesNotMatch(s.log(), /test-deployed|pipeline\/nightly /);
+  });
+
+  it('runs no retention suite when main has not moved since it last passed, and records nothing when it fails', () => {
+    const s = configured();
+    s.param('/multiscale/pipeline/nightly-retention', 'abc123');
+    const r = s.run(['nightly-retention']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Nothing new on main since the retention suite last passed at abc123/);
+    assert.doesNotMatch(s.log(), /test-retention|npm /);
+    const failing = configured();
+    assert.notEqual(failing.run(['nightly-retention'], { RETENTION_FAILS: '1' }).status, 0);
+    assert.match(failing.log(), /test-retention ENV=staging/);
+    assert.doesNotMatch(failing.log(), /put-parameter/);
   });
 
   it("publishes CI's performance results to staging's dashboard each night, as staging's release role, and goes on if that fails", () => {

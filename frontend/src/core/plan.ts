@@ -575,10 +575,11 @@ function oneOffDueThisWeek(c: Candidate, weekStart: LocalDate): boolean {
 }
 
 /**
- * What each task counts toward its aim this week: its share, or its time on this week's calendar when that's more, so
- * a 0m share still counts what's placed. Placed time comes out of the share, as pickToPlace has it, so never both.
+ * What each task counts in this week, toward its aim, in Does it fit and in the week's shape: its share, or its time on
+ * this week's calendar when that's more, so a 0m share still counts what's placed. Placed time comes out of the share,
+ * as pickToPlace has it, so never both.
  */
-export function aimMinutesByTask(week: WeekInput): Map<string, Minutes> {
+export function weekMinutesByTask(week: WeekInput): Map<string, Minutes> {
   const { picks, blocks } = weekByTask(week);
   const out = new Map<string, Minutes>();
   for (const [id, own] of blocks) out.set(id, own.reduce((sum, b) => sum + blockMinutes(b), 0));
@@ -621,7 +622,7 @@ export function suggestions(plans: readonly ProjectPlan[], oneOffs: readonly Tas
     }
   };
   // As the aim meters count it, so nothing counts twice.
-  const counted = aimMinutesByTask(week);
+  const counted = weekMinutesByTask(week);
   const plannedFor = (tasks: readonly Task[]) => tasks.reduce((sum, t) => sum + (counted.get(t.id) ?? 0), 0);
   // Nothing in a backlog is due, so nothing there is suggested, whatever aim an older app gave it.
   for (const plan of plannable(plans, ctx).filter((p) => !isBacklog(p.project))) {

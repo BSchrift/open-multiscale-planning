@@ -6,6 +6,7 @@
 import { plannedByKind, weeklyAims } from './capacity';
 import type { Clock } from './clock';
 import { addDays, dayRange, instantMs, toInstant, today, weekDates, weekRange, weekStart } from './dates';
+import { getMeta, META } from './db';
 import type { Sql } from './db';
 import { gatherPlans, plannable } from './plan';
 import type { PlanContext } from './plan';
@@ -150,8 +151,9 @@ export async function loadWidgetData(sql: Sql, clock: Clock): Promise<WidgetData
   const status = await syncStatus(sql);
   const calendar = await getRecord(sql, 'calendar', CALENDAR_ID);
   return {
-    // A device that never signed in still has its own plan to show; only one signed out shows the sign-in message.
-    signedIn: !isSignedOut(status),
+    // Only a device that was signed in and no longer is, or whose account was deleted, shows the sign-in message. One
+    // that never signed in still shows its own plan, though its syncs, finding no sign-in, record it as signed out.
+    signedIn: !isSignedOut(status) || (!(await getMeta(sql, META.account)) && status.lastError !== 'account_deleted'),
     syncedAt: status.lastSyncAt,
     days: [date, tomorrow].map((d) => ({ date: d, weekPlanned: planned(d) })),
     blocks: await blocksInRange(sql, range),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fixedClock } from './clock';
+import { META, setMeta } from './db';
 import { nodeSqliteDriver } from '../platform/node-sqlite';
 import { outcomeId, transact, updateSettings, weekPlanId } from './records';
 import type { Writer } from './records';
@@ -90,6 +91,20 @@ describe('the widget snapshot', () => {
   it('keeps nothing of the account once signed out, so the widgets ask to sign in', async () => {
     const s = await snapshotOf('signedout');
     expect(s).toEqual({ v: 1, writtenAt: pst('10:04'), syncedAt: null, zone: ZONE, signedIn: false, days: [], blocks: [], events: [], inbox: null, fromWidget: [] });
+  });
+
+  it('shows the plan of a device that never signed in, though its syncs, finding no sign-in, say it’s signed out', async () => {
+    const { db, clock } = await widgetScenario('now', nodeSqliteDriver());
+    await setMeta(db, META.lastSyncError, 'sign_in_expired');
+    const s = buildWidgetSnapshot(await loadWidgetData(db, clock), { clock });
+    expect(s.signedIn).toBe(true);
+    expect(s.blocks).toHaveLength(6);
+  });
+
+  it('asks to sign in once the account this device holds is deleted', async () => {
+    const { db, clock } = await widgetScenario('now', nodeSqliteDriver());
+    await setMeta(db, META.lastSyncError, 'account_deleted');
+    expect(buildWidgetSnapshot(await loadWidgetData(db, clock), { clock }).signedIn).toBe(false);
   });
 
   it('carries the last sync, so a widget can say it’s behind', async () => {

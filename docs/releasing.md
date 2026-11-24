@@ -655,9 +655,9 @@ app built for staging comes from Xcode: run it from Xcode again.
 
 ### What's new
 
-The first time an update with something new runs on an iPhone, the app shows a What's new sheet: a line saying when,
-such as "Multiscale was updated on Nov 24.", then a one-sentence line for each change, never a version or a commit.
-Each phone shows each line once.
+The first time an update with something new runs on an iPhone, the app shows a sheet titled "Multiscale has been
+updated". Under "What's new" and the date of the update, such as Nov 24, it has a one-sentence line for each change,
+never a version or a commit. Each phone shows each line once.
 
 - **The lines** are in [`frontend/src/whatsNew.ts`](../frontend/src/whatsNew.ts), newest first. A pull request that
   changes what someone can do on the iPhone adds its line at the top, with the next id. One plain sentence in the app's
@@ -673,7 +673,7 @@ Each phone shows each line once.
   What's new existed has recorded none, so it shows the newest lines once. The UI tests' Erase records them as a new
   install would, since their seeds skip setup.
 - **The date** is the running bundle's build, its commit's time (`build` in `version.json`), as a day in the phone's
-  time zone, as in "Multiscale was updated on Nov 24." A commit reaches staging within the hour and prod after its canary, usually the same day.
+  time zone, such as Nov 24. A commit reaches staging within the hour and prod after its canary, usually the same day.
 - **Only the iPhone, for now.** The Mac app and the web app don't show it. `e2e/whats-new.spec.ts` checks it at phone
   size in the browser, which stands in for the iPhone in dev builds only.
 

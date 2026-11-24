@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }, info) => {
   await page.addInitScript(() => (window.multiscaleWhatsNew = true));
 });
 
-const sheet = (page: Page) => page.getByRole('dialog', { name: "What's new" });
+const sheet = (page: Page) => page.getByRole('dialog', { name: 'Multiscale has been updated' });
 const seen = (page: Page) => page.evaluate((key) => localStorage.getItem(key), WHATS_NEW_KEY);
 
 /** A new install: first-run setup, then past it. */
@@ -39,8 +39,8 @@ test('a new install shows nothing, then an update shows its new lines once, date
   await page.evaluate(({ key, id }) => localStorage.setItem(key, String(id)), { key: WHATS_NEW_KEY, id: NEWEST - 2 });
   await page.reload();
   await expect(sheet(page)).toBeVisible();
-  await expect(sheet(page).getByRole('heading', { name: "What's new" })).toBeVisible();
-  await expect(sheet(page).getByText(/^Multiscale was updated on [A-Z][a-z]{2} \d{1,2}\.$/)).toBeVisible();
+  await expect(sheet(page).getByRole('heading')).toHaveText(['Multiscale has been updated', "What's new"]);
+  await expect(sheet(page).getByText(/^[A-Z][a-z]{2} \d{1,2}$/)).toBeVisible();
   await expect(sheet(page).getByRole('listitem')).toHaveText(WHATS_NEW.slice(0, 2).map((e) => e.text));
   await expect(sheet(page)).toBeFocused();
   await expectTapTarget(sheet(page).getByRole('button', { name: 'Got it' }));

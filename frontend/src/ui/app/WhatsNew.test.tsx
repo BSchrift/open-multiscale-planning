@@ -14,7 +14,8 @@ const NEWEST = newestId(WHATS_NEW);
 const BUILD = Date.UTC(2026, 10, 24, 18) / 1000;
 const IPHONE: HarnessOptions = { kind: 'ios', layout: 'phone', build: BUILD };
 
-const whatsNew = () => screen.queryByRole('dialog', { name: "What's new" });
+const TITLE = 'Multiscale has been updated';
+const whatsNew = () => screen.queryByRole('dialog', { name: TITLE });
 /** Long enough, once the app has drawn, for it to settle and the sheet to show, if it's going to. */
 const wait = () => act(async () => void (await vi.advanceTimersByTimeAsync(3000)));
 async function settle() {
@@ -36,9 +37,11 @@ describe("what's new on the iPhone", () => {
     sawUpTo(NEWEST - 2);
     const first = await renderApp(IPHONE);
     await settle();
-    const sheet = await screen.findByRole('dialog', { name: "What's new" });
-    expect(within(sheet).getByRole('heading', { name: "What's new" })).toBeVisible();
-    expect(within(sheet).getByText('Multiscale was updated on Nov 24.')).toBeVisible();
+    const sheet = await screen.findByRole('dialog', { name: TITLE });
+    // The title, then What's new over the update's date and its lines.
+    expect(within(sheet).getAllByRole('heading').map((h) => h.textContent)).toEqual([TITLE, "What's new"]);
+    expect(within(sheet).getByRole('heading', { name: TITLE, level: 2 })).toBeVisible();
+    expect(within(sheet).getByText('Nov 24')).toBeVisible();
     expect(within(sheet).getAllByRole('listitem').map((li) => li.textContent)).toEqual(WHATS_NEW.slice(0, 2).map((e) => e.text));
     // Focus goes into the sheet, and what's behind it is out of reach of VoiceOver's swipes.
     expect(sheet).toHaveFocus();
@@ -62,7 +65,7 @@ describe("what's new on the iPhone", () => {
   it('shows the newest lines to a phone updating from a bundle from before What’s new', async () => {
     await renderApp(IPHONE);
     await settle();
-    const sheet = await screen.findByRole('dialog', { name: "What's new" });
+    const sheet = await screen.findByRole('dialog', { name: TITLE });
     expect(within(sheet).getAllByRole('listitem').map((li) => li.textContent)).toEqual(WHATS_NEW.slice(0, 6).map((e) => e.text));
   });
 
@@ -90,14 +93,14 @@ describe("what's new on the iPhone", () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull());
     await settle();
-    expect(await screen.findByRole('dialog', { name: "What's new" })).toBeVisible();
+    expect(await screen.findByRole('dialog', { name: TITLE })).toBeVisible();
   });
 
   it('puts the lines away on Esc too', async () => {
     sawUpTo(NEWEST - 1);
     await renderApp(IPHONE);
     await settle();
-    await screen.findByRole('dialog', { name: "What's new" });
+    await screen.findByRole('dialog', { name: TITLE });
     await userEvent.keyboard('{Escape}');
     expect(whatsNew()).toBeNull();
     expect(seen()).toBe(String(NEWEST));
@@ -107,7 +110,7 @@ describe("what's new on the iPhone", () => {
     sawUpTo(NEWEST - 1);
     await renderApp(IPHONE);
     await settle();
-    const sheet = await screen.findByRole('dialog', { name: "What's new" });
+    const sheet = await screen.findByRole('dialog', { name: TITLE });
     const swipe = (dx: number, dy: number) => {
       fireEvent.touchStart(sheet, { touches: [{ clientX: 200, clientY: 500 }] });
       fireEvent.touchEnd(sheet, { changedTouches: [{ clientX: 200 + dx, clientY: 500 + dy }] });

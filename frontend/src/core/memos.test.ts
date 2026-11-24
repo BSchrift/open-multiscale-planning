@@ -10,7 +10,7 @@ import { clampText, deleteNote, editNote, foldMatches, noteId, restore, saveAsNo
 import { MAX_NOTES } from './notes';
 import { applyPlanChange } from './plan';
 import { applyRemote, getRecord, transact } from './records';
-import { deletedNotes, memoAttachments, notesList, taskAttachments } from './queries';
+import { deletedNotes, memoAttachments, notesForDay, notesList, taskAttachments } from './queries';
 import { configureRetention } from './retention';
 import type { Retention } from './retention';
 import { openTestDb } from '../platform/node-sqlite';
@@ -177,6 +177,53 @@ describe('a note', () => {
     clock.set('2026-11-18T09:00:00Z');
     await transact(db, clock, (w) => restore(w, id));
     expect((await notesList(db)).map((n) => n.title)).toEqual(['Hall paint: Pale Oat']);
+  });
+});
+
+describe("a note's home and day", () => {
+  beforeEach(async () => {
+    await transact(db, clock, async (w) => {
+      await w.create('objective', { title: 'Home', state: 'active' }, 'g1');
+      await w.create('project', { objective_id: 'g1', title: 'Kitchen redo', state: 'active', start: '2026-11-01', end: '2026-12-31' }, 'p1');
+    });
+  });
+
+  it('is saved with its home in the one change, and Undo takes both back', async () => {
+    const reverse = await transact(db, clock, (w) => saveAsNote(w, 'paint', clock, { type: 'project', id: 'p1' }));
+    expect((await getRecord(db, 'memo', noteId('paint')))?.home).toEqual({ type: 'project', id: 'p1' });
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect((await getRecord(db, 'memo', noteId('paint')))?.deleted_at).toBe(NOW);
+    // Saved again on its own, it has no home.
+    await transact(db, clock, (w) => saveAsNote(w, 'paint', clock, null));
+    expect((await getRecord(db, 'memo', noteId('paint')))?.home).toBeNull();
+  });
+
+  it('moves to another home, and takes a day to show on Today, only as edited', async () => {
+    await transact(db, clock, (w) => saveAsNote(w, 'paint', clock));
+    const reverse = await transact(db, clock, (w) => editNote(w, noteId('paint'), { home: { type: 'objective', id: 'g1' }, show_on: '2026-11-20' }));
+    expect(await getRecord(db, 'memo', noteId('paint'))).toMatchObject({ home: { type: 'objective', id: 'g1' }, show_on: '2026-11-20' });
+    expect((await notesForDay(db, '2026-11-20')).map((n) => n.id)).toEqual([noteId('paint')]);
+    expect(await notesForDay(db, '2026-11-21')).toEqual([]);
+    await transact(db, clock, (w) => applyPlanChange(w, reverse));
+    expect(await getRecord(db, 'memo', noteId('paint'))).toMatchObject({ home: null, show_on: null });
+  });
+
+  it('lists a home another device sent of another type, or not a home at all, as no home', async () => {
+    const memo = (id: string, home: unknown) => ({
+      type: 'memo' as const,
+      id,
+      fields: { title: { v: id, c: other('2026-11-17T16:00:00Z') }, saved_on: { v: '2026-11-17', c: other('2026-11-17T16:00:00Z') }, home: { v: home, c: other('2026-11-17T16:00:00Z') } },
+    });
+    await applyRemote(db, [
+      memo('n1', { type: 'project', id: 'p1' }),
+      memo('n2', { type: 'person', id: 'p1' }),
+      memo('n3', 'p1'),
+      memo('n4', 7),
+      memo('n5', { type: 'project' }),
+      memo('n6', null),
+    ]);
+    const homes = Object.fromEntries((await notesList(db)).map((n) => [n.id, n.home]));
+    expect(homes).toEqual({ n1: { type: 'project', id: 'p1' }, n2: null, n3: null, n4: null, n5: null, n6: null });
   });
 });
 

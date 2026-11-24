@@ -5,14 +5,9 @@ import { useId, useState } from 'react';
 import { syncStatus, unsyncedChanges } from '../../core/sync';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
-import { APPEARANCE_KEY } from './appearance';
-import { PROCESS_KEYS_KEY } from './processKeys';
-import { SHOW_COMPLETED_KEY } from './showCompleted';
+import { forgetScreenState } from './screenState';
 import { useApp, useQuery } from './store';
 import { Button } from '../components/ds/Button';
-
-/** Choices about this device rather than the account, so an account switch keeps them. */
-const DEVICE_KEYS = [APPEARANCE_KEY, SHOW_COMPLETED_KEY, PROCESS_KEYS_KEY];
 
 export function SwitchAccount() {
   const { sync, layout } = useApp();
@@ -38,15 +33,8 @@ export function SwitchAccount() {
   };
   const erase = async () => {
     await sync.eraseAndSignIn();
-    // What screens keep on this device, such as a plan in progress, was the other account's too. DEVICE_KEYS are the
-    // device's own.
-    try {
-      const kept = DEVICE_KEYS.map((key) => [key, localStorage.getItem(key)] as const);
-      localStorage.clear();
-      for (const [key, value] of kept) if (value !== null) localStorage.setItem(key, value);
-    } catch {
-      // Storage can be blocked, and then holds nothing.
-    }
+    // What screens keep on this device, such as a plan in progress, was the other account's too.
+    forgetScreenState();
   };
   const cancel = () => void run(sync.signOut);
   const { email, unsynced } = data;

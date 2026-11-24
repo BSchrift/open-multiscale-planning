@@ -12,6 +12,7 @@ import { getMeta, META, setMeta } from './db';
 import { perf } from './perf';
 import type { Db, Sql } from './db';
 import { applyRemote } from './records';
+import { tokenSubject } from './tokenClaims';
 import type { Instant, RecordChange } from './types';
 
 // The server's limits, from config/protocol.yaml.
@@ -24,11 +25,24 @@ const MERGED_ROOM = protocol.sync.mergedRoomBytes;
 const BATCH_BYTES = protocol.sync.clientBatchBytes;
 const REQUEST_TIMEOUT_MS = 30_000;
 
-export type SyncErrorCode = 'offline' | 'sign_in_expired' | 'sign_in_failed' | 'clock_ahead' | 'other_account' | 'too_large' | 'error';
+export type SyncErrorCode =
+  | 'offline'
+  | 'sign_in_expired'
+  | 'sign_in_failed'
+  | 'clock_ahead'
+  | 'other_account'
+  | 'too_large'
+  /** The account was deleted, here or on another device: this device's copy is erased and it's signed out. */
+  | 'account_deleted'
+  | 'error';
 
 /** A failed sync, by what the user can be told about it. Stored as last_sync_error. */
 export class SyncError extends Error {
-  constructor(readonly code: SyncErrorCode) {
+  constructor(
+    readonly code: SyncErrorCode,
+    /** For account_deleted, the account that was deleted, from the token that found it, when the token said. */
+    readonly account: string | null = null,
+  ) {
     super(code);
     this.name = 'SyncError';
   }
@@ -63,11 +77,12 @@ interface OutboxRow {
 const byteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
 /**
- * The next records to send, in id order, up to 99 or BATCH_BYTES. A record too large for the server stays in the
- * outbox, set aside and counted in `held`, so it can't hold up the rest. One transaction, so a record and its outbox
- * rows can't be read mid-edit.
+ * The next records to send, in id order, up to 99 or BATCH_BYTES. A record too large for the server, or one it has
+ * refused this sync, stays in the outbox, set aside and counted in `held`, so it can't hold up the rest. Each record
+ * up to `oneByOne` goes alone, to find the one the server refused in a batch. One transaction, so a record and its
+ * outbox rows can't be read mid-edit.
  */
-function readBatch(db: Db) {
+function readBatch(db: Db, refused: ReadonlySet<string>, oneByOne: string) {
   return db.transaction(async (tx) => {
     const rows: OutboxRow[] = [];
     const changes: RecordChange[] = [];
@@ -95,7 +110,7 @@ function readBatch(db: Db) {
         }
         // The server merges into what it holds, which is all of this, so the whole record has to fit, with its room.
         const whole = byteLength(Object.fromEntries(Object.keys(data).map((f) => [f, { v: data[f], c: clocks[f] }])));
-        if (byteLength(change.fields) > RECORD_BYTES || whole > RECORD_BYTES + MERGED_ROOM) {
+        if (refused.has(record_id) || byteLength(change.fields) > RECORD_BYTES || whole > RECORD_BYTES + MERGED_ROOM) {
           // A deleted record can't be shortened, so its delete goes alone, which the server has room for on what it
           // holds. The rest waits without counting, and is held again if the record comes back.
           const deleted = own.filter((r) => r.field === 'deleted_at');
@@ -109,7 +124,7 @@ function readBatch(db: Db) {
         changes.push(change);
         rows.push(...own);
         bytes += size;
-        if (changes.length === BATCH_RECORDS) return { rows, changes, held, more: true };
+        if (changes.length === BATCH_RECORDS || record_id <= oneByOne) return { rows, changes, held, more: true };
       }
     }
   });
@@ -179,12 +194,17 @@ function assertResponse(res: SyncResponse): void {
 
 /**
  * One full sync. Throws on failure, leaving the outbox and cursor as they were before the failed request. A record too
- * large to send waits in the outbox while the rest syncs, and then the sync throws too_large. Resolves to how many
- * changes it brought down.
+ * large to send waits in the outbox while the rest syncs, and then the sync throws too_large. So does one the server
+ * refuses as too long, which send reports as too_large: its batch goes again one record at a time to find it. Resolves
+ * to how many changes it brought down.
  * shortcut: a batch the server refuses for any other reason fails whole every time until edited; send its records one
  * by one on a refusal if that ever happens in practice.
+ * shortcut: what the server refused isn't kept between syncs, so each sync finds a held record again with a refused
+ * request and its batch one by one. Keep the refused records' clocks if that ever costs too much.
  */
 export async function runSync(db: Db, send: SyncSend): Promise<number> {
+  const refused = new Set<string>();
+  let oneByOne = '';
   let cursor = Number((await getMeta(db, META.cursor)) ?? 0);
   let seen = (await getMeta(db, META.generation)) ?? '';
   // Starting from 0, nothing here can be an older copy of the server's: every id it sends goes in here, and a reset
@@ -195,8 +215,19 @@ export async function runSync(db: Db, send: SyncSend): Promise<number> {
   let resets = 0;
   let applied = 0;
   for (;;) {
-    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db);
-    const res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+    const { rows, changes, held, more } = pulled ? { rows: [], changes: [], held: 0, more: false } : await readBatch(db, refused, oneByOne);
+    let res: SyncResponse;
+    try {
+      res = await timedSend(send, pulled ? { cursor, changes } : { cursor, changes, expiry_reset: true });
+    } catch (err) {
+      // The server refuses a whole request for one record too long, without saying which, so the batch goes again one
+      // record at a time, and the one it refuses alone is held. Refused again once held, it can't be held any further.
+      const alone = changes.length === 1 ? changes[0]!.id : null;
+      if (!(err instanceof SyncError && err.code === 'too_large') || changes.length === 0 || (alone && refused.has(alone))) throw err;
+      if (alone) refused.add(alone);
+      else oneByOne = changes.at(-1)!.id;
+      continue;
+    }
     assertResponse(res);
     // A restore shows as a new generation. The cursor check also catches one whose generation was never written, but
     // only until other devices move the counter past this cursor.
@@ -273,7 +304,11 @@ export interface ApiDeps {
   fetch: FetchFn;
 }
 
-/** POSTs to the API signed in, refreshing the token once on a 401. Throws SyncError: offline or sign_in_expired. */
+/** Whether the API refused a request because the account was deleted, which no refresh can mend. */
+const accountDeleted = async (res: Response) =>
+  res.status === 401 && ((await res.clone().json().catch(() => null)) as { error?: unknown } | null)?.error === 'account_deleted';
+
+/** POSTs to the API signed in, refreshing the token once on a 401. Throws SyncError: offline, sign_in_expired or account_deleted. */
 export function apiPost(deps: ApiDeps, path: string, body?: unknown): Promise<Response> {
   return apiRequest(deps, 'POST', path, body);
 }
@@ -292,9 +327,13 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
       throw new SyncError('offline');
     }
   };
-  let res = await post(await deps.auth.accessToken());
+  let token = await deps.auth.accessToken();
+  let res = await post(token);
+  if (await accountDeleted(res)) throw new SyncError('account_deleted', tokenSubject(token));
   if (res.status === 401) {
-    res = await post(await deps.auth.accessToken({ refresh: true }));
+    token = await deps.auth.accessToken({ refresh: true });
+    res = await post(token);
+    if (await accountDeleted(res)) throw new SyncError('account_deleted', tokenSubject(token));
     if (res.status === 401) {
       await deps.auth.expire();
       throw new SyncError('sign_in_expired');
@@ -304,8 +343,15 @@ export async function apiRequest(deps: ApiDeps, method: 'GET' | 'POST', path: st
 }
 
 /**
- * The real network behind runSync. counted hears of each request the server answered, with the characters it sent and
- * received, about its bytes for JSON: each one wakes the radio, which telemetry's app.sync.count reports.
+ * The server's codes for a request refused because one record is too long: its text, or the whole record once merged
+ * with what other devices sent, which this one may not have pulled yet.
+ */
+const TOO_LONG: unknown[] = ['notes_too_long', 'memo_too_long', 'record_too_large'];
+
+/**
+ * The real network behind runSync. A record refused as too long is reported as too_large, which runSync holds.
+ * counted hears of each request the server answered, with the characters it sent and received, about its bytes for
+ * JSON: each one wakes the radio, which telemetry's app.sync.count reports.
  */
 export function createHttpSend(deps: ApiDeps, counted?: (bytes: number) => void): SyncSend {
   return async (request) => {
@@ -319,7 +365,7 @@ export function createHttpSend(deps: ApiDeps, counted?: (bytes: number) => void)
     } catch {
       // Not JSON, such as a proxy's error page.
     }
-    throw new SyncError(error === 'clock_ahead' ? 'clock_ahead' : 'error');
+    throw new SyncError(error === 'clock_ahead' ? 'clock_ahead' : TOO_LONG.includes(error) ? 'too_large' : 'error');
   };
 }
 
@@ -328,9 +374,13 @@ export interface SyncStatus {
   lastError: SyncErrorCode | null;
 }
 
+/** Whether the last sync found no one signed in: a sign-in that lapsed or failed, or an account deleted. */
+export const isSignedOut = (status: SyncStatus): boolean =>
+  status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed' || status.lastError === 'account_deleted';
+
 /** Signed in once it has synced, or tried to, and the last try wasn't refused for sign-in. */
 export function isSignedIn(status: SyncStatus): boolean {
-  const signedOut = status.lastError === 'sign_in_expired' || status.lastError === 'sign_in_failed';
+  const signedOut = isSignedOut(status);
   return !signedOut && !!(status.lastSyncAt || status.lastError);
 }
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, overNowLine, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, overNowLine, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -108,8 +108,7 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   const box = (await block.boundingBox())!;
   const column = (await page.locator('.colbody').first().boundingBox())!;
   // One column right and 40px down: a day later and an hour later, at 40px an hour.
-  await page.mouse.move(box.x + box.width / 2, box.y + 8);
-  await page.mouse.down();
+  await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
   await page.mouse.move(box.x + box.width / 2 + column.width / 2, box.y + 30, { steps: 4 });
   await page.mouse.move(box.x + box.width / 2 + column.width + 2, box.y + 48, { steps: 4 });
   await page.mouse.up();
@@ -118,8 +117,7 @@ test('desktop: drag a block to another day and time, then remove it with Undo', 
   // The bottom edge makes it longer.
   const moved = page.getByRole('group', { name: /^Draft the summary/ });
   const edge = (await moved.locator('.evh').boundingBox())!;
-  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
-  await page.mouse.down();
+  await holdMouse(page, { x: edge.x + edge.width / 2, y: edge.y + edge.height / 2 });
   await page.mouse.move(edge.x + edge.width / 2, edge.y + 20, { steps: 4 });
   await page.mouse.up();
   await expect(page.getByRole('group', { name: /^Draft the summary, Wed Nov 4, 7pm to 8:30pm, Project\./ })).toBeVisible();
@@ -154,7 +152,7 @@ test("a task's block opens the task's popup, with the block's own section at its
   if (phone) expect(Math.round(box.y + box.height)).toBe(view.height);
   else expect(Math.abs(box.x + box.width / 2 - view.width / 2)).toBeLessThan(2);
   if (phone) {
-    for (const name of ['Move', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
+    for (const name of ['Move…', 'Remove from calendar']) await expectTapTarget(section.getByRole('button', { name, exact: true }));
     await expectTapTarget(section.getByRole('slider', { name: 'Length' }));
   }
   await page.screenshot({ path: info.outputPath(`week-popup-${info.project.name}.png`) });
@@ -174,6 +172,31 @@ test("a task's block opens the task's popup, with the block's own section at its
   await expect(popup.getByRole('button', { name: 'Delete task' })).toBeVisible();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(section).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("desktop: what waits above the week shares rows across days, so the strip is as tall as its busiest day", async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'The grid is the desktop layout');
+  // A session every day still to place, as the owner's Gym is, and a one off for Thursday. Piano practice waits on
+  // every day but Wednesday, which has its session.
+  const errors = await openWeek(page, [
+    ...records,
+    { type: 'practice', id: 'gym', fields: { title: 'Gym', target_min: 60, per: 'day', days: [0, 1, 2, 3, 4, 5, 6], state: 'active' } },
+    { type: 'task', id: 't3', fields: { kind: 'one_off', title: 'Do some cleaning', estimate_min: 30, schedule: { type: 'once', from: '2026-11-05' } } },
+  ]);
+  const lane = page.locator('.collane');
+  const tops = (title: RegExp) => lane.locator('.oochip', { hasText: title }).evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+  await expect(lane.locator('.oochip', { hasText: /^Gym$/ })).toHaveCount(7);
+  // Each practice keeps one row across the week, and the one off goes under them on its day.
+  const [gym, piano, cleaning] = [await tops(/^Gym$/), await tops(/^Piano practice$/), await tops(/^Do some cleaning$/)];
+  expect(new Set(gym).size).toBe(1);
+  expect(new Set(piano).size).toBe(1);
+  expect(piano[0]).toBeGreaterThan(gym[0]!);
+  expect(cleaning[0]).toBeGreaterThan(piano[0]!);
+  // Three rows, for Thursday's three, rather than one for each of the 14 items.
+  const heights = await lane.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
+  expect(Math.max(...heights)).toBe(3 * 28 + 4);
+  await page.screenshot({ path: info.outputPath('week-lane-rows.png') });
   expect(errors).toEqual([]);
 });
 
@@ -214,7 +237,8 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   const sheet = page.getByRole('dialog', { name: 'Draft the summary' });
   await expect(sheet.getByText('Tue Nov 3, 6pm to 7pm')).toBeVisible();
   await expectTapTarget(sheet.getByRole('slider', { name: 'Length' }));
-  await sheet.getByRole('button', { name: 'Move', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Move…', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Choose a time…' }).click();
   await expect(page.getByText('Moving Draft the summary, 1h, from Tue 6pm')).toBeVisible();
   const handle = page.getByRole('slider', { name: /^Time for Draft the summary/ });
   await handle.focus();
@@ -231,6 +255,23 @@ test('phone: the day strip, a block sheet, and Move to another day', async ({ pa
   expect(errors).toEqual([]);
 });
 
+test("phone: a block held on the day, then dragged to a later row, moves to the time it's let go at, with Undo", async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'The day of rows is the phone layout');
+  const errors = await openWeek(page, [...records, { type: 'time_block', id: 'b5', fields: { task_id: 't2', start: at(2, '16:00'), end: at(2, '17:00'), tz: 'America/Chicago' } }]);
+  const block = page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ });
+  await block.scrollIntoViewIfNeeded();
+  // Let go over the middle of the free evening after it, which runs from 5pm to the day's close.
+  const evening = page.locator('.tlrow', { hasText: /^5pmFree, / });
+  await evening.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const e = (await evening.boundingBox())!;
+  await touchDrag(page, block, { x: e.x + e.width / 2, y: e.y + e.height / 2 });
+  await expect(page.getByText(/^Moved Paint the fence to Mon Nov 2, (6|7|8)/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('button', { name: /^Paint the fence, 4pm to 5pm/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('phone: a day with no slot stays readable', async ({ page }, info) => {
   test.skip(info.project.name !== 'phone', 'The strip is the phone layout');
   // Thursday is busy from 7am to 10pm, so the one hour block has no slot there.
@@ -243,7 +284,8 @@ test('phone: a day with no slot stays readable', async ({ page }, info) => {
   const strip = page.getByRole('group', { name: 'Choose a day' });
   await strip.getByRole('button').nth(1).click();
   await page.getByRole('button', { name: /^Draft the summary, 6pm to 7pm/ }).click();
-  await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Draft the summary' }).getByRole('button', { name: 'Move…', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: 'Choose a time…' }).click();
   const thursday = strip.getByRole('button', { name: /^Thu.*no slot for this task/ });
   await expect(thursday).toContainText('No slot');
   const contrast = await thursday.locator('.wfree').evaluate((el) => {
@@ -374,8 +416,7 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
     // Dragged by the mouse onto Thursday, 26px an hour from 6am: 8am.
     const thu = (await page.locator('[data-drop-date="2026-11-05"]').boundingBox())!;
     const from = (await card.boundingBox())!;
-    await page.mouse.move(from.x + 20, from.y + 10);
-    await page.mouse.down();
+    await holdMouse(page, { x: from.x + 20, y: from.y + 10 });
     await page.mouse.move(thu.x + thu.width / 2, thu.y + 26 * 2 + 1, { steps: 8 });
     await page.mouse.up();
     await expect(page.getByRole('button', { name: /^Draft the summary, Thu Nov 5, 8am to 10am, Project\./ })).toBeVisible();
@@ -386,13 +427,43 @@ test('to schedule: picked work waits above the week, a suggestion places it, Und
     const placed = page.getByRole('group', { name: /^Draft the summary, Thu Nov 5/ });
     const box = (await placed.boundingBox())!;
     const target = (await lane.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + 8);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 2, y: box.y + 8 });
     await page.mouse.move(target.x + target.width / 2, target.y + 10, { steps: 8 });
     await page.mouse.up();
     await expect(placed).toHaveCount(0);
     await expect(lane.getByRole('button', { name: 'Draft the summary, Project, 2h of 3h left, to schedule' })).toBeVisible();
   }
+  expect(errors).toEqual([]);
+});
+
+test("desktop: a toast that takes another's place under the resting mouse is held by it too, until the mouse goes", async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'A mouse rests on the toast on desktop');
+  const picks = [
+    { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 180 } },
+    { type: 'week_pick', id: 'pick:2026-11-02:t2', fields: { week_start: '2026-11-02', task_id: 't2', minutes: 60 } },
+  ] as const;
+  const errors = await openWeek(page, [...records, ...picks]);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  await lane.getByRole('button', { name: /^Draft the summary, / }).click();
+  await page.getByRole('group', { name: 'Draft the summary' }).getByRole('group', { name: 'Suggested times' }).getByRole('button').first().click();
+  const toast = page.locator('.toast');
+  await expect(toast).toContainText('Placed Draft the summary');
+  await toast.getByRole('button', { name: 'Undo' }).hover();
+
+  // Another change, from the keyboard, so the mouse stays where it is: its toast takes the first one's place under it.
+  await lane.getByRole('button', { name: /^Paint the fence, / }).focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('group', { name: 'Paint the fence' }).getByRole('button', { name: 'Take out of this week' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(toast).toContainText('Took Paint the fence out of this week');
+  await expect.poll(() => toast.evaluate((el) => el.matches(':hover'))).toBe(true);
+  // Past the 5 seconds a toast with Undo shows for.
+  await page.clock.runFor(6000);
+  await expect(toast).toContainText('Took Paint the fence out of this week');
+
+  await page.mouse.move(10, 10);
+  await page.clock.runFor(6000);
+  await expect(toast).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

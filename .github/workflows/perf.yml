@@ -1,0 +1,108 @@
+name: Performance
+# The PR check of the performance KPIs (docs/performance.md): each PR's web build timed beside its base's on the same
+# runner, in turns, and one comment on the PR with what changed, updated on each push. Report-only: the perf check fails
+# only when the timing couldn't run. Linux only: the iPhone's run is nightly, or on a PR with the perf-ios label.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  time:
+    # A label other than perf-accepted changes nothing here.
+    if: (github.event.action != 'labeled' && github.event.action != 'unlabeled') || github.event.label.name == 'perf-accepted'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [web-desktop, web-phone]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # The merge of the PR into its base, so the base commit is the same code without the PR.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - id: playwright
+        run: |
+          echo "version=$(node -p "require('playwright-core/package.json').version")" >>"$GITHUB_OUTPUT"
+          . /etc/os-release && echo "os=$ID-$VERSION_ID" >>"$GITHUB_OUTPUT"
+        working-directory: frontend
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright.outputs.os }}-${{ steps.playwright.outputs.version }}-chromium
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Time the PR beside its base, in turns
+        run: scripts/test-perf.sh
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PERF_PLATFORMS: ${{ matrix.platform }}
+          PERF_LAUNCHES: "0"
+          PERF_CONFIRM: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-${{ matrix.platform }}
+          path: frontend/test-results/perf
+          retention-days: 30
+          if-no-files-found: ignore
+
+  perf:
+    needs: time
+    # Not for a run a newer push cancelled, whose comment would say the timing didn't run.
+    if: ${{ !cancelled() && needs.time.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: perf-*
+          path: results
+          merge-multiple: true
+      - name: Compare
+        env:
+          PERF_INTRO: Web desktop and web phone (4× CPU), one year of data, against the base at ${{ github.event.pull_request.base.sha }} on the same runner.
+          ACCEPTED: ${{ contains(github.event.pull_request.labels.*.name, 'perf-accepted') }}
+        run: |
+          mkdir -p results/raw
+          report=(node frontend/scripts/perf-report.ts results/raw --base base --head this --markdown comment.md)
+          [ ! -d results/raw-again ] || report+=(--again results/raw-again)
+          [ ! -f results/notes.txt ] || report+=(--notes results/notes.txt)
+          "${report[@]}"
+          [ "$ACCEPTED" != true ] || printf '\nAccepted: this PR has the \x60perf-accepted\x60 label.\n' >>comment.md
+          cat comment.md >>"$GITHUB_STEP_SUMMARY"
+      # One comment per PR, found by its first line. A fork's PR can't comment, so its numbers are in the summary only.
+      - name: Comment
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          body="$(printf '<!-- perf -->\n%s' "$(cat comment.md)")"
+          id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- perf -->")) | .id' | head -n 1)"
+          if [ -n "$id" ]; then gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" >/dev/null
+          else gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body" >/dev/null; fi
+      - if: needs.time.result != 'success'
+        run: |
+          echo "The timing didn't run on every platform: see the time jobs." >&2
+          exit 1

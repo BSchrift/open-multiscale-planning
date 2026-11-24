@@ -3,6 +3,9 @@
 // desktop, P does the same.
 // During a task's block the card also shows the first lines of its description and how many attachments it has, and a
 // task's name opens its popup.
+// Once a task's block is started, it can end early either way: Mark done now, or Stop for now, which asks how much is
+// left, as Partly at the end does. A practice's block has only Mark done now, which already logs just the time spent,
+// and a practice has no time left to place.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { currentBlock, isPaused, nextBlock, pauseWords, ringFill, timeLeftMs, timeSpentMs } from '../../../core/blocks';
@@ -12,6 +15,7 @@ import { taskAttachments } from '../../../core/queries';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
 import type { Layout } from '../../app/registry';
+import { requestPrompt } from '../../app/reminders';
 import { useApp, useNow, useQuery } from '../../app/store';
 import { busy } from '../../components/blocks/BlockPrompts';
 import { formatRange } from '../../components/blocks/describe';
@@ -177,10 +181,16 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
     const started = !!cur.started_at;
     const paused = isPaused(cur);
     const markDone = (
-      <Button type="button" disabled={actions.pending} onClick={() => void actions.markDoneNow(cur, next)}>
+      <Button type="button" className={phone ? 'grow' : undefined} disabled={actions.pending} onClick={() => void actions.markDoneNow(cur, next)}>
         Mark done now
       </Button>
     );
+    const stop =
+      started && cur.task_id ? (
+        <Button type="button" className={phone ? 'grow' : undefined} disabled={actions.pending} onClick={() => requestPrompt(cur.id, true)}>
+          Stop for now
+        </Button>
+      ) : null;
     return (
       <section className={`now stack${started ? ' timed' : ''}`} aria-label="Current block">
         <div className="small quiet">Now, {formatRange(cur.start, cur.end, zone)}</div>
@@ -197,7 +207,12 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
             {paused && <div className="small quiet">Ends at {formatTime(cur.end, zone)} unless you resume.</div>}
           </div>
         )}
-        {phone && started && markDone}
+        {phone && started && (
+          <div className="row">
+            {markDone}
+            {stop}
+          </div>
+        )}
         {(!phone || !started) && (
           <div className="row">
             {!started && (
@@ -213,6 +228,7 @@ export function NowCard(props: { blocks: readonly BlockRow[]; layout: Layout }) 
               </>
             )}
             {!phone && markDone}
+            {!phone && stop}
           </div>
         )}
       </section>

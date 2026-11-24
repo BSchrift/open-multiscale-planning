@@ -4,6 +4,7 @@ import { localToInstant } from '../../../core/dates';
 import { getRecord, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import { renderScreen } from '../../app/testing';
+import { landsOn } from './BothAsk';
 
 afterEach(cleanup);
 
@@ -67,5 +68,17 @@ describe('a block action pressed twice runs once', () => {
     expect(within(now).getByRole('button', { name: 'Start' })).toBeDisabled();
     expect(await within(now).findByRole('heading', { name: 'Paint the fence' })).toBeVisible();
     expect((await getRecord(t.db, 'time_block', 'b1'))?.task_id).toBe('t2');
+  });
+});
+
+describe('what a block lands on', () => {
+  const b = (id: string, start: number, end: number, date = '2026-11-03') => ({ id, title: id, date, start, end });
+  const blocks = [b('self', 600, 660), b('a', 660, 720), b('b', 700, 760), b('other day', 660, 720, '2026-11-04')];
+  it('is the blocks the new time overlaps that the old one did not, leaving out itself and other days', () => {
+    expect(landsOn(blocks, 'self', { date: '2026-11-03', start: 630, end: 690 }, { date: '2026-11-03', start: 600, end: 660 }).map((x) => x.id)).toEqual(['a']);
+    // Already over a, a step further asks only about b.
+    expect(landsOn(blocks, 'self', { date: '2026-11-03', start: 690, end: 750 }, { date: '2026-11-03', start: 630, end: 690 }).map((x) => x.id)).toEqual(['b']);
+    // A card has no old time.
+    expect(landsOn(blocks, null, { date: '2026-11-03', start: 650, end: 710 }).map((x) => x.id)).toEqual(['self', 'a', 'b']);
   });
 });

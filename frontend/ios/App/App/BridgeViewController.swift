@@ -28,6 +28,12 @@ class BridgeViewController: CAPBridgeViewController {
             let name = CFNotificationName("io.github.bschrift.multiscale.page-loaded" as CFString)
             CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), name, nil, nil, true)
         }
+        // And for each KPI the page measures (src/core/perf.ts), such as a tab drawn with its data, so XCUITest can wait
+        // for the app's word that a page is drawn before it reads it.
+        let content = webView?.configuration.userContentController
+        content?.add(MeasureRelay(), name: "measured")
+        let observe = "new PerformanceObserver((list) => { for (const entry of list.getEntries()) webkit.messageHandlers.measured.postMessage(entry.name); }).observe({ type: 'measure' });"
+        content?.addUserScript(WKUserScript(source: observe, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // XCUITest runs a seeded app on a clock of its choosing, which the Simulator's can't be: the page's Date runs
         // this far ahead of the real one, and on from there.
         if let shift = ProcessInfo.processInfo.environment["MULTISCALE_CLOCK_SHIFT_MS"].flatMap(Int.init) {
@@ -413,6 +419,7 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "MultiscaleChecks"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "openCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "share", returnType: CAPPluginReturnPromise),
     ]
 
     /// The Control Center button's intent, which iOS runs in the app's process when the button is tapped.
@@ -425,6 +432,16 @@ class ChecksPlugin: CAPPlugin, CAPBridgedPlugin {
             } catch {
                 call.reject(String(describing: error))
             }
+        }
+    }
+
+    /// What the share extension does with text shared to it: queues it for the app.
+    @objc func share(_ call: CAPPluginCall) {
+        do {
+            try ShareQueue.add(call.getString("text") ?? "")
+            call.resolve()
+        } catch {
+            call.reject(String(describing: error))
         }
     }
 }
@@ -451,3 +468,14 @@ class AppearancePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 }
+
+#if DEBUG
+/// Posts each measure the page reports as a Darwin notification named for it, which XCUITest waits on.
+private final class MeasureRelay: NSObject, WKScriptMessageHandler {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let name = message.body as? String else { return }
+        let note = CFNotificationName("io.github.bschrift.multiscale.measured.\(name)" as CFString)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), note, nil, nil, true)
+    }
+}
+#endif

@@ -4,7 +4,7 @@
 import type { Row, SqlValue } from '../src/core/db';
 import type { Reminder } from '../src/core/types';
 import type { NativeUpdates } from '../src/core/updates';
-import type { Appearance, CaptureShortcut, ReminderResponse } from '../src/platform/types';
+import type { Appearance, CaptureShortcut, NativeMenuItem, ReminderResponse } from '../src/platform/types';
 
 export interface ElectronBridge {
   signInRedirectUri: string;
@@ -35,6 +35,8 @@ export interface ElectronBridge {
   /** The page can now take captures and deep links. */
   ready(): void;
   setAppearance(appearance: Appearance): Promise<void>;
+  /** A menu macOS draws at the pointer: the chosen item's id, or null. Apps from before it lack it. */
+  showMenu?(items: readonly NativeMenuItem[]): Promise<string | null>;
   updates: NativeUpdates;
   captureShortcut: CaptureShortcut;
   /** Set by apps whose content policy lets the page reach attachments' storage. Older apps lack it. */

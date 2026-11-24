@@ -1,4 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import { join } from 'node:path';
+import { assertInstalled } from '../../scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(join(import.meta.dirname, '../..'));
 
 // The performance runner (scripts/test-perf.sh, docs/performance.md): the browser's KPIs in desktop Chromium and in
 // Chromium at a phone's size with its CPU slowed, and the Mac app's, against the builds PERF_TARGETS and
@@ -17,5 +22,7 @@ export default defineConfig({
     // Chromium, since only it can slow the CPU.
     { name: 'web-phone', testMatch: 'web.spec.ts', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 }, launchOptions: { args: quiet } } },
     { name: 'mac', testMatch: 'mac.spec.ts' },
+    // Two signed-in browsers through the local stack behind Toxiproxy: PERF_SYNC=1 in scripts/test-perf.sh.
+    { name: 'sync', testMatch: 'sync.spec.ts', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 1000 }, launchOptions: { args: quiet } } },
   ],
 });

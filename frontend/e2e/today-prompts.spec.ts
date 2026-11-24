@@ -1,6 +1,6 @@
 // The Now card's other answers and the questions a block asks as it happens: Do next block instead, Start early, Mark
-// done now with nothing after, "Have you started?" and the end-of-block prompt's Not done, Answer later and Still
-// going. today.spec.ts has Start, the ring, Mark done now with a block after, and Partly.
+// done now with nothing after, Stop for now, "Have you started?" and the end-of-block prompt's Not done, Answer later
+// and Still going. today.spec.ts has Start, the ring, Mark done now with a block after, and Partly.
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
@@ -92,6 +92,33 @@ test('Mark done now with nothing after says the time spent and that nothing else
   await expect(page.getByText('Marked done after 22m. Nothing else planned today.')).toBeVisible();
   await expect(now.getByText('Nothing else planned today.')).toBeVisible();
   await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'Write the report, 1:38pm to 2:38pm, Project. Done.' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
+  await expect(now.getByRole('timer')).toHaveText('38:00');
+  expect(errors).toEqual([]);
+});
+
+test('Stop for now asks how much is left, ends the block with that, and Undo brings the block back as it was', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, project, report, block('b1', 't1', '13:38', '14:38', { started_at: at('13:38') })]);
+  const now = page.getByRole('region', { name: 'Current block' });
+  await expect(now.getByRole('timer')).toHaveText('38:00');
+  const stop = now.getByRole('button', { name: 'Stop for now' });
+  if (phone) for (const button of [stop, now.getByRole('button', { name: 'Mark done now' })]) await expectTapTarget(button);
+  // Reached from the keyboard, as the rest of the card is.
+  await stop.focus();
+  await page.keyboard.press('Enter');
+
+  // 3h estimated, 22m spent.
+  const prompt = page.getByRole('dialog', { name: 'How much is left?' });
+  await expect(prompt.getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '2h 38m');
+  const save = prompt.getByRole('button', { name: 'Save' });
+  if (phone) for (const button of [save, prompt.getByRole('button', { name: 'Not done' })]) await expectTapTarget(button);
+  await save.click();
+  await expect(page.getByText('Stopped after 22m. Added to Needs a new time. No need to decide now.')).toBeVisible();
+  await expect(now.getByText('Nothing else planned today.')).toBeVisible();
+  await expect(page.getByRole('region', { name: "Today's timeline" }).getByRole('button', { name: 'Write the report, 1:38pm to 2:38pm, Project. Partly.' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(now.getByText('Now, 1:38pm to 2:38pm')).toBeVisible();
@@ -194,24 +221,32 @@ test('Still going adds half an hour to a block just ended, which carries on in t
   expect(errors).toEqual([]);
 });
 
-test('a practice session that ended asks how much was done, logs less when the slider says so, and shows done on the timeline', async ({ page }, info) => {
+test('a practice session that ended offers All, Partly or Skipped, logs less when Partly and the slider say so, and shows done on the timeline', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const piano: Seed = { type: 'practice', id: 'pr', fields: { title: 'Piano practice', target_min: 30, per: 'day', state: 'active' } };
   const session: Seed = { type: 'time_block', id: 'b1', fields: { practice_id: 'pr', start: at('13:00'), end: at('13:30'), tz: 'America/Chicago' } };
   const errors = await open(page, [planned, piano, session]);
   const prompt = page.getByRole('dialog', { name: 'Block finished' });
   await expect(prompt.getByText('Piano practice')).toBeVisible();
-  const amount = prompt.getByRole('slider', { name: 'How much did you do?' });
-  await expect(amount).toHaveAttribute('aria-valuetext', '30m');
+  // All, Partly or Skipped first; Partly asks how much, from half the session.
   await expect(prompt.getByRole('button', { name: 'All 30m' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('practice-prompt.png') });
+  const partly = prompt.getByRole('button', { name: 'Partly' });
   if (phone) {
-    await expectTapTarget(amount);
     await expectTapTarget(prompt.getByRole('button', { name: 'All 30m' }));
+    await expectTapTarget(partly);
     await expectTapTarget(prompt.getByRole('button', { name: 'Skipped' }));
   }
-  await amount.focus();
-  await page.keyboard.press('ArrowLeft');
-  await expect(amount).toHaveAttribute('aria-valuetext', '25m');
+  await partly.click();
+  const amount = prompt.getByRole('slider', { name: 'How much did you do?' });
+  await expect(amount).toHaveAttribute('aria-valuetext', '15m');
+  await expect(amount).toBeFocused();
+  if (phone) await expectTapTarget(amount);
+  for (const text of ['20m', '25m']) {
+    await page.keyboard.press('ArrowRight');
+    await expect(amount).toHaveAttribute('aria-valuetext', text);
+  }
+  await page.screenshot({ path: info.outputPath('practice-partly.png') });
   await prompt.getByRole('button', { name: 'Log 25m' }).click();
   await expect(prompt).toHaveCount(0);
   await expect(page.getByText('Logged 25m')).toBeVisible();

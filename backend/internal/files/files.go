@@ -399,17 +399,23 @@ func (s *Service) downloads(ctx context.Context, ids []string, granted map[strin
 			out.Missing = append(out.Missing, id)
 			continue
 		}
-		key, err := s.Key.Key(ctx)
-		if err != nil {
-			return Downloads{}, err
-		}
-		url, err := sign.NewURLSigner(s.KeyID, key).Sign(s.FilesURL+"/"+f.key, expires)
+		url, err := s.SignURL(ctx, f.key, expires)
 		if err != nil {
 			return Downloads{}, err
 		}
 		out.Files = append(out.Files, Download{ID: id, URL: url, ExpiresAt: expires})
 	}
 	return out, nil
+}
+
+// SignURL makes a download link for an object in the bucket, through the distribution, that works until expires. Only
+// the API signs, so it decides who gets one.
+func (s *Service) SignURL(ctx context.Context, object string, expires time.Time) (string, error) {
+	key, err := s.Key.Key(ctx)
+	if err != nil {
+		return "", err
+	}
+	return sign.NewURLSigner(s.KeyID, key).Sign(s.FilesURL+"/"+object, expires)
 }
 
 // Usage is what the caller stores and may store, so the app can tell storage is full before adding a file.

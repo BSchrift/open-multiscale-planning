@@ -1,4 +1,9 @@
 import { defineConfig } from '@playwright/test';
+import { join } from 'node:path';
+import { assertInstalled } from '../scripts/installed';
+
+// A node_modules behind package-lock.json stops the run here, saying so, rather than failing tests as if the app had.
+assertInstalled(join(import.meta.dirname, '..'));
 
 // The browser's specs that import e2e/platform.ts run on the Mac app from here. Workers read this file too.
 process.env.E2E_PLATFORM = 'mac';

@@ -222,7 +222,7 @@ func TestCalendarThroughTheLocalStack(t *testing.T) {
 	}
 
 	logged := c.logs.String()
-	for _, want := range []string{`"msg":"calendar_run"`, `"trigger":"stream"`, `"trigger":"schedule"`, `"trigger":"refresh"`, `"CalendarEventsChanged":1`, `"CalendarRunFailures":1`} {
+	for _, want := range []string{`"msg":"calendar_run"`, `"trigger":"stream"`, `"trigger":"schedule"`, `"trigger":"refresh"`, `"CalendarEventsChanged":1`, `"CalendarRateLimited":1`, `"CalendarRevoked":1`} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("no %s in logs", want)
 		}

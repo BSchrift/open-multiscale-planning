@@ -178,7 +178,8 @@ export const RECORD_FIELDS = {
   calendar: ['connected', 'calendar_id', 'events', 'synced_at', 'last_error', 'deleted_at'],
   calendar_source: ['google_id', 'name', 'mode', 'deleted_at'],
   practice: ['objective_id', 'title', 'target_min', 'per', 'days', 'preferred_times', 'sessions', 'day_times', 'state', 'deleted_at'],
-  attachment: ['task_id', 'kind', 'name', 'url', 'size', 'type', 'sha256', 'uploaded_at', 'deleted_at'],
+  attachment: ['task_id', 'memo_id', 'kind', 'name', 'url', 'size', 'type', 'sha256', 'uploaded_at', 'deleted_at'],
+  memo: ['title', 'body', 'saved_on', 'home', 'show_on', 'deleted_at'],
 } as const satisfies { [K in RecordType]: readonly Exclude<keyof RecordMap[K], 'id'>[] };
 
 // Fails to compile if a record type gains a field that is missing from its view.

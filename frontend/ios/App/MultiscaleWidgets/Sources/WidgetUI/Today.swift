@@ -17,6 +17,7 @@ public struct TodayView: View {
     let state: WidgetState
     let size: Size
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(state: WidgetState, size: Size) {
         self.state = state
@@ -137,24 +138,31 @@ public struct TodayView: View {
             largeBody(3)
             largeBody(2)
             largeBody(1)
+            // At the largest text, the earlier line goes before the head and the Inbox do.
+            largeBody(1, fold: false)
         } least: {
             rows(1, linked: true, times: false)
         }
         .accessibilityElement(children: .contain)
     }
 
-    private func largeBody(_ n: Int) -> some View {
+    private func largeBody(_ n: Int, fold: Bool = true) -> some View {
         let day = state.day(limit: n)
         return VStack(alignment: .leading, spacing: 0) {
             head.padding(.bottom, 4).accessibilityElement(children: .ignore).accessibilityLabel(state.todayHeadSaid)
-            if let earlier = day.earlier {
+            if fold, let earlier = day.earlier {
                 AppLinkView(url: WidgetLink.today) {
-                    HStack(spacing: 8) {
-                        TimeColumn(text: "Earlier")
+                    // At the accessibility sizes the word goes above, as a row's time does.
+                    let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0)) : AnyLayout(HStackLayout(spacing: 8))
+                    layout {
+                        if typeSize.isAccessibilitySize {
+                            Text("Earlier").font(Type.caption).foregroundStyle(palette.ink3).lineLimit(1)
+                        } else {
+                            TimeColumn(text: "Earlier")
+                        }
                         CountsRow(counts: earlier, all: false)
-                        Spacer(minLength: 0)
                     }
-                    .frame(minHeight: 32)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Earlier: \(earlier.earlierSaid)")

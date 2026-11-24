@@ -19,7 +19,6 @@ import { getRecord, listRecords } from '../../../core/records';
 import { isRepeating, onceWhen } from '../../../core/schedule';
 import { closeTask } from '../../../core/tasks';
 import type { Fields, LocalDate, Task, TaskCompletion } from '../../../core/types';
-import { followOneOff } from '../../../core/setTimes';
 import type { ScreenProps } from '../../app/registry';
 import { useApp, useMutation, useQuery, useToday } from '../../app/store';
 import { Attachments } from '../../components/attachments/Attachments';
@@ -179,6 +178,8 @@ function TaskPopup(props: { task: Task; places: readonly Place[]; lastDone: Loca
   // A one off at a time of day takes its block along with a new date, time or estimate, in the same Undo.
   const write = useMutation(async (w, fields: Fields<'task'>) => {
     const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] });
+    // Loaded as it saves, since the popup is part of the first load and this isn't.
+    const { followOneOff } = await import('../../../core/setTimes');
     const follow = await followOneOff(w, task, { ...task, ...fields } as Task, clock);
     return { writes: [...follow.writes, ...back.writes], said: follow.said };
   });

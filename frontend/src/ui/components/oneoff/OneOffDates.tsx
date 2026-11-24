@@ -7,7 +7,6 @@ import type { FormEvent } from 'react';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
 import { isRepeating, onceWhen, setOnceDates, validateSchedule } from '../../../core/schedule';
-import { followOneOff } from '../../../core/setTimes';
 import type { Fields, LocalDate, Task } from '../../../core/types';
 import { useApp, useMutation } from '../../app/store';
 import { DATE_UNSET, useLeave } from '../editors/useLeave';
@@ -39,6 +38,7 @@ export function OneOffDateForm(props: {
   // A one off at a time of day takes its block to the new date, in the same Undo.
   const write = useMutation(async (w, fields: Fields<'task'>) => {
     const back = await applyPlanChange(w, { writes: [{ type: 'task', id: task.id, fields }] });
+    const { followOneOff } = await import('../../../core/setTimes');
     const follow = await followOneOff(w, task, { ...task, ...fields }, clock);
     return { writes: [...follow.writes, ...back.writes], said: follow.said };
   });

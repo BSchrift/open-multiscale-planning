@@ -323,7 +323,8 @@ final class ShellUITests: XCTestCase {
         app.tapWeb(startingWith: "Inbox")
         app.tapWeb("Process 1 item")
         exists(app.webButton("Gate code at the allotment"))
-        app.tapWeb("Save as note")
+        // It opens a dialog now, Attach note to, so WebKit doesn't call it a button.
+        app.tapWeb(anyStartingWith: "Save as note")
         // Then where it lives, in a sheet: On its own comes first.
         app.tapWeb(anyStartingWith: "On its own")
         exists(app.webText("Saved Gate code at the allotment in Notes."))

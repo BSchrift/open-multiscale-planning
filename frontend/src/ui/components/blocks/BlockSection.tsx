@@ -1,6 +1,7 @@
 // A task's block, at the top of the task's popup when a calendar opens the popup from it: when it is, how it went and
 // what it belongs to, as its details panel said, then what can be done to it. Start, or Start now for one later today,
-// for one not yet started today; Done for one later today or under way, and Pause or Resume once that one's started;
+// for one not yet started today; Mark done for one later today or under way, and for a task's block on another day or
+// already answered, which finishes the task as from a list; Pause or Resume once the one under way has started;
 // How did it go for one gone by with no answer, as the missed blocks sheet asks it; and
 // what the calendar it opened from can do: Move…, a new time from the choices Today's quick menu has under Move to, which
 // asks first if it lands on another block, and Remove from calendar. Each saves at once with Undo, as the popup's
@@ -65,9 +66,11 @@ export function BlockSection(props: {
   const today = date === localDate(now, zone);
   const startable = today && !block.started_at && !block.result && !gone;
   const early = instantMs(block.start) > now;
-  // Done for a block still to come today, or the one under way, beside Start. One gone by has it in How did it go.
-  const doable = today && !block.result && !gone;
-  const underWay = doable && !early;
+  // Mark done for a block still to come today, or the one under way, beside Start. One gone by has it in How did it go.
+  // A task's block on another day, or answered, still finishes its task, while the task is open.
+  const open = !!task && !task.done_at && !task.cancelled_at;
+  const doable = (today && !block.result && !gone) || (!asking && open);
+  const underWay = today && !block.result && !gone && !early;
   // Mark done now says when the next block is, as the Now card does.
   const day = useQuery((sql) => (underWay ? blocksInRange(sql, dayRange(date, zone)) : Promise.resolve(undefined)), [underWay, date, zone]).data;
 
@@ -153,7 +156,7 @@ export function BlockSection(props: {
           {doable && (
             <Button size="compact" type="button" disabled={actions.pending} onClick={done}>
               <Icon name="done" size={16} />
-              Done
+              Mark done
             </Button>
           )}
           {underWay && block.started_at && (

@@ -164,7 +164,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Timeline: resize from the bottom edge, Shift and arrows | covered (today-timeline: "a block still to come changes its length from its bottom edge…", "on desktop, Shift and the arrow keys change a block's length…", "the block under way keeps its start and changes only its end…") | covered (same, by the grip) | missing | missing |
 | Timeline: a press held on empty time drafts an hour with a ring, Capture saves it there as an Inbox item, Undo; none on time gone by or a quick press | covered (today-timeline: "a press held on empty time drafts an hour there with a ring…", "a press held on time gone by drafts nothing…") | covered (same, by touch pointer events) | missing | covered (testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem, testAHoldsTapReachesTheHapticsPlugin) |
 | Timeline: a click or tap opens the block's task | covered (today: "a click or tap on a block opens its task…"; details: "the Now card, a To schedule card and a block on Today open the popup") | covered (same) | missing | missing |
-| Timeline: Done in a block's popup, and Pause or Resume on the one under way | covered (today: "Done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
+| Timeline: Mark done in a block's popup, and Pause or Resume on the one under way | covered (today: "Mark done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
 | Timeline: a block's quick menu, by a right-click, Shift-F10 or the menu key, or a hold let go in place | partly (click-and-hold: "Today: a block's quick menu opens on a right-click or Shift-F10…" chooses Done and Pause, and lists Move to's items; choosing Next free time, Tomorrow, Back to To schedule or Choose a time is in today.test.tsx only) | partly (same, a hold let go in place) | partly (desktop: "a right-click's menu: macOS draws the items the page gives…", the bridge with Menu.popup stubbed; Today's blocks calling it are unit tests) | missing |
 | List view, kept after a reload | covered (today-timeline: "the timeline switches to a list of the day in order…") | covered (same) | missing | missing |
 | Zoom | covered (today-timeline: "zoom draws the calendar taller a step at a time and back…") | partly (the buttons; a pinch needs the Simulator) | missing | missing |
@@ -222,6 +222,11 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
 | Opens from anywhere a task is named, edits everything, Undo | covered (details: "a task opens in its popup from its project…", "the Now card, a To schedule card and a block on Today open the popup", "the body scrolls once the popup reaches 70%…") | covered (same) | covered (journeys/first-week; desktop: "closing the window keeps the edits not yet saved…") | partly (testATaskOpensWithTheKeyboardDown…) |
+| The same sections in the same order from every opener; only the actions change | partly (task-actions: "from a list…", "from Inbox…", "from a block on Today…"; the unit tests check Inbox, One offs, a project and a Today block: task.test.tsx) | partly (same) | missing | missing |
+| Mark done from a list, a repeating one off for this time only, and from a block on another day or answered, with Undo | covered (task-actions: "from a list: Start now, Mark done and Schedule…", "from a block on Today…"; the repeat and the answered block in the unit tests) | covered (same) | missing | missing |
+| Start now from a list: a block from now, started, with Undo | covered (task-actions: "from a list…") | covered (same) | missing | missing |
+| Schedule…: To schedule's times this week, placed with Undo, and Choose a time… on Week | covered (task-actions: "from a list…") | covered (same) | missing | missing |
+| Dates: a one off's date, range and repeat, a project task's date or range, none in the Inbox | covered (task-actions: "from a list…", "from Inbox…"; each rule in task.test.tsx and oneoffs.test.tsx) | covered (same) | missing | missing |
 | Belongs to: a search of the places a task can go, under the field on desktop and in a sheet on phone | covered (details: "Belongs to searches the places a task can go…") | covered (same, with a 44pt check) | missing | missing |
 | Cancel, Esc, the close button and a tap outside with unsaved changes | covered (popup: "Cancel drops the popup's changes, and Esc, the close button or a tap outside keep them until Save") | covered (same) | partly (desktop: closing the window keeps them; quitting drops them, reported) | missing |
 | Delete task, with its block, Undo | covered (popup: "Delete task takes the task and its block off Today…") | covered (same) | missing | missing |
@@ -330,8 +335,8 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| One offs | oneoffs-repeats: dates in place, Change repeat's delete | missing | missing |
-| The task popup | details: Save; popup: Delete task; attachments: link removed | missing | missing |
+| One offs | oneoffs-repeats: dates in place, the popup's Delete task | missing | missing |
+| The task popup | details: Save; popup: Delete task; attachments: link removed; task-actions: Mark done, Start now, a placed time | missing | missing |
 | Notes | notes-list: Delete note's Undo takes focus; unit tests: Save as note's Undo (process/note.test.tsx), Save and Belongs to: Inbox (notes/notes.test.tsx) | missing | missing |
 | Done and Analytics | done: marked finished; analytics: a pattern; analytics-estimates: Raise estimates | missing | missing |
 | Settings | settings-sections: away dates removed | missing | missing |

@@ -401,12 +401,26 @@ describe('moving through the day', () => {
     expect(await t.block('now')).toMatchObject({ task_id: 't', practice_id: null });
   });
 
-  it('starting a task with nothing planned puts it on the clock now, for its time left up to 2h', async () => {
+  it('starting a task with nothing planned puts it on the clock now, for its time left up to 2h, and Undo takes it off', async () => {
     const t = await setup();
-    const id = await t.run((w) => startTaskNow(w, 'o', t.clock));
+    const started = await t.run((w) => startTaskNow(w, 'o', t.clock));
+    // The new block's id is the reverse's first write, as placing one gives it.
+    const id = started.writes[0]!.id;
     expect(await t.block(id)).toMatchObject({ task_id: 'o', start: NOW, end: at('19:00'), started_at: NOW, tz: 'UTC' });
+    await t.run((w) => applyPlanChange(w, started));
+    expect((await t.block(id))?.deleted_at).toBeTruthy();
     const long = await t.run((w) => startTaskNow(w, 't', t.clock));
-    expect((await t.block(long))?.end).toBe(at('20:30'));
+    expect((await t.block(long.writes[0]!.id))?.end).toBe(at('20:30'));
+  });
+
+  it('starting a task stops the block under way, as any start does, and Undo puts it back', async () => {
+    const t = await setup(async (w) => w.set('time_block', 'now', { started_at: at('18:00') }));
+    const started = await t.run((w) => startTaskNow(w, 'o', t.clock));
+    expect(started.stopped.map((b) => b.id)).toEqual(['now']);
+    expect((await t.block('now'))?.ended_at).toBe(NOW);
+    await t.run((w) => applyPlanChange(w, started));
+    expect((await t.block('now'))?.ended_at).toBeNull();
+    expect((await t.block(started.writes[0]!.id))?.deleted_at).toBeTruthy();
   });
 
   it('Still going adds time to the end', async () => {

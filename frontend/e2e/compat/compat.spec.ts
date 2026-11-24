@@ -854,8 +854,9 @@ test('an old device changing a task keeps the description a new device wrote', a
 
   const describeTask = async (expectShown?: string) => {
     await go(newDevice.page, 'One offs');
-    await pane(newDevice.page, 'One offs').getByRole('button', { name: `Change repeat for ${title}` }).click();
-    const form = newDevice.page.getByRole('form', { name: `Change ${title}` });
+    // Its name opens its popup; once described, the name also says it has details.
+    await pane(newDevice.page, 'One offs').getByRole('button', { name: new RegExp(`^${title}`) }).click();
+    const form = newDevice.page.getByRole('dialog', { name: title });
     if (expectShown) {
       await expect(form.getByRole('group', { name: 'Description' }).locator('strong')).toHaveText(expectShown);
       await form.getByRole('button', { name: 'Cancel' }).click();

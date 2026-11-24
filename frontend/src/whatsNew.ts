@@ -8,7 +8,7 @@
 import type { WhatsNewEntry } from './core/whatsNew';
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
-  { id: 5, text: 'Mark a task done, set its dates, schedule it or start it from its popup, wherever it opens.' },
+  { id: 5, text: 'Every task opens one popup where you can mark it done, set dates, schedule it or start it.' },
   { id: 4, text: 'Start now stops the block that was running and asks how it went.' },
   { id: 3, text: "Find where a task belongs by searching for it in the task's popup." },
   { id: 2, text: "A task holds up to ten attachments, and if a photo can't upload, the app says why." },

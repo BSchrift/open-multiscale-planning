@@ -136,6 +136,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Schedule: a moved practice session asks about future weeks | covered (schedule: "desktop: moving a practice session asks…"; weekly-planning: "desktop: Yes on Schedule's practice question…") | missing (the phone's question sheet; touch dragging) | missing | missing |
 | Schedule: skip a practice this week, and include it again | covered (weekly-planning: "Skip a practice this week takes its sessions out…") | covered (same) | missing | missing |
 | Schedule: with nothing left to place, a press held on empty time drafts an hour there and Capture saves it; none while a task is being placed | covered (schedule: "with nothing left to place in the Schedule step, a press held on empty time drafts an hour there…", "a press held on empty time in the Schedule step drafts nothing while a task is being placed") | covered (same) | missing | missing |
+| Schedule: Mark done on a placed task's card finishes the task, with Undo; Done editing only stops changing the block | covered (schedule: "Mark done on a placed task's card finishes the task…"; schedule.test.tsx: "a placed one off's card says Done editing, not Done…") | covered (same, Undo in the step's own toast) | missing | missing |
+| Schedule: a new task while one waits: New task here from a right-click on empty time or Shift-F10 on a day (desktop), + in the step's bar as New task at the first free hour (phone) | covered (schedule: "desktop: a right-click on empty time offers New task here while a task waits…") | covered (schedule: "phone: + in the step's bar is New task…"; planning.test.tsx: + is New task on Schedule only) | missing | missing |
 | Review: aims not reached, finish, Undo | covered (planning: "plans a week…"; weekly-planning: "Review names each aim not reached…") | covered (same) | covered (journeys/first-week) | missing |
 | Step navigation: tabs and arrows | covered (planning: "week arrows have no limit…"; weekly-planning: "the step arrows and tabs move between the steps…") | covered (same) | missing | missing |
 
@@ -321,6 +323,7 @@ Not every change has one yet: Start early and Still going on the Now card change
 | The last release's bundle beside this one, on the same data | covered (compat) | missing | missing | missing |
 | Every screen of a lived-in week renders, and the links between areas | covered (tour: "every screen of a lived-in week renders cleanly", "the planning flows of a lived-in week render cleanly", "the links between areas reach their page and come back") | covered (same) | missing | missing |
 | A five-year history: first sync, Today and Week within budget | covered (history/web, on demand) | missing | covered (history/mac, on demand) | covered (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek, on demand) |
+| Battery: each minute's syncs and their bytes, reported to telemetry | covered (telemetry: "signed in, it reports each minute the syncs it made and their bytes") | covered (same) | missing | missing |
 
 ## Not covered yet, and why
 

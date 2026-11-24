@@ -252,7 +252,12 @@ export function startAppSync(
     },
   });
   const api = { apiUrl: config.apiUrl, auth, fetch: fetchFn };
-  const httpSend = createHttpSend(api);
+  // What telemetry's app.sync.count takes each minute.
+  let synced = { count: 0, bytes: 0 };
+  const httpSend = createHttpSend(api, (bytes) => {
+    synced.count++;
+    synced.bytes += bytes;
+  });
   // Before every request, since signing out and in can change the account between syncs.
   const send: SyncSend = async (request) => {
     await checkAccount(platform.db, tokenSubject(await auth.accessToken()));
@@ -394,6 +399,11 @@ export function startAppSync(
           },
           ...(platform.diagnostics ? { diagnostics: platform.diagnostics } : {}),
           ...(options.updates ? { updates: options.updates } : {}),
+          syncs: () => {
+            const taken = synced;
+            synced = { count: 0, bytes: 0 };
+            return taken;
+          },
           screen: () => document.documentElement.dataset.screen,
           target: window,
         });

@@ -291,6 +291,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Appearance sets the native theme | covered (desktop: "Appearance in Settings sets the native theme…") |
 | A page reload mid-transaction | covered (desktop: "a page reloading mid-transaction leaves no open transaction behind") |
 | Over-the-air updates and the Updates prompt | partly: unit tests (electron/updates.test.ts, src/core/updates.test.ts); the prompt only shows in builds with a release feed |
+| Battery: each process's CPU and idle wakeups and the power source, for telemetry, window open or closed | covered (desktop: "the page reads each process's CPU and idle wakeups and the power source…"); electron/energy.test.ts sums them by kind |
 | Attachments' file picker | missing: photos need sign-in and the stack; the Mac's picker is Chromium's, as the browser's |
 
 ### Undo everywhere
@@ -324,6 +325,7 @@ Not every change has one yet: Start early and Still going on the Now card change
 | Every screen of a lived-in week renders, and the links between areas | covered (tour: "every screen of a lived-in week renders cleanly", "the planning flows of a lived-in week render cleanly", "the links between areas reach their page and come back") | covered (same) | missing | missing |
 | A five-year history: first sync, Today and Week within budget | covered (history/web, on demand) | missing | covered (history/mac, on demand) | covered (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek, on demand) |
 | Battery: each minute's syncs and their bytes, reported to telemetry | covered (telemetry: "signed in, it reports each minute the syncs it made and their bytes") | covered (same) | missing | missing |
+| Battery: MetricKit's days and exceptions kept through a restart until telemetry takes them, each once, and the battery's state | n/a (iPhone only) | n/a | n/a | covered (testEnergyReportsWaitForThePageThroughARestartAndGoOnce, from a delivery the debug build makes: the Simulator gets none from MetricKit); src/core/metrickit.test.ts |
 
 ## Not covered yet, and why
 

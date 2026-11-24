@@ -326,6 +326,23 @@ at the 90th percentile of a good week plus a margin, reported and never failing 
 | Event | From | When | Attributes |
 | --- | --- | --- | --- |
 | `app.sync.count` | Web, Mac, iPhone | Each minute, with the heartbeat | `sync.count`, the sync requests the server answered since the last one, and `sync.bytes`, about the bytes they sent and received |
+| `app.energy.sample` | Mac | Each minute, with the heartbeat, one for each kind of process | `energy.process` (main, renderer or gpu), `energy.cpu_percent` and `energy.idle_wakeups_per_s` over the minute, from Electron's `app.getAppMetrics()`, and `energy.window_visible` |
+| On `app.heartbeat` | Mac | Each minute | `device.battery.charging` (on AC power) and `device.thermal_state` |
+| On `app.heartbeat` | iPhone | Each minute | `device.battery.charging` (plugged in), `device.low_power` (Low Power Mode) and `device.thermal_state` |
+| `app.energy.daily` | iPhone | When MetricKit delivers a day, about once a day, in the next run | `energy.day`, the day it covers; `energy.cpu_seconds`, `energy.gpu_seconds`, `energy.cellular_bytes`, `energy.wifi_bytes`, `energy.foreground_seconds`, `energy.background_seconds`, and `energy.hang_seconds`, from MetricKit's histogram of hangs, each bucket's middle times its count |
+| `app.energy.exception` | iPhone | When MetricKit reports that iOS stopped the app for too much CPU in the background, or for writing too much to disk | `energy.exception.kind` (cpu or disk), `energy.exception.cpu_seconds` or `energy.exception.disk_bytes`, and `code.function`, the frame sampled most as its binary and offset (App+0x28a3c), never the rest of the stack |
+
+Idle wakeups are macOS's own measure of what drains a laptop in the background, and with CPU they're most of what
+Activity Monitor's Energy Impact shows, which an app can't read itself. The Mac app keeps running in the menu bar
+after its window closes, so `energy.window_visible` tells that apart: then it should be close to nothing.
+
+On the iPhone, MetricKit is Apple's own measure: totals per day, aggregated by iOS, with no permission to ask for.
+The plugin (`ios/App/App/EnergyPlugin.swift`) reads its measurements in seconds and bytes, keeps each report until the
+page takes it, and telemetry sends it at launch or with the next heartbeat. MetricKit has no count of background
+wakeups, so the plan's `energy.background_wakeups` isn't sent; background time and CPU stand in for it. The frame in an
+exception is an offset into a binary, not a function name, since MetricKit doesn't symbolicate on the phone: the build's
+symbols (its dSYM) turn it into one. The Simulator never gets a report, so the only check of real ones is on a phone,
+with Xcode's Debug menu, Simulate MetricKit Payloads, then the event in the API's log group.
 
 Each sync wakes the radio, so a sync loop is the battery bug most likely to slip in, and `app.sync.count` is the web
 app's only battery signal: browsers don't say how much power a page uses.

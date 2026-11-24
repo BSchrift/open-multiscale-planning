@@ -590,7 +590,7 @@ Releases are only as safe as the key: the apps check every bundle's signature an
 
 ### What the apps report
 
-Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat and the number of syncs each minute, memory warnings and uncaught errors, with memory figures on iPhone. They also report each update check's result, with why a failed one failed, and any update the app rolled back; the dashboard's **Update checks** and **Updates rolled back** panels show them. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
+Signed-in apps send OpenTelemetry events in OTLP/HTTP JSON to the API's `POST /v1/logs`: a start, how the last run ended, a heartbeat and the number of syncs each minute, memory warnings and uncaught errors, with memory figures on iPhone. For battery, the Mac app adds its processes' CPU and idle wakeups each minute, and the iPhone app MetricKit's daily report ([performance.md](performance.md), "Battery"). They also report each update check's result, with why a failed one failed, and any update the app rolled back; the dashboard's **Update checks** and **Updates rolled back** panels show them. The API keeps only listed events and attributes, and only numbers and identifier-like strings, so nothing a person wrote is logged. Each kept event is a `client_event` line in the API's log group, which Logs Insights can query:
 
 ```sh
 aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time $(($(date +%s) - 86400)) --end-time $(date +%s) \
@@ -598,6 +598,8 @@ aws logs start-query --log-group-name "$(out staging ApiLogGroup)" --start-time 
 ```
 
 Then `aws logs get-query-results --query-id <the id it printed>`. The app speaks plain OTLP, so an OpenTelemetry collector could receive it instead of the API.
+
+The dashboard's **Battery** section reads the same lines, report-only and split by version so a release's change shows as a step: syncs per active hour on every platform, the Mac app's idle wakeups and CPU with its window closed on battery, and the iPhone's MetricKit totals per device per day and its CPU and disk exceptions. [performance.md](performance.md) lists the events.
 
 Costs should stay under $1 a month per environment. Attachments add about $0.006 a person a month at typical use, nearly all of it S3 storage. A domain adds its yearly fee and $0.50 a month for each hosted zone, three in all. An AWS Budget emails `alarmEmail` above $5 a month. It covers the whole account, so with both environments in one account you may get two alerts for one overrun.
 

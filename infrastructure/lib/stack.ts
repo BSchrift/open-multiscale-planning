@@ -16,7 +16,7 @@ import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
 import { Certificate, CertificateValidation, DnsValidatedCertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { AllowedMethods, CacheHeaderBehavior, CachePolicy, Distribution, KeyGroup, PriceClass, PublicKey, ResponseHeadersPolicy, ViewerProtocolPolicy } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
-import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
+import { Alarm, ComparisonOperator, Dashboard, GraphWidget, LogQueryVisualizationType, LogQueryWidget, MathExpression, Metric, TextWidget, TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import { SnsAction } from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { CfnDeploymentGroup, LambdaApplication, LambdaDeploymentConfig, LambdaDeploymentGroup, TimeBasedCanaryTrafficRouting } from 'aws-cdk-lib/aws-codedeploy';
 import { CfnUserPoolClient, FeaturePlan, OAuthScope, UserPool, UserPoolClientIdentityProvider } from 'aws-cdk-lib/aws-cognito';
@@ -794,6 +794,49 @@ export class MultiscaleStack extends Stack {
         ],
         // The server's performance KPIs, here for this environment's own traffic (docs/performance.md).
         serverWidgets(accessLogs, [apiLogs, calendarLogs, retentionLogs]),
+        // Battery (docs/performance.md): report-only, split by version so a release's change shows as a step.
+        [
+          new TextWidget({
+            width: 2 * width,
+            height: 2,
+            markdown: '## Battery\nReport-only: no budgets until two weeks of data, then the 90th percentile of a good week plus a margin. See docs/performance.md, Battery.',
+          }),
+        ],
+        [
+          // Each active minute sends one app.sync.count, so 60 of them make an hour. A sync loop shows here first.
+          appEvents('Syncs per active hour, by platform', LogQueryVisualizationType.LINE,
+            'filter event = "app.sync.count"',
+            'stats sum(`sync.count`) * 60 / count(*) as syncs_per_hour by bin(1h), `app.platform`'),
+          appEvents('Syncs per active hour, by platform and version', LogQueryVisualizationType.TABLE,
+            'filter event = "app.sync.count"',
+            'stats sum(`sync.count`) * 60 / count(*) as syncs_per_hour, sum(`sync.bytes`) * 60 / count(*) / 1048576 as mb_per_hour, count_distinct(`device.id`) as devices by `app.platform`, `service.version`',
+            'sort `service.version` desc'),
+        ],
+        [
+          // The menu bar app with nobody using it, which should be close to nothing. Booleans are matched as the API
+          // writes them in the line.
+          appEvents('Mac app idle wakeups a second, window closed, on battery', LogQueryVisualizationType.LINE,
+            'filter event = "app.energy.sample" and @message like /"energy.window_visible":false/ and @message like /"device.battery.charging":false/',
+            'stats avg(`energy.idle_wakeups_per_s`) as idle_wakeups_per_s by bin(1h), `energy.process`'),
+          appEvents('Mac app, window closed, on battery, by process and version', LogQueryVisualizationType.TABLE,
+            'filter event = "app.energy.sample" and @message like /"energy.window_visible":false/ and @message like /"device.battery.charging":false/',
+            'stats pct(`energy.idle_wakeups_per_s`, 50) as wakeups_p50, pct(`energy.idle_wakeups_per_s`, 90) as wakeups_p90, pct(`energy.cpu_percent`, 50) as cpu_p50, pct(`energy.cpu_percent`, 90) as cpu_p90, count_distinct(`device.id`) as devices by `energy.process`, `service.version`',
+            'sort `service.version` desc'),
+        ],
+        [
+          // One event per device per day, so percentiles across events are across devices.
+          appEvents('iPhone energy per device per day (MetricKit), by version', LogQueryVisualizationType.TABLE,
+            'filter event = "app.energy.daily"',
+            'stats count_distinct(`device.id`) as devices, pct(`energy.cpu_seconds`, 50) as cpu_s_p50, pct(`energy.cpu_seconds`, 90) as cpu_s_p90, pct(`energy.background_seconds`, 50) as background_s_p50, pct(`energy.background_seconds`, 90) as background_s_p90, pct(`energy.cellular_bytes`, 50) / 1048576 as cellular_mb_p50, pct(`energy.cellular_bytes`, 90) / 1048576 as cellular_mb_p90, pct(`energy.hang_seconds`, 90) as hang_s_p90 by `service.version`',
+            'sort `service.version` desc'),
+          // iOS stopping the app for CPU in the background, or disk writes: Apple's own "this app drained" signal. The
+          // frame is a binary and an offset, which the build's symbols name.
+          appEvents('iPhone CPU and disk exceptions (MetricKit)', LogQueryVisualizationType.TABLE,
+            'filter event = "app.energy.exception"',
+            'stats count(*) as times, count_distinct(`device.id`) as devices by `service.version`, `energy.exception.kind`, `code.function`',
+            'sort times desc',
+            'limit 20'),
+        ],
       ],
     });
     // The performance KPIs, in the spec's sections, where CI's results are published.

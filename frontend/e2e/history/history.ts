@@ -12,6 +12,7 @@ import { createAuth } from '../../src/core/auth';
 import { systemClock } from '../../src/core/clock';
 import { keptHistory } from '../../src/core/history-testing';
 import { createHttpSend } from '../../src/core/sync';
+import type { RecordChange } from '../../src/core/types';
 import { memoryTokens } from '../../src/platform/memory';
 
 export interface HistoryTarget {
@@ -101,6 +102,30 @@ export function record(surface: 'web' | 'mac' | 'facts', numbers: Record<string,
  * Resolves once the app shows Today with the history's Inbox count in the nav, which arrives with its latest records, at
  * the page's own time of that frame, so the number isn't rounded up to how often a test polls.
  */
+/**
+ * Counts what the sync API answers this page with, from here on: requests, records, deleted records, and the bytes of
+ * the bodies as they crossed the wire, gzipped or not. Resolves the totals once every answer seen has been read.
+ */
+export function watchSync(page: Page) {
+  const totals = { sync_requests: 0, sync_records: 0, sync_deleted: 0, sync_bytes: 0 };
+  const reading: Promise<void>[] = [];
+  page.on('response', (response) => {
+    if (response.request().method() !== 'POST' || !new URL(response.url()).pathname.endsWith('/sync') || !response.ok()) return;
+    const read = async () => {
+      const [body, sizes] = await Promise.all([response.json() as Promise<{ changes: RecordChange[] }>, response.request().sizes()]);
+      totals.sync_requests++;
+      totals.sync_records += body.changes.length;
+      totals.sync_deleted += body.changes.filter((c) => (c.fields.deleted_at?.v ?? null) !== null).length;
+      totals.sync_bytes += sizes.responseBodySize;
+    };
+    reading.push(read());
+  });
+  return async () => {
+    await Promise.all(reading);
+    return { ...totals };
+  };
+}
+
 export async function usableAt(page: Page, openInbox: number): Promise<number> {
   const handle = await page.waitForFunction(
     (count) => {
@@ -187,6 +212,7 @@ export interface HistoryTimes {
   notes_list_ms: number;
   notes_search_ms: number;
   records: number;
+  deleted_records: number;
 }
 
 export interface HistoryPage {

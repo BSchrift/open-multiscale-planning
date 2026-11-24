@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BUDGETS, report } from './history-report';
+import { BUDGETS, report, traffic } from './history-report';
 
 const script = join(import.meta.dirname, 'history-report.ts');
 const within = {
@@ -131,6 +131,22 @@ describe('history-report', () => {
     const result = run(rest, {}, ['--skip', 'iphone']);
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain('iphone');
+  });
+
+  // So a first sync that brings deleted records, or bytes gzip should have shrunk, shows up beside its time.
+  it('prints what each first sync brought down: requests, records, deleted records and bytes on the wire', () => {
+    const counted = {
+      web: { ...within.web, sync_requests: 17, sync_records: 33384, sync_deleted: 0, sync_bytes: 2_300_000, deleted_records: 0 },
+      mac: { ...within.mac, sync_requests: 17, sync_records: 33469, sync_deleted: 85, sync_bytes: 16_100_000, deleted_records: 85 },
+      iphone: { ...within.iphone, deleted_records: 0 },
+    };
+    const lines = traffic(counted, []).join('\n');
+    expect(lines).toMatch(/^Surface\s+Requests\s+Records\s+Deleted\s+On the wire\s+Deleted held/m);
+    expect(lines).toMatch(/^web\s+17\s+33384\s+0\s+2\.3 MB\s+0$/m);
+    expect(lines).toMatch(/^mac\s+17\s+33469\s+85\s+16\.1 MB\s+85$/m);
+    // The iPhone's requests aren't watched, only what its database holds.
+    expect(lines).toMatch(/^iphone\s+not measured\s+not measured\s+not measured\s+not measured\s+0$/m);
+    expect(run(counted).stdout).toContain(lines);
   });
 
   it('formats seconds and milliseconds', () => {

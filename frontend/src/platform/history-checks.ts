@@ -51,5 +51,7 @@ export async function timeHistoryQueries(sql: Sql, now: () => number = () => per
       return time(async () => searchNotes(notes, 'émile'));
     })(),
     records: (await sql.get<{ n: number }>('SELECT COUNT(*) AS n FROM records'))!.n,
+    // Which a first sync needn't bring, so the report shows them beside what came down.
+    deleted_records: (await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM records WHERE json_type(data, '$.deleted_at') = 'text'"))!.n,
   };
 }

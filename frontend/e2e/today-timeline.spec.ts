@@ -341,7 +341,7 @@ test('a mouse pressed on empty time and dragged draws the draft at once, down or
   await page.screenshot({ path: info.outputPath('today-drag-draft.png') });
   await page.mouse.up();
   await expect(capture.getByText('Today, 5:45pm to 7pm')).toBeVisible();
-  await expect(capture.getByRole('textbox', { name: 'Capture to Inbox' })).toBeFocused();
+  await expect(capture.getByRole('combobox', { name: 'Capture to Inbox' })).toBeFocused();
   await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
   await page.screenshot({ path: info.outputPath('today-drag-capture.png') });
   await cancelCapture();
@@ -427,7 +427,7 @@ test('a press held on empty time drafts an hour there with a ring, and Capture o
 
   const capture = page.getByRole('dialog', { name: 'Capture' });
   await expect(capture.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
-  const field = capture.getByRole('textbox', { name: 'Capture to Inbox' });
+  const field = capture.getByRole('combobox', { name: 'Capture to Inbox' });
   await expect(field).toBeFocused();
   await page.keyboard.type('Book dentist');
   await expect(draft).toContainText('Book dentist');
@@ -446,6 +446,72 @@ test('a press held on empty time drafts an hour there with a ring, and Capture o
   await expect(saved).toHaveClass(/\bk-inbox\b/);
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
   await expect(saved).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("Capture on a draft is a search too: it starts on a new Inbox task, typing finds the tasks you have, and one to schedule picked goes there, with Undo; Esc leaves nothing", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const pick: Seed = { type: 'week_pick', id: 'pick:2026-11-02:t1', fields: { week_start: '2026-11-02', task_id: 't1', minutes: 60 } };
+  const errors = await open(page, [planned, project, report, pick, fence]);
+  const lane = page.getByRole('region', { name: 'To schedule' });
+  await expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  const field = capture.getByRole('combobox', { name: 'Capture to Inbox' });
+  const list = capture.getByRole('listbox', { name: 'A new task or one you have' });
+  const draft = page.locator('.cev.holddraft');
+  const hold = async () => {
+    const at = await pressOnDay(page, '17:50', phone);
+    await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+    await letGo(page, at, phone);
+  };
+
+  // Esc takes the draft away, with nothing made or placed.
+  await hold();
+  await expect(field).toBeFocused();
+  await expect(field).toHaveAttribute('aria-expanded', 'true');
+  await expect(list.getByRole('option').first()).toHaveAccessibleName('New Inbox task');
+  await expect(list.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(list.getByRole('option', { name: 'Write the report, Project · 1h, Fits' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(capture).toHaveCount(0);
+  await expect(draft).toHaveCount(0);
+
+  await hold();
+  await expect(field).toBeFocused();
+  // Typing names the new task, which stays first and lit, and finds other open tasks under where they live.
+  await page.keyboard.type('paint');
+  await expect(list.getByRole('option').first()).toHaveAccessibleName('New Inbox task: paint');
+  await expect(list.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(list.getByRole('group', { name: 'One offs' }).getByRole('option', { name: 'Paint the fence, One off · 1h 30m, Fits' })).toBeVisible();
+  await expect(list.getByRole('option', { name: /^Write the report/ })).toHaveCount(0);
+  await field.fill('report');
+  const option = list.getByRole('option', { name: 'Write the report, Project · 1h, Fits' });
+  await expect(option).toBeVisible();
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: info.outputPath(`capture-search-today-${info.project.name}-${scheme}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (phone) {
+    await expectTapTarget(option);
+    await option.click();
+  } else {
+    await page.keyboard.press('ArrowDown');
+    await expect(option).toHaveAttribute('aria-selected', 'true');
+    await expect(field).toHaveAttribute('aria-activedescendant', (await option.getAttribute('id'))!);
+    await page.keyboard.press('Enter');
+  }
+
+  // Placed in the drafted time for its own length, rather than made anew, and Undo takes it off again.
+  await expect(page.locator('.toast')).toContainText(/Placed Write the report, .*5:45pm/);
+  await expect(capture).toHaveCount(0);
+  await expect(draft).toHaveCount(0);
+  const placed = page.locator('[aria-label^="Write the report, 5:45pm to 6:45pm"]');
+  await expect(placed).toBeVisible();
+  await expect(page.locator('[aria-label*=", Inbox."]')).toHaveCount(0);
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(placed).toHaveCount(0);
+  await expect(lane.getByRole('button', { name: /^Write the report, Project/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

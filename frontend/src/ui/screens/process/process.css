@@ -576,60 +576,13 @@
   box-shadow: var(--shadow-3);
 }
 
-[data-layout] .pkopts {
-  padding: var(--space-1) 0;
-}
-
-/* Past a dozen or so rows it scrolls. */
-[data-layout='desktop'] .pkopts {
-  max-height: min(392px, 50vh);
-  overflow-y: auto;
-}
-
-[data-layout] .pkopt {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
-  min-height: 40px;
-  padding: var(--space-2) var(--space-4);
-  cursor: pointer;
-}
-
-[data-layout] .pkopt:hover {
-  background: var(--wash);
-}
-
-/* The row Enter adds to: the finder's own tint, with names in ink. */
-[data-layout] .pkopt[aria-selected='true'] {
-  background: var(--accent-tint);
-  box-shadow: inset 4px 0 0 var(--accent);
-}
-
-[data-layout] .pkopt b {
-  font-weight: var(--fw-strong);
-}
-
 [data-layout] .pkopt .pkgoal {
   margin-left: auto;
   font-size: var(--fs-meta);
 }
 
-[data-layout] .pkopt .pktag {
-  margin-left: auto;
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-strong);
-  color: var(--accent-text);
-}
-
 [data-layout] .pkopt .pkgoal + .pktag {
   margin-left: var(--space-3);
-}
-
-[data-layout] .pknew {
-  color: var(--accent-text);
-  font-weight: var(--fw-strong);
-  border-bottom: 1px solid var(--hairline);
 }
 
 [data-layout] .pkone {
@@ -643,19 +596,6 @@
   height: 10px;
   border-radius: var(--radius-block);
   background: var(--oneoff);
-}
-
-[data-layout] .pkhead {
-  padding: var(--space-3) var(--space-4) var(--space-1);
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-strong);
-  color: var(--ink-3);
-}
-
-[data-layout] .pkempty {
-  padding: var(--space-2) var(--space-4) var(--space-3);
-  font-size: var(--fs-meta);
-  color: var(--ink-3);
 }
 
 [data-layout='phone'] .pkphone {
@@ -699,18 +639,8 @@
   overflow-y: auto;
 }
 
-[data-layout='phone'] .pkopt {
-  min-height: 48px;
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--fs-label);
-}
-
 [data-layout='phone'] .pkopt .pkgoal {
   font-size: var(--fs-meta);
-}
-
-[data-layout='phone'] .pkhead {
-  padding: var(--space-3) var(--space-4) var(--space-1);
 }
 
 /* A goal's backlog: the goals in place of the picker on desktop, numbered for their keys, and a sheet of them on phone. */

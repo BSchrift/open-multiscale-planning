@@ -85,3 +85,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* While Capture is open on a draft, the page scrolls on past its end, so a draft late in the day can still rise above
+   the sheet, which its search list makes taller. */
+[data-layout='phone']:has(.capform) .pane:has(.holddraft) {
+  padding-bottom: 70vh;
+}

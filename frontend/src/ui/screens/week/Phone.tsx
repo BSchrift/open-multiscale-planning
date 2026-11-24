@@ -34,7 +34,7 @@ import { clearLane, columnStyle, dayName, dragCard, finishedCount, holdToDrag, M
 import type { GridGhost, OverlapGroup, PlacedBlock } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, useHoldToCreate } from '../../components/weekgrid/holdCreate';
-import { Capture } from '../capture';
+import { DraftCapture } from '../capture/DraftCapture';
 import { landOn, rowItem } from './data';
 import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
@@ -816,7 +816,7 @@ function DayRows(props: {
       {rows}
       <HoldRing ring={holdNew.ring} />
       {holdNew.draft?.open && (
-        <Capture
+        <DraftCapture
           layout={layout}
           close={holdNew.close}
           slot={holdNew.slot(overlapWords(holdNew.draft.slot, [...model.blocks, ...busy].filter((o) => o.date === date).map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))}
@@ -1125,7 +1125,7 @@ export function DragDay(props: {
         <HoldRing ring={holdNew.ring} />
       </div>
       {held && holdNew.draft!.open && (
-        <Capture layout={layout} close={holdNew.close} slot={holdNew.slot(overlapWords(held, sharing.map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
+        <DraftCapture layout={layout} close={holdNew.close} slot={holdNew.slot(overlapWords(held, sharing.map((o) => ({ title: o.title || 'Busy', start: o.start, end: o.end }))))} />
       )}
     </div>
   );

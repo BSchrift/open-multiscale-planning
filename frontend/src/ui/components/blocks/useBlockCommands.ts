@@ -16,8 +16,8 @@ import { useApp, useMutation } from '../../app/store';
 import type { MenuEntry } from '../Menu';
 import { useToastOr } from '../Toast';
 import type { Say } from '../Toast';
-import { dayName } from '../weekgrid';
 import { landsOn, useBothAsk } from './BothAsk';
+import { dayName } from './describe';
 import { answerFor, saidOf } from './MissedSheet';
 import { useBlockActions } from './useBlockActions';
 

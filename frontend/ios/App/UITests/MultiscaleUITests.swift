@@ -695,6 +695,15 @@ final class NativeUITests: XCTestCase {
         run("Diagnostics", expect: "previous:active")
     }
 
+    func testEnergyReportsWaitForThePageThroughARestartAndGoOnce() {
+        run("Deliver energy", expect: "energy:delivered")
+        // Delivered in a run that ended before telemetry sent it, as MetricKit's often are.
+        app.terminate()
+        app.launchLoaded()
+        exists(app.webText("ready"), timeout: launchPatience)
+        run("Energy", expect: "energy:ok")
+    }
+
     func testNotificationPermissionThenCancelThenActionReachesTheApp() {
         // The script gives each run a new Simulator, so the dialog shows, unless a test that ran first already allowed
         // it. Tapped once only: a second tap could land with the dialog up.

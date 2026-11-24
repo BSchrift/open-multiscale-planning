@@ -15,8 +15,8 @@
 #                                    VERSION=<version>, switches one surface to a version kept
 #   tag      make release-tag        tags the commit prod last released as release-<date>, and pushes the tag
 # From scripts/release.sh on a Mac, signed in to the environment: upload and switch, the steps a release publishes with.
-# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check
-# and nightly.
+# In CodeBuild: install, build, deploy-staging, mac, release-staging, prod-assets, test-prod, release-prod, bake-check,
+# nightly and nightly-retention.
 # The signing step runs frontend/scripts/sign-release.mjs on its own, from the checkout, over the Build output
 # (pipeline-stack.ts).
 set -euo pipefail
@@ -832,9 +832,24 @@ case "$command" in
       round_trip
     )
     apt-get update -qq && apt-get install -y -qq xvfb >/dev/null
-    # Every suite but the iPhone's, which needs a Mac. The history-scale test only reports its numbers.
-    xvfb-run -a env ENV=staging SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    # Every suite but the iPhone's, which needs a Mac, and retention's, which nightly-retention runs in a build of its own.
+    # The history-scale test only reports its numbers.
+    xvfb-run -a env ENV=staging SKIP_IOS=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"
     aws ssm put-parameter --name "$parameters/nightly" --type String --overwrite --value "$commit" >/dev/null
+    ;;
+  nightly-retention)
+    # The retention suite against staging, about 50 minutes, in a build of its own an hour after nightly's (pipeline-stack.ts).
+    commit="$(git -C "$root" rev-parse HEAD)"
+    if [ "$(aws ssm get-parameter --name "$parameters/nightly-retention" --query Parameter.Value --output text 2>/dev/null || true)" = "$commit" ]; then
+      echo "Nothing new on main since the retention suite last passed at $commit."
+      exit 0
+    fi
+    fetch_config
+    profiles
+    outputs staging
+    frontend_deps
+    ENV=staging "$root/scripts/test-retention.sh"
+    aws ssm put-parameter --name "$parameters/nightly-retention" --type String --overwrite --value "$commit" >/dev/null
     ;;
   *)
     echo "Use: scripts/pipeline.sh config | pause | resume | run | stop | release-surface | tag, or a CodeBuild step. See docs/releasing.md." >&2

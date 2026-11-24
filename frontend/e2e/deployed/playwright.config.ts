@@ -17,7 +17,9 @@ export default defineConfig({
   testDir: '.',
   outputDir: '../../test-results/deployed',
   workers: 1,
-  reporter: 'line',
+  // A line for each test as it ends, with how long it took. CodeBuild keeps only the log, and a long history's steps
+  // that are slowing down show there before they run out of time.
+  reporter: 'list',
   timeout: 120_000,
   // A screen reads the shared test user's whole history again after each change. On prod's, on 15 November, Week showed
   // a one off just added only once Playwright's 5 seconds had run out: the snapshot taken as they did already had it.

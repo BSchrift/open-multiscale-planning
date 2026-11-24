@@ -331,31 +331,65 @@ const isWellFormed = (change: RecordChange) =>
  * order converges. Unknown types and fields are kept for a newer app version. A pending outbox row for a field
  * that lost is removed, since the server already holds something newer. A malformed change is skipped: failing the
  * batch would stop the cursor advancing, and this device would never sync again. Returns how many fields changed.
+ *
+ * A whole page takes a few statements, whatever its size: on the Mac and the iPhone each statement crosses a bridge, and
+ * a first sync brings down tens of thousands of records. Lists go in as one JSON parameter, read with json_extract,
+ * which every platform's SQLite has.
  */
 export async function applyRemote(db: Db, changes: readonly RecordChange[]): Promise<number> {
   let applied = 0;
+  const wellFormed = changes.filter(isWellFormed);
   await db.transaction(async (tx) => {
     let highest = await getMeta(tx, META.clock);
     const start = highest;
-    for (const change of changes) {
-      if (!isWellFormed(change)) continue;
-      const row = await readRow(tx, change.id);
-      const data = row ? parse(row.data) : {};
-      const clocks = row ? parse(row.clocks) : {};
-      let changed = false;
+    const held = new Map<string, { type: string; data: Record<string, unknown>; clocks: Record<string, unknown> }>();
+    if (wellFormed.length > 0) {
+      const ids = JSON.stringify([...new Set(wellFormed.map((c) => c.id))]);
+      const rows = await tx.all<StoredRow & { id: string }>(
+        'SELECT id, type, data, clocks FROM records WHERE id IN (SELECT value FROM json_each(:ids))',
+        { ids },
+      );
+      for (const row of rows) held.set(row.id, { type: row.type, data: parse(row.data), clocks: parse(row.clocks) });
+    }
+    const changed = new Set<string>();
+    const lost: [string, string][] = [];
+    for (const change of wellFormed) {
+      const record = held.get(change.id) ?? { type: change.type, data: {}, clocks: {} };
       for (const [field, entry] of Object.entries(change.fields)) {
         const { v, c } = entry ?? {};
         // A malformed clock must not poison this device's clock, which every later write builds on.
         if (!isClock(c)) continue;
         highest = observeClock(highest, c);
-        if (!clockWins(c, clocks[field] as string | undefined)) continue;
-        data[field] = v;
-        clocks[field] = c;
-        changed = true;
+        if (!clockWins(c, record.clocks[field] as string | undefined)) continue;
+        held.set(change.id, record);
+        record.data[field] = v;
+        record.clocks[field] = c;
+        changed.add(change.id);
         applied++;
-        await tx.run('DELETE FROM outbox WHERE record_id = :id AND field = :field', { id: change.id, field });
+        lost.push([change.id, field]);
       }
-      if (changed) await writeRow(tx, change.id, row?.type ?? change.type, data, clocks);
+    }
+    if (changed.size > 0) {
+      const rows = [...changed].map((id) => {
+        const { type, data, clocks } = held.get(id)!;
+        return [id, type, JSON.stringify(data), JSON.stringify(clocks)];
+      });
+      // WHERE true tells SQLite the ON CONFLICT belongs to the INSERT, not to a join in the SELECT.
+      await tx.run(
+        `INSERT INTO records (id, type, data, clocks)
+         SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
+         FROM json_each(:rows) WHERE true
+         ON CONFLICT (id) DO UPDATE SET data = excluded.data, clocks = excluded.clocks`,
+        { rows: JSON.stringify(rows) },
+      );
+    }
+    // A new device's outbox is empty, and the iPhone's plugin does extra work for every DELETE, so look first.
+    if (lost.length > 0 && (await tx.get('SELECT 1 FROM outbox LIMIT 1'))) {
+      await tx.run(
+        `DELETE FROM outbox WHERE (record_id, field) IN (
+           SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(:lost))`,
+        { lost: JSON.stringify(lost) },
+      );
     }
     if (highest && highest !== start) await setMeta(tx, META.clock, highest);
   });

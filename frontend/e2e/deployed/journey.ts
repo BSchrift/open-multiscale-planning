@@ -145,25 +145,36 @@ async function editWeek(page: Page): Promise<void> {
 export async function clearLeftChecks(page: Page): Promise<void> {
   const nav = page.getByRole('navigation', { name: 'Main' });
   await nav.getByRole('button', { name: /Inbox/ }).click();
+  const process = page.getByRole('dialog', { name: 'Process Inbox' });
   for (let left = page.getByRole('button', { name: /^Assign (Deployed|Staging|Compat) check / }); await left.count(); ) {
     const name = (await left.first().getAttribute('aria-label'))!.replace(/^Assign /, '');
+    const row = page.getByRole('button', { name: `Assign ${name}`, exact: true });
     await left.first().click();
     // Delete was "Delete/done" before, which a deployment may still be serving. Process can open with its delete question
     // already showing, so answer it if it's there.
     const del = page.getByRole('button', { name: /^Delete(\/done)?$/ });
     const yes = page.getByRole('button', { name: 'Yes, delete' });
-    // The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no Process open),
-    // so an item that's gone needs nothing more.
-    const asking = () => del.or(yes).first().isVisible();
-    const gone = async () => !(await page.getByRole('button', { name: `Assign ${name}`, exact: true }).count());
-    await expect.poll(async () => (await asking()) || (await gone()), { timeout: 15_000 }).toBe(true);
-    if (!(await asking())) continue;
-    if (await del.isVisible()) await del.click();
-    await yes.click();
+    // Process draws once it has read the Inbox, which on a long history can be seconds after the press, open on the item
+    // pressed. The sync just before can take the item away as the click lands (prod's Test saw the Inbox empty, no
+    // Process open). Process then opens on the rest of the Inbox, or not at all on an Inbox left empty, so only the
+    // item's own card is answered, and Process is closed wherever it opened.
+    const card = process.getByRole('heading', { name, exact: true });
+    const elsewhere = async () => !(await row.count()) && ((await process.isVisible()) || !(await page.getByRole('button', { name: /^Assign / }).count()));
+    await expect.poll(async () => (await card.isVisible()) || (await elsewhere()), { timeout: 15_000 }).toBe(true);
+    if (await card.isVisible()) {
+      if (await del.isVisible()) await del.click();
+      await yes.click();
+      await expect(card).toHaveCount(0);
+    }
     // The last one closes this release's Process by itself.
-    const process = page.getByRole('dialog', { name: 'Process Inbox' });
-    await expect(process.getByRole('heading', { name, exact: true })).toHaveCount(0);
     if (await process.count()) await process.getByRole('button', { name: 'Exit' }).click();
+    // On a long history the Inbox can read the delete back after this looks again, and its row, still there, would be
+    // pressed again: Process opens on an item it no longer has, so on the rest of the Inbox once it has read it, over
+    // the page after this has moved on. That's the page 11 of the first 14 staging runs of the history journey failed
+    // on, at the next test's first press, with Process on the Inbox's first item and nothing done in it. CI's runs on
+    // a long history haven't shown it, so the log says when the row is still there.
+    if (await row.count()) console.log(`The Inbox still showed ${name} once it was deleted, so the clean-up waits for it to go.`);
+    await expect(row).toHaveCount(0);
   }
   await nav.getByRole('button', { name: 'Week' }).click();
   // Its × takes a block off the calendar while editing, and puts a one off picked for the week back in To schedule.

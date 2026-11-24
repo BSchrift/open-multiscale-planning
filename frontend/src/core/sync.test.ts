@@ -134,6 +134,98 @@ describe('runSync pulling', () => {
     expect(await outbox(b)).toEqual([]);
   });
 
+  /** Five tasks on the server in pages of two, and a new device to pull them. */
+  async function fivePages() {
+    const a = await openTestDb();
+    const s = server({ pageSize: 2 });
+    await transact(a, clock, async (w) => {
+      for (let i = 0; i < 5; i++) await w.create('task', { kind: 'inbox', title: `Task ${i}` }, `t${i}`);
+    });
+    await runSync(a, s.send);
+    s.requests.length = 0;
+    return { s, b: await openTestDb() };
+  }
+  const titles = async (db: Db) => (await db.all<{ id: string }>("SELECT id FROM task ORDER BY id")).map((r) => r.id);
+
+  it('asks for the next page before applying this one, when it has nothing to send', async () => {
+    const { s, b } = await fivePages();
+    const events: string[] = [];
+    b.subscribe(() => events.push('applied'));
+
+    await runSync(b, async (request) => {
+      events.push(`sent ${request.cursor}`);
+      return s.send(request);
+    });
+
+    expect(events).toEqual(['sent 0', 'sent 2', 'applied', 'sent 4', 'applied', 'applied']);
+    expect(await cursorOf(b)).toBe('5');
+    expect(await titles(b)).toEqual(['t0', 't1', 't2', 't3', 't4']);
+  });
+
+  it('asks for the next page only once what it has to send has gone', async () => {
+    const { s, b } = await fivePages();
+    await transact(b, clock, (w) => w.create('task', { kind: 'inbox', title: 'Mine' }, 'mine'));
+    const events: string[] = [];
+    b.subscribe(() => events.push('applied'));
+
+    await runSync(b, async (request) => {
+      events.push(`sent ${request.cursor} with ${request.changes.length}`);
+      return s.send(request);
+    });
+
+    // The first request carries the new task, so the second waits for it; the pull then runs ahead.
+    expect(events).toEqual(['sent 0 with 1', 'applied', 'sent 2 with 0', 'sent 4 with 0', 'applied', 'applied']);
+    expect(await outbox(b)).toEqual([]);
+  });
+
+  it('applies the page that failed again on the next sync, and loses nothing', async () => {
+    const { s, b } = await fivePages();
+    let fail = true;
+    // A disk that fails while the second page is written.
+    const flaky: Db = {
+      ...b,
+      transaction: (fn) =>
+        b.transaction((tx) =>
+          fn({
+            ...tx,
+            run: async (sql, params) => {
+              if (fail && sql.includes('INSERT INTO records') && JSON.stringify(params ?? {}).includes('t2')) {
+                fail = false;
+                throw new Error('disk full');
+              }
+              return tx.run(sql, params);
+            },
+          }),
+        ),
+    };
+    await expect(runSync(flaky, s.send)).rejects.toThrow('disk full');
+    expect(await cursorOf(b)).toBe('2');
+
+    await runSync(flaky, s.send);
+    expect(await cursorOf(b)).toBe('5');
+    expect(await titles(b)).toEqual(['t0', 't1', 't2', 't3', 't4']);
+  });
+
+  it('starts over from 0 when a page it asked for early shows a restore, applying nothing from before it', async () => {
+    const { s, b } = await fivePages();
+    s.beforeHandle = async () => {
+      // The table goes back to before the last two tasks while the second page is on its way.
+      if (s.requests.length === 2) s.restoreTo(3, 'restored');
+    };
+
+    await runSync(b, s.send);
+
+    expect(s.requests.map((r) => [r.cursor, r.changes.length])).toEqual([
+      [0, 0],
+      [2, 0],
+      // Everything it holds goes again, from 0.
+      [0, 2],
+      [2, 0],
+    ]);
+    expect(await titles(b)).toEqual(['t0', 't1', 't2']);
+    expect(await cursorOf(b)).toBe('3');
+  });
+
   it('pages and pushes together until both are done', async () => {
     const a = await openTestDb();
     const s = server({ pageSize: 10 });

@@ -7,7 +7,7 @@ import { openTime, pushbackLately, weeklyAims, weekUse } from '../../../core/cap
 import type { Clock } from '../../../core/clock';
 import { blockMinutes, nowInstant, weekRange } from '../../../core/dates';
 import type { Sql } from '../../../core/db';
-import { gatherBacklogs, gatherPlans, plannable, suggestions } from '../../../core/plan';
+import { aimMinutesByTask, gatherBacklogs, gatherPlans, plannable, suggestions } from '../../../core/plan';
 import type { PlanContext, WeekInput } from '../../../core/plan';
 import { blocksInRange, needsNewTime, placedMinutes } from '../../../core/queries';
 import type { BlockRow, QueueRow } from '../../../core/queries';
@@ -141,15 +141,11 @@ export function weekModel(d: PlanningData, clock: Clock) {
     const bucket = taskId ? bucketOf.get(taskId) : undefined;
     if (bucket) into[bucket] = (into[bucket] ?? 0) + minutes;
   };
-  // Pick tasks counts picks and time already placed for anything not picked; Review counts what's placed.
-  const pickedIds = new Set(picks.map((p) => p.task_id));
+  // Pick tasks counts each task's share or its time placed, as suggestions do; Review counts what's placed.
   const planned: Record<string, Minutes> = {};
   const placedBy: Record<string, Minutes> = {};
-  for (const p of picks) add(planned, p.task_id, p.minutes);
-  for (const b of d.blocks) {
-    if (!pickedIds.has(b.task_id ?? '')) add(planned, b.task_id, blockMinutes(b));
-    add(placedBy, b.task_id, blockMinutes(b));
-  }
+  for (const [taskId, minutes] of aimMinutesByTask(input)) add(planned, taskId, minutes);
+  for (const b of d.blocks) add(placedBy, b.task_id, blockMinutes(b));
   const aimRows = (got: Record<string, Minutes>) =>
     weeklyAims({ projects: ranked.map((p) => p.project), oneOffsAim: settings.one_offs_weekly_aim, weekPlan, got });
 

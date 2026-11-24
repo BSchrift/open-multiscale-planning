@@ -215,22 +215,36 @@ export interface ProjectPlan {
   tasks: Task[];
 }
 
+/**
+ * Records not deleted, by their project, in the order given. One pass, since a long history has thousands of tasks
+ * across hundreds of projects, and Week and planning gather them on every change.
+ */
+function byProject<T extends { project_id?: string | null; deleted_at?: string | null }>(records: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const r of records) {
+    if (!r.project_id || r.deleted_at) continue;
+    const list = out.get(r.project_id);
+    if (list) list.push(r);
+    else out.set(r.project_id, [r]);
+  }
+  return out;
+}
+
 /** Every project's plan. Goal backlogs are left out, so nothing that reads a project's dates can receive one. */
 export function gatherPlans(projects: readonly Project[], milestones: readonly Milestone[], tasks: readonly Task[]): ProjectPlan[] {
+  const milestonesOf = byProject(milestones);
+  const tasksOf = byProject(tasks);
   return projects
     .filter((project) => !project.deleted_at && !isBacklog(project))
-    .map((project) => ({
-      project,
-      milestones: milestones.filter((m) => m.project_id === project.id && !m.deleted_at),
-      tasks: tasks.filter((t) => t.project_id === project.id && !t.deleted_at),
-    }));
+    .map((project) => ({ project, milestones: milestonesOf.get(project.id) ?? [], tasks: tasksOf.get(project.id) ?? [] }));
 }
 
 /** Each goal backlog with its tasks in arrival order. Its milestones and dates are an older app's, so it has none here. */
 export function gatherBacklogs(projects: readonly Project[], _milestones: readonly Milestone[], tasks: readonly Task[]): ProjectPlan[] {
+  const tasksOf = byProject(tasks);
   return projects
     .filter((project) => !project.deleted_at && isBacklog(project))
-    .map((project) => ({ project, milestones: [], tasks: tasks.filter((t) => t.project_id === project.id && !t.deleted_at).sort(arrivalOrder) }));
+    .map((project) => ({ project, milestones: [], tasks: (tasksOf.get(project.id) ?? []).sort(arrivalOrder) }));
 }
 
 const earlier = (a: LocalDate, b: LocalDate) => (a < b ? a : b);
@@ -463,12 +477,33 @@ export interface Candidate {
 const liveBlocks = (week: WeekInput) => week.blocks.filter((b) => !b.cancelled && !b.deleted_at);
 const livePicks = (week: WeekInput) => week.picks.filter((p) => p.week_start === week.weekStart && !p.deleted_at);
 
+/**
+ * The week's live picks and blocks by task, worked out once for each week's input rather than for each task: its picks
+ * are every week's, thousands on a long history, and every open task is a candidate.
+ */
+const byTask = new WeakMap<WeekInput, { picks: Map<string, WeekPick>; blocks: Map<string, TimeBlock[]> }>();
+function weekByTask(week: WeekInput) {
+  let found = byTask.get(week);
+  if (!found) {
+    found = { picks: new Map(), blocks: new Map() };
+    for (const p of livePicks(week)) if (!found.picks.has(p.task_id)) found.picks.set(p.task_id, p);
+    for (const b of liveBlocks(week)) {
+      if (!b.task_id) continue;
+      const list = found.blocks.get(b.task_id);
+      if (list) list.push(b);
+      else found.blocks.set(b.task_id, [b]);
+    }
+    byTask.set(week, found);
+  }
+  return found;
+}
+
 function candidate(t: Task, week: WeekInput, ctx: PlanContext): Candidate {
-  const pick = livePicks(week).find((p) => p.task_id === t.id);
+  const { picks, blocks } = weekByTask(week);
+  const pick = picks.get(t.id);
+  const own = blocks.get(t.id) ?? [];
   // Only blocks still ahead: answering a past block has already changed the time remaining.
-  const ahead = liveBlocks(week)
-    .filter((b) => b.task_id === t.id && instantMs(b.start) > ctx.clock.now())
-    .reduce((sum, b) => sum + blockMinutes(b), 0);
+  const ahead = own.filter((b) => instantMs(b.start) > ctx.clock.now()).reduce((sum, b) => sum + blockMinutes(b), 0);
   return {
     task: t,
     left: Math.max(0, minutesLeft(t) - ahead),
@@ -477,7 +512,7 @@ function candidate(t: Task, week: WeekInput, ctx: PlanContext): Candidate {
     week: pick?.minutes ?? 0,
     carried: !!week.carried?.has(t.id),
     stale: !!week.stale?.has(t.id),
-    placed: liveBlocks(week).some((b) => b.task_id === t.id),
+    placed: own.length > 0,
   };
 }
 
@@ -638,7 +673,7 @@ export function pickToPlace(c: Candidate, drawn: readonly { task_id?: string | n
 
 /** One record's new field values. */
 export interface RecordWrite {
-  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice' | 'attachment';
+  type: 'objective' | 'project' | 'milestone' | 'task' | 'time_block' | 'week_pick' | 'week_plan' | 'task_completion' | 'block_outcome' | 'practice' | 'attachment' | 'memo';
   id: string;
   fields: Record<string, unknown>;
 }

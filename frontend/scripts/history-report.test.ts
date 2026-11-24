@@ -34,11 +34,20 @@ describe('history-report', () => {
       'week_query_ms web 100',
       'week_query_ms mac 100',
       'week_query_ms iphone 100',
+      'week_figures_ms web 100 report-only',
+      'week_figures_ms mac 100 report-only',
+      'week_figures_ms iphone 100 report-only',
       'estimate_drag_ms web 50 report-only',
       'estimate_drag_ms mac 50 report-only',
       'done_query_ms web 100 report-only',
       'done_query_ms mac 100 report-only',
       'done_query_ms iphone 100 report-only',
+      'notes_list_ms web 100 report-only',
+      'notes_list_ms mac 100 report-only',
+      'notes_list_ms iphone 100 report-only',
+      'notes_search_ms web 100 report-only',
+      'notes_search_ms mac 100 report-only',
+      'notes_search_ms iphone 100 report-only',
     ]);
   });
 
@@ -59,6 +68,14 @@ describe('history-report', () => {
     expect(result.stdout).toMatch(/Done query\s+web\s+140 ms\s+100 ms\s+over, report only/);
     expect(result.stdout).toMatch(/Done query\s+mac\s+not measured\s+100 ms\s+report only/);
     expect(result.stdout).toContain('Every budget met.');
+  });
+
+  it('reports the Notes list and search against their report-only budgets, without failing on them', () => {
+    const result = run({ ...within, web: { ...within.web, notes_list_ms: 40, notes_search_ms: 130 } });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/Notes list\s+web\s+40 ms\s+100 ms\s+ok/);
+    expect(result.stdout).toMatch(/Notes search\s+web\s+130 ms\s+100 ms\s+over, report only/);
+    expect(result.stdout).toMatch(/Notes search\s+mac\s+not measured\s+100 ms\s+report only/);
   });
 
   it('reports each number against its budget and passes when all are within', () => {

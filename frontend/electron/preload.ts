@@ -37,6 +37,7 @@ const bridge: ElectronBridge = {
   captureDone: (id, error) => ipcRenderer.send('capture:done', id, error),
   ready: () => ipcRenderer.send('app:ready'),
   setAppearance: (appearance) => ipcRenderer.invoke('appearance:set', appearance),
+  showMenu: (items) => ipcRenderer.invoke('menu:show', items),
   updates: {
     install: (release) => ipcRenderer.invoke('updates:install', release),
     staged: () => ipcRenderer.invoke('updates:staged'),

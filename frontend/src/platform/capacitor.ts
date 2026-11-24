@@ -4,6 +4,7 @@ import { KeychainAccess, SecureStorage } from '@aparajita/capacitor-secure-stora
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
+import { openInSystemBrowser } from './openDownload';
 import { registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -182,6 +183,8 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
     lifecycle: { onForeground: foreground.on, onBackground: background.on },
     files: indexedDbFiles,
     openExternal: (url) => Browser.open({ url }),
+    // Safari, which saves the file to Files: the in-app browser sign-in uses may not download it.
+    openDownload: openInSystemBrowser,
     signInRedirectUri: 'multiscale://auth/callback',
     onDeepLink: links.on,
     setAppearance: (appearance) => NativeAppearance.set({ appearance }),

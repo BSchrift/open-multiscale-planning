@@ -4,6 +4,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
+import { captureShare } from '../core/captureShare';
 import { systemClock } from '../core/clock';
 import { addDays, addWeeks, nowInstant, thisWeek, toInstant, today } from '../core/dates';
 import { META, openDb, refreshStatistics } from '../core/db';
@@ -11,13 +12,15 @@ import type { Db } from '../core/db';
 import { dailyAttributes, exceptionAttributes } from '../core/metrickit';
 import { planProblems, seedLarge } from '../core/queries-testing';
 import { nextStretch } from '../core/plan';
-import { getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
+import { historyChanges } from '../core/history-testing';
+import { KEEP, KEPT } from '../core/perf';
+import { applyRemote, getSettings, setWeekPick, transact, updateSettings, weekPlanId } from '../core/records';
 import { capacitorSqlDriver, createCapacitorPlatform } from './capacitor';
 import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
 
 /** The debug build's hooks for this page (ChecksPlugin in BridgeViewController.swift). */
-const Checks = registerPlugin<{ openCapture(): Promise<void>; deliverEnergy(): Promise<void> }>('MultiscaleChecks');
+const Checks = registerPlugin<{ openCapture(): Promise<void>; share(options: { text: string }): Promise<void>; deliverEnergy(): Promise<void> }>('MultiscaleChecks');
 
 const output = document.getElementById('log')!;
 const log = (line: string) => {
@@ -210,6 +213,19 @@ button('Shared', async () => {
   await share.remove(items.map((item) => item.id));
   return `shared:${items.map((item) => item.text).join('|')}`;
 });
+// A 21,000-character share, queued as the share extension queues it: it reaches the app whole, and the app cuts its
+// description on a word at 20,000 characters, and says so.
+button('Share long', async () => {
+  const share = platform.shareImport;
+  if (!share) return 'shared-long:off';
+  await Checks.share({ text: `Notes from the talk\n${'word '.repeat(4196)}` });
+  const items = (await share.peek()).filter((item) => item.text.startsWith('Notes from the talk'));
+  await share.remove(items.map((item) => item.id));
+  return `shared-long:${items.map((item) => {
+    const shared = captureShare(item.text);
+    return `${item.text.length}:${shared?.notes?.length}:${shared?.cut ? 'cut' : 'whole'}`;
+  }).join('|')}`;
+});
 // The Control Center button's intent, through the debug build's hook, which logs capture as the button would.
 button('Control', async () => {
   await Checks.openCapture();
@@ -255,6 +271,27 @@ button('Seed today', () =>
 // A started block, so its end notification is the app's soonest. It ends 20 minutes out, so the notification comes only
 // when the UI test's launch has the debug build bring it forward, once the app leaves the screen.
 button('Seed soon', () => seed(platform.db, [{ title: 'Proof the loaf', from: -20, to: 20, started: true }]));
+// A block half an hour out, still to come with free time after it, for Week's day to move.
+button('Seed later', () => seed(platform.db, [{ title: 'Shape the loaf', from: 30, to: 90 }]));
+// The performance runner's data and numbers (PerfUITests, scripts/test-perf-ios.sh): a year of history ending now, as a
+// sync would apply it; the app's measures kept from now on; and then what it kept, by name, with the app's peak memory
+// in the run before this page's, the session that was timed.
+button('Seed year', async () => {
+  await applyRemote(platform.db, historyChanges({ weeks: 52, now: Date.now() }));
+  return 'seeded';
+});
+button('Keep measures', async () => {
+  localStorage.setItem(KEEP, '1');
+  localStorage.removeItem(KEPT);
+  return 'keeping';
+});
+button('Measures', async () => {
+  const kept = JSON.parse(localStorage.getItem(KEPT) ?? '[]') as [string, number][];
+  const byName: Record<string, number[]> = {};
+  for (const [name, value] of kept) (byName[name] ??= []).push(value);
+  const previous = (await platform.diagnostics?.snapshot())?.previous;
+  return `measures:${JSON.stringify({ measures: byName, peakMb: previous ? Math.round(previous.peak / 1048576) : null, warnings: previous?.warnings ?? null })}`;
+});
 // Today and Week on what the app synced, for the history-scale test (scripts/test-history.sh).
 button('History', async () => `history:${JSON.stringify(await timeHistoryQueries(platform.db))}`);
 log('ready');

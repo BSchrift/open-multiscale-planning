@@ -91,7 +91,7 @@ test('the Inbox step processes into the plan for the week being planned, then sa
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await processTo(page, phone, 'Write the report');
-  await expect(page.locator('.toast')).toContainText('Added Rake the leaves to Write the report and to the plan.');
+  await expect(page.locator('.toast')).toContainText('Added Rake the leaves to Write the report, under Draft chapters and to the plan.');
 
   // The only item, so Process closes itself, and focus goes to the step's heading.
   await expect(card).toHaveCount(0);

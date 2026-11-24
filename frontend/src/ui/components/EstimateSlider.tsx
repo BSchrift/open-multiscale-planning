@@ -1,4 +1,4 @@
-// The one way to set a time estimate or an aim: 15-minute steps to 2h, coarser to 16h. All the way left is none.
+// The one way to set a time estimate or an aim: 5-minute steps to 2h, coarser to 16h. All the way left is none.
 //
 // The thumb follows a drag step by step, but the value is passed on only once it's let go, and on each arrow key. Many
 // callers save it, and every save re-reads each screen's data, so saving each step made a drag lag behind the mouse.
@@ -7,7 +7,16 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { formatMinutes } from '../../core/dates';
 import type { Minutes } from '../../core/types';
 
-export const EST_STEPS: readonly Minutes[] = [0, 15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240, 300, 360, 420, 480, 600, 720, 960];
+/**
+ * Every time and length slider moves in steps of this many minutes, finer than a drag's GRID. Here rather than in
+ * core/slots, so what imports the slider's steps, such as an e2e spec run in Node, doesn't load the whole of core.
+ */
+export const SLIDER_STEP = 5;
+
+export const EST_STEPS: readonly Minutes[] = [
+  ...Array.from({ length: 120 / SLIDER_STEP + 1 }, (_, i) => i * SLIDER_STEP),
+  ...[150, 180, 210, 240, 300, 360, 420, 480, 600, 720, 960],
+];
 
 /** The nearest step to a value that may have come from elsewhere, such as a block's length. */
 export function estIndex(minutes: Minutes): number {
@@ -19,6 +28,8 @@ export function EstimateSlider(props: {
   value: Minutes | null | undefined;
   /** When a drag is let go, and on each arrow key. Not for a drag that ends where it started. */
   onChange(minutes: Minutes): void;
+  /** Each step as the thumb moves, for what follows it on screen without saving, such as a draft block's length. */
+  onMove?(minutes: Minutes): void;
   label: string;
   /** Hides the label visually, for when the row already says what it's for. */
   hideLabel?: boolean;
@@ -76,7 +87,10 @@ export function EstimateSlider(props: {
         step={1}
         value={step}
         aria-valuetext={text}
-        onChange={(event) => setMoving({ step: Number(event.target.value), from: value })}
+        onChange={(event) => {
+          setMoving({ step: Number(event.target.value), from: value });
+          props.onMove?.(EST_STEPS[Number(event.target.value)] ?? 0);
+        }}
       />
       <span className="small estval">{text}</span>
     </div>

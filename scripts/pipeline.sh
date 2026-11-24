@@ -81,6 +81,26 @@ outputs() {
 built() { echo "${CODEBUILD_SRC_DIR_Built:?the Built artifact is missing}"; }
 
 frontend_deps() { (cd "$root/frontend" && npm ci --ignore-scripts --no-audit --no-fund); }
+
+# A checkout's build of an environment's web app, into <out>/web/<env>, carrying its key's public half, and of its Mac
+# app's main process, into <out>/mac/<env>/dist-electron, which a Mac app GitHub Actions built must hold exactly.
+build_app() {
+  local checkout="$1" env_name="$2" out="$3"
+  (cd "$checkout/frontend" && ENV="$env_name" npx vite build --outDir "$out/web/$env_name" --emptyOutDir) &&
+    (cd "$checkout/frontend" && ENV="$env_name" node scripts/electron-compile.mjs && mkdir -p "$out/mac/$env_name" && cp -R dist-electron "$out/mac/$env_name/")
+}
+
+# A commit before this one, built again as the Build step built this one, to check its Mac app against: checked out with
+# its own packages into <dir>/checkout, once, then the environment's web app and main process into <dir>.
+build_at() {
+  local commit="$1" dir="$2" env_name="$3"
+  if [ ! -e "$dir/checkout" ]; then
+    { mkdir -p "$dir" && git -C "$root" worktree add --quiet --detach "$dir/checkout" "$commit" &&
+      (cd "$dir/checkout/frontend" && npm ci --ignore-scripts --no-audit --no-fund) && touch "$dir/installed"; } || return 1
+  fi
+  [ -f "$dir/installed" ] || return 1
+  [ -f "$dir/web/$env_name/version.json" ] || build_app "$dir/checkout" "$env_name" "$dir"
+}
 # --with-deps runs apt-get update, which fails while any of the image's package mirrors is mid-sync, so it tries again.
 browsers() {
   local try
@@ -103,9 +123,10 @@ differs() {
 
 # Where each app's feed is in the release bucket, on the release host: desktop or iphone (frontend/src/core/updates.ts).
 feed_key() { echo "release/$1/release.json"; }
-# The feed bundles from before the apps' own feeds read, at the release host's root. Releases delete it: no bundle that
-# reads it is left to take an update from it.
-shared_feed=release/release.json
+# The feed bundles from before the apps' own feeds read, at the release host's root. None of them can take a build any
+# more, so releases point it at no native code: each of those bundles then says it needs a new app, and offers the disk
+# image, rather than saying it couldn't check for updates.
+root_feed=release/release.json
 
 # The shell of what an app's feed serves now, signed in as the environment's release role: desktop or iphone.
 live_shell() {
@@ -228,6 +249,24 @@ served_before() {
     node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { const [surface, now] = process.argv.slice(1); let h = {}; try { h = JSON.parse(s); } catch {} const lines = (h[surface] ?? []).map((l) => l.version); while (lines.length > 0 && lines.at(-1) === now) lines.pop(); console.log(lines.at(-1) ?? ""); });' "$2" "$3" || true
 }
 
+# Switches each surface named back to the version it served before a run's version: a release that failed after it
+# switched them. A surface no longer on that version, switched since by hand, or with none before, stays. Signed in:
+# AWS_PROFILE.
+switch_back() {
+  local env_name="$1" surfaces="$2" version="$3" bucket surface now before
+  bucket="$(release_bucket "$env_name")"
+  for surface in $surfaces; do
+    now="$(serves "$bucket" "$surface")"
+    before="$(served_before "$bucket" "$surface" "$version")"
+    if [ "$now" = "$version" ] && [ -n "$before" ]; then
+      switch "$env_name" "$surface" "$before"
+      echo "Switched $env_name's $surface back from $version to $before."
+    else
+      echo "$env_name's $surface serves ${now:-nothing}, not this run's $version, so it stays as it is."
+    fi
+  done
+}
+
 # Whether a feed's apps couldn't take a version, given its version.json: one built for other native code than the feed
 # serves now. Says why. The desktop feed may cross native code to a version whose manifest names a Mac app the
 # downloads host has: Macs then update to that app, forward or back.
@@ -323,6 +362,8 @@ IMMUTABLE='public, max-age=31536000, immutable'
 
 # Whether the staging update check has passed the app a record names: staging's app of the same version updated itself
 # to it. Read as the pipeline's own role, which may read the inbox.
+# shortcut: keyed by app version, so a prod app staging never took, as when staging was a Mac app ahead, never passes;
+# match on the app's native code instead if prod's desktop feed is ever seen waiting on one.
 update_checked() {
   [ -n "${MAC_INBOX_BUCKET:-}" ] || return 1
   aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "inbox/update-check/$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$1").json" >/dev/null 2>&1
@@ -353,8 +394,9 @@ app_folder() {
   for name in "$ZIP_NAME" "$ZIP_NAME.blockmap" "$DMG_NAME"; do
     aws s3 cp "$dir/$name" "s3://$bucket/$folder$name" --cache-control "$IMMUTABLE" >&2 || return 1
   done
-  node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(`version: ${r.version}\nfiles:\n  - url: ${r.file}\n    sha512: ${r.sha512}\n    size: ${r.size}\npath: ${r.file}\nsha512: ${r.sha512}\nreleaseDate: \x27${new Date().toISOString()}\x27\n`)' "$record" |
-    aws s3 cp - "s3://$bucket/${folder}latest-mac.yml" --cache-control "$IMMUTABLE" --content-type text/yaml >&2 || return 1
+  local yml
+  yml="$(node "$root/frontend/scripts/latest-mac.mjs" "$record")" || return 1
+  printf '%s\n' "$yml" | aws s3 cp - "s3://$bucket/${folder}latest-mac.yml" --cache-control "$IMMUTABLE" --content-type text/yaml >&2 || return 1
   echo "Published the app's folder, $folder."
 }
 
@@ -365,8 +407,10 @@ app_folder() {
 # iPhone app's is unchanged or the newest TestFlight build testers can install has the new one, so no installed app is
 # told it needs an app that isn't out. A run doesn't wait for Beta App Review, which can take a day: the first run after
 # it passes the build switches the iPhone feed. A Mac app the MacApp step checked is published whenever it hands one on,
-# as when the downloads host served none it checked, with the record that it's a checked one. Last, it deletes the
-# shared feed, if the bucket still has it.
+# as when the downloads host served none it checked, with the record that it's a checked one. Prod's desktop feed waits
+# for the staging update check whenever this run hands on a new Mac app, even one with unchanged native code: the
+# build's signed manifest names that app, and the feed mustn't name an app the downloads host doesn't have. Last, it
+# points the root feed that bundles from before the apps' own feeds read at this version, with no native code.
 publish() {
   local env_name="$1" signed="$2" web account region profile build mac="${CODEBUILD_SRC_DIR_MacApps:-}" dmg="" record="" waiting="" feed testflight="" update_waiting=""
   web="$(built)/web/$env_name"
@@ -389,10 +433,11 @@ publish() {
     record=""
     update_waiting=1
   fi
-  if ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
+  if [ -n "$update_waiting" ]; then
+    # Said above. Checked first, since the signed manifest names the app held back, whatever its native code.
+    :
+  elif ! differs "$(live_shell "$env_name" desktop)" "$build" electron; then
     feeds=desktop
-  elif [ -n "$update_waiting" ]; then
-    waiting="Mac update check"
   elif [ -z "$mac" ]; then
     waiting="Mac"
   elif [ -n "$dmg" ]; then
@@ -422,15 +467,17 @@ publish() {
       echo "Published the Mac app GitHub Actions built, which the MacApp step checked."
     fi
     for feed in $feeds; do switch "$env_name" "$feed" "$version"; done
-    # Gone once, then a no-op: S3 answers a delete of a missing key as done.
-    aws s3 rm "s3://$(release_bucket "$env_name")/$shared_feed" >&2
+    # Unsigned, since an old bundle compares the native code before anything else, and with none named it never asks
+    # native code to install. Only the version it names, which Settings shows, changes from one release to the next.
+    node -e 'const { version, build } = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(JSON.stringify({ manifest: JSON.stringify({ version, build, shell: {}, files: [] }), signature: "" }));' "$web/version.json" |
+      aws s3 cp - "s3://$(release_bucket "$env_name")/$root_feed" --cache-control 'public, max-age=60' --content-type application/json >&2
   )
   if [ -n "$testflight" ]; then
     echo "Testers can install TestFlight build $testflight, which has this build's iPhone native code, so $env_name's iPhone feed takes it."
   fi
   if [ -n "$waiting" ]; then
     echo "This build needs a newer $waiting app than $env_name's feeds serve, so those feeds stay as they are."
-    case "$waiting" in *"Mac update check"*) ;; *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
+    case "$waiting" in *Mac*) echo "Release from the Mac, at this commit, to upload the app and then the feeds: make release ENV=$env_name." ;; esac
     case "$waiting" in *iPhone*) echo "GitHub Actions uploads an iPhone app with the new native code to TestFlight. The first run once the newest TestFlight build testers can install has this native code switches the iPhone feed (docs/releasing.md)." ;; esac
   fi
 }
@@ -557,7 +604,7 @@ case "$command" in
     fetch_config
     for env_name in "${environments[@]}"; do (cd "$root/config" && go run ./cmd/check "$env_name"); done
     # Built once: both environments deploy these binaries, from these assemblies.
-    for name in api calendar retention canary; do
+    for name in api calendar retention canary account; do
       (cd "$root/backend" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags='-s -w -buildid=' \
         -o "$root/backend/dist/$name/bootstrap" "./cmd/$name")
     done
@@ -572,14 +619,12 @@ case "$command" in
       npx cdk synth --quiet -c deploy=staging ${alarms[@]+"${alarms[@]}"} -o cdk.out/staging Multiscale-staging
       npx cdk synth --quiet -c deploy=prod ${skip[@]+"${skip[@]}"} ${alarms[@]+"${alarms[@]}"} -o cdk.out/prod Multiscale-prod
     )
-    # Each environment's web build, from this commit, carrying its key's public half.
+    # Each environment's web build and Mac main process, from this commit.
     profiles
     frontend_deps
     for env_name in "${environments[@]}"; do
       outputs "$env_name"
-      (cd "$root/frontend" && ENV="$env_name" npx vite build --outDir "$root/web/$env_name" --emptyOutDir)
-      # And its Mac app's main process, which a Mac app GitHub Actions built must hold exactly.
-      (cd "$root/frontend" && ENV="$env_name" node scripts/electron-compile.mjs && mkdir -p "$root/mac/$env_name" && cp -R dist-electron "$root/mac/$env_name/")
+      build_app "$root" "$env_name" "$root"
     done
     ;;
   deploy-staging)
@@ -589,17 +634,21 @@ case "$command" in
     ;;
   mac)
     # For each environment whose feed needs a newer Mac app than this build's, or whose downloads host serves none the
-    # pipeline checked, the Mac app GitHub Actions built from this commit: waited for in the inbox, checked, and handed to
-    # the releases (frontend/scripts/mac-inbox.ts).
+    # pipeline checked, a Mac app GitHub Actions built: waited for in the inbox, checked, and handed to the releases
+    # (frontend/scripts/mac-inbox.ts). This commit's own, or the newest of a commit before it with the same Mac native
+    # code (mac-inbox.ts pick), since few commits get their own when main moves faster than Mac builds. Another commit's
+    # is checked against the pipeline's own build of that commit, which must have this build's Mac shell hash.
     fetch_config
     profiles
     frontend_deps
     checked="$root/mac-checked"
+    others="$(mktemp -d)"
     sevenzip=""
     mkdir -p "$checked"
     for env_name in "${environments[@]}"; do
       outputs "$env_name"
-      if differs "$(live_shell "$env_name" desktop)" "$(shell_of <"$(built)/web/$env_name/version.json")" electron; then
+      want="$(shell_of <"$(built)/web/$env_name/version.json")"
+      if differs "$(live_shell "$env_name" desktop)" "$want" electron; then
         echo "$env_name's desktop feed needs a newer Mac app than this build's."
       elif ! checked_mac_live "$env_name"; then
         echo "$env_name's downloads host serves no Mac app the pipeline checked, so it gets this build's."
@@ -613,15 +662,37 @@ case "$command" in
         node "$root/frontend/scripts/mac-inbox.ts" live-record "$env_name" "$live" "$checked"
         continue
       fi
-      key="inbox/${COMMIT:?}/$env_name"
+      # Prod takes the build of the commit staging's app came from first, if it can: the staging update check passes
+      # that app's version, which prod's desktop feed waits for.
+      prefer=""
+      [ ! -f "$checked/app-record/staging.json" ] || prefer="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).build)' "$checked/app-record/staging.json")"
       # shortcut: a new AWS account caps every CodeBuild build at 45 minutes whatever the project says, so the wait stops
       # at 40 and says how to go on; drop CODEBUILD_LIMIT_SECONDS's default once AWS Support has lifted the cap.
       wait=$((MAC_WAIT_SECONDS < ${CODEBUILD_LIMIT_SECONDS:-2400} ? MAC_WAIT_SECONDS : ${CODEBUILD_LIMIT_SECONDS:-2400}))
-      echo "Waiting up to $((wait / 60)) minutes for GitHub Actions' build of $COMMIT in s3://$MAC_INBOX_BUCKET/$key."
+      echo "Waiting up to $((wait / 60)) minutes for GitHub Actions' build of ${COMMIT:?}, or of a commit before it with the same Mac native code, in s3://$MAC_INBOX_BUCKET/inbox/."
       deadline=$((SECONDS + wait))
-      until aws s3api head-object --bucket "$MAC_INBOX_BUCKET" --key "$key/manifest.json" >/dev/null 2>&1; do
+      keys="$(mktemp)"
+      wanting=""
+      while :; do
+        aws s3api list-objects-v2 --bucket "$MAC_INBOX_BUCKET" --prefix inbox/ --query 'Contents[].Key' --output text >"$keys" || : >"$keys"
+        from="$(node "$root/frontend/scripts/mac-inbox.ts" pick "$env_name" "$COMMIT" "$keys" "$prefer" $wanting)"
+        if [ "$from" = "$COMMIT" ]; then
+          made="$(built)" checkout="$root/frontend"
+          break
+        elif [ -n "$from" ]; then
+          made="$others/$from" checkout="$others/$from/checkout/frontend"
+          if ! build_at "$from" "$made" "$env_name"; then
+            echo "The pipeline couldn't build $from again to check its Mac app against, so $env_name doesn't take it." >&2
+          elif differs "$(shell_of <"$made/web/$env_name/version.json")" "$want" electron; then
+            echo "The pipeline's build of $from has other Mac native code than this build's, so $env_name doesn't take its Mac app." >&2
+          else
+            echo "$from, a commit before this one, has this build's Mac native code, so $env_name takes its Mac app."
+            break
+          fi
+          wanting="$wanting $from"
+        fi
         if [ "$SECONDS" -ge "$deadline" ]; then
-          echo "No Mac app for $env_name at $COMMIT reached the inbox in time, so this run stops before publishing anything." >&2
+          echo "No Mac app for $env_name at $COMMIT, or at a commit before it with the same Mac native code, reached the inbox in time, so this run stops before publishing anything." >&2
           echo "Approve the Mac release workflow's run for this commit, or start one: gh workflow run mac-release.yml -f commit=$COMMIT" >&2
           echo "Once it has finished, retry this stage: aws codepipeline retry-stage-execution --pipeline-name $pipeline --stage-name Staging --pipeline-execution-id ${EXECUTION_ID:-<this run>} --retry-mode FAILED_ACTIONS" >&2
           echo "Or run the pipeline again for it: make promote COMMIT=$COMMIT. See docs/releasing.md." >&2
@@ -630,14 +701,14 @@ case "$command" in
         sleep 30
       done
       inbox="$(mktemp -d)"
-      aws s3 cp "s3://$MAC_INBOX_BUCKET/$key/" "$inbox" --recursive --no-progress
+      aws s3 cp "s3://$MAC_INBOX_BUCKET/inbox/$from/$env_name/" "$inbox" --recursive --no-progress
       sevenzip="${sevenzip:-$(seven_zip)}"
-      SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$COMMIT" "$inbox" "$(built)/web/$env_name" "$(built)/mac/$env_name/dist-electron"
+      SEVENZIP="$sevenzip" node "$root/frontend/scripts/mac-inbox.ts" verify "$env_name" "$from" "$inbox" "$made/web/$env_name" "$made/mac/$env_name/dist-electron" "$checkout"
       mkdir -p "$checked/$env_name"
       cp "$inbox/$DMG_NAME" "$inbox/$ZIP_NAME" "$inbox/$ZIP_NAME.blockmap" "$inbox/manifest.json" "$checked/$env_name/"
       # The record of the checked app, which signing names in the manifest: its version, folder and zip.
       node "$root/frontend/scripts/mac-inbox.ts" record "$env_name" "$inbox" "$checked"
-      echo "$env_name: checked $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).files["Multiscale.dmg"].sha256)' "$inbox/manifest.json")" >>"$checked/checked.txt"
+      echo "$env_name: checked $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).files["Multiscale.dmg"].sha256)' "$inbox/manifest.json")$([ "$from" = "$COMMIT" ] || echo ", of $from")" >>"$checked/checked.txt"
     done
     ;;
   release-staging)
@@ -648,9 +719,19 @@ case "$command" in
     outputs prod
     frontend_deps
     browsers
+    # First this commit's web app suite against the web app staging still serves, the release before, as prod's Test step
+    # runs it before each release publishes there. So a step only this commit's suite takes, such as clearing the checks
+    # earlier runs left, meets the web app before it here first, not on prod.
+    ENV=staging WEB_ONLY=1 DEPLOYED_BEFORE_PUBLISH=1 "$root/scripts/test-deployed.sh"
     publish staging "${CODEBUILD_SRC_DIR_SignedStaging:?}"
-    # Retention and the history-scale test are left to the nightly run.
-    ENV=staging EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"
+    # Retention and the history-scale test are left to the nightly run. A release left live after failing them would fail
+    # the next run's suite above, the fix's too, so what it switched goes back to what that suite passed, as on prod.
+    if ! ENV=staging EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 SKIP_HISTORY=1 SKIP_RETENTION=1 "$root/scripts/test-deployed.sh"; then
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      AWS_PROFILE="$profile" switch_back staging "web $feeds" "$version"
+      echo "staging's suites failed after this release published, so each surface it switched went back to what it served before, which this commit's web app suite passed before publishing. The run stops here: fix what failed, and the next run releases it." >&2
+      exit 1
+    fi
     ;;
   prod-assets)
     # The Lambdas' code, into prod's CDK bucket, for the change set the next action makes.
@@ -674,7 +755,14 @@ case "$command" in
     frontend_deps
     browsers
     publish prod "${CODEBUILD_SRC_DIR_SignedProd:?}"
-    ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 "$root/scripts/test-deployed.sh"
+    # Prod's Test step runs these suites against prod before each release publishes. A release left live after failing
+    # them would fail every later run there, the fix's too, so what it switched goes back to what that step passed.
+    if ! ENV=prod CONFIRM_PROD=yes EXPECT_VERSION="$version" EXPECT_FEEDS="$feeds" SKIP_IOS=1 "$root/scripts/test-deployed.sh"; then
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts prod)"
+      AWS_PROFILE="$profile" switch_back prod "web $feeds" "$version"
+      echo "prod's suites failed after this release published, so each surface it switched went back to what it served before, which prod's Test step passed against this backend. The run stops here: fix what failed, and the next run releases it." >&2
+      exit 1
+    fi
     # For make release-tag, and the signed apps built from that tag.
     # With the release's notes: whether it skipped the canary or ran without the release alarms.
     notes=""
@@ -704,18 +792,7 @@ case "$command" in
       echo "$firing in ALARM after $2's bake, but this run has the release alarms off, so it goes on."
       exit 0
     fi
-    version="$(version_of "$(built)/web/prod")"
-    bucket="$(release_bucket prod)"
-    for surface in $surfaces; do
-      now="$(serves "$bucket" "$surface")"
-      before="$(served_before "$bucket" "$surface" "$version")"
-      if [ "$now" = "$version" ] && [ -n "$before" ]; then
-        switch prod "$surface" "$before"
-        echo "Switched prod's $surface back from $version to $before."
-      else
-        echo "prod's $surface serves ${now:-nothing}, not this run's $version, so it stays as it is."
-      fi
-    done
+    switch_back prod "$surfaces" "$(version_of "$(built)/web/prod")"
     echo "$firing in ALARM after $2's bake, so the run stops here. Look at the alarms in prod's account; make release-surface ENV=prod lists what each surface serves." >&2
     exit 1
     ;;
@@ -729,8 +806,25 @@ case "$command" in
     profiles
     outputs staging
     outputs prod
+    # CI's performance results onto staging's performance dashboard. It never stops the suites.
+    (
+      read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+      AWS_PROFILE="$profile" "$root/scripts/perf-publish.sh"
+    ) || echo "Publishing the performance results failed, above. The suites go on." >&2
     frontend_deps
     browsers
+    # The per-route latency targets' fixed request mix, and sync timed between two browsers against staging, published
+    # to its performance dashboard (docs/performance.md). Neither stops the suites.
+    ENV=staging MULTISCALE_REQUEST_MIX=1 INTEGRATION_RUN='^TestNightlyRequestMix$' "$root/scripts/integration.sh" ||
+      echo "The request mix failed, above. The suites go on." >&2
+    if PERF_SYNC=staging PERF_PLATFORMS=none "$root/scripts/test-perf.sh"; then
+      (
+        read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"
+        AWS_PROFILE="$profile" COMMIT="$commit" "$root/scripts/perf-publish.sh" "$root/frontend/test-results/perf/summary/this.json"
+      ) || echo "Publishing staging's sync timing failed, above. The suites go on." >&2
+    else
+      echo "Timing sync against staging failed, above. The suites go on." >&2
+    fi
     # Each surface back one version and forward again, as make release-surface would, then the suites against it.
     (
       read -r _ _ profile <<<"$(cd "$root/infrastructure" && node bin/target.ts staging)"

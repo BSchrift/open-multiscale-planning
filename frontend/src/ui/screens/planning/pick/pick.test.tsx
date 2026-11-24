@@ -336,7 +336,7 @@ describe('Pick tasks: the week beside', () => {
     const plan = async () => getRecord(t.db, 'week_plan', weekPlanId(WEEK));
     await userEvent.click(await within(week()).findByRole('button', { name: 'Change aims for this week' }));
     let pop = screen.getByRole('dialog', { name: 'Aims for this week' });
-    fireEvent.change(within(pop).getByLabelText('Aim for Write the report this week'), { target: { value: '4' } });
+    fireEvent.change(within(pop).getByLabelText('Aim for Write the report this week'), { target: { value: String(EST_STEPS.indexOf(60)) } });
     await userEvent.click(within(pop).getByRole('button', { name: "Skip this week's aim, Learn to bake bread" }));
     expect((await plan())?.aims).toBeUndefined();
     await userEvent.click(within(pop).getByRole('button', { name: 'Save' }));
@@ -350,7 +350,7 @@ describe('Pick tasks: the week beside', () => {
 
     await userEvent.click(within(week()).getByRole('button', { name: 'Change aims for this week' }));
     pop = screen.getByRole('dialog', { name: 'Aims for this week' });
-    fireEvent.change(within(pop).getByLabelText('Aim for Write the report this week'), { target: { value: '4' } });
+    fireEvent.change(within(pop).getByLabelText('Aim for Write the report this week'), { target: { value: String(EST_STEPS.indexOf(60)) } });
     await userEvent.click(within(pop).getByRole('button', { name: 'Cancel' }));
     expect((await plan())?.aims).toEqual({});
   });
@@ -729,9 +729,9 @@ describe('Pick tasks: quick fixes', () => {
     await userEvent.click(await screen.findByRole('button', { name: '20m this week: Return the library books' }));
     const slider = within(screen.getByRole('dialog', { name: 'Return the library books' })).getByRole('slider', { name: 'This week' });
     expect(slider).toHaveAttribute('aria-valuetext', '20m of 20m');
-    expect(slider).toHaveAttribute('max', '1');
-    expect(slider).toHaveValue('1');
-    fireEvent.change(slider, { target: { value: '0' } });
+    expect(slider).toHaveAttribute('max', '3');
+    expect(slider).toHaveValue('3');
+    fireEvent.change(slider, { target: { value: '2' } });
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect(await minutesOf(t, 'o4')).toBe(15));
   });
@@ -781,8 +781,8 @@ describe('Pick tasks: the row', () => {
     const week = within(pop).getByRole('slider', { name: 'This week' });
     await waitFor(() => expect(week).toHaveFocus());
     expect(week).toHaveAttribute('aria-valuetext', '2h of 2h');
-    // Quarter-hour stops: 1h is the fourth.
-    fireEvent.change(week, { target: { value: '3' } });
+    // Five-minute stops: 1h is the twelfth.
+    fireEvent.change(week, { target: { value: '11' } });
     setEstimate(within(pop).getByRole('slider', { name: 'Estimate' }), 180);
     expect(week).toHaveAttribute('aria-valuetext', '1h of 3h');
     expect(await minutesOf(t, 't1')).toBe(120);

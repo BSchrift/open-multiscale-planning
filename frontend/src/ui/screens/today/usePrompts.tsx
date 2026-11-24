@@ -1,10 +1,11 @@
-// Which question Today asks now, one at a time: a notification's Partly, then missed blocks (one prompt, or one sheet
-// for several, today's practices among them), then "Have you started?". Closing one without answering puts it away
-// for this session; missed blocks keep a Review row so there's always a way back. The sheet, once up, stays for its
-// last row. Today's pane stays mounted behind the other tabs, so the prompts show on every tab.
+// Which question Today asks now, one at a time: a notification's Partly or the Now card's Stop for now, then missed
+// blocks (one prompt, or one sheet for several, today's practices among them), then "Have you started?". Closing one
+// without answering puts it away for this session; missed blocks keep a Review row so there's always a way back. The
+// sheet, once up, stays for its last row. Today's pane stays mounted behind the other tabs, so the prompts show on
+// every tab.
 
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { instantMs } from '../../../core/dates';
 import { nextBlock } from '../../../core/blocks';
@@ -21,12 +22,19 @@ const MISSED_WINDOW_MS = 7 * 86_400_000;
 
 type Open = { kind: 'end'; id: string } | { kind: 'sheet' } | null;
 
-export function usePrompts(data: TodayData): { prompt: ReactNode; missed: { title: string; review(): void } | null } {
+/**
+ * The questions put away for this session. Today holds one for both its views, Plan your week and the day, so skipping
+ * planning, which swaps one for the other, brings back none of them.
+ */
+export type PutAway = [ReadonlySet<string>, Dispatch<SetStateAction<ReadonlySet<string>>>];
+export const usePutAway = (): PutAway => useState<ReadonlySet<string>>(() => new Set());
+
+export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNode; missed: { title: string; review(): void } | null } {
   const { clock } = useApp();
   const snoozed = useSnoozes();
   const request = usePromptRequest();
   const [open, setOpen] = useState<Open>(null);
-  const [later, setLater] = useState<ReadonlySet<string>>(new Set());
+  const [later, setLater] = putAway;
 
   const now = clock.now();
   const missed = [
@@ -56,8 +64,9 @@ export function usePrompts(data: TodayData): { prompt: ReactNode; missed: { titl
 
   let prompt: ReactNode = null;
   let askingMissed = true;
-  if (request && find(request)) {
-    prompt = <EndPrompt key={`request:${request}`} block={find(request)!} partly onClose={() => requestPrompt(null)} />;
+  if (request && find(request.blockId)) {
+    const { blockId, stop } = request;
+    prompt = <EndPrompt key={`request:${blockId}:${stop}`} block={find(blockId)!} partly stop={stop} onClose={() => requestPrompt(null)} />;
   } else if (open?.kind === 'end') {
     prompt = end(open.id);
   } else if (open?.kind === 'sheet' && missed.length > 0) {

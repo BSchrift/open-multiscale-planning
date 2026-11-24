@@ -97,11 +97,15 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
   await page.screenshot({ path: info.outputPath('process.png') });
   if (phone) for (const name of ['Add to a project or One offs', 'New practice from this item', 'Undo', 'Skip', 'Done', 'Delete']) await expectTapTarget(card(page).getByRole('button', { name, exact: true }));
 
-  /** Picks a place: typed and Enter on desktop, a tap in the sheet on phone. */
+  /** Picks a place, typed and Enter on desktop or a tap in the sheet on phone, then adds the item there. */
   const addTo = async (typed: string, option: string) => {
+    const add = card(page).getByRole('button', { name: `Add to ${option.split(',')[0]}`, exact: true });
     if (!phone) {
       await field.fill(typed);
       await expect(page.getByRole('option', { name: option })).toHaveAttribute('aria-selected', 'true');
+      await field.press('Enter');
+      // Enter only picks it; the item waits for a second Enter.
+      await expect(add).toBeVisible();
       return field.press('Enter');
     }
     await field.click();
@@ -109,6 +113,7 @@ test('processes the Inbox one card at a time: one picker for where it goes, and 
     await sheet.getByRole('combobox', { name: 'Add to a project or One offs' }).fill(typed);
     for (const row of await sheet.getByRole('option').all()) await expectTapTarget(row);
     await sheet.getByRole('option', { name: option }).click();
+    await add.click();
   };
   const toast = page.locator('.toast');
 
@@ -169,18 +174,24 @@ test('a new project from the picker: the form, a Created toast, then a second En
   if (phone) await page.getByRole('option', { name: '+ New project “Fix up the shed”' }).click();
   else await picker.press('Enter');
   const form = page.getByRole('form', { name: 'New project' });
-  await expect(form.getByRole('textbox', { name: 'Name' })).toHaveValue('Fix up the shed');
-  await form.getByRole('textbox', { name: 'Milestone to put it under, if any' }).fill('Roof watertight');
+  await expect(form.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Fix up the shed');
+  // Every project sits under a goal, and with none yet, the form opens on a new one's name.
+  const goal = form.getByRole('textbox', { name: 'New goal name' });
+  await expect(goal).toHaveValue('');
+  await expect(form.getByRole('textbox', { name: /Milestone/ })).toHaveCount(0);
+  await form.getByRole('button', { name: 'Add project' }).click();
+  await expect(form.getByRole('alert')).toHaveText('Give the new goal a name.');
+  await goal.fill('Home');
   await page.screenshot({ path: info.outputPath('process-new-project.png') });
   await form.getByRole('button', { name: 'Add project' }).click();
-  await expect(page.locator('.toast')).toContainText('Created Fix up the shed, with the milestone Roof watertight.');
+  await expect(page.locator('.toast')).toContainText('Created Fix up the shed, under Home.');
   await expect(card(page).getByRole('heading', { name: 'Call the bank', level: 1 })).toBeVisible();
   const add = card(page).getByRole('button', { name: 'Add to Fix up the shed' });
   if (!phone) await expect(add).toBeFocused();
   await page.screenshot({ path: info.outputPath('process-created.png') });
   await (phone ? add.click() : page.keyboard.press('Enter'));
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
-  await expect(page.locator('.toast')).toContainText('Added Call the bank to Fix up the shed, under Roof watertight.');
+  await expect(page.locator('.toast')).toContainText('Added Call the bank to Fix up the shed.');
 });
 
 // The owner's request for a long Inbox: select many items and give them a home at once, each action with one Undo.
@@ -199,12 +210,12 @@ test('edits the item on the card: its title, a description and a link, and Undo 
   await expect(field).toBeFocused();
   await field.press('End');
   await field.pressSequentially(' about the loan');
-  await card(page).getByRole('button', { name: 'Save' }).click();
+  await card(page).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(card(page).getByRole('heading', { name: 'Call the bank about the loan', level: 1 })).toBeVisible();
 
   await card(page).getByRole('button', { name: 'Add description' }).click();
   await card(page).getByRole('textbox', { name: 'Description' }).fill('Ask about the **rate**');
-  await card(page).getByRole('button', { name: 'Save' }).click();
+  await card(page).getByRole('button', { name: 'Save', exact: true }).click();
   await expect(card(page).locator('.pxnotes strong')).toHaveText('rate');
 
   await card(page).getByRole('button', { name: 'Add link' }).click();
@@ -245,6 +256,7 @@ test("a date set on the card goes with the item to a project, warned in the pick
   await page.screenshot({ path: info.outputPath('process-late.png') });
   // It only warns: the item is added, date and all.
   await (phone ? option.click() : page.keyboard.press('Enter'));
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
   await expect(page.locator('.toast')).toContainText('Added Call the bank to Paint the fence, for Feb 10.');
   await expect(card(page)).toHaveCount(0);
 
@@ -381,8 +393,11 @@ test('keyboard shortcuts on the desktop card: with Option or Alt, or alone once 
   await expect(card(page).getByRole('heading', { name: 'Fix the gate', level: 1 })).toBeVisible();
   const picker = page.getByRole('combobox', { name: 'Add to a project or One offs' });
   await expect(picker).toBeFocused();
-  // In Add to, letters search, and Enter adds to the lit row.
+  // In Add to, letters search, Enter picks the lit row, and a second Enter adds the item there.
   await page.keyboard.type('paint');
+  await page.keyboard.press('Enter');
+  await expect(picker).toHaveValue('Paint the fence');
+  await expect(card(page).getByRole('heading', { name: 'Fix the gate' })).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(card(page).getByRole('heading', { name: 'Call the bank' })).toBeVisible();
   await expect(page.locator('.toast')).toContainText('Added Fix the gate to Paint the fence.');
@@ -449,8 +464,8 @@ test('makes a project under a new goal, a practice and a goal from cards, each o
   await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('Sort out the bank');
   await page.getByRole('option', { name: '+ New project “Sort out the bank”' }).click();
   const project = form('New project');
-  await expect(project.getByRole('textbox', { name: 'Name' })).toHaveValue('Sort out the bank');
-  await project.getByRole('button', { name: '+ New goal' }).click();
+  await expect(project.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Sort out the bank');
+  // With no goals yet, it opens on a new goal's name.
   await project.getByRole('textbox', { name: 'New goal name' }).fill('Money in order');
   await expect(project.getByText('Today to Dec 31')).toBeVisible();
   await page.screenshot({ path: info.outputPath('home-form.png') });
@@ -482,6 +497,7 @@ test('makes a project under a new goal, a practice and a goal from cards, each o
     await page.getByRole('combobox', { name: 'Add to a project or One offs' }).fill('paint');
     await page.keyboard.press('Enter');
   }
+  await card(page).getByRole('button', { name: 'Add to Paint the fence', exact: true }).click();
   await expect(toast).toContainText('Added Fix the gate to Paint the fence.');
   await card(page).getByRole('button', { name: 'Exit' }).click();
   await expect(card(page)).toHaveCount(0);
@@ -508,7 +524,7 @@ test('phone: the form for a new home rises above the keyboard with its button in
   const add = sheet.getByRole('button', { name: 'Add project' });
   await expect(add).toBeInViewport();
   expect((await add.boundingBox())!.y + (await add.boundingBox())!.height).toBeLessThanOrEqual(height - 336);
-  for (const name of ['Clear name', '+ New goal', 'Cancel']) {
+  for (const name of ['Clear name', 'Cancel new goal', 'Cancel']) {
     const box = await sheet.getByRole('button', { name, exact: true }).boundingBox();
     expect(box!.height, name).toBeGreaterThanOrEqual(44);
   }

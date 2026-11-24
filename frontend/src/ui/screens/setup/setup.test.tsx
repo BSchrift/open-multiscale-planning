@@ -21,6 +21,10 @@ function fakeSync() {
     stop: vi.fn(),
     email: vi.fn(async () => null),
     eraseAndSignIn: vi.fn(async () => undefined),
+    signedInAt: vi.fn(async (): Promise<number | null> => null),
+    exportData: vi.fn(async () => 'https://files.example.test/export.zip'),
+    deletionTarget: vi.fn(async () => ({ sameAccount: true, email: 'reader@example.com' as string | null })),
+    deleteAccount: vi.fn(async (): Promise<'deleted' | 'sign_in_again' | 'wrong_account'> => 'deleted'),
     files: noFiles(),
   } satisfies AppSync;
 }
@@ -70,6 +74,13 @@ describe('first-run setup', () => {
       expect(await listRecords(t.db, 'objective')).toMatchObject([{ title: 'Learn to bake bread', state: 'active' }]);
       expect((await getSettings(t.db)).availability[0]).toMatchObject({ from: 22 * 60, to: 6 * 60 });
     });
+  });
+
+  it('after its account was deleted, a device starts over here and says so', async () => {
+    const t = await renderScreen('setup', { firstRun: true, sync: fakeSync() });
+    await syncState(t, null, 'account_deleted');
+    expect(await screen.findByText('Your account and its data were deleted, from Multiscale and from this device.')).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
 
   it('can skip sign-in, and go back a step', async () => {

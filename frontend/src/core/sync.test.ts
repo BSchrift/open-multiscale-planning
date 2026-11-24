@@ -277,6 +277,86 @@ describe('runSync failures', () => {
     expect(s.record(big)).toBeUndefined();
   });
 
+  // Like the server's check on a description: one task's is too long, and the whole request is refused with
+  // notes_too_long, which createHttpSend reports as too_large.
+  const notesLimit = (s: ReturnType<typeof server>) =>
+    vi.fn((req: Parameters<typeof s.send>[0]) =>
+      req.changes.some((c) => c.type === 'task' && String(c.fields.notes?.v ?? '').length > 20_000) ? Promise.reject(new SyncError('too_large')) : s.send(req),
+    );
+  const sent = (send: ReturnType<typeof notesLimit>) => send.mock.calls.map(([req]) => req.changes.map((c) => c.id));
+
+  it('holds a record the server refuses as too long: the rest push, the pull carries on, and the error says so', async () => {
+    const db = await openTestDb();
+    const s = server();
+    const send = notesLimit(s);
+    const theirs = formatClock({ wall: NOW, counter: 0, device: 'other' });
+    await s.send({ cursor: 0, changes: [{ type: 'task', id: 'theirs', fields: { kind: { v: 'inbox', c: theirs }, title: { v: 'Paint the fence', c: theirs } } }] });
+    await transact(db, clock, async (w) => {
+      await w.create('task', { kind: 'inbox', title: 'Call the bank' }, 'a');
+      await w.create('task', { kind: 'inbox', title: 'A long paste', notes: 'x'.repeat(20_001) }, 'b');
+      await w.create('task', { kind: 'inbox', title: 'Fix the gate' }, 'c');
+    });
+
+    await expect(runSync(db, send)).rejects.toMatchObject({ code: 'too_large' });
+    expect(s.record('a')!.title!.v).toBe('Call the bank');
+    expect(s.record('c')!.title!.v).toBe('Fix the gate');
+    expect(s.record('b')).toBeUndefined();
+    expect((await getRecord(db, 'task', 'theirs'))?.title).toBe('Paint the fence');
+    expect([...new Set((await outbox(db)).map((r) => r.record_id))]).toEqual(['b']);
+    // The refused batch goes again one record at a time, to find the one the server won't take.
+    expect(sent(send)).toEqual([['a', 'b', 'c'], ['a'], ['b'], ['c'], []]);
+
+    // The next sync finds it again, and holds it again.
+    send.mockClear();
+    await transact(db, clock, (w) => w.create('task', { kind: 'inbox', title: 'Buy stamps' }, 'd'));
+    await expect(runSync(db, send)).rejects.toMatchObject({ code: 'too_large' });
+    expect(s.record('d')!.title!.v).toBe('Buy stamps');
+    expect(sent(send)).toEqual([['b', 'd'], ['b'], ['d'], []]);
+
+    // Once shortened, it goes like any other.
+    await transact(db, clock, (w) => w.set('task', 'b', { notes: 'Shorter now' }));
+    await runSync(db, send);
+    expect(s.record('b')!.notes!.v).toBe('Shorter now');
+    expect(await outbox(db)).toEqual([]);
+  });
+
+  it('batches again after the refused batch, and finds a refused record in a later one too', async () => {
+    const db = await openTestDb();
+    const s = server();
+    const send = notesLimit(s);
+    await transact(db, clock, async (w) => {
+      for (let i = 0; i < 101; i++) await w.create('task', { kind: 'inbox', title: `Task ${i}`, notes: i === 100 ? 'x'.repeat(20_001) : null }, `t${String(i).padStart(3, '0')}`);
+    });
+
+    await expect(runSync(db, send)).rejects.toMatchObject({ code: 'too_large' });
+    // 99 go in one request; the last two are refused together, then go one by one.
+    expect(sent(send).map((ids) => ids.length)).toEqual([99, 2, 1, 1, 0]);
+    expect(Object.keys(s.values())).toHaveLength(100);
+    expect(s.record('t100')).toBeUndefined();
+  });
+
+  it('still sends the delete of a record the server refused, so other devices drop it, and the long text stops counting', async () => {
+    const [a, b] = [await openTestDb(), await openTestDb()];
+    const s = server();
+    const send = notesLimit(s);
+    await transact(a, clock, (w) => w.create('task', { kind: 'inbox', title: 'Write the report' }, 'r'));
+    await runSync(a, send);
+    await runSync(b, send);
+    await transact(a, fixedClock(NOW + 60_000), (w) => w.set('task', 'r', { notes: 'x'.repeat(20_001) }));
+    await expect(runSync(a, send)).rejects.toMatchObject({ code: 'too_large' });
+
+    await transact(a, fixedClock(NOW + 120_000), (w) => w.delete('task', 'r'));
+    await runSync(a, send);
+    await runSync(b, send);
+    expect((await getRecord(b, 'task', 'r'))?.deleted_at).toBe('2026-11-02T15:02:00Z');
+    expect(s.record('r')!.notes).toBeUndefined();
+    // The long text waits in case the task comes back, and then it is held again.
+    expect((await outbox(a)).map((r) => r.field)).toEqual(['notes']);
+    await runSync(a, send);
+    await transact(a, fixedClock(NOW + 180_000), (w) => w.set('task', 'r', { deleted_at: null }));
+    await expect(runSync(a, send)).rejects.toMatchObject({ code: 'too_large' });
+  });
+
   it('splits a batch by size as well as count, so each request stays under the limit', async () => {
     const db = await openTestDb();
     const s = server();
@@ -551,6 +631,24 @@ describe('createHttpSend', () => {
     expect(a.expire).not.toHaveBeenCalled();
   });
 
+  it("a 401 for a deleted account says so at once: no refresh can mend it", async () => {
+    const a = auth();
+    const fetchFn = vi.fn(async () => json(401, { error: 'account_deleted' }));
+    const send = createHttpSend({ apiUrl: 'https://api.example.test', auth: a, fetch: fetchFn });
+    await expect(send({ cursor: 0, changes: [] })).rejects.toMatchObject({ code: 'account_deleted' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(a.accessToken).not.toHaveBeenCalledWith({ refresh: true });
+    // Found deleted after a refresh, as when the deletion started between the two.
+    const b = auth();
+    b.accessToken.mockImplementation(async (options) => (options?.refresh ? 'token-2' : 'token-1'));
+    const second = vi.fn(async (_url: string, init: RequestInit) =>
+      (init.headers as Record<string, string>).authorization === 'Bearer token-2' ? json(401, { error: 'account_deleted' }) : json(401, {}),
+    );
+    await expect(createHttpSend({ apiUrl: 'https://api.example.test', auth: b, fetch: second })({ cursor: 0, changes: [] })).rejects.toMatchObject({
+      code: 'account_deleted',
+    });
+  });
+
   it('a second 401 means the sign-in has expired', async () => {
     const a = auth();
     const fetchFn = vi.fn(async () => json(401, {}));
@@ -593,6 +691,16 @@ describe('createHttpSend', () => {
     // A conflict keeps the outbox for the next sync to resend.
     await expect(respond(json(409, { error: 'conflict' }))).rejects.toMatchObject({ code: 'error' });
     await expect(respond(new Response('<html>', { status: 503 }))).rejects.toMatchObject({ code: 'error' });
+  });
+
+  it('reports a record refused as too long as too_large, which runSync holds while the rest syncs', async () => {
+    const respond = (response: Response) =>
+      createHttpSend({ apiUrl: 'https://api.example.test', auth: auth(), fetch: async () => response })({ cursor: 0, changes: [] });
+    await expect(respond(json(400, { error: 'notes_too_long' }))).rejects.toMatchObject({ code: 'too_large' });
+    await expect(respond(json(400, { error: 'memo_too_long' }))).rejects.toMatchObject({ code: 'too_large' });
+    // Merged with what another device sent first, which this one hasn't pulled yet, a record this device sized as fitting
+    // can pass the limit on the server. Refused whole, the batch would fail every sync and never pull what would show it.
+    await expect(respond(json(400, { error: 'record_too_large' }))).rejects.toMatchObject({ code: 'too_large' });
   });
 });
 

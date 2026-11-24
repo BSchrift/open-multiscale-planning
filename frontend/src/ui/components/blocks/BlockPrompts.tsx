@@ -1,11 +1,12 @@
 // The questions a block asks as it happens: "Have you started?", the end-of-block prompt (Done, Partly with the
-// time left, Not done) and a practice's time logged. Several missed blocks share one sheet, MissedSheet. On desktop
+// time left, Not done) and a practice's time logged (All, Partly with the time done, Skipped). Several missed blocks share one sheet, MissedSheet. On desktop
 // these sit in the corner over the page; on phone they're sheets. Focus moves in, and back to where it was when they
 // close. One that opens while you're typing or in another dialog waits until you're done.
 
 import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
-import { isPaused, partlyLeft, spentLine, timeLeftMs, workMinutes } from '../../../core/blocks';
+import { halfOfPractice, isPaused, partlyLeft, spentLine, timeLeftMs, workMinutes } from '../../../core/blocks';
+import type { BlockAnswer } from '../../../core/blocks';
 import { formatMinutes, instantMs, localDate } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { getRecord } from '../../../core/records';
@@ -71,64 +72,88 @@ function Heading(props: { over: string; title: ReactNode }) {
   );
 }
 
-function PartlyStep(props: { block: BlockRow; onClose(): void }) {
-  const { block } = props;
+/**
+ * How much is left, for Partly. From Stop for now, on a block still going, it starts from the time spent when it was
+ * pressed, offers Not done too, and either answer ends the block.
+ */
+function PartlyStep(props: { block: BlockRow; onClose(): void; stop?: boolean }) {
+  const { block, stop } = props;
+  const { clock } = useApp();
   const task = useTask(block);
   const actions = useBlockActions();
   const [left, setLeft] = useState<number | null>(null);
-  const value = left ?? (task ? partlyLeft(task, block) : null);
+  const [pressed] = useState(() => clock.now());
+  const value = left ?? (task ? partlyLeft(task, block, stop ? pressed : undefined) : null);
+  const answer = (said: BlockAnswer) => void (stop ? actions.stopForNow(block, said) : actions.answer(block, said)).then(props.onClose);
   return (
     <PromptFrame label="How much is left?" onClose={props.onClose}>
       <Heading over={block.title ?? ''} title="How much is left?" />
       <EstimateSlider label="Time left" value={value} noneLabel="Choose a time" onChange={setLeft} />
       <div className="row">
-        <Button
-          variant="primary"
-          type="button"
-          disabled={!value || actions.pending}
-          onClick={() => void actions.answer(block, { result: 'partly', remaining_min: value }).then(props.onClose)}
-        >
+        <Button variant="primary" type="button" disabled={!value || actions.pending} onClick={() => answer({ result: 'partly', remaining_min: value })}>
           Save
         </Button>
+        {stop && (
+          <Button type="button" disabled={actions.pending} onClick={() => answer({ result: 'not' })}>
+            <Icon name="not-done" size={16} />
+            Not done
+          </Button>
+        )}
       </div>
     </PromptFrame>
   );
 }
 
+/** A practice's three answers, as the missed blocks sheet and the notification give them; Partly then asks how much. */
 function PracticeLog(props: { block: BlockRow; onClose(): void }) {
   const { block } = props;
   const actions = useBlockActions();
   const id = useId();
   const length = Math.max(5, workMinutes(block));
-  const [minutes, setMinutes] = useState(length);
+  const [minutes, setMinutes] = useState<number | null>(null);
   const answer = (logged: number) =>
     void actions.answer(block, logged ? { result: 'done', logged_min: logged } : { result: 'not', logged_min: 0 }).then(props.onClose);
   return (
     <PromptFrame label="Block finished" onClose={props.onClose}>
       <Heading over="Block ended" title={block.title} />
-      <div className="stack8">
-        <div className="between">
-          <label className="small quiet" htmlFor={id}>
-            How much did you do?
-          </label>
-          <span className="strong">{formatMinutes(minutes)}</span>
+      {minutes !== null && (
+        <div className="stack8">
+          <div className="between">
+            <label className="small quiet" htmlFor={id}>
+              How much did you do?
+            </label>
+            <span className="strong">{formatMinutes(minutes)}</span>
+          </div>
+          <input
+            id={id}
+            className="logrange"
+            type="range"
+            // Partly replaces itself with this, so focus goes where the next move is.
+            autoFocus
+            min={5}
+            max={length}
+            step={5}
+            value={minutes}
+            aria-valuetext={formatMinutes(minutes)}
+            onChange={(event) => setMinutes(Number(event.target.value))}
+          />
         </div>
-        <input
-          id={id}
-          className="logrange"
-          type="range"
-          min={5}
-          max={length}
-          step={5}
-          value={minutes}
-          aria-valuetext={formatMinutes(minutes)}
-          onChange={(event) => setMinutes(Number(event.target.value))}
-        />
-      </div>
+      )}
       <div className="row">
-        <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(minutes)}>
-          {minutes === length ? `All ${formatMinutes(length)}` : `Log ${formatMinutes(minutes)}`}
-        </Button>
+        {minutes === null ? (
+          <>
+            <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(length)}>
+              All {formatMinutes(length)}
+            </Button>
+            <Button type="button" onClick={() => setMinutes(Math.min(length, halfOfPractice(block)))}>
+              Partly
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" type="button" disabled={actions.pending} onClick={() => answer(minutes)}>
+            Log {formatMinutes(minutes)}
+          </Button>
+        )}
         <Button type="button" disabled={actions.pending} onClick={() => answer(0)}>
           Skipped
         </Button>
@@ -140,14 +165,15 @@ function PracticeLog(props: { block: BlockRow; onClose(): void }) {
 /**
  * The end-of-block prompt. Work asks Done, Partly or Not done, each after its icon as the missed blocks sheet draws it,
  * with Partly setting the time left; a practice logs how much was done. onClose without an answer means "Answer later".
+ * With `stop`, from Stop for now, Partly's question ends the block when answered.
  */
-export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean }) {
+export function EndPrompt(props: { block: BlockRow; onClose(): void; partly?: boolean; stop?: boolean }) {
   const { block } = props;
   const { clock } = useApp();
   const actions = useBlockActions();
   const [partly, setPartly] = useState(!!props.partly);
   if (block.practice_id) return <PracticeLog block={block} onClose={props.onClose} />;
-  if (partly) return <PartlyStep block={block} onClose={props.onClose} />;
+  if (partly) return <PartlyStep block={block} stop={props.stop} onClose={props.onClose} />;
   const answer = (result: 'done' | 'not') => void actions.answer(block, { result }).then(props.onClose);
   const now = clock.now();
   const spent = spentLine(block, clock.zone(), now);

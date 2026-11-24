@@ -1,8 +1,8 @@
 // A practice's popup and a planning block's: the task popup's frame and order, with each one's own fields. A calendar
 // opens one from a practice's session or a planning block, with the block's own section at its top, as a task's block
 // opens the task's popup (BlockPopup). Where a session is named away from a calendar, such as the Now card, Done and the
-// prompts, it opens over the page with the same section (BlockName), and a practice's card in To schedule opens it with
-// no block. Top to bottom: its name, which a tap renames; the block's section, or Pause or Resume practice with no
+// prompts, it opens over the page with the same section (BlockName), and a practice's card in To schedule and its row on
+// Goals open it with no block. Top to bottom: its name, which a tap renames; the block's section, or Pause or Resume practice with no
 // block; its goal, its schedule (how often, each session's length and its time) and its notes; then End practice,
 // Cancel and Save. The fields save together on Save, with Undo, as the editor on Goals saves them; the actions save as
 // they go, each with its own Undo. An ended practice shows its block and says it ended. Planning has no fields: it's
@@ -15,7 +15,7 @@ import type { Sql } from '../../../core/db';
 import { planningWeekOf } from '../../../core/planning';
 import { blockRow } from '../../../core/queries';
 import { getRecord, listRecords } from '../../../core/records';
-import type { Objective, Practice } from '../../../core/types';
+import type { Fields, Objective, Practice } from '../../../core/types';
 import type { ScreenProps } from '../../app/registry';
 import { useQuery } from '../../app/store';
 import type { PopFor } from '../../components/blocks/BlockName';
@@ -57,7 +57,8 @@ async function loadPractice(sql: Sql, id: string) {
   return { practice: await getRecord(sql, 'practice', id), goals: await listRecords(sql, 'objective') };
 }
 
-export function PracticePopupFor(props: { id: string; close(): void; block?: ReactNode }) {
+/** close has the fields Save wrote, for Goals, whose row moves to the practice's new goal. */
+export function PracticePopupFor(props: { id: string; close(saved?: Fields<'practice'>): void; block?: ReactNode }) {
   const { id, close } = props;
   const data = useQuery((sql) => loadPractice(sql, id), [id]).data;
   // Deleted, here or on another device, it has nothing left to show.
@@ -69,7 +70,7 @@ export function PracticePopupFor(props: { id: string; close(): void; block?: Rea
   return <PracticePopup key={id} practice={data.practice} goals={data.goals} close={close} block={props.block} />;
 }
 
-function PracticePopup(props: { practice: Practice; goals: readonly Objective[]; close(): void; block?: ReactNode }) {
+function PracticePopup(props: { practice: Practice; goals: readonly Objective[]; close(saved?: Fields<'practice'>): void; block?: ReactNode }) {
   const { practice: p, close } = props;
   const draft = usePracticeDraft(p, { onClose: close });
   const { paused, pause, end } = usePracticeActions(p, close);

@@ -1087,13 +1087,12 @@ describe('Goals', () => {
   });
 
   describe('practices', () => {
-    it('a link to a practice opens it, in its section on desktop and in its sheet on phone', async () => {
+    it('a link to a practice opens its popup, on desktop and on phone', async () => {
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' } });
-      expect(await screen.findByRole('button', { name: /^Stretch/, expanded: true })).toBeVisible();
-      expect(screen.getByRole('slider', { name: 'Each session' })).toBeVisible();
+      expect(within(await screen.findByRole('dialog', { name: 'Stretch' })).getByRole('slider', { name: 'Each session' })).toBeVisible();
       cleanup();
       await renderScreen('goals', { seed: bread, params: { show: 'pr1' }, layout: 'phone' });
-      expect(await screen.findByRole('dialog', { name: 'Edit practice' })).toBeVisible();
+      expect(await screen.findByRole('dialog', { name: 'Stretch' })).toHaveClass('taskpop');
     });
 
     it('a link to a goal opens it', async () => {
@@ -1101,22 +1100,29 @@ describe('Goals', () => {
       expect(await screen.findByRole('button', { name: /^Run a 10k/, expanded: true })).toBeVisible();
     });
 
-    it('on desktop: no goal section, link to a goal, session length, pause, end', async () => {
+    it("on desktop: no goal section, its popup in the task popup's frame, link to a goal, session length, pause", async () => {
       const t = await renderScreen('goals', { seed: bread });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
-      await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
       expect(screen.getByText(/0m of 1h 45m this week/)).toBeVisible();
-      fireEvent.change(screen.getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
-      await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+      const row = screen.getByRole('button', { name: /^Stretch/ });
+      expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+      await userEvent.click(row);
+      const popup = await screen.findByRole('dialog', { name: 'Stretch' });
+      // As from To schedule: no block, so its actions are the practice's own, then its fields and End practice.
+      expect(within(within(popup).getByRole('region', { name: 'Actions' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Pause practice']);
+      expect(within(popup.querySelector<HTMLElement>('.taskpopbar')!).getAllByRole('button').map((b) => b.textContent)).toEqual(['End practice', 'Cancel', 'Save']);
+      fireEvent.change(within(popup).getByRole('slider', { name: 'Each session' }), { target: { value: '30' } });
+      await userEvent.click(within(popup).getByRole('button', { name: 'Pause practice' }));
       await waitFor(async () => expect((await record(t, 'practice', 'pr1'))?.state).toBe('paused'));
-      await userEvent.selectOptions(screen.getByLabelText('Goal'), 'Run a 10k');
+      expect(await screen.findByText('Paused Stretch.')).toBeVisible();
+      await userEvent.selectOptions(within(popup).getByLabelText('Goal'), 'Run a 10k');
       expect((await record(t, 'practice', 'pr1'))?.target_min).toBe(15);
-      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ target_min: 30, objective_id: 'g2' }));
       expect(within(screen.getByRole('button', { name: /^Run a 10k/ })).queryByText(/Still a goal/)).toBeNull();
     });
 
-    it('on phone: tapping opens its editor; add one with no goal; End practice takes its sessions ahead off, with Undo', async () => {
+    it('on phone: tapping opens its popup; add one with no goal; End practice takes its sessions ahead off, with Undo', async () => {
       const seed = async (w: Writer) => {
         await bread(w);
         await w.create('time_block', { practice_id: 'pr1', start: '2026-11-04T13:00:00Z', end: '2026-11-04T13:15:00Z', tz: 'America/Chicago' }, 'later');
@@ -1124,7 +1130,8 @@ describe('Goals', () => {
       const t = await renderScreen('goals', { layout: 'phone', seed });
       await userEvent.click(await screen.findByRole('button', { name: /Practices with no goal/ }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch/ }));
-      const sheet = screen.getByRole('dialog', { name: 'Edit practice' });
+      const sheet = await screen.findByRole('dialog', { name: 'Stretch' });
+      await userEvent.click(within(sheet).getByRole('button', { name: 'Rename Stretch' }));
       await userEvent.clear(within(sheet).getByLabelText('Name'));
       await userEvent.type(within(sheet).getByLabelText('Name'), 'Stretch daily');
       fireEvent.change(within(sheet).getByLabelText('Usual time'), { target: { value: '18:30' } });
@@ -1132,7 +1139,7 @@ describe('Goals', () => {
       await userEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
       await waitFor(async () => expect(await record(t, 'practice', 'pr1')).toMatchObject({ title: 'Stretch daily', preferred_times: [1110] }));
       await userEvent.click(screen.getByRole('button', { name: /^Stretch daily/ }));
-      const reopened = screen.getByRole('dialog', { name: 'Edit practice' });
+      const reopened = await screen.findByRole('dialog', { name: 'Stretch daily' });
       await userEvent.click(within(reopened).getByRole('button', { name: 'End practice' }));
       expect(await screen.findByText('Stretch daily ended. Its history stays.')).toBeVisible();
       expect((await record(t, 'practice', 'pr1'))?.state).toBe('ended');

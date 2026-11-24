@@ -205,7 +205,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A task moved to another milestone, by popup or by holding it | covered (milestones: "a task's popup moves it to another milestone with Undo…") | covered (same, held on phone) | missing | missing |
 | Practices: add and edit, link to a goal | covered (goals: "edits a practice with no goal and links it to one"; journeys/capture-and-process) | covered (same) | covered (journeys/capture-and-process, journeys/next-stretch) | missing |
 | Practice schedules: set days with their own times, times a week | covered (goals: "builds Mon, Tue and Fri with Friday at 9:30…"; practices: "Times a week with a longer session…"; stack/sync: two devices) | covered (same) | missing | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| Practices: Pause, Resume, End practice | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
+| Practices: Pause practice, Resume practice, End practice, in the practice's popup | covered (practices: "Pause marks a practice Paused until Resume, and End practice…") | covered (same) | missing | missing |
 
 ### One offs
 
@@ -239,7 +239,7 @@ A practice's session and a planning block open one popup, in the task popup's fr
 
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
-| The same sections in the same order from Today's calendar and list, Week (editing too), the Now card, Done, To schedule and the prompts | covered (practice-popup: "Today: a session opens its popup…", "To schedule and Done…", "Week: a session opens the same popup…", "the prompt that logs a session…"; each opener in practice.test.tsx) | covered (same, with 44pt checks) | missing | missing |
+| The same sections in the same order from Today's calendar and list, Week (editing too), the Now card, Done, To schedule, the prompts and Goals | covered (practice-popup: "Today: a session opens its popup…", "To schedule and Done…", "Goals: a practice's row opens the same popup…", "Week: a session opens the same popup…", "the prompt that logs a session…"; each opener in practice.test.tsx, Goals in goals.test.tsx) | covered (same, with 44pt checks) | missing | missing |
 | Its block's own section: Start, Mark done, Did it, Some and Skipped, Move…, Remove from calendar, and Length on Week's phone day | covered (practice-popup; Some's minutes in practice.test.tsx) | covered (same) | missing | missing |
 | Name, goal and schedule saved together with Undo; Cancel, and Esc with unsaved changes | covered (practice-popup: "Today: … Save changes its goal with Undo"; the rest in practice.test.tsx) | covered (same) | missing | missing |
 | Pause practice with no block, and End practice, each with Undo | covered (practice-popup: "To schedule and Done…"; End practice in practice.test.tsx) | covered (same) | missing | missing |

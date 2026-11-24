@@ -12,7 +12,6 @@ import { sessionDay } from '../../../core/records';
 import { endPractice } from '../../../core/tasks';
 import type { Fields, LocalDate, Objective, Practice } from '../../../core/types';
 import { useApp, useMutation, useQuery } from '../../app/store';
-import { Sheet } from '../Sheet';
 import { useToast } from '../Toast';
 import { DAY_NAMES, newSchedule, practiceRule, scheduleFields, ScheduleFields, scheduleOf } from './PracticeSchedule';
 import type { ScheduleDraft } from './PracticeSchedule';
@@ -311,23 +310,6 @@ export function PracticeFields(props: {
       </div>
       <HomeNotes home={{ type: 'practice', id: p.id }} />
     </div>
-  );
-}
-
-/** The practice editor as a sheet, as tapping a practice opens it on phone. */
-export function PracticeSheet(props: { practice: Practice; goals: readonly Objective[]; onClose(saved?: Fields<'practice'>): void }) {
-  const leave = useRef<(() => boolean) | null>(null);
-  return (
-    <Sheet label="Edit practice" tall onClose={() => (leave.current ? leave.current() : props.onClose())}>
-      <PracticeFields
-        practice={props.practice}
-        goals={props.goals}
-        heading={<h2>Edit practice</h2>}
-        leaveRef={leave}
-        onClose={props.onClose}
-        onEnded={() => props.onClose()}
-      />
-    </Sheet>
   );
 }
 

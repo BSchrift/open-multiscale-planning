@@ -4,7 +4,7 @@ import { expectTapTarget, openSeeded } from './seed';
 import type { Seed } from './seed';
 
 // A practice's session and a planning block open one popup everywhere, in the task popup's frame: from Today's
-// calendar and list, Week's grid and phone day, the Now card, Done, To schedule and the prompts. Its block's section
+// calendar and list, Week's grid and phone day, the Now card, Done, To schedule, the prompts and Goals. Its block's section
 // comes first, then the practice's goal, schedule and notes, then End practice, Cancel and Save.
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -146,6 +146,25 @@ test("To schedule and Done: a practice's name opens the same popup, with Pause p
   await expectFrame(popup, 'Time block', phone);
   await expect(popup.getByRole('region', { name: 'Time block' }).getByText('Done', { exact: true })).toBeVisible();
   await shoot(page, popup, shot('done'));
+  expect(errors).toEqual([]);
+});
+
+test("Goals: a practice's row opens the same popup, with Pause practice and no block", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const shot = (name: string) => (theme: string) => info.outputPath(`practice-popup-${name}-${info.project.name}-${theme}.png`);
+  const errors = await open(page);
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Goals' }).click();
+  await page.getByRole('button', { name: /^Play music/ }).click();
+  const row = page.getByRole('button', { name: /^Piano practice/ });
+  await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+  await row.click();
+  const popup = page.getByRole('dialog', { name: 'Piano practice' });
+  await expectFrame(popup, 'Actions', phone);
+  await expect(popup.getByRole('region', { name: 'Actions' }).getByRole('button')).toHaveText(['Pause practice']);
+  await shoot(page, popup, shot('goals'));
+  await popup.getByRole('button', { name: 'Cancel' }).click();
+  await expect(popup).toHaveCount(0);
+  await expect(row).toBeFocused();
   expect(errors).toEqual([]);
 });
 

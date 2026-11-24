@@ -4,7 +4,7 @@
 // midnight while it's open, and when iOS wakes it to refresh the widgets. Queued actions apply when the app opens or
 // comes back, after a sync, so each is checked against the newest plan (core/widgetActions.ts).
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppLink } from '../../core/appLinks';
 import { addDays, dayRange, instantMs, today } from '../../core/dates';
 import { applyPlanChange } from '../../core/plan';
@@ -15,6 +15,7 @@ import { buildWidgetSnapshot, loadWidgetData } from '../../core/widgetSnapshot';
 import type { WidgetData } from '../../core/widgetSnapshot';
 import { useToast } from '../components/Toast';
 import { useNav } from './nav';
+import { requestShowBlock } from './showBlock';
 import { useApp, useMutation, useQuery } from './store';
 
 /** As long as a change waits before the snapshot is rewritten, so a burst of edits writes once. */
@@ -51,33 +52,14 @@ function writeWidgetHistory(history: AppliedWidgetAction[]): void {
   }
 }
 
-// A widget's link to a block on Today asks Today to bring it into view, as a notification asks for a prompt.
-let blockRequest: string | null = null;
-const blockListeners = new Set<() => void>();
-
-export function requestShowBlock(blockId: string | null): void {
-  blockRequest = blockId;
-  for (const notify of blockListeners) notify();
-}
-
-/** The block a widget asked Today to show, if any. Clear it with requestShowBlock(null) once shown. */
-export function useShowBlockRequest(): string | null {
-  return useSyncExternalStore(
-    (notify) => {
-      blockListeners.add(notify);
-      return () => void blockListeners.delete(notify);
-    },
-    () => blockRequest,
-  );
-}
-
 /** What the toast says about one batch: what applied, then what didn't and why. */
 function batchMessage(outcomes: readonly WidgetActionOutcome[]): string {
   const said = outcomes.flatMap((o) => (o.kind === 'duplicate' ? [] : [o.message]));
   return said.join(' ');
 }
 
-export function WidgetSync(): null {
+/** Mounted only where widgets or their links exist, and loaded then: the browser and the Mac app never fetch it. */
+export default function WidgetSync(): null {
   const { platform, clock, db, sync } = useApp();
   const widgets = platform.widgets;
   const nav = useNav();

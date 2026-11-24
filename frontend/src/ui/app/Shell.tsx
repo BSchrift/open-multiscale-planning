@@ -1,6 +1,6 @@
 // The frame around every screen: navigation for each layout, panes that keep their state, flows and overlays.
 
-import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { inputTime, perf } from '../../core/perf';
 import type { Updater } from '../../core/updates';
 import { inboxCount } from '../../core/queries';
@@ -15,7 +15,6 @@ import { AREAS, FLOW_TABS, tabLabel } from './registry';
 import { useKeyboardInset } from './keyboard';
 import { useReminders } from './reminders';
 import { useShareImport } from './shareImport';
-import { WidgetSync } from './widgets';
 import { SwitchAccount } from './SwitchAccount';
 import type { AreaId, Presentation, RouteParams, TabId } from './registry';
 import { preloadScreens, ScreenBoundary } from './screenLoad';
@@ -25,6 +24,9 @@ import { DEFAULT_SHORTCUT, shortcutLabel } from '../../platform/shortcut';
 import { Icon } from '../components/ds/Icon';
 import type { IconName } from '../components/ds/Icon';
 import { Button } from '../components/ds/Button';
+
+// The iPhone's widgets and their links: loaded only where they exist, so the browser's first load doesn't carry them.
+const WidgetSync = lazy(() => import('./widgets'));
 
 const TAB_ICON: Partial<Record<TabId, IconName>> = { today: 'today', week: 'week', inbox: 'inbox', goals: 'goals', more: 'more' };
 
@@ -343,7 +345,11 @@ function Frame() {
       </main>
       {layout === 'phone' && <PhoneNav />}
       <OverlayScreen />
-      <WidgetSync />
+      {(platform.widgets || platform.onAppLink) && (
+        <Suspense fallback={null}>
+          <WidgetSync />
+        </Suspense>
+      )}
     </>
   );
 }

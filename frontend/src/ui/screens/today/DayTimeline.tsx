@@ -21,7 +21,7 @@ import type { Slot } from '../../../core/slots';
 import type { CalendarEvent } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { requestPrompt } from '../../app/reminders';
-import { requestShowBlock, useShowBlockRequest } from '../../app/widgets';
+import { requestShowBlock, useShowBlockRequest } from '../../app/showBlock';
 import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
 import { BlockSection } from '../../components/blocks/BlockSection';

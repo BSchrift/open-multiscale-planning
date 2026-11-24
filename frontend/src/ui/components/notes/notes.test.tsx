@@ -196,8 +196,9 @@ describe('descriptions in the editors', () => {
     const t = await renderScreen('oneoffs', {
       seed: (w) => w.create('task', { kind: 'one_off', title: 'Tidy the shed', schedule: { type: 'once' }, notes: 'Start with the **tools**' }, 't1'),
     });
-    await userEvent.click(await screen.findByRole('button', { name: 'Change repeat for Tidy the shed' }));
-    const form = screen.getByRole('form', { name: 'Change Tidy the shed' });
+    // Its popup changes how it repeats.
+    await userEvent.click(await screen.findByRole('button', { name: /^Tidy the shed/ }));
+    const form = await screen.findByRole('dialog', { name: 'Tidy the shed' });
     expect(within(form).getByText('tools').tagName).toBe('STRONG');
     await userEvent.selectOptions(within(form).getByLabelText('Repeats'), 'In certain months');
     await userEvent.click(within(form).getByRole('button', { name: 'March' }));

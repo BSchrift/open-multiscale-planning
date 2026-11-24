@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import {
   answerBlock,
   answerBlocks,
+  endNow,
   extendBlock,
   markDoneNow,
   pauseBlock,
@@ -22,6 +23,7 @@ import type { BlockRow } from '../../../core/queries';
 import type { Db } from '../../../core/db';
 import type { Writer } from '../../../core/records';
 import { snoozeUntil } from '../../../core/reminders';
+import { closeTask, tickOneOff } from '../../../core/tasks';
 import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useMutation } from '../../app/store';
 import { useToast } from '../Toast';
@@ -50,6 +52,11 @@ export function useBlockActions() {
     },
     [run, toast],
   );
+  /** ' after 22m': the time spent, pauses left out, on a block started a minute or more ago. */
+  const after = (block: BlockRow) => {
+    const minutes = block.started_at ? Math.round(timeSpentMs(block, clock.now()) / 60_000) : 0;
+    return minutes ? ` after ${formatMinutes(minutes)}` : '';
+  };
 
   return {
     pending: write.pending,
@@ -74,17 +81,36 @@ export function useBlockActions() {
       if (reverse) toast.show(message(freed), { undo: () => run((w) => applyPlanChange(w, reverse)) });
       return !!reverse;
     },
+    /**
+     * Done on a block still to come: the task finishes now, as its row's box would, rather than the block being answered,
+     * so this block and any later ones come off the calendar and their time is free.
+     */
+    finish: async (block: BlockRow) => {
+      const taskId = block.task_id;
+      if (!taskId) return;
+      const reverse = await run((w) => (block.task_kind === 'one_off' ? tickOneOff(w, taskId, clock) : closeTask(w, taskId, 'done', clock)));
+      if (!reverse) return;
+      const freed = reverse.writes.filter((r) => r.type === 'time_block').length;
+      const later = freed > 2 ? ` and ${freed - 1} later ones` : freed === 2 ? ' and 1 later one' : '';
+      const off = freed ? ` Its ${formatTime(block.start, clock.zone())} block${later} came off the calendar, so that time is free.` : '';
+      // The block it was pressed on goes, so focus would otherwise fall to the page.
+      toast.show(`Marked ${block.title ?? 'it'} done.${off}`, { undo: () => run((w) => applyPlanChange(w, reverse)), focusUndo: true });
+    },
     /** Says the time spent, pauses left out, on a block started a minute or more ago. */
-    markDoneNow: (block: BlockRow, next: BlockRow | undefined) => {
-      const minutes = block.started_at ? Math.round(timeSpentMs(block, clock.now()) / 60_000) : 0;
-      const spent = minutes ? ` after ${formatMinutes(minutes)}` : '';
-      return withUndo(
+    markDoneNow: (block: BlockRow, next: BlockRow | undefined) =>
+      withUndo(
         (w) => markDoneNow(w, block.id, clock),
-        `Marked done${spent}. ${next ? `You're free until ${formatTime(next.start, clock.zone())}.` : 'Nothing else planned today.'}`,
+        `Marked done${after(block)}. ${next ? `You're free until ${formatTime(next.start, clock.zone())}.` : 'Nothing else planned today.'}`,
         // The Mark done now button unmounts with its block, so focus would otherwise fall to the page.
         true,
-      );
-    },
+      ),
+    /**
+     * Stop for now: the block ends now, as Mark done now ends it, answered Partly with the time left or Not done, so the
+     * task waits in Needs a new time. Undo puts the block and its answer back as they were.
+     */
+    stopForNow: (block: BlockRow, answer: BlockAnswer) =>
+      // Its question closes and the Stop for now button goes with the block, so focus would otherwise fall to the page.
+      withUndo((w) => endNow(w, block.id, answer, clock), `Stopped${after(block)}. ${QUEUED}`, true),
     /**
      * Pause and Resume each say so, with Undo, and each toast takes the place of the other's, so the one showing always
      * matches the ring. Pause's Undo takes the pause away with the end where it was; Resume's puts the pause back, with

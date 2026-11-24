@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { fireEvent } from '@testing-library/react';
+import { createEvent, fireEvent } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -32,12 +32,13 @@ async function inApp(ui: ReactNode, layout: Layout = 'desktop') {
 }
 
 describe('EstimateSlider', () => {
-  it('has 15-minute steps to 2h, coarser to 16h, and starts from none', () => {
+  it('has 5-minute steps to 2h, coarser to 16h, and starts from none', () => {
     expect(EST_STEPS[0]).toBe(0);
-    expect(EST_STEPS.slice(1, 9).every((s, i) => s === (i + 1) * 15)).toBe(true);
+    expect(EST_STEPS.slice(1, 25).every((s, i) => s === (i + 1) * 5)).toBe(true);
+    expect(EST_STEPS[25]).toBe(150);
     expect(EST_STEPS[EST_STEPS.length - 1]).toBe(960);
     expect(estIndex(0)).toBe(0);
-    expect(estIndex(50)).toBe(EST_STEPS.indexOf(45));
+    expect(estIndex(52)).toBe(EST_STEPS.indexOf(50));
     expect(estIndex(5000)).toBe(EST_STEPS.length - 1);
   });
 
@@ -59,6 +60,7 @@ describe('EstimateSlider', () => {
 });
 
 describe('Toast', () => {
+  const toastOf = (el: HTMLElement) => el.closest<HTMLElement>('.toast')!;
   function Host(props: { undo?: () => void }) {
     const toast = useToast();
     return <button onClick={() => toast.show('Moved', props.undo ? { undo: props.undo } : {})}>go</button>;
@@ -98,16 +100,17 @@ describe('Toast', () => {
       act(() => vi.advanceTimersByTime(20_000));
       expect(screen.getByText('Moved')).toBeInTheDocument();
       act(() => undo.blur());
-      fireEvent.pointerEnter(undo, { pointerType: 'mouse' });
+      // The browser sends pointerenter and pointerleave to the toast itself, as to each element the mouse comes onto.
+      fireEvent.pointerEnter(toastOf(undo), { pointerType: 'mouse' });
       act(() => vi.advanceTimersByTime(20_000));
       expect(screen.getByText('Moved')).toBeInTheDocument();
-      fireEvent.pointerLeave(undo, { pointerType: 'mouse' });
+      fireEvent.pointerLeave(toastOf(undo), { pointerType: 'mouse' });
       act(() => vi.advanceTimersByTime(6000));
       await waitFor(() => expect(screen.queryByText('Moved')).toBeNull());
 
       // WebKit sends a finger's touch as pointer events too; resting on it mustn't keep it up.
       fireEvent.click(screen.getByText('go'));
-      fireEvent.pointerEnter(screen.getByRole('button', { name: 'Undo' }), { pointerType: 'touch' });
+      fireEvent.pointerEnter(toastOf(screen.getByRole('button', { name: 'Undo' })), { pointerType: 'touch' });
       act(() => vi.advanceTimersByTime(6000));
       await waitFor(() => expect(screen.queryByText('Moved')).toBeNull());
     } finally {
@@ -115,16 +118,94 @@ describe('Toast', () => {
     }
   });
 
-  it('goes away when tapped, or on a tap anywhere else, but not on Undo', async () => {
-    await inApp(<Host undo={vi.fn()} />);
+  it('still waits when another toast takes its place while Undo has focus or the mouse is on it', async () => {
+    function Changes() {
+      const toast = useToast();
+      return (
+        <>
+          <button onClick={() => toast.show('Moved', { undo: vi.fn() })}>move</button>
+          <button onClick={() => toast.show('Placed', { undo: vi.fn() })}>place</button>
+          <button onClick={() => toast.show('Saved')}>save</button>
+        </>
+      );
+    }
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await inApp(<Changes />);
+      // Clicks with no press, as from the keyboard, so none puts the toast away.
+      fireEvent.click(screen.getByText('move'));
+      act(() => screen.getByRole('button', { name: 'Undo' }).focus());
+      fireEvent.click(screen.getByText('place'));
+      expect(screen.getByRole('button', { name: 'Undo' })).toHaveFocus();
+      act(() => vi.advanceTimersByTime(20_000));
+      expect(screen.getByText('Placed')).toBeInTheDocument();
+      // One with no Undo takes the focus with it, so nothing holds the toast after.
+      fireEvent.click(screen.getByText('save'));
+      act(() => vi.advanceTimersByTime(4000));
+      await waitFor(() => expect(screen.queryByText('Saved')).toBeNull());
+
+      fireEvent.click(screen.getByText('move'));
+      fireEvent.pointerEnter(toastOf(screen.getByRole('button', { name: 'Undo' })), { pointerType: 'mouse' });
+      // The mouse never moves, so nothing tells the toast it's still on it: it has to be the toast the mouse was on.
+      fireEvent.click(screen.getByText('place'));
+      act(() => vi.advanceTimersByTime(20_000));
+      expect(screen.getByText('Placed')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Week takes away the suggested time just pressed, then the card, as it reads the change back. Moving on from what was
+  // taken away, the mouse brings no pointerout, so React, which makes its enter of one, says nothing as it reaches the
+  // toast. The browser still sends pointerover, from whatever is left around, and pointerenter to the toast.
+  it('waits for a mouse that comes to it from something a change took away', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await inApp(<Host undo={vi.fn()} />);
+      fireEvent.click(screen.getByText('go'));
+      const undo = screen.getByRole('button', { name: 'Undo' });
+      fireEvent(undo, createEvent.pointerOver(undo, { pointerType: 'mouse', relatedTarget: screen.getByText('go') }));
+      for (const el of [toastOf(undo), undo]) fireEvent(el, createEvent.pointerEnter(el, { pointerType: 'mouse' }));
+      act(() => vi.advanceTimersByTime(20_000));
+      expect(screen.getByText('Moved')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('goes away when a tap on it or anywhere else finishes, but not on Undo', async () => {
+    const undo = vi.fn();
+    await inApp(<Host undo={undo} />);
     fireEvent.click(screen.getByText('go'));
+    // Undo keeps the toast for its own click.
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Undo' }));
-    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }), { detail: 1 });
+    expect(undo).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByText('go'));
+    // Not as the finger goes down: on phone the toast holds space, and the page moving then would put the release on
+    // something else. Once the tap finishes, on its click.
     fireEvent.pointerDown(screen.getByText('Moved'));
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Moved'), { detail: 1 });
     expect(screen.queryByText('Moved')).toBeNull();
     fireEvent.click(screen.getByText('go'));
     fireEvent.pointerDown(document.body);
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    fireEvent.click(document.body, { detail: 1 });
     expect(screen.queryByText('Moved')).toBeNull();
+  });
+
+  it("stays for a click with no press while it showed: a drag's drop that showed it, or Enter on a button", async () => {
+    await inApp(<Host undo={vi.fn()} />);
+    // A drag pressed before the toast, and its drop showed it; the click that ends the drag comes after.
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(screen.getByText('go'));
+    fireEvent.click(document.body, { detail: 1 });
+    expect(screen.getByText('Moved')).toBeInTheDocument();
+    // Enter or Space on a button clicks it with no press.
+    fireEvent.click(screen.getByText('go'));
+    fireEvent.click(document.body);
+    expect(screen.getByText('Moved')).toBeInTheDocument();
   });
 });
 

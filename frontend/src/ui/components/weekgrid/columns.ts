@@ -69,6 +69,31 @@ export function columnStyle(col: number, cols: number, left = '0px', right = '0p
   return { left: `calc(${left} + ${span} * ${col} / ${cols})`, width: `calc(${span} / ${cols} - ${GAP}px)`, right: 'auto' };
 }
 
+/**
+ * Rows for what waits above the week, each spanning days `from` to `to` (0 is the week's first): each takes the top
+ * row free on all its days, so items on different days share a row and the strip is only as many rows tall as its
+ * busiest day needs. Items of a `group`, such as one practice's sessions, go first and together, so a group keeps one
+ * row across the week; the rest fill in under, in their order.
+ */
+export function laneRows(spans: readonly { from: number; to: number; group?: string }[]): { rows: number[]; count: number } {
+  const taken: Set<number>[] = [];
+  const rows: number[] = [];
+  const order = [...spans.keys()].sort((a, b) => {
+    const [x, y] = [spans[a]!.group, spans[b]!.group];
+    return x === y ? 0 : x === undefined ? 1 : y === undefined ? -1 : x.localeCompare(y);
+  });
+  for (const i of order) {
+    const { from, to } = spans[i]!;
+    const free = (r: number) => !taken[r] || [...Array(to - from + 1).keys()].every((d) => !taken[r]!.has(from + d));
+    let row = 0;
+    while (!free(row)) row++;
+    taken[row] ??= new Set();
+    for (let d = from; d <= to; d++) taken[row]!.add(d);
+    rows[i] = row;
+  }
+  return { rows, count: taken.length };
+}
+
 const names = new Intl.ListFormat('en-GB');
 
 /** 'Overlaps Plan the week of Nov 16', or nothing. */

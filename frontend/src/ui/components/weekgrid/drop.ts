@@ -1,24 +1,28 @@
 // Dragging between To schedule and the calendar. A drop lands on whatever carries data-drop-date: a drawn day, whose
 // height runs from data-drop-from to data-drop-to in minutes (DRAWN_DAY without them). A block let go over
-// data-unscheduled comes off the calendar. Week, its phone day and Today use it.
+// data-unscheduled comes off the calendar. Week, its phone day and Today use it, and holdToDrag, the press every block
+// and card that moves shares.
 
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { formatTimeOfDay } from '../../../core/dates';
 import { dropSlot, DRAWN_DAY } from '../../../core/slots';
 import type { Slot, SlotContext } from '../../../core/slots';
 
-/** On touch, a card lifts once held this long without moving, so a swipe still scrolls. Every hold to drag uses it. */
+/**
+ * A block or card lifts to drag once held this long, by mouse or finger, so a click or tap opens it and a swipe still
+ * scrolls. Every hold to drag uses it.
+ */
 export const HOLD_MS = 400;
 /** How far a finger can drift during a hold before it counts as a swipe instead. */
 export const SLOP_PX = 8;
-/** How far a mouse moves while pressed before it drags, so a hand that shifts during a click still clicks. */
+/** How far a mouse moves from its press before what it lifted follows, so a hand that shifts during a slow click still clicks. */
 export const DRAG_PX = 6;
 /** Near the top or bottom of the screen, where the strip and tab bar sit, a dragged card scrolls the page. */
 const EDGE_PX = 120;
 const SCROLL_PX = 12;
 
 /** What scrolls under an element: its nearest scrolling ancestor, else the page. */
-function scrollerOf(el: Element): Element {
+export function scrollerOf(el: Element): Element {
   for (let e = el.parentElement; e; e = e.parentElement) {
     const o = getComputedStyle(e).overflowY;
     if ((o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight) return e;
@@ -64,9 +68,106 @@ export function swallowClick(el: Element) {
 }
 
 /**
+ * A press on a block or card that moves. A click or tap opens it, and only a hold (HOLD_MS) lifts it to drag, with a
+ * mouse as with a finger, so a click whose hand shifts a few pixels is still a click. Before the hold, a finger that
+ * moves is scrolling, so the press lets go; a mouse that moves waits for the hold. Once lifted, the page holds still,
+ * and moving past a click's wobble drags it: `drag` gets the pointer's distance from the press. Let go after dragging,
+ * it drops; let go in place, it's held, which opens nothing unless `held` does. Either way the click that follows is
+ * swallowed.
+ */
+export function holdToDrag(
+  event: ReactPointerEvent,
+  on: {
+    lift(): void;
+    drag(dx: number, dy: number, e: PointerEvent): void;
+    drop(e: PointerEvent): void;
+    /** Let go before the hold. An element with a click of its own leaves this out, since its click still comes. */
+    tap?(): void;
+    /** Lifted, then let go without dragging, or the browser took the press back. */
+    cancel?(): void;
+    /** Lifted, then let go without dragging, after cancel: as a phone's hold, then let go, opens a menu. */
+    held?(): void;
+    /** The platform's light tap, as a finger's hold lifts. */
+    haptic?(): unknown;
+  },
+): void {
+  if (event.button !== 0) return;
+  const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
+  // A press on a block's length handle drags the block it's in, whose click comes with letting go.
+  const target = (event.currentTarget as Element).closest('.cev, .ev') ?? (event.currentTarget as Element);
+  const [x0, y0] = [event.clientX, event.clientY];
+  const pressed = performance.now();
+  let lifted = false;
+  let dragged = false;
+  const lift = () => {
+    clearTimeout(timer);
+    lifted = true;
+    if (touch) void on.haptic?.();
+    on.lift();
+  };
+  // Only the pointer that pressed: a mouse resting elsewhere sends moves of its own as the page changes under it.
+  const own = (e: PointerEvent) => e.pointerId === event.pointerId;
+  const move = (e: PointerEvent) => {
+    if (!own(e)) return;
+    const [dx, dy] = [e.clientX - x0, e.clientY - y0];
+    const far = Math.hypot(dx, dy) >= (touch ? SLOP_PX : DRAG_PX);
+    if (!lifted) {
+      // Held long enough, though a busy page ran the timer late: it lifts rather than reading as a swipe.
+      if (performance.now() - pressed >= HOLD_MS) lift();
+      else {
+        if (touch && far) end();
+        return;
+      }
+    }
+    if (!dragged && !far) return;
+    dragged = true;
+    on.drag(dx, dy, e);
+  };
+  // Once lifted, the page stays still under the finger and the long-press menu stays away.
+  const still = (e: Event) => {
+    if (lifted) e.preventDefault();
+  };
+  const up = (e: PointerEvent) => {
+    if (!own(e)) return;
+    end();
+    if (!lifted) return on.tap?.();
+    swallowClick(target);
+    if (dragged) return on.drop(e);
+    on.cancel?.();
+    on.held?.();
+  };
+  const cancel = (e: PointerEvent) => {
+    if (!own(e)) return;
+    end();
+    if (lifted) on.cancel?.();
+  };
+  // A second finger down means a pinch, which the press gives way to.
+  const second = (e: PointerEvent) => {
+    if (own(e)) return;
+    end();
+    if (lifted) on.cancel?.();
+  };
+  const end = () => {
+    clearTimeout(timer);
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', cancel);
+    window.removeEventListener('pointerdown', second);
+    window.removeEventListener('touchmove', still);
+    window.removeEventListener('contextmenu', still);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', cancel);
+  window.addEventListener('pointerdown', second);
+  window.addEventListener('touchmove', still, { passive: false });
+  window.addEventListener('contextmenu', still);
+  const timer = setTimeout(lift, HOLD_MS);
+}
+
+/**
  * A copy of the card follows the pointer, saying the time it would land at; let go over a day, the item is placed
- * there. A mouse drags at once. A finger holds first, and moving before then scrolls instead. A press without a drag
- * is a click.
+ * there. It lifts after a hold, as holdToDrag has it, so a click or tap opens it and a swipe scrolls.
  */
 export function dragCard(
   event: ReactPointerEvent<HTMLElement>,
@@ -74,7 +175,6 @@ export function dragCard(
   ctx: SlotContext,
   on: { preview(slot: Slot | null): void; drop(slot: Slot): void; /** The platform's light tap, as a held card lifts. */ haptic?(): unknown },
 ) {
-  if (event.button !== 0) return;
   const card = event.currentTarget;
   const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
   const [x0, y0] = [event.clientX, event.clientY];
@@ -95,18 +195,6 @@ export function dragCard(
     scroller.scrollTop += edge();
     if (scroller.scrollTop !== was) follow(at.x, at.y);
   };
-  const lift = (x: number, y: number) => {
-    ghost = card.cloneNode(true) as HTMLElement;
-    ghost.classList.add('cardghost');
-    ghost.setAttribute('aria-hidden', 'true');
-    ghost.style.width = `${card.getBoundingClientRect().width}px`;
-    when = ghost.appendChild(document.createElement('span'));
-    when.className = 'small strong ghostwhen';
-    // Inside the layout, so its styles still apply.
-    (card.closest('[data-layout]') ?? document.body).appendChild(ghost);
-    card.classList.add('lifted');
-    follow(x, y);
-  };
   const follow = (x: number, y: number) => {
     at = { x, y };
     armed ||= y > EDGE_PX && y < innerHeight - EDGE_PX;
@@ -118,52 +206,33 @@ export function dragCard(
     last = slot;
     when!.textContent = slot ? formatTimeOfDay(slot.start) : '';
   };
-  const pressed = performance.now();
-  // Only the pointer that pressed: a mouse resting elsewhere sends moves of its own as the page changes under it.
-  const own = (e: PointerEvent) => e.pointerId === event.pointerId;
-  const move = (e: PointerEvent) => {
-    if (!own(e)) return;
-    if (ghost) return follow(e.clientX, e.clientY);
-    // Held long enough, though a busy page ran the timer late: it lifts rather than reading as a swipe.
-    if (touch && performance.now() - pressed >= HOLD_MS) {
-      clearTimeout(timer);
-      lift(x0, y0);
-      return follow(e.clientX, e.clientY);
-    }
-    const far = Math.hypot(e.clientX - x0, e.clientY - y0) >= (touch ? SLOP_PX : DRAG_PX);
-    if (far && touch) return end(false)();
-    if (far) lift(e.clientX, e.clientY);
-  };
-  // Once lifted, the page stays still under the finger and the long-press menu stays away.
-  const still = (e: Event) => {
-    if (ghost) e.preventDefault();
-  };
-  const end = (drop: boolean) => () => {
-    clearTimeout(timer);
+  const put = () => {
     cancelAnimationFrame(raf);
-    window.removeEventListener('pointermove', move);
-    window.removeEventListener('pointerup', up);
-    window.removeEventListener('pointercancel', cancel);
-    window.removeEventListener('touchmove', still);
-    window.removeEventListener('contextmenu', still);
-    if (!ghost) return;
-    (ghost as HTMLElement).remove();
+    ghost?.remove();
+    ghost = null;
     card.classList.remove('lifted');
     on.preview(null);
-    swallowClick(card);
-    if (drop && last) on.drop(last);
   };
-  const up = (e: PointerEvent) => own(e) && end(true)();
-  const cancel = (e: PointerEvent) => own(e) && end(false)();
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', up);
-  window.addEventListener('pointercancel', cancel);
-  window.addEventListener('touchmove', still, { passive: false });
-  window.addEventListener('contextmenu', still);
-  const timer = touch
-    ? setTimeout(() => {
-        void on.haptic?.();
-        lift(x0, y0);
-      }, HOLD_MS)
-    : undefined;
+  holdToDrag(event, {
+    lift: () => {
+      ghost = card.cloneNode(true) as HTMLElement;
+      ghost.classList.add('cardghost');
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.style.width = `${card.getBoundingClientRect().width}px`;
+      when = ghost.appendChild(document.createElement('span'));
+      when.className = 'small strong ghostwhen';
+      // Inside the layout, so its styles still apply.
+      (card.closest('[data-layout]') ?? document.body).appendChild(ghost);
+      card.classList.add('lifted');
+      follow(x0, y0);
+    },
+    drag: (_dx, _dy, e) => follow(e.clientX, e.clientY),
+    drop: () => {
+      const slot = last;
+      put();
+      if (slot) on.drop(slot);
+    },
+    cancel: put,
+    ...(on.haptic ? { haptic: on.haptic } : {}),
+  });
 }

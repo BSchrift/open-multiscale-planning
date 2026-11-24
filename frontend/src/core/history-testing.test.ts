@@ -44,13 +44,13 @@ describe('the history', () => {
     expect(JSON.stringify(historyChanges())).toBe(JSON.stringify(changes));
   });
 
-  it('is about 40,000 records of about 400 bytes each, a fifth of them deleted', () => {
+  it('is about 41,700 records of about 420 bytes each, a fifth of them deleted', () => {
     const facts = historyFacts(changes);
     expect(facts.records).toBe(changes.length);
-    expect(changes.length).toBeGreaterThan(38_000);
-    expect(changes.length).toBeLessThan(42_000);
-    expect(facts.meanBytes).toBeGreaterThan(380);
-    expect(facts.meanBytes).toBeLessThan(420);
+    expect(changes.length).toBeGreaterThan(40_500);
+    expect(changes.length).toBeLessThan(43_000);
+    expect(facts.meanBytes).toBeGreaterThan(400);
+    expect(facts.meanBytes).toBeLessThan(440);
     expect(facts.deleted / facts.records).toBeGreaterThan(0.19);
     expect(facts.deleted / facts.records).toBeLessThan(0.21);
     expect(new Set(changes.map((c) => c.id)).size).toBe(changes.length);
@@ -74,6 +74,20 @@ describe('the history', () => {
     expect(historyFacts(changes).openInbox).toBeGreaterThan(5);
   });
 
+  it('has about ten notes a week, one in fifty at full length and a tenth with a link, deleted with their links', () => {
+    const notes = ofType('memo');
+    expect(notes.length / HISTORY.weeks).toBeCloseTo(10, 0);
+    const full = notes.filter((c) => (value(c, 'body') as string).length === 20_000).length;
+    expect(full / notes.length).toBeGreaterThan(0.01);
+    expect(full / notes.length).toBeLessThan(0.03);
+    expect(notes.filter((c) => (value(c, 'body') as string).length < 50 || (value(c, 'body') as string).length > 300).length).toBe(full);
+    const links = ofType('attachment');
+    expect(links.length / notes.length).toBeGreaterThan(0.08);
+    expect(links.length / notes.length).toBeLessThan(0.12);
+    const byId = new Map(notes.map((c) => [c.id, c]));
+    expect(links.filter((l) => value(l, 'deleted_at') !== value(byId.get(value(l, 'memo_id') as string)!, 'deleted_at'))).toEqual([]);
+  });
+
   // Each check collects what breaks it rather than asserting per record, which would take tens of seconds.
   it('spreads its dates over five years up to its end, with every answer on a block that ended', () => {
     const blocks = ofType('time_block');
@@ -95,7 +109,7 @@ describe('the history', () => {
       if (!fields) problems.push(`${change.id}: type ${change.type}`);
       if (!ID_PATTERN.test(change.id)) problems.push(`${change.id}: id`);
       for (const field of Object.keys(change.fields)) if (!fields?.includes(field)) problems.push(`${change.id}: field ${field}`);
-      for (const ref of ['task_id', 'project_id', 'milestone_id', 'practice_id', 'objective_id']) {
+      for (const ref of ['task_id', 'project_id', 'milestone_id', 'practice_id', 'objective_id', 'memo_id']) {
         const id = value(change, ref);
         if (typeof id === 'string' && !ids.has(id)) problems.push(`${change.id}: ${ref} ${id}`);
       }

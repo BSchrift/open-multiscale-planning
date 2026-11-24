@@ -5,17 +5,22 @@
 //   PERF_WARMUP    actions done first and thrown away (20)
 //   PERF_LAUNCHES  launches for the start KPIs, cold and warm each (5; 0 skips them)
 //   PERF_CPU       how much the phone rows slow the CPU (4)
-//   PERF_SCENARIOS which data: empty, one-year, five-year (one-year)
+//   PERF_SCENARIOS which data: empty, one-year, five-year (one-year), each with a condition after a + (web.spec.ts)
+//   PERF_PURGE     1 empties the OS file cache before each cold start (needs sudo)
 //   PERF_TARGETS   the builds, name=url,... as scripts/test-perf.sh serves them
 //   PERF_OUT       where the results go (test-results/perf/raw)
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { parse } from 'yaml';
 import type { Platform } from '../../../config/perf';
-import { emptyAccount, historyChanges } from '../../src/core/history-testing';
+import { loadRetention } from '../../../config/retention';
+import { emptyAccount, historyChanges, keptHistory } from '../../src/core/history-testing';
 import type { RecordChange } from '../../src/core/types';
+import { openWithHistory, readRecord } from '../seed';
 
 const num = (name: string, fallback: number) => (process.env[name] ? Number(process.env[name]) : fallback);
 export const SAMPLES = num('PERF_SAMPLES', 100);
@@ -46,6 +51,23 @@ export function scenarioData(scenario: string): RecordChange[] {
   throw new Error(`No data for the scenario ${scenario}: use empty, one-year or five-year.`);
 }
 
+/**
+ * Opens the app on the account as its first launch leaves it. The records carry no expiry, as those from before retention
+ * don't, so that launch works out each one's and then removes what has expired (core/expiry.ts): over half of five
+ * years, with Today empty until it's done, which takes minutes on the slowed phone. A device does that once, so no KPI
+ * times it: this launches once more and waits for a record that launch removes to be gone.
+ */
+export async function openLaunched(page: Page, changes: readonly RecordChange[]): Promise<void> {
+  await openWithHistory(page, changes);
+  // The runner's builds are local's (scripts/test-perf.sh), whose deleted period says what that launch removes.
+  const { deleted } = loadRetention('local', { read: (path) => readFileSync(path, 'utf8'), parse });
+  const kept = new Set(keptHistory(deleted, Date.now(), [...changes]));
+  const gone = changes.find((change) => !kept.has(change));
+  if (!gone) return;
+  await page.reload();
+  await expect.poll(() => readRecord(page, gone.type, gone.id), { timeout: 120_000 }).toBeUndefined();
+}
+
 /** Samples by KPI, for one build, platform and scenario. */
 export class Results {
   readonly samples = new Map<string, number[]>();
@@ -69,15 +91,24 @@ export const takeMeasures = (page: Page) =>
     return all;
   });
 
-/** Waits until the page holds at least count measures of the name. */
+/** Waits until the page holds at least count measures of the name: 15 seconds at most, so a lost one fails the action. */
 export const waitForMeasure = (page: Page, name: string, count = 1) =>
-  page.waitForFunction(([n, c]) => performance.getEntriesByName(n as string, 'measure').length >= (c as number), [name, count] as const, { polling: 20 });
+  page.waitForFunction(([n, c]) => performance.getEntriesByName(n as string, 'measure').length >= (c as number), [name, count] as const, { polling: 20, timeout: 15_000 });
 
 /** The phone rows' slower CPU, as Lighthouse slows it for phones. Chromium only. */
 export async function slowCpu(page: Page, rate: number) {
   if (rate <= 1) return;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+}
+
+/**
+ * Empties the OS file cache before a cold start, with PERF_PURGE=1 as the nightly sets it on runners that allow sudo:
+ * purge on macOS, which covers the iPhone Simulator too, and drop_caches on Linux.
+ */
+export function purgeFileCache() {
+  if (process.env.PERF_PURGE !== '1') return;
+  execSync(process.platform === 'darwin' ? 'sudo purge' : 'sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null');
 }
 
 /** The page's JavaScript heap in MB, as Chromium counts it (JSHeapUsedSize). */
@@ -143,10 +174,29 @@ export async function keep(page: Page) {
   for (const [name, values] of Object.entries(taken)) (into[name] ??= []).push(...values);
   pending.set(page, into);
 }
-function collect(page: Page): Record<string, number[]> {
+/** What the actions on a page kept since the last call. */
+export function collect(page: Page): Record<string, number[]> {
   const taken = pending.get(page) ?? {};
   pending.delete(page);
   return taken;
+}
+
+/**
+ * An action, tried again up to twice when it fails: Today opens some questions by itself, such as how a block that
+ * ended went, and one opening over capture closes it. Whatever is open is closed with Escape, and the measures the
+ * failed try left in the page thrown away.
+ */
+async function attempt(action: Action, page: Page, phone: boolean) {
+  for (let tries = 1; ; tries++) {
+    try {
+      return await action(page, phone);
+    } catch (err) {
+      if (tries === 3) throw err;
+      console.log(`${action.name} failed, trying again: ${String(err).split('\n')[0]}`);
+      for (let i = 0; i < 3; i++) await page.keyboard.press('Escape');
+      await takeMeasures(page);
+    }
+  }
 }
 
 /**
@@ -154,15 +204,19 @@ function collect(page: Page): Record<string, number[]> {
  * (ABBAAB...), so neither always goes first.
  */
 export async function interleave(builds: { page: Page; results: Results }[], action: Action, phone: boolean) {
+  const began = Date.now();
+  const rounds = Math.ceil(SAMPLES / ROUND);
   for (const { page } of builds) {
-    for (let i = 0; i < WARMUP; i++) await action(page, phone);
+    for (let i = 0; i < WARMUP; i++) await attempt(action, page, phone);
     collect(page);
   }
   for (let round = 0; round * ROUND < SAMPLES; round++) {
     const order = round % 2 === 0 ? builds : [...builds].reverse();
     for (const { page, results } of order) {
-      for (let i = 0; i < ROUND; i++) await action(page, phone);
+      for (let i = 0; i < ROUND; i++) await attempt(action, page, phone);
       for (const [name, values] of Object.entries(collect(page))) results.add(name, values);
     }
+    // The pace, so a run that's slow or stuck shows where.
+    if ((round + 1) % 5 === 0 || round + 1 === rounds) console.log(`${action.name}: round ${round + 1} of ${rounds} after ${Math.round((Date.now() - began) / 1000)} s`);
   }
 }

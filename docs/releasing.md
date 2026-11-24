@@ -3,7 +3,7 @@
 Every change reaches prod the same way: green CI before it merges to main, then a pipeline that builds that main
 commit once, deploys it to staging and tests it there, emails that it passed, and after a window in which the owner
 can stop it, promotes the same build to prod. No one needs to approve it. Prod's backend then takes the new version by
-canary: 10% of traffic for 90 minutes, with alarms that move it back on their own. A commit that changes the Mac app's native
+canary: 10% of traffic for 5 minutes, with alarms that move it back on their own. A commit that changes the Mac app's native
 code gets a new Mac app from GitHub Actions, which the pipeline checks and publishes, once
 [set up](#mac-apps-from-github-actions). One that changes the iPhone app's gets a new TestFlight build from GitHub
 Actions, and the pipeline switches the iPhone feed once testers can install it
@@ -18,14 +18,14 @@ no long-lived key.
 
 | Stage | Runs against | What happens | Stops the release when |
 | --- | --- | --- | --- |
-| **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, and iOS when the pull request changes something the iPhone app is built from or runs (`scripts/ci-changes.sh`) | A check fails. Every check must pass before a merge |
+| **Pull request** | Nothing deployed: the local stack and the iOS Simulator, in GitHub's CI | Unit tests, Go, infrastructure, browser e2e at desktop and phone sizes, the Mac app, the local stack, cross-version, those two again with staging's retention, and iOS when the pull request changes something the iPhone app is built from or runs (`scripts/ci-changes.sh`) | A check fails. Every check must pass before a merge |
 | **Mac release** | Nothing: GitHub Actions on macOS, once the owner approves if the `release` environment asks | For each main commit, builds, signs and notarizes the staging and prod Mac apps, and uploads them to the pipeline's inbox | An approval the environment asks for doesn't come, or a build or notarization fails. The pipeline then stops at Staging |
 | **TestFlight** | Nothing: GitHub Actions, on macOS to upload and on Linux every hour | For a main commit whose iPhone native code differs from TestFlight's latest build's, uploads the iPhone app to TestFlight for Beta App Review. Every hour, records in the pipeline's inbox the newest build testers can install | Nothing. Until testers can install a build with a release's iPhone native code, the iPhone and shared feeds wait |
 | **Build** | Nothing | Builds the Lambdas once and synthesizes staging's and prod's stacks from them. Builds each environment's web app and Mac main process from the same commit | A build or config check fails |
-| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's and checks it. Signs staging's feed in the signing step. Uploads the [version](#versions-and-feeds), then switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
+| **Staging** | Staging | Deploys the backend, which takes traffic by staging's canary, 5% for 10 minutes. Beside it, when the build needs a new Mac app, or the downloads host serves none the pipeline checked, waits for GitHub's, of this commit or an earlier one with the same Mac native code, and checks it. Signs staging's feed in the signing step. Runs this commit's web app suite against the web app staging still serves, as prod's Test step does. Then uploads the [version](#versions-and-feeds), switches the web app, publishes any new Mac app, switches each feed that can take the build, and runs the web app, feed, sync, cross-version, integration and smoke suites, and, reported only for now, the same web app checks and journey as the history user, on its five-year account, switching what it switched back if a suite fails | A suite fails, a release alarm rolls the canary back, or a needed Mac app doesn't arrive or fails its checks |
 | **Promote** | Nothing | An email: the commit passed staging and goes to prod at a time it gives, unless the owner stops it, with a link to promote it now. Then a wait until that time, or until the link's button is pressed, two hours unless `control.yaml`'s `pipeline.promoteAfter` says otherwise | `make pipeline-stop` during the window |
-| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 90 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them | A release alarm rolls the canary back, or a suite fails |
-| **Nightly** | Staging | Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
+| **Prod** | Prod | Deploys the backend by prod's canary, 10% for 5 minutes. Runs the web app, integration and smoke suites against the apps people already have. Then signs prod's feed in the signing step, uploads the version and switches the web app, any new Mac app the Staging stage checked, and each feed that can take the build, and checks them, switching them back if a suite fails | A release alarm rolls the canary back, or a suite fails |
+| **Nightly** | Staging | CI's performance results published to staging's performance dashboard ([docs/performance.md](performance.md)). Each surface switched back one version and forward again, read back from its host. Then the full deployed suite with retention and the history-scale test, so slow suites never hold up a release. Runs only when main has moved | Nothing. A failure is emailed |
 | **On the Mac** | Prod | `make release-tag`, then the signed apps from that tag, until the Mac release and TestFlight from GitHub Actions are set up | — |
 
 Two suites stay off prod on purpose. Sync, because prod's sign-in only returns to the deployed app. The 4.5 MB load test,
@@ -34,7 +34,28 @@ or `make test-deployed`. The integration suite's two full-batch tests, paging an
 nothing removes a record outright, so their 694 records would stay on prod's shared test user as deleted records for
 the 30-day deleted period, and every new browser of that user, the deployed web suite's included, downloads them all.
 
+Prod's Test step runs this commit's suites against the web app prod still serves, the release before, and publishes
+only once they pass (`DEPLOYED_BEFORE_PUBLISH=1`, which skips the checks of the release's own screens and feeds until it
+publishes). Staging's step runs this commit's web app suite the same way first, before it uploads anything, and then
+publishes and runs its suites against the new release as before. So a step only the new suite takes, such as clearing
+the checks earlier runs left on the test user, meets the web app before it on staging, not first on prod. It adds about
+a minute to a staging run.
+
 The history-scale budgets only report for now (`HISTORY_REPORT_ONLY=1`). A missed budget never stops a release.
+
+Staging's own test user holds next to nothing, since its deleted period is minutes, while prod's shared test user holds
+tens of thousands of records, where a change takes seconds to read back. So each staging run also signs a desktop
+browser in as the history-scale test's user, whose five-year account, about 33,000 records, stays there
+(`scripts/test-deployed.sh`, the web app suite's `history` project). A setup project seeds the account first, as
+`make test-history` does, with only the live records staging keeps; a rerun writes nothing. Then it checks that the
+first sync pulls the whole history, about 67 pages, and fails under 50; that a reload in the middle of a first sync opens
+the database again; that the data is on OPFS; the desktop journey, from Capture to the calendar and back, with its
+clean-ups; that stretch planning's Save and exit leaves the steps; and that the console stays clean. The account's
+records carry no expiry, so a reload of a browser holding them would fill expiries in and send them, and staging's
+periods would then remove most of the account. So the main page is never reloaded, and the reload is a browser of its
+own that sends nothing once it starts to reload. For now its result is reported and never stops a release; to make it
+gate, run it with `run` rather than `report` in `scripts/test-deployed.sh`. It adds about 3 to 6 minutes to a staging
+run.
 
 Each web build carries its environment's backend addresses, from its stack's outputs as Build finds them. A release
 that changes one of those outputs, such as a new sign-in client, reaches the web app with the run after it.
@@ -53,6 +74,7 @@ switches each surface to it (`upload` and `switch` in `scripts/pipeline.sh`, whi
 | `web/index.html` and the rest | A copy of the version web serves | Web host |
 | `release/files/` | Every version's files, named by their contents, cached for a year | Release host |
 | `release/desktop/release.json`, `release/iphone/release.json` | A copy of the Mac's and the iPhone's version's feed, cached for 60 seconds | Release host |
+| `release/release.json` | For bundles from before the apps' own feeds: a feed that names no native code, so they say they need a new app | Release host |
 | `downloads/mac/<app version>/` | Each checked Mac app: its zip, the zip's blockmap, its disk image, then `latest-mac.yml`, written once and cached for good | Downloads host |
 | `downloads/Multiscale.dmg` | A copy of the disk image of the app the desktop feed names, for first installs, cached for 5 minutes | Downloads host |
 | `mac/manifest.json` | The record of the checked Mac app that's live, with its app record | No |
@@ -81,9 +103,11 @@ For now every surface switches in one step, staging's and prod's Release. Each b
 files from `release/files/`, which both feeds share.
 
 Bundles from before 10 November 2026 read a shared feed, `release/release.json`, which switched only when both apps
-could take a build. It's gone: each release deletes it from the bucket if it's still there, and the feed test checks
-the release host answers 403 or 404 for it. An app still running one of those bundles, having taken no update since,
-gets no more updates and needs installing again.
+could take a build. None of them can take one now, so each release writes it as a feed that names its version and no
+native code, unsigned and listing no files. An app still running one of those bundles then says the update needs a new
+version of the app, and the Mac app offers the disk image, which is the last install by hand; nothing installs from it.
+The feed test checks the release host serves it so. Between 14 and 16 November 2026 releases deleted it instead, and
+those apps said only "Couldn't check for updates".
 
 ## The backend canary
 
@@ -92,7 +116,7 @@ it. A deploy that changes a Lambda publishes a new version, and CodeDeploy moves
 
 1. **Before any traffic,** for the API, the release canary (`cmd/canary`) calls the new version directly. That is a sync
    round trip as a made-up user of its own. If it fails, the deploy stops with nothing shifted.
-2. **A share of traffic for a while:** prod sends 10% of invocations to the new version for 90 minutes, and staging 5%
+2. **A share of traffic for a while:** prod sends 10% of invocations to the new version for 5 minutes (`stack.canaryMinutes`; 5 while the beta's features are built), and staging 5%
    for 10. The shares and times are in `config/env/<env>.yaml`. CloudFormation waits about 2 hours for the alias, then
    rolls the stack back, so a canary can't be much longer than 90 minutes: prod's was a day until every release timed out.
 3. **All of it,** once no release alarm has fired.
@@ -113,7 +137,7 @@ begins, not only during it, and refuses to start while any is in ALARM, however 
 the environment is already unhealthy, and a canary can't judge a new version against it. For the fix to what is firing,
 see [Shipping while a release alarm fires](#shipping-while-a-release-alarm-fires).
 
-With one real user, 10% of 90 minutes' requests is a handful and might miss what breaks. So a schedule also runs the
+With one real user, 10% of 5 minutes' requests is a handful and might miss what breaks. So a schedule also runs the
 release canary every 5 minutes against the alias. That is about 18 runs in a canary, about 2 of them on the new
 version at 10%, after the check before traffic has already run it once. One failed run is enough to roll back.
 
@@ -126,11 +150,11 @@ and each device's 20-second trial and rollback protects it from a bundle that wo
 
 ## Skipping the canary
 
-`make promote CANARY=skip` starts a run that sends prod's new backend all its traffic at once, rather than 10% for 90 minutes.
+`make promote CANARY=skip` starts a run that sends prod's new backend all its traffic at once, rather than 10% for 5 minutes.
 It still deploys and tests staging first, still waits out the window before prod, and keeps prod's check before traffic, the alarms,
 the automatic rollback and the suites. Use it for:
 
-- a fix that can't wait 90 minutes;
+- a fix that can't wait for the canary;
 - a release whose old and new code can't run side by side, which the compatibility rules should make rare.
 
 **An agent may skip the canary only with the owner's explicit go-ahead, for that release, each time.** Say why in the
@@ -162,9 +186,15 @@ The release records it: the email before prod shows the run's canary and alarm s
 - **During a canary:** an alarm moves the alias back by itself. To stop one by hand, choose **Stop and roll back
   deployment** on the deployment in CodeDeploy, in prod's account. The pipeline's run then fails, and nothing after it
   is published.
-- **After promotion:** revert the bad commit on main and let it release. A fix that can't wait 90 minutes can skip
+- **After promotion:** revert the bad commit on main and let it release. A fix that can't wait for the canary can skip
   the canary.
 - **The web app, or one app's feed:** switch it back to a version kept, as below.
+- **When prod's suites fail after its release publishes,** the release switches the web app and each feed it switched
+  back to what they served before, which prod's Test step had just passed against the new backend, and the run fails.
+  The Test step runs the same suites before each release publishes, so a release left live after failing them would
+  fail every later run there, the fix's too: on 16 November prod's desktop feed named a Mac app its downloads host
+  didn't have, and every run stopped at Test until the feed was switched back by hand. Staging does the same, since its
+  step runs the web app suite against what staging serves before each release publishes there.
 
 ### One surface at a time
 
@@ -295,10 +325,21 @@ before publishing it. The pipeline never trusts GitHub's word for any of it.
    the keychain and the notary key.
 2. **The pipeline waits for it.** The Staging stage's MacApp step, beside staging's deploy, compares each
    environment's feed with this build, and looks for the record of a checked Mac app beside its downloads. For each
-   that needs a new Mac app, it waits for that environment's manifest in the inbox, up to `pipeline.mac.waitFor` (two
-   hours unless `control.yaml` says), then checks the upload (`frontend/scripts/mac-inbox.ts verify`) and writes the
-   app's record, which the signing step signs into the manifest. For each that doesn't, it hands on the live app's
-   record instead. If nothing
+   that needs a new Mac app, it waits for a build in the inbox, up to `pipeline.mac.waitFor` (two hours unless
+   `control.yaml` says), then checks the upload (`frontend/scripts/mac-inbox.ts verify`) and writes the app's record,
+   which the signing step signs into the manifest. For each that doesn't, it hands on the live app's record instead.
+   The build it takes is this commit's own, once its manifest is there, or else the newest of a commit before it whose
+   Mac native code is the same (`mac-inbox.ts pick`): the Mac release workflow runs one build at a time and drops the
+   one queued whenever main moves on, so with steady merges few commits get their own. The same native code means no
+   file the Mac app's shell hash covers differs, and no package it counts changed version (`shell-hash.ts`, the
+   paths under `SHELL_SOURCES.electron`: `electron/`, the scripts that compile, build, sign and entitle the app, and
+   the web app's files the main process bundles; the packages in `ELECTRON_PACKAGES`), the same test the desktop feed
+   applies to bundles. The step then checks out that commit, installs its packages, and builds its web app and main
+   process again as the Build step built this one's. Its build must have this build's Mac shell hash, or the step
+   leaves that commit's app and waits on. The upload is then checked against that commit's build rather than this
+   one's. The app carries the older commit's web bundle, and takes this release's from the desktop feed, as an app
+   with unchanged native code does. Prod takes the build of the commit staging's app came from first, if it can,
+   since the staging update check passes that app's version. If nothing
    arrives in time, or the check fails, the run stops before anything is published, and before prod. A new AWS account
    caps every CodeBuild build at 45 minutes whatever the project says, until AWS Support lifts it, so the step stops
    waiting at 40 minutes (`CODEBUILD_LIMIT_SECONDS` in `scripts/pipeline.sh`) rather than being cut off without a word.
@@ -329,7 +370,11 @@ app that has this code; every app before it is installed by hand once, as the no
    folder's `latest-mac.yml` says exactly what the signed record does: version, file, SHA-512 and size. It checks the
    zip's SHA-512, including a zip it builds from the blocks that changed, and falls back to the whole zip if that
    doesn't match. `autoDownload`, `allowDowngrade` and `allowPrerelease` are off, and `channel` is never set, since
-   setting it turns `allowDowngrade` on.
+   setting it turns `allowDowngrade` on. Before it downloads, electron-updater reads the app's
+   `Contents/Resources/app-update.yml` for the folder it downloads into. electron-builder writes that file only from a
+   publish setting, so `electron/identity.ts` names the downloads host there and `electron-build.mjs` passes publish
+   never; the pipeline's check refuses an app without it. Apps built before 17 November 2026 have none, so they can't
+   update themselves, and each is installed by hand once more.
 4. **Squirrel.Mac installs it** after checking its signature against the running app's Team ID and bundle id: when
    Multiscale quits or the Mac restarts, or at once with Restart to update, in Settings, the sidebar's notice or the
    menu bar menu. Quit installs it and doesn't reopen.
@@ -346,6 +391,22 @@ fails the build when it bundles a package `ELECTRON_PACKAGES` in `scripts/shell-
 and translocation, once per major macOS version; the administrator's password dialog, once before shipping; VoiceOver
 on macOS's dialogs and the menu bar menu, once.
 
+**How it's tested**, layer by layer:
+
+| Layer | Where | What it shows |
+| --- | --- | --- |
+| Unit | `src/core/updates.test.ts`, the Settings and sidebar tests | The page: which feed it reads, when a release needs the app, every state and failure it shows |
+| Unit | `electron/appUpdates.test.ts` | The main process, with electron-updater stood in for: the signature, the record, where the app runs, and each refusal's code |
+| Unit | `scripts/latest-mac.test.ts`, `scripts/sign-release.test.ts` | `latest-mac.yml` and the signed feed as the pipeline writes them, and electron-updater's own parser reading the yml back as the signed record |
+| Unit | `scripts/mac-inbox.test.ts`, `electron/identity.test.ts` | The pipeline's check of each Mac app, `app-update.yml` included |
+| Integration | `electron/appUpdates.integration.test.ts` | electron-updater's own MacUpdater over HTTP: it reads the pipeline's `latest-mac.yml`, downloads and checks the zip, and hands it to a stand-in for Squirrel.Mac, which fetches it as Squirrel does; a missing folder, a wrong yml, a wrong zip and a missing `app-update.yml` each fail as the app reports them |
+| Pipeline | `infrastructure/test/pipeline-script.test.ts`, `mac-update-check.test.ts` | What each release publishes and in what order, when the desktop feed waits, and the update check's choice of app to update from |
+| Deployed | `e2e/deployed/feed.spec.ts`, on every release | Each feed checks out with the release key, the root feed names no native code, and the desktop feed's app is on the downloads host as `latest-mac.yml` says |
+| macOS | `scripts/mac-update-check.sh`, every half hour | The real thing on staging: the app passed before updates itself, Squirrel checks the signature and installs at quit, and the new app opens |
+
+Only the macOS check proves Squirrel's signature check, ShipIt's install, and that a signed app opens. It runs only when
+staging's desktop feed names an app it hasn't passed, and on staging alone.
+
 ### The staging update check
 
 Before prod takes a new Mac app, staging's app of the same version must have updated itself to it on a Mac.
@@ -359,18 +420,25 @@ stage the new one. Then it quits the app, as from the menu bar, waits for Squirr
 the app didn't open again, and opens it to check it's the new version and starts. A pass goes to
 `inbox/update-check/<app version>.json`. The app it passed is kept in the run's artifact, so the next run updates
 from it. With no app passed before, as for the first app that updates itself, it checks only that the new app installs
-and starts.
+and starts. It does the same when the app passed before has no `Contents/Resources/app-update.yml`, as every app from
+before 17 November 2026 has none: electron-updater reads that file before it downloads, so those apps can't update
+themselves, and updating from one would fail every run.
 
 **Prod waits for it.** Prod's release publishes a new Mac app only once the inbox has its pass. Until then prod's
-desktop feed stays as it is, and the run says so, as the iPhone feed does for TestFlight. A run that needs no new app
-doesn't wait. Staging gets each new app a promote window ahead, which is time for the check to run.
+desktop feed stays as it is, and the run says so, as the iPhone feed does for TestFlight. That holds for a new app with
+unchanged native code too, as when prod's downloads host served no checked app when the MacApp step looked: the
+build's signed manifest names that app, and a feed must never name an app the downloads host doesn't have. The next run
+that finds a checked app live names that one instead. A run that needs no new app doesn't wait. Staging gets each new
+app a promote window ahead, which is time for the check to run.
 
 ### What the check proves
 
 For each environment's upload, on Linux, with OpenSSL and 7-Zip:
 
-- **It's this commit's.** The manifest names the run's commit, and the disk image's and the zip's SHA-256s are the
-  manifest's. The app's version is `0.1.<build>`, in the manifest, the app's `package.json` and its `Info.plist`.
+- **It's the commit's it was taken as.** The manifest names the commit: the run's, or the earlier one with the same Mac
+  native code that the step took. The disk image's and the zip's SHA-256s are the manifest's. The app's version is
+  `0.1.<build>`, in the manifest, the app's `package.json` and its `Info.plist`, and the manifest's shell hash is the
+  pipeline's build's, which the app's record carries into the release's manifest.
 - **The configured team signed it, with a Developer ID.** The disk image's signature and the app's both verify: their
   code directories match every byte of the disk image, and of the app's executable, Info.plist and resource seal.
   OpenSSL checks each CMS signature. Its certificate must be a Developer ID Application certificate naming
@@ -379,13 +447,16 @@ For each environment's upload, on Linux, with OpenSSL and 7-Zip:
 - **Apple notarized it.** Apple's public ticket lookup, which Gatekeeper uses, has a ticket for the disk image's
   cdhash and for the app's.
 - **It runs the pipeline's own code.** `app.asar` holds exactly the web build (`dist`) and main process
-  (`dist-electron`) the Build step made from the commit, byte for byte, with no file more or less, and the app's
+  (`dist-electron`) the pipeline made from the commit, byte for byte: the Build step for the run's own, or the MacApp
+  step for an earlier one, with no file more or less, and the app's
   resource seal covers that `app.asar`. Its `package.json` is the checkout's, as electron-builder trims it.
   better-sqlite3's JavaScript, unpacked beside it, is the installed package's. The web build and main process come
   out the same on macOS and Linux.
 - **It runs Electron's own native code.** Every file in the app is Electron's, from its darwin-arm64 zip, which the
   check downloads and refuses unless it has the SHA-256 in the installed `electron` package's `checksums.json`, or one
-  of the app's own: `app.asar` and what's unpacked beside it, the icon, the resource seals and the stapled ticket. Each
+  of the app's own: `app.asar` and what's unpacked beside it, the icon, `app-update.yml`, the resource seals and the
+  stapled ticket. `app-update.yml` must be there, sealed, and name a generic feed at the environment's downloads host
+  and a folder for downloads, or the app couldn't update itself. Each
   Mach-O binary must equal Electron's byte for byte once signed again: only its signature, the load command that
   points at it, and the `__LINKEDIT` sizes that follow from it are left out, and only after checking that's all
   signing changed. better-sqlite3's binaries must equal the installed package's the same way. Electron's fuses, which
@@ -410,8 +481,8 @@ For each environment's upload, on Linux, with OpenSSL and 7-Zip:
 - **A disk image made to read differently.** The app is read from the disk image with 7-Zip, not macOS. Only someone
   holding both keys could make an image that macOS reads differently, and Apple would have to notarize it.
 - **Revocation after the fact.** It doesn't ask whether Apple has since revoked the certificate or a ticket.
-- **The manifest's other fields.** The versions, shell hash and notary submission ids are for people reading it; only
-  the commit and hashes are checked.
+- **The manifest's other fields.** The web version, Electron version and notary submission ids are for people reading
+  it; only the commit, app version, shell hash and file hashes are checked.
 
 ### The release environment
 
@@ -426,12 +497,20 @@ only from `main`, may need the owner's approval, and holds the only copies of th
 | `ASC_KEY_ID` | Secret or variable | That key's id |
 | `ASC_ISSUER_ID` | Secret or variable | Its issuer id |
 | `MAC_BUILD_CONFIG` | Secret | What the Mac build reads from the config folder: each environment's backend addresses, attachment hosts, sign-in client, bundle id and release key's public half |
+| `STAGING_TEST_TARGET` | Secret | Staging's API, test client and test user, password included, as `ENV=staging node frontend/scripts/test-target.mjs` prints it, for the nightly iPhone tests against staging (`ios-staging.yml`). Set it again if the test user's password in SSM changes |
 | `AWS_INBOX_ROLE_ARN` | Secret or variable | The inbox role's ARN, from the pipeline stack's outputs |
 | `AWS_INBOX_BUCKET` | Variable | The inbox bucket's name, from the same |
 | `AWS_REGION` | Variable | The control account's region |
 
 The key id, issuer id and role ARN work as either, but a variable's value is printed in the run's log, which anyone can
 read on a public repository, and the role's ARN names the control account. Secrets are masked.
+
+`STAGING_TEST_TARGET` comes from SSM, so set it from the Mac, signed in to AWS for staging and to `gh` as the owner, with
+`MULTISCALE_CONFIG_DIR` set:
+
+```sh
+(cd frontend && ENV=staging node scripts/test-target.mjs) | gh secret set STAGING_TEST_TARGET --env release
+```
 
 The role, `multiscale-mac-inbox`, trusts only GitHub's OIDC tokens whose subject is
 `repo:<owner>/<repo>:environment:release`, as `pipeline.repository` names the repository, letter case included, or the
@@ -521,8 +600,11 @@ with `MULTISCALE_CONFIG_DIR` set and signed in to `gh` as the owner.
   start one for that commit with `gh workflow run mac-release.yml -f commit=<sha>`, and once it has uploaded, retry the
   Staging stage, which its log prints the command for (`aws codepipeline retry-stage-execution ... --retry-mode
   FAILED_ACTIONS`), or run the pipeline again: `make promote COMMIT=<sha>`. GitHub's macOS runners are shared with the
-  PRs' iPhone job, so a Mac build can queue for a while when many PRs are open. Every push to main starts a build, so one that didn't arrive failed or
-  is still queued behind another: its run's log says which.
+  PRs' iPhone job, so a Mac build can queue for a while when many PRs are open. Every push to main starts a build, and
+  a newer push drops the one queued, so a run waits only when no commit since the Mac native code last changed has a
+  finished build: the one building may still arrive, or have failed, and its run's log says which. A commit before
+  this one whose build the step left, because the pipeline's own build of it has other native code, is named in the
+  step's log.
 - **The check failed.** The MacApp step's log lists every problem. Nothing was published. "The build's settings
   differ" means `MAC_BUILD_CONFIG` is out of date: make it again (step 6 above) and build again.
 

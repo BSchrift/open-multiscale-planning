@@ -1,12 +1,13 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { APP_VERSION, BUILD, fakeBuild, file, link, linkedMachO, makeIdentity, OUR_FUSES, signMachO, trustOf, writeApp, writeZip, zipOf } from './fake-mac-build';
+import { APP_VERSION, BUILD, DOWNLOADS, fakeBuild, file, link, linkedMachO, makeIdentity, OUR_FUSES, signMachO, trustOf, writeApp, writeZip, zipOf } from './fake-mac-build';
 import type { FakeBuild } from './fake-mac-build';
-import { appRecord, appVersion, buildConfig, liveRecord, notarizations, parsePlist, readManifest, readZip, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
+import { appRecord, appVersion, buildConfig, inboxBuildFor, liveRecord, notarizations, parsePlist, readManifest, readZip, sameMacNativeCode, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
 import type { Manifest } from './mac-inbox';
 
 const TEAM = 'TEAMID0001';
@@ -57,7 +58,7 @@ describe('the inbox manifest', () => {
 
 describe('verifyInbox', () => {
   const verify = (b: FakeBuild, { commit = COMMIT, ticket = true, trust = trustOf(identity) } = {}) =>
-    verifyInbox(b.inbox, { env: 'staging', commit, teamId: TEAM, identity: b.identity, ...b.build }, {
+    verifyInbox(b.inbox, { env: 'staging', commit, teamId: TEAM, identity: b.identity, downloadsUrl: DOWNLOADS, ...b.build }, {
       extract: (_dmg, into) => cpSync(b.volume, into, { recursive: true, verbatimSymlinks: true }),
       hasTicket: async () => ticket,
       trust,
@@ -256,6 +257,21 @@ describe('verifyInbox', () => {
       expect(problems).toContain('Contents/Frameworks/Multiscale Staging Helper (GPU).app/Contents/Info.plist has LSEnvironment "x", not as Electron has it');
     });
 
+    // electron-updater reads it before it downloads an update, for the folder it downloads into. electron-builder writes
+    // it only from a publish setting, and an app without it can never update itself.
+    it('refuses an app without the app-update.yml electron-updater reads, or with one for another host', async () => {
+      const UPDATE_CONFIG = 'Contents/Resources/app-update.yml';
+      const missing = good();
+      missing.tree.delete(UPDATE_CONFIG);
+      writeApp(missing);
+      expect(await verify(missing)).toContain(`The app lacks ${UPDATE_CONFIG}, which electron-updater reads before it downloads an update, so it couldn't update itself`);
+      const other = good();
+      change(other, UPDATE_CONFIG, (data) => Buffer.from(data.toString().replace(DOWNLOADS, 'https://elsewhere.example.test')));
+      const problems = await verify(other);
+      expect(problems).toContain(`${UPDATE_CONFIG} says {"provider":"generic","updaterCacheDirName":"multiscale-updater","url":"https://elsewhere.example.test"}, not a generic feed at ${DOWNLOADS} with a folder for its downloads`);
+      expect(problems).toContain("The app's code signature doesn't seal Resources/app-update.yml as it is");
+    });
+
     it("refuses an app whose package.json doesn't say the version 0.1.<build>", async () => {
       const b = fakeBuild(identity, TEAM, COMMIT, 'staging', (files) => {
         files['package.json'] = Buffer.from(files['package.json']!.toString().replace(APP_VERSION, '0.1.0'));
@@ -282,6 +298,129 @@ describe('verifyInbox', () => {
     const b = good();
     writeFileSync(join(b.inbox, 'manifest.json'), '{}');
     expect(await verify(b)).toEqual(["The inbox manifest's commit is not a full commit hash"]);
+  });
+
+  // The record takes the native code from the manifest, and the release's manifest then names it as the app's.
+  it("refuses a manifest naming other native code than the pipeline's build of the commit", async () => {
+    const b = good();
+    writeFileSync(join(b.inbox, 'manifest.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(b.inbox, 'manifest.json'), 'utf8')), shell: 'fedcba9876543210' }));
+    expect(await verify(b)).toContain("The inbox manifest says the app's native code is fedcba9876543210, not 0123456789abcdef");
+  });
+});
+
+// A repository holding the Mac app's native code under frontend: one commit for each entry, at the time given, with the
+// files given changed. The lockfile names the packages given, each at version 1.0.0 unless given another.
+function repoOf(commits: { at: number; files?: Record<string, string>; packages?: Record<string, string> }[]) {
+  const dir = mkdtempSync(join(tmpdir(), 'mac-reuse-repo-'));
+  const run = (args: string[], at = 0) =>
+    execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=Tester', '-c', 'user.email=tester@example.com', ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_DATE: `@${at} +0000`, GIT_COMMITTER_DATE: `@${at} +0000` },
+    }).trim();
+  run(['init', '-q', '-b', 'main']);
+  const packages: Record<string, string> = { electron: '45.2.1', 'electron-updater': '6.6.2', 'better-sqlite3': '12.4.1', react: '19.2.0', esbuild: '0.27.0' };
+  const first = {
+    'frontend/electron/main.ts': 'one\n',
+    'frontend/src/app.ts': 'one\n',
+    'frontend/ios/App/App/AppDelegate.swift': 'one\n',
+  };
+  const hashes: string[] = [];
+  for (const [i, { at, files, packages: changed }] of commits.entries()) {
+    Object.assign(packages, changed);
+    const lock = { packages: { '': {}, ...Object.fromEntries(Object.entries(packages).map(([name, version]) => [`node_modules/${name}`, { version }])) } };
+    for (const [path, contents] of Object.entries({ ...(i === 0 ? first : {}), ...files, 'frontend/package-lock.json': JSON.stringify(lock) })) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), contents);
+    }
+    run(['add', '-A']);
+    run(['commit', '-q', '--allow-empty', '-m', `Commit ${i}`], at);
+    hashes.push(run(['rev-parse', 'HEAD']));
+  }
+  return { dir, hashes };
+}
+// The inbox's keys once GitHub Actions has uploaded each environment's build of these commits, the manifest last.
+const uploaded = (commits: string[], envs = ['staging', 'prod']) =>
+  commits.flatMap((commit) => envs.flatMap((env) => ['Multiscale.dmg', 'Multiscale.zip', 'manifest.json'].map((name) => `inbox/${commit}/${env}/${name}`)));
+
+describe('sameMacNativeCode', () => {
+  it('tells commits apart by the Mac native code only', () => {
+    const repo = repoOf([
+      { at: 1794000000 },
+      { at: 1794000100, files: { 'frontend/src/app.ts': 'web only\n' } },
+      { at: 1794000200, files: { 'frontend/ios/App/App/AppDelegate.swift': "the iPhone's\n", 'frontend/electron/main.test.ts': 'not shipped\n' } },
+      { at: 1794000300, files: { 'frontend/electron/main.ts': 'two\n' } },
+    ]);
+    const [one, web, iphone, native] = repo.hashes as [string, string, string, string];
+    expect(sameMacNativeCode(repo.dir, one, one)).toBe(true);
+    expect(sameMacNativeCode(repo.dir, one, web)).toBe(true);
+    expect(sameMacNativeCode(repo.dir, one, iphone)).toBe(true);
+    expect(sameMacNativeCode(repo.dir, iphone, native)).toBe(false);
+    expect(sameMacNativeCode(repo.dir, native, one)).toBe(false);
+  });
+
+  it('counts the versions of the packages the Mac app is made with, and no others', () => {
+    const repo = repoOf([
+      { at: 1794000000 },
+      { at: 1794000100, packages: { react: '19.3.0', esbuild: '0.28.0' } },
+      { at: 1794000200, packages: { 'electron-updater': '6.7.0' } },
+      { at: 1794000300, packages: { electron: '46.0.0' } },
+    ]);
+    const [one, web, updater, electron] = repo.hashes as [string, string, string, string];
+    expect(sameMacNativeCode(repo.dir, one, web)).toBe(true);
+    expect(sameMacNativeCode(repo.dir, web, updater)).toBe(false);
+    expect(sameMacNativeCode(repo.dir, updater, electron)).toBe(false);
+  });
+
+  it("says they differ when git can't tell, as for a commit the clone lacks", () => {
+    const repo = repoOf([{ at: 1794000000 }]);
+    expect(sameMacNativeCode(repo.dir, repo.hashes[0]!, 'f'.repeat(40))).toBe(false);
+  });
+});
+
+describe('inboxBuildFor', () => {
+  it("takes the commit's own build once it's there", () => {
+    const repo = repoOf([{ at: 1794000000 }, { at: 1794000100, files: { 'frontend/src/app.ts': 'web only\n' } }]);
+    const [older, commit] = repo.hashes as [string, string];
+    expect(inboxBuildFor(repo.dir, commit, 'staging', uploaded([older, commit]))).toBe(commit);
+  });
+
+  it('takes the newest build of a commit before it with the same Mac native code, as for a web-only commit', () => {
+    const repo = repoOf([
+      { at: 1794000000 },
+      { at: 1794000100, files: { 'frontend/electron/main.ts': 'two\n' } },
+      { at: 1794000200, files: { 'frontend/src/app.ts': 'web\n' } },
+      { at: 1794000300, files: { 'frontend/src/app.ts': 'web again\n' } },
+    ]);
+    const [before, native, web, commit] = repo.hashes as [string, string, string, string];
+    expect(inboxBuildFor(repo.dir, commit, 'prod', uploaded([before, native, web]))).toBe(web);
+    expect(inboxBuildFor(repo.dir, commit, 'prod', uploaded([before, native]))).toBe(native);
+  });
+
+  it('takes none, so the run waits for its own, when the native code changed since the last build', () => {
+    const repo = repoOf([{ at: 1794000000 }, { at: 1794000100, files: { 'frontend/src/app.ts': 'web\n' } }, { at: 1794000200, files: { 'frontend/electron/main.ts': 'two\n' } }]);
+    const [before, web, commit] = repo.hashes as [string, string, string];
+    expect(inboxBuildFor(repo.dir, commit, 'staging', uploaded([before, web]))).toBeUndefined();
+  });
+
+  it("never takes a build of a later commit, another environment's, or one whose manifest isn't there yet", () => {
+    const repo = repoOf([{ at: 1794000000 }, { at: 1794000100, files: { 'frontend/src/app.ts': 'web\n' } }, { at: 1794000200, files: { 'frontend/src/app.ts': 'later\n' } }]);
+    const [before, commit, later] = repo.hashes as [string, string, string];
+    expect(inboxBuildFor(repo.dir, commit, 'staging', uploaded([later]))).toBeUndefined();
+    expect(inboxBuildFor(repo.dir, commit, 'staging', uploaded([before], ['prod']))).toBeUndefined();
+    expect(inboxBuildFor(repo.dir, commit, 'staging', uploaded([before]).filter((key) => !key.endsWith('manifest.json')))).toBeUndefined();
+    expect(inboxBuildFor(repo.dir, commit, 'staging', ['inbox/testflight/latest.json', 'inbox/update-check/0.1.5.json', ...uploaded([before])])).toBe(before);
+  });
+
+  // So prod takes the app staging has, which the staging update check passes before prod's desktop feed takes it.
+  it("puts first the build whose number is the one given, staging's app's, and leaves out the commits given", () => {
+    const repo = repoOf([{ at: 1794000000 }, { at: 1794000100, files: { 'frontend/src/app.ts': 'web\n' } }, { at: 1794000200, files: { 'frontend/src/app.ts': 'web again\n' } }]);
+    const [first, second, commit] = repo.hashes as [string, string, string];
+    const keys = uploaded([first, second, commit]);
+    expect(inboxBuildFor(repo.dir, commit, 'prod', keys, 1794000000)).toBe(first);
+    expect(inboxBuildFor(repo.dir, commit, 'prod', keys, 1794000050)).toBe(commit);
+    expect(inboxBuildFor(repo.dir, commit, 'prod', keys, undefined, [commit])).toBe(second);
+    expect(inboxBuildFor(repo.dir, commit, 'prod', keys, 1794000000, [first, commit])).toBe(second);
   });
 });
 

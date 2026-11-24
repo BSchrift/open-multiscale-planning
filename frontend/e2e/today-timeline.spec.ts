@@ -3,7 +3,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { expectTapTarget, openSeeded, touchDrag } from './seed';
+import { expectTapTarget, holdMouse, openSeeded, settled as screensLoaded, touchDrag } from './seed';
 import type { Seed } from './seed';
 
 test.use({ timezoneId: 'America/Chicago' });
@@ -106,6 +106,21 @@ test('the timeline switches to a list of the day in order, which opens a practic
   expect(errors).toEqual([]);
 });
 
+test("Calendar | List keeps its height once every screen's code has loaded, so the timeline under it doesn't jump", async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, fence, block('b2', { task_id: 't2' }, '16:00', '17:00')]);
+  await settled(page);
+  const view = page.getByRole('region', { name: "Today's timeline" }).getByRole('group', { name: 'Timeline view' });
+  const height = async () => (await view.boundingBox())!.height;
+  const first = await height();
+  // The app loads each screen's code after it draws, and each brings its styles; Process's once made this 10px taller.
+  await screensLoaded(page);
+  expect(await height()).toBe(first);
+  // A compact button and the control's padding on desktop; a full tap target on phone.
+  expect(first).toBe(phone ? 52 : 44);
+  expect(errors).toEqual([]);
+});
+
 test('zoom draws the calendar taller a step at a time and back, each button stopping at its end', async ({ page }, info) => {
   const phone = info.project.name === 'phone';
   const errors = await open(page, [planned, fence, block('b2', { task_id: 't2' }, '16:00', '17:00')]);
@@ -150,8 +165,7 @@ test('a block still to come changes its length from its bottom edge, held first 
   } else {
     const edge = (await b.locator('.evh').boundingBox())!;
     const x = edge.x + edge.width / 2;
-    await page.mouse.move(x, edge.y + edge.height / 2);
-    await page.mouse.down();
+    await holdMouse(page, { x, y: edge.y + edge.height / 2 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 8, { steps: 3 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 15, { steps: 3 });
     await page.mouse.up();
@@ -204,8 +218,7 @@ test('the block under way keeps its start and changes only its end, from its edg
     await expect(page.getByText(/^Paint the fence is now/)).toHaveCount(0);
     const edge = (await b.locator('.evh').boundingBox())!;
     const x = edge.x + edge.width / 2;
-    await page.mouse.move(x, edge.y + edge.height / 2);
-    await page.mouse.down();
+    await holdMouse(page, { x, y: edge.y + edge.height / 2 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 8, { steps: 3 });
     await page.mouse.move(x, edge.y + edge.height / 2 + 15, { steps: 3 });
     await page.mouse.up();
@@ -255,18 +268,201 @@ test('a block held on phone lifts with one light tap from the device; a mouse dr
   });
   const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
   await settled(page);
+  await countRings(page);
   const b = page.getByRole(phone ? 'slider' : 'button', { name: /^Write the report, 4pm to 5pm/ });
   await b.scrollIntoViewIfNeeded();
   const box = (await b.boundingBox())!;
   // The first zoom draws 30px an hour, so 15px down is half an hour later.
   if (phone) await touchDrag(page, b, { x: box.x + box.width / 2, y: box.y + box.height / 2 + 15 });
   else {
-    await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2);
-    await page.mouse.down();
+    await holdMouse(page, { x: box.x + box.width / 3, y: box.y + box.height / 2 });
     await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 + 15, { steps: 4 });
     await page.mouse.up();
   }
   await expect(page.getByText('Write the report is now 4:30pm to 5:30pm.')).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { taps: unknown[] }).taps)).toEqual(phone ? [10] : []);
+  // A hold on a block moves it: hold to create, which starts only on empty time, drafted nothing.
+  expect(await rings(page)).toBe(0);
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+
+test('a mouse pressed on empty time and dragged draws the draft at once, down or up, a short drag a quarter hour, and Esc takes it away; on phone a finger that moves still scrolls', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  await countRings(page);
+  const draft = page.locator('.cev.holddraft');
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+
+  if (phone) {
+    // As before: a finger that moves before the hold drafts nothing, and one held still drafts an hour.
+    const moved = await pressOnDay(page, '17:50', true);
+    await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 7, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y + 30 })), moved);
+    await page.waitForTimeout(600);
+    await letGo(page, { ...moved, y: moved.y + 30 }, true);
+    await expect(draft).toHaveCount(0);
+    await expect(capture).toHaveCount(0);
+    const still = await pressOnDay(page, '17:50', true);
+    await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+    await letGo(page, still, true);
+    await expect(capture.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+    expect(errors).toEqual([]);
+    return;
+  }
+
+  // The point on the day at a time, from 7am at 30px an hour, measured as it's used.
+  await page.locator('.day').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const point = async (time: string, dx = 0) => {
+    const [h, m] = time.split(':').map(Number);
+    const box = (await page.locator('.day').boundingBox())!;
+    return { x: box.x + box.width * 0.6 + dx, y: box.y + ((h! * 60 + m! - 420) / 60) * 30 };
+  };
+  const drag = async (from: string, to: string, dx = 0) => {
+    const a = await point(from);
+    const b = await point(to, dx);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+  };
+  const cancelCapture = async () => {
+    await page.keyboard.press('Escape');
+    await expect(capture).toHaveCount(0);
+    await expect(draft).toHaveCount(0);
+  };
+
+  // Down: the draft follows the mouse at once, from the press's quarter hour to the pointer's.
+  await drag('17:50', '18:50');
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  await expect(draft).toHaveClass(/\bs-placing\b/);
+  await expect(capture).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('today-drag-draft.png') });
+  await page.mouse.up();
+  await expect(capture.getByText('Today, 5:45pm to 7pm')).toBeVisible();
+  await expect(capture.getByRole('textbox', { name: 'Capture to Inbox' })).toBeFocused();
+  await expect(draft).toHaveAttribute('title', '5:45pm to 7pm');
+  await page.screenshot({ path: info.outputPath('today-drag-capture.png') });
+  await cancelCapture();
+
+  // Up.
+  await drag('19:20', '18:10');
+  await expect(draft).toHaveAttribute('title', '6pm to 7:30pm');
+  await page.mouse.up();
+  await expect(capture.getByText('Today, 6pm to 7:30pm')).toBeVisible();
+  await cancelCapture();
+
+  // A drag that only just passes a click's wobble: the shortest block, a quarter hour.
+  await drag('18:05', '18:05', 7);
+  await expect(draft).toHaveAttribute('title', '6pm to 6:15pm');
+  await page.mouse.up();
+  await expect(capture.getByText('Today, 6pm to 6:15pm')).toBeVisible();
+  await cancelCapture();
+
+  // Esc while dragging takes it away, and letting go then opens nothing.
+  await drag('18:05', '19:00');
+  await expect(draft).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(draft).toHaveCount(0);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  await expect(capture).toHaveCount(0);
+  expect(await rings(page)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Puts a pointer down on the day at a time: a finger on phone, a mouse on desktop. The day is measured in the same moment,
+ * since what loads above it can still move it down the page. Returns where it pressed.
+ */
+async function pressOnDay(page: Page, time: string, phone: boolean) {
+  await page.locator('.day').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  const [h, m] = time.split(':').map(Number);
+  return page.evaluate(
+    ({ minutes, pointerType }) => {
+      // From 7am, 30px an hour at the first zoom.
+      const box = document.querySelector('.day')!.getBoundingClientRect();
+      const at = { x: box.x + box.width * 0.6, y: box.y + ((minutes - 420) / 60) * 30 };
+      const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType, isPrimary: true, button: 0, buttons: 1, clientX: at.x, clientY: at.y };
+      document.elementFromPoint(at.x, at.y)!.dispatchEvent(new PointerEvent('pointerdown', init));
+      return at;
+    },
+    { minutes: h! * 60 + (m ?? 0), pointerType: phone ? 'touch' : 'mouse' },
+  );
+}
+
+async function letGo(page: Page, at: { x: number; y: number }, phone: boolean) {
+  await page.evaluate(
+    ({ x, y, pointerType }) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType, isPrimary: true, button: 0, clientX: x, clientY: y })),
+    { ...at, pointerType: phone ? 'touch' : 'mouse' },
+  );
+}
+
+/** Counts each ring as it's drawn, since it's gone again in moments. */
+const countRings = (page: Page) =>
+  page.evaluate(() => {
+    const seen = window as unknown as { rings: number };
+    seen.rings = 0;
+    new MutationObserver((changes) => {
+      for (const c of changes) for (const n of c.addedNodes) if (n instanceof Element && n.classList.contains('holdring')) seen.rings++;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+const rings = (page: Page) => page.evaluate(() => (window as unknown as { rings: number }).rings);
+
+test('a press held on empty time drafts an hour there with a ring, and Capture opens on it; Save puts it on the calendar as an Inbox item, with Undo', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  await countRings(page);
+  const at = await pressOnDay(page, '17:50', phone);
+  const draft = page.locator('.cev.holddraft');
+  await expect(draft).toBeVisible();
+  await expect(draft).toContainText('New task');
+  await expect(draft).toHaveAttribute('title', '5:45pm to 6:45pm');
+  await expect(draft).toHaveClass(/\bs-placing\b/);
+  await expect.poll(() => rings(page)).toBe(1);
+  await page.screenshot({ path: info.outputPath('hold-draft.png') });
+  await letGo(page, at, phone);
+
+  const capture = page.getByRole('dialog', { name: 'Capture' });
+  await expect(capture.getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
+  const field = capture.getByRole('textbox', { name: 'Capture to Inbox' });
+  await expect(field).toBeFocused();
+  await page.keyboard.type('Book dentist');
+  await expect(draft).toContainText('Book dentist');
+  // The draft stays in view beside Capture on desktop, and above its sheet on phone.
+  const sheet = (await capture.boundingBox())!;
+  const drawn = (await draft.boundingBox())!;
+  const apart = drawn.x + drawn.width <= sheet.x || sheet.x + sheet.width <= drawn.x || drawn.y + drawn.height <= sheet.y || sheet.y + sheet.height <= drawn.y;
+  expect(apart, 'Capture covers the draft').toBe(true);
+  if (phone) expect(drawn.y + drawn.height).toBeLessThanOrEqual(sheet.y);
+  await page.screenshot({ path: info.outputPath('hold-capture.png') });
+  await page.keyboard.press('Enter');
+
+  await expect(page.locator('.toast')).toContainText('Saved to Inbox, 5:45pm to 6:45pm');
+  await expect(draft).toHaveCount(0);
+  const saved = page.getByRole(phone ? 'slider' : 'button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' });
+  await expect(saved).toHaveClass(/\bk-inbox\b/);
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click();
+  await expect(saved).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a press held on time gone by drafts nothing, and a toast says why; a quick press drafts nothing either', async ({ page }, info) => {
+  const phone = info.project.name === 'phone';
+  const errors = await open(page, [planned, report, block('b1', { task_id: 't1' }, '16:00', '17:00')]);
+  await settled(page);
+  const past = await pressOnDay(page, '13:00', phone);
+  await page.waitForTimeout(600);
+  await letGo(page, past, phone);
+  await expect(page.locator('.toast')).toContainText('That time has gone by. Hold on a later time.');
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+
+  const later = await pressOnDay(page, '18:00', phone);
+  await letGo(page, later, phone);
+  await page.waitForTimeout(600);
+  await expect(page.locator('.cev.holddraft')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Capture' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

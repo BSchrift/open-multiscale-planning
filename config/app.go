@@ -47,6 +47,9 @@ type Stack struct {
 	CanaryMinutes         int  `yaml:"canaryMinutes" json:"canaryMinutes"`
 	// ThrottleReleaseAlarm is whether DynamoDB throttling the API's requests stops and rolls back a release.
 	ThrottleReleaseAlarm bool `yaml:"throttleReleaseAlarm" json:"throttleReleaseAlarm"`
+	// PerformanceDashboard is whether the stack has the performance KPIs' dashboard, and lets the release role publish
+	// CI's results to it.
+	PerformanceDashboard bool `yaml:"performanceDashboard" json:"performanceDashboard"`
 }
 
 // check is what positive can't see: the limits CodeDeploy and CloudFormation put on a Lambda canary.
@@ -91,11 +94,17 @@ func ForEnv(name string) (EnvConfig, error) {
 }
 
 type ProtocolConfig struct {
-	Sync        Sync        `yaml:"sync" json:"sync"`
-	Records     Records     `yaml:"records" json:"records"`
-	Clock       Clock       `yaml:"clock" json:"clock"`
-	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
-	Attachments Attachments `yaml:"attachments" json:"attachments"`
+	Sync        Sync         `yaml:"sync" json:"sync"`
+	Records     Records      `yaml:"records" json:"records"`
+	Clock       Clock        `yaml:"clock" json:"clock"`
+	Telemetry   Telemetry    `yaml:"telemetry" json:"telemetry"`
+	Attachments Attachments  `yaml:"attachments" json:"attachments"`
+	Account     AccountRules `yaml:"account" json:"account"`
+}
+
+// AccountRules is what the server and the apps agree on about deleting an account.
+type AccountRules struct {
+	MaxSignInAgeMinutes int `yaml:"maxSignInAgeMinutes" json:"maxSignInAgeMinutes"`
 }
 
 // Sync is the sync API's limits.
@@ -111,6 +120,7 @@ type Sync struct {
 type Records struct {
 	IDPattern     string `yaml:"idPattern" json:"idPattern"`
 	MaxNotesChars int    `yaml:"maxNotesChars" json:"maxNotesChars"`
+	MaxTitleChars int    `yaml:"maxTitleChars" json:"maxTitleChars"`
 }
 
 // Clock is the format of a field's clock.

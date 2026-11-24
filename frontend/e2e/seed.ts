@@ -69,6 +69,43 @@ export async function saved(page: Page, text: string): Promise<void> {
     .toBe(true);
 }
 
+/**
+ * Waits until the browser build has loaded every screen's code and the app's font, so a page measured next keeps its
+ * layout. Once it has drawn, the app loads each screen's code in turn (preloadScreens in app/screenLoad.tsx), and each
+ * brings its stylesheet, which can restyle the page already drawn: one moves Today's timeline down a few pixels. This
+ * loads them all now, through the app's own registry, which the dev server shares with the page.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    // A variable, so TypeScript leaves the dev server's path alone.
+    const registry = '/src/ui/app/registry.tsx';
+    const { AREAS } = (await import(registry)) as { AREAS: Record<string, { Screen: { preload?(): Promise<boolean> } }> };
+    const loaded = await Promise.all(Object.values(AREAS).map((a) => a.Screen.preload?.() ?? true));
+    if (loaded.includes(false)) throw new Error("A screen's code didn't load");
+    await document.fonts.ready;
+  });
+}
+
+/**
+ * Checks nothing, such as a sticky bar, draws over an element: at points across it, near its edges and in its middle, the
+ * browser's hit is it or inside it. Scrolled into view first, as in a popover taller than its room.
+ */
+export async function expectOnTop(target: Locator): Promise<void> {
+  await expect(target).toBeVisible();
+  await target.scrollIntoViewIfNeeded();
+  const covered = await target.evaluate((e) => {
+    const r = e.getBoundingClientRect();
+    for (const fy of [0.15, 0.5, 0.85]) {
+      for (const fx of [0.1, 0.5, 0.9]) {
+        const at = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy);
+        if (!at || !(e === at || e.contains(at))) return at?.outerHTML.slice(0, 120) ?? 'nothing';
+      }
+    }
+    return 'nothing over it';
+  });
+  expect(covered, 'what the browser hits on it').toBe('nothing over it');
+}
+
 /** Checks a control is at least 44pt each way, the smallest a finger can hit reliably. */
 export async function expectTapTarget(target: Locator): Promise<void> {
   // A control that isn't there fails here, by name, rather than as a timeout in the wait below, which reads like an
@@ -155,6 +192,17 @@ export async function overNowLine(line: Locator, x: number): Promise<{ at: strin
 }
 
 /**
+ * The mouse pressed at a point and held until what's under it lifts to drag, as a person holds before dragging. The
+ * caller then moves the mouse and lets go. A press let go before the lift is a click.
+ */
+export async function holdMouse(page: Page, at: { x: number; y: number }): Promise<void> {
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  // What's under the mouse, since a block dropped a moment ago stays lifted until its new time is saved.
+  await expect.poll(() => page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.lifted'), at)).toBe(true);
+}
+
+/**
  * A finger held on an element, then dragged to a point and let go, as touch pointer events: Playwright's touchscreen
  * only taps. The hold is real time, so the app's hold-to-drag timer runs as it would.
  */
@@ -184,4 +232,33 @@ export async function touchDrag(page: Page, target: Locator, to: { x: number; y:
   }
   if (end !== to) await fire('pointermove', end);
   await fire('pointerup', end);
+}
+
+/**
+ * Puts a pointer down at a time on an element that draws part of a day, as hold to create is started: a finger on
+ * phone, a mouse on desktop. The element covers `range` in minutes, or what its data-drop-from and data-drop-to say.
+ * It's measured as it's pressed, since what loads above it can still move it down the page. Returns where it pressed,
+ * for `release`.
+ */
+export async function pressOn(target: Locator, minute: number, phone: boolean, range?: { from: number; to: number }): Promise<{ x: number; y: number }> {
+  await target.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  return target.evaluate(
+    (el, { minute, range, pointerType }) => {
+      const box = el.getBoundingClientRect();
+      const [from, to] = range ? [range.from, range.to] : [Number((el as HTMLElement).dataset.dropFrom), Number((el as HTMLElement).dataset.dropTo)];
+      const at = { x: box.x + box.width * 0.6, y: box.y + ((minute - from) / (to - from)) * box.height };
+      const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType, isPrimary: true, button: 0, buttons: 1, clientX: at.x, clientY: at.y };
+      document.elementFromPoint(at.x, at.y)!.dispatchEvent(new PointerEvent('pointerdown', init));
+      return at;
+    },
+    { minute, range, pointerType: phone ? 'touch' : 'mouse' },
+  );
+}
+
+/** Lets go of a pointer `pressOn` put down. */
+export async function release(page: Page, at: { x: number; y: number }, phone: boolean): Promise<void> {
+  await page.evaluate(
+    ({ x, y, pointerType }) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType, isPrimary: true, button: 0, clientX: x, clientY: y })),
+    { ...at, pointerType: phone ? 'touch' : 'mouse' },
+  );
 }

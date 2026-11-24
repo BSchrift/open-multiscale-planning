@@ -57,6 +57,11 @@ export async function seedLarge(db: Db) {
       }
       await add(tx, `completion-${d}`, 'task_completion', { task_id: `one-off-${d % 300}`, done_at: toInstant(start + d * 86_400_000 + 18 * 3_600_000) });
     }
+    // Notes, a tenth with a link, and a few deleted.
+    for (let n = 0; n < 300; n++) {
+      await add(tx, `note:inbox-${n}`, 'memo', { title: `Note ${n}`, body: 'Pale Oat, eggshell', saved_on: addDays('2024-11-04', n), ...(n % 20 === 0 ? { deleted_at: toInstant(start) } : {}) });
+      if (n % 10 === 3) await add(tx, `link-${n}`, 'attachment', { memo_id: `note:inbox-${n}`, kind: 'link', name: 'example.com', url: 'https://example.com' });
+    }
     for (let w = 0; w < 104; w++) {
       const weekStart = addDays('2024-11-04', w * 7);
       for (let t = 0; t < 12; t++) {
@@ -75,6 +80,8 @@ const PLAN_PARAMS: Params = {
   offset: 0,
   since: '2026-11-02T05:00:00Z',
   task_id: 'task-3-45',
+  memo_id: 'note:inbox-3',
+  day: '2026-11-02',
   project_id: 'project-3',
   now: '2026-11-02T05:00:00Z',
 };

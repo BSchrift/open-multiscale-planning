@@ -8,7 +8,7 @@
 //
 // Tests import this file; the app never does.
 
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { Suspense } from 'react';
@@ -18,7 +18,8 @@ import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
-import type { CaptureShortcut, PlatformKind } from '../../platform/types';
+import type { CaptureShortcut, Platform, PlatformKind } from '../../platform/types';
+import { HOLD_MS } from '../components/weekgrid';
 import { ToastProvider } from '../components/Toast';
 import { NavProvider, useNav, useOverlay } from './nav';
 import type { Nav, Overlay, Route } from './nav';
@@ -50,6 +51,8 @@ export interface HarnessOptions {
   captureShortcut?: CaptureShortcut;
   /** As on a Mac app whose content policy is from before attachments. */
   filesBlocked?: true;
+  /** As in the Mac app, where macOS draws a block's menu. */
+  showMenu?: Platform['showMenu'];
 }
 
 export interface Harness extends RenderResult {
@@ -69,6 +72,7 @@ async function prepare(options: HarnessOptions) {
     options.kind ? { kind: options.kind } : {},
     options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
     options.filesBlocked ? { filesBlocked: true as const } : {},
+    options.showMenu ? { showMenu: options.showMenu } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));
@@ -91,14 +95,40 @@ function harness(
   return { ...result, platform, db: platform.db, clock, write, nav: getNav };
 }
 
+// The page's own clock, read before any test moves it on.
+const realNow = performance.now.bind(performance);
+let heldFor = 0;
+/**
+ * A press held past the hold that lifts a block or card to drag (HOLD_MS), as a person holds before dragging: the
+ * page's clock moves on, so the next move lifts it and drags. Time only goes forward, so nothing else minds.
+ */
+export function holdDown(el: Element, init: PointerEventInit = {}) {
+  fireEvent.pointerDown(el, { button: 0, ...init });
+  heldFor += HOLD_MS;
+  vi.spyOn(performance, 'now').mockImplementation(() => realNow() + heldFor);
+}
+
 /** Renders one area on its own, with the same data, toast and navigation context it has in the app. */
-export async function renderScreen(
+export function renderScreen(
   area: AreaId,
   options: HarnessOptions & { params?: RouteParams; presentation?: Presentation; close?(): void } = {},
 ): Promise<Harness> {
-  const prepared = await prepare(options);
   const layout = options.layout ?? 'desktop';
   const { Screen } = AREAS[area];
+  return renderInApp(
+    <Screen params={options.params ?? {}} layout={layout} presentation={options.presentation ?? 'page'} close={options.close ?? (() => undefined)} />,
+    options,
+    area !== 'task',
+  );
+}
+
+/**
+ * Renders part of a screen, such as a component a calendar opens, with the data, toast and navigation context an area
+ * has in the app.
+ */
+export async function renderInApp(ui: ReactElement, options: HarnessOptions = {}, taskPopups = true): Promise<Harness> {
+  const prepared = await prepare(options);
+  const layout = options.layout ?? 'desktop';
   let nav: (Nav & { overlay: Overlay | null }) | undefined;
   const Grab = () => {
     nav = { ...useNav(), overlay: useOverlay() };
@@ -119,13 +149,8 @@ export async function renderScreen(
         <NavProvider layout={layout}>
           <Grab />
           <Suspense fallback={null}>
-            <Screen
-              params={options.params ?? {}}
-              layout={layout}
-              presentation={options.presentation ?? 'page'}
-              close={options.close ?? (() => undefined)}
-            />
-            {area !== 'task' && <TaskPopup />}
+            {ui}
+            {taskPopups && <TaskPopup />}
           </Suspense>
         </NavProvider>
       </ToastProvider>

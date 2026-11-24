@@ -137,10 +137,12 @@ describe.skipIf(!API)('sync.ts against cmd/local', () => {
     const empty = new TextEncoder().encode(JSON.stringify(await fieldsOf(a.db, id))).length;
     await transact(a.db, clock, (w) => w.set('task', id, { title: 'x'.repeat(protocol.sync.maxRecordBytes - empty - 10) }));
     await a.sync(a.db);
+    // The other device holds it first: a new one's first sync leaves out what was deleted before it began.
+    const b = await device(clock, send);
+    await b.sync(b.db);
     await transact(a.db, clock, (w) => w.delete('task', id));
     await a.sync(a.db);
     expect(await outboxSize(a.db)).toBe(0);
-    const b = await device(clock, send);
     await b.sync(b.db);
     expect((await getRecord(b.db, 'task', id))?.deleted_at).toBeTruthy();
   });

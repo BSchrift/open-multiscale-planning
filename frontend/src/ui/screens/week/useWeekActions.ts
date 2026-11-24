@@ -1,7 +1,6 @@
 // Every change Week makes, as one transaction each with its message and Undo. Both layouts share it.
 
 import { moveBlock, placeBlock, placeSession, removeBlock, skipPractice, skipSession, unscheduleBlock } from '../../../core/blocks';
-import { followMessage, keepSetTime } from '../../../core/setTimes';
 import { formatTimeOfDay, formatWeekday, nowInstant, weekday } from '../../../core/dates';
 import { applyPlanChange } from '../../../core/plan';
 import type { PlanChange } from '../../../core/plan';
@@ -87,8 +86,13 @@ export function useWeekActions() {
     skipDay: (item: Placeable, week: LocalDate) =>
       withUndo((w) => skipSession(w, week, item.practice!.id, item.dates!.from, true, clock), `Skipped ${item.title} on ${DAY_NAMES[weekday(item.dates!.from)]} this week.`),
     markDone: (task: Task) => withUndo((w) => (task.kind === 'one_off' ? tickOneOff(w, task.id, clock) : closeTask(w, task.id, 'done', clock)), `${task.title} done`),
-    /** Its other sessions at the old set time follow, in the same Undo. */
-    keepPractice: (blockId: string, choice: KeepChoice) =>
-      withUndo((w) => keepSetTime(w, blockId, choice.keep, clock), (done) => [choice.done, followMessage(done)].filter(Boolean).join(' ')),
+    /**
+     * Its other sessions at the old set time follow, in the same Undo. Set times load as it saves: the task popup brings
+     * this file into the first load, and they aren't part of it.
+     */
+    keepPractice: async (blockId: string, choice: KeepChoice) => {
+      const { followMessage, keepSetTime } = await import('../../../core/setTimes');
+      return withUndo((w) => keepSetTime(w, blockId, choice.keep, clock), (done) => [choice.done, followMessage(done)].filter(Boolean).join(' '));
+    },
   };
 }

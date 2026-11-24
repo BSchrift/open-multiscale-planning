@@ -16,6 +16,7 @@ class BridgeViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ShareQueuePlugin())
+        bridge?.registerPluginInstance(WidgetsPlugin())
         bridge?.registerPluginInstance(AppearancePlugin())
         bridge?.registerPluginInstance(DiagnosticsPlugin())
         bridge?.registerPluginInstance(EnergyPlugin())
@@ -35,6 +36,10 @@ class BridgeViewController: CAPBridgeViewController {
         content?.add(MeasureRelay(), name: "measured")
         let observe = "new PerformanceObserver((list) => { for (const entry of list.getEntries()) webkit.messageHandlers.measured.postMessage(entry.name); }).observe({ type: 'measure' });"
         content?.addUserScript(WKUserScript(source: observe, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // And each screen the app shows, as screen.<area> from the Shell's data-screen, so XCUITest can tell a widget's
+        // link opened its screen: a tab's KPI starts only from a tap on it, so a link never ends one.
+        let screens = "new MutationObserver(() => webkit.messageHandlers.measured.postMessage('screen.' + document.documentElement.dataset.screen)).observe(document.documentElement, { attributes: true, attributeFilter: ['data-screen'] });"
+        content?.addUserScript(WKUserScript(source: screens, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // XCUITest runs a seeded app on a clock of its choosing, which the Simulator's can't be: the page's Date runs
         // this far ahead of the real one, and on from there.
         if let shift = ProcessInfo.processInfo.environment["MULTISCALE_CLOCK_SHIFT_MS"].flatMap(Int.init) {

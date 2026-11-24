@@ -293,8 +293,8 @@ jobs:
             frontend/playwright-report
             frontend/test-results
 
-  # Whether the iPhone job runs, since it holds one of the few macOS runners for about 40 minutes: always on main and on a
-  # run started by hand, and for a pull request only when it changes something the iPhone app is built from or runs
+  # Whether the iPhone jobs run, since they hold two of the few macOS runners for about half an hour: always on main and
+  # on a run started by hand, and for a pull request only when it changes something the iPhone app is built from or runs
   # (scripts/ci-changes.sh). The run's summary says which, and why.
   changes:
     runs-on: ubuntu-latest
@@ -321,14 +321,21 @@ jobs:
         env:
           MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
 
-  # The real app on an iPhone Simulator, with the extensions off and then on. Skipped, which counts as passing, when the
+  # The real app on an iPhone Simulator, built with the extensions off, as a free personal team would install it, and
+  # with them on, as the released app has them. One after the other, the two outlast a job's hour on GitHub's Macs, so
+  # each has a Mac of its own, and the ios job below reports them as one. Skipped, which counts as passing, when the
   # changes job finds nothing it would test.
-  ios:
+  ios-simulator:
     runs-on: macos-15
     needs: [frontend, changes]
     if: needs.changes.outputs.ios == 'true'
-    # About 40 minutes, plus up to 11 when a test on the real clock reaches its seed in the last ten minutes of a day (UTC),
-    # which it waits out.
+    strategy:
+      # Each build's tests run to the end whatever the other's do, so a run shows every failure.
+      fail-fast: false
+      matrix:
+        extensions: [NO, YES]
+    # About 20 minutes with the extensions off and 30 with them on, plus up to 11 when a test on the real clock reaches
+    # its seed in the last ten minutes of a day (UTC), which it waits out.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -366,16 +373,41 @@ jobs:
           key: ${{ steps.spm.outputs.cache-primary-key }}
       - run: make test-ios
         env:
+          MULTISCALE_RUNS: ${{ matrix.extensions }}
           IOS_RESULTS: ${{ runner.temp }}/ios-results
       # Kept even when the job passes, since a test marked as an expected failure passes the job with its screenshots. The
       # job's summary lists them.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ios-results
+          name: ios-results-${{ matrix.extensions }}
           path: ${{ runner.temp }}/ios-results
           retention-days: 7
           if-no-files-found: ignore
+
+  # The iPhone tests' one result, for branch protection to name: it passes only when both builds' tests did. It runs
+  # whenever they would, so a build skipped because the frontend job failed fails it too, and it's skipped with them
+  # when the changes job finds nothing to test.
+  ios:
+    runs-on: ubuntu-latest
+    needs: [changes, ios-simulator]
+    if: ${{ !cancelled() && needs.changes.outputs.ios == 'true' }}
+    steps:
+      - run: |
+          [ "$RESULT" = success ] || { echo "The iPhone tests' result was $RESULT, not success"; exit 1; }
+        env:
+          RESULT: ${{ needs.ios-simulator.result }}
+
+  # The iPhone widgets' Swift package: the snapshot, the timeline, the action queue and the contract fixtures the frontend
+  # job's tests check, on macOS with no Simulator. Skipped, which counts as passing, with the iPhone builds.
+  widgets:
+    runs-on: macos-15
+    needs: [changes]
+    if: needs.changes.outputs.ios == 'true'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-widgets
 
   # The workflows themselves, with shellcheck on their scripts.
   workflow-lint:

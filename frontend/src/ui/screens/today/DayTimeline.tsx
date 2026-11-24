@@ -21,6 +21,7 @@ import type { Slot } from '../../../core/slots';
 import type { CalendarEvent } from '../../../core/types';
 import { useNav } from '../../app/nav';
 import { requestPrompt } from '../../app/reminders';
+import { requestShowBlock, useShowBlockRequest } from '../../app/showBlock';
 import { useApp, useMutation, useStickyState } from '../../app/store';
 import { BlockDetail, BlockDetailBody } from '../../components/blocks/BlockDetail';
 import { BlockSection } from '../../components/blocks/BlockSection';
@@ -40,7 +41,7 @@ import { NowLine } from '../../components/NowLine';
 import { columnStyle, holdToDrag, MORE_INSET, MORE_PX, overlapGroups, overlapNote, overlapsText, shownColumns, useWidth } from '../../components/weekgrid';
 import { MoreButton } from '../../components/weekgrid/MoreButton';
 import { DraftBlock, HoldRing, overlapWords, SECOND_LINE, useHoldToCreate } from '../../components/weekgrid/holdCreate';
-import { Capture } from '../capture';
+import { DraftCapture } from '../capture/DraftCapture';
 import { DeleteTask, TaskPopupFor } from '../task';
 import type { TodayData } from './data';
 import { ZoomButtons } from '../../components/CalendarZoom';
@@ -112,6 +113,16 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
   // A dropped block stays where it landed until the saved position comes back.
   const positions = data.blocks.map((b) => `${b.id} ${b.start} ${b.end}`).join();
   useEffect(() => setDrag(null), [positions]);
+  // A widget's link to a block: once it's drawn, it comes into view with focus on it.
+  const show = useShowBlockRequest();
+  useEffect(() => {
+    if (!show) return;
+    const el = document.querySelector<HTMLElement>(`[data-block="${show}"]`);
+    if (!el) return;
+    el.scrollIntoView?.({ block: 'center' });
+    el.focus({ preventScroll: true });
+    requestShowBlock(null);
+  }, [show, positions]);
   // A hold on empty time drafts an hour there, and a mouse dragged on it draws one, never while a block is open, moving
   // or just dropped. Its day and minutes come from the drawn day, which grows to fit the draft.
   const holdNew = useHoldToCreate({
@@ -506,6 +517,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
                   }
                 : { type: 'button' as const })}
               {...opens(i)}
+              data-block={i.block.id}
               title={i.time}
               style={style}
               aria-label={alt(i)}
@@ -628,7 +640,7 @@ export function DayTimeline(props: { data: TodayData; events: readonly CalendarE
       {split && <SplitAsk ask={split} onDone={() => setSplit(null)} />}
       {detailOf?.block && <BlockDetail key={detailOf.id} block={detailOf.block} onClose={() => toggle(detailOf.id)} />}
       {holdNew.draft?.open && (
-        <Capture
+        <DraftCapture
           layout={layout}
           close={holdNew.close}
           slot={holdNew.slot(overlapWords(holdNew.draft.slot, items.map((i) => ({ title: i.title, start: i.from, end: i.to }))))}

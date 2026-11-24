@@ -1,10 +1,10 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
 import { CALENDAR_ID, getRecord, listRecords, outcomeId, setWeekPick, updateSettings, weekPickId, weekPlanId } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { holdDown, renderScreen } from '../../app/testing';
+import { holdDown, holdTimers, pass, renderScreen } from '../../app/testing';
 import type { HarnessOptions } from '../../app/testing';
 import { placePlanningParams } from '../../components/planning/usePlanning';
 import type { PlanningPlace } from '../../components/planning/usePlanning';
@@ -1627,7 +1627,8 @@ describe.each(['desktop', 'phone'] as const)('placing planning from Choose anoth
 });
 
 describe('hold to create on Week', () => {
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  beforeEach(holdTimers);
+  afterEach(() => void vi.useRealTimers());
   const draft = () => document.querySelector<HTMLElement>('.holddraft');
   const kind = (layout: 'desktop' | 'phone') => (layout === 'phone' ? 'touch' : 'mouse');
   const press = (el: Element, y: number, layout: 'desktop' | 'phone', x = 20) => fireEvent.pointerDown(el, { clientX: x, clientY: y, button: 0, pointerType: kind(layout), pointerId: 1 });
@@ -1643,7 +1644,7 @@ describe('hold to create on Week', () => {
       await screen.findByRole('group', { name: 'Week calendar' });
       const thu = column('2026-11-05');
       press(thu, gridY(16 * 60) + 1, 'desktop');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveAttribute('title', '4pm to 5pm');
       expect(draft()).toHaveClass('ev', 'blk', 's-placing', 'pop');
       expect(draft()).toHaveTextContent('New task, 4pm');
@@ -1653,7 +1654,7 @@ describe('hold to create on Week', () => {
       letGo(gridY(16 * 60) + 1, 'desktop');
       const capture = await screen.findByRole('dialog', { name: 'Capture' });
       expect(within(capture).getByText('Thu Nov 5, 4pm to 5pm')).toBeVisible();
-      const field = within(capture).getByRole('textbox', { name: 'Capture to Inbox' });
+      const field = within(capture).getByRole('combobox', { name: 'Capture to Inbox' });
       await waitFor(() => expect(field).toHaveFocus());
       await userEvent.type(field, 'Book dentist');
       expect(draft()).toHaveTextContent('Book dentist, 4pm');
@@ -1665,11 +1666,27 @@ describe('hold to create on Week', () => {
       await waitFor(() => expect(screen.queryByRole('button', { name: /^Book dentist,/ })).toBeNull());
     });
 
+    it('Capture’s search lists To schedule, and picking a task there places it in the drafted time instead, with Undo', async () => {
+      const t = await open({ seed: async (w) => { await planned(w); await setWeekPick(w, MON, 't1', 180); } });
+      await screen.findByRole('group', { name: 'Week calendar' });
+      press(column('2026-11-05'), gridY(16 * 60) + 1, 'desktop');
+      await pass(450);
+      letGo(gridY(16 * 60) + 1, 'desktop');
+      const capture = await screen.findByRole('dialog', { name: 'Capture' });
+      await userEvent.click(await within(capture).findByRole('option', { name: 'Draft the summary, Project · 2h of 3h left, Fits' }));
+      expect(await screen.findByText(/^Placed Draft the summary, .*4pm$/)).toBeVisible();
+      expect(draft()).toBeNull();
+      const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't1' && !b.deleted_at && b.start === at('16:00', '2026-11-05'));
+      await waitFor(async () => expect(await placed()).toMatchObject([{ end: at('18:00', '2026-11-05') }]));
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await placed()).toEqual([]));
+    });
+
     it('a draft that overlaps keeps its hour and sits beside it, Capture says by how much, moving takes it to another day in quarter hours, and Esc takes it away', async () => {
       await open({ seed: planned });
       await screen.findByRole('group', { name: 'Week calendar' });
       press(column(TUE), gridY(17 * 60 + 45) + 1, 'desktop');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveAttribute('title', '5:45pm to 6:45pm');
       expect(draft()).toHaveClass('beside');
       // A column is 100px wide where jsdom measures none, so 102px over, with the gap, is the next day.
@@ -1713,7 +1730,7 @@ describe('hold to create on Week', () => {
       await userEvent.keyboard('{Escape}');
       await waitFor(() => expect(draft()).toBeNull());
       letGo(gridY(17 * 60) + 1, 'desktop');
-      await wait(100);
+      await pass(100);
       expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
     });
 
@@ -1722,26 +1739,26 @@ describe('hold to create on Week', () => {
       await screen.findByRole('group', { name: 'Week calendar' });
       const quiz = [...column(TUE).querySelectorAll('.ev')].find((el) => el.textContent === 'Quiz night')!;
       press(quiz, gridY(19 * 60), 'desktop');
-      await wait(450);
+      await pass(450);
       letGo(gridY(19 * 60), 'desktop');
       expect(draft()).toBeNull();
 
       press(column(MON), gridY(10 * 60), 'desktop');
-      await wait(450);
+      await pass(450);
       letGo(gridY(10 * 60), 'desktop');
       expect(draft()).toBeNull();
       expect(await screen.findByText('That time has gone by. Hold on a later time.')).toBeVisible();
 
       press(column('2026-11-05'), gridY(16 * 60), 'desktop');
-      await wait(100);
+      await pass(100);
       letGo(gridY(16 * 60), 'desktop');
-      await wait(400);
+      await pass(400);
       expect(draft()).toBeNull();
 
       // Piano practice's session, opened in place.
       await userEvent.click(screen.getByRole('button', { name: /^Piano practice, Wed Nov 4, 7am to 7:30am/ }));
       press(column('2026-11-05'), gridY(16 * 60), 'desktop');
-      await wait(450);
+      await pass(450);
       expect(draft()).toBeNull();
       expect(t.platform.haptics).toEqual([]);
     });
@@ -1751,14 +1768,14 @@ describe('hold to create on Week', () => {
       await userEvent.click(await screen.findByRole('button', { name: "Edit this week's plan" }));
       const b1 = await screen.findByRole('group', { name: /^Draft the summary, Tue Nov 3, 6pm to 7pm/ });
       fireEvent.pointerDown(b1, { clientX: 20, clientY: gridY(18 * 60 + 30, 40), button: 0, pointerType: 'mouse', pointerId: 1 });
-      await wait(450);
+      await pass(450);
       expect(b1).toHaveClass('lifted');
       expect(draft()).toBeNull();
       letGo(gridY(18 * 60 + 30, 40), 'desktop');
       await waitFor(() => expect(b1).not.toHaveClass('lifted'));
 
       press(column('2026-11-05'), gridY(16 * 60, 40) + 1, 'desktop');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveAttribute('title', '4pm to 5pm');
     });
 
@@ -1769,7 +1786,7 @@ describe('hold to create on Week', () => {
       await userEvent.click(zoomIn);
       // 2.4 times the usual hour: 62px, or 96 while editing.
       press(column('2026-11-05'), gridY(16 * 60, 62) + 1, 'desktop');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveAttribute('title', '4pm to 5pm');
       fireEvent.pointerMove(window, { clientX: 20, clientY: gridY(17 * 60, 62) + 1, pointerType: 'mouse', pointerId: 1 });
       await waitFor(() => expect(draft()).toHaveAttribute('title', '5pm to 6pm'));
@@ -1780,7 +1797,7 @@ describe('hold to create on Week', () => {
       await userEvent.click(screen.getByRole('button', { name: "Edit this week's plan" }));
       await screen.findByRole('heading', { name: 'Editing this week' });
       press(column('2026-11-05'), gridY(16 * 60 + 30, 96) + 1, 'desktop');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveAttribute('title', '4:30pm to 5:30pm');
     });
   });
@@ -1795,7 +1812,7 @@ describe('hold to create on Week', () => {
       const t = await phone({ seed: planned });
       expect(await screen.findByText('Free, 5pm to 10pm')).toBeVisible();
       press(rowFrom(17 * 60), rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveClass('tlblock', 'blk', 's-placing');
       expect(draft()).toHaveTextContent('New task');
       expect(draft()).toHaveTextContent('5:45pm to 6:45pm');
@@ -1805,7 +1822,7 @@ describe('hold to create on Week', () => {
       letGo(rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
       const capture = await screen.findByRole('dialog', { name: 'Capture' });
       expect(within(capture).getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
-      await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+      await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
       expect(draft()).toHaveTextContent('Book dentist');
       await userEvent.click(within(capture).getByRole('button', { name: 'Save' }));
       expect(await screen.findByRole('button', { name: 'Book dentist, 5:45pm to 6:45pm, Inbox.' })).toHaveClass('k-inbox');
@@ -1813,18 +1830,34 @@ describe('hold to create on Week', () => {
       expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([expect.objectContaining({ title: 'Book dentist', estimate_min: 60 })]);
     });
 
+    it('Capture’s search lists To schedule, and a tap on a task there places it in the drafted time instead, with Undo', async () => {
+      const t = await phone({ seed: async (w) => { await planned(w); await setWeekPick(w, MON, 't1', 180); } });
+      expect(await screen.findByText('Free, 5pm to 10pm')).toBeVisible();
+      press(rowFrom(17 * 60), rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
+      await pass(450);
+      letGo(rowY(17 * 60 + 45, 17 * 60) + 1, 'phone');
+      const capture = await screen.findByRole('dialog', { name: 'Capture' });
+      await userEvent.click(await within(capture).findByRole('option', { name: 'Draft the summary, Project · 2h of 3h left, Fits' }));
+      expect(await screen.findByText(/^Placed Draft the summary, .*5:45pm$/)).toBeVisible();
+      expect(draft()).toBeNull();
+      const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't1' && !b.deleted_at && b.start === at('17:45'));
+      await waitFor(async () => expect(await placed()).toMatchObject([{ end: at('19:45') }]));
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect(await placed()).toEqual([]));
+    });
+
     it('a hold on time gone by drafts nothing and says why; a hold on a block lifts it to move and drafts nothing; a sideways swipe after a hold keeps the day', async () => {
       const t = await phone({ seed: async (w) => { await planned(w); await w.create('time_block', { task_id: 't2', start: at('17:00'), end: at('18:00'), tz: ZONE }, 'b4'); } });
       const gone = (await screen.findByText('Gone by, 7am to 7:30am')).closest('.tlrow')!;
       press(gone, 10, 'phone');
-      await wait(450);
+      await pass(450);
       letGo(10, 'phone');
       expect(draft()).toBeNull();
       expect(await screen.findByText('That time has gone by. Hold on a later time.')).toBeVisible();
 
       const el = screen.getByRole('button', { name: /^Paint the fence, 5pm to 6pm/ });
       press(el, 10, 'phone');
-      await wait(450);
+      await pass(450);
       expect(draft()).toBeNull();
       fireEvent.pointerCancel(window, { pointerId: 1, pointerType: 'touch' });
       expect(t.platform.haptics).toEqual(['light']);
@@ -1832,7 +1865,7 @@ describe('hold to create on Week', () => {
       const free = rowFrom(18 * 60);
       fireEvent.touchStart(free, { touches: [{ clientX: 20, clientY: 50 }] });
       press(free, 50, 'phone');
-      await wait(450);
+      await pass(450);
       expect(draft()).not.toBeNull();
       fireEvent.touchEnd(free, { changedTouches: [{ clientX: 220, clientY: 60 }] });
       letGo(60, 'phone', 220);
@@ -1846,7 +1879,7 @@ describe('hold to create on Week', () => {
       // The drawn day starts at 6am, 48px an hour.
       const day = document.querySelector<HTMLElement>('.day.dragday')!;
       press(day, ((18 * 60 - 360) * 48) / 60 + 1, 'phone');
-      await wait(450);
+      await pass(450);
       expect(draft()).toHaveAttribute('title', '6pm to 7pm');
       expect(draft()).toHaveClass('cev', 's-placing');
       letGo(((18 * 60 - 360) * 48) / 60 + 1, 'phone');
@@ -1861,7 +1894,7 @@ describe('hold to create on Week', () => {
       await userEvent.click(within(await screen.findByRole('menu', { name: 'Move to' })).getByRole('menuitem', { name: 'Choose a time…' }));
       expect(await screen.findByText(/^Moving Draft the summary/)).toBeVisible();
       press(document.querySelector('.day.dragday')!, ((10 * 60 - 360) * 48) / 60, 'phone');
-      await wait(450);
+      await pass(450);
       expect(draft()).toBeNull();
     });
   });

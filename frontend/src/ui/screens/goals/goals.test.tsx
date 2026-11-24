@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRecord, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { renderScreen } from '../../app/testing';
+import { holdTimers, pass, pickFrom, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { EST_STEPS } from '../../components/EstimateSlider';
 
@@ -637,7 +637,7 @@ describe('Goals', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
       editor = await screen.findByRole('dialog', { name: 'Feed the starter' });
       expect(within(editor).getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
+      await pickFrom(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Feed the starter to Bake a sourdough loaf, First loaf.')).toBeVisible();
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m2');
@@ -708,18 +708,20 @@ describe('Goals', () => {
       await userEvent.click(within(head).getByRole('button', { name: 'Done tasks' }));
       await userEvent.click(within(done).getByRole('button', { name: /^Edit task Buy flour/ }));
       let editor = await screen.findByRole('dialog', { name: 'Buy flour' });
+      await userEvent.click(within(editor).getByLabelText('Belongs to'));
       expect(within(editor).getAllByRole('option').map((o) => o.textContent)).toEqual([
         'Inbox',
         'One offs',
         'Bake a sourdough loaf, Make a starter',
         'Bake a sourdough loaf, Done',
       ]);
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Make a starter');
+      // The list is open, on phone in its sheet.
+      await userEvent.click(screen.getByRole('option', { name: 'Bake a sourdough loaf, Make a starter' }));
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Make a starter.')).toBeVisible();
       await userEvent.click(await within(group('Make a starter')).findByRole('button', { name: /^Edit task Buy flour/ }));
       editor = await screen.findByRole('dialog', { name: 'Buy flour' });
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
+      await pickFrom(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Done.')).toBeVisible();
     });
@@ -848,11 +850,12 @@ describe('Goals', () => {
   });
 
   describe('moving tasks by holding them on phone', () => {
-    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    beforeEach(holdTimers);
     const point = (el: Element | null) => {
       document.elementFromPoint = () => el;
     };
     afterEach(() => {
+      vi.useRealTimers();
       // jsdom has no layout, so each test says what is under the finger.
       document.elementFromPoint = () => null;
     });
@@ -861,7 +864,7 @@ describe('Goals', () => {
       const t = await project('phone');
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       expect(row.closest('.taskline')).toHaveClass('lifted');
       point(within(group('First loaf')).getByText('Milestone: First loaf'));
       fireEvent.pointerMove(window, { clientX: 50, clientY: 400 });
@@ -880,16 +883,16 @@ describe('Goals', () => {
       const row = await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' });
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
       fireEvent.pointerMove(window, { clientX: 50, clientY: 330 });
-      await wait(450);
+      await pass(450);
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       fireEvent.pointerCancel(window);
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       fireEvent.pointerUp(window, { clientX: 0, clientY: 0 });
       expect(row.closest('.taskline')).not.toHaveClass('lifted');
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m1');
@@ -906,7 +909,7 @@ describe('Goals', () => {
       const row = within(done).getByRole('button', { name: /^Edit task Buy a proofing basket/ });
 
       fireEvent.pointerDown(row, { clientX: 50, clientY: 300, button: 0 });
-      await wait(450);
+      await pass(450);
       point(group('Make a starter'));
       fireEvent.pointerMove(window, { clientX: 50, clientY: 200 });
       fireEvent.pointerUp(window, { clientX: 50, clientY: 200 });

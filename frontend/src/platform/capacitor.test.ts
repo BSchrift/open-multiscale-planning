@@ -15,6 +15,10 @@ const native = vi.hoisted(() => {
     shared: [] as { id: string; text: string }[],
     databases: [] as string[],
     appearances: [] as unknown[],
+    // undefined: an app built before widgets, with no plugin to answer.
+    widgetsEnabled: undefined as boolean | undefined,
+    widgetCalls: [] as unknown[][],
+    widgetQueue: [] as { id: string; text: string }[],
   };
 });
 
@@ -56,11 +60,27 @@ vi.mock('@capacitor/core', () => ({
   registerPlugin: (name: string) =>
     name === 'MultiscaleAppearance'
       ? { set: async (options: unknown) => void native.appearances.push(options) }
-      : {
+      : name === 'MultiscaleWidgets'
+        ? {
+            status: async () => {
+              if (native.widgetsEnabled === undefined) throw new Error('"MultiscaleWidgets" plugin is not implemented on ios');
+              return { enabled: native.widgetsEnabled };
+            },
+            write: async (options: unknown) => void native.widgetCalls.push(['write', options]),
+            clear: async () => void native.widgetCalls.push(['clear']),
+            actions: async () => ({ items: [...native.widgetQueue] }),
+            remove: async ({ ids }: { ids: string[] }) => void (native.widgetQueue = native.widgetQueue.filter((item) => !ids.includes(item.id))),
+            refreshed: async (options: unknown) => void native.widgetCalls.push(['refreshed', options]),
+            addListener: async (event: string, handler: (data: never) => void) => {
+              native.handlers.set(`widgets:${event}`, handler);
+              return { remove: vi.fn() };
+            },
+          }
+        : {
           status: async () => ({ enabled: native.shareEnabled }),
           peek: async () => ({ items: [...native.shared] }),
           remove: async ({ ids }: { ids: string[] }) => void (native.shared = native.shared.filter((item) => !ids.includes(item.id))),
-        },
+          },
 }));
 vi.mock('@capacitor-community/sqlite', () => {
   const connection = {
@@ -127,6 +147,9 @@ beforeEach(() => {
   native.shared = [];
   native.databases = [];
   native.appearances = [];
+  native.widgetsEnabled = undefined;
+  native.widgetCalls = [];
+  native.widgetQueue = [];
 });
 
 describe('database driver', () => {
@@ -332,6 +355,59 @@ describe('sign-in and deep links', () => {
     platform.hotkey!.onCapture(() => captures++);
     expect(captures).toBe(1);
     expect(links).toEqual([]);
+  });
+});
+
+describe('the widgets’ links', () => {
+  it('open a screen of the app, apart from sign-in and Capture, and wait for the app to listen', async () => {
+    const platform = await createCapacitorPlatform();
+    const links: string[] = [];
+    platform.onDeepLink((url) => links.push(url));
+    native.fire('appUrlOpen', { url: 'multiscale://today?block=spec' });
+    native.fire('appUrlOpen', { url: 'multiscale://inbox' });
+    const opened: unknown[] = [];
+    platform.onAppLink!((link) => opened.push(link));
+    expect(opened).toEqual([{ screen: 'today', block: 'spec' }, { screen: 'inbox' }]);
+    expect(links).toEqual([]);
+  });
+});
+
+describe('widgets', () => {
+  it('are absent in an app built before them, and in a build without the App Group', async () => {
+    expect((await createCapacitorPlatform()).widgets).toBeUndefined();
+    native.widgetsEnabled = false;
+    expect((await createCapacitorPlatform()).widgets).toBeUndefined();
+  });
+
+  it('write the snapshot, read and remove the queue, and clear', async () => {
+    native.widgetsEnabled = true;
+    native.widgetQueue = [{ id: '1-a.json', text: '{}' }, { id: '2-b.json', text: '{}' }];
+    const { widgets } = await createCapacitorPlatform();
+    await widgets!.write('{"v":1}');
+    expect(await widgets!.actions()).toEqual(native.widgetQueue);
+    await widgets!.remove(['1-a.json']);
+    expect(await widgets!.actions()).toEqual([{ id: '2-b.json', text: '{}' }]);
+    await widgets!.clear();
+    expect(native.widgetCalls).toEqual([['write', { json: '{"v":1}' }], ['clear']]);
+  });
+
+  it('answer iOS’s refresh once the listener has written, waiting for one if the page has none yet', async () => {
+    native.widgetsEnabled = true;
+    const { widgets } = await createCapacitorPlatform();
+    native.fire('widgets:refresh');
+    expect(native.widgetCalls).toEqual([]);
+    let finish!: () => void;
+    widgets!.onRefresh(() => new Promise<void>((resolve) => (finish = resolve)));
+    await Promise.resolve();
+    expect(native.widgetCalls).toEqual([]);
+    finish();
+    await vi.waitFor(() => expect(native.widgetCalls).toEqual([['refreshed', { ok: true }]]));
+    widgets!.onRefresh(async () => {
+      throw new Error('offline');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    native.fire('widgets:refresh');
+    await vi.waitFor(() => expect(native.widgetCalls.at(-1)).toEqual(['refreshed', { ok: false }]));
   });
 });
 

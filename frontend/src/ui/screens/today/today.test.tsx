@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { localToInstant } from '../../../core/dates';
 import { META, setMeta } from '../../../core/db';
 import { CALENDAR_ID, getRecord, listRecords, outcomeId, setWeekPick, weekPickId, weekPlanId } from '../../../core/records';
@@ -8,7 +8,7 @@ import type { Writer } from '../../../core/records';
 import type { AppSync } from '../../../core/syncRunner';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import type { Layout } from '../../app/registry';
-import { holdDown, renderApp, renderScreen } from '../../app/testing';
+import { holdDown, holdTimers, pass, renderApp, renderScreen } from '../../app/testing';
 import type { Harness, HarnessOptions } from '../../app/testing';
 import { noFiles } from '../../../core/sync-testing';
 
@@ -382,6 +382,21 @@ describe('the Now card', () => {
       await userEvent.click(within(now).getByRole('button', { name: 'Mark done now' }));
       expect(await screen.findByText("Marked done after 1h. You're free until 4pm.")).toBeVisible();
     });
+  });
+
+  it('Start stops a block counting beside it, says so, and Undo puts both back', async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't0', 'Rake the leaves');
+      await block(w, 'b0', 't0', '13:30', '14:30', { started_at: at('13:30') });
+    });
+    const now = await screen.findByRole('region', { name: 'Current block' });
+    await userEvent.click(within(now).getByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('Started Write the report. Stopped Rake the leaves at 2pm.')).toBeVisible();
+    expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW);
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
+    expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBeNull();
   });
 
   it('on phone, Mark done now and Stop for now appear once the block is started', async () => {
@@ -1119,6 +1134,60 @@ describe('the timeline', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.start).toBe(at('16:00'));
   });
 
+  describe('Start now while another block counts', () => {
+    const counting = async (w: Writer) => {
+      await day(w);
+      await task(w, 't0', 'Paint the fence');
+      await block(w, 'b0', 't0', '13:00', '15:00', { started_at: at('13:00') });
+    };
+
+    it("in a block's popup, stops that one at now and says so, and Undo puts both back", async () => {
+      const t = await open(counting);
+      await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+      const popup = await taskPopup('Write the report');
+      await userEvent.click(within(popup).getByRole('button', { name: 'Start now' }));
+      expect(await screen.findByText('Started Write the report. It now runs 2pm to 3pm. Stopped Paint the fence at 2pm.')).toBeVisible();
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b1'))?.started_at).toBe(NOW));
+      expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW);
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b0'))).toBeUndefined();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
+      expect(await getRecord(t.db, 'time_block', 'b1')).toMatchObject({ started_at: null, start: at('16:00') });
+    });
+
+    it("in a block's popup, asks how the stopped one went once the popup closes, though nothing else changes then", async () => {
+      await open(counting);
+      await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
+      const popup = await taskPopup('Write the report');
+      await userEvent.click(within(popup).getByRole('button', { name: 'Start now' }));
+      // Today has read the change: the Now card is on the new block, and the stopped one's question waits for the popup.
+      const now = await screen.findByRole('region', { name: 'Current block' });
+      expect(await within(now).findByRole('heading', { name: 'Write the report' })).toBeVisible();
+      expect(screen.queryByRole('dialog', { name: 'Block finished' })).toBeNull();
+      await userEvent.click(within(popup).getByRole('button', { name: 'Cancel' }));
+      expect(within(await dialog('Block finished')).getByText('Paint the fence')).toBeVisible();
+    });
+
+    it('from the quick menu, then asks how the stopped one went, Partly starting from its estimate less the time spent', async () => {
+      const t = await open(counting);
+      fireEvent.contextMenu(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }), { clientX: 200, clientY: 300 });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Start now' }));
+      expect(await screen.findByText('Started Write the report. It now runs 2pm to 3pm. Stopped Paint the fence at 2pm.')).toBeVisible();
+      const prompt = await dialog('Block finished');
+      expect(within(prompt).getByText('Paint the fence')).toBeVisible();
+      expect(within(prompt).getByText('1h spent.')).toBeVisible();
+      // It was stopped, so it isn't still going.
+      expect(within(prompt).queryByRole('button', { name: /Still going/ })).toBeNull();
+      await userEvent.click(within(prompt).getByRole('button', { name: 'Partly' }));
+      // 3h estimated, 1h spent.
+      expect(within(await dialog('How much is left?')).getByRole('slider', { name: 'Time left' })).toHaveAttribute('aria-valuetext', '2h');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Added to Needs a new time. No need to decide now.')).toBeVisible();
+      expect(await getRecord(t.db, 'block_outcome', outcomeId('b0'))).toMatchObject({ result: 'partly', remaining_min: 120 });
+    });
+  });
+
   it("a block gone by asks how it went in its popup: Partly takes the time left, and saves with Undo", async () => {
     const t = await open(async (w) => {
       await day(w);
@@ -1287,7 +1356,7 @@ describe('the timeline', () => {
     expect(within(await sectionOf(/^Plan the talk, 11am to 12pm/, 'Plan the talk')).queryByRole('button', { name: 'Move…' })).toBeNull();
   });
 
-  it("Done in a later block's popup finishes the task, and its blocks from then on come off the calendar, with Undo", async () => {
+  it("Mark done in a later block's popup finishes the task, and its blocks from then on come off the calendar, with Undo", async () => {
     const t = await open(async (w) => {
       await day(w);
       await block(w, 'b4', 't1', '18:00', '19:00');
@@ -1295,8 +1364,8 @@ describe('the timeline', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
     const section = within(await taskPopup('Write the report')).getByRole('region', { name: 'Time block' });
     // Beside Start now, Move… and Remove from calendar, in the order they're read.
-    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start now', 'Done', 'Move…', 'Remove from calendar']);
-    await userEvent.click(within(section).getByRole('button', { name: 'Done' }));
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
+    await userEvent.click(within(section).getByRole('button', { name: 'Mark done' }));
     expect(await screen.findByText('Marked Write the report done. Its 4pm block and 1 later one came off the calendar, so that time is free.')).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(NOW));
     expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
@@ -1308,20 +1377,40 @@ describe('the timeline', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull();
   });
 
-  it("Done on a one off's later block ticks it off, as its row's box does", async () => {
+  it("Mark done on a one off's later block ticks it off, as its row's box does", async () => {
     const t = await open(async (w) => {
       await w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't2');
       await block(w, 'b2', 't2', '16:00', '17:00');
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Paint the fence, 4pm to 5pm/ }));
-    await userEvent.click(within(await taskPopup('Paint the fence')).getByRole('button', { name: 'Done' }));
+    await userEvent.click(within(await taskPopup('Paint the fence')).getByRole('button', { name: 'Mark done' }));
     expect(await screen.findByText('Marked Paint the fence done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't2'))?.done_at).toBe(NOW));
     expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
     expect(await listRecords(t.db, 'task_completion')).toHaveLength(1);
   });
 
-  it("the block under way offers Done, which marks it done now, and Pause or Resume", async () => {
+  it("Mark done in an answered block's popup still finishes its task, as from a list, with Undo", async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't3', 'Read the brief');
+      await block(w, 'b5', 't3', '11:00', '12:00');
+      await w.create('block_outcome', { result: 'partly', answered_at: at('12:00') }, outcomeId('b5'));
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 11am to 12pm/ }));
+    const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Mark done']);
+    await userEvent.click(within(section).getByRole('button', { name: 'Mark done' }));
+    expect(await screen.findByText('Marked Read the brief done.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.done_at).toBe(NOW));
+    // Its answer stays as it was.
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('b5')))?.result).toBe('partly');
+    await waitFor(() => expect(within(section).queryByRole('button', { name: 'Mark done' })).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.done_at).toBeNull());
+  });
+
+  it("the block under way offers Mark done, which marks it done now, and Pause or Resume", async () => {
     const t = await open(async (w) => {
       await day(w);
       await task(w, 't3', 'Read the brief');
@@ -1329,7 +1418,7 @@ describe('the timeline', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 1:30pm to 3pm/ }));
     const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
-    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Done', 'Pause']);
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Mark done', 'Pause']);
     await userEvent.click(within(section).getByRole('button', { name: 'Pause' }));
     expect(await screen.findByText('Paused Read the brief')).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.paused_at).toBe(NOW));
@@ -1338,7 +1427,7 @@ describe('the timeline', () => {
     expect(await screen.findByText('Resumed. It now ends at 3pm.')).toBeVisible();
     expect(await within(section).findByRole('button', { name: 'Pause' })).toBeVisible();
     // As Mark done now has it: the block ends now and says how long it took.
-    await userEvent.click(within(section).getByRole('button', { name: 'Done' }));
+    await userEvent.click(within(section).getByRole('button', { name: 'Mark done' }));
     expect(await screen.findByText("Marked done after 30m. You're free until 4pm.")).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW));
     expect((await getRecord(t.db, 'block_outcome', outcomeId('b0')))?.result).toBe('done');
@@ -1347,7 +1436,7 @@ describe('the timeline', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
   });
 
-  it("the block under way, not yet started, offers Start, Done and Move…", async () => {
+  it("the block under way, not yet started, offers Start, Mark done and Move…", async () => {
     await open(async (w) => {
       await day(w);
       await task(w, 't3', 'Read the brief');
@@ -1355,7 +1444,7 @@ describe('the timeline', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 1:30pm to 3pm/ }));
     const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
-    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start', 'Done', 'Move…', 'Remove from calendar']);
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start', 'Mark done', 'Move…', 'Remove from calendar']);
   });
 
   it("a practice's session and a planning block open their details, as before", async () => {
@@ -1677,6 +1766,7 @@ describe("a task's block made shorter on the timeline", () => {
 
 describe('moving a block on the timeline', () => {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  afterEach(() => void vi.useRealTimers());
   const day = async (w: Writer) => {
     await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '16:00', '17:00');
@@ -1926,11 +2016,12 @@ describe('moving a block on the timeline', () => {
   });
 
   it('on phone, a finger that moves before the hold scrolls instead, and a hold let go in place opens its menu, not the task', async () => {
+    holdTimers();
     const t = await open(day, { layout: 'phone' });
     const el = await report(undefined, 'slider');
     fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch' });
     fireEvent.pointerMove(window, { clientY: 330, pointerType: 'touch' });
-    await wait(450);
+    await pass(450);
     expect(el).not.toHaveClass('lifted');
     fireEvent.pointerMove(window, { clientY: 360, pointerType: 'touch' });
     fireEvent.pointerUp(window, { clientY: 360, pointerType: 'touch' });
@@ -1948,16 +2039,17 @@ describe('moving a block on the timeline', () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
     // A tap a moment later opens it as before.
-    await wait(450);
+    await pass(450);
     await userEvent.click(el);
     await taskPopup('Write the report');
   });
 
   it('on phone, a short tap opens the task and moves nothing, and a hold lifts it with one light tap from the device', async () => {
+    holdTimers();
     const t = await open(day, { layout: 'phone' });
     const el = await report(undefined, 'slider');
     fireEvent.pointerDown(el, { clientY: 300, button: 0 });
-    await wait(100);
+    await pass(100);
     fireEvent.pointerUp(window, { clientY: 300 });
     fireEvent.click(el);
     await taskPopup('Write the report');
@@ -2060,7 +2152,8 @@ describe('moving a block on the timeline', () => {
 });
 
 describe('hold to create on the timeline', () => {
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  beforeEach(holdTimers);
+  afterEach(() => void vi.useRealTimers());
   const day = async (w: Writer) => {
     await task(w, 't1', 'Write the report');
     await block(w, 'b1', 't1', '16:00', '17:00');
@@ -2080,7 +2173,7 @@ describe('hold to create on the timeline', () => {
   const hold = async (time: string, layout: Layout) => {
     await ready(layout);
     press(time, layout);
-    await wait(450);
+    await pass(450);
   };
   const letGo = (time: string, layout: Layout) => fireEvent.pointerUp(window, { clientX: 100, clientY: y(time), pointerType: kind(layout), pointerId: 1 });
 
@@ -2097,7 +2190,7 @@ describe('hold to create on the timeline', () => {
         letGo('17:46', layout);
         const capture = await screen.findByRole('dialog', { name: 'Capture' });
         expect(within(capture).getByText('Today, 5:45pm to 6:45pm')).toBeVisible();
-        const field = within(capture).getByRole('textbox', { name: 'Capture to Inbox' });
+        const field = within(capture).getByRole('combobox', { name: 'Capture to Inbox' });
         await waitFor(() => expect(field).toHaveFocus());
         await userEvent.type(field, 'Book dentist');
         expect(draft()).toHaveTextContent('Book dentist');
@@ -2131,13 +2224,40 @@ describe('hold to create on the timeline', () => {
         expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([]);
       });
 
+      it('Capture’s search lists To schedule, and picking a task there places it in the drafted time instead, with Undo', async () => {
+        const t = await open(async (w) => {
+          await day(w);
+          await w.create('project', { title: 'Report', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'p');
+          await task(w, 't2', 'Draft the summary', { estimate_min: 30 });
+          await setWeekPick(w, DAY, 't2', 30);
+        });
+        // With work to schedule, the phone's blocks are buttons, so the day is ready once the block is drawn at all.
+        await screen.findByLabelText(/^Write the report, 4pm to 5pm/, {}, { timeout: 5000 });
+        press('17:46', layout);
+        await pass(450);
+        letGo('17:46', layout);
+        const capture = await screen.findByRole('dialog', { name: 'Capture' });
+        const option = await within(capture).findByRole('option', { name: 'Draft the summary, Project · 30m, Fits' });
+        if (layout === 'desktop') {
+          await userEvent.keyboard('{ArrowDown}');
+          expect(option).toHaveAttribute('aria-selected', 'true');
+          await userEvent.keyboard('{Enter}');
+        } else await userEvent.click(option);
+        expect(await screen.findByText(/^Placed Draft the summary, .*5:45pm$/)).toBeVisible();
+        expect(draft()).toBeNull();
+        expect(await screen.findByLabelText(/^Draft the summary, 5:45pm to 6:15pm/)).toBeVisible();
+        expect((await listRecords(t.db, 'task')).filter((x) => x.kind === 'inbox')).toEqual([]);
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        await waitFor(() => expect(screen.queryByLabelText(/^Draft the summary, 5:45pm/)).toBeNull());
+      });
+
       it('a tap or a click on empty space drafts nothing', async () => {
         const t = await open(day, { layout });
         await ready(layout);
         press('18:00', layout);
-        await wait(100);
+        await pass(100);
         letGo('18:00', layout);
-        await wait(400);
+        await pass(400);
         expect(draft()).toBeNull();
         expect(screen.queryByRole('dialog')).toBeNull();
         expect(t.platform.haptics).toEqual([]);
@@ -2178,13 +2298,13 @@ describe('hold to create on the timeline', () => {
     await ready('phone');
     press('18:00', 'phone');
     fireEvent.pointerMove(window, { clientX: 100, clientY: y('18:00') + 9, pointerType: 'touch', pointerId: 1 });
-    await wait(450);
+    await pass(450);
     expect(draft()).toBeNull();
     letGo('18:00', 'phone');
 
     press('18:00', 'phone');
     press('19:00', 'phone', 2);
-    await wait(450);
+    await pass(450);
     expect(draft()).toBeNull();
     expect(t.platform.haptics).toEqual([]);
   });
@@ -2203,12 +2323,12 @@ describe('hold to create on the timeline', () => {
     expect(draft()).toHaveClass('blk', 's-placing');
     expect(draft()).not.toHaveClass('pop');
     expect(document.querySelector('.holdring')).toBeNull();
-    await wait(450);
+    await pass(450);
     expect(draft()).toHaveAttribute('title', '5:45pm to 6:30pm');
     letGo('18:20', 'desktop');
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText('Today, 5:45pm to 6:30pm')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Book dentist');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Book dentist');
     await userEvent.keyboard('{Enter}');
     expect(await screen.findByText('Saved to Inbox, 5:45pm to 6:30pm')).toBeVisible();
     expect(await listRecords(t.db, 'task')).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'inbox', title: 'Book dentist', estimate_min: 45 })]));
@@ -2248,7 +2368,7 @@ describe('hold to create on the timeline', () => {
     await waitFor(() => expect(draft()).toBeNull());
     moveTo('19:30');
     letGo('19:30', 'desktop');
-    await wait(100);
+    await pass(100);
     expect(draft()).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
   });
@@ -2263,7 +2383,7 @@ describe('hold to create on the timeline', () => {
     letGo('16:20', 'desktop');
     const capture = await screen.findByRole('dialog', { name: 'Capture' });
     expect(within(capture).getByText('Overlaps Write the report by 30m.')).toBeVisible();
-    await userEvent.type(within(capture).getByRole('textbox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
+    await userEvent.type(within(capture).getByRole('combobox', { name: 'Capture to Inbox' }), 'Call the bank{Enter}');
     expect(await screen.findByText('Saved to Inbox, 3:30pm to 4:30pm')).toBeVisible();
     expect(screen.queryByText('Schedule both at the same time?')).toBeNull();
   });
@@ -2273,7 +2393,7 @@ describe('hold to create on the timeline', () => {
     await ready('desktop');
     press('12:00', 'desktop');
     moveTo('13:00');
-    await wait(50);
+    await pass(50);
     expect(draft()).toBeNull();
     letGo('13:00', 'desktop');
     expect(await screen.findByText('That time has gone by. Hold on a later time.')).toBeVisible();
@@ -2286,7 +2406,7 @@ describe('hold to create on the timeline', () => {
     await taskPopup('Write the report');
     press('18:00', 'desktop');
     moveTo('19:00');
-    await wait(50);
+    await pass(50);
     expect(draft()).toBeNull();
   });
 
@@ -2304,10 +2424,10 @@ describe('hold to create on the timeline', () => {
     const t = await open(day, { layout: 'phone' });
     const el = await ready('phone');
     fireEvent.pointerDown(el, { clientY: 300, button: 0, pointerType: 'touch', pointerId: 1 });
-    await wait(450);
+    await pass(450);
     expect(el).toHaveClass('lifted');
     press('19:00', 'phone', 2);
-    await wait(450);
+    await pass(450);
     expect(draft()).toBeNull();
     expect(t.platform.haptics).toEqual(['light']);
   });
@@ -2316,7 +2436,7 @@ describe('hold to create on the timeline', () => {
     await open(day);
     const el = await ready('desktop');
     fireEvent.pointerDown(el, { clientX: 100, clientY: y('16:30'), button: 0, pointerType: 'mouse', pointerId: 1 });
-    await wait(450);
+    await pass(450);
     expect(el).toHaveClass('lifted');
     expect(draft()).toBeNull();
     fireEvent.pointerUp(window, { clientX: 100, clientY: y('16:30'), pointerType: 'mouse', pointerId: 1 });
@@ -2339,7 +2459,7 @@ describe('hold to create on the timeline', () => {
     );
     const holdOn = async (el: HTMLElement, time: string) => {
       fireEvent.pointerDown(el, { clientX: 100, clientY: y(time), button: 0, pointerType: 'touch', pointerId: 1 });
-      await wait(450);
+      await pass(450);
       expect(el).toHaveClass('lifted');
       letGo(time, 'phone');
       fireEvent.click(el);
@@ -2363,7 +2483,7 @@ describe('hold to create on the timeline', () => {
       const point = { clientX: 100, clientY: y(time), button: 2, pointerType: 'mouse', pointerId: 1 };
       fireEvent.pointerDown(on, point);
       const shown = fireEvent.contextMenu(on, point);
-      await wait(450);
+      await pass(450);
       fireEvent.pointerUp(window, point);
       return shown;
     };
@@ -2391,7 +2511,7 @@ describe('hold to create on the timeline', () => {
     await ready(layout);
     const event = [...document.querySelectorAll<HTMLElement>('.cev')].find((el) => el.textContent?.includes('Quiz night'))!;
     fireEvent.pointerDown(event, { clientX: 100, clientY: y('19:30'), button: 0, pointerType: kind(layout), pointerId: 1 });
-    await wait(450);
+    await pass(450);
     letGo('19:30', layout);
     expect(draft()).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();

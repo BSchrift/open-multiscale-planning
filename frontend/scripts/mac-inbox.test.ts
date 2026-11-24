@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { APP_VERSION, BUILD, DOWNLOADS, fakeBuild, file, link, linkedMachO, makeIdentity, OUR_FUSES, signMachO, trustOf, writeApp, writeZip, zipOf } from './fake-mac-build';
 import type { FakeBuild } from './fake-mac-build';
-import { appRecord, appVersion, buildConfig, inboxBuildFor, liveRecord, notarizations, parsePlist, readManifest, readZip, sameMacNativeCode, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
+import { appRecord, appVersion, buildConfig, inboxBuildFor, liveRecord, notarizations, parsePlist, readManifest, readZip, sameMacNativeCode, stampLength, unpackConfig, verifyInbox, writeManifest } from './mac-inbox';
 import type { Manifest } from './mac-inbox';
 
 const TEAM = 'TEAMID0001';
@@ -421,6 +421,20 @@ describe('inboxBuildFor', () => {
     expect(inboxBuildFor(repo.dir, commit, 'prod', keys, 1794000050)).toBe(commit);
     expect(inboxBuildFor(repo.dir, commit, 'prod', keys, undefined, [commit])).toBe(second);
     expect(inboxBuildFor(repo.dir, commit, 'prod', keys, 1794000000, [first, commit])).toBe(second);
+  });
+});
+
+describe('stampLength', () => {
+  it("gives how much of the commit the build's version names, so building it again stamps it the same", () => {
+    expect(stampLength(writeManifest(manifest), COMMIT)).toBe(7);
+    expect(stampLength(writeManifest({ ...manifest, version: '0.1.0-c0ffee00' }), COMMIT)).toBe(8);
+  });
+
+  it("gives nothing for a version that doesn't name the start of the commit, or a manifest it can't read", () => {
+    expect(stampLength(writeManifest({ ...manifest, version: '0.1.0-beef000' }), COMMIT)).toBeUndefined();
+    expect(stampLength(writeManifest({ ...manifest, version: '0.1.0-dev' }), COMMIT)).toBeUndefined();
+    expect(stampLength(writeManifest({ ...manifest, version: '0.1.0-c0f' }), COMMIT)).toBeUndefined();
+    expect(stampLength('{', COMMIT)).toBeUndefined();
   });
 });
 

@@ -11,12 +11,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { diffDays, formatDate, formatMinutes, formatTimeOfDay, formatWeekday, instantMs, weekDates } from '../../../core/dates';
+import { diffDays, formatMinutes, formatTimeOfDay, instantMs, weekDates } from '../../../core/dates';
 import type { BlockRow } from '../../../core/queries';
 import { dayBaseAhead, dayFree, dragResult, DRAWN_DAY, isOpen, TIGHT_SHARE } from '../../../core/slots';
 import type { Slot, SlotContext, Span } from '../../../core/slots';
 import type { BlockResult, LocalDate } from '../../../core/types';
-import { KIND_WORD, OUTCOME_WORD } from '../blocks/describe';
+import { dayName, KIND_WORD, OUTCOME_WORD } from '../blocks/describe';
 import { NowLine } from '../NowLine';
 import type { BlockKind } from '../blocks/describe';
 import { OutcomeTag } from '../blocks/Outcome';
@@ -84,9 +84,6 @@ export function placedBlocks(placed: readonly Span[], rows: readonly BlockRow[],
     };
   });
 }
-
-/** 'Mon Nov 2' */
-export const dayName = (date: LocalDate) => `${formatWeekday(date)} ${formatDate(date)}`;
 
 /** '4 finished' under a day's heading, which opens Done on that day. */
 export const finishedCount = (n: number) => (n ? `${n} finished` : 'Nothing finished');

@@ -11,6 +11,7 @@ import type { Layout } from '../../app/registry';
 import { EST_STEPS } from '../../components/EstimateSlider';
 import { slotRange } from '../../components/weekgrid';
 import { Capture } from '.';
+import type { FoundTask, TaskFinder } from '.';
 
 afterEach(cleanup);
 
@@ -258,7 +259,7 @@ describe('Capture in the app', () => {
 describe.each(['desktop', 'phone'] as const)('Capture from a hold on a calendar, on %s', (layout) => {
   const at = (minutes: number) => localToInstant('2026-11-02', minutes, 'America/Chicago');
   /** What a calendar keeps while Capture is open: the draft's time, which Capture's Time slider changes. */
-  function Held(props: { close(): void; anchor?: DOMRect }) {
+  function Held(props: { close(): void; anchor?: DOMRect; finder?: TaskFinder }) {
     const [slot, setSlot] = useState<Slot>({ date: '2026-11-02', start: 17 * 60 + 45, end: 18 * 60 + 45 });
     return (
       <>
@@ -271,6 +272,7 @@ describe.each(['desktop', 'phone'] as const)('Capture from a hold on a calendar,
             overlap: 'Overlaps Team sync prep by 15m.',
             onLength: (minutes) => setSlot((s) => ({ ...s, end: s.start + minutes })),
             ...(props.anchor ? { anchor: () => props.anchor } : {}),
+            ...(props.finder ? { finder: props.finder } : {}),
           }}
         />
       </>
@@ -282,6 +284,37 @@ describe.each(['desktop', 'phone'] as const)('Capture from a hold on a calendar,
     await screen.findByRole('textbox', { name: /Capture to/ });
     return { ...t, close };
   };
+  // What a calendar's finder offers: two tasks to schedule and a practice that can't go here, then, once typed, a one off.
+  const todo: FoundTask[] = [
+    { key: 't1', title: 'Write the report', kind: 'project', meta: 'Project · 1h', tag: 'Fits' },
+    { key: 'r1', title: 'Morning run', kind: 'practice', meta: 'Practice · 30m', off: 'Already on Monday, 7am' },
+    { key: 't2', title: 'Plan the offsite', kind: 'project', meta: 'Project · 2h', tag: 'Longer by 45m', quiet: true },
+  ];
+  const flights: FoundTask = { key: 'o1', title: 'Book flights', kind: 'one_off', meta: 'One off · 30m', tag: 'Fits' };
+  const finder = (placed: boolean | Promise<boolean> = true) => {
+    const place = vi.fn(() => Promise.resolve(placed));
+    const f: TaskFinder = {
+      find: (typed) => {
+        const has = (x: FoundTask) => x.title.toLowerCase().includes(typed.toLowerCase());
+        return [
+          { label: 'To schedule · 1h 15m free here', tasks: todo.filter(has) },
+          { label: 'One offs', tasks: typed ? [flights].filter(has) : [] },
+        ].filter((g) => g.tasks.length);
+      },
+      place,
+    };
+    return { f, place };
+  };
+  const find = async (placed?: boolean | Promise<boolean>) => {
+    const close = vi.fn();
+    const { f, place } = finder(placed);
+    const t = await renderInApp(<Held close={close} finder={f} />, { layout, seed });
+    await screen.findByRole('combobox', { name: 'Capture to Inbox' });
+    return { ...t, close, place };
+  };
+  const search = () => screen.getByRole('combobox', { name: 'Capture to Inbox' });
+  const options = () => within(screen.getByRole('listbox', { name: 'A new task or one you have' })).getAllByRole('option');
+  const lit = () => options().find((o) => o.getAttribute('aria-selected') === 'true');
   const draft = () => screen.getByTestId('draft');
   const blocks = async (db: Parameters<typeof listRecords>[0]) => listRecords(db, 'time_block');
 
@@ -345,6 +378,89 @@ describe.each(['desktop', 'phone'] as const)('Capture from a hold on a calendar,
     expect(t.close).toHaveBeenCalledTimes(2);
     expect(await tasks(t.db)).toEqual([]);
     expect(await blocks(t.db)).toEqual([]);
+  });
+
+  describe('with a finder of tasks you have', () => {
+    it('is one search field whose list starts on the new Inbox task, lit, then the tasks to schedule, best fit first', async () => {
+      await find();
+      await waitFor(() => expect(search()).toHaveFocus());
+      expect(search()).toHaveAttribute('aria-expanded', 'true');
+      expect(search()).toHaveAttribute('aria-autocomplete', 'list');
+      expect(options().map((o) => o.getAttribute('aria-label'))).toEqual([
+        'New Inbox task',
+        'Write the report, Project · 1h, Fits',
+        'Morning run, Practice · 30m, Already on Monday, 7am',
+        'Plan the offsite, Project · 2h, Longer by 45m',
+      ]);
+      expect(lit()).toHaveAccessibleName('New Inbox task');
+      expect(search()).toHaveAttribute('aria-activedescendant', lit()!.id);
+      expect(screen.getByRole('group', { name: 'To schedule · 1h 15m free here' })).toBeVisible();
+      expect(options()[2]).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByText('Type to search your other open tasks.')).toBeVisible();
+    });
+
+    it('names the new task as it’s typed, finds other open tasks too, and Enter on the new one saves it as before', async () => {
+      const t = await find();
+      await userEvent.type(search(), 'B');
+      expect(lit()).toHaveAccessibleName('New Inbox task: B');
+      expect(within(screen.getByRole('group', { name: 'One offs' })).getByRole('option', { name: 'Book flights, One off · 30m, Fits' })).toBeVisible();
+      expect(screen.queryByRole('group', { name: /^To schedule/ })).toBeNull();
+      expect(screen.getByText('1 match')).toBeInTheDocument();
+      await userEvent.type(search(), 'ook dentist');
+      expect(screen.getByText('No open task matches “Book dentist”.')).toBeVisible();
+      await userEvent.keyboard('{Enter}');
+      expect(await screen.findByText('Saved to Inbox, 5:45pm to 6:45pm')).toBeVisible();
+      expect(t.place).not.toHaveBeenCalled();
+      expect(await tasks(t.db)).toMatchObject([{ kind: 'inbox', title: 'Book dentist' }]);
+    });
+
+    it('the arrows pass over a task that can’t go here, and Enter places the lit one instead of making a new task', async () => {
+      const t = await find();
+      await userEvent.keyboard('{ArrowDown}');
+      expect(lit()).toHaveAccessibleName('Write the report, Project · 1h, Fits');
+      expect(search()).toHaveAttribute('aria-activedescendant', lit()!.id);
+      await userEvent.keyboard('{ArrowDown}');
+      expect(lit()).toHaveAccessibleName('Plan the offsite, Project · 2h, Longer by 45m');
+      await userEvent.keyboard('{ArrowDown}{ArrowUp}{Enter}');
+      await waitFor(() => expect(t.close).toHaveBeenCalledOnce());
+      expect(t.place).toHaveBeenCalledWith('t1');
+      expect(await tasks(t.db)).toEqual([]);
+    });
+
+    it('a tap or click on a task places it, and Capture comes back as it was when placing is called off', async () => {
+      const t = await find(false);
+      await userEvent.type(search(), 'fli');
+      await userEvent.click(screen.getByRole('option', { name: /^Book flights/ }));
+      expect(t.place).toHaveBeenCalledWith('o1');
+      expect(await screen.findByRole('combobox', { name: 'Capture to Inbox' })).toHaveValue('fli');
+      expect(t.close).not.toHaveBeenCalled();
+    });
+
+    it('stands aside while the finder asks about a block it lands on', async () => {
+      let answer: (placed: boolean) => void = () => {};
+      const t = await find(new Promise<boolean>((r) => (answer = r)));
+      await userEvent.click(screen.getByRole('option', { name: /^Write the report/ }));
+      await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Capture to Inbox' })).toBeNull());
+      await act(async () => answer(true));
+      expect(t.close).toHaveBeenCalledOnce();
+    });
+
+    it('Esc closes it with nothing placed or saved', async () => {
+      const t = await find();
+      await userEvent.type(search(), 'Writ{ArrowDown}{Escape}');
+      expect(t.close).toHaveBeenCalledOnce();
+      expect(t.place).not.toHaveBeenCalled();
+      expect(await tasks(t.db)).toEqual([]);
+    });
+
+    it('folds the list away under Add details, which are for a new task', async () => {
+      await find();
+      await userEvent.click(screen.getByRole('button', { name: 'Add details' }));
+      expect(search()).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('listbox')).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'Hide details' }));
+      expect(search()).toHaveAttribute('aria-expanded', 'true');
+    });
   });
 
   if (layout === 'desktop') {

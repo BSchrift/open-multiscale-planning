@@ -14,7 +14,7 @@ const NEWEST = newestId(WHATS_NEW);
 const BUILD = Date.UTC(2026, 10, 24, 18) / 1000;
 const IPHONE: HarnessOptions = { kind: 'ios', layout: 'phone', build: BUILD };
 
-const TITLE = 'Multiscale has been updated';
+const TITLE = 'Multiscale has been updated!';
 const whatsNew = () => screen.queryByRole('dialog', { name: TITLE });
 /** Long enough, once the app has drawn, for it to settle and the sheet to show, if it's going to. */
 const wait = () => act(async () => void (await vi.advanceTimersByTimeAsync(3000)));

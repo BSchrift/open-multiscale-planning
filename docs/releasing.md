@@ -656,7 +656,7 @@ app built for staging comes from Xcode: run it from Xcode again.
 ### What's new
 
 The first time an update with something new runs on an iPhone, the app shows a sheet titled "Multiscale has been
-updated". Under "What's new" and the date of the update, such as Nov 24, it has a one-sentence line for each change,
+updated!" Under "What's new" and the date of the update, such as Nov 24, it has a one-sentence line for each change,
 never a version or a commit. Each phone shows each line once.
 
 - **The lines** are in [`frontend/src/whatsNew.ts`](../frontend/src/whatsNew.ts), newest first. A pull request that

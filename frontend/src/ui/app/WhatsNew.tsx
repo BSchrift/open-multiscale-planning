@@ -1,4 +1,4 @@
-// What's new, once on each iPhone: "Multiscale has been updated", then the lines (src/whatsNew.ts) an update brought
+// What's new, once on each iPhone: "Multiscale has been updated!", then the lines (src/whatsNew.ts) an update brought
 // that this phone hasn't seen, under What's new and the update's date. It waits until the app is idle on a screen: no
 // flow such as planning, no Capture or Process, no prompt or other sheet, nobody typing. Got it, Esc, the backdrop or a
 // swipe down puts it away and records the newest line as seen. Shell loads it only on the iPhone, so the web app's
@@ -104,8 +104,8 @@ function WhatsNewSheet(props: { lines: readonly WhatsNewEntry[]; onClose(): void
   // The day this update was built, which is the day it was released: never a version.
   const date = build ? formatDate(localDate(build * 1000, clock.zone())) : null;
   return (
-    <Sheet label="Multiscale has been updated" onClose={props.onClose}>
-      <h2 ref={heading}>Multiscale has been updated</h2>
+    <Sheet label="Multiscale has been updated!" onClose={props.onClose}>
+      <h2 ref={heading}>Multiscale has been updated!</h2>
       <h3>What's new</h3>
       {date && <p className="quiet">{date}</p>}
       <ul className="whatsnew">

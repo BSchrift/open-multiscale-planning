@@ -9,6 +9,7 @@ import { systemClock } from '../core/clock';
 import { addDays, addWeeks, nowInstant, thisWeek, toInstant, today } from '../core/dates';
 import { META, openDb, refreshStatistics } from '../core/db';
 import type { Db } from '../core/db';
+import { dailyAttributes, exceptionAttributes } from '../core/metrickit';
 import { planProblems, seedLarge } from '../core/queries-testing';
 import { nextStretch } from '../core/plan';
 import { historyChanges } from '../core/history-testing';
@@ -19,7 +20,7 @@ import { timeHistoryQueries } from './history-checks';
 import type { Platform } from './types';
 
 /** The debug build's hooks for this page (ChecksPlugin in BridgeViewController.swift). */
-const Checks = registerPlugin<{ openCapture(): Promise<void>; share(options: { text: string }): Promise<void> }>('MultiscaleChecks');
+const Checks = registerPlugin<{ openCapture(): Promise<void>; share(options: { text: string }): Promise<void>; deliverEnergy(): Promise<void> }>('MultiscaleChecks');
 
 const output = document.getElementById('log')!;
 const log = (line: string) => {
@@ -236,6 +237,27 @@ button('Diagnostics', async () => {
   const snap = await platform.diagnostics!.snapshot();
   log(`previous:${snap.previous?.state ?? 'none'}`);
   return snap.footprint > 0 && snap.peak >= snap.footprint && /^\w+\d/.test(snap.model ?? '') ? 'diagnostics:ok' : `diagnostics:${JSON.stringify(snap)}`;
+});
+// What MetricKit would deliver, kept by the energy plugin as it keeps a real delivery, through the debug build's hook.
+button('Deliver energy', async () => {
+  // After taking any an earlier run left, so the check sees only these.
+  await platform.energy!.reports!();
+  await Checks.deliverEnergy();
+  return 'energy:delivered';
+});
+// The reports kept, as telemetry sends them, each handed over once, and the battery's state.
+button('Energy', async () => {
+  const energy = platform.energy!;
+  const { daily, exceptions } = await energy.reports!();
+  const sent = JSON.stringify([...daily.map(dailyAttributes), ...exceptions.map(exceptionAttributes)]);
+  const again = await energy.reports!();
+  const { power } = await energy.sample();
+  const expected = JSON.stringify([
+    { 'energy.day': '2026-11-15', 'energy.cpu_seconds': 100.5, 'energy.cellular_bytes': 2000000, 'energy.background_seconds': 40 },
+    { 'energy.exception.kind': 'cpu', 'energy.exception.cpu_seconds': 90, 'code.function': 'App+0x28a3c' },
+  ]);
+  const ok = sent === expected && again.daily.length + again.exceptions.length === 0 && typeof power.lowPower === 'boolean' && /^(nominal|fair|serious|critical)$/.test(power.thermal ?? '');
+  return ok ? 'energy:ok' : `energy:${sent} again:${JSON.stringify(again)} power:${JSON.stringify(power)}`;
 });
 button('Erase', () => erase(platform));
 button('Seed plan', () => seed(platform.db, []));

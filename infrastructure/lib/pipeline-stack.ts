@@ -90,12 +90,10 @@ export class PipelineStack extends Stack {
     }));
     const parameter = (name: string) => this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: `${PIPELINE_PARAMETERS.slice(1)}/${name}` });
     // The config folder's files with the keys' public halves, the pause switch, and the commits the last release and
-    // nightly run had. Never the keys themselves, under signing/.
-    role.addToPolicy(new PolicyStatement({
-      actions: ['ssm:GetParameter'],
-      resources: [parameter('config/*'), parameter('paused'), parameter('released'), parameter('nightly')],
-    }));
-    role.addToPolicy(new PolicyStatement({ actions: ['ssm:PutParameter'], resources: [parameter('released'), parameter('nightly')] }));
+    // each nightly build had. Never the keys themselves, under signing/.
+    const commits = [parameter('released'), parameter('nightly'), parameter('nightly-retention')];
+    role.addToPolicy(new PolicyStatement({ actions: ['ssm:GetParameter'], resources: [parameter('config/*'), parameter('paused'), ...commits] }));
+    role.addToPolicy(new PolicyStatement({ actions: ['ssm:PutParameter'], resources: commits }));
     // A run that the pause switch holds back stops itself.
     role.addToPolicy(new PolicyStatement({
       actions: ['codepipeline:StopPipelineExecution'],
@@ -381,38 +379,46 @@ export class PipelineStack extends Stack {
       ],
     });
 
-    // Every night, staging's slow suites: the full deployed suite with retention and the history-scale test. They never
-    // hold up a release. Skipped when main hasn't moved since the last one passed.
-    const nightly = new Project(this, 'Nightly', {
-      role,
-      // Half the price of a release's builds: nothing waits on it.
-      environment: { ...environment, computeType: ComputeType.SMALL },
-      timeout: Duration.hours(3),
-      logging: { cloudWatch: { logGroup } },
-      environmentVariables: { STEP: { value: 'nightly' }, REPOSITORY: { value: repository }, BRANCH: { value: branch } },
-      buildSpec: BuildSpec.fromObject({
-        version: '0.2',
-        env: { shell: 'bash', variables: { GOTOOLCHAIN: 'auto' } },
-        phases: {
-          // The repo is public, so it clones without a credential. One shell runs every phase, so the build starts in the
-          // clone install moved to.
-          install: { commands: ['git clone --branch "$BRANCH" "https://github.com/$REPOSITORY.git" repo', 'cd repo && scripts/pipeline.sh install'] },
-          build: { commands: ['scripts/pipeline.sh nightly'] },
-        },
-      }),
-    });
-    new Schedule(this, 'NightlySchedule', {
-      schedule: ScheduleExpression.cron({ minute: '0', hour: '10' }),
-      description: "Staging's slow suites, at 10:00 UTC",
-      target: new CodeBuildStartBuild(nightly),
-    });
+    // Every night, staging's slow suites, which never hold up a release: the full deployed suite with the history-scale
+    // test, and an hour later the retention suite in a build of its own. Retention alone takes about 50 minutes, and
+    // while the control account allows a build only 45, run after the rest in one build it was cut off every night and
+    // took the rest's result with it. Each is skipped when main hasn't moved since it last passed.
+    const nightlyBuild = (id: string, step: string, hour: string, description: string) => {
+      const project = new Project(this, id, {
+        role,
+        // Half the price of a release's builds: nothing waits on it.
+        environment: { ...environment, computeType: ComputeType.SMALL },
+        timeout: Duration.hours(3),
+        logging: { cloudWatch: { logGroup } },
+        environmentVariables: { STEP: { value: step }, REPOSITORY: { value: repository }, BRANCH: { value: branch } },
+        buildSpec: BuildSpec.fromObject({
+          version: '0.2',
+          env: { shell: 'bash', variables: { GOTOOLCHAIN: 'auto' } },
+          phases: {
+            // The repo is public, so it clones without a credential. One shell runs every phase, so the build starts in
+            // the clone install moved to.
+            install: { commands: ['git clone --branch "$BRANCH" "https://github.com/$REPOSITORY.git" repo', 'cd repo && scripts/pipeline.sh install'] },
+            build: { commands: [`scripts/pipeline.sh ${step}`] },
+          },
+        }),
+      });
+      new Schedule(this, `${id}Schedule`, {
+        schedule: ScheduleExpression.cron({ minute: '0', hour }),
+        description: `${description}, at ${hour}:00 UTC`,
+        target: new CodeBuildStartBuild(project),
+      });
+      return project;
+    };
+    const nightly = nightlyBuild('Nightly', 'nightly', '10', "Staging's slow suites");
+    // An hour later, once the suites above are done with staging's test user.
+    const retention = nightlyBuild('NightlyRetention', 'nightly-retention', '11', "Staging's retention suite");
 
     new Rule(this, 'PipelineFailed', {
       eventPattern: { source: ['aws.codepipeline'], detailType: ['CodePipeline Pipeline Execution State Change'], detail: { pipeline: [PIPELINE_NAME], state: ['FAILED'] } },
       targets: [new SnsTopic(topic, { message: RuleTargetInput.fromText(`The release pipeline failed, run ${EventField.fromPath('$.detail.execution-id')}. See CodePipeline in the control account.`) })],
     });
     new Rule(this, 'NightlyFailed', {
-      eventPattern: { source: ['aws.codebuild'], detailType: ['CodeBuild Build State Change'], detail: { 'project-name': [nightly.projectName], 'build-status': ['FAILED'] } },
+      eventPattern: { source: ['aws.codebuild'], detailType: ['CodeBuild Build State Change'], detail: { 'project-name': [nightly.projectName, retention.projectName], 'build-status': ['FAILED'] } },
       targets: [new SnsTopic(topic, { message: RuleTargetInput.fromText(`Staging's nightly suites failed, build ${EventField.fromPath('$.detail.build-id')}. Its log is in CodeBuild in the control account.`) })],
     });
   }

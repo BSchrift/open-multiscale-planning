@@ -10,6 +10,7 @@ struct CaptureWidgets: WidgetBundle {
         #if MULTISCALE_APP_GROUP
         NowNextWidget()
         CaptureHomeWidget()
+        WeekWidget()
         #endif
     }
 }

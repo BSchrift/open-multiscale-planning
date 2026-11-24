@@ -92,4 +92,5 @@ public enum WidgetSize {
     /// iPhone sizes from Apple's guidelines, for a 393-point-wide phone.
     public static let small = CGSize(width: 158, height: 158)
     public static let medium = CGSize(width: 338, height: 158)
+    public static let large = CGSize(width: 338, height: 354)
 }

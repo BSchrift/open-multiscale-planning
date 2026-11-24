@@ -10,6 +10,8 @@
 //                                                             the inbox's files for release/<env>'s build
 //   node scripts/mac-inbox.ts pick <env> <commit> <inbox keys> <build to prefer> [<commit to skip>...]
 //                                                             the commit whose inbox build a release takes (inboxBuildFor)
+//   node scripts/mac-inbox.ts stamp-length <manifest.json> <commit>
+//                                                             how much of the commit the build's version names (stampLength)
 //   node scripts/mac-inbox.ts verify <env> <commit> <inbox> <web build> <main process build> [<frontend checkout>]
 //                                                             checks an inbox build: MAC_TEAM_ID, SEVENZIP for 7zz, and
 //                                                             MULTISCALE_CONFIG_DIR for the app's bundle id. The checkout
@@ -830,6 +832,21 @@ export function inboxBuildFor(repo: string, commit: string, env: Env, keys: stri
 }
 
 /**
+ * How many characters of <commit> an inbox build's version names, for building the commit again to stamp it the same,
+ * or undefined when it names no start of the commit. Builds from before vite.config.ts took a fixed seven took git's
+ * abbreviation, which grows with the clone's objects, so the same commit built later or elsewhere got a longer one. The
+ * length is only a build input: the check still compares the app's version.json with the rebuild's byte for byte.
+ */
+export function stampLength(manifest: string, commit: string): number | undefined {
+  try {
+    const short = /-([0-9a-f]{4,40})$/.exec((JSON.parse(manifest) as { version?: unknown }).version as string)?.[1];
+    return short && commit.startsWith(short) ? short.length : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Electron's own darwin-arm64 zip for the installed Electron, downloaded from its release, and refused unless it has
  * the SHA-256 the installed package's checksums.json gives it, which npm checked against the lockfile.
  */
@@ -932,6 +949,10 @@ async function main([command, ...args]: string[]) {
     const [env, commit, keys, prefer, ...skip] = args as [Env, string, string, string, ...string[]];
     const from = inboxBuildFor(join(frontend, '..'), commit, env, readFileSync(keys, 'utf8').split(/\s+/), Number(prefer) || undefined, skip);
     if (from) console.log(from);
+  } else if (command === 'stamp-length') {
+    const [manifest, commit] = args as [string, string];
+    const length = stampLength(existsSync(manifest) ? readFileSync(manifest, 'utf8') : '', commit);
+    if (length) console.log(length);
   } else if (command === 'verify') {
     const [env, commit, inbox, web, electron, checkout = frontend] = args as [Env, string, string, string, string, string?];
     const teamId = process.env.MAC_TEAM_ID ?? '';
@@ -982,7 +1003,7 @@ async function main([command, ...args]: string[]) {
     writeFileSync(join(out, 'app-record', `${env}.json`), `${JSON.stringify(record)}\n`);
     console.log(`${env}: the live app ${record.version} runs this release.`);
   } else {
-    throw new Error('Use: mac-inbox.ts build-config | unpack-config | manifest | pick | verify | record | live-record. See the comment at its top.');
+    throw new Error('Use: mac-inbox.ts build-config | unpack-config | manifest | pick | stamp-length | verify | record | live-record. See the comment at its top.');
   }
 }
 

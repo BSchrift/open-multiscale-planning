@@ -969,14 +969,42 @@ describe('observability', () => {
     for (const title of ['App memory (MB), by platform and version', 'App memory, by platform and version', 'How app runs ended', 'App errors', 'App events by screen', 'Update checks', 'Updates rolled back']) {
       assert.ok(body.includes(title), title);
     }
-    // And the server's two: per-route latency and Lambda init.
-    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 9);
-    assert.equal(body.match(/client_event/g)?.length, 7);
-    // Every panel tells desktop from mobile and one build from another.
-    assert.equal(body.match(/app\.platform/g)?.length, 7);
-    assert.equal(body.match(/service\.version/g)?.length, 8);
+    // Those seven, the server's two (per-route latency and Lambda init), and the Battery section's six.
+    assert.equal(body.match(/\\"type\\":\\"log\\"/g)?.length, 15);
+    assert.equal(body.match(/client_event/g)?.length, 13);
+    // Every panel tells desktop from mobile, the Battery section's by the events only one platform sends, and one build
+    // from another.
+    assert.equal(body.match(/app\.platform/g)?.length, 9);
+    assert.equal(body.match(/service\.version/g)?.length, 15);
     for (const field of ['app.update.check', 'app.update.outcome', 'app.update.failure', 'app.update.rollback', 'app.update.build']) assert.ok(body.includes(field), field);
     assert.ok(body.includes('ApiLogs'));
+  });
+
+  it('has a Battery section, report-only, split by version: syncs an hour, the Mac in the background, the iPhone each day', () => {
+    const body = JSON.stringify(ofType('AWS::CloudWatch::Dashboard')[0]![1].Properties.DashboardBody);
+    assert.match(body, /## Battery/);
+    for (const title of [
+      'Syncs per active hour, by platform',
+      'Syncs per active hour, by platform and version',
+      'Mac app idle wakeups a second, window closed, on battery',
+      'Mac app, window closed, on battery, by process and version',
+      'iPhone energy per device per day (MetricKit), by version',
+      'iPhone CPU and disk exceptions (MetricKit)',
+    ]) {
+      assert.ok(body.includes(title), title);
+    }
+    for (const event of ['app.sync.count', 'app.energy.sample', 'app.energy.daily', 'app.energy.exception']) assert.ok(body.includes(event), event);
+    // Each active minute sends one app.sync.count, so an hour is 60 of them.
+    assert.match(body, /sum\(`sync\.count`\) \* 60 \/ count\(\*\)/);
+    // The Mac's background: the window closed and on battery, read from the line as the API writes it.
+    assert.match(body, /energy\.window_visible\\\\\\":false/);
+    assert.match(body, /device\.battery\.charging\\\\\\":false/);
+    for (const field of ['energy.cpu_seconds', 'energy.background_seconds', 'energy.cellular_bytes', 'energy.hang_seconds', 'energy.exception.kind', 'code.function', 'energy.idle_wakeups_per_s', 'energy.cpu_percent']) {
+      assert.ok(body.includes(field), field);
+    }
+    // Medians and 90th percentiles across devices.
+    assert.match(body, /pct\(`energy\.cpu_seconds`, 50\)/);
+    assert.match(body, /pct\(`energy\.cpu_seconds`, 90\)/);
   });
 
   // The two per-person outcomes count apart from the worker's failures, so neither can roll a release back.

@@ -316,6 +316,11 @@ describe('the time left for Partly', () => {
     // With the estimate used up, it's the block itself, as at the end.
     expect(partlyLeft({ estimate_min: 20 }, block, Date.parse(at('18:30')))).toBe(60);
   });
+
+  it('on a block that ended early, is the estimate less the time spent until it ended', () => {
+    const block = { start: at('18:00'), end: at('19:00'), started_at: at('18:00'), ended_at: at('18:30') };
+    expect(partlyLeft({ estimate_min: 180 }, block)).toBe(150);
+  });
 });
 
 describe('moving through the day', () => {
@@ -342,6 +347,37 @@ describe('moving through the day', () => {
     expect((await getRecord(t.db, 'block_outcome', outcomeId('now')))?.deleted_at).toBe(NOW);
     expect((await getRecord(t.db, 'task', 't'))?.remaining_min).toBe(180);
     expect(currentBlock(await t.rows(), t.clock)?.id).toBe('now');
+  });
+
+  it("Start stops the block under way, paused or not, leaving its answer to the end-of-block prompt; Undo puts both back", async () => {
+    const t = await setup(async (w) => w.set('time_block', 'now', { started_at: at('18:00'), paused_at: at('18:20') }));
+    const started = await t.run((w) => startEarly(w, 'next', t.clock));
+    expect(started.stopped.map((b) => b.id)).toEqual(['now']);
+    expect(await t.block('now')).toMatchObject({ ended_at: NOW, paused_at: null, paused_min: 10 });
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('now'))).toBeUndefined();
+    expect(await t.block('next')).toMatchObject({ start: NOW, started_at: NOW });
+    // Ended with no answer, it's asked about as a block gone by is, Partly starting from the time spent.
+    const rows = await t.rows();
+    expect(missedBlocks(rows, [], t.clock).map((b) => b.id)).toEqual(['now']);
+    expect(partlyLeft({ remaining_min: 180 }, rows.find((b) => b.id === 'now')!)).toBe(160);
+    expect(currentBlock(rows, t.clock)?.id).toBe('next');
+
+    await t.run((w) => applyPlanChange(w, started));
+    expect(await t.block('now')).toMatchObject({ ended_at: null, paused_at: at('18:20'), end: at('19:00') });
+    expect(await t.block('next')).toMatchObject({ start: at('20:00'), started_at: null });
+    expect(currentBlock(await t.rows(), t.clock)?.id).toBe('now');
+  });
+
+  it("Start logs a practice's block under way with the time spent, as Mark done now does, and leaves one not started be", async () => {
+    const t = await setup(async (w) => {
+      await w.create('time_block', { practice_id: 'pr', start: at('18:15'), end: at('18:45'), tz: 'UTC', started_at: at('18:15') }, 'pp');
+      await w.create('time_block', { task_id: 'o', start: at('18:10'), end: at('18:50'), tz: 'UTC' }, 'idle');
+    });
+    const started = await t.run((w) => startBlock(w, 'now', t.clock));
+    expect(started.stopped.map((b) => b.id)).toEqual(['pp']);
+    expect((await t.block('pp'))?.ended_at).toBe(NOW);
+    expect(await getRecord(t.db, 'block_outcome', outcomeId('pp'))).toMatchObject({ result: 'done', logged_min: null });
+    expect((await t.block('idle'))?.ended_at).toBeFalsy();
   });
 
   it('Start records the time it started', async () => {
@@ -375,6 +411,16 @@ describe('moving through the day', () => {
     expect((await t.block(id))?.deleted_at).toBeTruthy();
     const long = await t.run((w) => startTaskNow(w, 't', t.clock));
     expect((await t.block(long.writes[0]!.id))?.end).toBe(at('20:30'));
+  });
+
+  it('starting a task stops the block under way, as any start does, and Undo puts it back', async () => {
+    const t = await setup(async (w) => w.set('time_block', 'now', { started_at: at('18:00') }));
+    const started = await t.run((w) => startTaskNow(w, 'o', t.clock));
+    expect(started.stopped.map((b) => b.id)).toEqual(['now']);
+    expect((await t.block('now'))?.ended_at).toBe(NOW);
+    await t.run((w) => applyPlanChange(w, started));
+    expect((await t.block('now'))?.ended_at).toBeNull();
+    expect((await t.block(started.writes[0]!.id))?.deleted_at).toBeTruthy();
   });
 
   it('Still going adds time to the end', async () => {

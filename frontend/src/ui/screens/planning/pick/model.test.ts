@@ -7,7 +7,7 @@ import { openDb } from '../../../../core/db';
 import { outcomeId, transact, updateSettings, weekPickId } from '../../../../core/records';
 import type { Writer } from '../../../../core/records';
 import { nodeSqliteDriver } from '../../../../platform/node-sqlite';
-import { loadPlanning, weekModel } from '../model';
+import { loadFit, loadPlanning, weekFit, weekModel } from '../model';
 import { needWords, pickModel } from './model';
 import type { PickView } from './model';
 
@@ -289,5 +289,56 @@ describe('Pick: what this stretch means', () => {
       await w.create('milestone', { project_id: 'report', title: 'Send it out', due: '2026-12-10' }, 'send');
     });
     expect(v.noTasks).toBe(1);
+  });
+});
+
+describe("Pick: the aim meter's sum", () => {
+  // A project aiming at 4h this week, and one task in it with an hour on Tuesday's calendar.
+  const withBlock = (share: number | null) => async (w: Writer) => {
+    await w.create('project', { title: 'Fix up the bike', state: 'active', start: '2026-10-01', end: '2026-12-31', weekly_aim: 240 }, 'bike');
+    await task(w, 'b1', 'bike', null, 'Replace the chain', 120);
+    await w.create('time_block', { task_id: 'b1', start: '2026-11-17T15:00:00Z', end: '2026-11-17T16:00:00Z', tz: 'America/Chicago' }, 'tbb1');
+    if (share != null) await pick(w, WEEK, 'b1', share);
+  };
+
+  it("counts a task's time on this week's calendar toward its project's aim, even with a 0m share", async () => {
+    expect(project(await viewOf(withBlock(0)), 'Fix up the bike').aim?.got).toBe(60);
+  });
+
+  it('counts the larger of its share and its time on the calendar, never both, since placed time comes out of the share', async () => {
+    expect(project(await viewOf(withBlock(null)), 'Fix up the bike').aim?.got).toBe(60);
+    expect(project(await viewOf(withBlock(30)), 'Fix up the bike').aim?.got).toBe(60);
+    expect(project(await viewOf(withBlock(90)), 'Fix up the bike').aim?.got).toBe(90);
+  });
+});
+
+describe("Pick: Does it fit and the week's shape", () => {
+  // A project task with a share and an hour on Tuesday's calendar, and a one off with a 0m share and 30m on Wednesday's.
+  async function figures(share: number) {
+    const clock = fixedClock(NOW, 'America/Chicago');
+    const db = await openDb(nodeSqliteDriver());
+    await transact(db, clock, async (w) => {
+      await w.create('project', { title: 'Fix up the bike', state: 'active', start: '2026-10-01', end: '2026-12-31' }, 'bike');
+      await task(w, 'b1', 'bike', null, 'Replace the chain', 120);
+      await w.create('time_block', { task_id: 'b1', start: '2026-11-17T15:00:00Z', end: '2026-11-17T16:00:00Z', tz: 'America/Chicago' }, 'tbb1');
+      await pick(w, WEEK, 'b1', share);
+      await w.create('task', { kind: 'one_off', title: 'Return the library books', estimate_min: 30, schedule: { type: 'once' } }, 'o9');
+      await w.create('time_block', { task_id: 'o9', start: '2026-11-18T15:00:00Z', end: '2026-11-18T15:30:00Z', tz: 'America/Chicago' }, 'tbo9');
+      await pick(w, WEEK, 'o9', 0);
+    });
+    const data = await loadPlanning(db, clock, WEEK);
+    const model = weekModel(data, clock);
+    const view = pickModel(data, model, clock);
+    const fit = weekFit(await loadFit(db, clock, WEEK), clock);
+    return { used: model.use.used, fit: fit.use.used, project: project(view, 'Fix up the bike').planned, oneOffs: view.oneOffs.planned };
+  }
+
+  it("counts a picked task's time on this week's calendar, even with a 0m share", async () => {
+    expect(await figures(0)).toEqual({ used: 90, fit: 90, project: 60, oneOffs: 30 });
+  });
+
+  it('counts the larger of its share and its time on the calendar, never both', async () => {
+    expect(await figures(30)).toEqual({ used: 90, fit: 90, project: 60, oneOffs: 30 });
+    expect(await figures(90)).toEqual({ used: 120, fit: 120, project: 90, oneOffs: 30 });
   });
 });

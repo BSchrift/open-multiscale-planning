@@ -1,5 +1,5 @@
 // A day's blocks as they happen: which one is now, the end-of-block answers (one, or several at once), Mark done now,
-// Stop for now, Start, Start early, Do next block instead, Still going, Pause and Resume, and the time spent, plus the week's edits: move, remove, place, take off the
+// Stop for now, Start (which stops any other block under way), Start early, Do next block instead, Still going, Pause and Resume, and the time spent, plus the week's edits: move, remove, place, take off the
 // calendar, keeping a practice change, skipping a practice or one of its sessions, and placing the week's practices when asked.
 // The in-app prompts and notification actions both write through here.
 // Each write runs inside a transaction and returns its exact reverse, for Undo.
@@ -37,9 +37,13 @@ type Timed = Pick<TimeBlock, 'start' | 'end' | 'started_at' | 'ended_at' | 'paus
 
 /**
  * Where Partly's slider starts: the estimate less this block, or the block's own length once that's used up. Stopped
- * early, at `stoppedAt`, the block counts only the time spent on it by then.
+ * early, when it ended or at `stoppedAt`, the block counts only the time spent on it by then.
  */
-export function partlyLeft(task: Pick<Task, 'remaining_min' | 'estimate_min'>, block: Timed, stoppedAt?: number): Minutes {
+export function partlyLeft(
+  task: Pick<Task, 'remaining_min' | 'estimate_min'>,
+  block: Timed,
+  stoppedAt = block.ended_at ? instantMs(block.ended_at) : undefined,
+): Minutes {
   const length = workMinutes(block);
   const done = stoppedAt === undefined ? length : Math.round(timeSpentMs(block, stoppedAt) / MINUTE_MS);
   const left = (task.remaining_min ?? task.estimate_min ?? 0) - done;
@@ -204,12 +208,13 @@ export async function answerBlocks(w: Writer, answers: readonly BlockAnswerFor[]
 
 /**
  * Ends the block in progress now with its answer, so the rest of its time is free again: Done for Mark done now, Partly
- * or Not done for Stop for now. A paused block resumes first, so its pause is counted out of the time spent.
+ * or Not done for Stop for now, or none when starting another stopped it, for the end-of-block prompt to ask. A paused
+ * block resumes first, so its pause is counted out of the time spent.
  */
-export async function endNow(w: Writer, blockId: string, answer: BlockAnswer, clock: Clock): Promise<PlanChange> {
+export async function endNow(w: Writer, blockId: string, answer: BlockAnswer | null, clock: Clock): Promise<PlanChange> {
   const resumed = await resumeBlock(w, blockId, clock);
   const ended = await change(w, 'time_block', blockId, { ended_at: nowInstant(clock) });
-  const answered = await answerBlock(w, blockId, answer, clock);
+  const answered = answer ? await answerBlock(w, blockId, answer, clock) : { writes: [] };
   return { writes: [...answered.writes, ...ended.writes, ...resumed.writes] };
 }
 
@@ -243,16 +248,37 @@ export async function resumeBlock(w: Writer, blockId: string, clock: Clock): Pro
   return { ...(await change(w, 'time_block', blockId, { paused_at: null, ...moved })), minutes, end };
 }
 
-export function startBlock(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {
-  return change(w, 'time_block', blockId, { started_at: nowInstant(clock) });
+/** A start, with the blocks it stopped. */
+export interface Started extends PlanChange {
+  stopped: BlockRow[];
+}
+
+/**
+ * One block counts at a time, so a start first stops any other under way, paused or not, at now. A task's is left with
+ * no answer, for the end-of-block prompt to ask how it went; a practice's logs the time spent, as Mark done now does.
+ * A planning block keeps its own flow.
+ */
+async function startStopping(w: Writer, blockId: string, fields: Record<string, unknown>, clock: Clock): Promise<Started> {
+  const now = clock.now();
+  const stopped = (await blocksInRange(w.sql, { from_utc: toInstant(now - 1440 * MINUTE_MS), to_utc: toInstant(now + MINUTE_MS) })).filter(
+    (b) => b.id !== blockId && b.started_at && unanswered(b) && b.task_kind !== 'planning' && instantMs(b.start) <= now && now < instantMs(b.end),
+  );
+  const writes: RecordWrite[] = [];
+  for (const b of stopped) writes.unshift(...(await endNow(w, b.id, b.practice_id ? { result: 'done' } : null, clock)).writes);
+  const started = await change(w, 'time_block', blockId, { ...fields, started_at: nowInstant(clock) });
+  return { writes: [...started.writes, ...writes], stopped };
+}
+
+export function startBlock(w: Writer, blockId: string, clock: Clock): Promise<Started> {
+  return startStopping(w, blockId, {}, clock);
 }
 
 /** Moves a block to start now, keeping its length, and starts it. */
-export async function startEarly(w: Writer, blockId: string, clock: Clock): Promise<PlanChange> {
+export async function startEarly(w: Writer, blockId: string, clock: Clock): Promise<Started> {
   const block = await readBlock(w, blockId);
   const start = Math.floor(clock.now() / MINUTE_MS) * MINUTE_MS;
   const end = start + instantMs(block.end) - instantMs(block.start);
-  return change(w, 'time_block', blockId, { start: toInstant(start), end: toInstant(end), started_at: nowInstant(clock) });
+  return startStopping(w, blockId, { start: toInstant(start), end: toInstant(end) }, clock);
 }
 
 /** Do next block instead: the two blocks trade their work and keep their times. */
@@ -271,10 +297,11 @@ export async function swapBlocks(w: Writer, aId: string, bId: string): Promise<P
 const LONGEST_START_MIN = 120;
 
 /**
- * Puts a task on the clock now, for its time left (or 30 minutes with no estimate), and starts it as any block starts.
- * The reverse deletes the new block, whose id is its first write, and puts back whatever the start changed.
+ * Puts a task on the clock now, for its time left (or 30 minutes with no estimate), and starts it as any block starts,
+ * stopping the one under way. The reverse deletes the new block, whose id is its first write, and puts back whatever the
+ * start changed.
  */
-export async function startTaskNow(w: Writer, taskId: string, clock: Clock): Promise<PlanChange> {
+export async function startTaskNow(w: Writer, taskId: string, clock: Clock): Promise<Started> {
   const task = await getRecord(w.sql, 'task', taskId);
   if (!task) throw new Error(`No task ${taskId}`);
   const start = Math.floor(clock.now() / MINUTE_MS) * MINUTE_MS;
@@ -282,7 +309,7 @@ export async function startTaskNow(w: Writer, taskId: string, clock: Clock): Pro
   const id = await w.create('time_block', { task_id: taskId, start: toInstant(start), end: toInstant(start + minutes * MINUTE_MS), tz: clock.zone() });
   const started = await startBlock(w, id, clock);
   // The new block goes on Undo, so its own start needs no putting back.
-  return { writes: [{ type: 'time_block', id, fields: { deleted_at: nowInstant(clock) } }, ...started.writes.filter((x) => x.id !== id)] };
+  return { writes: [{ type: 'time_block', id, fields: { deleted_at: nowInstant(clock) } }, ...started.writes.filter((x) => x.id !== id)], stopped: started.stopped };
 }
 
 /** Still going: the block runs longer. */

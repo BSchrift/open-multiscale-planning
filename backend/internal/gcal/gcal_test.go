@@ -196,15 +196,6 @@ func (m *memConnections) Put(_ context.Context, conn connection, previous connec
 	return nil
 }
 
-func (m *memConnections) PutNew(ctx context.Context, conn connection) ([]byte, error) {
-	if err := m.Put(ctx, conn, connection{}); err != nil {
-		return nil, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.conns[conn.Sub].sealed, nil
-}
-
 func (m *memConnections) MarkRevoked(_ context.Context, conn connection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

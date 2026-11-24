@@ -57,14 +57,17 @@ export function TaskActions(props: { task: Task }) {
     return weekModel(await loadWeek(sql, clock, thisWeek(clock)), clock);
   }, [!!menuAt]).data;
   const item = menuAt && model ? model.itemFor(task) : undefined;
+  // None before its date: dated after this week, it has no time here, as To schedule would leave it out.
+  const from = task.schedule?.type === 'once' ? task.schedule.from : null;
+  const offers = item ? item.offers.filter((o) => !from || o.date >= from) : [];
   // A time as Move… says one: Today or Tomorrow by name, another day by its date, and when it starts.
   const today = localDate(clock.now(), clock.zone());
   const dayOf = (date: string) => (date === today ? 'Today' : date === addDays(today, 1) ? 'Tomorrow' : dayName(date));
   const entries: MenuEntry[] = item
     ? [
-        ...item.offers.map((o, i) => ({ id: `schedule:${i}`, label: `${dayOf(o.date)}, ${formatTimeOfDay(o.start)}`, icon: 'calendar' as const })),
+        ...offers.map((o, i) => ({ id: `schedule:${i}`, label: `${dayOf(o.date)}, ${formatTimeOfDay(o.start)}`, icon: 'calendar' as const })),
         // Week would close a flow it opened over, such as planning's, so there it offers only the suggested times.
-        ...(model!.canChoose(task.id) && !nav.flow ? ([...(item.offers.length ? ['separator' as const] : []), { id: CHOOSE, label: 'Choose a time…', icon: 'week' as const }] as const) : []),
+        ...(model!.canChoose(task.id) && !nav.flow ? ([...(offers.length ? ['separator' as const] : []), { id: CHOOSE, label: 'Choose a time…', icon: 'week' as const }] as const) : []),
       ]
     : [];
   const empty = !!item && entries.length === 0;
@@ -93,7 +96,7 @@ export function TaskActions(props: { task: Task }) {
       if (leave?.() ?? true) nav.go('week', { place: task.id });
       return;
     }
-    const slot = item?.offers[Number(id.slice('schedule:'.length))];
+    const slot = offers[Number(id.slice('schedule:'.length))];
     if (item && slot) void week.place(item, slot);
   };
 

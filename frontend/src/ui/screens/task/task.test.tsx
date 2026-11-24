@@ -422,6 +422,18 @@ describe("the popup's actions", () => {
     expect(close).toHaveBeenCalled();
     expect(t.nav().route).toMatchObject({ area: 'week', params: { place: 't1' } });
   });
+  it('Schedule… suggests no time before its date', async () => {
+    await renderScreen('task', {
+      seed: (w) => w.create('task', { kind: 'one_off', title: 'Return the drill', estimate_min: 30, schedule: { type: 'once', from: '2026-11-10' }, next_due: '2026-11-10' }, 'later'),
+      presentation: 'overlay',
+      params: { task: 'later' },
+      close: vi.fn(),
+    });
+    await userEvent.click(within(await actions('Return the drill')).getByRole('button', { name: 'Schedule…' }));
+    // Dated next week, it has no time this week, only Week's Choose a time.
+    const menu = await screen.findByRole('menu', { name: 'Schedule' });
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Choose a time…']);
+  });
 });
 
 describe("the popup's dates", () => {

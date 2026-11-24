@@ -71,14 +71,14 @@ test('from a list: Start now, Mark done and Schedule… save at once with Undo, 
 
   // A date range, with the rules One offs uses, saved with the rest of the popup and its Undo.
   await expect(popup.getByLabel('Repeats')).toHaveValue('once');
-  await popup.getByLabel('Date (optional)').fill('2026-11-10');
+  await popup.getByLabel('Date (optional)').fill('2026-11-04');
   await popup.getByRole('button', { name: '+ End date' }).click();
-  await popup.getByLabel('End date').fill('2026-11-12');
+  await popup.getByLabel('End date').fill('2026-11-06');
   await shoot(page, popup, shot('dates'));
   await popup.getByRole('button', { name: 'Save' }).click();
   await expect(popup).toHaveCount(0);
   await expect(toast(page).getByText('Saved Return the drill.')).toBeVisible();
-  await expect(pane(page, 'One offs').getByText(/^Nov 10 to Nov 12/)).toBeVisible();
+  await expect(pane(page, 'One offs').getByText(/^Nov 4 to Nov 6/)).toBeVisible();
 
   // Mark done stays in the popup, as a block's does, with Undo putting the task back.
   await row.click();
@@ -97,7 +97,7 @@ test('from a list: Start now, Mark done and Schedule… save at once with Undo, 
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(actions.getByRole('button', { name: 'Start now' })).toBeVisible();
 
-  // Schedule… offers To schedule's times for it this week, then Choose a time….
+  // Schedule… offers To schedule's times for it this week, none before its date, then Choose a time….
   await actions.getByRole('button', { name: 'Schedule…' }).click();
   const menu = page.getByRole('menu', { name: 'Schedule' });
   await expect(menu.getByRole('menuitem', { name: 'Choose a time…' })).toBeVisible();
@@ -108,7 +108,7 @@ test('from a list: Start now, Mark done and Schedule… save at once with Undo, 
   await first.click();
   await expect(toast(page).getByText(/^Placed Return the drill, /)).toBeVisible();
   await shoot(page, toast(page), shot('placed'));
-  expect(when).toMatch(/^(Today|Tomorrow|\w{3} Nov \d+), \d/);
+  expect(when).toMatch(/^Wed Nov 4|^Thu Nov 5|^Fri Nov 6/);
   await toast(page).getByRole('button', { name: 'Undo' }).click();
   await expect(toast(page)).toHaveCount(0);
 

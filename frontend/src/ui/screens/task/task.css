@@ -235,3 +235,10 @@
 [data-layout] .taskacts:focus:not(:focus-visible) {
   outline: none;
 }
+/* Its dates' fields read at the size of Belongs to's, above them. */
+[data-layout='desktop'] .taskpopdates {
+  font-size: var(--fs-meta);
+}
+[data-layout='phone'] .taskpopdates {
+  font-size: var(--fs-label);
+}

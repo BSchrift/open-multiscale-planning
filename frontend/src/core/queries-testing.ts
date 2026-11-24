@@ -84,6 +84,11 @@ const PLAN_PARAMS: Params = {
   day: '2026-11-02',
   project_id: 'project-3',
   now: '2026-11-02T05:00:00Z',
+  done_from: '2026-11-02T05:00:00Z',
+  back_from_utc: '2026-10-05T05:00:00Z',
+  back_to_utc: '2026-11-02T05:00:00Z',
+  week: '2026-11-02',
+  other_week: '2026-10-26',
 };
 
 const planParams = (sql: string): Params => Object.fromEntries(Object.entries(PLAN_PARAMS).filter(([k]) => new RegExp(`:${k}\\b`).test(sql)));

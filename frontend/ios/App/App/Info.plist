@@ -31,6 +31,10 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).widget-refresh</string>
+	</array>
 	<key>MultiscaleAppGroup</key>
 	<string>$(MULTISCALE_APP_GROUP)</string>
 	<key>MultiscaleExtensions</key>
@@ -48,6 +52,10 @@
 	<string>Take a photo to attach to a task.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo to attach to a task.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

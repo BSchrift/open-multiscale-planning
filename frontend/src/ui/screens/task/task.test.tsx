@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getRecord } from '../../../core/records';
+import { getRecord, listRecords } from '../../../core/records';
 import type { Writer } from '../../../core/records';
 import type { Layout } from '../../app/registry';
 import { pickFrom, renderScreen } from '../../app/testing';
@@ -110,7 +110,8 @@ describe('the task popup', () => {
     // The place taken stays selected, so typing replaces it.
     await userEvent.keyboard('zz');
     expect(within(popup).getByText('Nothing matches “zz”.')).toBeVisible();
-    expect(within(popup).queryAllByRole('option')).toEqual([]);
+    // None in the list; One offs' Repeats has options of its own below.
+    expect(popup.querySelectorAll('[role="listbox"] [role="option"]')).toHaveLength(0);
     await userEvent.keyboard('{Escape}');
     expect(field).toHaveAttribute('aria-expanded', 'false');
     expect(field).toHaveDisplayValue('zz');
@@ -291,6 +292,251 @@ describe('the task popup', () => {
   it('shows why a task is suggested, when it opened from Pick tasks', async () => {
     await open('t1', { layout: 'phone', note: 'Suggested: milestone overdue' });
     expect(within(await screen.findByRole('dialog', { name: 'Draft the summary' })).getByText('Suggested: milestone overdue')).toBeVisible();
+  });
+});
+
+/** The popup's sections top to bottom, as its body lays them out. */
+function sections(popup: HTMLElement): string[] {
+  return [...popup.querySelector('.taskpopbody')!.children].flatMap((el) => {
+    if (el.matches('.blocksec')) return ['Time block'];
+    if (el.matches('.taskacts')) return ['Actions'];
+    if (el.matches('.estslider')) return ['Time estimate'];
+    if (el.querySelector('.ssfield')) return ['Belongs to'];
+    if (el.matches('.taskpopdates')) return ['Dates'];
+    if (el.matches('.notesfield')) return ['Description'];
+    if (el.matches('.attachments')) return ['Attachments'];
+    return [];
+  });
+}
+const buttonsIn = (section: HTMLElement) => within(section).getAllByRole('button').map((b) => b.textContent);
+const FIELDS = ['Time estimate', 'Belongs to', 'Dates', 'Description', 'Attachments'];
+
+describe('the same popup wherever a task opens', () => {
+  async function everywhere(w: Writer) {
+    await report(w);
+    await w.create('week_plan', { week_start: '2026-11-02', finished_at: '2026-11-02T14:00:00Z' }, 'week:2026-11-02');
+    // Later today, 4pm to 5pm in Chicago.
+    await w.create('time_block', { task_id: 't1', start: '2026-11-02T22:00:00Z', end: '2026-11-02T23:00:00Z', tz: 'America/Chicago' }, 'b1');
+  }
+
+  it('has the same sections in the same order from Inbox, One offs, a project and a block on Today; only the actions change', async () => {
+    await renderScreen('inbox', { seed: everywhere });
+    await userEvent.click(await screen.findByRole('button', { name: 'Call the bank' }));
+    let popup = await screen.findByRole('dialog', { name: 'Call the bank' });
+    expect(sections(popup)).toEqual(['Actions', ...FIELDS]);
+    // An Inbox item gets a time once it has a home, and says how to give it a date.
+    expect(buttonsIn(within(popup).getByRole('region', { name: 'Actions' }))).toEqual(['Mark done']);
+    expect(within(popup).getByText('Inbox items have no date. To give it one, choose One offs or a project under Belongs to.')).toBeVisible();
+    cleanup();
+
+    await renderScreen('oneoffs', { seed: everywhere });
+    await userEvent.click(await screen.findByRole('button', { name: 'Return the drill' }));
+    popup = await screen.findByRole('dialog', { name: 'Return the drill' });
+    expect(sections(popup)).toEqual(['Actions', ...FIELDS]);
+    expect(buttonsIn(within(popup).getByRole('region', { name: 'Actions' }))).toEqual(['Start now', 'Mark done', 'Schedule…']);
+    expect(within(popup).getByLabelText('Repeats')).toHaveValue('once');
+    cleanup();
+
+    await renderScreen('goals', { seed: everywhere, params: { project: 'p1' } });
+    await userEvent.click(await screen.findByRole('button', { name: /^Edit task Draft the summary/ }));
+    popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    expect(sections(popup)).toEqual(['Actions', ...FIELDS]);
+    expect(buttonsIn(within(popup).getByRole('region', { name: 'Actions' }))).toEqual(['Start now', 'Mark done', 'Schedule…']);
+    // A project's task can have a date, but never repeats.
+    expect(within(popup).queryByLabelText('Repeats')).toBeNull();
+    expect(within(popup).getByLabelText('Date (optional)')).toHaveValue('');
+    cleanup();
+
+    await renderScreen('today', { seed: everywhere });
+    await userEvent.click(await screen.findByRole('button', { name: /^Draft the summary, 4pm to 5pm/ }));
+    popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    // The block's own section takes the actions' place, with the block's Start now, Mark done and Move….
+    expect(sections(popup)).toEqual(['Time block', ...FIELDS]);
+    expect(buttonsIn(within(popup).getByRole('region', { name: 'Time block' }))).toEqual(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
+  });
+});
+
+describe("the popup's actions", () => {
+  const actions = async (title: string) => within(await screen.findByRole('dialog', { name: title })).getByRole('region', { name: 'Actions' });
+
+  it('Mark done finishes the task and takes its actions away, with Undo', async () => {
+    const { t, close } = await open('t1');
+    await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Mark done' }));
+    expect(await screen.findByText('Draft the summary done')).toBeVisible();
+    await waitFor(async () => expect((await record(t, 't1'))?.done_at).toBeTruthy());
+    // It saves at once and stays open, as a block's Mark done does, with focus back on its name.
+    const popup = screen.getByRole('dialog', { name: 'Draft the summary' });
+    await waitFor(() => expect(within(popup).queryByRole('region', { name: 'Actions' })).toBeNull());
+    await waitFor(() => expect(within(popup).getByRole('heading', { name: 'Draft the summary' })).toHaveFocus());
+    expect(close).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await record(t, 't1'))?.done_at).toBeNull());
+    expect(await within(popup).findByRole('region', { name: 'Actions' })).toBeVisible();
+  });
+
+  it('Mark done on a repeating one off marks only this time done', async () => {
+    const { t } = await open('o2');
+    await userEvent.click(within(await actions('Water the plants')).getByRole('button', { name: 'Mark done' }));
+    expect(await screen.findByText('Water the plants done')).toBeVisible();
+    await waitFor(async () => expect(await listRecords(t.db, 'task_completion')).toHaveLength(1));
+    // Still open, it moves on a week from today and can be done again.
+    expect(await record(t, 'o2')).toMatchObject({ next_due: '2026-11-09' });
+    expect((await record(t, 'o2'))?.done_at).toBeFalsy();
+    expect(within(await actions('Water the plants')).getByRole('button', { name: 'Mark done' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await listRecords(t.db, 'task_completion')).filter((c) => !c.deleted_at)).toHaveLength(0));
+  });
+
+  it('Start now puts it on the clock from now, with Undo', async () => {
+    const { t } = await open('t1');
+    await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Start now' }));
+    expect(await screen.findByText('Started Draft the summary.')).toBeVisible();
+    const started = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't1' && !b.deleted_at);
+    // Its 2h estimate, from 2pm.
+    await waitFor(async () => expect(await started()).toMatchObject([{ start: '2026-11-02T20:00:00Z', end: '2026-11-02T22:00:00Z', started_at: '2026-11-02T20:00:00Z' }]));
+    // Counting, it needs no other start.
+    await waitFor(async () => expect(within(await actions('Draft the summary')).queryByRole('button', { name: 'Start now' })).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await started()).toEqual([]));
+    expect(await within(await actions('Draft the summary')).findByRole('button', { name: 'Start now' })).toBeVisible();
+  });
+
+  it('Start now stops a block already counting and says so, as a block’s Start does, with Undo putting both back', async () => {
+    const close = vi.fn();
+    const t = await renderScreen('task', {
+      seed: async (w) => {
+        await report(w);
+        // Return the drill has counted since 1:30pm.
+        await w.create('time_block', { task_id: 'o1', start: '2026-11-02T19:30:00Z', end: '2026-11-02T20:30:00Z', tz: 'America/Chicago', started_at: '2026-11-02T19:30:00Z' }, 'drill');
+      },
+      presentation: 'overlay',
+      params: { task: 't1' },
+      close,
+    });
+    await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Start now' }));
+    expect(await screen.findByText('Started Draft the summary. Stopped Return the drill at 2pm.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'drill'))?.ended_at).toBe('2026-11-02T20:00:00Z'));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'drill'))?.ended_at).toBeNull());
+  });
+
+  it("Schedule… offers To schedule's times for it this week, placing one with Undo, and Choose a time… opens Week to place it", async () => {
+    const { t, close } = await open('t1');
+    await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Schedule…' }));
+    const menu = await screen.findByRole('menu', { name: 'Schedule' });
+    const items = within(menu).getAllByRole('menuitem').map((i) => i.textContent);
+    expect(items.at(-1)).toBe('Choose a time…');
+    expect(items.length).toBeGreaterThan(1);
+    // Said as Move… says a time: Today or Tomorrow by name, another day by its date.
+    expect(items[0]).toMatch(/^(Today|Tomorrow|(Mon|Tue|Wed|Thu|Fri|Sat|Sun) Nov \d+), \d+(:\d\d)?[ap]m$/);
+    await userEvent.click(within(menu).getAllByRole('menuitem')[0]!);
+    expect(await screen.findByText(/^Placed Draft the summary, /)).toBeVisible();
+    const placed = async () => (await listRecords(t.db, 'time_block')).filter((b) => b.task_id === 't1' && !b.deleted_at);
+    await waitFor(async () => expect(await placed()).toHaveLength(1));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await placed()).toEqual([]));
+
+    await userEvent.click(within(await actions('Draft the summary')).getByRole('button', { name: 'Schedule…' }));
+    await userEvent.click(within(await screen.findByRole('menu', { name: 'Schedule' })).getByRole('menuitem', { name: 'Choose a time…' }));
+    expect(close).toHaveBeenCalled();
+    expect(t.nav().route).toMatchObject({ area: 'week', params: { place: 't1' } });
+  });
+  it('Schedule… suggests no time before its date', async () => {
+    await renderScreen('task', {
+      seed: (w) => w.create('task', { kind: 'one_off', title: 'Return the drill', estimate_min: 30, schedule: { type: 'once', from: '2026-11-10' }, next_due: '2026-11-10' }, 'later'),
+      presentation: 'overlay',
+      params: { task: 'later' },
+      close: vi.fn(),
+    });
+    await userEvent.click(within(await actions('Return the drill')).getByRole('button', { name: 'Schedule…' }));
+    // Dated next week, it has no time this week, only Week's Choose a time.
+    const menu = await screen.findByRole('menu', { name: 'Schedule' });
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Choose a time…']);
+  });
+});
+
+describe("the popup's dates", () => {
+  it("sets a one off's date range, with the rules One offs uses, saved with Undo", async () => {
+    const { t } = await open('o1');
+    const popup = await screen.findByRole('dialog', { name: 'Return the drill' });
+    fireEvent.change(within(popup).getByLabelText('Date (optional)'), { target: { value: '2026-11-10' } });
+    await userEvent.click(within(popup).getByRole('button', { name: '+ End date' }));
+    fireEvent.change(within(popup).getByLabelText('End date'), { target: { value: '2026-11-08' } });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    // An end before the start is refused, as on One offs, and nothing is saved.
+    expect(within(popup).getByRole('alert')).toHaveTextContent(/./);
+    expect((await record(t, 'o1'))?.schedule).toEqual({ type: 'once', from: '2026-11-07' });
+    fireEvent.change(within(popup).getByLabelText('End date'), { target: { value: '2026-11-12' } });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved Return the drill.')).toBeVisible();
+    expect(await record(t, 'o1')).toMatchObject({ schedule: { type: 'once', from: '2026-11-10', to: '2026-11-12' }, next_due: '2026-11-10' });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect(await record(t, 'o1')).toMatchObject({ schedule: { type: 'once', from: '2026-11-07' }, next_due: '2026-11-07' }));
+  });
+
+  it('makes a one off repeat, counting from today, and opens on the rule it has, with a weekly one’s days', async () => {
+    const { t } = await open('o1');
+    const popup = await screen.findByRole('dialog', { name: 'Return the drill' });
+    await userEvent.selectOptions(within(popup).getByLabelText('Repeats'), 'recurring');
+    await userEvent.click(within(within(popup).getByRole('group', { name: 'On' })).getByRole('checkbox', { name: 'Thursday' }));
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved Return the drill.');
+    expect(await record(t, 'o1')).toMatchObject({ schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-11-02', days: [0, 3] }, next_due: '2026-11-02' });
+    cleanup();
+
+    const close = vi.fn();
+    await renderScreen('task', {
+      seed: async (w) => {
+        await w.create('task', { kind: 'one_off', title: 'Put the bins out', schedule: { type: 'recurring', every: 1, unit: 'week', anchor: '2026-10-05', days: [3, 0] }, next_due: '2026-11-05' }, 'bins');
+      },
+      presentation: 'overlay',
+      params: { task: 'bins' },
+      close,
+    });
+    const bins = await screen.findByRole('dialog', { name: 'Put the bins out' });
+    expect(within(bins).getByLabelText('Repeats')).toHaveValue('recurring');
+    expect(within(bins).getByLabelText('How often')).toHaveValue('week');
+    const on = within(bins).getByRole('group', { name: 'On' });
+    expect(within(on).getAllByRole('checkbox', { checked: true }).map((c) => c.getAttribute('aria-label'))).toEqual(['Monday', 'Thursday']);
+    // Saved unchanged, nothing is written and its next date stays.
+    await userEvent.click(within(bins).getByRole('button', { name: 'Save' }));
+    expect(close).toHaveBeenCalled();
+  });
+
+  it('leaves a repeat the form can’t show, such as every 2 weeks, alone when something else is saved', async () => {
+    const fortnightly = { type: 'recurring', every: 2, unit: 'week', anchor: '2026-10-05' } as const;
+    const t = await renderScreen('task', {
+      seed: (w) => w.create('task', { kind: 'one_off', title: 'Clean the gutters', schedule: fortnightly, next_due: '2026-11-02' }, 'g'),
+      presentation: 'overlay',
+      params: { task: 'g' },
+      close: vi.fn(),
+    });
+    const popup = await screen.findByRole('dialog', { name: 'Clean the gutters' });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Rename Clean the gutters' }));
+    await userEvent.type(within(popup).getByRole('textbox', { name: 'Name' }), ' and drains');
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved Clean the gutters and drains.');
+    expect(await record(t, 'g')).toMatchObject({ schedule: fortnightly, next_due: '2026-11-02' });
+  });
+
+  it("gives a project's task a date, saved with the rest", async () => {
+    const { t } = await open('t1');
+    const popup = await screen.findByRole('dialog', { name: 'Draft the summary' });
+    fireEvent.change(within(popup).getByLabelText('Date (optional)'), { target: { value: '2026-11-18' } });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved Draft the summary.')).toBeVisible();
+    expect(await record(t, 't1')).toMatchObject({ schedule: { type: 'once', from: '2026-11-18', to: null }, next_due: '2026-11-18', milestone_id: 'm1' });
+  });
+
+  it('shows an Inbox item its dates once Belongs to gives it a home', async () => {
+    const { t } = await open('i1');
+    const popup = await screen.findByRole('dialog', { name: 'Call the bank' });
+    expect(within(popup).queryByLabelText('Date (optional)')).toBeNull();
+    await pickFrom(within(popup).getByLabelText('Belongs to'), 'One offs');
+    fireEvent.change(within(popup).getByLabelText('Date (optional)'), { target: { value: '2026-11-05' } });
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    await screen.findByText('Moved Call the bank to One offs.');
+    expect(await record(t, 'i1')).toMatchObject({ kind: 'one_off', schedule: { type: 'once', from: '2026-11-05', to: null }, next_due: '2026-11-05' });
   });
 });
 

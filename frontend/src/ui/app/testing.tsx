@@ -8,7 +8,7 @@
 //
 // Tests import this file; the app never does.
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -19,7 +19,7 @@ import { transact, updateSettings } from '../../core/records';
 import type { Writer } from '../../core/records';
 import { createTestPlatform } from '../../platform/testing';
 import type { TestPlatform } from '../../platform/testing';
-import type { CaptureShortcut, Platform, PlatformKind } from '../../platform/types';
+import type { CaptureShortcut, Platform, PlatformKind, Widgets } from '../../platform/types';
 import { HOLD_MS } from '../components/weekgrid';
 import { ToastProvider } from '../components/Toast';
 import { NavProvider, useNav, useOverlay } from './nav';
@@ -54,6 +54,8 @@ export interface HarnessOptions {
   filesBlocked?: true;
   /** As in the Mac app, where macOS draws a block's menu. */
   showMenu?: Platform['showMenu'];
+  /** As on an iPhone with the App Group the widgets read: usually memoryWidgets(). */
+  widgets?: Widgets;
 }
 
 export interface Harness extends RenderResult {
@@ -74,6 +76,7 @@ async function prepare(options: HarnessOptions) {
     options.captureShortcut ? { captureShortcut: options.captureShortcut } : {},
     options.filesBlocked ? { filesBlocked: true as const } : {},
     options.showMenu ? { showMenu: options.showMenu } : {},
+    options.widgets ? { widgets: options.widgets } : {},
   );
   const write = <R,>(fn: (w: Writer) => Promise<R>) => transact(platform.db, clock, fn);
   if (!options.firstRun) await write((w) => updateSettings(w, { setup_done_at: '2026-11-01T00:00:00Z' }));
@@ -114,6 +117,19 @@ export function holdDown(el: Element, init: PointerEventInit = {}) {
   heldFor += HOLD_MS;
   vi.spyOn(performance, 'now').mockImplementation(() => realNow() + heldFor);
 }
+
+/**
+ * Fake timers for tests that hold a press, so a hold's timer runs when `pass` moves time on rather than whenever a busy
+ * machine gets to it. They still move with the real clock, so findBy, waitFor and userEvent work as before.
+ */
+export const holdTimers = () => void vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+
+/**
+ * Moves holdTimers' clock on by ms, as a press held that long, and draws whatever the timers set off before it returns.
+ * A real wait raced the page: on a busy machine the hold's timer and the wait's ran back to back, and the test looked
+ * before the page had drawn the draft.
+ */
+export const pass = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 
 /** Renders one area on its own, with the same data, toast and navigation context it has in the app. */
 export function renderScreen(

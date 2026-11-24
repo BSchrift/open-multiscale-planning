@@ -11,13 +11,15 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { ActionPerformed, ActionType } from '@capacitor/local-notifications';
 import type { AppEnv } from '../core/appConfig';
+import { parseAppLink } from '../core/appLinks';
+import type { AppLink } from '../core/appLinks';
 import { openDb } from '../core/db';
 import type { SqlDriver } from '../core/db';
 import type { MetricReports } from '../core/metrickit';
 import type { DiagnosticsSnapshot, Power } from '../core/telemetry';
 import type { Reminder, ReminderAction } from '../core/types';
 import { indexedDbFiles } from './attachment-files';
-import type { Appearance, Notifications, Platform, ReminderResponse, SecureTokens } from './types';
+import type { Appearance, Notifications, Platform, ReminderResponse, SecureTokens, Widgets } from './types';
 
 const CAPTURE_LINK = 'multiscale://capture';
 
@@ -27,6 +29,20 @@ const ShareQueue = registerPlugin<{
   peek(): Promise<{ items: { id: string; text: string }[] }>;
   remove(options: { ids: string[] }): Promise<void>;
 }>('MultiscaleShareQueue');
+
+/**
+ * Implemented in the app target (WidgetsPlugin.swift). Missing from an app built before widgets, which a newer web bundle
+ * can run in: status then rejects, and the page carries on without widgets.
+ */
+const NativeWidgets = registerPlugin<{
+  status(): Promise<{ enabled: boolean }>;
+  write(options: { json: string }): Promise<void>;
+  clear(): Promise<void>;
+  actions(): Promise<{ items: { id: string; text: string }[] }>;
+  remove(options: { ids: string[] }): Promise<void>;
+  refreshed(options: { ok: boolean }): Promise<void>;
+  addListener(event: 'refresh', listener: () => void): Promise<PluginListenerHandle>;
+}>('MultiscaleWidgets');
 
 /** Implemented in the app target. Sets the window's light or dark, which the status bar and keyboard follow. */
 const NativeAppearance = registerPlugin<{ set(options: { appearance: Appearance }): Promise<void> }>('MultiscaleAppearance');
@@ -146,6 +162,40 @@ function capacitorNotifications(): Notifications {
   };
 }
 
+function capacitorWidgets(): Widgets {
+  // A refresh can wake the app before the page has mounted the listener, so it waits for one.
+  let refresh: (() => Promise<void>) | null = null;
+  let waiting = false;
+  const run = (listener: () => Promise<void>) =>
+    void listener().then(
+      () => NativeWidgets.refreshed({ ok: true }),
+      (error: unknown) => {
+        console.error('Refreshing widgets failed', error);
+        return NativeWidgets.refreshed({ ok: false });
+      },
+    );
+  void NativeWidgets.addListener('refresh', () => {
+    if (refresh) run(refresh);
+    else waiting = true;
+  });
+  return {
+    write: (json) => NativeWidgets.write({ json }),
+    clear: () => NativeWidgets.clear(),
+    actions: async () => (await NativeWidgets.actions()).items,
+    remove: (ids) => NativeWidgets.remove({ ids }),
+    onRefresh(listener) {
+      refresh = listener;
+      if (waiting) {
+        waiting = false;
+        run(listener);
+      }
+      return () => {
+        if (refresh === listener) refresh = null;
+      };
+    },
+  };
+}
+
 async function keychainTokens(): Promise<SecureTokens> {
   // After first unlock, so a notification action on a locked phone can still sync. This device only, so tokens
   // never travel in a backup.
@@ -161,10 +211,13 @@ async function keychainTokens(): Promise<SecureTokens> {
 export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Platform> {
   const links = channel<string>();
   const captures = channel<void>();
+  const appLinks = channel<AppLink>();
   void App.addListener('appUrlOpen', ({ url }) => {
     // The sign-in page sits in a browser sheet over the app, and has done its job once it links back.
     void Browser.close().catch(() => undefined);
+    const link = parseAppLink(url);
     if (url === CAPTURE_LINK) captures.emit();
+    else if (link) appLinks.emit(link);
     else links.emit(url);
   });
 
@@ -174,6 +227,10 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
   void App.addListener('pause', () => background.emit());
 
   const { enabled: shareEnabled } = await ShareQueue.status();
+  const widgetsEnabled = await NativeWidgets.status().then(
+    ({ enabled }) => enabled,
+    () => false,
+  );
 
   return {
     kind: 'ios',
@@ -187,6 +244,7 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
     openDownload: openInSystemBrowser,
     signInRedirectUri: 'multiscale://auth/callback',
     onDeepLink: links.on,
+    onAppLink: appLinks.on,
     setAppearance: (appearance) => NativeAppearance.set({ appearance }),
     // iPhones ignore the browser's vibrate, so this is the only way the phone taps back.
     haptic: () => Haptics.impact({ style: ImpactStyle.Light }).catch(() => undefined),
@@ -208,6 +266,7 @@ export async function createCapacitorPlatform(env: AppEnv = 'prod'): Promise<Pla
     },
     // The Control Center widget is this phone's capture shortcut: it opens the capture link.
     hotkey: { onCapture: captures.on },
+    ...(widgetsEnabled ? { widgets: capacitorWidgets() } : {}),
     ...(shareEnabled
       ? { shareImport: { peek: async () => (await ShareQueue.peek()).items, remove: (ids: string[]) => ShareQueue.remove({ ids }) } }
       : {}),

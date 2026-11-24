@@ -10,7 +10,7 @@ import type { SyncSend } from './sync';
 import { fakeSyncServer } from './sync-testing';
 import { createSyncRunner, startAppSync } from './syncRunner';
 import { perf } from './perf';
-import { memoryLifecycle } from '../platform/memory';
+import { memoryLifecycle, memoryWidgets } from '../platform/memory';
 import { openTestDb } from '../platform/node-sqlite';
 import { createTestPlatform } from '../platform/testing';
 
@@ -916,12 +916,16 @@ describe('a deleted account', () => {
    */
   async function device() {
     const shares = [{ id: 'share-1', text: 'Buy flour' }];
+    const widgets = memoryWidgets();
     const platform = Object.assign(await createTestPlatform(), {
       shareImport: {
         peek: async () => [...shares],
         remove: async (ids: string[]) => void shares.splice(0, shares.length, ...shares.filter((s) => !ids.includes(s.id))),
       },
+      widgets,
     });
+    await widgets.write('{"v":1}');
+    widgets.queued.set('1795111241000-6F9619FF-8B86-4011-B42D-00C04FC96401.json', '{}');
     const clock = fixedClock(NOW);
     const server = fakeSyncServer({ now: () => clock.now() });
     const state = { deleted: false, refuseRefresh: false, signedInAt: Date.parse(NOW) / 1000, who: 'a', deleteAnswer: 202 };
@@ -969,6 +973,9 @@ describe('a deleted account', () => {
     expect(t.platform.files.kept.size).toBe(0);
     expect(t.shares).toEqual([]);
     expect(await t.platform.notifications.scheduled()).toEqual([]);
+    // The widgets' snapshot and anything their buttons queued.
+    expect(t.platform.widgets.written.at(-1)).toBe('');
+    expect(t.platform.widgets.queued.size).toBe(0);
     expect(await getMeta(t.db, META.account)).toBeNull();
     expect(await getMeta(t.db, META.deviceId)).toBe(t.device);
     expect(t.forget).toHaveBeenCalled();

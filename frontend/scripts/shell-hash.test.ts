@@ -83,6 +83,10 @@ describe('shellHash', () => {
     expect(isHashed('electron', 'electronic/main.ts')).toBe(false);
     expect(isHashed('ios', 'ios/App/App/AppDelegate.swift')).toBe(true);
     expect(isHashed('ios', 'ios/App/Config.example.xcconfig')).toBe(false);
+    expect(isHashed('ios', 'ios/App/MultiscaleWidgets/Sources/WidgetCore/Snapshot.swift')).toBe(true);
+    expect(isHashed('ios', 'ios/App/MultiscaleWidgets/Package.swift')).toBe(true);
+    expect(isHashed('ios', 'ios/App/MultiscaleWidgets/Tests/WidgetCoreTests/FixtureTests.swift')).toBe(false);
+    expect(isHashed('ios', 'ios/App/MultiscaleWidgets/Sources/WidgetTestSupport/Fixtures/states.json')).toBe(false);
   });
 
   // They change the app that ships, which now replaces itself: a change to them releases a new Mac app. Who signs it

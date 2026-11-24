@@ -124,24 +124,31 @@ describe('One offs on desktop', () => {
   });
 });
 
-describe('changing how a one off repeats', () => {
+describe("changing how a one off repeats, in its popup", () => {
+  /** A row's name opens its popup, which has the add form's repeat fields. */
+  const popupOf = async (title: string) => {
+    await userEvent.click(await screen.findByRole('button', { name: title }));
+    return screen.findByRole('dialog', { name: title });
+  };
+  const save = async (popup: HTMLElement) => {
+    await userEvent.click(within(popup).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  };
+
   it('opens on its current rule, and saving it unchanged keeps its next date', async () => {
     const t = await renderScreen('oneoffs', { seed: seedList });
-    await userEvent.click(await screen.findByRole('button', { name: 'Change repeat for Feed the fish' }));
-    const form = screen.getByRole('form', { name: 'Change Feed the fish' });
-    expect(within(form).getByLabelText('Repeats')).toHaveValue('recurring');
-    expect(within(form).getByLabelText('How often')).toHaveValue('week');
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.queryByRole('form', { name: 'Change Feed the fish' })).toBeNull());
+    const popup = await popupOf('Feed the fish');
+    expect(within(popup).getByLabelText('Repeats')).toHaveValue('recurring');
+    expect(within(popup).getByLabelText('How often')).toHaveValue('week');
+    await save(popup);
     expect((await getRecord(t.db, 'task', 'weekly'))?.next_due).toBe('2026-11-09');
-    expect(screen.getByRole('button', { name: 'Change repeat for Feed the fish' })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Feed the fish' })).toHaveFocus());
   });
 
-  it('deletes one from its form, freeing its time, with Undo', async () => {
+  it('deletes one from its popup, freeing its time, with Undo', async () => {
     const t = await renderScreen('oneoffs', { seed: seedList });
-    await userEvent.click(await screen.findByRole('button', { name: 'Change repeat for Return the drill' }));
-    const form = screen.getByRole('form', { name: 'Change Return the drill' });
-    await userEvent.click(within(form).getByRole('button', { name: 'Delete' }));
+    const popup = await popupOf('Return the drill');
+    await userEvent.click(within(popup).getByRole('button', { name: 'Delete task' }));
     await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Return the drill done' })).toBeNull());
     expect((await getRecord(t.db, 'task', 'day'))?.deleted_at).toBeTruthy();
     expect((await getRecord(t.db, 'time_block', 'day-block'))?.cancelled).toBe(true);
@@ -155,18 +162,16 @@ describe('changing how a one off repeats', () => {
 
   it('changes weekly to monthly, and makes a one-time one repeat', async () => {
     const t = await renderScreen('oneoffs', { seed: seedList });
-    await userEvent.click(await screen.findByRole('button', { name: 'Change repeat for Feed the fish' }));
-    let form = screen.getByRole('form', { name: 'Change Feed the fish' });
-    await userEvent.selectOptions(within(form).getByLabelText('How often'), 'Monthly');
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    let popup = await popupOf('Feed the fish');
+    await userEvent.selectOptions(within(popup).getByLabelText('How often'), 'Monthly');
+    await save(popup);
     await waitFor(() => expect(lineOf('Feed the fish')).toBe('Monthly on the 2nd, next Nov 2'));
     expect((await getRecord(t.db, 'task', 'weekly'))?.schedule).toEqual({ type: 'recurring', every: 1, unit: 'month', anchor: '2026-11-02' });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change repeat for Tidy the shed' }));
-    form = screen.getByRole('form', { name: 'Change Tidy the shed' });
-    expect(within(form).getByLabelText('Repeats')).toHaveValue('once');
-    await userEvent.selectOptions(within(form).getByLabelText('Repeats'), 'float');
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    popup = await popupOf('Tidy the shed');
+    expect(within(popup).getByLabelText('Repeats')).toHaveValue('once');
+    await userEvent.selectOptions(within(popup).getByLabelText('Repeats'), 'float');
+    await save(popup);
     await waitFor(() => expect(checkboxes(repeating())).toContain('Tidy the shed done'));
     expect(await getRecord(t.db, 'task', 'undated')).toMatchObject({ schedule: { type: 'float', every: 6, unit: 'week' }, next_due: null });
   });
@@ -178,16 +183,14 @@ describe('changing how a one off repeats', () => {
         await w.create('task_completion', { task_id: 'weekly', done_at: '2026-11-02T15:00:00Z', previous_next: '2026-11-02' }, 'fish-done');
       },
     });
-    await userEvent.click(await screen.findByRole('button', { name: 'Change repeat for Feed the fish' }));
-    let form = screen.getByRole('form', { name: 'Change Feed the fish' });
-    await userEvent.selectOptions(within(form).getByLabelText('How often'), 'Daily');
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    let popup = await popupOf('Feed the fish');
+    await userEvent.selectOptions(within(popup).getByLabelText('How often'), 'Daily');
+    await save(popup);
     await waitFor(async () => expect((await getRecord(t.db, 'task', 'weekly'))?.next_due).toBe('2026-11-03'));
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change repeat for Feed the fish' }));
-    form = screen.getByRole('form', { name: 'Change Feed the fish' });
-    await userEvent.selectOptions(within(form).getByLabelText('Repeats'), 'float');
-    await userEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    popup = await popupOf('Feed the fish');
+    await userEvent.selectOptions(within(popup).getByLabelText('Repeats'), 'float');
+    await save(popup);
     await waitFor(async () => expect((await getRecord(t.db, 'task', 'weekly'))?.next_due).toBe('2026-12-14'));
   });
 });

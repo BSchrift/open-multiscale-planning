@@ -15,6 +15,7 @@ feature gets a row, and a test that covers a cell gets named in it.
 | The last release beside this one | `frontend/e2e/compat/` | Web desktop | `scripts/e2e.sh compat`, CI's e2e-compat, every PR and push to main |
 | Sync and the last release, with staging's retention | `frontend/e2e/stack/`, `frontend/e2e/compat/` | Web desktop | `RETENTION=staging scripts/e2e.sh stack compat`, CI's e2e-staging-retention, every PR and push to main. Staging runs both suites on every release with its retention of minutes ([config/retention.yaml](../config/retention.yaml)), where the local stack and CI's other jobs keep records for years, so a test that needs an old record to stay fails here first |
 | iPhone | `frontend/ios/App/UITests/` | iPhone Simulator | `make test-ios`, CI's ios, every PR and push to main: each build, extensions off and on, on a Mac of its own (`ios-simulator`), with the shell's tests run once, with the extensions on, and the offline ones with them off. Its signed-in tests (`SignedInUITests`) need a backend, and GitHub's Macs have no Docker for the local stack, so CI's ios skips them; `.github/workflows/ios-staging.yml` runs them against staging every night |
+| iPhone widgets | `frontend/ios/App/MultiscaleWidgets/` (a Swift package); the contract fixtures it shares with `frontend/src/core/widgetFixtures.test.ts` | macOS, no Simulator | `make test-widgets`, CI's widgets, every PR and push to main. The fixtures are written by the app's own code and checked by the frontend job, so the app and the widgets can't drift |
 | Against a deployment | `frontend/e2e/deployed/`, `frontend/e2e/stack/` | Web | `make test-deployed`, the release pipeline |
 | History scale | `frontend/e2e/history/` | Web, Mac app, iPhone | `make test-history`, on demand and before releases |
 | Performance KPIs | `frontend/e2e/perf/`; the iPhone's in `frontend/ios/App/UITests/` | Web desktop, web phone, the Mac app and iPhone | `make test-perf`, on demand, report-only against [config/perf.ts](../config/perf.ts); the browser's beside the base on each PR, in one comment (`perf.yml`); the fuller set with the Mac app on each push to main, kept on the `perf-data` branch (`perf-main.yml`); each night main moved, every scenario with A/A runs and sync through Toxiproxy (`perf-nightly.yml`); once a week, the Mac app on macOS (`perf-mac.yml`); the iPhone's with `scripts/test-perf-ios.sh`, each night and on a PR labelled perf-ios (`perf-ios.yml`); the server's routes and sync against staging each night, from the release pipeline |
@@ -163,7 +164,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Timeline: resize from the bottom edge, Shift and arrows | covered (today-timeline: "a block still to come changes its length from its bottom edge…", "on desktop, Shift and the arrow keys change a block's length…", "the block under way keeps its start and changes only its end…") | covered (same, by the grip) | missing | missing |
 | Timeline: a press held on empty time drafts an hour with a ring, Capture saves it there as an Inbox item, Undo; none on time gone by or a quick press | covered (today-timeline: "a press held on empty time drafts an hour there with a ring…", "a press held on time gone by drafts nothing…") | covered (same, by touch pointer events) | missing | covered (testAHoldOnEmptyTimeOnTodayDraftsAnHourAndCaptureSavesItThereAsAnInboxItem, testAHoldsTapReachesTheHapticsPlugin) |
 | Timeline: a click or tap opens the block's task | covered (today: "a click or tap on a block opens its task…"; details: "the Now card, a To schedule card and a block on Today open the popup") | covered (same) | missing | missing |
-| Timeline: Done in a block's popup, and Pause or Resume on the one under way | covered (today: "Done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
+| Timeline: Mark done in a block's popup, and Pause or Resume on the one under way | covered (today: "Mark done in a block's popup: one later today finishes its task and frees the time…") | covered (same) | missing | missing |
 | Timeline: a block's quick menu, by a right-click, Shift-F10 or the menu key, or a hold let go in place | partly (click-and-hold: "Today: a block's quick menu opens on a right-click or Shift-F10…" chooses Done and Pause, and lists Move to's items; choosing Next free time, Tomorrow, Back to To schedule or Choose a time is in today.test.tsx only) | partly (same, a hold let go in place) | partly (desktop: "a right-click's menu: macOS draws the items the page gives…", the bridge with Menu.popup stubbed; Today's blocks calling it are unit tests) | missing |
 | List view, kept after a reload | covered (today-timeline: "the timeline switches to a list of the day in order…") | covered (same) | missing | missing |
 | Zoom | covered (today-timeline: "zoom draws the calendar taller a step at a time and back…") | partly (the buttons; a pinch needs the Simulator) | missing | missing |
@@ -222,6 +223,11 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
 | Opens from anywhere a task is named, edits everything, Undo | covered (details: "a task opens in its popup from its project…", "the Now card, a To schedule card and a block on Today open the popup", "the body scrolls once the popup reaches 70%…") | covered (same) | covered (journeys/first-week; desktop: "closing the window keeps the edits not yet saved…") | partly (testATaskOpensWithTheKeyboardDown…) |
+| The same sections in the same order from every opener; only the actions change | partly (task-actions: "from a list…", "from Inbox…", "from a block on Today…"; the unit tests check Inbox, One offs, a project and a Today block: task.test.tsx) | partly (same) | missing | missing |
+| Mark done from a list, a repeating one off for this time only, and from a block on another day or answered, with Undo | covered (task-actions: "from a list: Start now, Mark done and Schedule…", "from a block on Today…"; the repeat and the answered block in the unit tests) | covered (same) | missing | missing |
+| Start now from a list: a block from now, started, with Undo | covered (task-actions: "from a list…") | covered (same) | missing | missing |
+| Schedule…: To schedule's times this week, placed with Undo, and Choose a time… on Week | covered (task-actions: "from a list…") | covered (same) | missing | missing |
+| Dates: a one off's date, range and repeat, a project task's date or range, none in the Inbox | covered (task-actions: "from a list…", "from Inbox…"; each rule in task.test.tsx and oneoffs.test.tsx) | covered (same) | missing | missing |
 | Belongs to: a search of the places a task can go, under the field on desktop and in a sheet on phone | covered (details: "Belongs to searches the places a task can go…") | covered (same, with a 44pt check) | missing | missing |
 | Cancel, Esc, the close button and a tap outside with unsaved changes | covered (popup: "Cancel drops the popup's changes, and Esc, the close button or a tap outside keep them until Save") | covered (same) | partly (desktop: closing the window keeps them; quitting drops them, reported) | missing |
 | Delete task, with its block, Undo | covered (popup: "Delete task takes the task and its block off Today…") | covered (same) | missing | missing |
@@ -278,6 +284,27 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | A reminder clicked, not a button, opens the app | n/a | n/a | covered (desktop: "a reminder clicked, not one of its buttons…") | missing |
 | Which reminders are on (Settings) | covered (settings: "edits settings in place"; settings-sections: "Reminders: Notify at block start, Ask at block end and the planning reminder…") | covered (same) | missing | missing |
 
+### iPhone widgets
+
+The widgets draw only from the snapshot the app writes to the App Group, so each layer tests one side of it: Vitest the
+app's side, the Swift package the widgets' side, the fixtures both, and XCUITest everything around the widget itself.
+
+| Feature | Layer | Covered by |
+| --- | --- | --- |
+| The snapshot for every state the spec draws: in progress, time to start, paused, free, nothing planned, day finished, signed out, stale | Vitest | `widgetSnapshot.test.ts` |
+| This week's part of the snapshot: each day's planned time (blocks cut at midnight, planning left out), aims with planned time and the project's pill (none set, skipped or not under way left out), practices' sessions done of those wanted (paused, ended and skipped left out), and an empty week | Vitest | `widgetSnapshot.test.ts` ("the week in the widget snapshot") |
+| An encrypted space's task, project and practice names never reach the snapshot; only names are free text, for the Lock Screen to hide | Vitest, Swift | `widgetSnapshot.test.ts` ("privacy in the widget snapshot"); `WordsTests` (testOnlyNamesAreMarkedPrivate, testALockedPhoneHidingNamesReadsThePlaceholdersInstead) |
+| The snapshot's caps: 120-character titles and names, 60 blocks, 10 aims and 10 practices, 64 KB | Vitest | `widgetSnapshot.test.ts` |
+| Start, Start early, Pause and Resume from the widget apply at the tap, with Undo; stale, duplicate, moved, answered and ended ones are dropped and say why | Vitest | `widgetActions.test.ts`; `widgets.test.tsx` (the toast and its Undo, on opening and on coming back) |
+| The widgets' links open Today, Today at a block, the Inbox, Week and Plan your week | Vitest, XCUITest | `appLinks.test.ts`, `widgets.test.tsx`, `capacitor.test.ts`; testEachWidgetLinkOpensItsScreen |
+| The app and the widgets agree: the snapshot decodes, the block under the clock and the next match the app's own at every edge of both days, action files and what a tap leaves match, times, weeks ("Nov 16 to 22") and lengths read alike, the week decodes and a snapshot from before it still does | Fixtures | `widgetFixtures.test.ts` writes them, `FixtureTests` reads them |
+| Timeline entries only where the widget changes, Smart Stack relevance, the countdown, the bar and the pause | Swift | `TimelineTests`, `StateTests` |
+| A button's intent queues its tap, checked against the plan at the tap; Undo of an unapplied start takes it off the queue | Swift | `TapTests`, `StoreTests` |
+| VoiceOver: one label per widget in order of importance, end times, buttons named in full | Swift | `WordsTests` |
+| The app writes the snapshot after a plan change; queued actions apply on opening with an Undo toast; background refresh reaches the page | XCUITest | `WidgetUITests` |
+| The App Group: the widget extension has it exactly when the app does, and a free personal team's build has neither | Script, Vitest | `scripts/test-ios.sh`; `ios-project.test.ts` |
+| A widget on the real Home Screen, Lock Screen or StandBy | not automatable | XCUITest can't add a widget to the Home Screen or tap one there: Home Screen editing isn't scriptable, and WidgetKit draws widgets in SpringBoard, outside any app's tree. The closest checks: every layer either side of the widget above |
+
 ### The Mac app's own
 
 | Feature | Mac app |
@@ -309,8 +336,8 @@ Every change can be undone, usually from the toast that reports it. Where each a
 | Week | week: remove, To schedule; week-blocks: Remove on phone | missing | missing |
 | Weekly and stretch planning | schedule: place the rest; planning: a task added while picking; plan: "Add makes a goal…"; stretch and weekly-planning: Finish | journeys/planning-task, journeys/project-lifecycle | missing |
 | Goals, milestones, practices | goals: delete a goal; milestones: every change; practices: End practice; still-a-goal: not now, Restore | journeys/project-lifecycle | covered (testAPracticeOnMondayTuesdayAndFridaySavesWithUndo) |
-| One offs | oneoffs-repeats: dates in place, Change repeat's delete | missing | missing |
-| The task popup | details: Save; popup: Delete task; attachments: link removed | missing | missing |
+| One offs | oneoffs-repeats: dates in place, the popup's Delete task | missing | missing |
+| The task popup | details: Save; popup: Delete task; attachments: link removed; task-actions: Mark done, Start now, a placed time | missing | missing |
 | Notes | notes-list: Delete note's Undo takes focus; unit tests: Save as note's Undo (process/note.test.tsx), Save and Belongs to: Inbox (notes/notes.test.tsx) | missing | missing |
 | Done and Analytics | done: marked finished; analytics: a pattern; analytics-estimates: Raise estimates | missing | missing |
 | Settings | settings-sections: away dates removed | missing | missing |

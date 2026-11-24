@@ -300,7 +300,7 @@ function photoLine(a: Attachment, state: UploadState | null, local: boolean, zon
     case 'refused':
       return { text: 'Not uploaded', alert: true };
     case 'changed':
-      return { text: 'Not uploaded: the photo changed while it uploaded. Remove it and add it again.', alert: true };
+      return { text: "Couldn't upload. Try adding it again.", alert: true };
     default:
       return { text: local ? 'Waiting to upload' : 'Not uploaded yet' };
   }

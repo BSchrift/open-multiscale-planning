@@ -227,7 +227,7 @@ describe('Settings', () => {
         sync.deleteAccount.mockResolvedValueOnce('protected');
         await userEvent.type(screen.getByRole('textbox', { name: 'Type DELETE to confirm' }), 'DELETE');
         await userEvent.click(remove());
-        expect(await screen.findByText("This account is protected and can't be deleted. Nothing was deleted.")).toBeVisible();
+        expect(await screen.findByText("Couldn't delete this account.")).toBeVisible();
       });
     });
   });

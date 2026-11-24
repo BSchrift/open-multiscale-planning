@@ -213,21 +213,27 @@ func TestExtremeNumbersAreAccepted(t *testing.T) {
 	}
 }
 
-func TestPaging(t *testing.T) {
-	s, _ := newStore(t)
-	const total = 510
+// pushMany pushes total records titled with title, in requests as full as a device sends.
+func pushMany(t *testing.T, s *msync.Store, user string, total int, title func(i int) map[string]msync.Field) {
+	t.Helper()
 	var batch []msync.Change
 	for i := range total {
-		batch = append(batch, task(fmt.Sprintf("r%04d", i), title("x", clock(1, "a"))))
+		batch = append(batch, task(fmt.Sprintf("r%04d", i), title(i)))
 		if len(batch) == msync.MaxChanges || i == total-1 {
-			if err := pushOnly(s, "abc", batch); err != nil {
+			if err := pushOnly(s, user, batch); err != nil {
 				t.Fatal(err)
 			}
 			batch = nil
 		}
 	}
+}
+
+func TestPaging(t *testing.T) {
+	s, _ := newStore(t)
+	const total = 2010
+	pushMany(t, s, "abc", total, func(int) map[string]msync.Field { return title("x", clock(1, "a")) })
 	page := mustSync(t, s, "abc", 0)
-	if !page.More || len(page.Changes) != 500 || page.Cursor != 500 {
+	if !page.More || len(page.Changes) != 2000 || page.Cursor != 2000 {
 		t.Fatalf("first page: more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
 	}
 	page = mustSync(t, s, "abc", page.Cursor)
@@ -237,6 +243,108 @@ func TestPaging(t *testing.T) {
 	page = mustSync(t, s, "abc", page.Cursor)
 	if page.More || len(page.Changes) != 0 || page.Cursor != total {
 		t.Fatalf("drained: %+v", page)
+	}
+}
+
+// shortQueryDB answers each Query with at most Max items, as DynamoDB does when a call reaches 1 MB, and runs Before
+// ahead of each one.
+type shortQueryDB struct {
+	msync.DB
+	Max     int32
+	Before  func()
+	Queries int
+}
+
+func (d *shortQueryDB) Query(ctx context.Context, in *dynamodb.QueryInput, opts ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	d.Queries++
+	if d.Before != nil {
+		d.Before()
+	}
+	short := *in
+	if short.Limit == nil || *short.Limit > d.Max {
+		short.Limit = aws.Int32(d.Max)
+	}
+	return d.DB.Query(ctx, &short, opts...)
+}
+
+func TestAPageFollowsDynamoDBAcrossQueries(t *testing.T) {
+	s, _ := newStore(t)
+	pushMany(t, s, "abc", 10, func(int) map[string]msync.Field { return title("x", clock(1, "a")) })
+	short := &shortQueryDB{DB: s.DB, Max: 3}
+	s.DB = short
+	page := mustSync(t, s, "abc", 0)
+	if page.More || len(page.Changes) != 10 || page.Cursor != 10 {
+		t.Fatalf("more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
+	}
+	if short.Queries != 4 {
+		t.Fatalf("%d queries, want 4: three full and one with the last record", short.Queries)
+	}
+}
+
+func TestAPageNeverPassesTheCounterItRead(t *testing.T) {
+	s, raw := newStore(t)
+	pushMany(t, s, "abc", 10, func(int) map[string]msync.Field { return title("x", clock(1, "a")) })
+	other := &msync.Store{DB: raw, Table: s.Table}
+	short := &shortQueryDB{DB: s.DB, Max: 3}
+	// Another device writes between the pull's queries, after the counter was read.
+	short.Before = func() {
+		if short.Queries == 2 {
+			if err := pushOnly(other, "abc", []msync.Change{task("later", title("y", clock(2, "b")))}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	s.DB = short
+	page := mustSync(t, s, "abc", 0)
+	if page.More || len(page.Changes) != 10 || page.Cursor != 10 {
+		t.Fatalf("more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
+	}
+	for _, change := range page.Changes {
+		if change.ID == "later" {
+			t.Fatal("the page holds a record written after its counter")
+		}
+	}
+	s.DB = raw
+	if next := mustSync(t, s, "abc", page.Cursor); len(next.Changes) != 1 || next.Changes[0].ID != "later" || next.Cursor != 11 {
+		t.Fatalf("next %+v", next)
+	}
+}
+
+func TestAPageStopsAtTwoMegabytes(t *testing.T) {
+	s, _ := newStore(t)
+	// 25 records of about 100 KiB, one to a request, as the transaction limit has them go.
+	big := strings.Repeat("x", msync.MaxRecordBytes-200)
+	for i := range 25 {
+		if err := pushOnly(s, "abc", []msync.Change{task(fmt.Sprintf("r%02d", i), title(big, clock(1, "a")))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := mustSync(t, s, "abc", 0)
+	var bytes int
+	for _, change := range page.Changes {
+		b, _ := json.Marshal(change.Fields)
+		bytes += len(b)
+	}
+	if !page.More || len(page.Changes) != 20 || bytes > 2<<20 {
+		t.Fatalf("more=%v changes=%d bytes=%d", page.More, len(page.Changes), bytes)
+	}
+	page = mustSync(t, s, "abc", page.Cursor)
+	if page.More || len(page.Changes) != 5 || page.Cursor != 25 {
+		t.Fatalf("second page: more=%v changes=%d cursor=%d", page.More, len(page.Changes), page.Cursor)
+	}
+}
+
+func TestARecordLargerThanAPageGoesAlone(t *testing.T) {
+	defer msync.SetPageLimits(2000, 1000)()
+	s, _ := newStore(t)
+	pushMany(t, s, "abc", 3, func(int) map[string]msync.Field { return title(strings.Repeat("x", 1500), clock(1, "a")) })
+	cursor := int64(0)
+	for want := range 3 {
+		page := mustSync(t, s, "abc", cursor)
+		if len(page.Changes) != 1 || page.Changes[0].ID != fmt.Sprintf("r%04d", want) || page.More != (want < 2) {
+			t.Fatalf("page %d: more=%v changes=%d", want, page.More, len(page.Changes))
+		}
+		cursor = page.Cursor
 	}
 }
 
@@ -791,7 +899,7 @@ func TestRequestShapes(t *testing.T) {
 	}
 
 	pull := spy.Queries[len(spy.Queries)-1]
-	if aws.ToString(pull.IndexName) != "by_seq" || !aws.ToBool(pull.ConsistentRead) || aws.ToInt32(pull.Limit) != 500 {
+	if aws.ToString(pull.IndexName) != "by_seq" || !aws.ToBool(pull.ConsistentRead) || aws.ToInt32(pull.Limit) != 2000 {
 		t.Fatalf("pull %+v", pull)
 	}
 }

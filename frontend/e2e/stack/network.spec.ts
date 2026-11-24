@@ -146,11 +146,11 @@ test('a push whose answer never arrives is sent again, lands once, and the outbo
 });
 
 test('a push of many batches and a pull of many pages, each cut off midway, carry on from where they stopped', async ({ browser }) => {
-  test.skip(!t.localApi, "needs: a user of its own, since 520 records would stay on a deployment's test user");
+  test.skip(!t.localApi, "needs: a user of its own, since 2,020 records would stay on a deployment's test user");
   test.setTimeout(180_000);
   const run = randomUUID().slice(0, 8);
-  // More than five batches of 99 to send, and more than one page of 500 to bring down.
-  const ids = Array.from({ length: 520 }, (_, i) => `e2e-${run}-${String(i).padStart(3, '0')}`);
+  // More than five batches of 99 to send, and more than one page of 2,000 to bring down.
+  const ids = Array.from({ length: 2020 }, (_, i) => `e2e-${run}-${String(i).padStart(4, '0')}`);
   const a = await device(browser, `e2e-${run}`);
   await seed(a.page, ids.map((id, i) => oneOff(id, `Errand ${i} ${run}`)));
 
@@ -193,12 +193,12 @@ test('a push of many batches and a pull of many pages, each cut off midway, carr
   await expect.poll(() => pulls.length, NETWORK).toBeGreaterThan(1);
   await syncNow(b.page);
   await expect(status(b.page, 'Synced')).toBeVisible();
-  expect(pulls[0]).toMatchObject({ cursor: 0, more: true, count: 500 });
+  expect(pulls[0]).toMatchObject({ cursor: 0, more: true, count: 2000 });
   // From the page it reached, not from the start.
   expect(pulls[1]!.cursor).toBe(pulls[0]!.reached);
   expect(pulls[2]!.cursor).toBe(pulls[0]!.reached);
   expect(await missing(b.page, 'task', ids)).toEqual([]);
-  expect(await readRecord(b.page, 'task', ids[519]!)).toMatchObject({ title: `Errand 519 ${run}` });
+  expect(await readRecord(b.page, 'task', ids[2019]!)).toMatchObject({ title: `Errand 2019 ${run}` });
 
   expect(a.errors).toEqual([]);
   expect(b.errors).toEqual([]);

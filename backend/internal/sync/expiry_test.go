@@ -149,6 +149,28 @@ func TestPullsLeaveOutWhatHasExpiredAndResetADeviceThatMayHoldIt(t *testing.T) {
 	}
 }
 
+// A record left out still counts toward the page, so a page can end on one, with its cursor past it.
+func TestAPageThatEndsOnAnExpiredRecordCarriesOn(t *testing.T) {
+	defer msync.SetPageLimits(3, 2<<20)()
+	s, _, now, _ := expiringStore(t)
+	c := fresh(*now, "a")
+	mustSync(t, s, "abc", 0, task("a", title("Paint the fence", c)), task("b", title("Sand the boards", c)))
+	device(t, s, "abc", 2, task("closing", msync.Fields{"title": {V: "Oil the hinges", C: c}, "expires_at": {V: at(now.Add(time.Hour)), C: c}}))
+	device(t, s, "abc", 3, task("d", title("Fix the gate", c)))
+	*now = now.Add(2 * time.Hour)
+
+	res, stats, err := s.Sync(context.Background(), "abc", msync.Request{Cursor: 0, ExpiryReset: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(res.Changes); !slices.Equal(got, []string{"a", "b"}) || res.Cursor != 3 || !res.More || stats.Skipped != 1 {
+		t.Fatalf("first page %+v, skipped %d", res, stats.Skipped)
+	}
+	if res := device(t, s, "abc", res.Cursor); !slices.Equal(ids(res.Changes), []string{"d"}) || res.Cursor != 4 || res.More {
+		t.Fatalf("second page %+v", res)
+	}
+}
+
 func TestPullsLeaveOutWhatWasDeletedBeforeExpiryOnceItsPeriodHasPassed(t *testing.T) {
 	s, _, now, client := expiringStore(t)
 	expiry := s.Expiry

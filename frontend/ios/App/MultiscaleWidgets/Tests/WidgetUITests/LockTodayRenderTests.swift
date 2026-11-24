@@ -8,6 +8,7 @@ import XCTest
 /// largest text size: each fits its size and isn't empty. The Lock Screen's are drawn with a margin of wallpaper round
 /// them, since they have no margins of their own, and also as a locked phone with Lock Screen widget access off draws
 /// them.
+@available(iOS 17.0, macOS 14.0, *)
 @MainActor
 final class LockTodayRenderTests: XCTestCase {
     private let looks: [WidgetLook] = [.light, .dark, .tinted]

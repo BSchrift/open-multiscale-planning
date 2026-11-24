@@ -33,6 +33,7 @@ import type { WeekProps } from './index';
 import { useWeekActions } from './useWeekActions';
 import { WeekArrows } from '../../components/WeekArrows';
 import { PracticeAsk } from './parts';
+import { ResetWeek } from './reset';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
@@ -281,6 +282,8 @@ export function DesktopWeek(props: WeekProps) {
               {model.thisPlanned ? 'Plan next week' : 'Start planning'}
             </Button>
           )}
+          {/* Last, apart from the button to edit: it takes the plan out, after asking. */}
+          {!editing && !plan && <ResetWeek data={data} offset={offset} />}
         </div>
       </div>
       {props.gated && <PlanPrompt week={data.week} />}

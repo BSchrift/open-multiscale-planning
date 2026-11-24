@@ -40,6 +40,7 @@ import type { AddRow, LaneItem, Placeable, WeekModel } from './data';
 import { LaneActions, LaneCard, laneCount } from './lane';
 import type { PlacingPlanning, WeekProps } from './index';
 import { PracticeAsk } from './parts';
+import { ResetWeek } from './reset';
 import { useLanding } from './landing';
 import { shortened, SplitAsk } from '../../components/editors/SplitAsk';
 import type { Shortened } from '../../components/editors/SplitAsk';
@@ -442,6 +443,7 @@ export function PhoneWeek(props: WeekProps) {
               See this week's analytics
             </Button>
           )}
+          <ResetWeek data={data} offset={offset} className="wkstats" />
         </div>
       )}
 

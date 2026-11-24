@@ -14,6 +14,16 @@ public struct CaptureView: View {
     }
 
     public var body: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            content.dynamicTypeSize(...DynamicTypeSize.accessibility2)
+            content.dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(state.captureLabel)
+    }
+
+    private var content: some View {
         VStack(spacing: 6) {
             AppLinkView(url: WidgetLink.capture) {
                 VStack(spacing: 4) {
@@ -38,8 +48,6 @@ public struct CaptureView: View {
             }
             .accessibilityLabel(state.inboxLine)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(state.captureLabel)
     }
 }
 

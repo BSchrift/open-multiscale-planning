@@ -32,6 +32,9 @@ public struct NowNextView: View {
                 main(detail: .full)
                 main(detail: .noBar)
                 main(detail: .least)
+                // Only when even the least won't fit, at the very largest sizes, does the text stop growing.
+                main(detail: .least).dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                main(detail: .least).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityElement(children: .ignore)
@@ -40,6 +43,8 @@ public struct NowNextView: View {
                 ViewThatFits(in: .vertical) {
                     self.side(side, withNext: true)
                     self.side(side, withNext: false)
+                    self.side(side, withNext: false).dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                    self.side(side, withNext: false).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 }
                 .frame(width: side == .wide ? 150 : 128)
                 .frame(maxHeight: .infinity, alignment: .top)

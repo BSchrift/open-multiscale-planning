@@ -40,7 +40,9 @@ export type UploadState =
   /** Past this hour's uploads: it goes by itself from then. */
   | { kind: 'limit'; from: Instant }
   /** Refused for good, as a type or size no app sends. */
-  | { kind: 'refused' };
+  | { kind: 'refused' }
+  /** Its record changed after its upload was granted, so no upload under its id can match. Refused for good. */
+  | { kind: 'changed' };
 
 export interface Usage {
   used: number;
@@ -88,7 +90,7 @@ export function createFiles(deps: { db: Db; clock: Clock; store: FileBytes; api:
 
   async function uploadOne(id: string): Promise<'next' | 'stop' | 'limit'> {
     const state = states.get(id);
-    if (state?.kind === 'full' || state?.kind === 'tooMany' || state?.kind === 'refused') return 'next';
+    if (state?.kind === 'full' || state?.kind === 'tooMany' || state?.kind === 'refused' || state?.kind === 'changed') return 'next';
     const bytes = await store.get(id);
     // Added on another device, which uploads it.
     if (!bytes) return 'next';
@@ -101,6 +103,7 @@ export function createFiles(deps: { db: Db; clock: Clock; store: FileBytes; api:
       return 'limit';
     }
     if (res.status === 404) return set(id, { kind: 'waiting' }), 'next';
+    if (res.status === 409 && answer?.error === 'attachment_changed') return set(id, { kind: 'changed' }), 'next';
     if ([400, 413, 415].includes(res.status)) return set(id, { kind: 'refused' }), 'next';
     if (!res.ok || typeof answer?.url !== 'string' || !answer.headers || typeof answer.headers !== 'object') {
       set(id, { kind: 'waiting' });

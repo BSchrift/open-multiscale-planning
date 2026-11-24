@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getRecord, updateSettings } from '../../../core/records';
 import type { Writer } from '../../../core/records';
-import { renderScreen } from '../../app/testing';
+import { pickFrom, renderScreen } from '../../app/testing';
 import type { Harness } from '../../app/testing';
 import { EST_STEPS } from '../../components/EstimateSlider';
 
@@ -637,7 +637,7 @@ describe('Goals', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Edit task Feed the starter, 2h' }));
       editor = await screen.findByRole('dialog', { name: 'Feed the starter' });
       expect(within(editor).getByRole('slider', { name: 'Time estimate' })).toHaveAttribute('aria-valuetext', '2h');
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
+      await pickFrom(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, First loaf');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Feed the starter to Bake a sourdough loaf, First loaf.')).toBeVisible();
       expect((await record(t, 'task', 't2'))?.milestone_id).toBe('m2');
@@ -708,18 +708,20 @@ describe('Goals', () => {
       await userEvent.click(within(head).getByRole('button', { name: 'Done tasks' }));
       await userEvent.click(within(done).getByRole('button', { name: /^Edit task Buy flour/ }));
       let editor = await screen.findByRole('dialog', { name: 'Buy flour' });
+      await userEvent.click(within(editor).getByLabelText('Belongs to'));
       expect(within(editor).getAllByRole('option').map((o) => o.textContent)).toEqual([
         'Inbox',
         'One offs',
         'Bake a sourdough loaf, Make a starter',
         'Bake a sourdough loaf, Done',
       ]);
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Make a starter');
+      // The list is open, on phone in its sheet.
+      await userEvent.click(screen.getByRole('option', { name: 'Bake a sourdough loaf, Make a starter' }));
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Make a starter.')).toBeVisible();
       await userEvent.click(await within(group('Make a starter')).findByRole('button', { name: /^Edit task Buy flour/ }));
       editor = await screen.findByRole('dialog', { name: 'Buy flour' });
-      await userEvent.selectOptions(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
+      await pickFrom(within(editor).getByLabelText('Belongs to'), 'Bake a sourdough loaf, Done');
       await userEvent.click(within(editor).getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Moved Buy flour to Bake a sourdough loaf, Done.')).toBeVisible();
     });

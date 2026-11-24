@@ -382,10 +382,10 @@ test('a push or a pull whose answer the network loses is finished by the next sy
   await expectSynced(a.page);
   expect(tapA.log.at(-1)!.sent.changes).toEqual([]);
 
-  // A pull of more than one page, whose second page is lost on its way back. Cut off until then, so no other sync
-  // pulls part of it first.
+  // A pull of more than one page of 2,000, whose second page is lost on its way back. Cut off until then, so no other
+  // sync pulls part of it first.
   tapB.down();
-  const pulled = Array.from({ length: 520 }, (_, i) => ({ type: 'task', id: `e2e-${run}-pulled-${i}`, fields: { kind: 'inbox', title: `Pulled ${run} ${i}` } }));
+  const pulled = Array.from({ length: 2020 }, (_, i) => ({ type: 'task', id: `e2e-${run}-pulled-${i}`, fields: { kind: 'inbox', title: `Pulled ${run} ${i}` } }));
   for (let i = 0; i < pulled.length; i += 99) await push(a, pulled.slice(i, i + 99));
   const firstPage = tapB.log.length;
   tapB.next('deliver', 'lose');

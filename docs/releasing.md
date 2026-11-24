@@ -55,8 +55,8 @@ stays clean. The account's records carry no expiry, so a reload of a browser hol
 send them, and staging's periods would then remove most of the account. So the main page is never reloaded, and the
 reload is a browser of its own that sends nothing once it starts to reload. A failure stops the release, as any
 staging suite's does. It began reported only, and gates since it passed ten staging runs in a row. It adds about 2 to
-3 minutes to a staging run: on 20 November the seed took 20 to 30 seconds, the first sync about 32, and the whole
-project 2.3 minutes.
+3 minutes to a staging run: on staging's runs from 19 to 23 November the seed took 19 to 30 seconds, the first sync 29
+to 38 seconds, and the whole project, when it passed, 1.8 to 2.3 minutes.
 
 Each web build carries its environment's backend addresses, from its stack's outputs as Build finds them. A release
 that changes one of those outputs, such as a new sign-in client, reaches the web app with the run after it.

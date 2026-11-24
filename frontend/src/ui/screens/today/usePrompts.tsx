@@ -5,7 +5,7 @@
 // every tab.
 
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { instantMs } from '../../../core/dates';
 import { nextBlock } from '../../../core/blocks';
@@ -22,12 +22,19 @@ const MISSED_WINDOW_MS = 7 * 86_400_000;
 
 type Open = { kind: 'end'; id: string } | { kind: 'sheet' } | null;
 
-export function usePrompts(data: TodayData): { prompt: ReactNode; missed: { title: string; review(): void } | null } {
+/**
+ * The questions put away for this session. Today holds one for both its views, Plan your week and the day, so skipping
+ * planning, which swaps one for the other, brings back none of them.
+ */
+export type PutAway = [ReadonlySet<string>, Dispatch<SetStateAction<ReadonlySet<string>>>];
+export const usePutAway = (): PutAway => useState<ReadonlySet<string>>(() => new Set());
+
+export function usePrompts(data: TodayData, putAway: PutAway): { prompt: ReactNode; missed: { title: string; review(): void } | null } {
   const { clock } = useApp();
   const snoozed = useSnoozes();
   const request = usePromptRequest();
   const [open, setOpen] = useState<Open>(null);
-  const [later, setLater] = useState<ReadonlySet<string>>(new Set());
+  const [later, setLater] = putAway;
 
   const now = clock.now();
   const missed = [

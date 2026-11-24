@@ -230,13 +230,12 @@ describe('Lambdas', () => {
     assert.equal(env.SSM_PREFIX, '/multiscale/staging');
     // Exactly what the Go code reads: the metric namespace comes from ENV_NAME there, so it isn't passed twice.
     assert.deepEqual(Object.keys(env).sort(), [
-      'ACCOUNT_FUNCTION_NAME', 'API_URL', 'CALENDAR_FUNCTION_NAME', 'CALENDAR_QUEUE_URL', 'ENV_NAME', 'GOOGLE_TOKEN_KEY', 'SSM_PREFIX', 'TABLE_NAME',
+      'ACCOUNT_FUNCTION_NAME', 'API_URL', 'CALENDAR_QUEUE_URL', 'ENV_NAME', 'GOOGLE_TOKEN_KEY', 'SSM_PREFIX', 'TABLE_NAME',
       'USER_POOL_CLIENT_IDS', 'USER_POOL_ID',
     ]);
     // The app's client and the integration suite's, which a lapsed token may be from.
     assert.equal(env.USER_POOL_CLIENT_IDS['Fn::Join'][1].length, 3);
     assert.ok(env.API_URL);
-    assert.ok(env.CALENDAR_FUNCTION_NAME);
     const worker = all[logicalId('Calendar')].Properties.Environment.Variables;
     assert.ok(worker.TABLE_NAME);
     assert.equal(worker.SSM_PREFIX, '/multiscale/staging');
@@ -402,12 +401,12 @@ describe("people's Google tokens", () => {
 
   const condition = { StringEquals: { 'kms:EncryptionContext:purpose': 'google-refresh-token', 'kms:EncryptionContext:env': 'staging' } };
 
-  // The worker encrypts too, while it copies the legacy connection into its person's own.
-  it('may be encrypted by the API and the worker, decrypted by them and the account function, with this key alone, only for this environment and purpose', () => {
+  // Only the API seals tokens, at consent. Deleting an account ends its Google connection, which opens the token to
+  // revoke it at Google.
+  it('may be encrypted only by the API, decrypted by it, the worker and the account function, with this key alone, only for this environment and purpose', () => {
     const kms = (fn: string) => policyFor(fn).filter((s) => s.Action.some((a: string) => a.startsWith('kms:')));
     assert.deepEqual(kms('Api').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
-    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action).sort(), ['kms:Decrypt', 'kms:Encrypt']);
-    // Deleting an account ends its Google connection, which opens the token to revoke it at Google.
+    assert.deepEqual(kms('Calendar').flatMap((s) => s.Action), ['kms:Decrypt']);
     assert.deepEqual(kms('Account').flatMap((s) => s.Action), ['kms:Decrypt']);
     for (const s of [...kms('Api'), ...kms('Calendar'), ...kms('Account')]) {
       assert.deepEqual(s.Condition, condition);
@@ -428,7 +427,7 @@ describe("people's Google tokens", () => {
     const decrypt = uses.filter((s) => [s.Action].flat().includes('kms:Decrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
     assert.deepEqual(decrypt.sort(), [role('Api'), role('Calendar'), role('Account')].sort());
     const encrypt = uses.filter((s) => [s.Action].flat().includes('kms:Encrypt')).flatMap((s) => [s.Principal.AWS].flat().map((p: any) => p['Fn::GetAtt'][0]));
-    assert.deepEqual(encrypt.sort(), [role('Api'), role('Calendar')].sort());
+    assert.deepEqual(encrypt, [role('Api')]);
   });
 });
 
@@ -512,11 +511,14 @@ describe('least privilege', () => {
     }
   });
 
-  it('API may read this environment\'s secrets and write or delete only the refresh token', () => {
-    for (const action of ['ssm:PutParameter', 'ssm:DeleteParameter']) {
-      const write = policyFor('Api').filter((s) => s.Action.includes(action));
-      assert.equal(write.length, 1, action);
-      assert.match(JSON.stringify(write[0].Resource), /parameter\/multiscale\/staging\/google\/refresh-token"/, action);
+  // The legacy connection is only ever deleted now: by the worker's schedule once its person has their own, or by the
+  // API's disconnect of that person.
+  it('lets both functions delete only the legacy connection, and neither write a secret', () => {
+    for (const fn of ['Api', 'Calendar']) {
+      const remove = policyFor(fn).filter((s) => s.Action.includes('ssm:DeleteParameter'));
+      assert.equal(remove.length, 1, fn);
+      assert.match(JSON.stringify(remove[0].Resource), /parameter\/multiscale\/staging\/google\/refresh-token"/, fn);
+      assert.ok(!actions(fn).includes('ssm:PutParameter'), fn);
     }
   });
 
@@ -535,10 +537,7 @@ describe('least privilege', () => {
     assert.deepEqual(names.sort(), ['client-id', 'client-secret', 'refresh-token']);
   });
 
-  it('worker reads secrets but cannot write them, and only it reads the stream', () => {
-    assert.ok(actions('Calendar').includes('ssm:GetParameter'));
-    assert.ok(!actions('Calendar').includes('ssm:PutParameter'));
-    assert.ok(!actions('Calendar').includes('ssm:DeleteParameter'));
+  it('only the worker reads the stream', () => {
     assert.ok(actions('Calendar').includes('dynamodb:GetRecords'));
     assert.ok(!actions('Api').includes('dynamodb:GetRecords'));
   });
@@ -575,7 +574,8 @@ describe('least privilege', () => {
     for (const fn of ['Calendar', 'Retention']) assert.ok(!actions(fn).some((a) => a.startsWith('cognito-idp:')), fn);
   });
 
-  it('only the API can invoke the worker', () => {
+  // Every run starts through the queue, so nothing invokes the worker; the API starts only an export or a deletion.
+  it('nothing invokes the worker, and the API only the account function', () => {
     assert.ok(actions('Api').includes('lambda:InvokeFunction'));
     assert.ok(!actions('Calendar').includes('lambda:InvokeFunction'));
   });
@@ -609,13 +609,13 @@ describe('the backend canary', () => {
     const calendarLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Calendar'), 'Arn'] }, ':live']] };
     const mapped = ofType('AWS::Lambda::EventSourceMapping').map(([, m]) => mappedTo(m) ?? JSON.stringify(m.Properties.FunctionName)).sort();
     assert.deepEqual(mapped, [aliasOf('Calendar'), aliasOf('Retention'), JSON.stringify(calendarLive)].sort());
-    // The API starts the worker by this name, and may invoke only the alias.
-    // By ARN, not the alias resource, which would make a loop through the alias's deployment group (cycles.test.ts).
-    assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, calendarLive);
+    // The API starts the account function by this name, and may invoke only its alias, by ARN, not the alias resource,
+    // which would make a loop through the alias's deployment group (cycles.test.ts). Nothing names the worker.
+    assert.equal(all[logicalId('Api')].Properties.Environment.Variables.CALENDAR_FUNCTION_NAME, undefined);
     const accountLive = { 'Fn::Join': ['', [{ 'Fn::GetAtt': [logicalId('Account'), 'Arn'] }, ':live']] };
     assert.deepEqual(all[logicalId('Api')].Properties.Environment.Variables.ACCOUNT_FUNCTION_NAME, accountLive);
     const invoke = policyFor('Api').filter((s) => s.Action.includes('lambda:InvokeFunction'));
-    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [calendarLive, accountLive]);
+    assert.deepEqual(invoke.flatMap((s) => [s.Resource].flat()), [accountLive]);
   });
 
   it('keeps the stream mappings where they are, so they move to the alias in place rather than start over', () => {

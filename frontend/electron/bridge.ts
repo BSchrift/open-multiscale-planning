@@ -2,6 +2,7 @@
 // page can't reach channels it wasn't given.
 
 import type { Row, SqlValue } from '../src/core/db';
+import type { Energy } from '../src/core/telemetry';
 import type { Reminder } from '../src/core/types';
 import type { NativeUpdates } from '../src/core/updates';
 import type { Appearance, CaptureShortcut, NativeMenuItem, ReminderResponse } from '../src/platform/types';
@@ -39,6 +40,8 @@ export interface ElectronBridge {
   showMenu?(items: readonly NativeMenuItem[]): Promise<string | null>;
   updates: NativeUpdates;
   captureShortcut: CaptureShortcut;
+  /** Each process's CPU and idle wakeups, and the power source, for telemetry. Apps from before it lack it. */
+  energy?: Energy;
   /** Set by apps whose content policy lets the page reach attachments' storage. Older apps lack it. */
   attachments?: true;
 }

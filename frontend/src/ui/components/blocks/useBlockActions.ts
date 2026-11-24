@@ -26,7 +26,8 @@ import { snoozeUntil } from '../../../core/reminders';
 import { closeTask, tickOneOff } from '../../../core/tasks';
 import { snoozeBlock, STILL_GOING_MIN } from '../../app/reminders';
 import { useApp, useMutation } from '../../app/store';
-import { useToast } from '../Toast';
+import { useToastOr } from '../Toast';
+import type { Say } from '../Toast';
 
 const QUEUED = 'Added to Needs a new time. No need to decide now.';
 
@@ -39,9 +40,10 @@ const TAKE_BACK_MS = 30_000;
  */
 let lastResume: { db: Db; blockId: string; at: number; reverse: PlanChange } | null = null;
 
-export function useBlockActions() {
+/** say: where its messages go instead of the app's toast, as the phone's Schedule step says its own above its dock. */
+export function useBlockActions(say?: Say) {
   const { clock, db } = useApp();
-  const toast = useToast();
+  const toast = useToastOr(say);
   const write = useMutation((w, fn: (w: Writer) => Promise<PlanChange | void>) => fn(w));
   const { run } = write;
 

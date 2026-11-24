@@ -147,7 +147,7 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 		return append([]any{"outcome", "failed", "error_type", code}, obs.Metrics(g.Env, g.Now(), map[string]int{"CalendarRunFailures": 1})...)
 	}
 
-	conn, err := g.connectionOf(ctx, sub)
+	conn, err := g.Connections.Get(ctx, sub)
 	if errors.Is(err, ErrNotConnected) {
 		// A success: not connected is the person's choice, so the alarm on the worker going quiet mustn't fire.
 		finish(append([]any{"outcome", "not_connected"}, obs.Metrics(g.Env, g.Now(), map[string]int{
@@ -178,9 +178,6 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 			"CalendarEventsChanged": 0, "CalendarRunFailures": 0,
 		})...)...)
 		return nil
-	}
-	if conn.legacy {
-		attrs = append(attrs, "legacy", true)
 	}
 
 	counts, err := g.pass(ctx, conn)
@@ -234,12 +231,12 @@ func (g *Google) Run(ctx context.Context, sub, trigger, requestID string) error 
 	return g.retry(ctx, sub, requestID)
 }
 
-// Dispatch starts a run for every connected person, each at its own offset within spreadOver. The schedule's first copies
-// the legacy connection into its person's own, if it's still to do; its outcome is logged, and never stops the runs.
+// Dispatch starts a run for every connected person, each at its own offset within spreadOver. The schedule's first
+// deletes the legacy connection, once it's been copied; its outcome is logged, and never stops the runs.
 func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error {
 	start := g.Now()
 	if trigger == "schedule" {
-		g.MigrateLegacy(ctx, requestID)
+		g.retireLegacy(ctx, requestID)
 	}
 	var jobs []Job
 	err := g.Connections.Each(ctx, func(sub string) error {
@@ -248,19 +245,6 @@ func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error 
 	})
 	if err != nil {
 		return err
-	}
-	legacy, err := g.legacyConnection(ctx)
-	if err != nil && !errors.Is(err, ErrNoSecret) {
-		return err
-	}
-	if legacy.Sub != "" {
-		// Only if they have no connection of their own, refused or not: Each has those it should run.
-		_, err := g.Connections.Peek(ctx, legacy.Sub)
-		if errors.Is(err, ErrNotConnected) {
-			jobs = append(jobs, Job{Sub: legacy.Sub, Trigger: trigger, Delay: offset(legacy.Sub)})
-		} else if err != nil {
-			return err
-		}
 	}
 	if err := g.Queue.Send(ctx, jobs); err != nil {
 		return err
@@ -276,13 +260,9 @@ func (g *Google) Dispatch(ctx context.Context, trigger, requestID string) error 
 
 // Wake starts a run now for each of these people who is connected: those whose plan changed.
 func (g *Google) Wake(ctx context.Context, subs []string, requestID string) error {
-	legacy, err := g.legacyConnection(ctx)
-	if err != nil && !errors.Is(err, ErrNoSecret) {
-		return err
-	}
 	var jobs []Job
 	for _, sub := range subs {
-		connected, err := g.connectedBeside(ctx, sub, legacy)
+		connected, err := g.Connections.Has(ctx, sub)
 		if err != nil {
 			return err
 		}
@@ -298,6 +278,37 @@ func (g *Google) Wake(ctx context.Context, subs []string, requestID string) erro
 	}
 	g.Log.Info("calendar_dispatch", "request_id", requestID, "trigger", TriggerStream, "people", len(jobs))
 	return nil
+}
+
+// retireLegacy deletes the deployment's one connection from before, once its person's own connection exists, which the
+// migration release made from it. It never deletes one whose person has no connection of their own, whose token would
+// then be lost. It logs calendar_legacy_retirement and CalendarLegacyUnmigrated, 1 while one is kept.
+func (g *Google) retireLegacy(ctx context.Context, requestID string) {
+	legacy, err := g.legacyConnection(ctx)
+	if errors.Is(err, ErrNoSecret) {
+		return
+	}
+	outcome := "retired"
+	if err == nil {
+		// Their own, refused by Google or not: it was made from the legacy one, or since.
+		if _, err = g.Connections.Peek(ctx, legacy.Sub); errors.Is(err, ErrNotConnected) {
+			outcome, err = "kept_unmigrated", nil
+		}
+	}
+	if err == nil && outcome == "retired" {
+		err = g.Secrets.Delete(ctx, SecretRefreshToken)
+	}
+	attrs := []any{"request_id", requestID}
+	if err != nil {
+		outcome = "failed"
+		attrs = append(attrs, awsError(err)...)
+	}
+	unmigrated := 0
+	if outcome != "retired" {
+		unmigrated = 1
+	}
+	g.Log.Info("calendar_legacy_retirement", append(append(attrs, "outcome", outcome),
+		obs.Metrics(g.Env, g.Now(), map[string]int{"CalendarLegacyUnmigrated": unmigrated})...)...)
 }
 
 // offset is a person's fixed place in the schedule's spread.
@@ -344,17 +355,8 @@ var errConnectionGone = errors.New("gcal: the connection ended during the run")
 
 // stillConnected reports whether conn's person is still connected. A disconnect can end it while a run is under way, and
 // has already shown them unconnected, which the run's own writes would undo. It reads no token, so it costs no decrypt.
-// The legacy connection counts while it names them, their own then being one that won't open.
 func (g *Google) stillConnected(ctx context.Context, conn connection) (bool, error) {
-	own, err := g.Connections.Has(ctx, conn.Sub)
-	if err != nil || own || !conn.legacy {
-		return own, err
-	}
-	legacy, err := g.legacyConnection(ctx)
-	if errors.Is(err, ErrNoSecret) {
-		return false, nil
-	}
-	return err == nil && legacy.Sub == conn.Sub, err
+	return g.Connections.Has(ctx, conn.Sub)
 }
 
 func (g *Google) pass(ctx context.Context, conn connection) (runCounts, error) {
@@ -816,7 +818,7 @@ func (g *Google) change(recordType, id string, stored sync.Fields, values map[st
 
 // recordFailure tells the app why a run failed. For a token Google refused, it then marks the connection, unless the
 // person connected again meanwhile, so their runs stop until they connect again or disconnect; the sealed token stays
-// for a disconnect to revoke. The legacy one isn't marked: it goes by a disconnect or with the legacy secret.
+// for a disconnect to revoke.
 func (g *Google) recordFailure(ctx context.Context, conn connection, code string, revoked bool) error {
 	if still, err := g.stillConnected(ctx, conn); err != nil || !still {
 		return err
@@ -832,7 +834,7 @@ func (g *Google) recordFailure(ctx context.Context, conn connection, code string
 	if err := g.writeCalendar(ctx, conn.Sub, stored, values); err != nil {
 		return err
 	}
-	if !revoked || conn.legacy {
+	if !revoked {
 		return nil
 	}
 	return g.Connections.MarkRevoked(ctx, conn)

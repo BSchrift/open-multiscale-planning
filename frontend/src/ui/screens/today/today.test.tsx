@@ -873,6 +873,23 @@ describe('when the week is not planned', () => {
     expect(await dialog('Block finished')).toBeVisible();
   });
 
+  // The prompt shows on every tab, so one that comes back as planning is skipped takes the key or tap meant for another
+  // screen: the deployed clean-up's Enter on a block's × on Week went to it.
+  it('keeps a question put away for the session put away once planning is skipped', async () => {
+    await unplanned(async (w) => {
+      await work(w);
+      await block(w, 'b1', 't1', '12:00', '13:00');
+    });
+    await userEvent.click(within(await dialog('Block finished')).getByRole('button', { name: 'Answer later' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Skip planning this week' }));
+    expect(await screen.findByText("This week isn't planned")).toBeVisible();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Still there to answer, from the day's Review row.
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    expect(await dialog('Block finished')).toBeVisible();
+  });
+
   it('can be skipped, leaving a banner and what to do next, and Start puts it on the clock', async () => {
     const t = await unplanned(work);
     await userEvent.click(await screen.findByRole('button', { name: 'Skip planning this week' }));

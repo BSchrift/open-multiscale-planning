@@ -23,7 +23,9 @@ feature gets a row, and a test that covers a cell gets named in it.
 still serves, the release before, since the new one is published only once the suite passes. So the suite's desktop
 journey (`frontend/e2e/deployed/journey.ts`) keeps to steps both releases take, and the compat suite takes it on the old
 bundle as well as the new: main's on CI, and prod's web app's on staging. A step only the new web app can take fails
-there, before prod's Test step meets it.
+there, before prod's Test step meets it. Staging's release step also runs the deployed web suite the way prod's Test
+step does, against the web app staging still serves, before it publishes: a step outside the journey that only the new
+suite takes, such as clearing the checks earlier runs left, fails there first too.
 
 **The deployed journey, on a long history.** Prod's shared test user holds tens of thousands of records, so a change
 there takes seconds to read back, where a new user's takes milliseconds; once, Week took a card away only after the
@@ -76,10 +78,12 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 
 | Feature | Web desktop | Web phone | Mac app | iPhone |
 | --- | --- | --- | --- | --- |
-| Process: Save as note, one tap, with the item's description and attachments, its block off the calendar | covered (notes-list: "an Inbox item saved as a note in one tap…") | covered (same) | missing (seeded specs run in the browser only) | covered (testSaveAsNoteFromProcessThenFindItInNotesUnderMore) |
+| Process: Save as note, then Attach note to (On its own, or a home found by search), with the item's description and attachments, its block off the calendar | covered (notes-list: "an Inbox item saved as a note…", "a note attached to a project…") | covered (same) | missing (seeded specs run in the browser only) | covered (testSaveAsNoteFromProcessThenFindItInNotesUnderMore) |
 | Notes: on the sidebar after One offs, under More on phone, with no count | covered (notes-list) | covered (same) | missing | covered (same test) |
 | Notes: search over titles and descriptions, ignoring case and accents, underlined, and its count spoken | covered (notes-list) | covered (same) | missing | missing |
 | A note's popup: Delete note, Recently deleted and Restore, Belongs to Inbox to make it a task | covered (notes-list) | covered (same) | missing | missing |
+| A note's home: Belongs to's search, and its notes on the goal's card, the project's page and the practice's sheet | covered (notes-list: "a note attached to a project shows on its goal's card and its page…"; unit: notes/homes.test.tsx) | covered (same) | missing | missing |
+| Show it on Today on: the day's notes on Today, read only, above the timeline | covered (notes-list: "…and one chosen for today shows on Today") | covered (same) | missing | missing |
 | A note's title with nowhere to break, in its row, its popup and the Process card | covered (long-titles: "a 200-character title with nowhere to break…") | covered (same) | missing | missing |
 | Notes on the last release: the item leaves its Inbox unfinished, and its launch writes nothing to them | covered (compat: "Inbox items the update saved as notes…") | missing | missing | missing |
 
@@ -132,6 +136,8 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Schedule: a moved practice session asks about future weeks | covered (schedule: "desktop: moving a practice session asks…"; weekly-planning: "desktop: Yes on Schedule's practice question…") | missing (the phone's question sheet; touch dragging) | missing | missing |
 | Schedule: skip a practice this week, and include it again | covered (weekly-planning: "Skip a practice this week takes its sessions out…") | covered (same) | missing | missing |
 | Schedule: with nothing left to place, a press held on empty time drafts an hour there and Capture saves it; none while a task is being placed | covered (schedule: "with nothing left to place in the Schedule step, a press held on empty time drafts an hour there…", "a press held on empty time in the Schedule step drafts nothing while a task is being placed") | covered (same) | missing | missing |
+| Schedule: Mark done on a placed task's card finishes the task, with Undo; Done editing only stops changing the block | covered (schedule: "Mark done on a placed task's card finishes the task…"; schedule.test.tsx: "a placed one off's card says Done editing, not Done…") | covered (same, Undo in the step's own toast) | missing | missing |
+| Schedule: a new task while one waits: New task here from a right-click on empty time or Shift-F10 on a day (desktop), + in the step's bar as New task at the first free hour (phone) | covered (schedule: "desktop: a right-click on empty time offers New task here while a task waits…") | covered (schedule: "phone: + in the step's bar is New task…"; planning.test.tsx: + is New task on Schedule only) | missing | missing |
 | Review: aims not reached, finish, Undo | covered (planning: "plans a week…"; weekly-planning: "Review names each aim not reached…") | covered (same) | covered (journeys/first-week) | missing |
 | Step navigation: tabs and arrows | covered (planning: "week arrows have no limit…"; weekly-planning: "the step arrows and tabs move between the steps…") | covered (same) | missing | missing |
 
@@ -252,8 +258,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Blocks mirrored to Google, edits there overwritten, errors | n/a: server side, in backend/integration/calendar_test.go and backend/cmd/local/calendar_test.go | | | |
 | Each person connects their own Google account: two at once each sync their own, one's removed access, outage, quota or slowness leaves the other syncing, a Google account connects to one person at a time | n/a: server side, in backend/integration/calendar_test.go ("TestTwoPeopleConnectedAtOnceEachSyncTheirOwn", "TestOnePersonsGoogleTroubleLeavesTheOtherSyncing", "TestAGoogleAccountConnectsToOnePersonAtATime") and backend/internal/gcal/people_test.go | | | |
 | A person's token is stored encrypted for them alone, never in the clear, and goes on disconnect and account deletion | n/a: server side, in backend/internal/gcal/aws_test.go ("TestConnectionsThroughDynamoDBAndKMS", against DynamoDB Local and Moto's KMS) and connect_test.go | | | |
-| The deployment's one connection from before keeps working until it's copied to its person's own | n/a: server side, in backend/internal/gcal/people_test.go ("TestTheLegacyConnectionKeepsRunningForItsPersonOnly") | | | |
-| The schedule copies that connection to its person's own, verified with Google, twice or at once or cut off partway, never over a newer consent or undoing a disconnect, with their sync uninterrupted | n/a: server side, in backend/internal/gcal/migrate_test.go and backend/integration/calendar_migration_test.go ("TestTheLegacyConnectionMovesToItsPersonWithoutInterruption") | | | |
+| The deployment's one connection from before goes once its person has their own, and never before | n/a: server side, in backend/internal/gcal/people_test.go ("TestTheScheduleRetiresTheLegacyConnectionOnceItsPersonHasTheirOwn") and backend/integration/calendar_legacy_test.go | | | |
 | The schedule and the stream start each connected person's run through the queue, spread and bounded | n/a: server side, in backend/internal/gcal/people_test.go, backend/cmd/calendar/main_test.go and infrastructure/test/stack.test.ts | | | |
 | Google refusing a token marks the connection and keeps it until they connect again or disconnect; a 401 from the Calendar API, a lasting 403 or an organisation's policy isn't a worker failure; a consent with a permission unticked is refused | n/a: server side, in backend/internal/gcal/review_test.go | | | |
 | A connection that won't open never locks its person out, and falls back to the legacy one naming them; a disconnect goes round for a connection made while it ran; a consent stores over only the connection it read | n/a: server side, in backend/internal/gcal/review_test.go | | | |
@@ -287,6 +292,7 @@ rebuild. Offline and network interruption have their own suites and aren't liste
 | Appearance sets the native theme | covered (desktop: "Appearance in Settings sets the native theme…") |
 | A page reload mid-transaction | covered (desktop: "a page reloading mid-transaction leaves no open transaction behind") |
 | Over-the-air updates and the Updates prompt | partly: unit tests (electron/updates.test.ts, src/core/updates.test.ts); the prompt only shows in builds with a release feed |
+| Battery: each process's CPU and idle wakeups and the power source, for telemetry, window open or closed | covered (desktop: "the page reads each process's CPU and idle wakeups and the power source…"); electron/energy.test.ts sums them by kind |
 | Attachments' file picker | missing: photos need sign-in and the stack; the Mac's picker is Chromium's, as the browser's |
 
 ### Undo everywhere
@@ -319,6 +325,7 @@ Not every change has one yet: Start early and Still going on the Now card change
 | The last release's bundle beside this one, on the same data | covered (compat) | missing | missing | missing |
 | Every screen of a lived-in week renders, and the links between areas | covered (tour: "every screen of a lived-in week renders cleanly", "the planning flows of a lived-in week render cleanly", "the links between areas reach their page and come back") | covered (same) | missing | missing |
 | A five-year history: first sync, Today and Week within budget | covered (history/web, on demand) | missing | covered (history/mac, on demand) | covered (testFirstSyncOfTheFiveYearHistoryThenTodayAndWeek, on demand) |
+| Battery: each minute's syncs and their bytes, reported to telemetry | covered (telemetry: "signed in, it reports each minute the syncs it made and their bytes") | covered (same) | missing | missing |
 
 ## Not covered yet, and why
 

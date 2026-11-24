@@ -24,6 +24,8 @@ interface FitHooks {
   show(open: (() => void) | null): void;
   /** What + Add offers on this step, if anything; without it the phone's + captures to the Inbox. */
   add(items: readonly AddItem[] | null): void;
+  /** What the phone's + does on a step that makes a new task at a time, rather than capturing to the Inbox. */
+  newTask(open: (() => void) | null): void;
   /** The phone's Continue button's full name on this step, and the element that describes it, if the step has one. */
   next(name: NextName | null): void;
 }
@@ -33,7 +35,7 @@ export interface NextName {
   describedBy?: string;
 }
 
-export const FitContext = createContext<FitHooks>({ preview: () => {}, show: () => {}, add: () => {}, next: () => {} });
+export const FitContext = createContext<FitHooks>({ preview: () => {}, show: () => {}, add: () => {}, newTask: () => {}, next: () => {} });
 
 /** For a step: names the phone's Continue in full while it's showing, such as with what still needs you. */
 export function useNextName(name: NextName) {
@@ -56,6 +58,19 @@ export function useAddItems(items: readonly AddItem[]) {
     return () => hooks.add(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labels]);
+}
+
+/** For a step: what the phone's + does while it's showing, New task, given an action; without one, + captures. */
+export function useNewTask(open?: () => void) {
+  const hooks = useContext(FitContext);
+  const latest = useRef(open);
+  latest.current = open;
+  useEffect(() => {
+    if (!latest.current) return;
+    hooks.newTask(() => latest.current?.());
+    return () => hooks.newTask(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!open]);
 }
 
 /** For a step: shows its preview while it has one, and gives the phone's fit line something to open. */

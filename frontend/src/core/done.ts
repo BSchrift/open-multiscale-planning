@@ -147,7 +147,7 @@ export function doneOn(date: LocalDate, records: DoneRecords, clock: Clock): Don
       if (minutes <= 0) continue;
       worked.push({ ...shown, minutes, left: b.result === 'partly' ? (b.remaining_min ?? null) : null });
       by_kind[kind] += minutes;
-    } else if (!b.result && !b.ended_at && instantMs(b.end) <= clock.now() && !task?.deleted_at) {
+    } else if (!b.result && instantMs(b.ended_at ?? b.end) <= clock.now() && !task?.deleted_at) {
       // What Today asks about: work but not planning, and a practice only on its own day (reminders.missedBlocks).
       if (b.task_id ? kind !== 'planning' : date === today) unmarked.push(shown);
     }

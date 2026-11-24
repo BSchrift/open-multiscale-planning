@@ -219,7 +219,7 @@ export const QUERY_INDEX = {
   inboxCount: ['task_kind'],
   blocks: ['block_start'],
   placed: ['block_start', 'pick_week'],
-  queue: ['outcome_result', 'block_task'],
+  queue: ['outcome_result', 'block_task', 'completion_task'],
   finished: [],
   finishedCount: [],
   taskAttachments: [],

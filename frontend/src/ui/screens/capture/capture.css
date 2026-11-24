@@ -72,6 +72,21 @@
   padding: 0 var(--space-4) var(--space-2);
 }
 
+/* The search from a calendar: its list sits under the time, and scrolls past a handful of rows. */
+[data-layout='desktop'] .capsheet .pkopts {
+  max-height: min(296px, 40vh);
+  border-top: 1px solid var(--hairline);
+}
+
+/* On phone a few rows show, so the draft stays in view above the sheet and the keyboard, and the rest scroll. */
+[data-layout='phone'] .capform > .pkopts {
+  max-height: min(30vh, 232px);
+  max-height: min(30dvh, 232px);
+  margin: 0 calc(-1 * var(--space-4));
+  overflow-y: auto;
+  border-block: 1px solid var(--hairline);
+}
+
 /* Beside the draft, with no scrim, so the time chosen stays in view. */
 [data-layout='desktop'] .capoverlay.beside {
   background: transparent;

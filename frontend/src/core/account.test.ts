@@ -65,4 +65,8 @@ describe('deleteAccount', () => {
     await expect(deleteAccount(async () => json(400, { error: 'invalid_request' }), 'user-a')).rejects.toMatchObject({ code: 'error' });
     await expect(deleteAccount(async () => json(403, {}), 'user-a')).rejects.toMatchObject({ code: 'error' });
   });
+
+  it('deletes nothing when the account is one the server keeps, such as a test user', async () => {
+    expect(await deleteAccount(async () => json(403, { error: 'protected_account' }), 'user-a')).toBe('protected');
+  });
 });

@@ -1356,7 +1356,7 @@ describe('the timeline', () => {
     expect(within(await sectionOf(/^Plan the talk, 11am to 12pm/, 'Plan the talk')).queryByRole('button', { name: 'Move…' })).toBeNull();
   });
 
-  it("Done in a later block's popup finishes the task, and its blocks from then on come off the calendar, with Undo", async () => {
+  it("Mark done in a later block's popup finishes the task, and its blocks from then on come off the calendar, with Undo", async () => {
     const t = await open(async (w) => {
       await day(w);
       await block(w, 'b4', 't1', '18:00', '19:00');
@@ -1364,8 +1364,8 @@ describe('the timeline', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Write the report, 4pm to 5pm/ }));
     const section = within(await taskPopup('Write the report')).getByRole('region', { name: 'Time block' });
     // Beside Start now, Move… and Remove from calendar, in the order they're read.
-    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start now', 'Done', 'Move…', 'Remove from calendar']);
-    await userEvent.click(within(section).getByRole('button', { name: 'Done' }));
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
+    await userEvent.click(within(section).getByRole('button', { name: 'Mark done' }));
     expect(await screen.findByText('Marked Write the report done. Its 4pm block and 1 later one came off the calendar, so that time is free.')).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't1'))?.done_at).toBe(NOW));
     expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBe(true);
@@ -1377,20 +1377,40 @@ describe('the timeline', () => {
     expect((await getRecord(t.db, 'time_block', 'b1'))?.cancelled).toBeNull();
   });
 
-  it("Done on a one off's later block ticks it off, as its row's box does", async () => {
+  it("Mark done on a one off's later block ticks it off, as its row's box does", async () => {
     const t = await open(async (w) => {
       await w.create('task', { kind: 'one_off', title: 'Paint the fence' }, 't2');
       await block(w, 'b2', 't2', '16:00', '17:00');
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Paint the fence, 4pm to 5pm/ }));
-    await userEvent.click(within(await taskPopup('Paint the fence')).getByRole('button', { name: 'Done' }));
+    await userEvent.click(within(await taskPopup('Paint the fence')).getByRole('button', { name: 'Mark done' }));
     expect(await screen.findByText('Marked Paint the fence done. Its 4pm block came off the calendar, so that time is free.')).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'task', 't2'))?.done_at).toBe(NOW));
     expect((await getRecord(t.db, 'time_block', 'b2'))?.cancelled).toBe(true);
     expect(await listRecords(t.db, 'task_completion')).toHaveLength(1);
   });
 
-  it("the block under way offers Done, which marks it done now, and Pause or Resume", async () => {
+  it("Mark done in an answered block's popup still finishes its task, as from a list, with Undo", async () => {
+    const t = await open(async (w) => {
+      await day(w);
+      await task(w, 't3', 'Read the brief');
+      await block(w, 'b5', 't3', '11:00', '12:00');
+      await w.create('block_outcome', { result: 'partly', answered_at: at('12:00') }, outcomeId('b5'));
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 11am to 12pm/ }));
+    const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Mark done']);
+    await userEvent.click(within(section).getByRole('button', { name: 'Mark done' }));
+    expect(await screen.findByText('Marked Read the brief done.')).toBeVisible();
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.done_at).toBe(NOW));
+    // Its answer stays as it was.
+    expect((await getRecord(t.db, 'block_outcome', outcomeId('b5')))?.result).toBe('partly');
+    await waitFor(() => expect(within(section).queryByRole('button', { name: 'Mark done' })).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(async () => expect((await getRecord(t.db, 'task', 't3'))?.done_at).toBeNull());
+  });
+
+  it("the block under way offers Mark done, which marks it done now, and Pause or Resume", async () => {
     const t = await open(async (w) => {
       await day(w);
       await task(w, 't3', 'Read the brief');
@@ -1398,7 +1418,7 @@ describe('the timeline', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 1:30pm to 3pm/ }));
     const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
-    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Done', 'Pause']);
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Mark done', 'Pause']);
     await userEvent.click(within(section).getByRole('button', { name: 'Pause' }));
     expect(await screen.findByText('Paused Read the brief')).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.paused_at).toBe(NOW));
@@ -1407,7 +1427,7 @@ describe('the timeline', () => {
     expect(await screen.findByText('Resumed. It now ends at 3pm.')).toBeVisible();
     expect(await within(section).findByRole('button', { name: 'Pause' })).toBeVisible();
     // As Mark done now has it: the block ends now and says how long it took.
-    await userEvent.click(within(section).getByRole('button', { name: 'Done' }));
+    await userEvent.click(within(section).getByRole('button', { name: 'Mark done' }));
     expect(await screen.findByText("Marked done after 30m. You're free until 4pm.")).toBeVisible();
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBe(NOW));
     expect((await getRecord(t.db, 'block_outcome', outcomeId('b0')))?.result).toBe('done');
@@ -1416,7 +1436,7 @@ describe('the timeline', () => {
     await waitFor(async () => expect((await getRecord(t.db, 'time_block', 'b0'))?.ended_at).toBeNull());
   });
 
-  it("the block under way, not yet started, offers Start, Done and Move…", async () => {
+  it("the block under way, not yet started, offers Start, Mark done and Move…", async () => {
     await open(async (w) => {
       await day(w);
       await task(w, 't3', 'Read the brief');
@@ -1424,7 +1444,7 @@ describe('the timeline', () => {
     });
     await userEvent.click(await screen.findByRole('button', { name: /^Read the brief, 1:30pm to 3pm/ }));
     const section = within(await taskPopup('Read the brief')).getByRole('region', { name: 'Time block' });
-    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start', 'Done', 'Move…', 'Remove from calendar']);
+    expect(within(section).getAllByRole('button').map((b) => b.textContent)).toEqual(['Start', 'Mark done', 'Move…', 'Remove from calendar']);
   });
 
   it("a practice's session and a planning block open their details, as before", async () => {

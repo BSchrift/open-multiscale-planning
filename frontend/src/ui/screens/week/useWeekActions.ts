@@ -14,7 +14,7 @@ import { useApp, useMutation } from '../../app/store';
 import { DAY_NAMES } from '../../components/editors/PracticeSchedule';
 import type { KeepChoice } from '../../components/editors/PracticeSchedule';
 import { useToast } from '../../components/Toast';
-import { dayName } from '../../components/weekgrid';
+import { dayName } from '../../components/blocks/describe';
 import type { Placeable } from './data';
 
 /** A placed block as both layouts hold it. */

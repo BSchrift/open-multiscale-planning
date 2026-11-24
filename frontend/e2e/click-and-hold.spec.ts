@@ -228,7 +228,7 @@ test("Today: Move… in a block's popup offers its quick menu's new times, and t
   await (phone ? report.tap() : report.click());
   const section = page.getByRole('dialog', { name: 'Write the report' }).getByRole('region', { name: 'Time block' });
   const buttons = section.getByRole('button');
-  await expect(buttons).toHaveText(['Start now', 'Done', 'Move…', 'Remove from calendar']);
+  await expect(buttons).toHaveText(['Start now', 'Mark done', 'Move…', 'Remove from calendar']);
   // Every one fits inside the section, wrapping onto a second line if it must, and on phone each is a full tap target.
   const box = (await section.boundingBox())!;
   for (const b of await buttons.all()) {
